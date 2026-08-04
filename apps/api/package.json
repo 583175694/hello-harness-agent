@@ -1,0 +1,42 @@
+{
+  "name": "@harness/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "nest start --watch",
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test",
+    "test": "vitest run --exclude test/app.integration.spec.ts",
+    "test:integration": "vitest run test/app.integration.spec.ts",
+    "db:generate": "dotenv -e ../../.env -- prisma generate",
+    "db:migrate": "dotenv -e ../../.env -- prisma migrate dev",
+    "db:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "db:studio": "dotenv -e ../../.env -- prisma studio"
+  },
+  "dependencies": {
+    "@harness/agent-protocol": "workspace:*",
+    "@nestjs/common": "^11.1.28",
+    "@nestjs/config": "^4.0.4",
+    "@nestjs/core": "^11.1.28",
+    "@nestjs/platform-express": "^11.1.28",
+    "@prisma/client": "6.19.3",
+    "nestjs-pino": "^4.6.1",
+    "pino": "^9.14.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.16",
+    "@nestjs/testing": "^11.1.28",
+    "@types/express": "^5.0.5",
+    "@types/node": "^24.10.1",
+    "@types/supertest": "^6.0.3",
+    "dotenv-cli": "^11.0.0",
+    "prisma": "6.19.3",
+    "supertest": "^7.1.4",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "hello-harness-agent",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "pnpm -r --if-present lint",
+    "test": "pnpm -r --if-present test",
+    "test:integration": "pnpm --filter @harness/api test:integration",
+    "test:e2e": "pnpm --filter @harness/web test:e2e",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:generate": "pnpm --filter @harness/api db:generate",
+    "db:migrate": "pnpm --filter @harness/api db:migrate",
+    "db:deploy": "pnpm --filter @harness/api db:deploy",
+    "db:studio": "pnpm --filter @harness/api db:studio",
+    "infra:up": "docker compose --env-file .env -f infra/docker-compose.yml up -d postgres",
+    "infra:down": "docker compose --env-file .env -f infra/docker-compose.yml down",
+    "infra:logs": "docker compose --env-file .env -f infra/docker-compose.yml logs -f postgres"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "eslint": "^9.39.2",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.0"
+  }
+}

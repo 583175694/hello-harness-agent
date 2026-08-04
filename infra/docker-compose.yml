@@ -1,0 +1,23 @@
+name: hello-harness-agent
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-harness}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-harness_local}
+      POSTGRES_DB: ${POSTGRES_DB:-harness}
+    ports:
+      - '${POSTGRES_PORT:-55432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-harness} -d ${POSTGRES_DB:-harness}']
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres_data:

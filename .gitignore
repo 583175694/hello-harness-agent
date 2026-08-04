@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+apps/api/src/generated/
+artifacts/*
+!artifacts/.gitkeep
+playwright-report/
+test-results/
+*.log
+.DS_Store

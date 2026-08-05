@@ -1,10 +1,26 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 
-const host = process.env.POSTGRES_HOST ?? '127.0.0.1';
-const port = process.env.POSTGRES_PORT ?? '5432';
-const user = process.env.POSTGRES_USER ?? 'harness';
-const password = process.env.POSTGRES_PASSWORD ?? 'harness_local';
-const database = process.env.POSTGRES_DB ?? 'harness';
+function loadLocalEnv() {
+  if (!existsSync('.env')) return {};
+  return Object.fromEntries(
+    readFileSync('.env', 'utf8')
+      .split(/\r?\n/)
+      .filter((line) => line && !line.startsWith('#') && line.includes('='))
+      .map((line) => {
+        const separator = line.indexOf('=');
+        return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()];
+      }),
+  );
+}
+
+const localEnv = loadLocalEnv();
+
+const host = process.env.POSTGRES_HOST ?? localEnv.POSTGRES_HOST ?? '127.0.0.1';
+const port = process.env.POSTGRES_PORT ?? localEnv.POSTGRES_PORT ?? '5432';
+const user = process.env.POSTGRES_USER ?? localEnv.POSTGRES_USER ?? 'harness';
+const password = process.env.POSTGRES_PASSWORD ?? localEnv.POSTGRES_PASSWORD ?? 'harness_local';
+const database = process.env.POSTGRES_DB ?? localEnv.POSTGRES_DB ?? 'harness';
 
 function sqlLiteral(value) {
   return `'${value.replaceAll("'", "''")}'`;

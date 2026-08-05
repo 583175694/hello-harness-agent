@@ -51,6 +51,8 @@ pnpm db:deploy
 pnpm dev
 ```
 
+完成首次初始化和迁移后，日常开发只需运行 `pnpm dev`；本机 PostgreSQL 由操作系统/Homebrew 服务持续运行。
+
 随后访问 `http://127.0.0.1:4317/agent`。
 
 健康检查：

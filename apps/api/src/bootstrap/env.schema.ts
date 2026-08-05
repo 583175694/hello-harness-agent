@@ -8,10 +8,20 @@ export const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   DATABASE_URL: z.string().min(1),
   ARTIFACT_ROOT: z.string().min(1).default('../../artifacts'),
+  OPENAI_API_KEY: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(1).optional(),
+  ),
+  OPENAI_BASE_URL: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().url().optional(),
+  ),
+  OPENAI_MODEL: z.string().min(1).default('gpt-4o-mini'),
 });
 
 export type AppEnvironment = z.infer<typeof envSchema>;
 
+// 校验进程配置并应用本地开发默认值。
 export function validateEnvironment(input: Record<string, unknown>): AppEnvironment {
   const result = envSchema.safeParse(input);
 

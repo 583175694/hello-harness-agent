@@ -8,6 +8,7 @@ export const LOCAL_USER_ID = 'local-user';
 export class LocalUserBootstrap implements OnModuleInit {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
+  // 确保本地开发用户已经存在。
   async onModuleInit(): Promise<void> {
     await this.prisma.user.upsert({
       where: { id: LOCAL_USER_ID },

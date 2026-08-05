@@ -20,11 +20,12 @@ html,
 body,
 #root {
   min-width: 320px;
+  height: 100%;
   min-height: 100%;
   margin: 0;
+  overflow: hidden;
 }
 body {
-  min-height: 100vh;
   background: #f7f7f6;
 }
 button,
@@ -47,13 +48,19 @@ textarea:focus-visible {
 .app-shell {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
+  height: 100vh;
   min-height: 100vh;
+  min-width: 0;
+  overflow: hidden;
   background: #f7f7f6;
 }
 .session-sidebar {
   display: flex;
+  height: 100vh;
   min-height: 100vh;
+  min-width: 0;
   flex-direction: column;
+  overflow: hidden;
   padding: 22px 14px 16px;
   border-right: 1px solid #dededb;
   background: #f4f4f2;
@@ -222,9 +229,11 @@ textarea:focus-visible {
 
 .main-shell {
   display: flex;
+  height: 100vh;
   min-width: 0;
-  min-height: 100vh;
+  min-height: 0;
   flex-direction: column;
+  overflow: hidden;
   background: #fff;
 }
 .topbar {
@@ -253,19 +262,14 @@ textarea:focus-visible {
   color: #898986;
   font-size: 12px;
 }
-.service-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-left: auto;
-  color: #70706d;
-  font-size: 12px;
-}
 .workbench-grid {
   --workbench-width: clamp(480px, 39%, 720px);
   display: grid;
+  flex: 1;
   grid-template-columns: minmax(0, 1fr) 0;
-  min-height: calc(100vh - 66px);
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
   transition: grid-template-columns 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .workbench-grid.has-workbench {
@@ -285,7 +289,8 @@ textarea:focus-visible {
 .conversation-scroll {
   min-height: 0;
   flex: 1;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .conversation-empty {
   display: flex;
@@ -327,6 +332,10 @@ textarea:focus-visible {
   gap: 12px;
   margin-bottom: 28px;
 }
+.message--user {
+  justify-content: flex-end;
+  text-align: left;
+}
 .message-avatar {
   display: grid;
   width: 28px;
@@ -358,13 +367,113 @@ textarea:focus-visible {
   font-weight: 400;
 }
 .user-bubble {
-  max-width: 620px;
+  max-width: min(820px, calc(100vw - 72px));
+  min-width: 0;
   padding: 10px 13px;
-  border-radius: 8px 8px 8px 3px;
+  border-radius: 8px 8px 3px 8px;
   color: #2c2c2b;
   background: #f1f1ef;
   font-size: 14px;
   line-height: 1.55;
+}
+.message-actions {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 5px;
+  color: #a0a09c;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.message--user .message-actions {
+  justify-content: flex-end;
+}
+.message:hover .message-actions,
+.message:focus-within .message-actions {
+  opacity: 1;
+}
+.message-copy {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  color: #858581;
+  background: transparent;
+}
+.message-copy:hover,
+.message-copy:focus-visible {
+  color: #333;
+  background: #f0f0ee;
+}
+.markdown-content > :first-child {
+  margin-top: 0;
+}
+.markdown-content > :last-child {
+  margin-bottom: 0;
+}
+.markdown-content p {
+  margin: 0 0 11px;
+}
+.markdown-content ul,
+.markdown-content ol {
+  margin: 7px 0 11px;
+  padding-left: 21px;
+}
+.markdown-content li + li {
+  margin-top: 4px;
+}
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  margin: 16px 0 8px;
+  color: #222;
+  font-size: 1.05em;
+  line-height: 1.35;
+}
+.markdown-content blockquote {
+  margin: 10px 0;
+  padding-left: 12px;
+  border-left: 2px solid #d7d7d3;
+  color: #666;
+}
+.markdown-content pre {
+  overflow-x: auto;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid #e2e2de;
+  border-radius: 7px;
+  background: #f7f7f5;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.markdown-inline-code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #ececea;
+  font-size: 0.92em;
+}
+.markdown-content table {
+  width: 100%;
+  margin: 10px 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 13px;
+}
+.markdown-content th,
+.markdown-content td {
+  padding: 6px 8px;
+  border: 1px solid #dededb;
+  overflow-wrap: anywhere;
+  text-align: left;
+  word-break: break-word;
+}
+.markdown-content th {
+  background: #f4f4f2;
+  font-weight: 650;
 }
 .assistant-content {
   max-width: 680px;
@@ -372,11 +481,27 @@ textarea:focus-visible {
   font-size: 14px;
   line-height: 1.7;
 }
-.assistant-content p {
-  margin: 0 0 11px;
+.assistant-thinking {
+  color: #777773;
+  animation: thinking-blink 1800ms ease-in-out infinite;
 }
-.assistant-content p:last-child {
-  margin-bottom: 0;
+.assistant-failed {
+  color: #8e3f35;
+}
+@keyframes thinking-blink {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-thinking {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 .composer-area {
   width: min(820px, calc(100% - 72px));
@@ -408,9 +533,11 @@ textarea:focus-visible {
 .composer textarea {
   display: block;
   width: 100%;
-  min-height: 94px;
-  resize: vertical;
-  padding: 15px 16px 10px;
+  min-height: 78px;
+  max-height: 220px;
+  field-sizing: content;
+  resize: none;
+  padding: 14px 16px 8px;
   border: 0;
   outline: 0;
   color: #1f1f1e;
@@ -427,7 +554,6 @@ textarea:focus-visible {
   align-items: center;
   justify-content: space-between;
   padding: 5px 8px 7px 15px;
-  border-top: 1px solid #ededeb;
   color: #8c8c88;
   font-size: 11px;
 }
@@ -552,7 +678,8 @@ textarea:focus-visible {
 .workspace-content {
   min-height: 0;
   flex: 1;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .activity-view,
 .sources-view,
@@ -875,8 +1002,8 @@ textarea:focus-visible {
   color: #fff;
   background: #171717;
 }
-.app-shell:has(+ .preview-switcher) {
-  padding-bottom: 84px;
+.app-shell:has(+ .preview-switcher) .composer-area {
+  padding-bottom: 96px;
 }
 .event-log {
   padding-top: 18px;
@@ -1291,8 +1418,18 @@ textarea:focus-visible {
   }
 }
 @media (max-width: 720px) {
+  html,
+  body,
+  #root {
+    height: auto;
+    min-height: 100%;
+    overflow: auto;
+  }
   .app-shell {
     display: block;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
   .session-sidebar {
     position: fixed;
@@ -1332,8 +1469,20 @@ textarea:focus-visible {
   }
   .workbench-grid.has-workbench {
     display: flex;
+    flex: none;
     flex-direction: column;
+    min-height: calc(100vh - 62px);
+    overflow: visible;
     animation: none;
+  }
+  .main-shell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+  .conversation-scroll {
+    flex: none;
+    overflow: visible;
   }
   .resource-workspace {
     min-height: 500px;

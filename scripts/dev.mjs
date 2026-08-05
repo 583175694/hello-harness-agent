@@ -20,10 +20,12 @@ const children = [];
 let failedService = null;
 let shuttingDown = false;
 
+// 返回当前平台可执行的 pnpm 命令名。
 function command() {
   return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
+// 启动一个子服务并转发其标准输出。
 function startService(service) {
   const child = spawn(command(), service.args, {
     cwd: process.cwd(),
@@ -47,6 +49,7 @@ function startService(service) {
   });
 }
 
+// 检查服务健康地址是否已经可以访问。
 async function isReady(url) {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(1000) });
@@ -56,6 +59,7 @@ async function isReady(url) {
   }
 }
 
+// 检查本机端口是否已经被占用。
 function isPortInUse(port) {
   return new Promise((resolve) => {
     const socket = createConnection({ host: '127.0.0.1', port });
@@ -67,6 +71,7 @@ function isPortInUse(port) {
   });
 }
 
+// 在超时之前轮询服务是否就绪。
 async function waitForReady(service, timeoutMs = 60000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -77,6 +82,7 @@ async function waitForReady(service, timeoutMs = 60000) {
   return false;
 }
 
+// 停止脚本启动的所有子服务。
 function stopChildren() {
   shuttingDown = true;
   for (const child of children) {
@@ -84,6 +90,7 @@ function stopChildren() {
   }
 }
 
+// 检查端口、启动服务并输出可访问地址。
 async function main() {
   const occupied = [];
   for (const service of services) {
@@ -99,7 +106,7 @@ async function main() {
 
   const ready = await Promise.all(services.map((service) => waitForReady(service)));
   if (ready.every(Boolean)) {
-    // Give a child that hit EADDRINUSE time to report its exit before announcing success.
+    // 给遇到端口冲突的子进程留出报告退出状态的时间。
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   if (!ready.every(Boolean) || failedService) {

@@ -4,6 +4,8 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  CircleUserRound,
+  Copy,
   Clock3,
   FileText,
   Globe2,
@@ -19,9 +21,18 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 
-import { ApiProblem, getReadiness, requestSession } from './api/client';
+import { ApiProblem, getReadiness, requestChatStream } from './api/client';
+import { MarkdownContent } from './components/markdown-content';
+import type { ChatMessage } from '@harness/agent-protocol';
 
 type ServiceState = 'checking' | 'ready' | 'unavailable';
 type PreviewState =
@@ -56,7 +67,7 @@ const PREVIEW_STATES: Array<{ id: PreviewState; label: string }> = [
   { id: 'tool-running-open', label: '首次调用自动打开' },
   { id: 'sources', label: '来源视图' },
   { id: 'waiting', label: '等待确认' },
-  { id: 'steer-accepted', label: '已接受 Steer' },
+  { id: 'steer-accepted', label: '已接受调整' },
   { id: 'cancelling', label: '取消中' },
   { id: 'cancelled', label: '已取消' },
   { id: 'failed', label: '执行失败' },
@@ -65,8 +76,15 @@ const PREVIEW_STATES: Array<{ id: PreviewState; label: string }> = [
 ];
 
 export type ConversationItem =
-  | { id: string; kind: 'user'; content: string; time?: string }
-  | { id: string; kind: 'assistant'; content: ReactNode; time?: string }
+  | { id: string; kind: 'user'; content: string; time?: string; createdAt?: string }
+  | {
+      id: string;
+      kind: 'assistant';
+      content: ReactNode;
+      text?: string;
+      time?: string;
+      createdAt?: string;
+    }
   | { id: string; kind: 'run'; run: RunCardState };
 
 export type RunCardState = {
@@ -180,6 +198,47 @@ const sources: SourceView[] = [
   },
 ];
 
+// 将消息创建时间格式化为当前本地时间。
+function formatMessageTime(createdAt?: string, fallback?: string): string {
+  if (createdAt) {
+    return new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(new Date(createdAt));
+  }
+  if (fallback && fallback !== '刚刚') return fallback;
+  return new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date());
+}
+
+// 提供仅在悬停或键盘聚焦时出现的消息复制操作。
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyMessage() {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  }
+
+  return (
+    <button
+      className="message-copy"
+      type="button"
+      aria-label={copied ? '已复制消息' : '复制消息'}
+      title={copied ? '已复制' : '复制消息'}
+      onClick={() => void copyMessage()}
+    >
+      {copied ? <Check size={14} /> : <Copy size={14} />}
+    </button>
+  );
+}
+
+// 为开发预览状态构造确定性的工具调用列表。
 function makeToolCalls(runId: string, status: ActivityStatus, sourceCount: number): ToolCallView[] {
   const currentStatus: ToolCallStatus = status;
   return [
@@ -238,6 +297,7 @@ function makeToolCalls(runId: string, status: ActivityStatus, sourceCount: numbe
   ];
 }
 
+// 将运行状态映射为 RunCard 使用的紧凑进度模型。
 function makeProgress(status: ActivityStatus): ProgressItemState[] {
   const searchStatus: ProgressStatus =
     status === 'completed'
@@ -258,6 +318,7 @@ function makeProgress(status: ActivityStatus): ProgressItemState[] {
   ];
 }
 
+// 创建完整的预览运行数据，并允许按状态覆盖字段。
 function buildRun(
   runId: string,
   status: ActivityStatus,
@@ -331,12 +392,14 @@ function buildRun(
 
 const completedRun = buildRun('run-market-report', 'completed');
 
+// 将传输和供应商异常转换为用户可读的提示文案。
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiProblem) return error.problem.detail;
   if (error instanceof Error) return error.message;
   return '请求暂时无法完成。';
 }
 
+// 为开发预览地址生成隔离的 UI 数据。
 function makeFixture(state: PreviewState): AgentUiState {
   const baseAnswer = (
     <>
@@ -358,7 +421,7 @@ function makeFixture(state: PreviewState): AgentUiState {
     }),
     waiting: buildRun('run-market-live', 'waiting'),
     'steer-accepted': buildRun('run-market-live', 'running', {
-      currentAction: '已接受 steer，优先补充产业应用案例',
+      currentAction: '已接受调整，优先补充产业应用案例',
       elapsed: '1 分 36 秒',
       queryCount: 4,
     }),
@@ -367,11 +430,11 @@ function makeFixture(state: PreviewState): AgentUiState {
     failed: buildRun('run-market-live', 'failed'),
   };
 
-  if (state === 'empty') return { label: '新任务', subtitle: '本地会话', conversation: [] };
+  if (state === 'empty') return { label: '新任务', subtitle: '', conversation: [] };
   if (state === 'direct-answer') {
     return {
       label: 'AI 趋势概览',
-      subtitle: '本地会话',
+      subtitle: '',
       conversation: [
         { id: 'u1', kind: 'user', content: '什么是生成式 AI？' },
         { id: 'a1', kind: 'assistant', content: baseAnswer },
@@ -382,7 +445,7 @@ function makeFixture(state: PreviewState): AgentUiState {
     const limited = state === 'limited-report';
     return {
       label: limited ? '受限报告' : '中国 AI 市场调研',
-      subtitle: '网页检索 · Markdown Artifact',
+      subtitle: '网页检索 · Markdown 文件',
       conversation: [
         { id: 'u1', kind: 'user', content: '请调研中国与美国 AI 市场的主要差异。' },
         {
@@ -464,7 +527,7 @@ function makeFixture(state: PreviewState): AgentUiState {
             {
               id: 'a1',
               kind: 'assistant' as const,
-              content: <p>已接受 steer：接下来会重点分析中国市场，并优先补充产业应用案例。</p>,
+              content: <p>已接受调整：接下来会重点分析中国市场，并优先补充产业应用案例。</p>,
             },
           ]
         : []),
@@ -529,12 +592,14 @@ function makeFixture(state: PreviewState): AgentUiState {
   };
 }
 
+// 仅在开发环境的预览路由中启用 fixture。
 function getPreviewState(): PreviewState | null {
   if (!import.meta.env.DEV || window.location.pathname !== '/agent/preview') return null;
   const value = new URLSearchParams(window.location.search).get('state') as PreviewState | null;
   return value && PREVIEW_STATES.some((item) => item.id === value) ? value : 'empty';
 }
 
+// 根据当前地址选择生产状态或开发预览状态。
 export function App() {
   const preview = getPreviewState();
   return (
@@ -545,6 +610,7 @@ export function App() {
   );
 }
 
+// 渲染仅开发环境可用的 fixture 状态切换器。
 function PreviewSwitcher({ active }: { active: PreviewState }) {
   return (
     <div className="preview-switcher" role="navigation" aria-label="预览状态">
@@ -565,6 +631,7 @@ function PreviewSwitcher({ active }: { active: PreviewState }) {
   );
 }
 
+// 管理服务、对话以及 Run/Workbench 的状态转换。
 export function AppShell({ previewState }: { previewState?: AgentUiState }) {
   const [serviceState, setServiceState] = useState<ServiceState>(
     previewState ? 'ready' : 'checking',
@@ -593,6 +660,7 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
           ? 'disabled'
           : 'new-run';
 
+  // 将 RunCard 变化同步到对话和对应的 Workbench。
   function updateRun(run: RunCardState) {
     setUiState((current) => {
       const latestTool = run.toolCalls.at(-1);
@@ -624,6 +692,7 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
     });
   }
 
+  // 打开 Workbench 并记录用户是否固定了当前定位。
   function focusWorkbench(target: WorkbenchFocusTarget, pinned = true) {
     setUiState((current) => {
       if (!current.workbench || current.workbench.runId !== target.runId) return current;
@@ -642,17 +711,19 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
     });
   }
 
+  // 处理预览操作，或提交生产环境的聊天流。
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const task = prompt.trim();
     if (!task || submitting) return;
     setSubmitting(true);
     setError(null);
+    setPrompt('');
     if (previewState) {
       if (composerMode === 'steer' && uiState.run) {
         const run = {
           ...uiState.run,
-          currentAction: '已接受 steer，将从下一步骤应用',
+          currentAction: '已接受调整，将从下一步骤应用',
         };
         setUiState((current) => ({
           ...current,
@@ -661,11 +732,11 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
             ...current.conversation.map((item) =>
               item.kind === 'run' && item.run.runId === run.runId ? { ...item, run } : item,
             ),
-            { id: `u-${Date.now()}`, kind: 'user', content: task },
+            { id: `u-${Date.now()}`, kind: 'user', content: task, createdAt: new Date().toISOString() },
             {
               id: `a-${Date.now()}`,
               kind: 'assistant',
-              content: <p>已接受 steer，将从下一步骤应用。</p>,
+              content: <p>已接受调整，将从下一步骤应用。</p>,
             },
           ],
         }));
@@ -687,7 +758,7 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
             ...current.conversation.map((item) =>
               item.kind === 'run' && item.run.runId === run.runId ? { ...item, run } : item,
             ),
-            { id: `u-${Date.now()}`, kind: 'user', content: task },
+            { id: `u-${Date.now()}`, kind: 'user', content: task, createdAt: new Date().toISOString() },
           ],
           workbench:
             current.workbench?.runId === run.runId
@@ -704,24 +775,79 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
           ...next,
           label: task.slice(0, 28),
           conversation: [
-            { id: 'u1', kind: 'user', content: task },
+            { id: 'u1', kind: 'user', content: task, createdAt: new Date().toISOString() },
             { id: 'r1', kind: 'run', run: next.run! },
           ],
         });
       }
-      setPrompt('');
       setSubmitting(false);
       return;
     }
+    const assistantId = `a-${Date.now()}`;
     try {
-      await requestSession(task);
-      setUiState({
-        label: task.slice(0, 28),
-        subtitle: '本地会话',
-        conversation: [{ id: 'u1', kind: 'user', content: task }],
-      });
-      setPrompt('');
+      const createdAt = new Date().toISOString();
+      const userMessage: ConversationItem = {
+        id: `u-${Date.now()}`,
+        kind: 'user',
+        content: task,
+        createdAt,
+      };
+      const history: ChatMessage[] = [...uiState.conversation]
+        .filter(
+          (item): item is Extract<ConversationItem, { kind: 'user' | 'assistant' }> =>
+            item.kind === 'user' || item.kind === 'assistant',
+        )
+        .map((item) => ({
+          role: item.kind,
+          content: item.kind === 'assistant' ? (item.text ?? '') : item.content,
+        }))
+        .filter((item) => item.content.length > 0);
+      setUiState((current) => ({
+        ...current,
+        label: current.conversation.length === 0 ? task.slice(0, 28) : current.label,
+        subtitle: '',
+        conversation: [
+          ...current.conversation,
+          userMessage,
+          {
+            id: assistantId,
+            kind: 'assistant',
+            createdAt,
+            content: (
+              <p className="assistant-thinking" role="status" aria-live="polite">
+                正在思考中…
+              </p>
+            ),
+          },
+        ],
+      }));
+      await requestChatStream([...history, { role: 'user', content: task }], (delta) =>
+        setUiState((current) => ({
+          ...current,
+          conversation: current.conversation.map((item) =>
+            item.kind === 'assistant' && item.id === assistantId
+              ? {
+                  ...item,
+                  text: `${item.text ?? ''}${delta}`,
+                  content: <p>{`${item.text ?? ''}${delta}`}</p>,
+                }
+              : item,
+          ),
+        })),
+      );
     } catch (requestError) {
+      setUiState((current) => ({
+        ...current,
+        conversation: current.conversation.map((item) =>
+          item.kind === 'assistant' && item.id === assistantId
+            ? {
+                ...item,
+                text: undefined,
+                content: <p className="assistant-failed">本次回答未完成，请稍后重试。</p>,
+              }
+            : item,
+        ),
+      }));
       setError(getErrorMessage(requestError));
     } finally {
       setSubmitting(false);
@@ -761,12 +887,8 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
           </button>
           <div className="task-title">
             <span className="task-title__label">{uiState.label}</span>
-            <span className="task-title__meta">{uiState.subtitle}</span>
-          </div>
-          <div className={`service-badge service-badge--${serviceState}`}>
-            <span className={`status-dot status-dot--${serviceState}`} aria-hidden="true" />
-            {serviceLabel}
-          </div>
+          {uiState.subtitle ? <span className="task-title__meta">{uiState.subtitle}</span> : null}
+        </div>
         </header>
         <div className={`workbench-grid ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}>
           <Conversation
@@ -823,6 +945,7 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
   );
 }
 
+// 渲染会话导航和当前本地工作区身份。
 function Sidebar({
   serviceState,
   serviceLabel,
@@ -886,6 +1009,7 @@ function Sidebar({
   );
 }
 
+// 渲染消息时间线、运行卡片、错误提示和 Composer。
 function Conversation({
   state,
   error,
@@ -911,28 +1035,73 @@ function Conversation({
   onPromptChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  const scrollFrameRef = useRef<number | null>(null);
+
+  // 用户发送消息时强制回到底部，开始观察新的回复。
+  function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
+    stickToBottomRef.current = true;
+    onSubmit(event);
+  }
+
+  // 仅当用户接近底部时，继续跟随流式消息增长。
+  function handleConversationScroll() {
+    const node = scrollRef.current;
+    if (!node) return;
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
+    const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 32;
+  }
+
+  useEffect(() => {
+    if (!stickToBottomRef.current || !scrollRef.current) return;
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      if (!stickToBottomRef.current) return;
+      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    });
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+    };
+  }, [state.conversation]);
+
   return (
     <section className="conversation" aria-label="对话">
-      <div className="conversation-scroll">
+      <div
+        className="conversation-scroll"
+        ref={scrollRef}
+        onScroll={handleConversationScroll}
+      >
         {state.conversation.length === 0 ? (
           <div className="conversation-empty">
             <div className="empty-icon">
               <Sparkles size={22} />
             </div>
             <h1>今天想完成什么任务？</h1>
-            <p>直接描述目标，必要时我会自动调用工具。</p>
           </div>
         ) : (
           <div className="message-list">
             {state.conversation.map((item) =>
               item.kind === 'user' ? (
                 <div className="message message--user" key={item.id}>
-                  <div className="message-avatar user-avatar">你</div>
                   <div>
-                    <div className="message-meta">
-                      你 <span>{item.time ?? '刚刚'}</span>
+                    <div className="user-bubble">
+                      <MarkdownContent>{item.content}</MarkdownContent>
                     </div>
-                    <div className="user-bubble">{item.content}</div>
+                    <div className="message-actions">
+                      <span>{formatMessageTime(item.createdAt, item.time)}</span>
+                      <CopyButton text={item.content} />
+                    </div>
+                  </div>
+                  <div className="message-avatar user-avatar" aria-hidden="true">
+                    <CircleUserRound size={17} />
                   </div>
                 </div>
               ) : item.kind === 'assistant' ? (
@@ -941,10 +1110,16 @@ function Conversation({
                     <Sparkles size={15} />
                   </div>
                   <div className="assistant-content">
-                    <div className="message-meta">
-                      Harness <span>{item.time ?? '刚刚'}</span>
+                    <div className="message-meta">Harness</div>
+                    {item.text !== undefined ? (
+                      <MarkdownContent>{item.text}</MarkdownContent>
+                    ) : (
+                      item.content
+                    )}
+                    <div className="message-actions">
+                      <span>{formatMessageTime(item.createdAt, item.time)}</span>
+                      {item.text !== undefined ? <CopyButton text={item.text} /> : null}
                     </div>
-                    {item.content}
                   </div>
                 </div>
               ) : (
@@ -981,13 +1156,14 @@ function Conversation({
           serviceState={serviceState}
           mode={composerMode}
           onPromptChange={onPromptChange}
-          onSubmit={onSubmit}
+          onSubmit={handleComposerSubmit}
         />
       </div>
     </section>
   );
 }
 
+// 提供优先支持键盘操作的消息、调整和确认输入。
 function Composer({
   prompt,
   submitting,
@@ -1020,18 +1196,26 @@ function Composer({
         value={prompt}
         disabled={mode === 'disabled'}
         onChange={(event) => onPromptChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            if (prompt.trim() && !submitting && mode !== 'disabled') {
+              event.currentTarget.form?.requestSubmit();
+            }
+          }
+        }}
       />
       <div className="composer-actions">
-        <div className="composer-hints">
-          <SlidersHorizontal size={14} />
-          <span>
-            {mode === 'steer'
-              ? '作为 steer 提交 · 下一步骤生效'
-              : mode === 'clarification'
-                ? '回答后继续当前 run'
-                : '自动判断是否需要工具'}
-          </span>
-        </div>
+        {mode === 'steer' || mode === 'clarification' ? (
+          <div className="composer-hints">
+            <SlidersHorizontal size={14} />
+            <span>
+              {mode === 'steer' ? '作为调整提交 · 下一步骤生效' : '回答后继续当前任务'}
+            </span>
+          </div>
+        ) : (
+          <span />
+        )}
         <button
           className="send-button"
           type="submit"
@@ -1046,6 +1230,7 @@ function Composer({
   );
 }
 
+// 汇总一次运行，并提供稳定控制和工具调用定位入口。
 function RunCard({
   run,
   onChange,
@@ -1197,7 +1382,7 @@ function RunCard({
                   }}
                 >
                   <X size={15} />
-                  cancel
+                  取消
                 </button>
               </div>
             ) : null}
@@ -1208,6 +1393,7 @@ function RunCard({
   );
 }
 
+// 在统一 Workbench 容器中承载不同工具的视图。
 function WorkbenchShell({
   state,
   onClose,
@@ -1296,6 +1482,7 @@ function WorkbenchShell({
   );
 }
 
+// 展示执行时间线和当前选中的工具调用详情。
 function ActivityView({
   executions,
   focusTarget,
@@ -1315,7 +1502,7 @@ function ActivityView({
     cancelling: { title: '正在安全取消', subtitle: '停止当前工具调用并保留已有快照' },
     cancelled: { title: '任务已取消', subtitle: '取消前收集到的来源仍可查看' },
     failed: { title: '执行失败', subtitle: '供应商异常，可稍后重试' },
-    completed: { title: '检索与复核已完成', subtitle: '报告已生成，可查看来源与 Artifact' },
+    completed: { title: '检索与复核已完成', subtitle: '报告已生成，可查看来源与文件' },
   };
   const { title, subtitle } = heading[status];
   const isBusy = status === 'running' || status === 'cancelling';
@@ -1324,6 +1511,7 @@ function ActivityView({
       ? executions.find((tool) => tool.toolCallId === focusTarget.toolCallId)
       : executions.at(-1);
 
+  // 根据工具状态选择时间线图标。
   function toolIcon(toolStatus: ToolCallStatus): LucideIcon {
     if (toolStatus === 'completed') return Check;
     if (toolStatus === 'failed') return CircleAlert;
@@ -1419,6 +1607,7 @@ function ActivityView({
   );
 }
 
+// 展示已保存的来源片段和外部引用。
 function SourcesView({ sources: items }: { sources: SourceView[] }) {
   return (
     <div className="sources-view">
@@ -1456,6 +1645,7 @@ function SourcesView({ sources: items }: { sources: SourceView[] }) {
   );
 }
 
+// 展示报告 Artifact 和确定性的来源列表。
 function ReportView({ report, sources: items }: { report: ReportView; sources: SourceView[] }) {
   return (
     <div className="report-view">
@@ -1466,7 +1656,7 @@ function ReportView({ report, sources: items }: { report: ReportView; sources: S
         </div>
         <button className="secondary-button" type="button">
           <FileText size={15} />
-          Artifact
+          文件
         </button>
       </div>
       <div className="report-document">

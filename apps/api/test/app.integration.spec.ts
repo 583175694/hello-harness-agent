@@ -30,9 +30,12 @@ describe('foundation API', () => {
     expect(response.body.checks).toEqual({ database: 'ok', artifactStore: 'ok' });
   });
 
-  it('returns a structured unavailable response for sessions', async () => {
-    const response = await request(app.getHttpServer()).post('/api/agent/sessions').expect(501);
-    expect(response.headers['content-type']).toContain('application/json');
-    expect(response.body.code).toBe('CAPABILITY_NOT_IMPLEMENTED');
+  it('rejects an invalid chat request before calling the model', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/agent/chat')
+      .send({ messages: [] })
+      .expect(400);
+    expect(response.headers['content-type']).toContain('application/problem+json');
+    expect(response.body.code).toBe('INVALID_CHAT_REQUEST');
   });
 });

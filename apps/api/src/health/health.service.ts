@@ -16,6 +16,7 @@ export class HealthService {
     @Inject(ConfigService) private readonly config: ConfigService,
   ) {}
 
+  // 构造低成本的存活检查响应。
   live(): ServiceStatus {
     return {
       status: 'ok',
@@ -24,6 +25,7 @@ export class HealthService {
     };
   }
 
+  // 并行检查数据库和 Artifact 存储是否就绪。
   async ready(): Promise<ServiceStatus> {
     const checks: Record<string, 'ok' | 'error'> = {
       database: 'error',

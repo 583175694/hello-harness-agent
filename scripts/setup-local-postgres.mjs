@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 
+// 读取本地 .env 中用于初始化 PostgreSQL 的配置。
 function loadLocalEnv() {
   if (!existsSync('.env')) return {};
   return Object.fromEntries(
@@ -22,10 +23,12 @@ const user = process.env.POSTGRES_USER ?? localEnv.POSTGRES_USER ?? 'harness';
 const password = process.env.POSTGRES_PASSWORD ?? localEnv.POSTGRES_PASSWORD ?? 'harness_local';
 const database = process.env.POSTGRES_DB ?? localEnv.POSTGRES_DB ?? 'harness';
 
+// 将字符串安全转换为 PostgreSQL 字符串字面量。
 function sqlLiteral(value) {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
+// 校验并引用 PostgreSQL 标识符。
 function sqlIdentifier(value) {
   if (!/^[A-Za-z_][A-Za-z0-9_$]*$/.test(value)) {
     throw new Error(`非法 PostgreSQL 标识符：${value}`);
@@ -45,6 +48,7 @@ END
 $$;
 `;
 
+// 执行本地命令并把输出交给当前终端。
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: 'inherit', ...options });
   if (result.error) {

@@ -2,7 +2,7 @@
 
 面向终端用户的本地任务工作台。首个黄金任务是使用搜索 API 完成迭代网络调研，并交付带可验证引用的 Markdown 报告。
 
-当前已完成 P1 工程基线：pnpm monorepo、React/Vite Web、NestJS API、Prisma/PostgreSQL、共享协议包、测试与本地开发基础设施。Agent Runtime、模型、搜索、报告生成、Memory 和 Delegation 尚未实现；任务提交会明确返回 `CAPABILITY_NOT_IMPLEMENTED`，不会伪造执行结果。
+当前已完成 P1 工程基线，并接入第一条真实普通对话链路：Web 通过 NestJS API 调用 OpenAI-compatible Chat Completions，支持简单的当前会话上下文拼接。Agent Runtime、搜索、报告生成、Memory 和 Delegation 尚未实现。
 
 ## 当前能力
 
@@ -10,6 +10,9 @@
 已实现
   Web 工作台壳层与响应式布局
   API health/readiness 与统一错误响应
+  OpenAI-compatible 普通对话（`POST /api/agent/chat`）
+  普通对话 SSE 流式输出（`POST /api/agent/chat/stream`）
+  可配置模型、base URL 和 API key
   PostgreSQL 连接和 Prisma migration
   单个本地用户自动初始化
   本地 Artifact 目录 readiness 检查
@@ -18,7 +21,7 @@
 
 待实现（P2+）
   durable session/run/state
-  Agent Runtime 和 OpenAI-compatible 模型
+  Agent Runtime 和工具调用型 Agent loop
   Bocha/SERP 搜索与证据引用
   Markdown Report Artifact
   steer/cancel 和实时事件
@@ -50,6 +53,8 @@ pnpm db:local:init
 pnpm db:deploy
 pnpm dev
 ```
+
+普通对话需要在 `.env` 中配置 `OPENAI_API_KEY`；使用其他 OpenAI-compatible 厂商时，同时填写 `OPENAI_BASE_URL` 和对应的 `OPENAI_MODEL`。未配置 Key 时 API 仍可启动，但发送消息会返回 `MODEL_NOT_CONFIGURED`。
 
 完成首次初始化和迁移后，日常开发只需运行 `pnpm dev`；本机 PostgreSQL 由操作系统/Homebrew 服务持续运行。
 
@@ -90,13 +95,15 @@ docs                    产品、架构与实施文档
 ## 阅读顺序
 
 1. [当前研发状态](./docs/implementation-status.md)
-2. [总路线图](./docs/00-agent-core-roadmap.md)
-3. [首发调研产品契约](./docs/13-research-workflow.md)
-4. [顶层架构](./docs/agent-core-architecture.md)
-5. [渐进实施计划](./docs/17-implementation-plan.md)
-6. [工程结构](./docs/18-project-structure.md)
-7. [API 协议](./docs/11-api-protocol.md)
-8. [存储方案](./docs/12-storage-schema.md)
+2. [阶段面试知识点](./docs/interview-knowledge.md)
+3. [阶段一、阶段二协议](./docs/21-chat-tool-protocol.md)
+4. [总路线图](./docs/00-agent-core-roadmap.md)
+5. [首发调研产品契约](./docs/13-research-workflow.md)
+6. [顶层架构](./docs/agent-core-architecture.md)
+7. [渐进实施计划](./docs/17-implementation-plan.md)
+8. [工程结构](./docs/18-project-structure.md)
+9. [API 协议](./docs/11-api-protocol.md)
+10. [存储方案](./docs/12-storage-schema.md)
 
 ## 文档规则
 
@@ -105,5 +112,6 @@ docs                    产品、架构与实施文档
 - `17-implementation-plan.md` 决定阶段交付和验收。
 - 专题文档不得扩大 R1 范围或复制 canonical schema。
 - capability 只在对应阶段创建，不生成空模块、假接口或无行为 UI。
+- 新增业务代码按函数级别补充精简中文注释；简单单行注释使用 `//`，仅在确需解释较长结构时使用文档注释。
 
 # hello-harness-agent

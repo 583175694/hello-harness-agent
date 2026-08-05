@@ -6,6 +6,7 @@ import type { ProblemDetails } from '@harness/agent-protocol';
 export class SessionsController {
   @Post()
   @HttpCode(501)
+  // 明确保留尚未启用的会话接口边界。
   create(): ProblemDetails {
     return {
       type: 'https://hello-harness.local/problems/not-implemented',

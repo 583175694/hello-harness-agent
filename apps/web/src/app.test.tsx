@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, AppShell } from './app';
 
 function mockReady() {
+  // 为组件测试提供稳定的 API 就绪响应。
   vi.stubGlobal(
     'fetch',
     vi.fn().mockResolvedValue(
@@ -32,7 +33,7 @@ describe('R1 workbench shell', () => {
     expect(screen.getByText('Harness')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '任务输入' })).toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getAllByText('服务已就绪')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByText('服务已就绪')).toHaveLength(1));
   });
 
   it('renders sources and report in the development fixture preview', () => {
@@ -99,11 +100,11 @@ describe('R1 workbench shell', () => {
       target: { value: '优先补充制造业案例' },
     });
     fireEvent.click(screen.getByRole('button', { name: '发送任务' }));
-    expect(screen.getByText('已接受 steer，将从下一步骤应用。')).toBeInTheDocument();
-    expect(screen.getAllByText('作为 steer 提交 · 下一步骤生效')).toHaveLength(1);
+    expect(screen.getByText('已接受调整，将从下一步骤应用。')).toBeInTheDocument();
+    expect(screen.getAllByText('作为调整提交 · 下一步骤生效')).toHaveLength(1);
   });
 
-  it('keeps the API capability boundary when submitting a production task', async () => {
+  it('sends a production task and renders the model response', async () => {
     vi.stubGlobal(
       'fetch',
       vi
@@ -116,23 +117,24 @@ describe('R1 workbench shell', () => {
         )
         .mockResolvedValueOnce(
           new Response(
-            JSON.stringify({
-              type: 'about:blank',
-              title: 'Capability unavailable',
-              status: 501,
-              code: 'CAPABILITY_NOT_IMPLEMENTED',
-              detail: 'Task sessions will be enabled in the next implementation phase.',
-            }),
-            { status: 501, headers: { 'content-type': 'application/problem+json' } },
+            'data: {"type":"message.delta","messageId":"msg-test","delta":"你好，我已经"}\n\ndata: {"type":"message.delta","messageId":"msg-test","delta":"接入模型了。"}\n\ndata: {"type":"message.completed","messageId":"msg-test","model":"test-model"}\n\n',
+            { status: 200, headers: { 'content-type': 'text/event-stream' } },
           ),
         ),
     );
     render(<App />);
-    await waitFor(() => expect(screen.getAllByText('服务已就绪')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByText('服务已就绪')).toHaveLength(1));
     fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), {
       target: { value: 'Compare two markets.' },
     });
     fireEvent.click(screen.getByRole('button', { name: '发送任务' }));
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Task sessions'));
+    expect(screen.getByRole('textbox', { name: '任务输入' })).toHaveValue('');
+    await waitFor(() => expect(screen.getByText('你好，我已经接入模型了。')).toBeInTheDocument());
+    expect(fetch).toHaveBeenLastCalledWith(
+      '/api/agent/chat/stream',
+      expect.objectContaining({
+        body: JSON.stringify({ messages: [{ role: 'user', content: 'Compare two markets.' }] }),
+      }),
+    );
   });
 });

@@ -11,6 +11,7 @@ type ExceptionBody = {
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
+  // 将 Nest 或供应商异常转换为共享的 Problem Details 结构。
   catch(exception: unknown, host: ArgumentsHost): void {
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
@@ -33,6 +34,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
   }
 
   private readBody(exception: unknown): ExceptionBody {
+    // 从 Nest 异常中提取可用的错误主体。
     if (!(exception instanceof HttpException)) {
       return {};
     }
@@ -42,6 +44,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
   }
 
   private readDetail(body: ExceptionBody, status: number): string {
+    // 按优先级选择最终返回给客户端的错误详情。
     if (body.detail) return body.detail;
     if (Array.isArray(body.message)) return body.message.join('; ');
     if (body.message) return body.message;

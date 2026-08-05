@@ -1,5 +1,6 @@
 import type { ProblemDetails } from '@harness/agent-protocol';
 
+// 创建用于契约测试的确定性错误响应。
 export function createProblemDetailsFixture(
   overrides: Partial<ProblemDetails> = {},
 ): ProblemDetails {

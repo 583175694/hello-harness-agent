@@ -9,9 +9,9 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "pnpm -r --if-present build",
-    "typecheck": "pnpm -r --if-present typecheck",
+    "typecheck": "pnpm --filter @harness/agent-protocol build && pnpm -r --if-present typecheck",
     "lint": "pnpm -r --if-present lint",
-    "test": "pnpm -r --if-present test",
+    "test": "pnpm --filter @harness/agent-protocol build && pnpm -r --if-present test",
     "test:integration": "pnpm --filter @harness/api test:integration",
     "test:e2e": "pnpm --filter @harness/web test:e2e",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",

@@ -6,9 +6,9 @@
 
 ## 1. 当前结论
 
-项目已经完成 P1 工程基线，以及 P3 前端 Workbench fixture 交互切片。当前可运行的是一个本地单用户 Web/API 工作台和 development-only UI 预览；真实 Agent Runtime、模型调用、搜索供应商、SSE、持久化 session/run 执行链路尚未完成。
+项目已经完成 P1 工程基线、P3 前端 Workbench fixture 交互切片，并接入第一条真实普通对话链路。当前可运行的是一个本地单用户 Web/API 工作台：普通对话会通过 OpenAI-compatible Chat Completions 返回模型回答，并支持 Chat SSE 流式输出；检索 Agent、事件投影和持久化 session/run 执行链路尚未完成。
 
-当前状态不能描述为“调研 Agent 已可用”。生产 `/agent` 提交任务仍由 API 返回 `CAPABILITY_NOT_IMPLEMENTED`，预览页面中的运行、来源、报告和控制状态均为本地确定性 fixture。
+当前状态不能描述为“调研 Agent 已可用”。生产 `/agent` 的普通对话已调用真实模型；预览页面中的运行、来源、报告和控制状态仍为本地确定性 fixture。
 
 ## 2. 已完成
 
@@ -19,13 +19,17 @@
 - API：NestJS，监听 `4318`。
 - PostgreSQL：本机 PostgreSQL 服务，监听 `5432`。
 - Prisma schema、migration、数据库 readiness 和本地用户初始化已接入。
-- canonical 协议包和 agent-testkit 已建立。
+- canonical 协议包和 agent-testkit 已建立；阶段一 Chat 协议与阶段二 Function Calling 数据结构已落入共享 schema，当前仅启用阶段一。
 - 配置校验、结构化日志、请求 ID 和敏感字段脱敏已接入。
+- OpenAI 官方 SDK 和 OpenAI-compatible Chat Completions 已接入；`OPENAI_BASE_URL`、`OPENAI_API_KEY`、`OPENAI_MODEL` 从环境变量读取。
+- 普通对话已支持 SSE 流式输出；Web 会先显示用户消息，再逐段更新 assistant 消息。
+- 用户消息、模型消息和后续报告共用 `MarkdownContent` 组件，支持 GFM、代码块、表格和安全外链。
 - 根目录 `pnpm dev` 会分别启动 Web/API，等待健康检查通过后输出可点击地址。
 
 ### Web 工作台
 
 - `/agent` 生产空状态已实现：Session、Conversation、Composer、服务状态。
+- Composer 已可通过 `/api/agent/chat` 发送普通对话，并把当前会话中最近消息简单拼接后交给模型。
 - 生产空状态不渲染空 Workbench。
 - `/agent/preview?state=...` 仅在开发环境启用。
 - Preview 已覆盖 empty、direct-answer、running、waiting、steer、cancelling、cancelled、failed、sources、limited-report、final-report 等状态。
@@ -34,6 +38,7 @@
 - Activity 已实现 execution timeline、当前调用详情、auto-follow 和手动 pinned 行为。
 - Workbench 已实现 Activity、Sources、Report 统一外壳和动态 Tab；没有内容时不显示空工具 Tab。
 - Composer 已区分 new-run、clarification、steer、disabled 等状态。
+- Composer 支持 Enter 发送、Shift+Enter 换行；提交后立即清空输入框，用户消息和流式 assistant 占位即时显示。
 - Workbench、Tab、Activity detail 和 RunCard 展开/收起已加入克制动画，并支持 `prefers-reduced-motion`。
 - 使用现有 `lucide-react` 图标库；本地资源目录为 `apps/web/src/assets/`。
 
@@ -83,11 +88,12 @@ pnpm --filter @harness/web test:e2e
 
 以下内容仍按 `docs/17-implementation-plan.md` 和相关契约文档执行，不能从 Preview 状态推断已经完成：
 
-- durable session、message、run、state 的真实 API 和恢复。
-- Agent Runtime、Agent loop 和 OpenAI-compatible ModelAdapter。
+- durable session、message、run、state 的真实 API 和恢复；当前普通对话上下文仅由 Web 内存状态携带。
+- Agent Runtime、Agent loop 和面向工具调用的 OpenAI-compatible ModelAdapter；当前仅有普通 Chat Completions 适配。
 - Bocha/SERP 搜索供应商、fallback、证据持久化和引用校验。
 - Markdown Report Artifact 的真实生成、保存、下载和重开。
-- SSE/事件投影、真实 steer/cancel 控制链路。
+- 面向 Agent Run 的 SSE/事件投影、真实 steer/cancel 控制链路；普通对话 Chat SSE 已完成。
+- Function Calling 的实际工具注册、执行循环和结果回传尚未接入；当前仅完成协议结构定义。
 - session 创建、打开、删除和多消息历史行为；当前 Sidebar 仍是 UI fixture/静态基线。
 - user Memory、Delegation、Worker 和多用户认证。
 
@@ -97,7 +103,7 @@ pnpm --filter @harness/web test:e2e
 
 1. 定义并实现 create session、create run、append message 的 canonical API 边界。
 2. 使用固定 fixture 驱动真实 State/Event projection，替换 Web 中对应的本地运行状态。
-3. 接入 SSE 或等价的增量事件传输，并保留当前 Workbench focus/selection 语义。
+3. 接入面向 Run Event 的 SSE 或等价增量事件传输，并保留当前 Workbench focus/selection 语义。
 4. 为恢复、重复 steer、cancel race 和 session 删除补充 contract/integration tests。
 
 UI fixture 只能作为验收基线，不应继续扩展成伪造的生产 Agent。
@@ -110,6 +116,7 @@ UI fixture 只能作为验收基线，不应继续扩展成伪造的生产 Agent
 - Workbench 契约：[docs/20-agent-workbench.md](./20-agent-workbench.md)
 - API 协议：[docs/11-api-protocol.md](./11-api-protocol.md)
 - 工程结构：[docs/18-project-structure.md](./18-project-structure.md)
+- 面试知识点：[docs/interview-knowledge.md](./interview-knowledge.md)
 
 ## 8. 维护规则
 

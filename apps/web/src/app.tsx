@@ -47,7 +47,9 @@ import {
   requestChatStream,
   updateSession,
 } from './api/client';
+import type { ToolStreamEvent } from './api/client';
 import { MarkdownContent } from './components/markdown-content';
+import { assistantAgentMetadataSchema } from '@harness/agent-protocol';
 import type { PersistedMessage, SessionSummary } from '@harness/agent-protocol';
 
 type ServiceState = 'checking' | 'ready' | 'unavailable';
@@ -100,6 +102,7 @@ export type ConversationItem =
       text?: string;
       time?: string;
       createdAt?: string;
+      workbench?: WorkbenchState;
     }
   | { id: string; kind: 'run'; run: RunCardState };
 
@@ -126,7 +129,7 @@ export type ToolCallView = {
   toolCallId: string;
   runId: string;
   stepId: string;
-  toolName: 'web.search';
+  toolName: string;
   title: string;
   detail: string;
   status: ToolCallStatus;
@@ -144,6 +147,8 @@ export type SourceView = {
   url: string;
   excerpt: string;
   time: string;
+  provider?: string;
+  kind?: 'clue' | 'evidence';
 };
 
 export type ReportView = {
@@ -626,6 +631,138 @@ export function App() {
   );
 }
 
+function formatToolDuration(durationMs: number): string {
+  return durationMs < 1000 ? `${durationMs} 毫秒` : `${(durationMs / 1000).toFixed(1)} 秒`;
+}
+
+// 将持久化 assistant metadata 投影为可恢复的轻量 Workbench。
+function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchState | undefined {
+  if (message.role !== 'assistant') return undefined;
+  const metadata = assistantAgentMetadataSchema.safeParse(message.metadata);
+  if (!metadata.success || !metadata.data.agent?.executions.length) return undefined;
+  const { executions, sources } = metadata.data.agent;
+  const completedCount = executions.filter((execution) => execution.status === 'completed').length;
+  return {
+    runId: message.id,
+    title: '网页检索',
+    subtitle: `${executions.length} 次调用 · ${sources.length} 个检索线索`,
+    activeView: sources.length ? 'sources' : 'activity',
+    activityStatus: completedCount ? 'completed' : 'failed',
+    executions: executions.map((execution) => ({
+      toolCallId: execution.toolCallId,
+      runId: message.id,
+      stepId: execution.toolCallId,
+      toolName: execution.toolName,
+      title: `搜索：${execution.input.query}`,
+      detail: execution.status === 'completed' ? '公开网页检索已完成' : '网页检索未完成',
+      status: execution.status,
+      elapsed: formatToolDuration(execution.durationMs),
+      inputSummary: execution.input.query,
+      outputSummary: execution.status === 'completed'
+        ? `返回 ${execution.resultCount ?? 0} 条网页结果`
+        : execution.error?.detail,
+      resultCount: execution.resultCount,
+      sourceCount: execution.resultCount,
+    })),
+    followMode: 'auto',
+    sources: sources.map((source, index) => ({
+      id: `R${index + 1}`,
+      title: source.title,
+      domain: source.domain,
+      url: source.url,
+      excerpt: source.snippet,
+      time: new Date(source.retrievedAt).toLocaleString('zh-CN'),
+      provider: source.provider,
+      kind: 'clue',
+    })),
+    open: false,
+  };
+}
+
+function applyToolEvent(
+  current: WorkbenchState | undefined,
+  event: ToolStreamEvent,
+  open: boolean,
+): WorkbenchState {
+  const base: WorkbenchState = current ?? {
+    runId: event.messageId,
+    title: '网页检索',
+    subtitle: '正在搜索公开网页',
+    activeView: 'activity',
+    activityStatus: 'running',
+    executions: [],
+    followMode: 'auto',
+    sources: [],
+    open,
+  };
+  if (event.type === 'tool.started') {
+    const tool: ToolCallView = {
+      toolCallId: event.toolCallId,
+      runId: event.messageId,
+      stepId: event.toolCallId,
+      toolName: event.toolName,
+      title: `搜索：${event.input.query}`,
+      detail: '正在搜索公开网页',
+      status: 'running',
+      elapsed: '进行中',
+      inputSummary: event.input.query,
+    };
+    const executions = base.executions.some((item) => item.toolCallId === event.toolCallId)
+      ? base.executions
+      : [...base.executions, tool];
+    return {
+      ...base,
+      open,
+      activityStatus: 'running',
+      executions,
+      focusTarget: { kind: 'tool_call', runId: event.messageId, stepId: event.toolCallId, toolCallId: event.toolCallId },
+    };
+  }
+
+  const completedEvent = event.type === 'tool.completed' ? event : undefined;
+  const failedEvent = event.type === 'tool.failed' ? event : undefined;
+  const status = completedEvent ? 'completed' as const : 'failed' as const;
+  const executions = base.executions.map((tool) => tool.toolCallId === event.toolCallId
+    ? {
+        ...tool,
+        status,
+        detail: completedEvent ? '公开网页检索已完成' : failedEvent?.detail ?? '工具执行失败',
+        elapsed: formatToolDuration(event.durationMs),
+        outputSummary: completedEvent
+          ? `返回 ${completedEvent.result.results.length} 条网页结果`
+          : failedEvent?.detail,
+        resultCount: completedEvent?.result.results.length,
+        sourceCount: completedEvent?.result.results.length,
+      }
+    : tool);
+  const sourceMap = new Map(base.sources.map((source) => [source.url, source]));
+  if (event.type === 'tool.completed') {
+    for (const source of event.result.results) {
+      if (!sourceMap.has(source.url)) {
+        sourceMap.set(source.url, {
+          id: `R${sourceMap.size + 1}`,
+          title: source.title,
+          domain: source.domain,
+          url: source.url,
+          excerpt: source.snippet,
+          time: new Date(event.completedAt).toLocaleString('zh-CN'),
+          provider: event.result.provider,
+          kind: 'clue',
+        });
+      }
+    }
+  }
+  const sources = [...sourceMap.values()];
+  return {
+    ...base,
+    open,
+    subtitle: `${executions.length} 次调用 · ${sources.length} 个检索线索`,
+    activeView: event.type === 'tool.completed' && sources.length ? 'sources' : base.activeView,
+    executions,
+    sources,
+  };
+}
+
 // 将持久化消息转换为 Conversation 可直接渲染的项目。
 function toConversationItem(message: PersistedMessage): ConversationItem {
   return message.role === 'user'
@@ -641,6 +778,7 @@ function toConversationItem(message: PersistedMessage): ConversationItem {
         text: message.content,
         content: <p>{message.content}</p>,
         createdAt: message.createdAt,
+        workbench: workbenchFromPersistedMessage(message),
       };
 }
 
@@ -724,14 +862,26 @@ function PersistentAgentApp() {
     try {
       const { session } = await getSession(sessionId);
       if (pendingSessionsRef.current[sessionId]) return;
-      setSessionStates((current) => ({
-        ...current,
-        [sessionId]: {
-          label: session.title,
-          subtitle: '',
-          conversation: session.messages.map(toConversationItem),
-        },
-      }));
+      setSessionStates((current) => {
+        const conversation = session.messages.map(toConversationItem);
+        const activeWorkbench = current[sessionId]?.workbench;
+        const restoredItem = activeWorkbench
+          ? conversation.find((item) => item.kind === 'assistant' && item.id === activeWorkbench.runId)
+          : undefined;
+        const restoredWorkbench = restoredItem?.kind === 'assistant' ? restoredItem.workbench : undefined;
+        return {
+          ...current,
+          [sessionId]: {
+            label: session.title,
+            subtitle: '',
+            conversation,
+            ...(restoredWorkbench
+              ? { workbench: { ...restoredWorkbench, open: activeWorkbench?.open ?? false } }
+              : {}),
+            autoOpenSuppressedRunIds: current[sessionId]?.autoOpenSuppressedRunIds,
+          },
+        };
+      });
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     }
@@ -762,6 +912,22 @@ function PersistentAgentApp() {
     setError(null);
     updateSessionUrl(null);
     setMobileNavOpen(false);
+  }
+
+  function openPersistedWorkbench(workbench: WorkbenchState): void {
+    const sessionId = selectedSessionIdRef.current;
+    if (!sessionId) return;
+    setSessionStates((current) => {
+      const state = current[sessionId];
+      if (!state) return current;
+      return {
+        ...current,
+        [sessionId]: {
+          ...state,
+          workbench: { ...workbench, open: true, followMode: 'pinned' },
+        },
+      };
+    });
   }
 
   // 删除确认后的会话，并按最新列表决定恢复落点。
@@ -895,17 +1061,44 @@ function PersistentAgentApp() {
             },
           };
         });
+      }, (toolEvent) => {
+        setSessionStates((current) => {
+          const target = current[targetId];
+          if (!target) return current;
+          const suppressed = target.autoOpenSuppressedRunIds?.includes(toolEvent.messageId) ?? false;
+          const existing = target.workbench?.runId === toolEvent.messageId ? target.workbench : undefined;
+          const open = existing ? existing.open : !suppressed;
+          const workbench = applyToolEvent(existing, toolEvent, open);
+          return {
+            ...current,
+            [targetId]: {
+              ...target,
+              workbench,
+              conversation: target.conversation.map((item) =>
+                item.kind === 'assistant' && item.id === localAssistantId
+                  ? { ...item, workbench }
+                  : item,
+              ),
+            },
+          };
+        });
       });
       setSessionPending(targetId, false);
       setSessionStates((current) => {
         const target = current[targetId];
         if (!target) return current;
+        const completedWorkbench = target.workbench?.runId === completed.messageId
+          ? { ...target.workbench, activityStatus: 'completed' as const }
+          : target.workbench;
         return {
           ...current,
           [targetId]: {
             ...target,
+            workbench: completedWorkbench,
             conversation: target.conversation.map((item) =>
-              item.id === localAssistantId ? { ...item, id: completed.messageId } : item,
+              item.id === localAssistantId
+                ? { ...item, id: completed.messageId, workbench: completedWorkbench }
+                : item,
             ),
           },
         };
@@ -975,6 +1168,7 @@ function PersistentAgentApp() {
       }
     : draftState;
   const submitting = selectedSessionId ? Boolean(pendingSessions[selectedSessionId]) : draftPending;
+  const hasWorkbench = Boolean(uiState.workbench?.open);
 
   return (
     <div className="app-shell">
@@ -1002,13 +1196,14 @@ function PersistentAgentApp() {
           </button>
           <div className="task-title"><span className="task-title__label">{uiState.label}</span></div>
         </header>
-        <div className="workbench-grid without-workbench">
+        <div className={`workbench-grid ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}>
           <Conversation
             state={uiState}
             error={error}
             onDismissError={() => setError(null)}
             onRunChange={() => undefined}
             onFocusWorkbench={() => undefined}
+            onOpenWorkbench={openPersistedWorkbench}
             prompt={prompt}
             submitting={submitting}
             serviceState={serviceState}
@@ -1016,6 +1211,54 @@ function PersistentAgentApp() {
             onPromptChange={setPrompt}
             onSubmit={(event) => void handleSubmit(event)}
           />
+          {uiState.workbench ? (
+            <WorkbenchShell
+              state={uiState.workbench}
+              onViewChange={(activeView) => {
+                if (!selectedSessionId) return;
+                setSessionStates((current) => current[selectedSessionId]?.workbench
+                  ? {
+                      ...current,
+                      [selectedSessionId]: {
+                        ...current[selectedSessionId],
+                        workbench: { ...current[selectedSessionId].workbench!, activeView },
+                      },
+                    }
+                  : current);
+              }}
+              onExecutionSelect={(tool) => {
+                if (!selectedSessionId) return;
+                setSessionStates((current) => current[selectedSessionId]?.workbench
+                  ? {
+                      ...current,
+                      [selectedSessionId]: {
+                        ...current[selectedSessionId],
+                        workbench: {
+                          ...current[selectedSessionId].workbench!,
+                          followMode: 'pinned',
+                          focusTarget: { kind: 'tool_call', runId: tool.runId, stepId: tool.stepId, toolCallId: tool.toolCallId },
+                        },
+                      },
+                    }
+                  : current);
+              }}
+              onClose={() => {
+                if (!selectedSessionId) return;
+                setSessionStates((current) => {
+                  const state = current[selectedSessionId];
+                  if (!state?.workbench) return current;
+                  return {
+                    ...current,
+                    [selectedSessionId]: {
+                      ...state,
+                      autoOpenSuppressedRunIds: [...new Set([...(state.autoOpenSuppressedRunIds ?? []), state.workbench.runId])],
+                      workbench: { ...state.workbench, open: false },
+                    },
+                  };
+                });
+              }}
+            />
+          ) : null}
         </div>
       </main>
     </div>
@@ -1241,6 +1484,10 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
             onDismissError={() => setError(null)}
             onRunChange={updateRun}
             onFocusWorkbench={(target) => focusWorkbench(target)}
+            onOpenWorkbench={(workbench) => setUiState((current) => ({
+              ...current,
+              workbench: { ...workbench, open: true, followMode: 'pinned' },
+            }))}
             prompt={prompt}
             submitting={submitting}
             serviceState={serviceState}
@@ -1567,6 +1814,7 @@ function Conversation({
   onDismissError,
   onRunChange,
   onFocusWorkbench,
+  onOpenWorkbench,
   prompt,
   submitting,
   serviceState,
@@ -1579,6 +1827,7 @@ function Conversation({
   onDismissError: () => void;
   onRunChange: (run: RunCardState) => void;
   onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
+  onOpenWorkbench: (workbench: WorkbenchState) => void;
   prompt: string;
   submitting: boolean;
   serviceState: ServiceState;
@@ -1667,6 +1916,19 @@ function Conversation({
                     ) : (
                       item.content
                     )}
+                    {item.workbench ? (
+                      <button
+                        className="assistant-tool-summary"
+                        type="button"
+                        onClick={() => onOpenWorkbench(item.workbench!)}
+                      >
+                        <Search size={14} />
+                        <span>
+                          {item.workbench.executions.length} 次检索 · {item.workbench.sources.length} 个线索
+                        </span>
+                        <ChevronRight size={14} />
+                      </button>
+                    ) : null}
                     <div className="message-actions">
                       <span>{formatMessageTime(item.createdAt, item.time)}</span>
                       {item.text !== undefined ? <CopyButton text={item.text} /> : null}
@@ -2160,12 +2422,17 @@ function ActivityView({
 
 // 展示已保存的来源片段和外部引用。
 function SourcesView({ sources: items }: { sources: SourceView[] }) {
+  const evidenceCount = items.filter((source) => source.kind !== 'clue').length;
   return (
     <div className="sources-view">
       <div className="view-toolbar">
         <div>
           <strong>来源</strong>
-          <span>{items.length} 个有效引用</span>
+          <span>
+            {evidenceCount === items.length
+              ? `${items.length} 个有效引用`
+              : `${items.length} 个检索线索`}
+          </span>
         </div>
         <button className="icon-button" type="button" aria-label="筛选来源" title="筛选来源">
           <SlidersHorizontal size={16} />
@@ -2175,12 +2442,14 @@ function SourcesView({ sources: items }: { sources: SourceView[] }) {
         {items.map((source) => (
           <article className="source-item" key={source.id}>
             <div className="source-item-top">
-              <span className="source-id">[{source.id}]</span>
+              <span className="source-id">
+                {source.kind === 'clue' ? source.id : `[${source.id}]`}
+              </span>
               <span className="source-domain">{source.domain}</span>
               <a
                 href={source.url}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 aria-label={`打开来源 ${source.title}`}
               >
                 <ArrowUpRight size={14} />
@@ -2188,7 +2457,10 @@ function SourcesView({ sources: items }: { sources: SourceView[] }) {
             </div>
             <h3>{source.title}</h3>
             <p>{source.excerpt}</p>
-            <small>{source.time} · 已保存引用片段</small>
+            <small>
+              {source.provider ? `${source.provider} · ` : ''}{source.time} ·{' '}
+              {source.kind === 'clue' ? '搜索结果摘要，尚未验证为证据' : '已保存引用片段'}
+            </small>
           </article>
         ))}
       </div>

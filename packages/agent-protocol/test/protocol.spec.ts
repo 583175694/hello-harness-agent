@@ -15,7 +15,7 @@ import {
 
 describe('foundation protocol', () => {
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.3.0');
+    expect(protocolVersion).toBe('0.4.0');
   });
 
   it('validates service status payloads', () => {

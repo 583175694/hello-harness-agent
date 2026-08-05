@@ -10,6 +10,7 @@ import {
   updateSessionResponseSchema,
 } from '@harness/agent-protocol';
 import type {
+  ChatStreamEvent,
   DeleteSessionResponse,
   GenerateSessionTitleResponse,
   ProblemDetails,
@@ -18,6 +19,11 @@ import type {
   SessionSummary,
   UpdateSessionRequest,
 } from '@harness/agent-protocol';
+
+export type ToolStreamEvent = Extract<
+  ChatStreamEvent,
+  { type: 'tool.started' | 'tool.completed' | 'tool.failed' }
+>;
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -103,6 +109,7 @@ export async function requestChatStream(
   sessionId: string,
   content: string,
   onDelta: (delta: string) => void,
+  onToolEvent: (event: ToolStreamEvent) => void = () => undefined,
 ): Promise<{ model: string; messageId: string }> {
   const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/chat/stream`, {
     method: 'POST',
@@ -135,6 +142,11 @@ export async function requestChatStream(
           detail: payload.detail,
         });
       } else if (payload.type === 'message.delta') onDelta(payload.delta);
+      else if (
+        payload.type === 'tool.started' ||
+        payload.type === 'tool.completed' ||
+        payload.type === 'tool.failed'
+      ) onToolEvent(payload);
       else if (payload.type === 'message.completed') {
         model = payload.model;
         messageId = payload.messageId;

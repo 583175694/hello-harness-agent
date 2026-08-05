@@ -14,4 +14,14 @@ describe('environment validation', () => {
   it('rejects a missing database connection string', () => {
     expect(() => validateEnvironment({})).toThrow('DATABASE_URL');
   });
+
+  it.each(['bocha', 'serp'] as const)('accepts the %s search provider', (provider) => {
+    expect(validateEnvironment({ ...validEnvironment, SEARCH_PROVIDER: provider }).SEARCH_PROVIDER)
+      .toBe(provider);
+  });
+
+  it.each(['bocha,serp', 'google', 'BOCHA'])('rejects invalid search provider %s', (provider) => {
+    expect(() => validateEnvironment({ ...validEnvironment, SEARCH_PROVIDER: provider }))
+      .toThrow('SEARCH_PROVIDER');
+  });
 });

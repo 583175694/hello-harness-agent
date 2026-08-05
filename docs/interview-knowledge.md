@@ -126,7 +126,40 @@ data: {"type":"message.completed","messageId":"msg_123","model":"model-id"}
 
 这里真正值得展开的是状态提交顺序：用户消息、空 assistant 占位和输入框清空属于本地事务，必须在网络请求开始前完成；SSE 只负责向已有的 assistant message 追加 delta。这样即使供应商超时或连接中断，用户已经提交的事实仍然可见，失败状态也不会回滚掉用户输入。
 
-### 4.3 当前边界
+### 4.3 SSE chunk、UTF-8 与事件边界
+
+浏览器的 `ReadableStreamDefaultReader.read()` 返回的是任意网络 chunk，不保证一次读取正好对应一条 SSE event，也不保证一个 UTF-8 字符的字节全部落在同一个 chunk。以下三个边界必须分开处理：
+
+```text
+网络 chunk 边界  !=  UTF-8 字符边界  !=  SSE event 边界
+```
+
+例如一条事件可能被拆成：
+
+```text
+chunk 1: data: {"type":"message.del
+chunk 2: ta","messageId":"msg_1","delta":"你好"}\n\n
+```
+
+当前 Web 使用带流状态的 `TextDecoder` 和跨读取缓冲区：
+
+```ts
+const decoder = new TextDecoder();
+let buffer = '';
+
+buffer += decoder.decode(value, { stream: !done });
+const events = buffer.split('\n\n');
+buffer = events.pop() ?? '';
+```
+
+- `TextDecoder(..., { stream: true })` 会保留尚未完整解码的多字节字符，避免中文被拆分时产生乱码或替换字符。
+- `buffer` 保留最后一段尚未遇到空行分隔符的数据；只有完整 SSE event 才进入 JSON 和 Zod 解析。
+- 一次 chunk 可以包含多条 event，一条 event 也可以跨多个 chunk，解析逻辑不能依赖读取次数。
+- 完成后必须收到 `message.completed` 和持久化 `messageId`；只有连接自然结束但没有完成事件时，客户端会把它视为不完整交付，而不是静默成功。
+
+这里的工程重点不是实现“打字机效果”，而是不能把底层传输分块误当成业务消息边界。当前实现已经处理增量 UTF-8 解码和事件缓冲，但仍未实现断线续传、`Last-Event-ID`、sequence 和 replay。
+
+### 4.4 当前边界
 
 这是 Chat SSE，不是 Agent Run Event SSE。当前只传递文本 delta 和完成事件，还没有：
 
@@ -210,7 +243,97 @@ React         只负责展示和触发动作
 
 这是一个可验证的演进策略：当前先统一消息 ID、Chat SSE 事件和 Function Calling 的结构化对象；进入 Agent Run 阶段后，再增加 `sessionId/runId/eventId/sequence` 和事件 envelope。在此之前，不把供应商 SDK 的响应对象直接泄漏到前端，也不让 Workbench 组件解析裸 SSE JSON。
 
-## 8. 面试表达模板
+## 8. 日志分层与模型链路可观测性
+
+### 8.1 开发和生产日志承担不同职责
+
+开发环境优先让人快速定位问题，生产环境优先让日志系统稳定采集和查询，因此没有强行让两者使用相同输出形式：
+
+```text
+development  -> pino-pretty、彩色中文单行、隐藏 req/res 等高噪声对象
+production   -> 结构化 JSON，保留 level、context、requestId 等机器可查询字段
+```
+
+普通 HTTP 自动访问日志已经关闭。健康检查、静态轮询和 Nest 路由初始化如果逐条输出完整请求头、响应对象与 `request completed`，会掩盖真正的模型链路事件，也可能把 Cookie 或认证信息带入日志。关闭自动访问明细不等于放弃可观测性，而是把日志预算留给有业务含义的事件。
+
+### 8.2 request ID 与统一脱敏
+
+API 优先复用调用方传入的 `x-request-id`，缺失时生成 UUID，并把同一 ID 写回响应头。这样将来可以把 Web 请求、API 日志和下游模型调用关联起来，而不需要在每个 Controller 中重复实现 correlation ID。
+
+敏感字段在日志基础设施层统一脱敏：
+
+```text
+Authorization
+Cookie
+Set-Cookie
+req.body.apiKey
+req.body.api_key
+```
+
+统一脱敏比要求每个业务模块“记得不要打印密钥”更可靠。当前日志只使用 session ID 的前 8 位做人工关联，降低整段内部标识在终端中扩散的必要性；这不是权限控制或密码学匿名化，只是日志最小化。
+
+### 8.3 为什么模型链路需要 TTFT
+
+流式模型体验不能只看总耗时。用户感知更直接的指标是 TTFT（Time To First Token，首字耗时）：
+
+```text
+请求开始
+  -> 供应商排队 / 建连 / 首轮推理
+  -> 首个有效 delta                       # TTFT
+  -> 后续持续生成
+  -> 完整响应和 assistant message 落库    # total latency
+```
+
+当前模型链路只记录几个关键事件：
+
+- 开始生成：会话短 ID、模型和上下文条数。
+- 首次收到有效 delta：首字耗时。
+- 完成：总耗时和输出字符数。
+- 失败：会话短 ID、已耗时和归一化后的错误类型。
+
+TTFT 高通常指向供应商排队、网络或首轮推理延迟；TTFT 正常但总耗时高，更可能是输出过长或生成速率低。把两者分开，排查时才不会把所有“回复慢”归为同一种问题。当前尚未接入集中式 metrics/tracing，也没有记录 prompt 或完整模型响应，避免为了排障把用户内容和密钥复制到日志系统。
+
+## 9. 不可信 Markdown 的安全渲染边界
+
+模型回复、用户输入和后续搜索报告都属于不可信内容。前端状态保存原始 Markdown 字符串，统一交给 `MarkdownContent` 投影，不把模型文本拼接成 HTML，也不使用 `dangerouslySetInnerHTML`：
+
+```text
+untrusted Markdown string
+  -> react-markdown parser
+  -> controlled React elements
+  -> shared chat/report presentation
+```
+
+当前实现的边界包括：
+
+- 使用 `react-markdown` 渲染结构，不直接执行原始 HTML、脚本或事件属性。
+- 使用 `remark-gfm` 支持表格、任务列表等确定性 Markdown 语法。
+- 所有外链统一使用 `target="_blank"` 和 `rel="noopener noreferrer"`，防止新页面通过 `window.opener` 控制原页面，并减少不必要的 referrer 暴露。
+- 表格放入可键盘聚焦的横向滚动容器，避免模型生成的宽表破坏移动端和 Workbench 布局。
+- Chat 和未来 Report 复用同一个 renderer 和信任边界，避免两个页面对同一内容采用不同安全规则。
+- 数据库存储原始 Markdown，而不是渲染后 HTML；样式调整、引用导航和后续校验不需要迁移消息正文。
+
+这里需要避免过度表述：当前安全性依赖 `react-markdown` 默认不渲染原始 HTML，代码尚未引入 `rehype-raw`。如果后续允许供应商 HTML、自定义组件或更丰富的 URL scheme，必须重新评估 sanitization、协议白名单和内容安全策略，不能把当前边界等同于通用 HTML sanitizer。
+
+## 10. Function Calling Agent Loop 与搜索投影
+
+这一阶段不是“给 OpenAI 请求加一个 tools 参数”就结束。模型只返回工具名称和参数，真正的循环由应用负责：
+
+```text
+model(tool_calls)
+  -> 聚合流式 arguments
+  -> Zod 校验并串行执行后端工具
+  -> tool result 放回上下文
+  -> model 继续决策或输出最终回答
+```
+
+OpenAI-compatible 流中的函数名和 JSON arguments 都可能跨 chunk 返回，因此必须按 tool-call `index` 累加，等本轮结束后再解析，不能对单个 delta 直接 `JSON.parse`。循环使用 20 次通用工具预算作为硬上限；这是防止模型重复调用或未来多工具相互触发的安全边界，不是要求模型用满预算。
+
+模型只看到 `web_search({query})`，Bocha/Serper 选择留在后端 Adapter。每次统一保留最多 10 条结果，标题和摘要截断、URL 只允许 HTTP/HTTPS。搜索响应以带 `untrustedExternalData` 标记的 tool message 进入上下文，网页摘要不能成为新的指令来源。
+
+Workbench 同时消费 `tool.started/completed/failed`，但当前没有把 Chat SSE 冒充 durable Run Event。最终 assistant metadata 只保存本轮 execution/source 快照，让刷新后能恢复用户已经看到的检索列表；断线 replay、sequence、steer/cancel 和正式 Evidence 仍留给后续 Run/Event Store。搜索结果在 UI 中明确叫 clue，而不是可引用 evidence。
+
+## 11. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
@@ -228,7 +351,7 @@ React         只负责展示和触发动作
 
 答：提交时先完成本地状态事务：追加 user message、创建空 assistant 占位并清空输入框；网络请求只负责向已有 assistant message 追加 delta。这样 UI 不依赖模型完成时机，供应商失败时也不会丢失用户刚提交的内容。
 
-## 9. 后续追加规则
+## 12. 后续追加规则
 
 每个阶段只追加四类内容：
 

@@ -552,6 +552,33 @@ textarea:focus-visible {
   color: #333;
   background: #f0f0ee;
 }
+.assistant-tool-summary {
+  display: grid;
+  width: fit-content;
+  max-width: 100%;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 7px 9px;
+  border: 1px solid #deded9;
+  border-radius: 7px;
+  color: #555551;
+  background: #fafaf8;
+  font-size: 11px;
+  text-align: left;
+}
+.assistant-tool-summary:hover,
+.assistant-tool-summary:focus-visible {
+  border-color: #bfc6bd;
+  color: #222;
+  background: #fff;
+}
+.assistant-tool-summary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .markdown-content {
   --markdown-heading: #222220;
   --markdown-muted: #686864;
@@ -1801,5 +1828,12 @@ textarea:focus-visible {
   }
   .run-card {
     margin-left: 0;
+  }
+  .preview-switcher {
+    position: static;
+    margin: 12px;
+  }
+  .app-shell:has(+ .preview-switcher) .composer-area {
+    padding-bottom: 24px;
   }
 }

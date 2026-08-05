@@ -13,7 +13,7 @@ UI       = 协议数据的展示投影
 
 Web/API 只依赖 `packages/agent-protocol` 的 schema，不直接共享 OpenAI SDK 类型。供应商字段在 API 适配层转换为本协议对象。
 
-协议版本当前为 `0.3.0`。新增字段优先保持可选；改变字段语义或删除字段时升级协议版本。
+协议版本当前为 `0.4.0`。新增字段优先保持可选；改变字段语义或删除字段时升级协议版本。
 
 ## 2. 阶段一：纯对话协议
 
@@ -54,6 +54,9 @@ SSE 的每条 `data` 都是以下联合类型之一：
 
 ```ts
 type ChatStreamEvent =
+  | { type: 'tool.started'; messageId: string; toolCallId: string; toolName: string; input: { query: string }; startedAt: string }
+  | { type: 'tool.completed'; messageId: string; toolCallId: string; toolName: string; completedAt: string; durationMs: number; result: SearchToolResult }
+  | { type: 'tool.failed'; messageId: string; toolCallId: string; toolName: string; completedAt: string; durationMs: number; code: string; detail: string }
   | { type: 'message.delta'; messageId: string; delta: string }
   | { type: 'message.completed'; messageId: string; model: string }
   | { type: 'stream.failed'; code: string; detail: string };
@@ -63,7 +66,7 @@ type ChatStreamEvent =
 
 ## 3. 阶段二：Function Calling 协议
 
-阶段二只定义结构化调用，不定义工具执行器、权限模型或长任务调度器。
+阶段二已实现结构化调用、最小工具执行器和 Chat 请求内的循环，但不包含权限模型、长任务调度器或 durable Run。
 
 ### 3.1 工具声明
 
@@ -107,12 +110,14 @@ messages + tools
 
 这仍然可以在一次 HTTP 请求或一次 Chat SSE 内完成，不代表已经具备可恢复的 Agent Run。
 
+当前实现的 `web_search` 固定只接收 `query`，后端一次只启用 Bocha 或 Serper。每次搜索最多返回 10 条标准化结果，每轮用户请求最多接收 20 次通用工具调用。工具事件用最终 assistant `messageId` 关联；最终 Message metadata 保存 Activity/Sources 轻量快照，但不等同于 Event Store。
+
 ## 4. 明确不属于本阶段
 
 - `runId`、事件序号、断线 replay 和 Event Store
 - steer/cancel 的竞态和持久化语义
-- Workbench Activity、Sources、Report 的生产事件投影
-- 工具权限、超时、重试、fallback 和并行调度
+- Report 的生产事件投影
+- 工具权限、重试、fallback 和并行调度；当前仅有单次搜索超时
 - Run 的 durable storage；Session/Message 已在阶段一实现
 - Memory、Delegation、Worker
 

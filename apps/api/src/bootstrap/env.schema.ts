@@ -17,6 +17,20 @@ export const envSchema = z.object({
     z.string().url().optional(),
   ),
   OPENAI_MODEL: z.string().min(1).default('gpt-4o-mini'),
+  SEARCH_PROVIDER: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.enum(['bocha', 'serp']).optional(),
+  ),
+  BOCHA_SEARCH_URL: z.string().url().default('https://api.bochaai.com/v1/web-search'),
+  BOCHA_SEARCH_API_KEY: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(1).optional(),
+  ),
+  SERPER_SEARCH_URL: z.string().url().default('https://google.serper.dev/search'),
+  SERPER_SEARCH_API_KEY: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(1).optional(),
+  ),
 });
 
 export type AppEnvironment = z.infer<typeof envSchema>;

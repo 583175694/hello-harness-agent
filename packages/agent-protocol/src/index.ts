@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const protocolVersion = '0.3.0';
+export const protocolVersion = '0.4.0';
 
 // 定义进程健康和依赖就绪响应。
 export const serviceStatusSchema = z.object({
@@ -84,8 +84,80 @@ export const chatResponseSchema = z.object({
   model: z.string().min(1),
 });
 
+export const searchProviderSchema = z.enum(['bocha', 'serp']);
+
+export const searchResultSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  url: z.string().url(),
+  domain: z.string().min(1),
+  snippet: z.string(),
+  publishedAt: z.string().optional(),
+  source: z.string().optional(),
+});
+
+export const searchToolResultSchema = z.object({
+  query: z.string().min(1),
+  provider: searchProviderSchema,
+  results: z.array(searchResultSchema).max(10),
+});
+
+export const toolExecutionSnapshotSchema = z.object({
+  toolCallId: z.string().min(1),
+  toolName: z.string().min(1),
+  input: z.object({ query: z.string().min(1) }),
+  status: z.enum(['completed', 'failed']),
+  startedAt: z.string().datetime(),
+  completedAt: z.string().datetime(),
+  durationMs: z.number().int().nonnegative(),
+  resultCount: z.number().int().nonnegative().optional(),
+  error: z.object({ code: z.string().min(1), detail: z.string().min(1) }).optional(),
+});
+
+export const searchSourceSnapshotSchema = searchResultSchema.extend({
+  provider: searchProviderSchema,
+  retrievedAt: z.string().datetime(),
+  toolCallIds: z.array(z.string().min(1)).min(1),
+});
+
+export const assistantAgentMetadataSchema = z.object({
+  model: z.string().min(1),
+  agent: z.object({
+    toolCallCount: z.number().int().nonnegative().max(20),
+    executions: z.array(toolExecutionSnapshotSchema).max(20),
+    sources: z.array(searchSourceSnapshotSchema),
+  }).optional(),
+});
+
 // 定义 Web SSE 客户端消费的标准增量事件。
 export const chatStreamEventSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    toolCallId: z.string().min(1),
+    toolName: z.string().min(1),
+    input: z.object({ query: z.string().min(1) }),
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    toolCallId: z.string().min(1),
+    toolName: z.string().min(1),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: searchToolResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.failed'),
+    messageId: z.string().min(1),
+    toolCallId: z.string().min(1),
+    toolName: z.string().min(1),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    code: z.string().min(1),
+    detail: z.string().min(1),
+  }),
   z.object({
     type: z.literal('message.delta'),
     messageId: z.string().min(1),
@@ -109,6 +181,12 @@ export type ChatResponse = z.infer<typeof chatResponseSchema>;
 export type ToolCall = z.infer<typeof toolCallSchema>;
 export type ToolResult = z.infer<typeof toolResultSchema>;
 export type ChatStreamEvent = z.infer<typeof chatStreamEventSchema>;
+export type SearchProvider = z.infer<typeof searchProviderSchema>;
+export type SearchResult = z.infer<typeof searchResultSchema>;
+export type SearchToolResult = z.infer<typeof searchToolResultSchema>;
+export type ToolExecutionSnapshot = z.infer<typeof toolExecutionSnapshotSchema>;
+export type SearchSourceSnapshot = z.infer<typeof searchSourceSnapshotSchema>;
+export type AssistantAgentMetadata = z.infer<typeof assistantAgentMetadataSchema>;
 
 // 定义数据库持久化后可由前端恢复的普通对话消息。
 export const persistedMessageSchema = z.object({

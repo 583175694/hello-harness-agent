@@ -1,6 +1,6 @@
 # API / Protocol
 
-> 文档状态：R1 API 目标契约。P1 已实现 `/healthz`、`/readyz`，以及返回 `CAPABILITY_NOT_IMPLEMENTED` 的 `POST /api/agent/sessions` 边界；其余 endpoint 按 P2-P8 实现。
+> 文档状态：R1 API 目标契约。健康检查和普通对话 Session/Message API 已实现；Run、Workbench 和 Artifact endpoint 按后续阶段实现。
 
 ## 1. 原则
 
@@ -26,6 +26,8 @@ POST   /api/agent/sessions
 GET    /api/agent/sessions
 GET    /api/agent/sessions/:sessionId
 DELETE /api/agent/sessions/:sessionId
+POST   /api/agent/sessions/:sessionId/chat/stream
+POST   /api/agent/sessions/:sessionId/title/generate
 
 POST   /api/agent/sessions/:sessionId/runs
 GET    /api/agent/runs/:runId
@@ -68,10 +70,10 @@ type ApiError = {
 
 ```ts
 type SessionSummary = {
-  sessionId: string;
-  title?: string;
-  status: 'active' | 'archived';
-  latestRunId?: string;
+  id: string;
+  title: string;
+  status: 'active';
+  isPinned: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -86,7 +88,20 @@ Content-Type: application/json
 { "title": "新能源市场调研" }
 ```
 
+重命名或置顶使用局部更新：
+
+```http
+PATCH /api/agent/sessions/:sessionId
+Content-Type: application/json
+
+{ "title": "中国新能源市场", "isPinned": true }
+```
+
+会话列表默认按置顶优先、最近更新时间其次排序。
+
 删除 session 是真实删除：数据库子记录在事务内清理，Artifact 文件异步/事务后可靠清理，相关 user Memory 在 P10 重新评估。
+
+普通对话请求只提交 `{ "content": "本轮消息" }`。API 持久化 user message 后读取最近 20 条历史，完成模型流后再持久化 assistant message；模型失败不写入空或部分 assistant message。活跃会话的并发发送和删除返回 `409 SESSION_BUSY`。
 
 ## 5. Create Run
 

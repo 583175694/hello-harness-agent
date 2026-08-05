@@ -19,6 +19,38 @@ const services = [
 const children = [];
 let failedService = null;
 let shuttingDown = false;
+const useColor = Boolean(process.stdout.isTTY && !process.env.NO_COLOR);
+const colors = {
+  reset: '\x1b[0m',
+  cyan: '\x1b[36m',
+  green: '\x1b[32m',
+  red: '\x1b[31m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+};
+
+// 仅在交互式终端使用颜色，管道和日志文件保持纯文本。
+function colorize(text, color) {
+  return useColor ? `${color}${text}${colors.reset}` : text;
+}
+
+// 按完整行添加服务前缀，避免流分块导致多行输出错位。
+function pipeLines(stream, destination, service, isError = false) {
+  let pending = '';
+  const serviceColor = isError ? colors.red : service.name === 'Web' ? colors.cyan : colors.green;
+  const prefix = colorize(`[${service.name}]`, serviceColor);
+
+  stream.setEncoding('utf8');
+  stream.on('data', (chunk) => {
+    pending += chunk;
+    const lines = pending.split(/\r?\n/);
+    pending = lines.pop() ?? '';
+    for (const line of lines) destination.write(`${prefix} ${line}\n`);
+  });
+  stream.on('end', () => {
+    if (pending) destination.write(`${prefix} ${pending}\n`);
+  });
+}
 
 // 返回当前平台可执行的 pnpm 命令名。
 function command() {
@@ -34,8 +66,8 @@ function startService(service) {
   });
 
   children.push(child);
-  child.stdout.on('data', (chunk) => process.stdout.write(`[${service.name}] ${chunk}`));
-  child.stderr.on('data', (chunk) => process.stderr.write(`[${service.name}] ${chunk}`));
+  pipeLines(child.stdout, process.stdout, service);
+  pipeLines(child.stderr, process.stderr, service, true);
   child.on('error', (error) => {
     failedService = { name: service.name, message: error.message };
   });
@@ -97,7 +129,9 @@ async function main() {
     if (await isPortInUse(service.port)) occupied.push(`${service.name} ${service.port}`);
   }
   if (occupied.length) {
-    console.error(`端口已被占用：${occupied.join('、')}。请先停止已有服务后再运行 pnpm dev。`);
+    console.error(
+      colorize(`端口已被占用：${occupied.join('、')}。请先停止已有服务后再运行 pnpm dev。`, colors.red),
+    );
     process.exitCode = 1;
     return;
   }
@@ -120,10 +154,10 @@ async function main() {
     return;
   }
 
-  console.log('\n开发服务已启动：');
-  console.log(`Web: ${services[0].url}`);
-  console.log(`API: ${services[1].url}`);
-  console.log('\n按 Ctrl+C 停止 Web 和 API。\n');
+  console.log(colorize('\n开发服务已启动', `${colors.bold}${colors.green}`));
+  console.log(`${colorize('Web', colors.cyan)}  ${services[0].url}`);
+  console.log(`${colorize('API', colors.green)}  ${services[1].url}`);
+  console.log(colorize('\n按 Ctrl+C 停止 Web 和 API。\n', colors.dim));
 }
 
 process.once('SIGINT', () => {

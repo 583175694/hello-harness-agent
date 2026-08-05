@@ -1,6 +1,6 @@
 # Agent Frontend
 
-> 文档状态：R1 前端产品契约。P1 已实现 `/agent` 响应式 Conversation 壳层、健康状态和 Composer；production 空会话不渲染空 Workbench。Development-only `/agent/preview` 已实现桌面 P3 fixture 交互，包括 RunCard/tool call 定位、Activity master/detail、auto-follow/pin 和 Composer steer；durable session、SSE 运行投影与真实报告交互仍按 P2-P8 实现。
+> 文档状态：R1 前端产品契约。`/agent` 已实现持久化 Session/Message、URL 恢复、真实 Chat SSE、Conversation 和 Composer；production 空会话不渲染空 Workbench。Development-only `/agent/preview` 已实现桌面 P3 fixture 交互；Run SSE 投影与真实工具/报告交互仍按后续阶段实现。
 
 ## 1. 产品定位
 
@@ -65,6 +65,10 @@ Raw event/state 不直接渲染到前三层。
 ## 5. Session UX
 
 Session 是 durable 会话：
+
+- Sidebar 仅显示单行会话名称，不展示会话图标、更新时间或进入箭头。
+- 悬停、键盘聚焦或选中会话时显示 `…`，菜单提供重命名、置顶/取消置顶和删除。
+- 置顶会话排在普通会话之前；名称和置顶状态由 API 持久化。
 
 - 新建 session
 - session 历史列表

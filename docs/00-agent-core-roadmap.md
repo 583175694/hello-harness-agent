@@ -36,7 +36,7 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 
 本地开发端口固定为 Web `4317`、API `4318`、PostgreSQL `5432`，均可通过配置调整。开发环境直接使用本机 PostgreSQL，不依赖 Docker。
 
-尚未实现 Agent Runtime、durable session/run/state、模型、搜索、正式 Artifact、Memory 或 Delegation。P2 及之后里程碑仍为 planned。只有代码、测试和验收记录同时存在时，能力才算完成。
+已经实现 OpenAI-compatible 普通对话、Chat SSE 和 durable Session/Message；尚未实现 Agent Runtime、durable Run/State、搜索、正式 Artifact、Memory 或 Delegation。只有代码、测试和验收记录同时存在时，能力才算完成。
 
 ## 3. 首次发布范围
 

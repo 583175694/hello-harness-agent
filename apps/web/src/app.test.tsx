@@ -7,17 +7,21 @@ function mockReady() {
   // 为组件测试提供稳定的 API 就绪响应。
   vi.stubGlobal(
     'fetch',
-    vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          status: 'ok',
-          service: 'hello-harness-api',
-          version: '0.1.0',
-          checks: { database: 'ok', artifactStore: 'ok' },
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      ),
-    ),
+    vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.endsWith('/api/agent/sessions')
+        ? { sessions: [] }
+        : {
+            status: 'ok',
+            service: 'hello-harness-api',
+            version: '0.1.0',
+            checks: { database: 'ok', artifactStore: 'ok' },
+          };
+      return Promise.resolve(new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }));
+    }),
   );
 }
 
@@ -33,7 +37,7 @@ describe('R1 workbench shell', () => {
     expect(screen.getByText('Harness')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '任务输入' })).toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getAllByText('服务已就绪')).toHaveLength(1));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   });
 
   it('renders sources and report in the development fixture preview', () => {
@@ -105,36 +109,198 @@ describe('R1 workbench shell', () => {
   });
 
   it('sends a production task and renders the model response', async () => {
+    const session = {
+      id: 'session-test',
+      title: 'Compare two markets.',
+      status: 'active',
+      isPinned: false,
+      createdAt: '2026-08-05T04:00:00.000Z',
+      updatedAt: '2026-08-05T04:00:00.000Z',
+    };
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce(
-          new Response(
+      vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/readyz')) {
+          return Promise.resolve(new Response(
             JSON.stringify({ status: 'ok', service: 'hello-harness-api', version: '0.1.0' }),
             { status: 200, headers: { 'content-type': 'application/json' } },
-          ),
-        )
-        .mockResolvedValueOnce(
-          new Response(
+          ));
+        }
+        if (url.endsWith('/api/agent/sessions') && !init?.method) {
+          return Promise.resolve(new Response(JSON.stringify({ sessions: [] }), { status: 200 }));
+        }
+        if (url.endsWith('/api/agent/sessions') && init?.method === 'POST') {
+          return Promise.resolve(new Response(JSON.stringify({ session }), { status: 201 }));
+        }
+        if (url.endsWith('/chat/stream')) {
+          return Promise.resolve(new Response(
             'data: {"type":"message.delta","messageId":"msg-test","delta":"你好，我已经"}\n\ndata: {"type":"message.delta","messageId":"msg-test","delta":"接入模型了。"}\n\ndata: {"type":"message.completed","messageId":"msg-test","model":"test-model"}\n\n',
             { status: 200, headers: { 'content-type': 'text/event-stream' } },
-          ),
-        ),
+          ));
+        }
+        if (url.endsWith('/title/generate')) {
+          return Promise.resolve(new Response(JSON.stringify({ session: { ...session, title: '市场对比' }, generated: true }), { status: 200 }));
+        }
+        if (url.endsWith('/api/agent/sessions/session-test')) {
+          return Promise.resolve(new Response(JSON.stringify({
+            session: {
+              ...session,
+              messages: [
+                { id: 'user-test', sessionId: session.id, role: 'user', kind: 'user_message', content: 'Compare two markets.', createdAt: session.createdAt, metadata: {} },
+                { id: 'msg-test', sessionId: session.id, role: 'assistant', kind: 'assistant_delivery', content: '你好，我已经接入模型了。', createdAt: session.updatedAt, metadata: { model: 'test-model' } },
+              ],
+            },
+          }), { status: 200 }));
+        }
+        return Promise.resolve(new Response(JSON.stringify({ sessions: [session] }), { status: 200 }));
+      }),
     );
     render(<App />);
-    await waitFor(() => expect(screen.getAllByText('服务已就绪')).toHaveLength(1));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), {
       target: { value: 'Compare two markets.' },
     });
     fireEvent.click(screen.getByRole('button', { name: '发送任务' }));
     expect(screen.getByRole('textbox', { name: '任务输入' })).toHaveValue('');
     await waitFor(() => expect(screen.getByText('你好，我已经接入模型了。')).toBeInTheDocument());
-    expect(fetch).toHaveBeenLastCalledWith(
-      '/api/agent/chat/stream',
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/agent/sessions/session-test/chat/stream',
       expect.objectContaining({
-        body: JSON.stringify({ messages: [{ role: 'user', content: 'Compare two markets.' }] }),
+        body: JSON.stringify({ content: 'Compare two markets.' }),
       }),
     );
+  });
+
+  it('restores the URL-selected session and its persisted Markdown messages', async () => {
+    const restored = {
+      id: 'restored-session',
+      title: '已恢复会话',
+      status: 'active',
+      isPinned: false,
+      createdAt: '2026-08-05T04:00:00.000Z',
+      updatedAt: '2026-08-05T04:10:00.000Z',
+    };
+    window.history.replaceState({}, '', '/agent?session=restored-session');
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/readyz')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          status: 'ok', service: 'hello-harness-api', version: '0.1.0',
+        }), { status: 200 }));
+      }
+      if (url.endsWith('/api/agent/sessions')) {
+        return Promise.resolve(new Response(JSON.stringify({ sessions: [restored] }), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        session: {
+          ...restored,
+          messages: [
+            { id: 'restored-user', sessionId: restored.id, role: 'user', kind: 'user_message', content: '**持久化问题**', createdAt: restored.createdAt, metadata: {} },
+            { id: 'restored-assistant', sessionId: restored.id, role: 'assistant', kind: 'assistant_delivery', content: '这是刷新后恢复的回答。', createdAt: restored.updatedAt, metadata: {} },
+          ],
+        },
+      }), { status: 200 }));
+    }));
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('这是刷新后恢复的回答。')).toBeInTheDocument());
+    expect(screen.getByText('持久化问题').tagName).toBe('STRONG');
+    expect(window.location.search).toBe('?session=restored-session');
+  });
+
+  it('renames and pins a session through the compact overflow menu', async () => {
+    const session = {
+      id: 'editable-session',
+      title: '原会话名称',
+      status: 'active',
+      isPinned: false,
+      createdAt: '2026-08-05T04:00:00.000Z',
+      updatedAt: '2026-08-05T04:10:00.000Z',
+    };
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/readyz')) {
+        return Promise.resolve(new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' }), { status: 200 }));
+      }
+      if (url.endsWith('/api/agent/sessions') && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify({ sessions: [session] }), { status: 200 }));
+      }
+      if (init?.method === 'PATCH') {
+        const update = JSON.parse(String(init.body)) as { title?: string; isPinned?: boolean };
+        Object.assign(session, update, { updatedAt: '2026-08-05T04:20:00.000Z' });
+        return Promise.resolve(new Response(JSON.stringify({ session }), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ session: { ...session, messages: [] } }), { status: 200 }));
+    }));
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: '原会话名称' })).toBeInTheDocument());
+    expect(screen.queryByRole('menuitem', { name: '删除' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '更多操作 原会话名称' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '会话名称' }), { target: { value: '新的会话名称' } });
+    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '新的会话名称' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: '更多操作 新的会话名称' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '置顶' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      '/api/agent/sessions/editable-session',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ isPinned: true }) }),
+    ));
+  });
+
+  it('does not overwrite a background stream when switching away and back', async () => {
+    const baseTime = '2026-08-05T04:00:00.000Z';
+    const sessionA = { id: 'session-a', title: '会话 A', status: 'active', isPinned: false, createdAt: baseTime, updatedAt: baseTime };
+    const sessionB = { id: 'session-b', title: '会话 B', status: 'active', isPinned: false, createdAt: baseTime, updatedAt: baseTime };
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    let streamCompleted = false;
+    let sessionADetailCalls = 0;
+    const encoder = new TextEncoder();
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/readyz')) {
+        return Promise.resolve(new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' }), { status: 200 }));
+      }
+      if (url.endsWith('/api/agent/sessions')) {
+        return Promise.resolve(new Response(JSON.stringify({ sessions: [sessionA, sessionB] }), { status: 200 }));
+      }
+      if (url.endsWith('/session-a/chat/stream')) {
+        return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+          start(controller) { streamController = controller; },
+        }), { status: 200, headers: { 'content-type': 'text/event-stream' } }));
+      }
+      if (url.endsWith('/title/generate')) {
+        return Promise.resolve(new Response(JSON.stringify({ session: sessionA, generated: false }), { status: 200 }));
+      }
+      const session = url.endsWith('/session-b') ? sessionB : sessionA;
+      if (session.id === 'session-a') sessionADetailCalls += 1;
+      const messages = streamCompleted && session.id === 'session-a' ? [
+        { id: 'user-a', sessionId: session.id, role: 'user', kind: 'user_message', content: '后台问题', createdAt: baseTime, metadata: {} },
+        { id: 'assistant-a', sessionId: session.id, role: 'assistant', kind: 'assistant_delivery', content: '后台完整回答', createdAt: baseTime, metadata: {} },
+      ] : [];
+      return Promise.resolve(new Response(JSON.stringify({ session: { ...session, messages } }), { status: 200 }));
+    }));
+
+    render(<App />);
+    await waitFor(() => expect(sessionADetailCalls).toBe(1));
+    fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), { target: { value: '后台问题' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送任务' }));
+    await waitFor(() => expect(streamController).toBeDefined());
+    streamController?.enqueue(encoder.encode('data: {"type":"message.delta","messageId":"assistant-a","delta":"后台"}\n\n'));
+    await waitFor(() => expect(screen.getByText('后台')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /^会话 B/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^会话 A/ }));
+    await waitFor(() => expect(screen.getByText('后台')).toBeInTheDocument());
+    expect(sessionADetailCalls).toBe(1);
+
+    streamCompleted = true;
+    streamController?.enqueue(encoder.encode('data: {"type":"message.delta","messageId":"assistant-a","delta":"完整回答"}\n\ndata: {"type":"message.completed","messageId":"assistant-a","model":"test-model"}\n\n'));
+    streamController?.close();
+    await waitFor(() => expect(screen.getByText('后台完整回答')).toBeInTheDocument());
+    expect(sessionADetailCalls).toBe(2);
   });
 });

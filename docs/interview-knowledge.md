@@ -4,17 +4,17 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：P1 工程基线、OpenAI-compatible 模型适配、普通对话、Chat SSE、Workbench 状态边界。
+> 当前覆盖：P1 工程基线、OpenAI-compatible 模型适配、持久化普通对话、Chat SSE、会话并发隔离、Workbench 状态边界。
 
 ## 1. 项目一句话介绍
 
-这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经先打通 OpenAI-compatible 普通对话和流式输出，后续再逐步接入 Session、Agent loop、搜索工具和可验证报告。
+这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通可刷新恢复的 OpenAI-compatible 持久化普通对话，后续再逐步接入 Function Calling、Agent loop、搜索工具和可验证报告。
 
 面试时需要主动区分：
 
 ```text
-已经完成：普通对话、Chat SSE、Workbench UI fixture、工程基建
-尚未完成：真实 Agent Runtime、搜索、持久化 Session/Run、Run Event SSE
+已经完成：持久化 Session/Message、普通对话、Chat SSE、Workbench UI fixture、工程基建
+尚未完成：真实 Agent Runtime、搜索、持久化 Run、Run Event SSE
 ```
 
 ## 2. 阶段一：工程基线
@@ -63,24 +63,22 @@ OPENAI_MODEL
 当前 API：
 
 ```text
-POST /api/agent/chat
-POST /api/agent/chat/stream
+POST /api/agent/sessions/:sessionId/chat/stream
 ```
 
-### 3.2 简单上下文拼接
+### 3.2 数据库作为上下文权威
 
-当前还没有 durable Session/Message 表，所以上下文暂时由 Web 内存状态维护：
+Web 只提交本轮 content，后端以数据库消息作为上下文权威：
 
 ```text
-Conversation UI
-  -> 过滤 user / assistant 消息
-  -> 排除 RunCard、Workbench 等 UI 状态
-  -> 截取最近 20 条
+session-scoped request
+  -> 持久化 user message
+  -> 数据库读取最近 20 条 user / assistant
   -> API 追加 system prompt
   -> 调用模型
 ```
 
-这里的边界要说清楚：它是普通聊天阶段的临时方案，不等同于最终的 StateStore 或 Session 恢复方案。后续接入持久化时，应把这段逻辑替换为基于 Session/Run snapshot 的 Context Compiler。
+这样刷新、切换设备内页面或后台生成时，前端缓存都不会成为模型上下文事实来源。进入 Agent Run 阶段后，再由 Context Compiler 在持久化消息、工具结果和状态快照之上做上下文选择。
 
 ### 3.3 错误边界
 
@@ -162,7 +160,42 @@ Agent Runtime / Event Stream
 
 当前 fixture 尚未替代真实 Agent Event Store，也没有断线 replay、run-scoped sequence 或真实 steer/cancel。面试时应明确说明：UI 状态已先验证，生产事件协议和持久化投影仍是下一阶段工作。
 
-## 6. 阶段五：协议与传输的演进边界
+## 6. 阶段五：会话持久化与并发隔离
+
+### 6.1 写入时序与失败语义
+
+普通对话不是把流式半成品持续写入数据库，而是使用明确的提交边界：
+
+```text
+校验 Session 归属并获取执行权
+  -> user message 落库并更新 Session.updatedAt
+  -> 读取最近 20 条上下文
+  -> assistant delta 只投影到 Web 缓存
+  -> 模型完整结束
+  -> assistant message 一次性落库
+  -> message.completed 返回真实持久化 ID
+```
+
+供应商失败时保留 user message，但不写空 assistant 或不完整正文。这一取舍使数据库表达“已经提交的用户事实”和“已经完成交付的模型事实”，不会把网络中断误表示成完整回答。代价是页面刷新后无法恢复尚未完成的部分流，这要等 Run/Event 持久化阶段解决。
+
+### 6.2 为什么需要会话级执行注册表
+
+前端允许切换会话后让原会话继续后台生成，因此不能使用一个全局 `submitting` 布尔值。Web 按 `sessionId` 维护消息缓存和 pending 状态；API 使用内存 `Set<sessionId>` 获取和释放执行权：
+
+- 不同 Session 可以并行，避免一个长回答阻塞整个应用。
+- 同一 Session 暂时拒绝并发消息，避免历史读取和消息排序出现竞态。
+- 活跃 Session 删除返回 `409 SESSION_BUSY`，避免流结束时向已删除会话写 assistant。
+- 注册表不冒充持久化任务恢复；API 重启后活跃流自然终止。
+
+这里值得强调的是锁的获取时机：Controller 在发送 SSE 响应头之前完成归属校验、加锁和 user message 写入，因此并发冲突仍能返回标准 HTTP Problem Details，而不是在已经开始的 SSE 中混入 409。
+
+### 6.3 前端缓存与数据库最终事实
+
+发送时先做 optimistic UI，空白草稿的 user/assistant 占位立即出现；Session 创建成功后再把草稿绑定服务端 ID。每个流回调闭包固定捕获目标 `sessionId`，即使用户切换会话，delta 也只写目标缓存。切换回来可以看到生成进度，流完成后再用 Session detail 覆盖缓存，以数据库结果作为最终事实。
+
+标题生成被拆成首轮回答后的独立请求：临时标题可立即用于 Sidebar，模型标题失败只保留 fallback，不阻塞首字、完整回答或 Composer 解锁。
+
+## 7. 协议与传输的演进边界
 
 当前 `packages/agent-protocol` 已被 Web/API 共享，用 Zod 同时承担运行时校验和类型推导；Chat SSE 已升级为带 `type/messageId` 的阶段一事件，但仍不等同于最终 Agent Run 协议。
 
@@ -177,25 +210,25 @@ React         只负责展示和触发动作
 
 这是一个可验证的演进策略：当前先统一消息 ID、Chat SSE 事件和 Function Calling 的结构化对象；进入 Agent Run 阶段后，再增加 `sessionId/runId/eventId/sequence` 和事件 envelope。在此之前，不把供应商 SDK 的响应对象直接泄漏到前端，也不让 Workbench 组件解析裸 SSE JSON。
 
-## 7. 面试表达模板
+## 8. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
-答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，然后通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 普通对话。当前请求支持受控的临时上下文、Chat SSE 和即时 optimistic UI；同时把 Workbench 设计成运行事件的投影边界，为后续真实 Agent Run 协议、来源和报告视图预留了演进路径。
+答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，然后通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 普通对话。当前完成了 Session/Message 持久化、数据库上下文、Chat SSE、会话级并发隔离和即时 optimistic UI；同时把 Workbench 设计成运行事件的投影边界，为后续 Function Calling 和真实 Agent Run 协议预留演进路径。
 
 ### 问：SSE 为什么没有直接使用 WebSocket？
 
 答：当前阶段是服务端单向推送文本 delta，客户端只需要提交一次请求并接收增量结果，SSE 的语义和 HTTP 部署链路更简单。后续 Agent Run 需要 steer/cancel、双向控制和事件恢复时，会重新评估控制请求与事件流的组合，而不是把当前 Chat SSE 直接当成完整 Agent 协议。
 
-### 问：当前上下文为什么没有直接放进 PostgreSQL？
+### 问：为什么上下文由后端从 PostgreSQL 读取？
 
-答：普通对话阶段先验证模型调用和用户体验，避免在 Session/Run 领域模型尚未冻结前过早绑定存储结构。现在上下文仅保存在 Web 内存中，刷新会丢失；下一阶段会用 Session、Message、Run 和 State snapshot 正式替换。
+答：如果由 Web 回传完整历史，前端缓存会变成事实来源，刷新恢复、后台多会话流和未来多端访问都容易产生分叉。现在 Web 只提交本轮 content，API 先持久化 user message，再读取最近 20 条数据库历史。前端缓存只负责低延迟投影，流完成后由详情接口覆盖。
 
 ### 问：流式输出时如何保证用户消息立即出现？
 
 答：提交时先完成本地状态事务：追加 user message、创建空 assistant 占位并清空输入框；网络请求只负责向已有 assistant message 追加 delta。这样 UI 不依赖模型完成时机，供应商失败时也不会丢失用户刚提交的内容。
 
-## 8. 后续追加规则
+## 9. 后续追加规则
 
 每个阶段只追加四类内容：
 

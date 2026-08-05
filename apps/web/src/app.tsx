@@ -9,15 +9,19 @@ import {
   Clock3,
   FileText,
   Globe2,
+  Ellipsis,
   LoaderCircle,
   Menu,
-  MessageSquareText,
   PanelRight,
+  Pencil,
+  Pin,
+  PinOff,
   Plus,
   Search,
   Send,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -27,12 +31,24 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 
-import { ApiProblem, getReadiness, requestChatStream } from './api/client';
+import {
+  ApiProblem,
+  createSession,
+  deleteSession,
+  generateSessionTitle,
+  getReadiness,
+  getSession,
+  listSessions,
+  requestChatStream,
+  updateSession,
+} from './api/client';
 import { MarkdownContent } from './components/markdown-content';
-import type { ChatMessage } from '@harness/agent-protocol';
+import type { PersistedMessage, SessionSummary } from '@harness/agent-protocol';
 
 type ServiceState = 'checking' | 'ready' | 'unavailable';
 type PreviewState =
@@ -604,9 +620,405 @@ export function App() {
   const preview = getPreviewState();
   return (
     <>
-      <AppShell key={preview ?? 'live'} previewState={preview ? makeFixture(preview) : undefined} />
+      {preview ? <AppShell key={preview} previewState={makeFixture(preview)} /> : <PersistentAgentApp />}
       {preview ? <PreviewSwitcher active={preview} /> : null}
     </>
+  );
+}
+
+// 将持久化消息转换为 Conversation 可直接渲染的项目。
+function toConversationItem(message: PersistedMessage): ConversationItem {
+  return message.role === 'user'
+    ? {
+        id: message.id,
+        kind: 'user',
+        content: message.content,
+        createdAt: message.createdAt,
+      }
+    : {
+        id: message.id,
+        kind: 'assistant',
+        text: message.content,
+        content: <p>{message.content}</p>,
+        createdAt: message.createdAt,
+      };
+}
+
+// 从首条用户输入构造创建会话时使用的临时标题。
+function makeProvisionalTitle(content: string): string {
+  return content.replace(/\s+/g, ' ').trim().slice(0, 28);
+}
+
+// 将当前会话选择同步到可刷新恢复的查询参数。
+function updateSessionUrl(sessionId: string | null, replace = false): void {
+  const url = sessionId ? `/agent?session=${encodeURIComponent(sessionId)}` : '/agent';
+  window.history[replace ? 'replaceState' : 'pushState']({}, '', url);
+}
+
+// 按置顶优先、最近更新其次的规则稳定排列会话。
+function sortSessionSummaries(items: SessionSummary[]): SessionSummary[] {
+  return [...items].sort((a, b) => {
+    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+    return b.updatedAt.localeCompare(a.updatedAt);
+  });
+}
+
+// 管理生产页面的持久化会话、独立缓存和后台流。
+function PersistentAgentApp() {
+  const [serviceState, setServiceState] = useState<ServiceState>('checking');
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [sessionStates, setSessionStates] = useState<Record<string, AgentUiState>>({});
+  const [pendingSessions, setPendingSessions] = useState<Record<string, boolean>>({});
+  const [draftPending, setDraftPending] = useState(false);
+  const [draftState, setDraftState] = useState<AgentUiState>(() => makeFixture('empty'));
+  const [prompt, setPrompt] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const selectedSessionIdRef = useRef<string | null>(null);
+  const pendingSessionsRef = useRef<Record<string, boolean>>({});
+
+  useEffect(() => {
+    selectedSessionIdRef.current = selectedSessionId;
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    pendingSessionsRef.current = pendingSessions;
+  }, [pendingSessions]);
+
+  // 同步更新 pending ref 和 React 状态，避免异步详情请求读到旧值。
+  function setSessionPending(sessionId: string, pending: boolean): void {
+    const next = { ...pendingSessionsRef.current, [sessionId]: pending };
+    pendingSessionsRef.current = next;
+    setPendingSessions(next);
+  }
+
+  // 首次进入时检查服务、加载列表并恢复 URL 指定或最近会话。
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.all([getReadiness(controller.signal), listSessions(controller.signal)])
+      .then(([, loadedSessions]) => {
+        setServiceState('ready');
+        setSessions(loadedSessions);
+        const requestedId = new URLSearchParams(window.location.search).get('session');
+        const target = loadedSessions.find((session) => session.id === requestedId) ?? loadedSessions[0];
+        if (target) {
+          setSelectedSessionId(target.id);
+          updateSessionUrl(target.id, true);
+          void loadSessionDetail(target.id);
+        } else {
+          updateSessionUrl(null, true);
+        }
+      })
+      .catch((requestError) => {
+        if (controller.signal.aborted) return;
+        setServiceState('unavailable');
+        setError(getErrorMessage(requestError));
+      });
+    return () => controller.abort();
+  }, []);
+
+  // 从 API 覆盖指定会话缓存，以数据库结果作为最终事实。
+  async function loadSessionDetail(sessionId: string): Promise<void> {
+    if (pendingSessionsRef.current[sessionId]) return;
+    try {
+      const { session } = await getSession(sessionId);
+      if (pendingSessionsRef.current[sessionId]) return;
+      setSessionStates((current) => ({
+        ...current,
+        [sessionId]: {
+          label: session.title,
+          subtitle: '',
+          conversation: session.messages.map(toConversationItem),
+        },
+      }));
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    }
+  }
+
+  // 重新读取侧栏顺序，同时保留各会话独立内容缓存。
+  async function refreshSessions(): Promise<SessionSummary[]> {
+    const loaded = await listSessions();
+    setSessions(loaded);
+    return loaded;
+  }
+
+  // 切换会话时先展示缓存，再异步以服务端详情覆盖。
+  function selectSession(sessionId: string): void {
+    setSelectedSessionId(sessionId);
+    setPrompt('');
+    setError(null);
+    updateSessionUrl(sessionId);
+    setMobileNavOpen(false);
+    void loadSessionDetail(sessionId);
+  }
+
+  // 新建按钮只进入本地空白草稿，不提前写数据库。
+  function startDraft(): void {
+    setSelectedSessionId(null);
+    setDraftState(makeFixture('empty'));
+    setPrompt('');
+    setError(null);
+    updateSessionUrl(null);
+    setMobileNavOpen(false);
+  }
+
+  // 删除确认后的会话，并按最新列表决定恢复落点。
+  async function removeSession(sessionId: string): Promise<void> {
+    const target = sessions.find((session) => session.id === sessionId);
+    if (!window.confirm(`确定删除会话“${target?.title ?? '未命名会话'}”吗？`)) return;
+    try {
+      await deleteSession(sessionId);
+      setSessionStates((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+      const remaining = await refreshSessions();
+      if (selectedSessionIdRef.current !== sessionId) return;
+      const next = remaining[0];
+      if (next) selectSession(next.id);
+      else startDraft();
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    }
+  }
+
+  // 持久化会话局部更新，并同步侧栏与当前会话标题。
+  async function modifySession(
+    sessionId: string,
+    input: { title?: string; isPinned?: boolean },
+  ): Promise<void> {
+    try {
+      const updated = await updateSession(sessionId, input);
+      setSessions((current) => sortSessionSummaries(
+        current.map((session) => session.id === sessionId ? updated : session),
+      ));
+      if (input.title !== undefined) {
+        setSessionStates((current) => current[sessionId]
+          ? { ...current, [sessionId]: { ...current[sessionId], label: updated.title } }
+          : current);
+      }
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+      throw requestError;
+    }
+  }
+
+  // 提交消息；空白草稿先建会话，之后所有流只更新目标 sessionId。
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const task = prompt.trim();
+    const currentId = selectedSessionIdRef.current;
+    if (!task || (currentId ? pendingSessions[currentId] : draftPending)) return;
+    setPrompt('');
+    setError(null);
+    const createdAt = new Date().toISOString();
+    const localUserId = `local-user-${crypto.randomUUID()}`;
+    const localAssistantId = `local-assistant-${crypto.randomUUID()}`;
+    let sessionId = currentId;
+    let isFirstTurn = !sessionId;
+    const optimisticUser: ConversationItem = {
+      id: localUserId,
+      kind: 'user',
+      content: task,
+      createdAt,
+    };
+    const optimisticAssistant: ConversationItem = {
+      id: localAssistantId,
+      kind: 'assistant',
+      createdAt,
+      content: (
+        <p className="assistant-thinking" role="status" aria-live="polite">
+          正在思考中…
+        </p>
+      ),
+    };
+    if (!sessionId) {
+      setDraftPending(true);
+      setDraftState({
+        label: makeProvisionalTitle(task),
+        subtitle: '',
+        conversation: [optimisticUser, optimisticAssistant],
+      });
+    }
+
+    try {
+      if (!sessionId) {
+        const created = await createSession(makeProvisionalTitle(task));
+        sessionId = created.id;
+        setSessions((current) => [created, ...current.filter((item) => item.id !== created.id)]);
+        setSelectedSessionId(created.id);
+        selectedSessionIdRef.current = created.id;
+        updateSessionUrl(created.id, true);
+      } else {
+        const existing = sessionStates[sessionId]?.conversation ?? [];
+        isFirstTurn = !existing.some((item) => item.kind === 'assistant' && item.text);
+      }
+
+      const targetId = sessionId;
+      setSessionStates((current) => {
+        const base = current[targetId] ?? {
+          label: makeProvisionalTitle(task),
+          subtitle: '',
+          conversation: [],
+        };
+        return {
+          ...current,
+          [targetId]: {
+            ...base,
+            conversation: [...base.conversation, optimisticUser, optimisticAssistant],
+          },
+        };
+      });
+      setSessionPending(targetId, true);
+
+      const completed = await requestChatStream(targetId, task, (delta) => {
+        setSessionStates((current) => {
+          const target = current[targetId];
+          if (!target) return current;
+          return {
+            ...current,
+            [targetId]: {
+              ...target,
+              conversation: target.conversation.map((item) =>
+                item.kind === 'assistant' && item.id === localAssistantId
+                  ? {
+                      ...item,
+                      text: `${item.text ?? ''}${delta}`,
+                      content: <p>{`${item.text ?? ''}${delta}`}</p>,
+                    }
+                  : item,
+              ),
+            },
+          };
+        });
+      });
+      setSessionPending(targetId, false);
+      setSessionStates((current) => {
+        const target = current[targetId];
+        if (!target) return current;
+        return {
+          ...current,
+          [targetId]: {
+            ...target,
+            conversation: target.conversation.map((item) =>
+              item.id === localAssistantId ? { ...item, id: completed.messageId } : item,
+            ),
+          },
+        };
+      });
+      await loadSessionDetail(targetId);
+      try {
+        await refreshSessions();
+      } catch {
+        // 回答已经交付，侧栏刷新失败不回滚消息。
+      }
+      if (isFirstTurn) {
+        try {
+          const titleResult = await generateSessionTitle(targetId);
+          setSessions((current) =>
+            current
+              .map((item) => item.id === targetId ? titleResult.session : item)
+              .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+          );
+          setSessionStates((current) => current[targetId]
+            ? { ...current, [targetId]: { ...current[targetId], label: titleResult.session.title } }
+            : current);
+        } catch {
+          // 标题生成是非关键后处理，失败时保留临时标题。
+        }
+      }
+    } catch (requestError) {
+      if (sessionId) {
+        const targetId = sessionId;
+        setSessionStates((current) => {
+          const target = current[targetId];
+          if (!target) return current;
+          return {
+            ...current,
+            [targetId]: {
+              ...target,
+              conversation: target.conversation.map((item) =>
+                item.kind === 'assistant' && item.id === localAssistantId
+                  ? {
+                      ...item,
+                      content: <p className="assistant-failed">本次回答未完成，请稍后重试。</p>,
+                    }
+                  : item,
+              ),
+            },
+          };
+        });
+        void refreshSessions();
+      } else {
+        setPrompt(task);
+        setDraftState(makeFixture('empty'));
+      }
+      setError(getErrorMessage(requestError));
+    } finally {
+      if (sessionId) {
+        const targetId = sessionId;
+        setSessionPending(targetId, false);
+      }
+      setDraftPending(false);
+    }
+  }
+
+  const uiState = selectedSessionId
+    ? sessionStates[selectedSessionId] ?? {
+        label: sessions.find((session) => session.id === selectedSessionId)?.title ?? '加载中…',
+        subtitle: '',
+        conversation: [],
+      }
+    : draftState;
+  const submitting = selectedSessionId ? Boolean(pendingSessions[selectedSessionId]) : draftPending;
+
+  return (
+    <div className="app-shell">
+      <Sidebar
+        serviceState={serviceState}
+        serviceLabel=""
+        mobileNavOpen={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        sessions={sessions}
+        selectedSessionId={selectedSessionId}
+        pendingSessions={pendingSessions}
+        onNew={startDraft}
+        onSelect={selectSession}
+        onDelete={(sessionId) => void removeSession(sessionId)}
+        onRename={(sessionId, title) => modifySession(sessionId, { title })}
+        onTogglePin={(sessionId, isPinned) => void modifySession(sessionId, { isPinned })}
+      />
+      {mobileNavOpen ? (
+        <button className="mobile-backdrop" type="button" aria-label="关闭会话栏" onClick={() => setMobileNavOpen(false)} />
+      ) : null}
+      <main className="main-shell">
+        <header className="topbar">
+          <button className="icon-button open-mobile-nav" type="button" aria-label="打开会话栏" title="打开会话栏" onClick={() => setMobileNavOpen(true)}>
+            <Menu size={18} />
+          </button>
+          <div className="task-title"><span className="task-title__label">{uiState.label}</span></div>
+        </header>
+        <div className="workbench-grid without-workbench">
+          <Conversation
+            state={uiState}
+            error={error}
+            onDismissError={() => setError(null)}
+            onRunChange={() => undefined}
+            onFocusWorkbench={() => undefined}
+            prompt={prompt}
+            submitting={submitting}
+            serviceState={serviceState}
+            composerMode="new-run"
+            onPromptChange={setPrompt}
+            onSubmit={(event) => void handleSubmit(event)}
+          />
+        </div>
+      </main>
+    </div>
   );
 }
 
@@ -783,75 +1195,7 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
       setSubmitting(false);
       return;
     }
-    const assistantId = `a-${Date.now()}`;
-    try {
-      const createdAt = new Date().toISOString();
-      const userMessage: ConversationItem = {
-        id: `u-${Date.now()}`,
-        kind: 'user',
-        content: task,
-        createdAt,
-      };
-      const history: ChatMessage[] = [...uiState.conversation]
-        .filter(
-          (item): item is Extract<ConversationItem, { kind: 'user' | 'assistant' }> =>
-            item.kind === 'user' || item.kind === 'assistant',
-        )
-        .map((item) => ({
-          role: item.kind,
-          content: item.kind === 'assistant' ? (item.text ?? '') : item.content,
-        }))
-        .filter((item) => item.content.length > 0);
-      setUiState((current) => ({
-        ...current,
-        label: current.conversation.length === 0 ? task.slice(0, 28) : current.label,
-        subtitle: '',
-        conversation: [
-          ...current.conversation,
-          userMessage,
-          {
-            id: assistantId,
-            kind: 'assistant',
-            createdAt,
-            content: (
-              <p className="assistant-thinking" role="status" aria-live="polite">
-                正在思考中…
-              </p>
-            ),
-          },
-        ],
-      }));
-      await requestChatStream([...history, { role: 'user', content: task }], (delta) =>
-        setUiState((current) => ({
-          ...current,
-          conversation: current.conversation.map((item) =>
-            item.kind === 'assistant' && item.id === assistantId
-              ? {
-                  ...item,
-                  text: `${item.text ?? ''}${delta}`,
-                  content: <p>{`${item.text ?? ''}${delta}`}</p>,
-                }
-              : item,
-          ),
-        })),
-      );
-    } catch (requestError) {
-      setUiState((current) => ({
-        ...current,
-        conversation: current.conversation.map((item) =>
-          item.kind === 'assistant' && item.id === assistantId
-            ? {
-                ...item,
-                text: undefined,
-                content: <p className="assistant-failed">本次回答未完成，请稍后重试。</p>,
-              }
-            : item,
-        ),
-      }));
-      setError(getErrorMessage(requestError));
-    } finally {
-      setSubmitting(false);
-    }
+    setSubmitting(false);
   }
 
   const serviceLabel = { checking: '检查服务', ready: '服务已就绪', unavailable: '服务不可用' }[
@@ -951,13 +1295,112 @@ function Sidebar({
   serviceLabel,
   mobileNavOpen,
   onClose,
+  sessions,
+  selectedSessionId,
+  pendingSessions,
+  onNew,
+  onSelect,
+  onDelete,
+  onRename,
+  onTogglePin,
 }: {
   serviceState: ServiceState;
   serviceLabel: string;
   mobileNavOpen: boolean;
   onClose: () => void;
+  sessions?: SessionSummary[];
+  selectedSessionId?: string | null;
+  pendingSessions?: Record<string, boolean>;
+  onNew?: () => void;
+  onSelect?: (sessionId: string) => void;
+  onDelete?: (sessionId: string) => void;
+  onRename?: (sessionId: string, title: string) => Promise<void>;
+  onTogglePin?: (sessionId: string, isPinned: boolean) => void;
 }) {
+  const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [editingSession, setEditingSession] = useState<SessionSummary | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [savingTitle, setSavingTitle] = useState(false);
+
+  // 在菜单外点击或按 Escape 时关闭临时操作界面。
+  useEffect(() => {
+    function closeTransientUi(event: PointerEvent | KeyboardEvent): void {
+      if (event instanceof KeyboardEvent && event.key === 'Escape') {
+        setMenuSessionId(null);
+        setMenuAnchor(null);
+        if (!savingTitle) setEditingSession(null);
+        return;
+      }
+      if (event instanceof PointerEvent && !(event.target as Element).closest('.session-actions, .session-menu')) {
+        setMenuSessionId(null);
+        setMenuAnchor(null);
+      }
+    }
+    document.addEventListener('pointerdown', closeTransientUi);
+    document.addEventListener('keydown', closeTransientUi);
+    return () => {
+      document.removeEventListener('pointerdown', closeTransientUi);
+      document.removeEventListener('keydown', closeTransientUi);
+    };
+  }, [savingTitle]);
+
+  // 打开重命名对话框并预填当前标题。
+  function openRename(session: SessionSummary): void {
+    setMenuSessionId(null);
+    setMenuAnchor(null);
+    setEditingSession(session);
+    setEditTitle(session.title);
+  }
+
+  // 将菜单锚定到更多按钮下方，必要时先滚动列表为菜单留出空间。
+  function toggleSessionMenu(
+    sessionId: string,
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ): void {
+    if (menuSessionId === sessionId) {
+      setMenuSessionId(null);
+      setMenuAnchor(null);
+      return;
+    }
+    const button = event.currentTarget;
+    const list = button.closest('.session-list');
+    const initialRect = button.getBoundingClientRect();
+    const overflow = initialRect.bottom + 142 - window.innerHeight;
+
+    const openAtCurrentPosition = () => {
+      const rect = button.getBoundingClientRect();
+      setMenuAnchor({
+        top: rect.bottom + 6,
+        left: Math.max(8, Math.min(rect.right - 154, window.innerWidth - 162)),
+      });
+      setMenuSessionId(sessionId);
+    };
+
+    if (overflow > 0 && list) {
+      list.scrollBy({ top: overflow + 8 });
+      requestAnimationFrame(openAtCurrentPosition);
+    } else {
+      openAtCurrentPosition();
+    }
+  }
+
+  // 校验并提交新的会话名称。
+  async function submitRename(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const title = editTitle.replace(/\s+/g, ' ').trim();
+    if (!editingSession || !title || title.length > 28 || title === editingSession.title) return;
+    setSavingTitle(true);
+    try {
+      await onRename?.(editingSession.id, title);
+      setEditingSession(null);
+    } finally {
+      setSavingTitle(false);
+    }
+  }
+
   return (
+    <>
     <aside className={`session-sidebar ${mobileNavOpen ? 'session-sidebar--open' : ''}`}>
       <div className="brand-row">
         <div className="brand-mark" aria-hidden="true">
@@ -979,33 +1422,141 @@ function Sidebar({
       </div>
       <div className="sidebar-heading">
         <span>会话</span>
-        <button className="icon-button" type="button" aria-label="新建会话" title="新建会话">
+        <button className="icon-button" type="button" aria-label="新建会话" title="新建会话" onClick={onNew}>
           <Plus size={18} />
         </button>
       </div>
-      <button className="session-item is-active" type="button">
-        <span className="session-item__icon">
-          <MessageSquareText size={16} />
-        </span>
-        <span>
-          <strong>新任务</strong>
-          <small>准备开始</small>
-        </span>
-        <ChevronRight size={14} />
-      </button>
-      <div className="sidebar-section">
-        <span>最近使用</span>
+      <div className="session-list">
+        {sessions && selectedSessionId === null ? (
+          <div className="session-row">
+            <button className="session-item is-active" type="button">
+              <strong>新任务</strong>
+            </button>
+          </div>
+        ) : null}
+        {sessions ? sessions.map((session) => (
+          <div className="session-row" key={session.id}>
+            <button
+              className={`session-item ${selectedSessionId === session.id ? 'is-active' : ''}`}
+              type="button"
+              onClick={() => onSelect?.(session.id)}
+              aria-label={pendingSessions?.[session.id] ? `${session.title}，正在生成回复` : session.title}
+            >
+              <strong>{session.title}</strong>
+            </button>
+            <div className="session-actions">
+              <button
+                className="session-more icon-button icon-button--small"
+                type="button"
+                aria-label={`更多操作 ${session.title}`}
+                aria-haspopup="menu"
+                aria-expanded={menuSessionId === session.id}
+                title="更多操作"
+                onClick={(event) => toggleSessionMenu(session.id, event)}
+              >
+                <Ellipsis size={16} />
+              </button>
+            </div>
+          </div>
+        )) : (
+          <>
+            <button className="session-item is-active" type="button">
+              <strong>新任务</strong>
+            </button>
+            <div className="sidebar-section"><span>最近使用</span></div>
+            <div className="sessions-empty">
+              <span>暂无其他会话</span>
+            </div>
+          </>
+        )}
+        {sessions && sessions.length === 0 && selectedSessionId !== null ? (
+          <div className="sessions-empty"><span>暂无会话</span></div>
+        ) : null}
       </div>
-      <div className="sessions-empty">
-        <MessageSquareText size={18} aria-hidden="true" />
-        <span>暂无其他会话</span>
-      </div>
-      <div className="sidebar-footer">
-        <span className={`status-dot status-dot--${serviceState}`} aria-hidden="true" />
-        <span>{serviceLabel}</span>
-        <span className="local-badge">本地</span>
-      </div>
+      {serviceLabel ? (
+        <div className="sidebar-footer">
+          <span className={`status-dot status-dot--${serviceState}`} aria-hidden="true" />
+          <span>{serviceLabel}</span>
+          <span className="local-badge">本地</span>
+        </div>
+      ) : null}
     </aside>
+    {menuSessionId && menuAnchor && sessions ? (() => {
+      const session = sessions.find((item) => item.id === menuSessionId);
+      return session ? createPortal(
+        <div
+          className="session-menu"
+          role="menu"
+          aria-label={`${session.title} 会话操作`}
+          style={{ top: menuAnchor.top, left: menuAnchor.left }}
+        >
+          <button type="button" role="menuitem" onClick={() => openRename(session)}>
+            <Pencil size={15} /><span>重命名</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenuSessionId(null);
+              setMenuAnchor(null);
+              onTogglePin?.(session.id, !session.isPinned);
+            }}
+          >
+            {session.isPinned ? <PinOff size={15} /> : <Pin size={15} />}
+            <span>{session.isPinned ? '取消置顶' : '置顶'}</span>
+          </button>
+          <div className="session-menu__separator" />
+          <button
+            className="session-menu__danger"
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenuSessionId(null);
+              setMenuAnchor(null);
+              onDelete?.(session.id);
+            }}
+          >
+            <Trash2 size={15} /><span>删除</span>
+          </button>
+        </div>,
+        document.body,
+      ) : null;
+    })() : null}
+    {editingSession ? createPortal(
+      <div className="rename-dialog-backdrop" role="presentation" onMouseDown={() => !savingTitle && setEditingSession(null)}>
+        <form
+          className="rename-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="rename-dialog-title"
+          onSubmit={(event) => void submitRename(event)}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="rename-dialog__header">
+            <h2 id="rename-dialog-title">编辑会话名称</h2>
+            <button className="icon-button" type="button" aria-label="关闭" onClick={() => setEditingSession(null)} disabled={savingTitle}>
+              <X size={18} />
+            </button>
+          </div>
+          <label htmlFor="session-title-input">会话名称</label>
+          <input
+            id="session-title-input"
+            autoFocus
+            maxLength={28}
+            value={editTitle}
+            onChange={(event) => setEditTitle(event.target.value)}
+          />
+          <div className="rename-dialog__actions">
+            <button className="secondary-button" type="button" onClick={() => setEditingSession(null)} disabled={savingTitle}>取消</button>
+            <button className="primary-button" type="submit" disabled={savingTitle || !editTitle.trim() || editTitle.trim() === editingSession.title}>
+              {savingTitle ? '保存中…' : '确认'}
+            </button>
+          </div>
+        </form>
+      </div>,
+      document.body,
+    ) : null}
+    </>
   );
 }
 

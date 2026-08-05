@@ -4,9 +4,8 @@ test('opens the bright production conversation shell without an empty workbench'
   page,
 }) => {
   await page.goto('/agent');
-  await expect(page.getByText('Harness')).toBeVisible();
+  await expect(page.locator('.brand-row').getByText('Harness', { exact: true })).toBeVisible();
   await expect(page.getByRole('textbox', { name: '任务输入' })).toBeVisible();
-  await expect(page.getByText('今天想完成什么任务？')).toBeVisible();
   await expect(page.getByRole('complementary', { name: '工作区' })).toHaveCount(0);
 });
 

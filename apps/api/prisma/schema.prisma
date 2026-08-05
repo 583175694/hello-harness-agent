@@ -13,6 +13,49 @@ model User {
   displayName String   @map("display_name")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
+  sessions    Session[]
+  messages    Message[]
 
   @@map("users")
+}
+
+enum MessageRole {
+  user
+  assistant
+}
+
+enum MessageKind {
+  user_message
+  assistant_delivery
+}
+
+model Session {
+  id        String    @id
+  userId    String    @map("user_id")
+  title     String
+  status    String    @default("active")
+  isPinned  Boolean   @default(false) @map("is_pinned")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@index([userId, isPinned(sort: Desc), updatedAt(sort: Desc)])
+  @@map("sessions")
+}
+
+model Message {
+  id        String      @id
+  userId    String      @map("user_id")
+  sessionId String      @map("session_id")
+  role      MessageRole
+  kind      MessageKind
+  content   String
+  createdAt DateTime    @default(now()) @map("created_at")
+  metadata  Json        @default("{}")
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session   Session     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("messages")
 }

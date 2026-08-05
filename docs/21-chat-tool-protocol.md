@@ -13,13 +13,13 @@ UI       = 协议数据的展示投影
 
 Web/API 只依赖 `packages/agent-protocol` 的 schema，不直接共享 OpenAI SDK 类型。供应商字段在 API 适配层转换为本协议对象。
 
-协议版本当前为 `0.2.0`。新增字段优先保持可选；改变字段语义或删除字段时升级协议版本。
+协议版本当前为 `0.3.0`。新增字段优先保持可选；改变字段语义或删除字段时升级协议版本。
 
 ## 2. 阶段一：纯对话协议
 
 ### 2.1 消息
 
-所有消息都可以携带可选 `id` 和 `createdAt`。当前 Web 内存上下文可以不提供它们，但流式 assistant 消息必须由 API 为事件生成 `messageId`。
+所有模型消息都可以携带可选 `id` 和 `createdAt`。跨 HTTP 边界恢复时使用单独的 `PersistedMessage`，其 ID、时间和 sessionId 均为必填。
 
 ```ts
 type ChatMessage =
@@ -31,26 +31,21 @@ type ChatMessage =
 
 阶段一实际只使用 `user`、`assistant`，但从现在开始保留 `system`、`tool` 是为了让阶段二不需要重写消息联合类型。
 
-### 2.2 请求和非流式响应
+### 2.2 持久化会话请求
 
 ```ts
-type ChatRequest = {
-  messages: ChatMessage[];       // 1-40 条
-  sessionId?: string;            // 当前只透传，不表示已持久化
-  tools?: ToolDefinition[];      // 阶段二字段，阶段一不执行
-};
-
-type ChatResponse = {
-  message: AssistantMessage;
-  model: string;
-};
+type SessionChatRequest = { content: string };
 ```
 
 当前接口：
 
 ```text
-POST /api/agent/chat
-POST /api/agent/chat/stream
+POST   /api/agent/sessions
+GET    /api/agent/sessions
+GET    /api/agent/sessions/:sessionId
+DELETE /api/agent/sessions/:sessionId
+POST   /api/agent/sessions/:sessionId/chat/stream
+POST   /api/agent/sessions/:sessionId/title/generate
 ```
 
 ### 2.3 Chat SSE 事件
@@ -64,7 +59,7 @@ type ChatStreamEvent =
   | { type: 'stream.failed'; code: string; detail: string };
 ```
 
-`messageId` 用于把所有 delta 绑定到同一条 assistant 消息；客户端不能根据到达顺序猜测目标消息。当前仍没有 replay、sequence、断线重连和 cancel，这些属于阶段三 Agent Run 协议。
+`messageId` 用于把所有 delta 绑定到同一条 assistant 消息；完成事件中的 ID 是最终持久化 Message ID。客户端只提交本轮 content，API 从数据库读取最近 20 条 user/assistant 消息。当前仍没有 replay、sequence、断线重连和 cancel，这些属于阶段三 Agent Run 协议。
 
 ## 3. 阶段二：Function Calling 协议
 
@@ -118,8 +113,7 @@ messages + tools
 - steer/cancel 的竞态和持久化语义
 - Workbench Activity、Sources、Report 的生产事件投影
 - 工具权限、超时、重试、fallback 和并行调度
-- Session/Message/Run 的 durable storage
+- Run 的 durable storage；Session/Message 已在阶段一实现
 - Memory、Delegation、Worker
 
 这些能力在阶段二之后以 Agent Run 协议单独演进，避免把普通对话协议提前膨胀成不可验证的“大一统协议”。
-

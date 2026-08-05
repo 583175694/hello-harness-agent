@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { validateEnvironment } from '../src/bootstrap/env.schema';
 
 const validEnvironment = {
-  DATABASE_URL: 'postgresql://user:pass@127.0.0.1:55432/db',
+    DATABASE_URL: 'postgresql://user:pass@127.0.0.1:5432/db',
 };
 
 describe('environment validation', () => {

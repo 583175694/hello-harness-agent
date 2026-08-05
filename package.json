@@ -17,13 +17,11 @@
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "db:local:init": "node scripts/setup-local-postgres.mjs",
     "db:generate": "pnpm --filter @harness/api db:generate",
     "db:migrate": "pnpm --filter @harness/api db:migrate",
     "db:deploy": "pnpm --filter @harness/api db:deploy",
-    "db:studio": "pnpm --filter @harness/api db:studio",
-    "infra:up": "docker compose --env-file .env -f infra/docker-compose.yml up -d postgres",
-    "infra:down": "docker compose --env-file .env -f infra/docker-compose.yml down",
-    "infra:logs": "docker compose --env-file .env -f infra/docker-compose.yml logs -f postgres"
+    "db:studio": "pnpm --filter @harness/api db:studio"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

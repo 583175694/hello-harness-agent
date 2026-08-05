@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-04
+> 最后更新：2026-08-05
 
 ## 1. 当前结论
 
@@ -17,7 +17,7 @@
 - pnpm workspace 已建立。
 - Web：React + Vite + TypeScript。
 - API：NestJS，监听 `4318`。
-- PostgreSQL：Docker Compose，监听 `55432`。
+- PostgreSQL：本机 PostgreSQL 服务，监听 `5432`。
 - Prisma schema、migration、数据库 readiness 和本地用户初始化已接入。
 - canonical 协议包和 agent-testkit 已建立。
 - 配置校验、结构化日志、请求 ID 和敏感字段脱敏已接入。
@@ -44,19 +44,19 @@ Web production:  http://127.0.0.1:4317/agent
 Web preview:     http://127.0.0.1:4317/agent/preview?state=tool-running-open
 API health:      http://127.0.0.1:4318/healthz
 API readiness:   http://127.0.0.1:4318/readyz
-PostgreSQL:      127.0.0.1:55432
+PostgreSQL:      127.0.0.1:5432
 ```
 
 启动前需要准备 `.env`、依赖和 PostgreSQL：
 
 ```bash
 pnpm install
-pnpm infra:up
+pnpm db:local:init
 pnpm db:deploy
 pnpm dev
 ```
 
-`pnpm dev` 输出的 Web/API 地址以当前配置为准；如果 `4317` 或 `4318` 已被占用，启动脚本会直接报告冲突，不会打印误导性的成功链接。
+`pnpm dev` 输出的 Web/API 地址以当前配置为准；如果 `4317` 或 `4318` 已被占用，启动脚本会直接报告冲突，不会打印误导性的成功链接。PostgreSQL 使用本机服务，不再依赖 Docker。
 
 ## 4. 验证记录
 

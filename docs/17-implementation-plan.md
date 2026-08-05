@@ -108,7 +108,7 @@ apps/web
 apps/api
 packages/agent-protocol
 packages/agent-testkit
-infra/docker-compose.yml
+scripts/setup-local-postgres.mjs
 ```
 
 工程基线：
@@ -117,7 +117,7 @@ infra/docker-compose.yml
 - React + Vite
 - NestJS
 - Prisma
-- PostgreSQL Docker Compose
+- 本地 PostgreSQL 服务
 - ESLint / formatter / typecheck
 - Vitest or framework-aligned unit tests
 - Playwright smoke test
@@ -142,7 +142,7 @@ Web：
 验收：
 
 ```text
-docker compose up postgres
+pnpm db:local:init
 pnpm install
 pnpm dev
 -> healthz/readyz healthy
@@ -152,7 +152,7 @@ pnpm dev
 
 验收记录：
 
-- Web `4317`、API `4318`、PostgreSQL `55432` 的非默认端口已落地。
+- Web `4317`、API `4318`、PostgreSQL `5432` 的开发端口已落地。
 - Prisma migration `20260803102537_init` 已应用，API 启动可幂等初始化 `local-user`。
 - `pnpm check`、API integration tests 和 Playwright desktop/mobile E2E 已通过。
 - 工作台提交任务时收到 HTTP 501 和 canonical `CAPABILITY_NOT_IMPLEMENTED`。
@@ -299,7 +299,7 @@ P3 只实现桌面 fixture 交互，不修改 mobile Workbench 形态；mobile �
 - run/message/state/artifact 归属 session。
 - session 删除级联删除数据库记录和本地文件。
 - Artifact 写入采用 temp + atomic rename。
-- PostgreSQL 由 Docker Compose 提供。
+- PostgreSQL 由本机服务提供。
 
 测试：migration、repository contract、API restart recovery、delete cleanup、Artifact atomic write。
 

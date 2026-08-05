@@ -27,14 +27,14 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 当前仓库已完成 P1：
 
 - pnpm workspace，包含 React/Vite Web、NestJS API 和共享 package
-- PostgreSQL Docker Compose、Prisma schema 和首个 migration
+- 本地 PostgreSQL、Prisma schema 和首个 migration
 - `users` 最小表及唯一 `local-user` 自动初始化
 - `/healthz`、`/readyz` 和明确返回未实现错误的 session 创建入口
 - `/agent` 工作台壳层、任务输入和 Sources/Report 空状态
 - 环境校验、结构化日志、secret redaction 和本地 Artifact 根目录检查
 - unit、API integration、Playwright desktop/mobile 测试
 
-本地开发端口固定为 Web `4317`、API `4318`、PostgreSQL `55432`，均可通过配置调整。
+本地开发端口固定为 Web `4317`、API `4318`、PostgreSQL `5432`，均可通过配置调整。开发环境直接使用本机 PostgreSQL，不依赖 Docker。
 
 尚未实现 Agent Runtime、durable session/run/state、模型、搜索、正式 Artifact、Memory 或 Delegation。P2 及之后里程碑仍为 planned。只有代码、测试和验收记录同时存在时，能力才算完成。
 
@@ -124,7 +124,7 @@ NestJS
 Prisma
 PostgreSQL
 local filesystem Artifact store
-Docker Compose for PostgreSQL only
+Local PostgreSQL service for development
 OpenAI official SDK with configurable baseURL
 ```
 

@@ -10,7 +10,7 @@ Web                 React + Vite
 API                 NestJS
 ORM/Migrations      Prisma
 Database            PostgreSQL
-Local DB runtime    Docker Compose
+Local DB runtime    Local PostgreSQL service
 Artifact content    local filesystem
 Model client        OpenAI official SDK
 Testing             unit + contract + integration + Playwright
@@ -30,8 +30,8 @@ hello-harness-agent/
     agent-testkit/
   docs/
   artifacts/
-  infra/
-    docker-compose.yml
+  scripts/
+    setup-local-postgres.mjs
   package.json
   pnpm-workspace.yaml
   tsconfig.base.json
@@ -44,7 +44,7 @@ apps/web                 终端用户任务工作台
 apps/api                 NestJS API + modular Agent backend
 packages/agent-protocol  唯一跨模块 schema/type 来源
 packages/agent-testkit   deterministic fixtures and contracts
-infra                    仅本地 PostgreSQL 等开发基础设施
+scripts                  本地开发、启动和 PostgreSQL 初始化脚本
 artifacts                本地 Artifact 内容根目录；P1 仅用于 readiness
 ```
 
@@ -350,7 +350,7 @@ apps/web/src/features/agent/api/
 apps/web/src/features/agent/components/
 packages/agent-protocol/
 packages/agent-testkit/
-infra/docker-compose.yml
+scripts/setup-local-postgres.mjs
 ```
 
 P2 才增加 runtime/finalizer/state/stream/projection。P5 增加 context/loop/model。P6 增加 tooling/search。P7 增加 research/evidence/report。
@@ -362,7 +362,7 @@ P2 才增加 runtime/finalizer/state/stream/projection。P5 增加 context/loop/
 ```text
 cp .env.example .env
 pnpm install
-pnpm infra:up
+pnpm db:local:init
 pnpm db:deploy
 pnpm dev
 ```
@@ -372,10 +372,10 @@ pnpm dev
 ```text
 Web          http://127.0.0.1:4317/agent
 API          http://127.0.0.1:4318
-PostgreSQL   127.0.0.1:55432
+PostgreSQL   127.0.0.1:5432
 ```
 
-README 记录 Node、pnpm、Docker、迁移和端口要求。`readyz` 只有在 PostgreSQL、Artifact path 和配置校验通过后才 healthy。
+README 记录 Node、pnpm、本地 PostgreSQL、迁移和端口要求。`readyz` 只有在 PostgreSQL、Artifact path 和配置校验通过后才 healthy。
 
 ## 14. 最终边界
 

@@ -10,7 +10,7 @@ Local filesystem Artifact content and short-lived large payloads
 Prisma           repository implementation and migrations
 ```
 
-数据库由 Docker Compose 在本地提供。R1 不需要 S3/MinIO。
+数据库由本机 PostgreSQL 服务提供。R1 不需要 Docker、S3 或 MinIO。
 
 ## 2. 归属模型
 

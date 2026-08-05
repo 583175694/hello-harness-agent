@@ -29,7 +29,7 @@
 
 - Node.js 22+
 - pnpm 10+
-- Docker Desktop 或兼容的 Docker Engine
+- 本地 PostgreSQL 14+
 
 项目使用非默认端口，避免与常见本地服务冲突：
 
@@ -37,7 +37,7 @@
 | ---------- | ----------------------------- |
 | Web        | `http://127.0.0.1:4317/agent` |
 | API        | `http://127.0.0.1:4318`       |
-| PostgreSQL | `127.0.0.1:55432`             |
+| PostgreSQL | `127.0.0.1:5432`              |
 
 ## 本地启动
 
@@ -46,7 +46,7 @@
 ```bash
 cp .env.example .env
 pnpm install
-pnpm infra:up
+pnpm db:local:init
 pnpm db:deploy
 pnpm dev
 ```
@@ -66,13 +66,12 @@ curl http://127.0.0.1:4318/readyz
 pnpm check             # lint + typecheck + unit tests + build
 pnpm test:integration  # API/PostgreSQL integration tests
 pnpm test:e2e          # desktop/mobile browser tests
+pnpm db:local:init     # 初始化本地 harness 用户和数据库
 pnpm db:migrate        # 开发期创建并应用 Prisma migration
 pnpm db:studio         # 打开 Prisma Studio
-pnpm infra:logs        # 查看 PostgreSQL 日志
-pnpm infra:down        # 停止 PostgreSQL
 ```
 
-Docker Compose 只运行 PostgreSQL；Web 和 API 始终通过 pnpm 在宿主机运行。API、PostgreSQL 端口和数据库连接从 `.env` 读取；修改 Web 端口时还需同步 `apps/web/package.json`、Playwright 配置和 `WEB_ORIGIN`。
+PostgreSQL 使用本机服务，Web 和 API 通过 pnpm 在宿主机运行。首次初始化会创建或更新 `.env` 中配置的 PostgreSQL 用户和数据库；停止或重启数据库由本机 PostgreSQL 服务管理。API、数据库端口和连接字符串从 `.env` 读取；修改 Web 端口时还需同步 `apps/web/package.json`、Playwright 配置和 `WEB_ORIGIN`。
 
 ## 工程结构
 
@@ -81,7 +80,7 @@ apps/web                React/Vite 工作台
 apps/api                NestJS API + Prisma
 packages/agent-protocol 跨前后端 canonical schema/type
 packages/agent-testkit  确定性测试 fixtures
-infra                   PostgreSQL Docker Compose
+scripts                 本地开发和 PostgreSQL 初始化脚本
 artifacts               本地 Artifact 内容根目录
 docs                    产品、架构与实施文档
 ```
@@ -104,4 +103,5 @@ docs                    产品、架构与实施文档
 - `17-implementation-plan.md` 决定阶段交付和验收。
 - 专题文档不得扩大 R1 范围或复制 canonical schema。
 - capability 只在对应阶段创建，不生成空模块、假接口或无行为 UI。
+
 # hello-harness-agent

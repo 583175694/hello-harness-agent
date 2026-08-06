@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-05
+> 最后更新：2026-08-07
 
 ## 1. 当前结论
 
@@ -140,7 +140,9 @@ git diff --check
 
 ## 6. 下一阶段建议
 
-下一步应从“搜索结果列表”演进到“可验证网页证据”：抓取或读取正文、保存可定位片段、区分 clue/evidence，并让回答引用经过校验的来源。该阶段稳定后，再引入 durable Run/Step/Event、断线 replay 和正式 Agent Runtime；UI fixture 仍只能作为后续状态验收基线。
+下一步计划新增受控的来源内容读取能力，暂定模型工具为 `web_read({sourceId})`；该能力尚未实现。模型先通过 `web_search` 获得标题、URL 和摘要等 clue，再从本轮真实搜索结果中选择值得深入阅读的 `sourceId`，由后端解析并读取对应来源，返回正文或可定位 passages。模型不能向该工具传入任意 URL，后端还需要限制来源归属、重复读取、调用预算、超时、内容大小和不可信内容边界。
+
+这一阶段首先解决“clue 只能用于发现来源，不能直接支撑正式结论”的问题，并建立 `clue -> evidence candidate` 的数据边界；不得把现有 snippet/summary 改名后冒充原文证据。拿到真实原文材料后，再选择可引用 passage、保存 Evidence、生成引用并进行确定性 Citation Validation。该阶段稳定后，再引入 durable Run/Step/Event、断线 replay 和正式 Agent Runtime；UI fixture 仍只能作为后续状态验收基线。
 
 ## 7. 关联文档
 

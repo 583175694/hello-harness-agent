@@ -25,6 +25,7 @@ export type ToolStreamEvent = Extract<
   { type: 'tool.started' | 'tool.completed' | 'tool.failed' }
 >;
 
+// 为空时通过 Vite 反向代理访问同源 API，部署时可覆盖为独立服务地址。
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 
 export class ApiProblem extends Error {
@@ -121,6 +122,7 @@ export async function requestChatStream(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  // buffer 保留尚未形成完整双换行边界的 SSE 半包。
   let buffer = '';
   let model = '';
   let messageId = '';

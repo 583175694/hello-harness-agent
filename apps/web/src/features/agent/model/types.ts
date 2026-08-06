@@ -1,0 +1,51 @@
+import type { ReactNode } from 'react';
+
+export type ServiceState = 'checking' | 'ready' | 'unavailable';
+export type PreviewState =
+  | 'empty' | 'direct-answer' | 'tool-running' | 'tool-running-open' | 'sources' | 'final-report'
+  | 'waiting' | 'steer-accepted' | 'cancelling' | 'cancelled' | 'limited-report' | 'failed';
+export type WorkspaceView = 'activity' | 'sources' | 'report';
+export type ActivityStatus = 'running' | 'completed' | 'waiting' | 'cancelling' | 'cancelled' | 'failed';
+export type ToolCallStatus = 'pending' | 'running' | 'waiting' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
+export type ProgressStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export type WorkbenchFocusTarget =
+  | { kind: 'activity'; runId: string; stepId?: string }
+  | { kind: 'tool_call'; runId: string; stepId: string; toolCallId: string }
+  | { kind: 'source'; runId: string; sourceId: string }
+  | { kind: 'report'; runId: string };
+
+export type ConversationItem =
+  | { id: string; kind: 'user'; content: string; time?: string; createdAt?: string }
+  | { id: string; kind: 'assistant'; content: ReactNode; text?: string; time?: string; createdAt?: string; workbench?: WorkbenchState }
+  | { id: string; kind: 'run'; run: RunCardState };
+
+export type RunCardState = {
+  runId: string; status: ActivityStatus; stage: string; currentAction: string; elapsed: string;
+  queryCount: number; sourceCount: number; summary?: string; progress: ProgressItemState[]; toolCalls: ToolCallView[];
+};
+
+export type ProgressItemState = { id: string; label: string; status: ProgressStatus };
+
+export type ToolCallView = {
+  toolCallId: string; runId: string; stepId: string; toolName: string; title: string; detail: string;
+  status: ToolCallStatus; elapsed: string; inputSummary: string; outputSummary?: string; resultCount?: number; sourceCount?: number;
+};
+
+export type SourceView = {
+  id: string; title: string; domain: string; url: string; excerpt: string; time: string;
+  provider?: string; kind?: 'clue' | 'evidence';
+};
+
+export type ReportView = { title: string; updated: string; content: ReactNode };
+
+export type WorkbenchState = {
+  runId: string; title: string; subtitle: string; activeView: WorkspaceView; activityStatus?: ActivityStatus;
+  executions: ToolCallView[]; focusTarget?: WorkbenchFocusTarget; followMode: 'auto' | 'pinned';
+  sources: SourceView[]; report?: ReportView; open: boolean;
+};
+
+export type AgentUiState = {
+  label: string; subtitle: string; conversation: ConversationItem[]; run?: RunCardState;
+  workbench?: WorkbenchState; autoOpenSuppressedRunIds?: string[];
+};

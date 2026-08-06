@@ -1,13 +1,15 @@
 import { z } from 'zod';
+import { ENV_DEFAULTS } from './env.constants';
 
+// 集中定义 API 进程允许读取的环境变量、默认值和格式约束。
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  API_HOST: z.string().min(1).default('127.0.0.1'),
-  API_PORT: z.coerce.number().int().min(1024).max(65535).default(4318),
-  WEB_ORIGIN: z.string().url().default('http://127.0.0.1:4317'),
+  API_HOST: z.string().min(1).default(ENV_DEFAULTS.apiHost),
+  API_PORT: z.coerce.number().int().min(1024).max(65535).default(ENV_DEFAULTS.apiPort),
+  WEB_ORIGIN: z.string().url().default(ENV_DEFAULTS.webOrigin),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   DATABASE_URL: z.string().min(1),
-  ARTIFACT_ROOT: z.string().min(1).default('../../artifacts'),
+  ARTIFACT_ROOT: z.string().min(1).default(ENV_DEFAULTS.artifactRoot),
   OPENAI_API_KEY: z.preprocess(
     (value) => (value === '' ? undefined : value),
     z.string().min(1).optional(),
@@ -16,17 +18,17 @@ export const envSchema = z.object({
     (value) => (value === '' ? undefined : value),
     z.string().url().optional(),
   ),
-  OPENAI_MODEL: z.string().min(1).default('gpt-4o-mini'),
+  OPENAI_MODEL: z.string().min(1).default(ENV_DEFAULTS.openAiModel),
   SEARCH_PROVIDER: z.preprocess(
     (value) => (value === '' ? undefined : value),
     z.enum(['bocha', 'serp']).optional(),
   ),
-  BOCHA_SEARCH_URL: z.string().url().default('https://api.bochaai.com/v1/web-search'),
+  BOCHA_SEARCH_URL: z.string().url().default(ENV_DEFAULTS.bochaSearchUrl),
   BOCHA_SEARCH_API_KEY: z.preprocess(
     (value) => (value === '' ? undefined : value),
     z.string().min(1).optional(),
   ),
-  SERPER_SEARCH_URL: z.string().url().default('https://google.serper.dev/search'),
+  SERPER_SEARCH_URL: z.string().url().default(ENV_DEFAULTS.serperSearchUrl),
   SERPER_SEARCH_API_KEY: z.preprocess(
     (value) => (value === '' ? undefined : value),
     z.string().min(1).optional(),

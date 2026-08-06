@@ -3,6 +3,9 @@ import type OpenAI from 'openai';
 import { describe, expect, it, vi } from 'vitest';
 
 import { PrismaService } from '../database/prisma.service';
+import { OpenAICompatibleModelAdapter } from '../model/openai-compatible-model.adapter';
+import { AgentRuntimeService } from '../agent-runtime/agent-runtime.service';
+import { AssistantDeliveryRepository } from '../persistence/assistant-delivery.repository';
 import { SessionExecutionRegistry } from '../sessions/session-execution.registry';
 import { ChatService } from './chat.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
@@ -40,15 +43,21 @@ function makeService(
     getOrThrow: vi.fn(() => 'test-model'),
   };
   const executions = new SessionExecutionRegistry();
+  const modelAdapter = new OpenAICompatibleModelAdapter(config as unknown as ConfigService);
+  (modelAdapter as unknown as { client: OpenAI }).client = {
+    chat: { completions: { create: providerCreate } },
+  } as unknown as OpenAI;
+  const runtime = new AgentRuntimeService(
+    modelAdapter,
+    toolRegistry as ToolRegistryService,
+  );
   const service = new ChatService(
     config as unknown as ConfigService,
     prisma as unknown as PrismaService,
     executions,
-    toolRegistry as ToolRegistryService,
+    runtime,
+    new AssistantDeliveryRepository(prisma as unknown as PrismaService),
   );
-  (service as unknown as { client: OpenAI }).client = {
-    chat: { completions: { create: providerCreate } },
-  } as unknown as OpenAI;
   return { service, messageCreate, executions, prisma };
 }
 
@@ -135,9 +144,14 @@ describe('ChatService session persistence', () => {
       }],
     };
     const registry = {
-      definitions: vi.fn(() => [{ type: 'function' as const, function: { name: 'web_search', parameters: {} } }]),
+      definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
       parseInput: vi.fn(() => ({ query: 'latest news' })),
-      execute: vi.fn().mockResolvedValue({ ok: true, input: { query: 'latest news' }, result: toolResult }),
+      execute: vi.fn().mockResolvedValue({
+        status: 'succeeded',
+        output: toolResult,
+        modelContent: JSON.stringify(toolResult),
+        metrics: { durationMs: 10, resultCount: 1 },
+      }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'search the web');
@@ -173,13 +187,13 @@ describe('ChatService session persistence', () => {
         yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
       })());
     const registry = {
-      definitions: vi.fn(() => [{ type: 'function' as const, function: { name: 'web_search', parameters: {} } }]),
+      definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
       parseInput: vi.fn(() => ({ query: 'latest news' })),
       execute: vi.fn().mockResolvedValue({
-        ok: false,
-        input: { query: 'latest news' },
-        code: 'SEARCH_TIMEOUT',
-        detail: '搜索服务响应超时。',
+        status: 'timeout',
+        error: { code: 'SEARCH_TIMEOUT', detail: '搜索服务响应超时。', retryable: true },
+        modelContent: JSON.stringify({ ok: false, code: 'SEARCH_TIMEOUT' }),
+        metrics: { durationMs: 10 },
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
@@ -230,11 +244,17 @@ describe('ChatService session persistence', () => {
       }],
     };
     const registry = {
-      definitions: vi.fn(() => [{ type: 'function' as const, function: { name: 'web_search', parameters: {} } }]),
+      definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
       parseInput: vi.fn((_name: string, rawArguments: string) => JSON.parse(rawArguments) as { query: string }),
-      execute: vi.fn((_name: string, rawArguments: string) => {
-        const input = JSON.parse(rawArguments) as { query: string };
-        return Promise.resolve({ ok: true as const, input, result: { query: input.query, ...sharedResult } });
+      execute: vi.fn((_name: string, value: unknown) => {
+        const input = value as { query: string };
+        const output = { query: input.query, ...sharedResult };
+        return Promise.resolve({
+          status: 'succeeded' as const,
+          output,
+          modelContent: JSON.stringify(output),
+          metrics: { durationMs: 10, resultCount: 1 },
+        });
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
@@ -263,6 +283,7 @@ describe('ChatService session persistence', () => {
   });
 
   it('forces a tool-free final model round after the shared 20-call budget is exhausted', async () => {
+    // 模拟模型连续请求工具的轮次，用于验证跨轮共享的调用预算。
     let modelRound = 0;
     const providerCreate = vi.fn().mockImplementation(() => {
       modelRound += 1;
@@ -277,14 +298,16 @@ describe('ChatService session persistence', () => {
       })());
     });
     const registry = {
-      definitions: vi.fn(() => [{ type: 'function' as const, function: { name: 'web_search', parameters: {} } }]),
+      definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
       parseInput: vi.fn((_name: string, rawArguments: string) => JSON.parse(rawArguments) as { query: string }),
-      execute: vi.fn((_name: string, rawArguments: string) => {
-        const input = JSON.parse(rawArguments) as { query: string };
+      execute: vi.fn((_name: string, value: unknown) => {
+        const input = value as { query: string };
+        const output = { query: input.query, provider: 'serp' as const, results: [] };
         return Promise.resolve({
-          ok: true as const,
-          input,
-          result: { query: input.query, provider: 'serp' as const, results: [] },
+          status: 'succeeded' as const,
+          output,
+          modelContent: JSON.stringify(output),
+          metrics: { durationMs: 10, resultCount: 0 },
         });
       }),
     };

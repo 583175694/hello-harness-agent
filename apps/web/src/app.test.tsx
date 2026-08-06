@@ -276,8 +276,10 @@ describe('R1 workbench shell', () => {
     const baseTime = '2026-08-05T04:00:00.000Z';
     const sessionA = { id: 'session-a', title: '会话 A', status: 'active', isPinned: false, createdAt: baseTime, updatedAt: baseTime };
     const sessionB = { id: 'session-b', title: '会话 B', status: 'active', isPinned: false, createdAt: baseTime, updatedAt: baseTime };
+    // 手动控制后台 SSE 完成时机，复现流式生成期间切换会话的竞态。
     let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
     let streamCompleted = false;
+    // 记录会话 A 的详情请求次数，验证切回时先复用缓存、完成后再校准持久化结果。
     let sessionADetailCalls = 0;
     const encoder = new TextEncoder();
     vi.stubGlobal('fetch', vi.fn().mockImplementation((input: RequestInfo | URL) => {

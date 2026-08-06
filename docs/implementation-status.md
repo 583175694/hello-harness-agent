@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-05
+> 最后更新：2026-08-06
 
 ## 1. 当前结论
 
@@ -24,6 +24,10 @@
 - 开发环境日志已切换为彩色中文单行格式，关闭常规 HTTP 请求/响应明细和 Nest 启动路由噪声；模型链路只记录生成开始、首字响应、完成或失败，并提供会话短 ID、模型、上下文条数、首字耗时、总耗时和输出字数。
 - OpenAI 官方 SDK 和 OpenAI-compatible Chat Completions 已接入；`OPENAI_BASE_URL`、`OPENAI_API_KEY`、`OPENAI_MODEL` 从环境变量读取。
 - 已实现最多 20 次通用工具调用的模型-工具循环，支持分片 arguments 聚合、参数校验、串行执行、错误回传和预算终止。
+- 模型调用已通过 `ModelAdapter` 与 OpenAI SDK 隔离；`AgentRuntimeService` 只依赖 canonical message、模型事件和工具契约。
+- 工具层已拆为 `AgentTool`、集中式 Tool Catalog 和通用 Registry；新增工具不再需要把业务逻辑写入 Registry。
+- Chat 链路已拆出 Runtime、搜索投影、assistant 交付仓库、标题服务和 SSE Writer，`ChatService` 只保留会话准备与兼容事件编排。
+- 模型流、Runtime 事件流和 Chat SSE 继续使用 `AsyncGenerator` 表达逐步产出；单次数据库操作、工具执行和标题生成使用普通 `async/await`。
 - 模型只看到统一 `web_search({query})`；后端通过 `SEARCH_PROVIDER=bocha|serp` 启用一个 Provider，每次返回最多 10 条标准化结果。
 - Bocha/Serper Adapter 已统一标题、URL、domain、摘要、发布日期和来源字段；搜索超时为 10 秒，不记录 Key 或原始响应。
 - 普通对话已支持 SSE 流式输出；Web 会先显示用户消息，再逐段更新 assistant 消息。
@@ -56,6 +60,9 @@
 - Composer 支持 Enter 发送、Shift+Enter 换行；提交后立即清空输入框，用户消息和流式 assistant 占位即时显示。
 - Workbench、Tab、Activity detail 和 RunCard 展开/收起已加入克制动画，并支持 `prefers-reduced-motion`。
 - 使用现有 `lucide-react` 图标库；本地资源目录为 `apps/web/src/assets/`。
+- 前端已按 `components`、`fixtures`、`model` 和 `config` 拆分 Agent feature；页面层继续集中维护 session 选择、缓存和 SSE 生命周期，避免同一状态机出现多个事实源。
+- 跨前后端协议已按 `common`、`sessions` 拆分内部模块；共享限制、工具名和错误码，以及 API/Web 各自的稳定配置均已集中治理。
+- 新增和重构的业务函数已补充精简中文注释；对象型常量的每个字段均单独说明用途。
 
 ## 3. 可用入口
 
@@ -113,6 +120,8 @@ git diff --check
 
 结果为 workspace lint、typecheck、41 项 unit test 和 production build 全部通过，API integration 9 项通过。新增回归覆盖模型长度截断不落库、工具失败后的受限回答、重复 URL 来源合并，以及 20 次通用工具预算耗尽后的强制最终回答。另使用 Mock model/provider 验证完整工具闭环，没有在自动测试中请求真实搜索 API；使用 1440×900 和 390×844 视口检查生产 Workbench 结构与 Sources 列表，无横向溢出或内容遮挡。
 
+2026-08-06 完成后端职责拆分、前端 feature 拆分、协议包内部拆分和常量治理。模型流式处理、Function Calling 循环、工具执行、搜索投影、持久化和 SSE 传输现在具备独立边界；本轮属于保持既有产品行为的结构重构，不新增用户可见能力。详细取舍见 `docs/22-code-refactor-plan.md`。
+
 覆盖范围包括：
 
 - Web lint、TypeScript typecheck、unit tests、production build。
@@ -132,7 +141,7 @@ git diff --check
 以下内容仍按 `docs/17-implementation-plan.md` 和相关契约文档执行，不能从 Preview 状态推断已经完成：
 
 - Run、State、Artifact 的持久化和恢复；Session/Message 普通对话持久化已经完成。
-- 正式 Agent Runtime、durable Run/Step/Event、断线 replay 和运行级恢复；当前只有一次 Chat 请求内的简化 Agent Loop。
+- durable Agent Run、Run/Step/Event、断线 replay 和运行级恢复；当前 `AgentRuntimeService` 仍是一次 Chat 请求内的非持久化 Runtime，不具备运行恢复能力。
 - 搜索 fallback、网页正文抓取、Evidence 持久化和正式引用校验；当前来源仅是 clue。
 - Markdown Report Artifact 的真实生成、保存、下载和重开。
 - 面向 Agent Run 的 SSE/事件投影、真实 steer/cancel 控制链路；普通对话 Chat SSE 已完成。

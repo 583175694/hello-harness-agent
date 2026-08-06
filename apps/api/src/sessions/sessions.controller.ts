@@ -12,8 +12,11 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { SseEventWriter } from '../stream/sse-event-writer';
 
 import {
+  AGENT_ERROR_CODES,
+  AGENT_PROTOCOL_LIMITS,
   createSessionRequestSchema,
   generateSessionTitleRequestSchema,
   sessionChatRequestSchema,
@@ -34,7 +37,7 @@ export class SessionsController {
   @Post()
   create(@Body() body: unknown) {
     const result = createSessionRequestSchema.safeParse(body);
-    if (!result.success) this.invalid('title 必须是 1 到 28 个字符。');
+    if (!result.success) this.invalid(`title 必须是 1 到 ${AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength} 个字符。`);
     return this.sessions.create(result.data.title);
   }
 
@@ -54,7 +57,7 @@ export class SessionsController {
   @Patch(':sessionId')
   update(@Param('sessionId') sessionId: string, @Body() body: unknown) {
     const result = updateSessionRequestSchema.safeParse(body);
-    if (!result.success) this.invalid('仅支持更新 1 到 28 个字符的 title 或布尔值 isPinned。');
+    if (!result.success) this.invalid(`仅支持更新 1 到 ${AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength} 个字符的 title 或布尔值 isPinned。`);
     return this.sessions.update(sessionId, result.data);
   }
 
@@ -83,26 +86,24 @@ export class SessionsController {
     const result = sessionChatRequestSchema.safeParse(body);
     if (!result.success) this.invalid('content 必须是非空字符串。');
     const prepared = await this.chat.prepareSessionStream(sessionId, result.data.content);
-
-    response.status(200);
-    response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    response.setHeader('Cache-Control', 'no-cache, no-transform');
-    response.setHeader('Connection', 'keep-alive');
-    response.flushHeaders();
+    const writer = new SseEventWriter(response);
+    const abortController = new AbortController();
+    response.on('close', () => abortController.abort());
+    writer.open();
     const startedAt = Date.now();
     try {
-      for await (const event of this.chat.streamPrepared(prepared)) {
-        response.write(`data: ${JSON.stringify(event)}\n\n`);
-      }
-      response.end();
+      for await (const event of this.chat.streamPrepared(prepared, abortController.signal)) writer.write(event);
+      writer.close();
     } catch (error) {
-      this.chat.logStreamFailure(sessionId, Date.now() - startedAt, error);
-      response.write(`data: ${JSON.stringify({
-        type: 'stream.failed',
-        code: 'MODEL_STREAM_FAILED',
-        detail: '模型流式输出失败，请稍后重试。',
-      })}\n\n`);
-      response.end();
+      if (!abortController.signal.aborted) {
+        this.chat.logStreamFailure(sessionId, Date.now() - startedAt, error);
+        writer.write({
+          type: 'stream.failed',
+          code: AGENT_ERROR_CODES.modelStreamFailed,
+          detail: '模型流式输出失败，请稍后重试。',
+        });
+      }
+      writer.close();
     } finally {
       this.chat.releaseSession(sessionId);
     }
@@ -110,6 +111,6 @@ export class SessionsController {
 
   // 抛出统一的会话请求校验错误。
   private invalid(detail: string): never {
-    throw new BadRequestException({ code: 'INVALID_SESSION_REQUEST', detail });
+    throw new BadRequestException({ code: AGENT_ERROR_CODES.invalidSessionRequest, detail });
   }
 }

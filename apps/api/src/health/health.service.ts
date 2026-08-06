@@ -7,6 +7,7 @@ import type { ServiceStatus } from '@harness/agent-protocol';
 
 import { PrismaService } from '../database/prisma.service';
 
+// 暴露在健康检查中的服务版本，暂与应用版本保持同步。
 const serviceVersion = '0.1.0';
 
 @Injectable()
@@ -27,6 +28,7 @@ export class HealthService {
 
   // 并行检查数据库和 Artifact 存储是否就绪。
   async ready(): Promise<ServiceStatus> {
+    // 汇总所有启动必需依赖，任一失败都会使 readiness 变为 not_ready。
     const checks: Record<string, 'ok' | 'error'> = {
       database: 'error',
       artifactStore: 'error',

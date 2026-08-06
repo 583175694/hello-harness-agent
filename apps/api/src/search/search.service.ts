@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { ENV_KEYS } from '../bootstrap/env.constants';
 import type { SearchProvider, SearchToolResult } from '@harness/agent-protocol';
 import { BochaSearchProvider } from './bocha-search.provider';
 import { SerperSearchProvider } from './serper-search.provider';
@@ -13,19 +14,21 @@ export class SearchService {
     private readonly serper: SerperSearchProvider,
   ) {}
 
+  // 仅在供应商及对应密钥齐全时向模型开放搜索能力。
   isEnabled(): boolean {
-    const provider = this.config.get<SearchProvider>('SEARCH_PROVIDER');
+    const provider = this.config.get<SearchProvider>(ENV_KEYS.searchProvider);
     return provider === 'bocha'
-      ? Boolean(this.config.get<string>('BOCHA_SEARCH_API_KEY'))
+      ? Boolean(this.config.get<string>(ENV_KEYS.bochaSearchApiKey))
       : provider === 'serp'
-        ? Boolean(this.config.get<string>('SERPER_SEARCH_API_KEY'))
+        ? Boolean(this.config.get<string>(ENV_KEYS.serperSearchApiKey))
         : false;
   }
 
-  async search(query: string): Promise<SearchToolResult> {
-    const provider = this.config.get<SearchProvider>('SEARCH_PROVIDER');
-    if (provider === 'bocha') return this.bocha.search({ query });
-    if (provider === 'serp') return this.serper.search({ query });
+  // 根据当前配置将查询路由到唯一启用的搜索供应商。
+  async search(query: string, signal?: AbortSignal): Promise<SearchToolResult> {
+    const provider = this.config.get<SearchProvider>(ENV_KEYS.searchProvider);
+    if (provider === 'bocha') return this.bocha.search({ query }, signal);
+    if (provider === 'serp') return this.serper.search({ query }, signal);
     throw new Error('SearchProviderNotConfigured');
   }
 }

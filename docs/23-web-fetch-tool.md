@@ -1,0 +1,332 @@
+# Web Fetch Tool
+
+> 文档状态：下一阶段权威设计，尚未实现。本文定义 canonical `web_fetch` 的 V1 契约、安全边界、内容处理和验收要求。
+
+## 1. 目标
+
+`web_fetch` 获取指定公开 URL，将网页内容转换为有界、可追溯的原文片段，并产出 `evidence_candidate`。
+
+```text
+known URL
+  -> network safety validation
+  -> cache lookup
+  -> bounded HTTP fetch
+  -> content-type validation
+  -> main-content extraction
+  -> sanitization and normalization
+  -> query-aware passage selection
+  -> untrusted evidence payload
+```
+
+工具成功只表示已经取得可定位的来源原文，不表示来源内容必然真实、权威、最新或足以支撑最终结论。正式引用资格仍由 Evidence Layer 决定。
+
+## 2. 模型可见契约
+
+```ts
+type WebFetchInput = {
+  url: string;
+  query?: string;
+};
+```
+
+- `url` 必须是完整 HTTP/HTTPS URL；V1 不维护 URL provenance registry，主要由模型从用户输入或 `web_search` 结果中选择目标。
+- `query` 用于从正文中选择与当前任务相关的抽取式原文片段，不用于生成摘要。
+- 模型不能指定 Header、Cookie、Authorization、代理、缓存 TTL、超时、响应上限、选择器或安全策略。
+
+工具描述：
+
+```text
+获取并过滤指定 URL 的公开内容，返回与任务相关的可定位原文片段。
+```
+
+## 3. 网络安全
+
+每次请求及每一次重定向都必须重新执行以下检查：
+
+- 只允许 `http:` 和 `https:`。
+- URL 不得包含用户名或密码。
+- URL 长度受部署配置限制。
+- 拒绝 localhost、loopback、private、link-local、multicast、unspecified 和保留地址。
+- 拒绝云平台 metadata endpoint 和内部服务域名。
+- DNS 解析后的所有地址都必须通过 IP 检查，防止 DNS rebinding。
+- 域名 allowlist/denylist 由部署策略控制，模型不可修改。
+- 限制重定向次数，并拒绝协议降级或跳转到不允许的目标。
+- R1 不携带用户 Cookie、Authorization 或自定义敏感 Header。
+- TLS 校验默认开启，不提供模型可控的跳过选项。
+
+V1 不实现 prior-context URL allowlist，但这不放宽网络安全检查，也不允许把 API Key、环境变量、内部 prompt 或其他敏感数据编码进 URL。若后续接入敏感上下文或多用户环境，再增加 URL provenance policy，不改变 `web_fetch` 的模型参数。
+
+## 4. 模块边界
+
+V1 在 API 内本地实现静态网页获取，不依赖外部 Fetch Provider。实现必须按职责拆分，不把网络、安全、HTML、缓存和 passage 逻辑堆进 `WebFetchTool`：
+
+```text
+WebFetchTool
+  -> WebFetchService               用例编排与 canonical result
+       -> WebFetchUrlGuard         URL、DNS、IP、重定向安全
+       -> StaticWebContentFetcher  有界 HTTP 获取
+       -> WebFetchCache            进程内 LRU
+       -> HtmlContentExtractor     主内容提取与元数据
+       -> DocumentNormalizer       规范化文本与链接
+       -> PassageChunker           结构化切块
+       -> PassageRanker            字符 n-gram 相关性排序
+```
+
+每个模块通过窄接口协作并可独立测试。未来动态网页可以增加 `BrowserWebContentFetcher`，更强过滤可以增加 Code Execution/模型 Ranker；替换实现不改变 Tool、Result、Evidence 或 Workbench 协议。
+
+## 5. 获取限制
+
+内部策略由应用配置，不进入 Function Calling 参数：
+
+```ts
+type WebFetchPolicy = {
+  timeoutMs: number;
+  maxRedirects: number;
+  maxResponseBytes: number;
+  maxDocumentCharacters: number;
+  maxPassages: number;
+  maxPassageCharacters: number;
+  cacheTtlMs: number;
+  cacheMaxSizeBytes: number;
+  maxFetchCallsPerRun: number;
+  allowedContentTypes: readonly string[];
+};
+```
+
+要求：
+
+- 超时和用户取消通过同一个 `AbortSignal` 传到底层请求。
+- 在读取响应流期间强制执行字节上限，不能先完整缓冲再检查。
+- 压缩响应同时限制解压后的有效大小，防止压缩炸弹。
+- 失败调用计入运行级 Fetch 预算。
+- Transport retry 必须有界；校验错误、明确 4xx 和安全拒绝不重试。
+
+## 6. 内容类型
+
+V1 支持：
+
+```text
+text/html
+application/xhtml+xml
+text/plain
+```
+
+V1 拒绝未知二进制、压缩包、可执行文件、图片、音频和视频。PDF、JavaScript Browser Rendering、登录态网页和其他文档格式在后续 capability 中实现，不在 V1 静默降级。
+
+响应头、实际载荷和最终 URL 都需要记录到安全的规范化元数据中。Content-Type 不受支持时返回结构化错误，不把原始字节交给模型。
+
+## 7. 正文提取与过滤
+
+HTML 解析期间禁止执行脚本或加载页面子资源。正文处理至少包括：
+
+- 移除 `script`、`style`、`noscript`、`iframe`、`template` 等不可用节点。
+- 移除导航、页眉、页脚、侧栏、表单、广告、Cookie Banner、订阅、社交分享、评论和相关文章等常见噪声。
+- 过滤隐藏内容、不可见控制字符和超长重复文本。
+- 移除 Base64 图片数据，保留有意义的 alt 文本。
+- 将相对链接转换为基于最终 URL 的绝对链接。
+- 保留正文标题层级、段落、列表、表格、代码块和引用块。
+- 提取标题、作者、发布时间、语言和 canonical URL；缺失字段不得由模型臆造。
+- 对清洗后的正文执行第二次长度限制，并标记是否发生截断。
+
+正文提取器不承担 HTML 安全展示。任何进入 Web 的 HTML 都必须经过独立 sanitizer；默认优先向模型和 Workbench输出 Markdown 或纯文本。
+
+## 8. Passage Selection
+
+清洗后的正文按标题和段落边界切分，不直接把整个文档注入模型上下文。
+
+```text
+clean document
+  -> structural chunks
+  -> character n-gram relevance ranking
+  -> top-k extractive passages
+  -> total character/token budget
+```
+
+规则：
+
+- passage 必须是来源正文的直接抽取，不得由模型改写。
+- `query` 缺失时返回文档开头、关键标题下内容和有限的代表性片段。
+- 每个 passage 必须包含稳定 `passageId` 和 locator。
+- 相邻命中片段可以确定性合并，但不得改变原文。
+- 模型生成的摘要可以作为 observation，不能作为 Evidence passage。
+- 相关性不足时返回零 passage 和明确原因，不制造证据。
+
+V1 Ranker 使用字符 n-gram、标题/章节命中加权和简单噪声惩罚，不调用额外模型、Embedding 或 Code Execution。`PassageRanker` 保持独立接口，后续可以替换为 BM25、Embedding rerank 或动态过滤。
+
+## 9. Passage Locator
+
+HTML 原文定位参考 W3C Web Annotation 的 `TextQuoteSelector` 和 `TextPositionSelector`，同时保存引用文本上下文与规范化正文区间：
+
+```ts
+type WebTextLocator = {
+  kind: 'web_text';
+  quote: {
+    exact: string;
+    prefix?: string;
+    suffix?: string;
+  };
+  position: {
+    start: number;
+    end: number;
+  };
+  sectionPath?: string[];
+};
+```
+
+- `exact` 与 passage 完全一致；`prefix/suffix` 用于同文多处匹配时消歧。
+- `start` 包含起始字符，`end` 不包含结束字符。
+- 位置基于清洗后规范化正文的 Unicode code points，而不是 JavaScript UTF-16 code units。
+- `sectionPath` 保存 passage 所在的标题层级，辅助用户理解和重新定位。
+- Locator 必须与 `contentHash`、`retrievedAt` 和最终 URL 一起解释；网页变化后不能用旧位置冒充当前页面位置。
+- CSS/XPath 可以作为调试元数据，但不作为正式 Evidence 的唯一定位依据。
+- Workbench 可以根据 quote 派生兼容浏览器的 Text Fragment 链接；Text Fragment 只是导航增强，不替代持久化 locator。
+
+## 10. Canonical Result
+
+```ts
+type WebFetchResult = {
+  requestedUrl: string;
+  finalUrl: string;
+  normalizedUrl: string;
+  title: string;
+  author?: string;
+  publishedAt?: string;
+  language?: string;
+  contentType: string;
+  retrievedAt: string;
+  contentHash: string;
+  cacheStatus: 'hit' | 'miss';
+  truncated: boolean;
+  passages: Array<{
+    passageId: string;
+    text: string;
+    locator: WebTextLocator;
+  }>;
+};
+```
+
+`contentHash` 基于规范化正文生成，用于识别内容变化和绑定引用版本。`retrievedAt` 表示本次返回内容所对应的获取时间；缓存命中时不能伪装成当前时间。
+
+`WebFetchResult` 属于 `evidence_candidate` 材料。只有 Evidence selector 选中的 passage 才创建 durable `EvidenceSource` 和 report-scoped `displayId`。
+
+## 11. Cache And Retention
+
+- V1 使用进程内有界 LRU，按固定 TTL 自动失效，不向模型暴露 freshness/cache 参数。
+- 缓存同时限制 TTL 和估算字节总量，不能只限制条目数；大页面不会无限占用进程内存。
+- 初始默认 TTL 为 15 分钟、正文缓存总量为 32 MiB；数值集中在逐字段注释的常量中，后续按压测和真实页面样本调整。
+- Cache 实现按规范化正文的 UTF-8 字节数计算 size，不以 JavaScript 字符串长度代替内存约束。
+- 缓存 key 至少包含规范化 URL、内容处理版本和影响结果的安全配置版本。
+- 缓存记录保存获取时间、最终 URL、Content-Type、正文 hash、大小和处理版本。
+- TTL 到期后重新 Fetch；V1 不使用 stale fallback，实时获取失败时返回工具错误。
+- 涉及敏感 Header、登录态或用户私有数据的内容不进入本阶段缓存，因为 R1 根本不允许这类 Fetch。
+- 完整 Raw HTML 和规范化正文只存在于请求生命周期及进程内 LRU，不写入 PostgreSQL、Message metadata 或 user Memory。
+- 返回给模型的有界 passages、来源元数据、locator、hash、retrievedAt 和 cacheStatus 可以保存为 assistant 工具快照，用于刷新后恢复 Workbench；它们保持 `evidence_candidate` 资格。
+- 实际引用 passage、来源元数据、locator、hash 和 retrievedAt 按 Evidence 生命周期持久化。
+
+这一分层对应：
+
+```text
+full normalized document
+  -> ephemeral LRU cache
+
+bounded fetched passages
+  -> assistant tool snapshot / evidence_candidate
+
+actually cited passage
+  -> durable EvidenceSource
+```
+
+V1 不为 Fetch Cache 新建数据库表；以后需要跨进程缓存时，只替换 `WebFetchCache` 实现。
+
+## 12. Untrusted Evidence Boundary
+
+Fetch 到的标题、正文、链接、结构化数据和文件内容全部属于不可信证据数据：
+
+- 与 system、user instruction 和 runtime guidance 分区。
+- 网页中的角色声明、命令、工具要求和 Prompt Injection 不得执行。
+- 外部内容不能改变工具集、预算、安全策略、完成条件或引用规则。
+- 网页中的链接只作为不可信候选数据，不自动触发后续 Fetch。
+- API Key、环境变量、内部 prompt 和其他 Session 内容不得进入网页请求。
+
+## 13. Error Taxonomy
+
+```text
+FETCH_INPUT_INVALID
+FETCH_URL_TOO_LONG
+FETCH_URL_NOT_ALLOWED
+FETCH_PRIVATE_ADDRESS
+FETCH_REDIRECT_NOT_ALLOWED
+FETCH_TIMEOUT
+FETCH_CANCELLED
+FETCH_TOO_MANY_REQUESTS
+FETCH_RESPONSE_TOO_LARGE
+FETCH_UNSUPPORTED_CONTENT_TYPE
+FETCH_CONTENT_EMPTY
+FETCH_CONTENT_EXTRACTION_FAILED
+FETCH_UPSTREAM_FAILED
+FETCH_BUDGET_EXCEEDED
+```
+
+工具错误作为普通 Tool Result 返回给 Runtime，使模型可以在预算内选择其他来源。安全拒绝、原始响应体、内部地址和敏感配置不进入用户消息。
+
+## 14. Projection
+
+Workbench Sources 必须区分：
+
+```text
+clue
+  标题、URL、搜索摘要
+  不分配 [Sx]
+
+evidence_candidate
+  已读取来源、原文 passage、检索时间和定位信息
+  尚不分配正式 [Sx]
+
+evidence
+  已选择并持久化的原文 passage
+  可以分配 [Sx] 并被报告引用
+```
+
+完整正文不通过 SSE 推送。SSE 只传递工具生命周期、受控元数据、passage preview 和可按需展开的资源引用。
+
+## 15. V1 验收
+
+1. 模型可以执行 `web_search -> web_fetch -> final answer`。
+2. localhost、私网、metadata 地址、DNS rebinding 和非法重定向被拒绝。
+3. 超时、取消、响应大小、Content-Type 和调用次数限制均被强制执行。
+4. 静态 HTML 能提取主要正文，导航、脚本、广告和 Base64 图片不进入模型上下文。
+5. query-aware passages 使用字符 n-gram 筛选，是可定位的抽取式原文而非模型摘要。
+6. Locator 同时包含 W3C 风格 quote 和 Unicode code-point position，并绑定正文 hash。
+7. 进程内 LRU 有 TTL 和内存上限，过期内容不做 stale fallback。
+8. 结果包含最终 URL、retrievedAt、contentHash、cacheStatus 和截断标志。
+9. clue 与 evidence candidate 在协议和 Workbench 中不可混淆。
+10. 网页 Prompt Injection 不改变指令、工具和预算。
+11. 完整正文不进入普通 SSE、PostgreSQL、Message metadata 或 user Memory。
+12. 网络获取、缓存、正文提取、规范化、切块和排序可以独立测试和替换。
+
+## 16. V1 暂不实现
+
+- JavaScript Browser Rendering
+- PDF 和其他文件格式
+- 登录态网页、Cookie 和 Authorization
+- 模型自定义 Header、代理或 DOM selector
+- Code Execution Dynamic Filtering
+- 任意页面 Actions 和浏览器自动化
+- 子站点 Crawl
+- 自动 PII 识别
+- Screenshot、图片理解、音视频提取
+- URL prior-context registry
+- 跨进程或持久化 Fetch Cache
+- robots.txt policy enforcement
+
+## 17. 参考实现
+
+- [Anthropic Web fetch tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-fetch-tool)
+- [Firecrawl Scrape](https://docs.firecrawl.dev/features/scrape)
+- [Firecrawl Scrape API](https://docs.firecrawl.dev/api-reference/endpoint/scrape)
+- [Tavily Extract](https://docs.tavily.com/documentation/api-reference/endpoint/extract)
+- [Exa Contents Best Practices](https://exa.ai/docs/reference/contents-best-practices)
+- [Mozilla Readability](https://github.com/mozilla/readability)
+- [W3C Web Annotation Data Model](https://www.w3.org/TR/annotation-model/#selectors)
+- [MDN Text Fragments](https://developer.mozilla.org/en-US/docs/Web/URI/Reference/Fragment/Text_fragments)
+- [LlamaIndex Documents and Nodes](https://docs.llamaindex.ai/en/stable/module_guides/loading/documents_and_nodes/usage_nodes/)

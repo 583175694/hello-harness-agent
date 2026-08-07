@@ -78,7 +78,7 @@ Worker 不能通过猜 ID 扩大 scope。
 
 Worker toolset 由 Runtime/Tooling policy 与 task need 交集产生。
 
-P11 research worker 通常只允许 scoped `web.search`，且 provider/tool budget 独立计数。不能注册新工具、provider 或 MCP endpoint。
+P11 research worker 通常只允许 scoped `web_search` / `web_fetch`，且 provider/tool budget 独立计数。不能注册新工具、provider 或 MCP endpoint。
 
 ## 7. Fan-out
 

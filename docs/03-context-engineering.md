@@ -108,7 +108,7 @@ ContextCompiler 保留这些类型标签，不能为了节省 token 抹去资格
 
 ### Planning / Searching
 
-提供 ResearchBudget、已执行 query、open gaps、clues/evidence summaries 和 `web.search` ToolCard。
+提供 ResearchBudget、已执行 query、open gaps、clues/evidence summaries 和当前 step 可用的 `web_search` / `web_fetch` ToolCard。
 
 ### Drafting
 

@@ -333,7 +333,7 @@ final_answer / ask_clarification / fail
 
 验收：明确任务直接完成；阻塞性歧义只问一个问题；waiting 不消耗搜索预算；API Key 不进入日志或 State。
 
-## 9. P6: Search Provider Tooling + Iterative Research
+## 9. P6: Search / Fetch Tooling + Iterative Research
 
 目标：完成真实的多 step 搜索研究，不生成最终正式报告。
 
@@ -342,7 +342,12 @@ final_answer / ask_clarification / fail
 - SearchProvider adapter contract
 - primary/fallback router
 - Bocha/SERP 配置入口
-- canonical `web.search` tool
+- canonical `web_search` tool
+- canonical `web_fetch` tool
+- URL/SSRF/redirect safety policy
+- bounded HTTP fetch and cache policy
+- static HTML main-content extraction
+- character n-gram extractive passage selection
 - input validation
 - provider response normalization
 - clue/evidence-candidate classification
@@ -362,10 +367,11 @@ tool_call / ask_clarification / finish_research / fail
 - 3-6 query budget
 - primary 失败、限流或结果不足时才 fallback
 - snippet-only result 只能作为 clue
-- provider content/passages 才能成为 evidence candidate
+- provider content 或 `web_fetch` 原文 passage 才能成为 evidence candidate
+- 完整正文不进入普通 SSE、长期 Message metadata 或 user Memory
 - 外部内容不能改变 instructions/toolset/budget
 
-验收：模型能基于 gap 迭代查询；fallback 原因可观测；重复查询受抑制；预算耗尽后不再调用 provider；Conversation 中的搜索 progress card 能定位到对应 logical tool call，provider attempts 不重复生成用户可见 execution。
+验收：模型能基于 gap 迭代查询并执行 `web_search -> web_fetch`；fallback 原因可观测；重复查询受抑制；预算耗尽后不再调用 provider；非法 URL、私网地址、重定向、超时、超大响应和不支持的 Content-Type 被确定性拒绝；Fetch 结果包含字符 n-gram 筛选的抽取式 passage、W3C 风格 quote/position locator、retrievedAt 和 contentHash；进程内 LRU 有界且按 TTL 失效；Conversation 中的 progress card 能定位到对应 logical tool call，provider attempts 不重复生成用户可见 execution。
 
 ## 10. P7: Evidence/Citation + Report Review + Workbench
 

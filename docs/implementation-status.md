@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-06
+> 最后更新：2026-08-07
 
 ## 1. 当前结论
 
@@ -149,7 +149,9 @@ git diff --check
 
 ## 6. 下一阶段建议
 
-下一步应从“搜索结果列表”演进到“可验证网页证据”：抓取或读取正文、保存可定位片段、区分 clue/evidence，并让回答引用经过校验的来源。该阶段稳定后，再引入 durable Run/Step/Event、断线 replay 和正式 Agent Runtime；UI fixture 仍只能作为后续状态验收基线。
+下一阶段已确定为 `web_fetch` 与 Evidence Candidate 管道，当前尚未实现：API 在本地执行 URL/SSRF/重定向校验、进程内有界 LRU、静态 HTML 主内容提取和字符 n-gram passage 筛选，返回带 W3C 风格 quote/position locator 的抽取式原文。完整正文只存在于请求生命周期和 LRU，有限 passages 随 assistant 工具快照恢复，实际引用 passage 后续升级为 durable EvidenceSource；详细设计见 `docs/23-web-fetch-tool.md`。
+
+该阶段完成后，再实现正式 Evidence 持久化、report-scoped `[Sx]`、报告复核和确定性引用校验。durable Run/Step/Event、断线 replay 和运行恢复仍按后续独立阶段推进。
 
 ## 7. 关联文档
 
@@ -160,6 +162,7 @@ git diff --check
 - API 协议：[docs/11-api-protocol.md](./11-api-protocol.md)
 - 工程结构：[docs/18-project-structure.md](./18-project-structure.md)
 - 面试知识点：[docs/interview-knowledge.md](./interview-knowledge.md)
+- Web Fetch 设计：[docs/23-web-fetch-tool.md](./23-web-fetch-tool.md)
 
 ## 8. 维护规则
 

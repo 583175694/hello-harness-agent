@@ -11,6 +11,7 @@ Input
   -> clarify only if blocking
   -> plan queries
   -> search primary/fallback provider
+  -> fetch selected source content
   -> separate clues from eligible evidence
   -> iterate 3-6 queries
   -> select 5-10 effective sources when available
@@ -25,8 +26,8 @@ Input
 
 R1 不实现：
 
-- browser automation
-- 任意网页 DOM 抓取
+- browser automation 和任意页面交互
+- JavaScript Browser Rendering、登录态网页和需要用户凭据的内容获取
 - 外部 Deep Research API 代写结论
 - 用户上传文件调研
 - 代码执行
@@ -69,7 +70,7 @@ type ResearchBudget = {
 
 ## 5. 搜索供应商
 
-搜索通过统一工具 `web.search` 暴露给模型。Bocha、SERP 等供应商由部署配置注册为 adapter。
+搜索通过统一工具 `web_search` 暴露给模型。Bocha、SERP 等供应商由部署配置注册为 adapter。需要原文依据时，模型对选中的公开 URL 调用 `web_fetch`；完整 Fetch 契约见 `23-web-fetch-tool.md`。
 
 ```ts
 type SearchProviderConfig = {
@@ -131,7 +132,7 @@ title + URL + snippet only
   -> 可以帮助规划下一次查询
   -> 不得生成正式 evidence/display ID
 
-provider content or locatable passage
+provider content or web_fetch locatable passage
   -> evidence candidate
   -> 经过选择后生成稳定 evidenceId 和 report-scoped displayId
   -> 可以支撑正式引用
@@ -173,6 +174,8 @@ type EvidenceSource = {
 ```
 
 未引用的完整供应商响应只按短期 retention 保存，不进入长期 State 或 user Memory。
+
+`web_fetch` 的完整正文同样只短期保留；模型上下文默认消费有界的抽取式 passage，实际被报告引用的 passage 才复制为 durable EvidenceSource。模型生成的网页摘要不能替代原文 passage。
 
 ## 9. 迭代研究
 

@@ -70,7 +70,7 @@ Worker 不读取完整 Conversation、Session State、User Memory 或 Lead priva
 
 ## 6. Tools
 
-Toolset 是显式 grant。Research worker 通常只获得 `web.search`，但 provider call/query/model step 上限独立且更小。
+Toolset 是显式 grant。Research worker 通常只获得 `web_search` / `web_fetch`，但 provider call/query/model step 上限独立且更小。
 
 Worker tool result 仍遵守 clue/evidence candidate/untrusted content contract。
 

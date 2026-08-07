@@ -79,7 +79,7 @@ User message
   -> compile CompiledStepContext
   -> AgentLoop decides
        ask_clarification
-       tool_call(web.search)
+       tool_call(web_search / web_fetch)
        finish_research
        fail
   -> dispatch
@@ -170,7 +170,7 @@ Runtime 不负责：
 
 ## 8. Search Tooling
 
-模型只看到 `web.search`。Tooling 内部拥有：
+模型只看到 `web_search` 和 `web_fetch`。Tooling 内部拥有：
 
 ```text
 SearchProvider registry

@@ -51,7 +51,7 @@ Policy 不直接读取 full State、prior sessions、raw provider responses 或 
 
 不适合：
 
-- 单次 `web.search` 即可推进
+- 单次 `web_search` 或 `web_fetch` 即可推进
 - 任务需要用户澄清
 - 子任务强依赖、无法隔离
 - 只是为了“任务很难”而并行

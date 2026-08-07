@@ -54,9 +54,33 @@ SSE 的每条 `data` 都是以下联合类型之一：
 
 ```ts
 type ChatStreamEvent =
-  | { type: 'tool.started'; messageId: string; toolCallId: string; toolName: string; input: { query: string }; startedAt: string }
-  | { type: 'tool.completed'; messageId: string; toolCallId: string; toolName: string; completedAt: string; durationMs: number; result: SearchToolResult }
-  | { type: 'tool.failed'; messageId: string; toolCallId: string; toolName: string; completedAt: string; durationMs: number; code: string; detail: string }
+  | {
+      type: 'tool.started';
+      messageId: string;
+      toolCallId: string;
+      toolName: string;
+      input: { query: string };
+      startedAt: string;
+    }
+  | {
+      type: 'tool.completed';
+      messageId: string;
+      toolCallId: string;
+      toolName: string;
+      completedAt: string;
+      durationMs: number;
+      result: SearchToolResult;
+    }
+  | {
+      type: 'tool.failed';
+      messageId: string;
+      toolCallId: string;
+      toolName: string;
+      completedAt: string;
+      durationMs: number;
+      code: string;
+      detail: string;
+    }
   | { type: 'message.delta'; messageId: string; delta: string }
   | { type: 'message.completed'; messageId: string; model: string }
   | { type: 'stream.failed'; code: string; detail: string };
@@ -111,6 +135,17 @@ messages + tools
 这仍然可以在一次 HTTP 请求或一次 Chat SSE 内完成，不代表已经具备可恢复的 Agent Run。
 
 当前实现的 `web_search` 固定只接收 `query`，后端一次只启用 Bocha 或 Serper。每次搜索最多返回 10 条标准化结果，每轮用户请求最多接收 20 次通用工具调用。工具事件用最终 assistant `messageId` 关联；最终 Message metadata 保存 Activity/Sources 轻量快照，但不等同于 Event Store。
+
+阶段二下一增量冻结以下模型可见工具契约，当前尚未实现：
+
+```ts
+type WebFetchInput = {
+  url: string;
+  query?: string;
+};
+```
+
+`web_fetch` 返回经过安全校验、静态正文提取和字符 n-gram 相关性筛选的抽取式原文 passage。V1 不维护 URL prior-context registry，也不向模型暴露缓存参数；进程内 LRU、SSRF、重定向、响应限制和 Evidence 资格由 API 内部策略控制。完整设计见 `23-web-fetch-tool.md`。
 
 ## 4. 明确不属于本阶段
 

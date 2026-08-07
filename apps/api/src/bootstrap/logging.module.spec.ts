@@ -15,7 +15,12 @@ describe('createLoggingOptions', () => {
           level: 'debug',
           autoLogging: false,
           quietReqLogger: true,
-          transport: expect.objectContaining({ target: 'pino-pretty' }),
+          transport: expect.objectContaining({
+            target: 'pino-pretty',
+            options: expect.objectContaining({
+              ignore: expect.stringContaining('reqId'),
+            }),
+          }),
         }),
       }),
     );

@@ -1,11 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions';
+import type {
+  ChatCompletionMessageParam,
+  ChatCompletionTool,
+} from 'openai/resources/chat/completions';
 
 import { ENV_KEYS } from '../bootstrap/env.constants';
 import { ModelAdapter } from './model-adapter';
-import type { ModelMessage, ModelRoundEvent, ModelRoundInput, ModelToolCall } from './model-adapter';
+import type {
+  ModelMessage,
+  ModelRoundEvent,
+  ModelRoundInput,
+  ModelToolCall,
+} from './model-adapter';
 
 @Injectable()
 export class OpenAICompatibleModelAdapter extends ModelAdapter {
@@ -17,18 +25,22 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
 
   // 调用 OpenAI-compatible 流接口，并聚合跨 chunk 返回的工具参数。
   async *streamRound(input: ModelRoundInput): AsyncIterable<ModelRoundEvent> {
-    const response = await this.getClient().chat.completions.create({
-      model: input.model,
-      stream: true,
-      messages: this.toProviderMessages(input.messages),
-      ...(input.tools && !input.forceFinalAnswer
-        ? { tools: this.toProviderTools(input.tools), tool_choice: 'auto' as const }
-        : {}),
-      ...(input.forceFinalAnswer ? { tool_choice: 'none' as const } : {}),
-    }, input.signal ? { signal: input.signal } : undefined);
+    const response = await this.getClient().chat.completions.create(
+      {
+        model: input.model,
+        stream: true,
+        messages: this.toProviderMessages(input.messages),
+        ...(input.tools && !input.forceFinalAnswer
+          ? { tools: this.toProviderTools(input.tools), tool_choice: 'auto' as const }
+          : {}),
+        ...(input.forceFinalAnswer ? { tool_choice: 'none' as const } : {}),
+      },
+      input.signal ? { signal: input.signal } : undefined,
+    );
     const pendingCalls = new Map<number, ModelToolCall>();
     let finishReason: string | null = null;
 
+    // 一个工具调用的名称和 JSON 参数可能跨多个 chunk，必须按 index 分组累积。
     for await (const chunk of response) {
       const choice = chunk.choices[0];
       if (!choice) continue;
@@ -44,6 +56,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     }
 
     const calls = [...pendingCalls.entries()]
+      // 供应商可能交错返回多个工具调用，结束时恢复模型声明的原始顺序。
       .sort(([left], [right]) => left - right)
       .map(([, call]) => call);
     if (calls.length) yield { type: 'tool_calls.completed', calls };

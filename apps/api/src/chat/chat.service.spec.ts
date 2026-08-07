@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import type OpenAI from 'openai';
+import type { Logger } from 'nestjs-pino';
 import { describe, expect, it, vi } from 'vitest';
 
 import { PrismaService } from '../database/prisma.service';
@@ -15,14 +16,20 @@ function makeService(
   providerCreate: ReturnType<typeof vi.fn>,
   toolRegistry: Partial<ToolRegistryService> = { definitions: vi.fn(() => undefined) },
 ) {
+  // 单测注入静默 Logger，只验证事件与持久化结果，不污染测试输出。
+  const logger = {
+    log: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
+  } as unknown as Logger;
   const messageCreate = vi.fn().mockResolvedValue({});
   const sessionUpdate = vi.fn().mockResolvedValue({});
   const storedMessages = Array.from({ length: 25 }, (_, index) => ({
     id: `message-${index}`,
     userId: 'local-user',
     sessionId: 'session-1',
-    role: index % 2 === 0 ? 'user' as const : 'assistant' as const,
-    kind: index % 2 === 0 ? 'user_message' as const : 'assistant_delivery' as const,
+    role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+    kind: index % 2 === 0 ? ('user_message' as const) : ('assistant_delivery' as const),
     content: `content-${index}`,
     createdAt: new Date(1_700_000_000_000 + index),
     metadata: {},
@@ -39,7 +46,7 @@ function makeService(
     $transaction: vi.fn((operations: Promise<unknown>[]) => Promise.all(operations)),
   };
   const config = {
-    get: vi.fn((key: string) => key === 'OPENAI_API_KEY' ? 'test-key' : undefined),
+    get: vi.fn((key: string) => (key === 'OPENAI_API_KEY' ? 'test-key' : undefined)),
     getOrThrow: vi.fn(() => 'test-model'),
   };
   const executions = new SessionExecutionRegistry();
@@ -50,13 +57,15 @@ function makeService(
   const runtime = new AgentRuntimeService(
     modelAdapter,
     toolRegistry as ToolRegistryService,
+    logger,
   );
   const service = new ChatService(
     config as unknown as ConfigService,
     prisma as unknown as PrismaService,
     executions,
     runtime,
-    new AssistantDeliveryRepository(prisma as unknown as PrismaService),
+    new AssistantDeliveryRepository(prisma as unknown as PrismaService, logger),
+    logger,
   );
   return { service, messageCreate, executions, prisma };
 }
@@ -70,10 +79,12 @@ async function collect(stream: AsyncIterable<unknown>): Promise<unknown[]> {
 
 describe('ChatService session persistence', () => {
   it('loads only the latest 20 database messages and persists a completed assistant', async () => {
-    const providerCreate = vi.fn().mockResolvedValue((async function* () {
-      yield { choices: [{ delta: { content: '完整' } }] };
-      yield { choices: [{ delta: { content: '回答' } }] };
-    })());
+    const providerCreate = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { choices: [{ delta: { content: '完整' } }] };
+        yield { choices: [{ delta: { content: '回答' } }] };
+      })(),
+    );
     const { service, messageCreate, executions } = makeService(providerCreate);
 
     const prepared = await service.prepareSessionStream('session-1', 'new question');
@@ -113,10 +124,12 @@ describe('ChatService session persistence', () => {
   });
 
   it('does not persist a length-truncated assistant response', async () => {
-    const providerCreate = vi.fn().mockResolvedValue((async function* () {
-      yield { choices: [{ delta: { content: '不完整回答' } }] };
-      yield { choices: [{ delta: {}, finish_reason: 'length' }] };
-    })());
+    const providerCreate = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { choices: [{ delta: { content: '不完整回答' } }] };
+        yield { choices: [{ delta: {}, finish_reason: 'length' }] };
+      })(),
+    );
     const { service, messageCreate } = makeService(providerCreate);
     const prepared = await service.prepareSessionStream('session-1', 'new question');
 
@@ -127,21 +140,57 @@ describe('ChatService session persistence', () => {
   });
 
   it('executes a streamed tool call and persists its recoverable snapshot', async () => {
-    const providerCreate = vi.fn()
-      .mockResolvedValueOnce((async function* () {
-        yield { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-search', function: { name: 'web_', arguments: '{"query":' } }] } }] };
-        yield { choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'search', arguments: '"latest news"}' } }] }, finish_reason: 'tool_calls' }] };
-      })())
-      .mockResolvedValueOnce((async function* () {
-        yield { choices: [{ delta: { content: '检索完成：https://example.com/' } }] };
-        yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
-      })());
+    const providerCreate = vi
+      .fn()
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call-search',
+                      function: { name: 'web_', arguments: '{"query":' },
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+          yield {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    { index: 0, function: { name: 'search', arguments: '"latest news"}' } },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+          };
+        })(),
+      )
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield { choices: [{ delta: { content: '检索完成：https://example.com/' } }] };
+          yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
+        })(),
+      );
     const toolResult = {
       query: 'latest news',
       provider: 'serp' as const,
-      results: [{
-        id: 'result-1', title: 'Example', url: 'https://example.com/', domain: 'example.com', snippet: 'summary',
-      }],
+      results: [
+        {
+          id: 'result-1',
+          title: 'Example',
+          url: 'https://example.com/',
+          domain: 'example.com',
+          snippet: 'summary',
+        },
+      ],
     };
     const registry = {
       definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
@@ -157,11 +206,13 @@ describe('ChatService session persistence', () => {
     const prepared = await service.prepareSessionStream('session-1', 'search the web');
     const events = await collect(service.streamPrepared(prepared));
 
-    expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'tool.started', toolCallId: 'call-search' }),
-      expect.objectContaining({ type: 'tool.completed', result: toolResult }),
-      expect.objectContaining({ type: 'message.delta', delta: '检索完成：https://example.com/' }),
-    ]));
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'tool.started', toolCallId: 'call-search' }),
+        expect.objectContaining({ type: 'tool.completed', result: toolResult }),
+        expect.objectContaining({ type: 'message.delta', delta: '检索完成：https://example.com/' }),
+      ]),
+    );
     expect(providerCreate).toHaveBeenCalledTimes(2);
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
       data: {
@@ -169,8 +220,15 @@ describe('ChatService session persistence', () => {
           model: 'test-model',
           agent: {
             toolCallCount: 1,
-            executions: [expect.objectContaining({ toolCallId: 'call-search', status: 'completed' })],
-            sources: [expect.objectContaining({ url: 'https://example.com/', toolCallIds: ['call-search'] })],
+            executions: [
+              expect.objectContaining({ toolCallId: 'call-search', status: 'completed' }),
+            ],
+            sources: [
+              expect.objectContaining({
+                url: 'https://example.com/',
+                toolCallIds: ['call-search'],
+              }),
+            ],
           },
         },
       },
@@ -178,14 +236,34 @@ describe('ChatService session persistence', () => {
   });
 
   it('reports a failed tool call and still persists the model restricted answer', async () => {
-    const providerCreate = vi.fn()
-      .mockResolvedValueOnce((async function* () {
-        yield { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-failed', function: { name: 'web_search', arguments: '{"query":"latest news"}' } }] }, finish_reason: 'tool_calls' }] };
-      })())
-      .mockResolvedValueOnce((async function* () {
-        yield { choices: [{ delta: { content: '联网检索失败，当前无法验证最新信息。' } }] };
-        yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
-      })());
+    const providerCreate = vi
+      .fn()
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call-failed',
+                      function: { name: 'web_search', arguments: '{"query":"latest news"}' },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+          };
+        })(),
+      )
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield { choices: [{ delta: { content: '联网检索失败，当前无法验证最新信息。' } }] };
+          yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
+        })(),
+      );
     const registry = {
       definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
       parseInput: vi.fn(() => ({ query: 'latest news' })),
@@ -200,11 +278,17 @@ describe('ChatService session persistence', () => {
     const prepared = await service.prepareSessionStream('session-1', 'search the web');
     const events = await collect(service.streamPrepared(prepared));
 
-    expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'tool.started', toolCallId: 'call-failed' }),
-      expect.objectContaining({ type: 'tool.failed', toolCallId: 'call-failed', code: 'SEARCH_TIMEOUT' }),
-      expect.objectContaining({ type: 'message.completed' }),
-    ]));
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'tool.started', toolCallId: 'call-failed' }),
+        expect.objectContaining({
+          type: 'tool.failed',
+          toolCallId: 'call-failed',
+          code: 'SEARCH_TIMEOUT',
+        }),
+        expect.objectContaining({ type: 'message.completed' }),
+      ]),
+    );
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
       data: {
         content: '联网检索失败，当前无法验证最新信息。',
@@ -220,32 +304,59 @@ describe('ChatService session persistence', () => {
   });
 
   it('deduplicates sources while retaining every associated tool call', async () => {
-    const providerCreate = vi.fn()
-      .mockResolvedValueOnce((async function* () {
-        yield {
-          choices: [{
-            delta: {
-              tool_calls: [
-                { index: 0, id: 'call-first', function: { name: 'web_search', arguments: '{"query":"first"}' } },
-                { index: 1, id: 'call-second', function: { name: 'web_search', arguments: '{"query":"second"}' } },
-              ],
-            },
-            finish_reason: 'tool_calls',
-          }],
-        };
-      })())
-      .mockResolvedValueOnce((async function* () {
-        yield { choices: [{ delta: { content: '来源：https://example.com/report' }, finish_reason: 'stop' }] };
-      })());
+    const providerCreate = vi
+      .fn()
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call-first',
+                      function: { name: 'web_search', arguments: '{"query":"first"}' },
+                    },
+                    {
+                      index: 1,
+                      id: 'call-second',
+                      function: { name: 'web_search', arguments: '{"query":"second"}' },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+          };
+        })(),
+      )
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield {
+            choices: [
+              { delta: { content: '来源：https://example.com/report' }, finish_reason: 'stop' },
+            ],
+          };
+        })(),
+      );
     const sharedResult = {
       provider: 'serp' as const,
-      results: [{
-        id: 'result-1', title: 'Example', url: 'https://example.com/report', domain: 'example.com', snippet: 'summary',
-      }],
+      results: [
+        {
+          id: 'result-1',
+          title: 'Example',
+          url: 'https://example.com/report',
+          domain: 'example.com',
+          snippet: 'summary',
+        },
+      ],
     };
     const registry = {
       definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
-      parseInput: vi.fn((_name: string, rawArguments: string) => JSON.parse(rawArguments) as { query: string }),
+      parseInput: vi.fn(
+        (_name: string, rawArguments: string) => JSON.parse(rawArguments) as { query: string },
+      ),
       execute: vi.fn((_name: string, value: unknown) => {
         const input = value as { query: string };
         const output = { query: input.query, ...sharedResult };
@@ -272,10 +383,12 @@ describe('ChatService session persistence', () => {
               expect.objectContaining({ toolCallId: 'call-first' }),
               expect.objectContaining({ toolCallId: 'call-second' }),
             ],
-            sources: [expect.objectContaining({
-              url: 'https://example.com/report',
-              toolCallIds: ['call-first', 'call-second'],
-            })],
+            sources: [
+              expect.objectContaining({
+                url: 'https://example.com/report',
+                toolCallIds: ['call-first', 'call-second'],
+              }),
+            ],
           },
         },
       },
@@ -289,17 +402,45 @@ describe('ChatService session persistence', () => {
       modelRound += 1;
       if (modelRound <= 20) {
         const callId = `call-${modelRound}`;
-        return Promise.resolve((async function* () {
-          yield { choices: [{ delta: { tool_calls: [{ index: 0, id: callId, function: { name: 'web_search', arguments: `{"query":"query ${modelRound}"}` } }] }, finish_reason: 'tool_calls' }] };
-        })());
+        return Promise.resolve(
+          (async function* () {
+            yield {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: callId,
+                        function: {
+                          name: 'web_search',
+                          arguments: `{"query":"query ${modelRound}"}`,
+                        },
+                      },
+                    ],
+                  },
+                  finish_reason: 'tool_calls',
+                },
+              ],
+            };
+          })(),
+        );
       }
-      return Promise.resolve((async function* () {
-        yield { choices: [{ delta: { content: '已达到工具预算，基于现有资料回答。' }, finish_reason: 'stop' }] };
-      })());
+      return Promise.resolve(
+        (async function* () {
+          yield {
+            choices: [
+              { delta: { content: '已达到工具预算，基于现有资料回答。' }, finish_reason: 'stop' },
+            ],
+          };
+        })(),
+      );
     });
     const registry = {
       definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
-      parseInput: vi.fn((_name: string, rawArguments: string) => JSON.parse(rawArguments) as { query: string }),
+      parseInput: vi.fn(
+        (_name: string, rawArguments: string) => JSON.parse(rawArguments) as { query: string },
+      ),
       execute: vi.fn((_name: string, value: unknown) => {
         const input = value as { query: string };
         const output = { query: input.query, provider: 'serp' as const, results: [] };

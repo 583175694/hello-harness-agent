@@ -15,6 +15,7 @@ export class ToolRegistryService {
 
   constructor(@Inject(AGENT_TOOLS) tools: AgentTool[]) {
     this.toolsByName = new Map();
+    // 启动期建立唯一索引，重复工具名属于配置错误，必须立即失败而不是后注册覆盖前者。
     for (const tool of tools) {
       if (this.toolsByName.has(tool.name)) {
         throw new Error(`重复注册工具：${tool.name}`);
@@ -25,6 +26,7 @@ export class ToolRegistryService {
 
   // 返回当前可用工具的 OpenAI Function Calling 声明。
   definitions(): AgentToolDefinition[] | undefined {
+    // 未配置供应商的工具不会暴露给模型，避免模型调用一个注定失败的能力。
     const definitions = [...this.toolsByName.values()]
       .filter((tool) => tool.isAvailable())
       .map((tool) => tool.definition());
@@ -40,6 +42,7 @@ export class ToolRegistryService {
     } catch {
       throw new Error(AGENT_ERROR_CODES.invalidToolArguments);
     }
+    // JSON 语法正确不代表业务参数有效，第二层交给工具自己的 Zod schema 校验。
     const parsed = tool.inputSchema.safeParse(value);
     if (!parsed.success) throw new Error(AGENT_ERROR_CODES.invalidToolArguments);
     return parsed.data;
@@ -55,7 +58,11 @@ export class ToolRegistryService {
     if (!tool.isAvailable()) {
       return {
         status: 'failed',
-        error: { code: AGENT_ERROR_CODES.toolUnavailable, detail: '当前工具未配置或暂不可用。', retryable: true },
+        error: {
+          code: AGENT_ERROR_CODES.toolUnavailable,
+          detail: '当前工具未配置或暂不可用。',
+          retryable: true,
+        },
         modelContent: JSON.stringify({ ok: false, code: AGENT_ERROR_CODES.toolUnavailable }),
         metrics: { durationMs: 0 },
       };

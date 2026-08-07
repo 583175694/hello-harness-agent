@@ -27,6 +27,7 @@ export class SearchService {
   // 根据当前配置将查询路由到唯一启用的搜索供应商。
   async search(query: string, signal?: AbortSignal): Promise<SearchToolResult> {
     const provider = this.config.get<SearchProvider>(ENV_KEYS.searchProvider);
+    // V1 一次只路由到一个主供应商，不在这里隐式并行或 fallback。
     if (provider === 'bocha') return this.bocha.search({ query }, signal);
     if (provider === 'serp') return this.serper.search({ query }, signal);
     throw new Error('SearchProviderNotConfigured');

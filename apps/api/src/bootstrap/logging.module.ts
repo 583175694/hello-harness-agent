@@ -21,7 +21,8 @@ export function createLoggingOptions(config: ConfigService): Params {
               colorize: true,
               singleLine: true,
               translateTime: 'HH:MM:ss',
-              ignore: 'pid,hostname,req,res,responseTime,context',
+              // 开发终端通过短业务 ID 关联链路，隐藏 Pino 自动附带的冗长请求对象。
+              ignore: 'pid,hostname,req,res,responseTime,context,reqId',
               messageFormat: '[{context}] {msg}',
             },
           }

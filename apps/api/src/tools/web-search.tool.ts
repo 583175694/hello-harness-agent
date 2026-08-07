@@ -8,16 +8,25 @@ import { SEARCH_LIMITS } from '../search/search.constants';
 import type { AgentTool, ToolExecutionContext, ToolExecutionResult } from './agent-tool.types';
 
 // 校验模型传入的网页搜索参数，并限制查询长度。
-const webSearchInputSchema = z.object({ query: z.string().trim().min(1).max(SEARCH_LIMITS.queryMaxLength) }).strict();
+const webSearchInputSchema = z
+  .object({ query: z.string().trim().min(1).max(SEARCH_LIMITS.queryMaxLength) })
+  .strict();
 
 @Injectable()
 export class WebSearchTool implements AgentTool<{ query: string }, SearchToolResult> {
   readonly name = AGENT_TOOL_NAMES.webSearch;
-  readonly description = '搜索公开网页以获取最新或需要来源验证的信息。信息足够后停止搜索并直接回答。';
+  readonly description =
+    '搜索公开网页以获取最新或需要来源验证的信息。信息足够后停止搜索并直接回答。';
   readonly parameters = {
     type: 'object',
     additionalProperties: false,
-    properties: { query: { type: 'string', maxLength: SEARCH_LIMITS.queryMaxLength, description: '清晰、具体且不重复的搜索词。' } },
+    properties: {
+      query: {
+        type: 'string',
+        maxLength: SEARCH_LIMITS.queryMaxLength,
+        description: '清晰、具体且不重复的搜索词。',
+      },
+    },
     required: ['query'],
   };
   readonly inputSchema = webSearchInputSchema;
@@ -53,6 +62,7 @@ export class WebSearchTool implements AgentTool<{ query: string }, SearchToolRes
         metrics: { durationMs: Date.now() - startedAt, resultCount: output.results.length },
       };
     } catch (error) {
+      // 取消、超时和供应商失败对模型具有不同语义，统一在工具边界转换为稳定错误码。
       const timeout = error instanceof Error && error.name === 'TimeoutError';
       const cancelled = context.signal?.aborted === true;
       const code = cancelled
@@ -62,7 +72,11 @@ export class WebSearchTool implements AgentTool<{ query: string }, SearchToolRes
           : AGENT_ERROR_CODES.searchProviderFailed;
       return {
         status: cancelled ? 'cancelled' : timeout ? 'timeout' : 'failed',
-        error: { code, detail: cancelled ? '网页搜索已取消。' : '网页搜索暂时不可用。', retryable: !cancelled },
+        error: {
+          code,
+          detail: cancelled ? '网页搜索已取消。' : '网页搜索暂时不可用。',
+          retryable: !cancelled,
+        },
         modelContent: JSON.stringify({ ok: false, code }),
         metrics: { durationMs: Date.now() - startedAt },
       };

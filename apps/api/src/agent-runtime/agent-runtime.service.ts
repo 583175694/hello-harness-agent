@@ -1,22 +1,32 @@
-import { BadGatewayException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  Inject,
+  Injectable,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { Logger } from 'nestjs-pino';
 
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import type { ChatMessage } from '@harness/agent-protocol';
 import { ModelAdapter } from '../model/model-adapter';
 import type { ModelMessage } from '../model/model-adapter';
+import type { ToolExecutionResult } from '../tools/agent-tool.types';
 import { ToolRegistryService } from '../tools/tool-registry.service';
+import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import type { AgentRuntimeEvent, AgentRuntimeInput } from './agent-runtime.types';
 import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
 
 @Injectable()
 export class AgentRuntimeService {
   constructor(
-    private readonly model: ModelAdapter,
-    private readonly tools: ToolRegistryService,
+    @Inject(ModelAdapter) private readonly model: ModelAdapter,
+    @Inject(ToolRegistryService) private readonly tools: ToolRegistryService,
+    @Inject(Logger) private readonly logger: Logger,
   ) {}
 
   // 执行有硬预算的模型-工具循环，并输出供应商无关的 Runtime 事件。
   async *run(input: AgentRuntimeInput): AsyncGenerator<AgentRuntimeEvent> {
+    const runtimeStartedAt = Date.now();
     const definitions = this.tools.definitions();
     const messages: ModelMessage[] = [
       { role: 'system', content: input.systemPrompt },
@@ -27,14 +37,21 @@ export class AgentRuntimeService {
     let finalContent = '';
     let modelRounds = 0;
 
+    // 每一轮要么直接得到最终文本，要么执行工具并把结果追加到下一轮上下文。
     while (modelRounds <= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
       modelRounds += 1;
+      const roundStartedAt = Date.now();
       const textDeltas: string[] = [];
       let calls: Array<{ id: string; name: string; arguments: string }> = [];
       let finishReason: string | null = null;
       const streamTextImmediately = !definitions || forceFinalAnswer;
+      this.logger.log(
+        `模型轮次开始 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 可用工具=${definitions?.length ?? 0} 个 | 强制回答=${forceFinalAnswer ? '是' : '否'}`,
+        AgentRuntimeService.name,
+      );
 
       try {
+        // Adapter 持续产出文本和聚合后的工具调用，Runtime 不依赖供应商 chunk 结构。
         for await (const event of this.model.streamRound({
           model: input.model,
           messages,
@@ -44,19 +61,35 @@ export class AgentRuntimeService {
         })) {
           if (event.type === 'text.delta') {
             textDeltas.push(event.delta);
+            // 工具可用时暂存本轮文本，避免把模型调用工具前的草稿误投影成最终回答。
             if (streamTextImmediately) yield { type: 'text.delta', delta: event.delta };
           } else if (event.type === 'tool_calls.completed') calls = event.calls;
           else finishReason = event.finishReason;
         }
       } catch (error) {
-        if (input.signal?.aborted || (error instanceof Error && error.name === 'AbortError'))
+        if (input.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+          this.logger.warn(
+            `模型轮次已取消 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds}`,
+            AgentRuntimeService.name,
+          );
           throw error;
+        }
+        this.logger.warn(
+          `模型请求失败 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 原因=${describeLogError(error)} | 耗时=${formatLogDuration(Date.now() - roundStartedAt)}`,
+          AgentRuntimeService.name,
+        );
         throw new BadGatewayException({
           code: AGENT_ERROR_CODES.modelRequestFailed,
           detail: '模型服务暂时不可用，请检查供应商配置后重试。',
         });
       }
 
+      this.logger.log(
+        `模型轮次完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 原因=${finishReason ?? 'unknown'} | 文本=${textDeltas.join('').length} 字 | 工具调用=${calls.length} 个 | 耗时=${formatLogDuration(Date.now() - roundStartedAt)}`,
+        AgentRuntimeService.name,
+      );
+
+      // 长度截断的文本不能作为完整交付持久化。
       if (finishReason === 'length') {
         throw new ServiceUnavailableException({
           code: AGENT_ERROR_CODES.modelLengthLimit,
@@ -72,6 +105,7 @@ export class AgentRuntimeService {
           });
         }
         if (!streamTextImmediately) {
+          // 确认本轮没有工具调用后，再把暂存文本一次次恢复为原始流式事件。
           for (const delta of textDeltas) yield { type: 'text.delta', delta };
         }
         break;
@@ -95,6 +129,7 @@ export class AgentRuntimeService {
 
       for (const call of normalizedCalls) {
         toolCallCount += 1;
+        // 超出预算的调用不再执行，而是把机器可读错误交回模型并要求最终回答。
         if (toolCallCount > DEFAULT_RUNTIME_POLICY.maxToolCalls) {
           messages.push({
             role: 'tool',
@@ -102,6 +137,10 @@ export class AgentRuntimeService {
             content: JSON.stringify({ ok: false, code: AGENT_ERROR_CODES.toolBudgetExceeded }),
           });
           forceFinalAnswer = true;
+          this.logger.warn(
+            `工具预算已耗尽 | 会话=${shortLogId(input.sessionId)} | 上限=${DEFAULT_RUNTIME_POLICY.maxToolCalls} 次`,
+            AgentRuntimeService.name,
+          );
           continue;
         }
 
@@ -116,10 +155,18 @@ export class AgentRuntimeService {
             toolCallId: call.id,
             content: JSON.stringify({ ok: false, code }),
           });
+          this.logger.warn(
+            `工具参数无效 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 错误码=${code}`,
+            AgentRuntimeService.name,
+          );
           continue;
         }
 
         const startedAt = new Date();
+        this.logger.log(
+          `工具调用开始 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name}`,
+          AgentRuntimeService.name,
+        );
         yield {
           type: 'tool.started',
           toolCallId: call.id,
@@ -127,15 +174,34 @@ export class AgentRuntimeService {
           input: toolInput,
           startedAt: startedAt.toISOString(),
         };
-        const result = await this.tools.execute(call.name, toolInput, {
-          sessionId: input.sessionId,
-          messageId: input.messageId,
-          toolCallId: call.id,
-          signal: input.signal,
-        });
+        let result: ToolExecutionResult<unknown>;
+        try {
+          result = await this.tools.execute(call.name, toolInput, {
+            sessionId: input.sessionId,
+            messageId: input.messageId,
+            toolCallId: call.id,
+            signal: input.signal,
+          });
+        } catch (error) {
+          // 未被工具转换为标准结果的异常继续上抛，但先留下不包含输入正文的诊断摘要。
+          this.logger.warn(
+            `工具执行异常 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 原因=${describeLogError(error)}`,
+            AgentRuntimeService.name,
+          );
+          throw error;
+        }
         const completedAt = new Date();
         const durationMs = completedAt.getTime() - startedAt.getTime();
         if (result.status === 'succeeded') {
+          // 结果数量不是所有工具都具备的指标，缺失时不输出误导性的零值。
+          const resultCount =
+            result.metrics.resultCount === undefined
+              ? ''
+              : ` | 结果=${result.metrics.resultCount} 条`;
+          this.logger.log(
+            `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=成功${resultCount} | 耗时=${formatLogDuration(durationMs)}`,
+            AgentRuntimeService.name,
+          );
           yield {
             type: 'tool.completed',
             toolCallId: call.id,
@@ -146,6 +212,10 @@ export class AgentRuntimeService {
             durationMs,
           };
         } else {
+          this.logger.warn(
+            `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=${result.status} | 错误码=${result.error.code} | 耗时=${formatLogDuration(durationMs)}`,
+            AgentRuntimeService.name,
+          );
           yield {
             type: 'tool.failed',
             toolCallId: call.id,
@@ -157,11 +227,16 @@ export class AgentRuntimeService {
             detail: result.error.detail,
           };
         }
+        // 工具结果只作为不可信 tool message 回传模型，不提升为 system/user instruction。
         messages.push({ role: 'tool', toolCallId: call.id, content: result.modelContent });
         if (toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls) forceFinalAnswer = true;
       }
     }
 
+    this.logger.log(
+      `Agent 运行完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 工具=${toolCallCount} 次 | 耗时=${formatLogDuration(Date.now() - runtimeStartedAt)}`,
+      AgentRuntimeService.name,
+    );
     yield { type: 'run.completed', content: finalContent, toolCallCount };
   }
 

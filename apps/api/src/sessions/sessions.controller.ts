@@ -12,6 +12,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { Logger } from 'nestjs-pino';
 import { SseEventWriter } from '../stream/sse-event-writer';
 
 import {
@@ -24,6 +25,7 @@ import {
 } from '@harness/agent-protocol';
 
 import { ChatService } from '../chat/chat.service';
+import { shortLogId } from '../shared/logging.utils';
 import { SessionsService } from './sessions.service';
 
 @Controller('api/agent/sessions')
@@ -31,13 +33,15 @@ export class SessionsController {
   constructor(
     @Inject(SessionsService) private readonly sessions: SessionsService,
     @Inject(ChatService) private readonly chat: ChatService,
+    @Inject(Logger) private readonly logger: Logger,
   ) {}
 
   // 创建首次发送所需的持久化会话。
   @Post()
   create(@Body() body: unknown) {
     const result = createSessionRequestSchema.safeParse(body);
-    if (!result.success) this.invalid(`title 必须是 1 到 ${AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength} 个字符。`);
+    if (!result.success)
+      this.invalid(`title 必须是 1 到 ${AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength} 个字符。`);
     return this.sessions.create(result.data.title);
   }
 
@@ -57,7 +61,10 @@ export class SessionsController {
   @Patch(':sessionId')
   update(@Param('sessionId') sessionId: string, @Body() body: unknown) {
     const result = updateSessionRequestSchema.safeParse(body);
-    if (!result.success) this.invalid(`仅支持更新 1 到 ${AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength} 个字符的 title 或布尔值 isPinned。`);
+    if (!result.success)
+      this.invalid(
+        `仅支持更新 1 到 ${AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength} 个字符的 title 或布尔值 isPinned。`,
+      );
     return this.sessions.update(sessionId, result.data);
   }
 
@@ -85,14 +92,21 @@ export class SessionsController {
   ): Promise<void> {
     const result = sessionChatRequestSchema.safeParse(body);
     if (!result.success) this.invalid('content 必须是非空字符串。');
+    this.logger.log(`开始新会话 | 会话=${shortLogId(sessionId)}`, SessionsController.name);
     const prepared = await this.chat.prepareSessionStream(sessionId, result.data.content);
     const writer = new SseEventWriter(response);
     const abortController = new AbortController();
+    // 浏览器断开后向模型和工具传递取消信号，防止后台继续消耗资源。
     response.on('close', () => abortController.abort());
     writer.open();
+    this.logger.debug(
+      `SSE 已建立 | 会话=${shortLogId(sessionId)} | 消息=${shortLogId(prepared.assistantMessageId)}`,
+      SessionsController.name,
+    );
     const startedAt = Date.now();
     try {
-      for await (const event of this.chat.streamPrepared(prepared, abortController.signal)) writer.write(event);
+      for await (const event of this.chat.streamPrepared(prepared, abortController.signal))
+        writer.write(event);
       writer.close();
     } catch (error) {
       if (!abortController.signal.aborted) {
@@ -105,7 +119,12 @@ export class SessionsController {
       }
       writer.close();
     } finally {
+      // 无论正常完成、异常还是客户端断开，都必须释放会话级执行锁。
       this.chat.releaseSession(sessionId);
+      this.logger.debug(
+        `SSE 已结束 | 会话=${shortLogId(sessionId)} | 消息=${shortLogId(prepared.assistantMessageId)}`,
+        SessionsController.name,
+      );
     }
   }
 

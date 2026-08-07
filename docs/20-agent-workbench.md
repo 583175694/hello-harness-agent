@@ -57,7 +57,7 @@ type ActivityResource = {
 type SourceResource = {
   id: string;
   type: 'source';
-  kind: 'clue' | 'evidence';
+  kind: 'clue' | 'evidence_candidate' | 'evidence';
   runId: string;
   title: string;
   url: string;

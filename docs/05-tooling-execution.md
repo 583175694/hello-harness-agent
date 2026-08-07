@@ -31,7 +31,7 @@ web_search
 web_fetch
 ```
 
-`web_search` 是搜索 logical tool，内部可以路由到 Bocha、SERP 等 provider adapter。`web_fetch` 获取指定公开 URL，并产出可定位的原文片段。Provider 和 Fetch 实现不是模型可见工具。
+`web_search` 是搜索 logical tool，内部可以路由到 Bocha、SERP 等 provider adapter。`web_fetch` 每次获取 1-5 个公开 URL，并产出可定位的原文片段。Provider 和 Fetch 实现不是模型可见工具。
 
 R1 不接 MCP、不接 browser automation、不接文件写工具或代码执行。
 
@@ -147,12 +147,12 @@ Tooling 可以确定材料是否满足形式资格，但不决定它是否与报
 
 ```ts
 type WebFetchInput = {
-  url: string;
+  urls: string[];
   query?: string;
 };
 ```
 
-V1 不维护 URL prior-context registry；工具执行仍受 URL/SSRF、重定向、响应大小、Content-Type、进程内 LRU 和正文提取策略约束。完整契约见 `23-web-fetch-tool.md`。
+`urls` 固定为 1-5 个公开地址，`query` 为整批来源共用的证据需求。V1 使用 Crawlee `HttpCrawler` 获取原始响应，JSDOM + Mozilla Readability 提取主要正文，Turndown 生成 Markdown；不维护 URL prior-context registry。完整契约见 `23-web-fetch-tool.md`。
 
 ## 9. Untrusted Content
 
@@ -333,6 +333,6 @@ Trace 不进入普通 Workbench；只有 development-only Debug 可以读取脱�
 8. cancel/timeout 有界终止。
 9. 同一 tool call 的 retry/idempotency 不产生重复结果。
 10. logical tool call 能通过 runId/stepId/toolCallId 稳定投影到唯一 Activity execution。
-11. `web_fetch` 对初始 URL 和每次重定向重新执行网络安全校验。
+11. `web_fetch` 对批量初始 URL 执行最小网络安全校验，并对 URL 数量、超时、重试和响应大小进行限制。
 12. Fetch passage 是来源原文，模型摘要不得升级为 evidence candidate。
 13. Fetch 网络、缓存、正文提取、切块和相关性排序保持独立模块边界。

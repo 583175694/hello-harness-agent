@@ -70,7 +70,7 @@ type ResearchBudget = {
 
 ## 5. 搜索供应商
 
-搜索通过统一工具 `web_search` 暴露给模型。Bocha、SERP 等供应商由部署配置注册为 adapter。需要原文依据时，模型对选中的公开 URL 调用 `web_fetch`；完整 Fetch 契约见 `23-web-fetch-tool.md`。
+搜索通过统一工具 `web_search` 暴露给模型。Bocha、SERP 等供应商由部署配置注册为 adapter。需要原文依据时，模型对选中的 1-5 个公开 URL 调用 `web_fetch`；完整 Fetch 契约见 `23-web-fetch-tool.md`。
 
 ```ts
 type SearchProviderConfig = {

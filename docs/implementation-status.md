@@ -155,7 +155,7 @@ git diff --check
 
 ## 6. 下一阶段建议
 
-下一阶段已确定为 `web_fetch` 与 Evidence Candidate 管道，当前尚未实现：API 在本地执行 URL/SSRF/重定向校验、进程内有界 LRU、静态 HTML 主内容提取和字符 n-gram passage 筛选，返回带 W3C 风格 quote/position locator 的抽取式原文。完整正文只存在于请求生命周期和 LRU，有限 passages 随 assistant 工具快照恢复，实际引用 passage 后续升级为 durable EvidenceSource；详细设计见 `docs/23-web-fetch-tool.md`。
+下一阶段已确定为 `web_fetch` 与 Evidence Candidate 管道，当前尚未实现：工具一次接收 1-5 个 URL；API 使用 Crawlee `HttpCrawler` 完成静态批量抓取和逐项失败收集，原始响应直接进入 JSDOM + Mozilla Readability，再由 Turndown 生成 V1 canonical Markdown，并通过字符 n-gram 筛选产生带 quote/position locator 的连续 Markdown 原文片段。Hash、Passage 和 Locator 均以完整规范化 Markdown 为基准；完整 Markdown 只存在于请求生命周期和 LRU，模型、SSE 和 assistant 快照只消费或保存有界 passages。V1 保留最小 URL/SSRF 边界和响应限制，不使用 Crawlee Dataset/Storage，也不实现 DocumentBlock 或 canonical plain text + block 双表示；实际引用 passage 后续升级为 durable EvidenceSource。详细设计见 `docs/23-web-fetch-tool.md`。
 
 该阶段完成后，再实现正式 Evidence 持久化、report-scoped `[Sx]`、报告复核和确定性引用校验。durable Run/Step/Event、断线 replay 和运行恢复仍按后续独立阶段推进。
 

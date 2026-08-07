@@ -4,13 +4,13 @@
 
 ## 1. 目标
 
-`web_fetch` 获取指定公开 URL，将网页内容转换为有界、可追溯的原文片段，并产出 `evidence_candidate`。
+`web_fetch` 批量获取少量公开 URL，将网页内容转换为有界、可追溯的原文片段，并产出 `evidence_candidate`。
 
 ```text
-known URL
+1-5 known URLs
   -> network safety validation
   -> cache lookup
-  -> bounded HTTP fetch
+  -> bounded HttpCrawler batch
   -> content-type validation
   -> main-content extraction
   -> sanitization and normalization
@@ -24,55 +24,56 @@ known URL
 
 ```ts
 type WebFetchInput = {
-  url: string;
+  urls: string[];
   query?: string;
 };
 ```
 
-- `url` 必须是完整 HTTP/HTTPS URL；V1 不维护 URL provenance registry，主要由模型从用户输入或 `web_search` 结果中选择目标。
-- `query` 用于从正文中选择与当前任务相关的抽取式原文片段，不用于生成摘要。
+- `urls` 包含 1-5 个完整 HTTP/HTTPS URL；V1 不维护 URL provenance registry，主要由模型从用户输入或 `web_search` 结果中选择目标。
+- `query` 是这一批 URL 共用的证据需求，用于从每份正文中选择相关抽取式原文片段，不用于生成摘要。
 - 模型不能指定 Header、Cookie、Authorization、代理、缓存 TTL、超时、响应上限、选择器或安全策略。
 
 工具描述：
 
 ```text
-获取并过滤指定 URL 的公开内容，返回与任务相关的可定位原文片段。
+批量获取并过滤指定 URL 的公开内容，返回与任务相关的可定位原文片段。
 ```
 
 ## 3. 网络安全
 
-每次请求及每一次重定向都必须重新执行以下检查：
+V1 保留与本地 Agent 风险相称的最小网络安全边界：
 
 - 只允许 `http:` 和 `https:`。
 - URL 不得包含用户名或密码。
 - URL 长度受部署配置限制。
 - 拒绝 localhost、loopback、private、link-local、multicast、unspecified 和保留地址。
 - 拒绝云平台 metadata endpoint 和内部服务域名。
-- DNS 解析后的所有地址都必须通过 IP 检查，防止 DNS rebinding。
-- 域名 allowlist/denylist 由部署策略控制，模型不可修改。
-- 限制重定向次数，并拒绝协议降级或跳转到不允许的目标。
+- DNS 解析结果不能包含私网、保留地址或云平台 metadata 地址。
+- 限制 Crawlee 重定向、超时、重试、响应大小、单次 URL 数量和运行级 URL 预算。
 - R1 不携带用户 Cookie、Authorization 或自定义敏感 Header。
 - TLS 校验默认开启，不提供模型可控的跳过选项。
 
-V1 不实现 prior-context URL allowlist，但这不放宽网络安全检查，也不允许把 API Key、环境变量、内部 prompt 或其他敏感数据编码进 URL。若后续接入敏感上下文或多用户环境，再增加 URL provenance policy，不改变 `web_fetch` 的模型参数。
+V1 不实现 prior-context URL allowlist、连接 IP pinning、完整 DNS rebinding 防护和企业级重定向审计；这些作为多用户或服务器部署前的安全加固项。此阶段仍禁止把 API Key、环境变量、内部 prompt 或其他敏感数据编码进 URL。
 
 ## 4. 模块边界
 
-V1 在 API 内本地实现静态网页获取，不依赖外部 Fetch Provider。实现必须按职责拆分，不把网络、安全、HTML、缓存和 passage 逻辑堆进 `WebFetchTool`：
+V1 在 API 内使用 Crawlee `HttpCrawler` 批量获取静态网页，不依赖外部 Fetch Provider，也不执行页面 JavaScript。实现必须按职责拆分，不把抓取、HTML、缓存和 passage 逻辑堆进 `WebFetchTool`：
 
 ```text
 WebFetchTool
   -> WebFetchService               用例编排与 canonical result
-       -> WebFetchUrlGuard         URL、DNS、IP、重定向安全
-       -> StaticWebContentFetcher  有界 HTTP 获取
+       -> WebFetchUrlGuard         最小 URL、DNS 和 IP 安全检查
+       -> CrawleeWebContentFetcher @crawlee/http 批量抓取与失败收集
        -> WebFetchCache            进程内 LRU
-       -> HtmlContentExtractor     主内容提取与元数据
+       -> HtmlContentExtractor     JSDOM + Readability 主正文提取
        -> DocumentNormalizer       规范化文本与链接
        -> PassageChunker           结构化切块
        -> PassageRanker            字符 n-gram 相关性排序
 ```
 
-每个模块通过窄接口协作并可独立测试。未来动态网页可以增加 `BrowserWebContentFetcher`，更强过滤可以增加 Code Execution/模型 Ranker；替换实现不改变 Tool、Result、Evidence 或 Workbench 协议。
+`CrawleeWebContentFetcher` 使用 `HttpCrawler` 而不是 `CheerioCrawler`：方案不消费 Cheerio `$`，原始 `body` 直接进入 JSDOM，避免无价值的 Cheerio DOM 解析。它不调用 `Dataset.pushData()`、不调用 `enqueueLinks()`，关闭 Crawlee 持久化 Storage，只把本次批量结果收集在请求内存中。
+
+每个模块通过窄接口协作并可独立测试。未来动态网页可以增加基于 `@crawlee/playwright` 的 `BrowserWebContentFetcher`；替换 Fetcher 不改变 Tool、Result、Evidence 或 Workbench 协议。
 
 ## 5. 获取限制
 
@@ -80,26 +81,29 @@ WebFetchTool
 
 ```ts
 type WebFetchPolicy = {
+  maxUrlsPerCall: number;
+  maxUrlsPerRun: number;
+  maxConcurrency: number;
   timeoutMs: number;
-  maxRedirects: number;
+  maxRequestRetries: number;
   maxResponseBytes: number;
   maxDocumentCharacters: number;
   maxPassages: number;
   maxPassageCharacters: number;
   cacheTtlMs: number;
   cacheMaxSizeBytes: number;
-  maxFetchCallsPerRun: number;
   allowedContentTypes: readonly string[];
 };
 ```
 
 要求：
 
-- 超时和用户取消通过同一个 `AbortSignal` 传到底层请求。
-- 在读取响应流期间强制执行字节上限，不能先完整缓冲再检查。
-- 压缩响应同时限制解压后的有效大小，防止压缩炸弹。
-- 失败调用计入运行级 Fetch 预算。
-- Transport retry 必须有界；校验错误、明确 4xx 和安全拒绝不重试。
+- 初始默认单次最多 5 个 URL、单次运行最多读取 10 个 URL、最大并发 3、每个 URL 最多重试 1 次、处理超时 20 秒。
+- 每个 URL 独立成功或失败；单个 URL 失败不能丢弃同一批次的成功结果。
+- 用户取消必须停止当前 Crawlee 运行和尚未开始的请求。
+- 响应体和规范化正文都受容量上限控制，不能把完整大页面注入模型。
+- 成功、超时、提取失败和网络失败的 URL 都计入运行级 URL 预算。
+- 校验错误、明确 4xx 和安全拒绝不重试。
 
 ## 6. 内容类型
 
@@ -117,10 +121,23 @@ V1 拒绝未知二进制、压缩包、可执行文件、图片、音频和视�
 
 ## 7. 正文提取与过滤
 
-HTML 解析期间禁止执行脚本或加载页面子资源。正文处理至少包括：
+`HttpCrawler` 只获取原始响应，不执行脚本或加载页面子资源。正文处理顺序固定为：
+
+```text
+HttpCrawler body
+  -> JSDOM standard DOM
+  -> deterministic node removal
+  -> Mozilla Readability
+  -> Turndown + GFM Markdown
+  -> normalization
+```
+
+V1 使用确定性清理后的规范化 Markdown 作为 Web Fetch canonical document。当前阶段不维护 `DocumentBlock`、Rich Text AST 或 canonical plain text + block 双表示；完整 Markdown 只服务于请求内处理、LRU、Hash、Passage 和 Locator，不作为完整 payload 发送给模型。
+
+具体要求：
 
 - 移除 `script`、`style`、`noscript`、`iframe`、`template` 等不可用节点。
-- 移除导航、页眉、页脚、侧栏、表单、广告、Cookie Banner、订阅、社交分享、评论和相关文章等常见噪声。
+- 主要正文识别交给 Mozilla Readability，不自行维护大量容易误伤正文的 class/id 过滤规则。
 - 过滤隐藏内容、不可见控制字符和超长重复文本。
 - 移除 Base64 图片数据，保留有意义的 alt 文本。
 - 将相对链接转换为基于最终 URL 的绝对链接。
@@ -128,7 +145,7 @@ HTML 解析期间禁止执行脚本或加载页面子资源。正文处理至少
 - 提取标题、作者、发布时间、语言和 canonical URL；缺失字段不得由模型臆造。
 - 对清洗后的正文执行第二次长度限制，并标记是否发生截断。
 
-正文提取器不承担 HTML 安全展示。任何进入 Web 的 HTML 都必须经过独立 sanitizer；默认优先向模型和 Workbench输出 Markdown 或纯文本。
+正文 HTML 通过 Turndown 与 GFM 插件转换成 Markdown；任何 Raw HTML 都不进入模型、Workbench 或持久化数据。`text/plain` 跳过 JSDOM/Readability，直接进入规范化与 passage 管道。
 
 ## 8. Passage Selection
 
@@ -144,9 +161,9 @@ clean document
 
 规则：
 
-- passage 必须是来源正文的直接抽取，不得由模型改写。
+- passage 必须是规范化 Markdown 的连续直接子串，不得由模型总结、改写或跨区间拼接生成。
 - `query` 缺失时返回文档开头、关键标题下内容和有限的代表性片段。
-- 每个 passage 必须包含稳定 `passageId` 和 locator。
+- 每个 passage 必须包含稳定 `passageId` 和 locator；`sectionPath` 由扫描 Markdown `#` 至 `######` 标题时维护的当前标题路径生成。
 - 相邻命中片段可以确定性合并，但不得改变原文。
 - 模型生成的摘要可以作为 observation，不能作为 Evidence passage。
 - 相关性不足时返回零 passage 和明确原因，不制造证据。
@@ -155,7 +172,7 @@ V1 Ranker 使用字符 n-gram、标题/章节命中加权和简单噪声惩罚�
 
 ## 9. Passage Locator
 
-HTML 原文定位参考 W3C Web Annotation 的 `TextQuoteSelector` 和 `TextPositionSelector`，同时保存引用文本上下文与规范化正文区间：
+V1 的 Markdown Passage 定位参考 W3C Web Annotation 的 `TextQuoteSelector` 和 `TextPositionSelector`，同时保存引用文本上下文与规范化 Markdown 区间：
 
 ```ts
 type WebTextLocator = {
@@ -175,7 +192,8 @@ type WebTextLocator = {
 
 - `exact` 与 passage 完全一致；`prefix/suffix` 用于同文多处匹配时消歧。
 - `start` 包含起始字符，`end` 不包含结束字符。
-- 位置基于清洗后规范化正文的 Unicode code points，而不是 JavaScript UTF-16 code units。
+- `quote`、`position` 和 `contentHash` 都基于同一份完整规范化 Markdown；它们不表示 Raw HTML 字节位置或原网页 DOM position。
+- 位置基于规范化 Markdown 的 Unicode code points，而不是 JavaScript UTF-16 code units。
 - `sectionPath` 保存 passage 所在的标题层级，辅助用户理解和重新定位。
 - Locator 必须与 `contentHash`、`retrievedAt` 和最终 URL 一起解释；网页变化后不能用旧位置冒充当前页面位置。
 - CSS/XPath 可以作为调试元数据，但不作为正式 Evidence 的唯一定位依据。
@@ -185,41 +203,57 @@ type WebTextLocator = {
 
 ```ts
 type WebFetchResult = {
-  requestedUrl: string;
-  finalUrl: string;
-  normalizedUrl: string;
-  title: string;
-  author?: string;
-  publishedAt?: string;
-  language?: string;
-  contentType: string;
-  retrievedAt: string;
-  contentHash: string;
-  cacheStatus: 'hit' | 'miss';
-  truncated: boolean;
-  passages: Array<{
-    passageId: string;
-    text: string;
-    locator: WebTextLocator;
-  }>;
+  query?: string;
+  results: WebFetchItemResult[];
 };
+
+type WebFetchItemResult =
+  | {
+      status: 'succeeded';
+      requestedUrl: string;
+      finalUrl: string;
+      normalizedUrl: string;
+      title: string;
+      author?: string;
+      publishedAt?: string;
+      language?: string;
+      contentType: string;
+      retrievedAt: string;
+      contentHash: string;
+      cacheStatus: 'hit' | 'miss';
+      truncated: boolean;
+      passages: Array<{
+        passageId: string;
+        text: string;
+        locator: WebTextLocator;
+      }>;
+    }
+  | {
+      status: 'failed';
+      requestedUrl: string;
+      code: string;
+      detail: string;
+    };
 ```
 
-`contentHash` 基于规范化正文生成，用于识别内容变化和绑定引用版本。`retrievedAt` 表示本次返回内容所对应的获取时间；缓存命中时不能伪装成当前时间。
+结果顺序与去重后的输入 URL 顺序一致。批量采用部分成功语义：一个 URL 失败只生成该项的结构化错误，不能令其他成功项回滚。只有所有 URL 都失败时，调用方才把整次工具结果视为没有可用 evidence candidate。
 
-`WebFetchResult` 属于 `evidence_candidate` 材料。只有 Evidence selector 选中的 passage 才创建 durable `EvidenceSource` 和 report-scoped `displayId`。
+`contentHash` 基于完整规范化 Markdown 的 UTF-8 内容生成，用于识别内容变化和绑定引用版本。`retrievedAt` 表示该项返回内容所对应的获取时间；缓存命中时不能伪装成当前时间。
+
+`WebFetchResult` 中的成功项属于 `evidence_candidate` 材料，失败项只用于解释证据缺口。只有 Evidence selector 选中的 passage 才创建 durable `EvidenceSource` 和 report-scoped `displayId`。
 
 ## 11. Cache And Retention
 
 - V1 使用进程内有界 LRU，按固定 TTL 自动失效，不向模型暴露 freshness/cache 参数。
 - 缓存同时限制 TTL 和估算字节总量，不能只限制条目数；大页面不会无限占用进程内存。
 - 初始默认 TTL 为 15 分钟、正文缓存总量为 32 MiB；数值集中在逐字段注释的常量中，后续按压测和真实页面样本调整。
-- Cache 实现按规范化正文的 UTF-8 字节数计算 size，不以 JavaScript 字符串长度代替内存约束。
+- Cache 实现按规范化 Markdown 的 UTF-8 字节数计算 size，不以 JavaScript 字符串长度代替内存约束。
 - 缓存 key 至少包含规范化 URL、内容处理版本和影响结果的安全配置版本。
 - 缓存记录保存获取时间、最终 URL、Content-Type、正文 hash、大小和处理版本。
 - TTL 到期后重新 Fetch；V1 不使用 stale fallback，实时获取失败时返回工具错误。
 - 涉及敏感 Header、登录态或用户私有数据的内容不进入本阶段缓存，因为 R1 根本不允许这类 Fetch。
-- 完整 Raw HTML 和规范化正文只存在于请求生命周期及进程内 LRU，不写入 PostgreSQL、Message metadata 或 user Memory。
+- 完整 Raw HTML 只存在于当前 `HttpCrawler` request handler；进程内 LRU 保存完整规范化 Markdown 和受控来源元数据，不保存 Raw HTML、JSDOM、Readability DOM 或其他解析对象。相同 URL 缓存命中后仍按本轮 `query` 重新选择 passages。
+- 完整规范化 Markdown 不写入 PostgreSQL、Message metadata、普通 SSE 或 user Memory，也不作为完整工具 payload 发送给模型。
 - 返回给模型的有界 passages、来源元数据、locator、hash、retrievedAt 和 cacheStatus 可以保存为 assistant 工具快照，用于刷新后恢复 Workbench；它们保持 `evidence_candidate` 资格。
 - 实际引用 passage、来源元数据、locator、hash 和 retrievedAt 按 Evidence 生命周期持久化。
 
@@ -291,18 +325,19 @@ evidence
 
 ## 15. V1 验收
 
-1. 模型可以执行 `web_search -> web_fetch -> final answer`。
-2. localhost、私网、metadata 地址、DNS rebinding 和非法重定向被拒绝。
-3. 超时、取消、响应大小、Content-Type 和调用次数限制均被强制执行。
-4. 静态 HTML 能提取主要正文，导航、脚本、广告和 Base64 图片不进入模型上下文。
-5. query-aware passages 使用字符 n-gram 筛选，是可定位的抽取式原文而非模型摘要。
-6. Locator 同时包含 W3C 风格 quote 和 Unicode code-point position，并绑定正文 hash。
-7. 进程内 LRU 有 TTL 和内存上限，过期内容不做 stale fallback。
-8. 结果包含最终 URL、retrievedAt、contentHash、cacheStatus 和截断标志。
-9. clue 与 evidence candidate 在协议和 Workbench 中不可混淆。
-10. 网页 Prompt Injection 不改变指令、工具和预算。
-11. 完整正文不进入普通 SSE、PostgreSQL、Message metadata 或 user Memory。
-12. 网络获取、缓存、正文提取、规范化、切块和排序可以独立测试和替换。
+1. 模型可以执行 `web_search -> web_fetch(urls: 1-5) -> final answer`。
+2. `HttpCrawler` 能并发处理多个 URL，并按输入顺序返回逐项成功或失败结果。
+3. localhost、私网和 metadata 地址被最小 URL Guard 拒绝。
+4. 超时、取消、响应大小、Content-Type、批量数量和运行级 URL 预算均被强制执行。
+5. 静态 HTML 经过 `JSDOM -> Readability -> Turndown` 提取主要正文，Raw HTML 不进入模型上下文。
+6. query-aware passages 使用字符 n-gram 筛选，是可定位的抽取式原文而非模型摘要。
+7. Locator 同时包含 W3C 风格 quote 和 Unicode code-point position，并绑定正文 hash。
+8. 进程内 LRU 有 TTL 和内存上限，过期内容不做 stale fallback。
+9. 成功项包含最终 URL、retrievedAt、contentHash、cacheStatus 和截断标志。
+10. clue 与 evidence candidate 在协议和 Workbench 中不可混淆。
+11. 网页 Prompt Injection 不改变指令、工具和预算。
+12. Crawlee Dataset/Storage 不持久化正文，完整正文不进入普通 SSE、PostgreSQL、Message metadata 或 user Memory。
+13. 抓取、缓存、正文提取、规范化、切块和排序可以独立测试和替换。
 
 ## 16. V1 暂不实现
 
@@ -313,11 +348,16 @@ evidence
 - Code Execution Dynamic Filtering
 - 任意页面 Actions 和浏览器自动化
 - 子站点 Crawl
+- Crawlee Dataset、Request Queue 持久化和自动 `enqueueLinks`
+- 完整 DNS rebinding 防护、连接 IP pinning 和企业级重定向审计
 - 自动 PII 识别
 - Screenshot、图片理解、音视频提取
 - URL prior-context registry
 - 跨进程或持久化 Fetch Cache
 - robots.txt policy enforcement
+- `DocumentBlock`、Rich Text AST 和 Block Renderer
+- canonical plain text + block 双表示
+- 基于原始 DOM 或 Raw HTML 字节位置的精确 locator
 
 ## 17. 参考实现
 
@@ -327,6 +367,7 @@ evidence
 - [Tavily Extract](https://docs.tavily.com/documentation/api-reference/endpoint/extract)
 - [Exa Contents Best Practices](https://exa.ai/docs/reference/contents-best-practices)
 - [Mozilla Readability](https://github.com/mozilla/readability)
+- [Crawlee HttpCrawler](https://crawlee.dev/js/api/http-crawler/class/HttpCrawler)
 - [W3C Web Annotation Data Model](https://www.w3.org/TR/annotation-model/#selectors)
 - [MDN Text Fragments](https://developer.mozilla.org/en-US/docs/Web/URI/Reference/Fragment/Text_fragments)
 - [LlamaIndex Documents and Nodes](https://docs.llamaindex.ai/en/stable/module_guides/loading/documents_and_nodes/usage_nodes/)

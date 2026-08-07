@@ -247,7 +247,7 @@ type SourceView = {
   evidenceId?: string;
   displayId?: string;
   resultId: string;
-  kind: 'clue' | 'evidence';
+  kind: 'clue' | 'evidence_candidate' | 'evidence';
   title: string;
   url: string;
   provider: string;

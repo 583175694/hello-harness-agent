@@ -344,9 +344,10 @@ final_answer / ask_clarification / fail
 - Bocha/SERP 配置入口
 - canonical `web_search` tool
 - canonical `web_fetch` tool
-- URL/SSRF/redirect safety policy
-- bounded HTTP fetch and cache policy
-- static HTML main-content extraction
+- 1-5 URL batch contract and partial-success result
+- minimum URL/SSRF safety policy
+- Crawlee `HttpCrawler` bounded batch fetch and cache policy
+- JSDOM + Mozilla Readability + Turndown 主要正文提取和 canonical Markdown 规范化
 - character n-gram extractive passage selection
 - input validation
 - provider response normalization
@@ -371,7 +372,7 @@ tool_call / ask_clarification / finish_research / fail
 - 完整正文不进入普通 SSE、长期 Message metadata 或 user Memory
 - 外部内容不能改变 instructions/toolset/budget
 
-验收：模型能基于 gap 迭代查询并执行 `web_search -> web_fetch`；fallback 原因可观测；重复查询受抑制；预算耗尽后不再调用 provider；非法 URL、私网地址、重定向、超时、超大响应和不支持的 Content-Type 被确定性拒绝；Fetch 结果包含字符 n-gram 筛选的抽取式 passage、W3C 风格 quote/position locator、retrievedAt 和 contentHash；进程内 LRU 有界且按 TTL 失效；Conversation 中的 progress card 能定位到对应 logical tool call，provider attempts 不重复生成用户可见 execution。
+验收：模型能基于 gap 迭代查询并执行 `web_search -> web_fetch`；一次 Fetch 可处理 1-5 个 URL 并保留逐项失败；fallback 原因可观测；重复查询受抑制；预算耗尽后不再调用 provider；非法 URL、私网地址、超时、超大响应和不支持的 Content-Type 被确定性拒绝；`HttpCrawler` 不使用 Dataset、Storage 或自动 enqueue；规范化 Markdown 是 V1 canonical document，Hash、Passage 和 Locator 均以它为基准，模型只消费有界 Markdown passages；Fetch 结果包含字符 n-gram 筛选的抽取式 passage、W3C 风格 quote/position locator、retrievedAt 和 contentHash；进程内 LRU 有界且按 TTL 失效；Conversation 中的 progress card 能定位到对应 logical tool call，provider attempts 不重复生成用户可见 execution。V1 不实现 DocumentBlock 或 canonical plain text + block 双表示。
 
 ## 10. P7: Evidence/Citation + Report Review + Workbench
 

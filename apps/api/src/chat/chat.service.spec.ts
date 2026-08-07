@@ -94,8 +94,8 @@ describe('ChatService session persistence', () => {
     service.releaseSession('session-1');
 
     expect(events).toEqual([
-      { type: 'message.delta', messageId: prepared.assistantMessageId, delta: '完整' },
-      { type: 'message.delta', messageId: prepared.assistantMessageId, delta: '回答' },
+      { type: 'message.delta', messageId: prepared.assistantMessageId, blockId: `${prepared.assistantMessageId}-text-1`, delta: '完整' },
+      { type: 'message.delta', messageId: prepared.assistantMessageId, blockId: `${prepared.assistantMessageId}-text-1`, delta: '回答' },
       { type: 'message.completed', messageId: prepared.assistantMessageId, model: 'test-model' },
     ]);
     expect(messageCreate).toHaveBeenCalledTimes(2);
@@ -105,6 +105,9 @@ describe('ChatService session persistence', () => {
         role: 'assistant',
         kind: 'assistant_delivery',
         content: '完整回答',
+        metadata: {
+          blocks: [{ id: `${prepared.assistantMessageId}-text-1`, type: 'text', content: '完整回答' }],
+        },
       },
     });
     expect(executions.isActive('session-1')).toBe(false);
@@ -144,6 +147,7 @@ describe('ChatService session persistence', () => {
       .fn()
       .mockResolvedValueOnce(
         (async function* () {
+          yield { choices: [{ delta: { content: '我先检索。' } }] };
           yield {
             choices: [
               {
@@ -216,8 +220,14 @@ describe('ChatService session persistence', () => {
     expect(providerCreate).toHaveBeenCalledTimes(2);
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
       data: {
+        content: '我先检索。检索完成：https://example.com/',
         metadata: {
           model: 'test-model',
+          blocks: [
+            expect.objectContaining({ type: 'text', content: '我先检索。' }),
+            expect.objectContaining({ type: 'tool_activity', toolCallId: 'call-search', status: 'completed' }),
+            expect.objectContaining({ type: 'text', content: expect.stringContaining('检索完成') }),
+          ],
           agent: {
             toolCallCount: 1,
             executions: [
@@ -301,6 +311,83 @@ describe('ChatService session persistence', () => {
         },
       },
     });
+  });
+
+  it('projects a cancelled tool separately and updates the same activity block', async () => {
+    const providerCreate = vi
+      .fn()
+      .mockResolvedValueOnce((async function* () {
+        yield { choices: [{
+          delta: { tool_calls: [{ index: 0, id: 'call-cancelled', function: { name: 'web_search', arguments: '{"query":"latest news"}' } }] },
+          finish_reason: 'tool_calls',
+        }] };
+      })())
+      .mockResolvedValueOnce((async function* () {
+        yield { choices: [{ delta: { content: '检索已停止。' }, finish_reason: 'stop' }] };
+      })());
+    const registry = {
+      definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
+      parseInput: vi.fn(() => ({ query: 'latest news' })),
+      execute: vi.fn().mockResolvedValue({
+        status: 'cancelled',
+        error: { code: 'SEARCH_CANCELLED', detail: '网页搜索已取消。', retryable: false },
+        modelContent: JSON.stringify({ ok: false, code: 'SEARCH_CANCELLED' }),
+        metrics: { durationMs: 10 },
+      }),
+    };
+    const { service, messageCreate } = makeService(providerCreate, registry);
+    const prepared = await service.prepareSessionStream('session-1', 'stop search');
+    const events = await collect(service.streamPrepared(prepared));
+
+    const started = events.find((event) => (event as { type?: string }).type === 'tool.started') as { blockId: string };
+    const cancelled = events.find((event) => (event as { type?: string }).type === 'tool.cancelled') as { blockId: string; code: string };
+    expect(cancelled).toMatchObject({ blockId: started.blockId, code: 'SEARCH_CANCELLED' });
+    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+      data: {
+        content: '检索已停止。',
+        metadata: {
+          blocks: [
+            expect.objectContaining({ type: 'tool_activity', toolCallId: 'call-cancelled', status: 'cancelled' }),
+            expect.objectContaining({ type: 'text', content: '检索已停止。' }),
+          ],
+          agent: {
+            executions: [expect.objectContaining({ toolCallId: 'call-cancelled', status: 'cancelled' })],
+          },
+        },
+      },
+    });
+  });
+
+  it('does not persist a partial assistant timeline when tool execution is aborted', async () => {
+    const providerCreate = vi.fn().mockResolvedValue((async function* () {
+      yield { choices: [{
+        delta: { tool_calls: [{ index: 0, id: 'call-aborted', function: { name: 'web_search', arguments: '{"query":"latest news"}' } }] },
+        finish_reason: 'tool_calls',
+      }] };
+    })());
+    const controller = new AbortController();
+    const registry = {
+      definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
+      parseInput: vi.fn(() => ({ query: 'latest news' })),
+      execute: vi.fn().mockImplementation(() => {
+        controller.abort();
+        return Promise.reject(new DOMException('Aborted', 'AbortError'));
+      }),
+    };
+    const { service, messageCreate } = makeService(providerCreate, registry);
+    const prepared = await service.prepareSessionStream('session-1', 'stop search');
+    const events: unknown[] = [];
+
+    await expect((async () => {
+      for await (const event of service.streamPrepared(prepared, controller.signal)) events.push(event);
+    })()).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'tool.started', toolCallId: 'call-aborted' }),
+      expect.objectContaining({ type: 'tool.cancelled', toolCallId: 'call-aborted', code: 'TOOL_CANCELLED' }),
+    ]));
+    expect(messageCreate).toHaveBeenCalledTimes(1);
+    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({ data: { role: 'user' } });
   });
 
   it('deduplicates sources while retaining every associated tool call', async () => {

@@ -312,7 +312,7 @@ Debug          raw events/state，仅开发模式
 
 不展示 Browser、Terminal、Memory 或 Worker 空 tab。
 
-Conversation 中的 run progress card 使用 `runId/stepId/toolCallId` 打开 Workbench 并定位对应 Activity execution。Provider attempts 在普通 Activity 中聚合，只有 Debug 可以展示脱敏 trace。
+Conversation 中的内联 Tool Activity 使用 `runId/stepId/toolCallId` 打开 Workbench 并定位对应 Activity execution。Provider attempts 在普通 Activity 中聚合，只有 Debug 可以展示脱敏 trace。
 
 ## 16. 评测门槛
 

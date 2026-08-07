@@ -1,6 +1,6 @@
 # Agent Frontend
 
-> 文档状态：R1 前端产品契约。`/agent` 已实现持久化 Session/Message、URL 恢复、真实 Chat SSE、Conversation 和 Composer；production 空会话不渲染空 Workbench。Development-only `/agent/preview` 已实现桌面 P3 fixture 交互；Run SSE 投影与真实工具/报告交互仍按后续阶段实现。
+> 文档状态：R1 前端产品契约。`/agent` 已实现持久化 Session/Message、URL 恢复、真实 Chat SSE、Conversation、内联 Tool Activity 和 Composer；production 空会话不渲染空 Workbench。Development-only `/agent/preview` 已实现桌面 fixture 交互；durable Run SSE 与真实报告交互仍按后续阶段实现。
 
 ## 1. 产品定位
 
@@ -41,7 +41,7 @@ Playwright
 |----------|---------------------------------------|---------------------------------------|
 | New      | User goal                             | [Activity] [Sources] [Report] [Debug] |
 | session  | Clarification / steer                 | Selected/current execution            |
-| history  | User-readable run progress cards      | Evidence/source list                  |
+| history  | Ordered text / tool activity blocks   | Evidence/source list                  |
 |          | Final delivery message                | Markdown report preview               |
 |          | Composer                              |                                       |
 +--------------------------------------------------------------------------------+
@@ -119,20 +119,18 @@ R1 不显示逐任务外部发送确认：部署者配置相应 API Key 后，�
 
 布局必须有稳定尺寸，状态文本变化不能推挤 Composer 或 Workspace tabs。
 
-### Run Progress Card
+### Inline Tool Activity
 
-Conversation 中每个 run 可以投影为 run progress card。Card 主区域是跨面板导航入口，展示用户可理解的状态、当前动作、耗时、查询数和来源数；不得展示 raw event/provider payload。
+Conversation 不展示独立 RunCard。一个 assistant turn 由有序 `text` 和 `tool_activity` 内容块组成，工具调用按真实时间位置穿插在 Markdown 输出中，不得展示 raw event/provider payload。
 
 交互边界：
 
-- 点击 card 主区域，打开 Workbench 并定位到该 run 当前/已选中的 Activity execution。
-- 展开区展示独立 Progress projection 和 logical tool call rows。
-- 点击 tool call row 按 `runId/stepId/toolCallId` 精确定位。
-- 对应具体工具调用时，使用 `toolCallId + stepId + runId` 精确定位。
-- 展开/收起只改变 card 内摘要，不打开 Workbench。
-- Cancel 是独立按钮，不冒泡触发 card 导航；Steer 内容通过 Composer 提交。
-- completed/failed/cancelled card 仍可打开历史 Activity。
-- loading 或 snapshot 恢复期间显示稳定 skeleton/状态，不临时跳到其他 run。
+- `tool.started` 首次插入 Activity；`tool.completed/failed/cancelled` 按 `toolCallId` 原位更新。
+- 点击 Activity 按 `runId/stepId/toolCallId` 打开并定位 Workbench。
+- running、completed、failed、cancelled 均同时显示图标和文字，不只依赖颜色。
+- 连续文本 delta 合并为一个 text block；被 Activity 打断后的文本创建新 block。
+- 成功完成后刷新仍恢复完全相同的穿插顺序；未完成时间线当前不承诺跨刷新恢复。
+- 下一轮模型上下文只拼接 text blocks，Tool Activity 的 UI 文案不进入模型消息。
 
 ## 8. Clarification
 
@@ -311,7 +309,7 @@ type AgentUiState = {
 };
 ```
 
-`ConversationItem` 的 run progress card 必须携带 `runId` 和 focus target；不得依赖显示文本或数组位置反查 execution。
+`ConversationItem` 的 tool activity block 必须携带稳定 `toolCallId`，跨面板定位还要携带对应 run/step 身份；不得依赖显示文本或数组位置反查 execution。
 
 ## 17. Recovery
 
@@ -379,7 +377,7 @@ P1：route/session empty shell/composer。
 
 P2：scripted completed conversation。
 
-P3：SSE progress/steer/cancel fixtures，以及 run progress card/tool call rows 到 Activity 的本地交互 fixture。桌面端实现 auto-open、auto-follow/pinned、close suppression 和纵向 master/detail；移动端顶层 Workbench view 延后到 P8。
+P3：SSE progress/steer/cancel fixtures，以及内联 tool activity 到 Activity 的本地交互 fixture。桌面端实现 auto-open、auto-follow/pinned、close suppression 和纵向 master/detail；移动端顶层 Workbench view 延后到 P8。
 
 P4：session/run refresh recovery。
 
@@ -401,8 +399,8 @@ P8：replay/errors/mobile/E2E hardening。
 6. `[Sx]` 可联动 cited passage。
 7. limited report 清晰展示。
 8. raw events 只在 Debug。
-9. 点击 run progress card 能打开 Workbench，并按 run/step/toolCall 定位到正确 Activity execution。
-10. 展开、steer、cancel 不误触发 Workbench 导航。
+9. 点击内联 Tool Activity 能打开 Workbench，并按 run/step/toolCall 定位到正确 Activity execution。
+10. steer、cancel 等独立操作不误触发 Workbench 导航。
 11. desktop/mobile、terminal run 和 snapshot recovery 的 focus 行为一致且键盘可访问。
 12. SSE duplicate/replay 不重复 UI item。
 13. Playwright 黄金任务通过。

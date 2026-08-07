@@ -35,6 +35,7 @@ export class AgentRuntimeService {
     let toolCallCount = 0;
     let forceFinalAnswer = false;
     let finalContent = '';
+    let visibleContent = '';
     let modelRounds = 0;
 
     // 每一轮要么直接得到最终文本，要么执行工具并把结果追加到下一轮上下文。
@@ -44,7 +45,6 @@ export class AgentRuntimeService {
       const textDeltas: string[] = [];
       let calls: Array<{ id: string; name: string; arguments: string }> = [];
       let finishReason: string | null = null;
-      const streamTextImmediately = !definitions || forceFinalAnswer;
       this.logger.log(
         `模型轮次开始 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 可用工具=${definitions?.length ?? 0} 个 | 强制回答=${forceFinalAnswer ? '是' : '否'}`,
         AgentRuntimeService.name,
@@ -61,8 +61,9 @@ export class AgentRuntimeService {
         })) {
           if (event.type === 'text.delta') {
             textDeltas.push(event.delta);
-            // 工具可用时暂存本轮文本，避免把模型调用工具前的草稿误投影成最终回答。
-            if (streamTextImmediately) yield { type: 'text.delta', delta: event.delta };
+            visibleContent += event.delta;
+            // 文本和工具事件共同组成透明时间线，模型增量到达后必须立即向上游投影。
+            yield { type: 'text.delta', delta: event.delta };
           } else if (event.type === 'tool_calls.completed') calls = event.calls;
           else finishReason = event.finishReason;
         }
@@ -97,17 +98,14 @@ export class AgentRuntimeService {
         });
       }
       if (!calls.length) {
-        finalContent = textDeltas.join('');
-        if (!finalContent.trim()) {
+        const roundContent = textDeltas.join('');
+        if (!roundContent.trim()) {
           throw new ServiceUnavailableException({
             code: AGENT_ERROR_CODES.modelEmptyResponse,
             detail: '模型没有返回可显示的文本，请稍后重试。',
           });
         }
-        if (!streamTextImmediately) {
-          // 确认本轮没有工具调用后，再把暂存文本一次次恢复为原始流式事件。
-          for (const delta of textDeltas) yield { type: 'text.delta', delta };
-        }
+        finalContent = visibleContent;
         break;
       }
       if (forceFinalAnswer) {
@@ -183,11 +181,37 @@ export class AgentRuntimeService {
             signal: input.signal,
           });
         } catch (error) {
-          // 未被工具转换为标准结果的异常继续上抛，但先留下不包含输入正文的诊断摘要。
+          const completedAt = new Date();
+          const durationMs = completedAt.getTime() - startedAt.getTime();
+          const cancelled = input.signal?.aborted || (error instanceof Error && error.name === 'AbortError');
           this.logger.warn(
             `工具执行异常 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 原因=${describeLogError(error)}`,
             AgentRuntimeService.name,
           );
+          // 即使工具抛出异常，也先交付终态事件，避免前端 Activity 永久停留在运行中。
+          if (cancelled) {
+            yield {
+              type: 'tool.cancelled',
+              toolCallId: call.id,
+              toolName: call.name,
+              input: toolInput,
+              completedAt: completedAt.toISOString(),
+              durationMs,
+              code: AGENT_ERROR_CODES.toolCancelled,
+              detail: '工具调用已取消。',
+            };
+          } else {
+            yield {
+              type: 'tool.failed',
+              toolCallId: call.id,
+              toolName: call.name,
+              input: toolInput,
+              completedAt: completedAt.toISOString(),
+              durationMs,
+              code: AGENT_ERROR_CODES.toolUnavailable,
+              detail: '工具执行异常，本次调用未完成。',
+            };
+          }
           throw error;
         }
         const completedAt = new Date();
@@ -210,6 +234,21 @@ export class AgentRuntimeService {
             output: result.output,
             completedAt: completedAt.toISOString(),
             durationMs,
+          };
+        } else if (result.status === 'cancelled') {
+          this.logger.warn(
+            `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=已取消 | 错误码=${result.error.code} | 耗时=${formatLogDuration(durationMs)}`,
+            AgentRuntimeService.name,
+          );
+          yield {
+            type: 'tool.cancelled',
+            toolCallId: call.id,
+            toolName: call.name,
+            input: toolInput,
+            completedAt: completedAt.toISOString(),
+            durationMs,
+            code: result.error.code,
+            detail: result.error.detail,
           };
         } else {
           this.logger.warn(

@@ -8,6 +8,8 @@ export const AGENT_PROTOCOL_LIMITS = {
   chatHistoryMaxMessages: 40,
   // 单次 Agent 运行允许执行的工具调用总数。
   agentToolMaxCalls: 20,
+  // 单条 assistant 消息允许持久化的有序内容块总数。
+  assistantContentBlocksMax: 64,
   // 单次网页搜索允许提交的查询字符串最大长度。
   searchQueryMaxLength: 500,
   // 单次网页搜索向模型返回的最大结果数。
@@ -46,6 +48,8 @@ export const AGENT_ERROR_CODES = {
   unknownTool: 'UNKNOWN_TOOL',
   // 工具已注册但当前配置不足以执行。
   toolUnavailable: 'TOOL_UNAVAILABLE',
+  // 通用工具调用在执行期间收到取消信号。
+  toolCancelled: 'TOOL_CANCELLED',
   // 搜索请求在外部取消信号触发后终止。
   searchCancelled: 'SEARCH_CANCELLED',
   // 搜索 Provider 在规定时间内没有返回。

@@ -227,7 +227,7 @@ State + RuntimeEvents
   -> Conversation / Progress / Sources / Report / Activity
 ```
 
-用户可见 logical tool execution 通过稳定的 `runId/stepId/toolCallId` 连接 Conversation run progress card 与 Workbench Activity；该连接是 projection identity，不改变 Tooling 或 State 的所有权边界。
+用户可见 logical tool execution 通过稳定的 `runId/stepId/toolCallId` 连接 Conversation 内联 Tool Activity 与 Workbench Activity；该连接是 projection identity，不改变 Tooling 或 State 的所有权边界。
 
 Debug 是唯一默认显示 raw events/state 的区域。R1 不展示 Browser、Terminal、Memory 或 Worker tab。
 

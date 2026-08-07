@@ -15,7 +15,7 @@ import {
 
 describe('foundation protocol', () => {
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.4.0');
+    expect(protocolVersion).toBe('0.5.0');
   });
 
   it('validates service status payloads', () => {
@@ -43,9 +43,31 @@ describe('foundation protocol', () => {
       chatStreamEventSchema.parse({
         type: 'message.delta',
         messageId: 'msg_1',
+        blockId: 'block_1',
         delta: 'hello',
       }),
     ).toMatchObject({ type: 'message.delta', messageId: 'msg_1' });
+    expect(chatStreamEventSchema.parse({
+      type: 'tool.started',
+      messageId: 'msg_1',
+      blockId: 'tool_1',
+      toolCallId: 'call_1',
+      toolName: 'web_search',
+      title: '搜索网页',
+      input: { query: 'test' },
+      startedAt: '2026-08-07T09:00:00.000Z',
+    })).toMatchObject({ type: 'tool.started', title: '搜索网页' });
+    expect(chatStreamEventSchema.parse({
+      type: 'tool.cancelled',
+      messageId: 'msg_1',
+      blockId: 'tool_1',
+      toolCallId: 'call_1',
+      toolName: 'web_search',
+      completedAt: '2026-08-07T09:00:01.000Z',
+      durationMs: 1000,
+      code: 'SEARCH_CANCELLED',
+      detail: '网页搜索已取消。',
+    })).toMatchObject({ type: 'tool.cancelled', code: 'SEARCH_CANCELLED' });
   });
 
   it('requires structured function call arguments', () => {

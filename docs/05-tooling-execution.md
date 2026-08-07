@@ -299,7 +299,7 @@ Post-R1 Worker 使用单独 scoped toolset，不自动继承 Lead toolset。
 ```text
 runId + stepId + toolCallId
 -> Activity execution
--> Conversation run progress card focus target
+-> Conversation inline tool activity focus target
 ```
 
 普通 Workbench 只展示用户可理解的 title/detail/status、耗时和结果数量等安全聚合信息。Primary/fallback/retry 可以显示为一句可理解摘要，但 provider attempts、输入参数、完整输出和内部错误体不形成独立 execution。

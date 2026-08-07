@@ -1,7 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
 
-import type { SearchSourceSnapshot, ToolExecutionSnapshot } from '@harness/agent-protocol';
+import type {
+  AssistantContentBlock,
+  AssistantTextBlock,
+  SearchSourceSnapshot,
+  ToolExecutionSnapshot,
+} from '@harness/agent-protocol';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
 import { formatLogDuration, shortLogId } from '../shared/logging.utils';
@@ -18,12 +23,16 @@ export class AssistantDeliveryRepository {
     sessionId: string;
     messageId: string;
     model: string;
-    content: string;
+    blocks: AssistantContentBlock[];
     toolCallCount: number;
     executions: ToolExecutionSnapshot[];
     sources: SearchSourceSnapshot[];
   }): Promise<void> {
     const startedAt = Date.now();
+    const content = input.blocks
+      .filter((block): block is AssistantTextBlock => block.type === 'text')
+      .map((block) => block.content)
+      .join('');
     await this.prisma.$transaction([
       this.prisma.message.create({
         data: {
@@ -32,9 +41,10 @@ export class AssistantDeliveryRepository {
           sessionId: input.sessionId,
           role: 'assistant',
           kind: 'assistant_delivery',
-          content: input.content,
+          content,
           metadata: {
             model: input.model,
+            blocks: input.blocks,
             ...(input.executions.length
               ? {
                   agent: {
@@ -53,7 +63,7 @@ export class AssistantDeliveryRepository {
       }),
     ]);
     this.logger.log(
-      `回复已持久化 | 会话=${shortLogId(input.sessionId)} | 消息=${shortLogId(input.messageId)} | 输出=${input.content.length} 字 | 执行=${input.executions.length} 次 | 来源=${input.sources.length} 个 | 耗时=${formatLogDuration(Date.now() - startedAt)}`,
+      `回复已持久化 | 会话=${shortLogId(input.sessionId)} | 消息=${shortLogId(input.messageId)} | 输出=${content.length} 字 | 内容块=${input.blocks.length} 个 | 执行=${input.executions.length} 次 | 来源=${input.sources.length} 个 | 耗时=${formatLogDuration(Date.now() - startedAt)}`,
       AssistantDeliveryRepository.name,
     );
   }

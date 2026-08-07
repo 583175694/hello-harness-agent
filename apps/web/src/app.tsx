@@ -30,18 +30,18 @@ import {
 } from './api/client';
 import type { ToolStreamEvent } from './api/client';
 import { AGENT_PROTOCOL_LIMITS, assistantAgentMetadataSchema } from '@harness/agent-protocol';
-import type { PersistedMessage, SessionSummary } from '@harness/agent-protocol';
+import type { AssistantContentBlock, PersistedMessage, SessionSummary } from '@harness/agent-protocol';
 import type {
   AgentUiState,
   ConversationItem,
   PreviewState,
-  RunCardState,
   ServiceState,
   ToolCallView,
   WorkbenchFocusTarget,
   WorkbenchState,
   WorkspaceView,
 } from './features/agent/model/types';
+import { appendTextDelta, applyToolActivityEvent, cloneAssistantBlocks } from './features/agent/model/conversation-blocks';
 import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
@@ -86,19 +86,20 @@ function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchStat
   if (!metadata.success || !metadata.data.agent?.executions.length) return undefined;
   const { executions, sources } = metadata.data.agent;
   const completedCount = executions.filter((execution) => execution.status === 'completed').length;
+  const cancelledCount = executions.filter((execution) => execution.status === 'cancelled').length;
   return {
     runId: message.id,
     title: AGENT_UI_COPY.searchWorkbenchTitle,
     subtitle: `${executions.length} 次调用 · ${sources.length} 个检索线索`,
     activeView: sources.length ? 'sources' : 'activity',
-    activityStatus: completedCount ? 'completed' : 'failed',
+    activityStatus: completedCount ? 'completed' : cancelledCount === executions.length ? 'cancelled' : 'failed',
     executions: executions.map((execution) => ({
       toolCallId: execution.toolCallId,
       runId: message.id,
       stepId: execution.toolCallId,
       toolName: execution.toolName,
       title: `搜索：${execution.input.query}`,
-      detail: execution.status === 'completed' ? '公开网页检索已完成' : '网页检索未完成',
+      detail: execution.status === 'completed' ? '公开网页检索已完成' : execution.status === 'cancelled' ? '网页检索已取消' : '网页检索未完成',
       status: execution.status,
       elapsed: formatToolDuration(execution.durationMs),
       inputSummary: execution.input.query,
@@ -166,16 +167,17 @@ function applyToolEvent(
 
   const completedEvent = event.type === 'tool.completed' ? event : undefined;
   const failedEvent = event.type === 'tool.failed' ? event : undefined;
-  const status = completedEvent ? 'completed' as const : 'failed' as const;
+  const cancelledEvent = event.type === 'tool.cancelled' ? event : undefined;
+  const status = completedEvent ? 'completed' as const : cancelledEvent ? 'cancelled' as const : 'failed' as const;
   const executions = base.executions.map((tool) => tool.toolCallId === event.toolCallId
     ? {
         ...tool,
         status,
-        detail: completedEvent ? '公开网页检索已完成' : failedEvent?.detail ?? '工具执行失败',
+        detail: completedEvent ? '公开网页检索已完成' : cancelledEvent?.detail ?? failedEvent?.detail ?? '工具执行失败',
         elapsed: formatToolDuration(event.durationMs),
         outputSummary: completedEvent
           ? `返回 ${completedEvent.result.results.length} 条网页结果`
-          : failedEvent?.detail,
+          : cancelledEvent?.detail ?? failedEvent?.detail,
         resultCount: completedEvent?.result.results.length,
         sourceCount: completedEvent?.result.results.length,
       }
@@ -201,6 +203,7 @@ function applyToolEvent(
   return {
     ...base,
     open,
+    activityStatus: cancelledEvent ? 'cancelled' : base.activityStatus,
     subtitle: `${executions.length} 次调用 · ${sources.length} 个检索线索`,
     activeView: event.type === 'tool.completed' && sources.length ? 'sources' : base.activeView,
     executions,
@@ -210,21 +213,23 @@ function applyToolEvent(
 
 // 将持久化消息转换为 Conversation 可直接渲染的项目。
 function toConversationItem(message: PersistedMessage): ConversationItem {
-  return message.role === 'user'
-    ? {
-        id: message.id,
-        kind: 'user',
-        content: message.content,
-        createdAt: message.createdAt,
-      }
-    : {
-        id: message.id,
-        kind: 'assistant',
-        text: message.content,
-        content: <p>{message.content}</p>,
-        createdAt: message.createdAt,
-        workbench: workbenchFromPersistedMessage(message),
-      };
+  if (message.role === 'user') return {
+    id: message.id,
+    kind: 'user',
+    content: message.content,
+    createdAt: message.createdAt,
+  };
+  const metadata = assistantAgentMetadataSchema.safeParse(message.metadata);
+  const blocks: AssistantContentBlock[] = metadata.success && metadata.data.blocks?.length
+    ? cloneAssistantBlocks(metadata.data.blocks)
+    : [{ id: `${message.id}-text-1`, type: 'text', content: message.content }];
+  return {
+    id: message.id,
+    kind: 'assistant',
+    blocks,
+    createdAt: message.createdAt,
+    workbench: workbenchFromPersistedMessage(message),
+  };
 }
 
 // 从首条用户输入构造创建会话时使用的临时标题。
@@ -362,18 +367,23 @@ function PersistentAgentApp() {
     setMobileNavOpen(false);
   }
 
-  // 从历史 assistant 消息重新打开其持久化的 Workbench 快照。
-  function openPersistedWorkbench(workbench: WorkbenchState): void {
-    const sessionId = selectedSessionIdRef.current;
+  // 从内联 Tool Activity 打开并定位当前会话的 Workbench 调用详情。
+  function focusCurrentWorkbench(target: WorkbenchFocusTarget): void {
+    const sessionId = selectedSessionIdRef.current ?? selectedSessionId;
     if (!sessionId) return;
     setSessionStates((current) => {
       const state = current[sessionId];
       if (!state) return current;
+      const historicalItem = state.conversation.find((item) => item.kind === 'assistant' && item.id === target.runId);
+      const historical = historicalItem?.kind === 'assistant' ? historicalItem.workbench : undefined;
+      const workbench = state.workbench?.runId === target.runId ? state.workbench : historical;
+      if (!workbench) return current;
+      const activeView: WorkspaceView = target.kind === 'source' ? 'sources' : target.kind === 'report' ? 'report' : 'activity';
       return {
         ...current,
         [sessionId]: {
           ...state,
-          workbench: { ...workbench, open: true, followMode: 'pinned' },
+          workbench: { ...workbench, open: true, activeView, focusTarget: target, followMode: 'pinned' },
         },
       };
     });
@@ -446,11 +456,8 @@ function PersistentAgentApp() {
       id: localAssistantId,
       kind: 'assistant',
       createdAt,
-      content: (
-        <p className="assistant-thinking" role="status" aria-live="polite">
-          正在思考中…
-        </p>
-      ),
+      blocks: [],
+      pending: true,
     };
     if (!sessionId) {
       setDraftPending(true);
@@ -471,7 +478,7 @@ function PersistentAgentApp() {
         updateSessionUrl(created.id, true);
       } else {
         const existing = sessionStates[sessionId]?.conversation ?? [];
-        isFirstTurn = !existing.some((item) => item.kind === 'assistant' && item.text);
+        isFirstTurn = !existing.some((item) => item.kind === 'assistant');
       }
 
       const targetId = sessionId;
@@ -491,7 +498,7 @@ function PersistentAgentApp() {
       });
       setSessionPending(targetId, true);
 
-      const completed = await requestChatStream(targetId, task, (delta) => {
+      const completed = await requestChatStream(targetId, task, (deltaEvent) => {
         setSessionStates((current) => {
           const target = current[targetId];
           if (!target) return current;
@@ -503,8 +510,7 @@ function PersistentAgentApp() {
                 item.kind === 'assistant' && item.id === localAssistantId
                   ? {
                       ...item,
-                      text: `${item.text ?? ''}${delta}`,
-                      content: <p>{`${item.text ?? ''}${delta}`}</p>,
+                      blocks: appendTextDelta(item.blocks, deltaEvent),
                     }
                   : item,
               ),
@@ -526,7 +532,7 @@ function PersistentAgentApp() {
               workbench,
               conversation: target.conversation.map((item) =>
                 item.kind === 'assistant' && item.id === localAssistantId
-                  ? { ...item, workbench }
+              ? { ...item, blocks: applyToolActivityEvent(item.blocks, toolEvent), workbench }
                   : item,
               ),
             },
@@ -547,7 +553,7 @@ function PersistentAgentApp() {
             workbench: completedWorkbench,
             conversation: target.conversation.map((item) =>
               item.id === localAssistantId
-                ? { ...item, id: completed.messageId, workbench: completedWorkbench }
+                ? { ...item, id: completed.messageId, pending: false, workbench: completedWorkbench }
                 : item,
             ),
           },
@@ -588,7 +594,8 @@ function PersistentAgentApp() {
                 item.kind === 'assistant' && item.id === localAssistantId
                   ? {
                       ...item,
-                      content: <p className="assistant-failed">本次回答未完成，请稍后重试。</p>,
+                      pending: false,
+                      blocks: item.blocks.length ? item.blocks : [{ id: `${localAssistantId}-failed`, type: 'text', content: '本次回答未完成，请稍后重试。' }],
                     }
                   : item,
               ),
@@ -652,9 +659,7 @@ function PersistentAgentApp() {
             state={uiState}
             error={error}
             onDismissError={() => setError(null)}
-            onRunChange={() => undefined}
-            onFocusWorkbench={() => undefined}
-            onOpenWorkbench={openPersistedWorkbench}
+            onFocusWorkbench={focusCurrentWorkbench}
             prompt={prompt}
             submitting={submitting}
             serviceState={serviceState}
@@ -737,7 +742,7 @@ function PreviewSwitcher({ active }: { active: PreviewState }) {
   );
 }
 
-// 管理服务、对话以及 Run/Workbench 的状态转换。
+// 管理开发预览中的对话与 Workbench 状态转换。
 export function AppShell({ previewState }: { previewState?: AgentUiState }) {
   const [serviceState, setServiceState] = useState<ServiceState>(
     previewState ? 'ready' : 'checking',
@@ -757,46 +762,7 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
     return () => controller.abort();
   }, [previewState]);
 
-  const composerMode =
-    uiState.run?.status === 'running'
-      ? 'steer'
-      : uiState.run?.status === 'waiting'
-        ? 'clarification'
-        : uiState.run?.status === 'cancelling'
-          ? 'disabled'
-          : 'new-run';
-
-  // 将 RunCard 变化同步到对话和对应的 Workbench。
-  function updateRun(run: RunCardState) {
-    setUiState((current) => {
-      const latestTool = run.toolCalls.at(-1);
-      const workbench =
-        current.workbench?.runId === run.runId
-          ? {
-              ...current.workbench,
-              activityStatus: run.status,
-              executions: run.toolCalls,
-              focusTarget:
-                current.workbench.followMode === 'auto' && latestTool
-                  ? ({
-                      kind: 'tool_call',
-                      runId: latestTool.runId,
-                      stepId: latestTool.stepId,
-                      toolCallId: latestTool.toolCallId,
-                    } satisfies WorkbenchFocusTarget)
-                  : current.workbench.focusTarget,
-            }
-          : current.workbench;
-      return {
-        ...current,
-        run: current.run?.runId === run.runId ? run : current.run,
-        conversation: current.conversation.map((item) =>
-          item.kind === 'run' && item.run.runId === run.runId ? { ...item, run } : item,
-        ),
-        workbench,
-      };
-    });
-  }
+  const composerMode = 'new-run' as const;
 
   // 打开 Workbench 并记录用户是否固定了当前定位。
   function focusWorkbench(target: WorkbenchFocusTarget, pinned = true) {
@@ -817,7 +783,7 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
     });
   }
 
-  // 处理预览操作，或提交生产环境的聊天流。
+  // 处理预览输入，追加一组不调用生产 API 的本地消息。
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const task = prompt.trim();
@@ -826,66 +792,15 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
     setError(null);
     setPrompt('');
     if (previewState) {
-      if (composerMode === 'steer' && uiState.run) {
-        const run = {
-          ...uiState.run,
-          currentAction: '已接受调整，将从下一步骤应用',
-        };
-        setUiState((current) => ({
-          ...current,
-          run,
-          conversation: [
-            ...current.conversation.map((item) =>
-              item.kind === 'run' && item.run.runId === run.runId ? { ...item, run } : item,
-            ),
-            { id: `u-${Date.now()}`, kind: 'user', content: task, createdAt: new Date().toISOString() },
-            {
-              id: `a-${Date.now()}`,
-              kind: 'assistant',
-              content: <p>已接受调整，将从下一步骤应用。</p>,
-            },
-          ],
-        }));
-      } else if (composerMode === 'clarification' && uiState.run) {
-        const toolCalls = uiState.run.toolCalls.map((tool, index, items) =>
-          index === items.length - 1 ? { ...tool, status: 'running' as const } : tool,
-        );
-        const run = {
-          ...uiState.run,
-          status: 'running' as const,
-          stage: '检索中',
-          currentAction: '已确认时间范围，继续交叉验证',
-          toolCalls,
-        };
-        setUiState((current) => ({
-          ...current,
-          run,
-          conversation: [
-            ...current.conversation.map((item) =>
-              item.kind === 'run' && item.run.runId === run.runId ? { ...item, run } : item,
-            ),
-            { id: `u-${Date.now()}`, kind: 'user', content: task, createdAt: new Date().toISOString() },
-          ],
-          workbench:
-            current.workbench?.runId === run.runId
-              ? {
-                  ...current.workbench,
-                  activityStatus: 'running',
-                  executions: toolCalls,
-                }
-              : current.workbench,
-        }));
-      } else {
-        const next = makeFixture('tool-running-open');
-        setUiState({
-          ...next,
-          label: task.slice(0, AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength),
-          conversation: [
-            { id: 'u1', kind: 'user', content: task, createdAt: new Date().toISOString() },
-            { id: 'r1', kind: 'run', run: next.run! },
-          ],
-        });
-      }
+      const now = Date.now();
+      setUiState((current) => ({
+        ...current,
+        label: current.conversation.length ? current.label : task.slice(0, AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength),
+        conversation: [...current.conversation,
+          { id: `u-${now}`, kind: 'user', content: task, createdAt: new Date().toISOString() },
+          { id: `a-${now}`, kind: 'assistant', blocks: [{ id: `a-${now}-text-1`, type: 'text', content: '这是开发预览中的本地回复。' }] },
+        ],
+      }));
       setSubmitting(false);
       return;
     }
@@ -931,12 +846,7 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
             state={uiState}
             error={error}
             onDismissError={() => setError(null)}
-            onRunChange={updateRun}
             onFocusWorkbench={(target) => focusWorkbench(target)}
-            onOpenWorkbench={(workbench) => setUiState((current) => ({
-              ...current,
-              workbench: { ...workbench, open: true, followMode: 'pinned' },
-            }))}
             prompt={prompt}
             submitting={submitting}
             serviceState={serviceState}

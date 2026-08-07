@@ -186,7 +186,7 @@ Agent Runtime / Event Stream
 
 可讲的设计决策：
 
-- Conversation 只负责消息时间线和 Composer；RunCard 负责把运行状态压缩成可扫描的摘要。
+- Conversation 用有序文本与 Tool Activity block 还原真实执行时间线；Tool Activity 点击后定位 Workbench，避免再用 RunCard 重复展示同一工具状态。
 - Workbench 只在出现可查看的 Source、Artifact 或报告草稿后展开；没有内容时不渲染空 Tab，避免把“未来能力”伪装成当前能力。
 - Activity、Sources、Report 是同一运行上下文的不同视图，不应由各组件分别维护一份运行状态。
 - 用户手动收起 Workbench 后，本次 run 内由 `pinned/auto-follow` 语义阻止自动重新打开；这类交互状态必须与运行事实分开保存。

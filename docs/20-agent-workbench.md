@@ -216,33 +216,32 @@ Conversation 显示：
 - clarification question/answer
 - accepted steer
 - concise progress announcements
-- run progress card
+- ordered text/tool activity blocks
 - final delivery card
 
 不显示 raw search result list、ReportReview JSON 或 citation validator internals。
 
-### Run Progress Card
+### Inline Tool Activity
 
-Run progress card 是 Conversation 中某个 run 的用户可见执行摘要，展示状态、当前动作、耗时和安全聚合指标。它不是 raw tool call 列表。
+Conversation 使用有序 text/tool activity blocks 透明展示某次 logical tool call。Activity 只包含动作名称、状态、耗时和安全聚合摘要，不展示 raw payload。
 
-- 点击 card 主区域：打开 Workbench 的 Activity tab，并聚焦该 card 的 `focusTarget`。
-- card 展开区包含该 run 的稳定 Progress 和 logical tool call rows。
-- 点击具体 tool call row：按 `runId + stepId + toolCallId` 精确定位。
-- 展开/收起按钮只控制 card 内摘要，不触发 Workbench。
-- card 对应具体 logical tool call 时，目标为 `tool_call`。
-- card 只对应 run 总览时，目标为该 run 当前 execution；terminal run 则定位最后一个可见 execution。
-- Cancel 是独立操作，点击时不得同时触发 card 导航。Steer 通过 Composer 提交，不在 card 提供无输入按钮。
+- `tool.started` 在真实发生位置插入一个稳定 block。
+- `tool.completed/failed/cancelled` 按 `toolCallId` 原位更新，不追加第二条记录。
+- 点击 Activity：打开 Workbench 的 Activity tab，并按 `runId + stepId + toolCallId` 精确定位。
+- terminal Activity 仍可打开历史 execution；状态必须同时使用图标和文字表达。
 
 ```ts
-type RunProgressCard = {
+type ToolActivityBlock = {
   id: string;
-  runId: string;
-  status: 'running' | 'waiting' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
+  type: 'tool_activity';
+  toolCallId: string;
+  toolName: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
   title: string;
-  detail?: string;
-  progress: ProgressItem[];
-  toolCalls: ActivityResource[];
-  focusTarget: Extract<WorkbenchFocusTarget, { kind: 'activity' | 'tool_call' }>;
+  summary?: string;
+  startedAt: string;
+  completedAt?: string;
+  durationMs?: number;
 };
 ```
 
@@ -269,7 +268,7 @@ type WorkbenchFocusTarget =
 映射规则：
 
 ```text
-run progress card / tool activity card -> Activity + step/tool call
+inline tool activity              -> Activity + step/tool call
 [Sx] / source link                  -> Sources + source/evidence
 Open report / Artifact card         -> Report + artifact
 ```
@@ -367,7 +366,7 @@ Mobile 顶层 view 属 P8，不进入 P3 fixture 交互切片；P3 不应为了�
 - 主要过渡时长为 180–240ms，位移控制在 6–12px。
 - Activity/Sources/Report tab 内容轻微淡入上移。
 - execution detail 切换、logical tool call 新增和状态颜色变化使用短过渡。
-- RunCard 展开/收起平滑改变高度和透明度。
+- Conversation 内联 Tool Activity 的插入和状态变化使用短过渡，不改变内容顺序。
 - 不使用弹跳、缩放、持续脉冲或大范围视差；running spinner 除外。
 - `prefers-reduced-motion: reduce` 时关闭非必要动画并将过渡缩短到近即时。
 
@@ -377,7 +376,7 @@ P3 只实现桌面 Workbench 动效，不改变 mobile Workbench 交互。
 
 - tabs 使用正确 ARIA semantics。
 - citation link 可键盘操作。
-- run progress card 主操作可通过 Enter/Space 打开 Activity；展开、steer、cancel 均为独立可聚焦控件。
+- Conversation 中的 Tool Activity 可通过 Enter/Space 打开对应 Activity execution。
 - progress 不只依赖颜色。
 - running/cancelled/limited 有文字状态。
 - source passage 支持复制但不自动执行链接内容。
@@ -413,5 +412,5 @@ Browser/Terminal/Files 只有新产品需求和真实后端 capability 同时存
 7. Desktop/mobile 无重叠、溢出或不可达控件。
 8. raw internal data 只在 Debug。
 9. 未实现 capability 没有空 tab。
-10. 点击 Conversation run progress card 能打开 Workbench 并定位正确 run/step/tool call。
+10. 点击 Conversation 内联 Tool Activity 能打开 Workbench 并定位正确 run/step/tool call。
 11. 多次 tool call、terminal run、snapshot recovery 和 mobile view 切换不会定位到错误 execution。

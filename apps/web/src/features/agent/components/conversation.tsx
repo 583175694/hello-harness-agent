@@ -1,31 +1,24 @@
 import {
   Check,
-  ChevronDown,
   ChevronRight,
   CircleAlert,
   CircleUserRound,
-  Clock3,
   Copy,
-  Globe2,
   LoaderCircle,
-  Search,
   Send,
   SlidersHorizontal,
   Sparkles,
   X,
-  type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { MarkdownContent } from '../../../components/markdown-content';
 import type {
   AgentUiState,
-  RunCardState,
   ServiceState,
-  ToolCallView,
   WorkbenchFocusTarget,
-  WorkbenchState,
 } from '../model/types';
+import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
 
 // 将消息创建时间格式化为当前本地时间。
@@ -48,15 +41,13 @@ export function CopyButton({ text }: { text: string }) {
 
 // 渲染消息时间线、运行卡片、错误提示和 Composer。
 export function Conversation({
-  state, error, onDismissError, onRunChange, onFocusWorkbench, onOpenWorkbench,
+  state, error, onDismissError, onFocusWorkbench,
   prompt, submitting, serviceState, composerMode, onPromptChange, onSubmit,
 }: {
   state: AgentUiState;
   error: string | null;
   onDismissError: () => void;
-  onRunChange: (run: RunCardState) => void;
   onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
-  onOpenWorkbench: (workbench: WorkbenchState) => void;
   prompt: string;
   submitting: boolean;
   serviceState: ServiceState;
@@ -90,18 +81,52 @@ export function Conversation({
         {state.conversation.map((item) => item.kind === 'user' ? <div className="message message--user" key={item.id}>
           <div><div className="user-bubble"><MarkdownContent>{item.content}</MarkdownContent></div><div className="message-actions"><span>{formatMessageTime(item.createdAt, item.time)}</span><CopyButton text={item.content} /></div></div>
           <div className="message-avatar user-avatar" aria-hidden="true"><CircleUserRound size={17} /></div>
-        </div> : item.kind === 'assistant' ? <div className="message message--assistant" key={item.id}>
-          <div className="message-avatar assistant-avatar"><Sparkles size={15} /></div><div className="assistant-content"><div className="message-meta">Harness</div>{item.text !== undefined ? <MarkdownContent>{item.text}</MarkdownContent> : item.content}
-            {item.workbench ? <button className="assistant-tool-summary" type="button" onClick={() => onOpenWorkbench(item.workbench!)}><Search size={14} /><span>{item.workbench.executions.length} 次检索 · {item.workbench.sources.length} 个线索</span><ChevronRight size={14} /></button> : null}
-            <div className="message-actions"><span>{formatMessageTime(item.createdAt, item.time)}</span>{item.text !== undefined ? <CopyButton text={item.text} /> : null}</div>
+        </div> : <div className="message message--assistant" key={item.id}>
+          <div className="message-avatar assistant-avatar"><Sparkles size={15} /></div><div className="assistant-content"><div className="message-meta">Harness</div>
+            {item.pending && item.blocks.length === 0 ? <p className="assistant-thinking" role="status" aria-live="polite">正在思考中…</p> : null}
+            <div className="assistant-blocks">{item.blocks.map((block) => block.type === 'text'
+              ? <div className="assistant-text-block" key={block.id}><MarkdownContent>{block.content}</MarkdownContent></div>
+              : <ToolActivity key={block.id} block={block} messageId={item.workbench?.runId ?? item.id} canOpenWorkbench={Boolean(item.workbench)} onFocusWorkbench={onFocusWorkbench} />)}</div>
+            <div className="message-actions"><span>{formatMessageTime(item.createdAt, item.time)}</span>{flattenAssistantText(item.blocks) ? <CopyButton text={flattenAssistantText(item.blocks)} /> : null}</div>
           </div>
-        </div> : <RunCard key={item.id} run={item.run} onChange={onRunChange} onFocusWorkbench={onFocusWorkbench} />)}
+        </div>)}
       </div>}
     </div>
     <div className="composer-area">{error ? <div className="error-notice" role="alert"><CircleAlert size={17} /><span>{error}</span><button className="icon-button icon-button--small" type="button" aria-label="关闭错误提示" title="关闭错误提示" onClick={onDismissError}><X size={15} /></button></div> : null}
       <Composer prompt={prompt} submitting={submitting} serviceState={serviceState} mode={composerMode} onPromptChange={onPromptChange} onSubmit={handleComposerSubmit} />
     </div>
   </section>;
+}
+
+// 在 assistant 内容流中展示一次工具调用，并允许定位对应 Workbench 详情。
+function ToolActivity({ block, messageId, canOpenWorkbench, onFocusWorkbench }: {
+  block: Extract<AgentUiState['conversation'][number], { kind: 'assistant' }>['blocks'][number] & { type: 'tool_activity' };
+  messageId: string;
+  canOpenWorkbench: boolean;
+  onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
+}) {
+  const statusLabels = {
+    running: '执行中',
+    completed: '已完成',
+    failed: '失败',
+    cancelled: '已取消',
+  } as const;
+  const Icon = block.status === 'completed' ? Check : block.status === 'failed' ? CircleAlert : block.status === 'cancelled' ? X : LoaderCircle;
+  const duration = block.durationMs === undefined
+    ? undefined
+    : block.durationMs < 1000 ? `${block.durationMs} 毫秒` : `${(block.durationMs / 1000).toFixed(1)} 秒`;
+  return <button
+    className={`tool-activity tool-activity--${block.status}`}
+    type="button"
+    disabled={!canOpenWorkbench}
+    aria-label={`${block.title}，${statusLabels[block.status]}`}
+    onClick={() => onFocusWorkbench({ kind: 'tool_call', runId: messageId, stepId: block.toolCallId, toolCallId: block.toolCallId })}
+  >
+    <span className="tool-activity__icon"><Icon className={block.status === 'running' ? 'spin' : ''} size={15} /></span>
+    <span className="tool-activity__body"><strong>{block.title}</strong>{block.summary ? <small>{block.summary}</small> : null}</span>
+    <span className="tool-activity__meta">{duration ?? statusLabels[block.status]}</span>
+    {canOpenWorkbench ? <ChevronRight size={14} /> : null}
+  </button>;
 }
 
 // 提供优先支持键盘操作的消息、调整和确认输入。
@@ -115,27 +140,4 @@ export function Composer({ prompt, submitting, serviceState, mode, onPromptChang
       <button className="send-button" type="submit" aria-label="发送任务" title="发送任务" disabled={!prompt.trim() || submitting || serviceState !== 'ready' || mode === 'disabled'}>{submitting ? <LoaderCircle className="spin" size={18} /> : <Send size={18} />}</button>
     </div>
   </form>;
-}
-
-// 汇总一次运行，并提供稳定控制和工具调用定位入口。
-export function RunCard({ run, onChange, onFocusWorkbench }: { run: RunCardState; onChange: (run: RunCardState) => void; onFocusWorkbench: (target: WorkbenchFocusTarget) => void }) {
-  const [expanded, setExpanded] = useState(run.status === 'running' || run.status === 'waiting');
-  const statusIcon: Record<RunCardState['status'], LucideIcon> = { running: LoaderCircle, completed: Check, waiting: Clock3, cancelling: LoaderCircle, cancelled: X, failed: CircleAlert };
-  const Icon = statusIcon[run.status];
-  const canCancel = run.status === 'running' || run.status === 'waiting';
-  const isBusy = run.status === 'running' || run.status === 'cancelling';
-  const focusedTool = run.toolCalls.at(-1);
-  const openTool = (tool: ToolCallView): void => onFocusWorkbench({ kind: 'tool_call', runId: tool.runId, stepId: tool.stepId, toolCallId: tool.toolCallId });
-  return <div className={`run-card run-card--${run.status}`}>
-    <div className="run-card-header"><button className="run-card-main" type="button" aria-label={`打开 ${run.stage} 的工作台`} onClick={() => focusedTool ? openTool(focusedTool) : onFocusWorkbench({ kind: 'activity', runId: run.runId })}><span className="run-status-icon"><Icon className={isBusy ? 'spin' : ''} size={16} /></span><span className="run-card-title"><strong>{run.stage}</strong><span>{run.currentAction}</span></span><span className="run-card-time">{run.elapsed}</span></button>
-      <button className="icon-button icon-button--small run-toggle" type="button" aria-label={expanded ? '收起运行详情' : '展开运行详情'} title={expanded ? '收起运行详情' : '展开运行详情'} onClick={() => setExpanded((value) => !value)}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
-    </div>
-    {run.status === 'completed' && !expanded ? <div className="run-summary">{run.summary}</div> : null}
-    <div className={`run-card-collapse ${expanded ? 'is-expanded' : ''}`} aria-hidden={!expanded} inert={!expanded}><div className="run-card-collapse-inner"><div className="run-card-body">
-      <div className="run-progress"><span><Globe2 size={14} />{run.queryCount} 次检索</span><span><Search size={14} />{run.sourceCount} 个来源</span></div>
-      <div className="run-progress-steps" aria-label="运行阶段">{run.progress.map((item) => <span className={`progress-step progress-step--${item.status}`} key={item.id}>{item.status === 'completed' ? <Check size={12} /> : <span className="event-mark" />}{item.label}</span>)}</div>
-      <div className="tool-call-list"><div className="section-label">工具调用</div>{run.toolCalls.map((tool) => { const ToolIcon = tool.status === 'completed' ? Check : tool.status === 'failed' ? CircleAlert : tool.status === 'waiting' ? Clock3 : tool.status === 'cancelled' ? X : LoaderCircle; const toolBusy = tool.status === 'running' || tool.status === 'cancelling'; return <button className="tool-call-row" type="button" key={tool.toolCallId} onClick={() => openTool(tool)}><span className={`tool-call-status tool-call-status--${tool.status}`}><ToolIcon className={toolBusy ? 'spin' : ''} size={13} /></span><span><strong>{tool.title}</strong><small>{tool.detail}</small></span><ChevronRight size={14} /></button>; })}</div>
-      {canCancel ? <div className="run-controls"><button className="text-button danger" type="button" onClick={() => { const toolCalls = run.toolCalls.map((tool, index, items) => index === items.length - 1 ? { ...tool, status: 'cancelling' as const, outputSummary: '正在停止当前搜索请求' } : tool); onChange({ ...run, status: 'cancelling', stage: '正在取消', currentAction: '正在安全停止当前步骤', toolCalls }); }}><X size={15} />取消</button></div> : null}
-    </div></div></div>
-  </div>;
 }

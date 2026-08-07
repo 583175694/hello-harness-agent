@@ -86,26 +86,26 @@ describe('R1 workbench shell', () => {
     );
   });
 
-  it('opens the workbench from a run card and pins the selected tool call', () => {
+  it('opens the workbench from an inline tool activity and pins the selected call', () => {
     window.history.replaceState({}, '', '/agent/preview?state=tool-running');
     render(<App />);
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
     expect(document.querySelector('[aria-label="工作区"]')).toHaveAttribute('aria-hidden', 'true');
-    fireEvent.click(screen.getByRole('button', { name: '打开 检索中 的工作台' }));
+    fireEvent.click(screen.getByRole('button', { name: '搜索网页，执行中' }));
     expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
     expect(screen.getByText('已固定')).toBeInTheDocument();
     expect(screen.getByText('业务输入')).toBeInTheDocument();
   });
 
-  it('submits running input as steer without creating a new run', () => {
+  it('keeps preview input lightweight without creating a run card', () => {
     window.history.replaceState({}, '', '/agent/preview?state=tool-running-open');
     render(<App />);
     fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), {
       target: { value: '优先补充制造业案例' },
     });
     fireEvent.click(screen.getByRole('button', { name: '发送任务' }));
-    expect(screen.getByText('已接受调整，将从下一步骤应用。')).toBeInTheDocument();
-    expect(screen.getAllByText('作为调整提交 · 下一步骤生效')).toHaveLength(1);
+    expect(screen.getByText('这是开发预览中的本地回复。')).toBeInTheDocument();
+    expect(document.querySelector('.run-card')).not.toBeInTheDocument();
   });
 
   it('sends a production task and renders the model response', async () => {
@@ -135,9 +135,10 @@ describe('R1 workbench shell', () => {
         }
         if (url.endsWith('/chat/stream')) {
           return Promise.resolve(new Response(
-            'data: {"type":"tool.started","messageId":"msg-test","toolCallId":"call-1","toolName":"web_search","input":{"query":"两个市场最新数据"},"startedAt":"2026-08-05T04:00:01.000Z"}\n\n' +
-            'data: {"type":"tool.completed","messageId":"msg-test","toolCallId":"call-1","toolName":"web_search","completedAt":"2026-08-05T04:00:02.000Z","durationMs":1000,"result":{"query":"两个市场最新数据","provider":"serp","results":[{"id":"result-1","title":"市场数据来源","url":"https://example.com/market","domain":"example.com","snippet":"最新公开市场数据。"}]}}\n\n' +
-            'data: {"type":"message.delta","messageId":"msg-test","delta":"你好，我已经"}\n\ndata: {"type":"message.delta","messageId":"msg-test","delta":"接入模型了。"}\n\ndata: {"type":"message.completed","messageId":"msg-test","model":"test-model"}\n\n',
+            'data: {"type":"message.delta","messageId":"msg-test","blockId":"text-1","delta":"我先查询。"}\n\n' +
+            'data: {"type":"tool.started","messageId":"msg-test","blockId":"tool-1","toolCallId":"call-1","toolName":"web_search","title":"搜索网页","input":{"query":"两个市场最新数据"},"startedAt":"2026-08-05T04:00:01.000Z"}\n\n' +
+            'data: {"type":"tool.completed","messageId":"msg-test","blockId":"tool-1","toolCallId":"call-1","toolName":"web_search","completedAt":"2026-08-05T04:00:02.000Z","durationMs":1000,"result":{"query":"两个市场最新数据","provider":"serp","results":[{"id":"result-1","title":"市场数据来源","url":"https://example.com/market","domain":"example.com","snippet":"最新公开市场数据。"}]}}\n\n' +
+            'data: {"type":"message.delta","messageId":"msg-test","blockId":"text-2","delta":"你好，我已经"}\n\ndata: {"type":"message.delta","messageId":"msg-test","blockId":"text-2","delta":"接入模型了。"}\n\ndata: {"type":"message.completed","messageId":"msg-test","model":"test-model"}\n\n',
             { status: 200, headers: { 'content-type': 'text/event-stream' } },
           ));
         }
@@ -150,8 +151,13 @@ describe('R1 workbench shell', () => {
               ...session,
               messages: [
                 { id: 'user-test', sessionId: session.id, role: 'user', kind: 'user_message', content: 'Compare two markets.', createdAt: session.createdAt, metadata: {} },
-                { id: 'msg-test', sessionId: session.id, role: 'assistant', kind: 'assistant_delivery', content: '你好，我已经接入模型了。', createdAt: session.updatedAt, metadata: {
+                { id: 'msg-test', sessionId: session.id, role: 'assistant', kind: 'assistant_delivery', content: '我先查询。你好，我已经接入模型了。', createdAt: session.updatedAt, metadata: {
                   model: 'test-model',
+                  blocks: [
+                    { id: 'text-1', type: 'text', content: '我先查询。' },
+                    { id: 'tool-1', type: 'tool_activity', toolCallId: 'call-1', toolName: 'web_search', status: 'completed', title: '搜索网页', summary: '找到 1 个结果', startedAt: '2026-08-05T04:00:01.000Z', completedAt: '2026-08-05T04:00:02.000Z', durationMs: 1000 },
+                    { id: 'text-2', type: 'text', content: '你好，我已经接入模型了。' },
+                  ],
                   agent: {
                     toolCallCount: 1,
                     executions: [{ toolCallId: 'call-1', toolName: 'web_search', input: { query: '两个市场最新数据' }, status: 'completed', startedAt: '2026-08-05T04:00:01.000Z', completedAt: '2026-08-05T04:00:02.000Z', durationMs: 1000, resultCount: 1 }],
@@ -175,7 +181,7 @@ describe('R1 workbench shell', () => {
     await waitFor(() => expect(screen.getByText('你好，我已经接入模型了。')).toBeInTheDocument());
     expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
     expect(screen.getByText('市场数据来源')).toBeInTheDocument();
-    expect(screen.getByText('1 次检索 · 1 个线索')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '搜索网页，已完成' })).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(
       '/api/agent/sessions/session-test/chat/stream',
       expect.objectContaining({
@@ -211,6 +217,11 @@ describe('R1 workbench shell', () => {
             { id: 'restored-user', sessionId: restored.id, role: 'user', kind: 'user_message', content: '**持久化问题**', createdAt: restored.createdAt, metadata: {} },
             { id: 'restored-assistant', sessionId: restored.id, role: 'assistant', kind: 'assistant_delivery', content: '这是刷新后恢复的回答。', createdAt: restored.updatedAt, metadata: {
               model: 'test-model',
+              blocks: [
+                { id: 'restored-text-1', type: 'text', content: '我先检索。' },
+                { id: 'restored-tool-1', type: 'tool_activity', toolCallId: 'restored-call', toolName: 'web_search', status: 'completed', title: '搜索网页', summary: '找到 1 个结果', startedAt: '2026-08-05T04:09:58.000Z', completedAt: '2026-08-05T04:09:59.000Z', durationMs: 1000 },
+                { id: 'restored-text-2', type: 'text', content: '这是刷新后恢复的回答。' },
+              ],
               agent: {
                 toolCallCount: 1,
                 executions: [{ toolCallId: 'restored-call', toolName: 'web_search', input: { query: '持久化检索' }, status: 'completed', startedAt: '2026-08-05T04:09:58.000Z', completedAt: '2026-08-05T04:09:59.000Z', durationMs: 1000, resultCount: 1 }],
@@ -226,8 +237,8 @@ describe('R1 workbench shell', () => {
     await waitFor(() => expect(screen.getByText('这是刷新后恢复的回答。')).toBeInTheDocument());
     expect(screen.getByText('持久化问题').tagName).toBe('STRONG');
     expect(window.location.search).toBe('?session=restored-session');
-    fireEvent.click(screen.getByRole('button', { name: /1 次检索 · 1 个线索/ }));
-    expect(screen.getByText('恢复后的来源')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '搜索网页，已完成' }));
+    expect(screen.getByText('持久化检索')).toBeInTheDocument();
   });
 
   it('renames and pins a session through the compact overflow menu', async () => {
@@ -312,7 +323,7 @@ describe('R1 workbench shell', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), { target: { value: '后台问题' } });
     fireEvent.click(screen.getByRole('button', { name: '发送任务' }));
     await waitFor(() => expect(streamController).toBeDefined());
-    streamController?.enqueue(encoder.encode('data: {"type":"message.delta","messageId":"assistant-a","delta":"后台"}\n\n'));
+    streamController?.enqueue(encoder.encode('data: {"type":"message.delta","messageId":"assistant-a","blockId":"assistant-a-text-1","delta":"后台"}\n\n'));
     await waitFor(() => expect(screen.getByText('后台')).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: /^会话 B/ }));
@@ -321,7 +332,7 @@ describe('R1 workbench shell', () => {
     expect(sessionADetailCalls).toBe(1);
 
     streamCompleted = true;
-    streamController?.enqueue(encoder.encode('data: {"type":"message.delta","messageId":"assistant-a","delta":"完整回答"}\n\ndata: {"type":"message.completed","messageId":"assistant-a","model":"test-model"}\n\n'));
+    streamController?.enqueue(encoder.encode('data: {"type":"message.delta","messageId":"assistant-a","blockId":"assistant-a-text-1","delta":"完整回答"}\n\ndata: {"type":"message.completed","messageId":"assistant-a","model":"test-model"}\n\n'));
     streamController?.close();
     await waitFor(() => expect(screen.getByText('后台完整回答')).toBeInTheDocument());
     expect(sessionADetailCalls).toBe(2);

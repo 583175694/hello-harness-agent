@@ -67,6 +67,28 @@ export class SearchProjectionCollector {
     });
   }
 
+  // 记录取消执行，使成功交付后的 Workbench 能恢复准确终态。
+  recordCancelled(input: {
+    toolCallId: string;
+    toolName: string;
+    query: string;
+    completedAt: string;
+    durationMs: number;
+    code: string;
+    detail: string;
+  }): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      input: { query: input.query },
+      status: 'cancelled',
+      startedAt: new Date(new Date(input.completedAt).getTime() - input.durationMs).toISOString(),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+      error: { code: input.code, detail: input.detail },
+    });
+  }
+
   // 返回不可变快照，避免调用方修改投影内部集合。
   snapshot(): { executions: ToolExecutionSnapshot[]; sources: SearchSourceSnapshot[] } {
     return { executions: [...this.executions], sources: [...this.sources.values()] };

@@ -1,3 +1,4 @@
+import type { AssistantContentBlock } from '@harness/agent-protocol';
 import type { ReactNode } from 'react';
 
 export type ServiceState = 'checking' | 'ready' | 'unavailable';
@@ -7,7 +8,6 @@ export type PreviewState =
 export type WorkspaceView = 'activity' | 'sources' | 'report';
 export type ActivityStatus = 'running' | 'completed' | 'waiting' | 'cancelling' | 'cancelled' | 'failed';
 export type ToolCallStatus = 'pending' | 'running' | 'waiting' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
-export type ProgressStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export type WorkbenchFocusTarget =
   | { kind: 'activity'; runId: string; stepId?: string }
@@ -17,15 +17,7 @@ export type WorkbenchFocusTarget =
 
 export type ConversationItem =
   | { id: string; kind: 'user'; content: string; time?: string; createdAt?: string }
-  | { id: string; kind: 'assistant'; content: ReactNode; text?: string; time?: string; createdAt?: string; workbench?: WorkbenchState }
-  | { id: string; kind: 'run'; run: RunCardState };
-
-export type RunCardState = {
-  runId: string; status: ActivityStatus; stage: string; currentAction: string; elapsed: string;
-  queryCount: number; sourceCount: number; summary?: string; progress: ProgressItemState[]; toolCalls: ToolCallView[];
-};
-
-export type ProgressItemState = { id: string; label: string; status: ProgressStatus };
+  | { id: string; kind: 'assistant'; blocks: AssistantContentBlock[]; pending?: boolean; time?: string; createdAt?: string; workbench?: WorkbenchState };
 
 export type ToolCallView = {
   toolCallId: string; runId: string; stepId: string; toolName: string; title: string; detail: string;
@@ -46,6 +38,6 @@ export type WorkbenchState = {
 };
 
 export type AgentUiState = {
-  label: string; subtitle: string; conversation: ConversationItem[]; run?: RunCardState;
+  label: string; subtitle: string; conversation: ConversationItem[];
   workbench?: WorkbenchState; autoOpenSuppressedRunIds?: string[];
 };

@@ -8,7 +8,7 @@
 
 项目已经完成工程基线、持久化普通对话和第一条 Function Calling 联网检索闭环。模型可以在一次 Chat SSE 中调用后端 `web_search`，通过 Bocha 或 Serper 获取公开网页并继续生成回答；真实工具 Activity 和网页线索会投影到生产 Workbench，并随 assistant metadata 刷新恢复。
 
-当前状态可以描述为“具备联网搜索能力的简化 Agent Loop”，但不能描述为完整调研 Agent。正式 Run/Event Store、网页正文证据、引用校验、报告 Artifact、steer/cancel 和 fallback 仍未实现；预览页面中的 waiting、report 和控制状态仍为本地确定性 fixture。
+当前状态可以描述为“具备联网搜索能力和透明工具时间线的简化 Agent Loop”，但不能描述为完整调研 Agent。正式 Run/Event Store、网页正文证据、引用校验、报告 Artifact、steer/cancel 和 fallback 仍未实现；预览页面中的 waiting、report 和控制状态仍为本地确定性 fixture。
 
 ## 2. 已完成
 
@@ -30,7 +30,10 @@
 - 模型流、Runtime 事件流和 Chat SSE 继续使用 `AsyncGenerator` 表达逐步产出；单次数据库操作、工具执行和标题生成使用普通 `async/await`。
 - 模型只看到统一 `web_search({query})`；后端通过 `SEARCH_PROVIDER=bocha|serp` 启用一个 Provider，每次返回最多 10 条标准化结果。
 - Bocha/Serper Adapter 已统一标题、URL、domain、摘要、发布日期和来源字段；搜索超时为 10 秒，不记录 Key 或原始响应。
-- 普通对话已支持 SSE 流式输出；Web 会先显示用户消息，再逐段更新 assistant 消息。
+- 普通对话和启用 Tools 的模型轮次都支持真实 SSE 流式输出；模型文本 delta 到达 Runtime 后立即向 Web 传递，不再等待整轮完成后回放。
+- assistant turn 使用有序 `text/tool_activity` 内容块；工具开始插入一次，完成、失败或取消按 `toolCallId` 原位更新，成功交付后将相同顺序保存到 Message metadata。
+- `tool.started` 由 API 下发稳定用户可见标题；正常取消和 AbortError 都投影为独立 `tool.cancelled`，不会误标失败或遗留永久运行状态。
+- 下一轮模型上下文只使用持久化 Message 的纯文本正文，不注入 Tool Activity 的展示文案。
 - Prisma 已实现 `Session`、`Message` 及数据库级联删除；会话和消息固定归属 `local-user`。
 - 已实现会话创建、列表、详情、重命名、置顶、删除、session-scoped Chat SSE 和模型标题生成 API。
 - 普通对话上下文由 API 从 PostgreSQL 读取最近 20 条消息，Web 不再提交完整历史。
@@ -49,16 +52,15 @@
 - Sidebar 会话项采用单行标题和按需 `…` 菜单，不展示时间或装饰图标；重命名和置顶状态可跨刷新恢复。
 - 生产空状态不渲染空 Workbench。
 - 生产聊天收到工具事件后会自动打开 Workbench；Activity 展示 logical tool call，Sources 展示按 URL 去重的检索线索。
-- 最终 assistant metadata 保存工具执行与来源轻量快照；刷新、切换会话或点击历史消息检索摘要均可恢复 Workbench。
+- 最终 assistant metadata 保存有序内容块、工具执行与来源轻量快照；刷新、切换会话或点击历史 Tool Activity 均可恢复 Workbench。
 - `/agent/preview?state=...` 仅在开发环境启用。
 - Preview 已覆盖 empty、direct-answer、running、waiting、steer、cancelling、cancelled、failed、sources、limited-report、final-report 等状态。
-- RunCard 已支持状态摘要、Progress、logical tool call rows、展开/收起、steer 和 cancel。
-- 点击 RunCard 或具体工具调用可以打开 Workbench 并定位到对应 Activity execution。
+- Conversation 已移除独立 RunCard，工具调用以紧凑 Tool Activity 穿插在 assistant 文本中展示，避免同一执行状态重复投影。
+- 点击内联 Tool Activity 可以打开 Workbench 并定位到对应 execution。
 - Activity 已实现 execution timeline、当前调用详情、auto-follow 和手动 pinned 行为。
 - Workbench 已实现 Activity、Sources、Report 统一外壳和动态 Tab；没有内容时不显示空工具 Tab。
-- Composer 已区分 new-run、clarification、steer、disabled 等状态。
 - Composer 支持 Enter 发送、Shift+Enter 换行；提交后立即清空输入框，用户消息和流式 assistant 占位即时显示。
-- Workbench、Tab、Activity detail 和 RunCard 展开/收起已加入克制动画，并支持 `prefers-reduced-motion`。
+- Workbench、Tab、Activity detail 和内联 Tool Activity 已加入克制动画，并支持 `prefers-reduced-motion`。
 - 使用现有 `lucide-react` 图标库；本地资源目录为 `apps/web/src/assets/`。
 - 前端已按 `components`、`fixtures`、`model` 和 `config` 拆分 Agent feature；页面层继续集中维护 session 选择、缓存和 SSE 生命周期，避免同一状态机出现多个事实源。
 - 跨前后端协议已按 `common`、`sessions` 拆分内部模块；共享限制、工具名和错误码，以及 API/Web 各自的稳定配置均已集中治理。
@@ -122,6 +124,10 @@ git diff --check
 
 2026-08-06 完成后端职责拆分、前端 feature 拆分、协议包内部拆分和常量治理。模型流式处理、Function Calling 循环、工具执行、搜索投影、持久化和 SSE 传输现在具备独立边界；本轮属于保持既有产品行为的结构重构，不新增用户可见能力。详细取舍见 `docs/22-code-refactor-plan.md`。
 
+2026-08-07 修复 Tools 可用时模型文本被整轮缓冲的问题，并将 Conversation 升级为可恢复的有序内容块。Runtime 现在在模型吐字时立即 yield；Web 按 `blockId` 合并文本并按 `toolCallId` 原位更新 Tool Activity；成功消息持久化相同的 `text → tool_activity → text` 顺序。独立 RunCard 已从生产组件、状态类型和 Preview fixture 中删除。深度复核后又补齐了 `tool.cancelled` 全链路、异常工具终态、服务端 Activity 标题以及流式期间乐观消息 ID 到服务端 Workbench ID 的定位。
+
+同日深度复核后执行 workspace lint、typecheck、unit test、production build、API integration 和 Playwright E2E。新增回归直接验证：Tools 可用时首个 delta 早于模型流结束、`text → tool_activity → text` 顺序、工具终态原位更新且不重复、取消与失败分离、未来工具实时/恢复标题一致，以及 assistant 仍使用乐观 ID 时能够定位服务端 Workbench。
+
 覆盖范围包括：
 
 - Web lint、TypeScript typecheck、unit tests、production build。
@@ -134,7 +140,7 @@ git diff --check
 - Playwright desktop/mobile E2E。
 - production 空状态无空 Workbench。
 - running / Sources / Report / waiting / failed / cancel fixture。
-- Conversation 到 Workbench 的定位、steer、cancel、状态切换和 1280px 布局。
+- Conversation 内联 Tool Activity 到 Workbench 的定位、状态切换和 1280px 布局。
 
 ## 5. 当前未完成
 

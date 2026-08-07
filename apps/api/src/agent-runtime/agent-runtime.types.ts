@@ -37,4 +37,14 @@ export type AgentRuntimeEvent =
       code: string;
       detail: string;
     }
+  | {
+      type: 'tool.cancelled';
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      completedAt: string;
+      durationMs: number;
+      code: string;
+      detail: string;
+    }
   | { type: 'run.completed'; content: string; toolCallCount: number };

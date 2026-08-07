@@ -6,7 +6,7 @@ export * from './common/constants.js';
 export * from './sessions/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.4.0';
+export const protocolVersion = '0.5.0';
 
 
 // 定义聊天和未来工具循环共用的消息基础字段。
@@ -96,7 +96,7 @@ export const toolExecutionSnapshotSchema = z.object({
   toolCallId: z.string().min(1),
   toolName: z.string().min(1),
   input: z.object({ query: z.string().min(1) }),
-  status: z.enum(['completed', 'failed']),
+  status: z.enum(['completed', 'failed', 'cancelled']),
   startedAt: z.string().datetime(),
   completedAt: z.string().datetime(),
   durationMs: z.number().int().nonnegative(),
@@ -111,9 +111,40 @@ export const searchSourceSnapshotSchema = searchResultSchema.extend({
   toolCallIds: z.array(z.string().min(1)).min(1),
 });
 
+// 定义 assistant turn 中连续流式 Markdown 文本块。
+export const assistantTextBlockSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal('text'),
+  content: z.string().min(1),
+});
+
+// 定义 assistant turn 中可原位更新的透明工具活动块。
+export const assistantToolActivityBlockSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal('tool_activity'),
+  toolCallId: z.string().min(1),
+  toolName: z.string().min(1),
+  status: z.enum(['running', 'completed', 'failed', 'cancelled']),
+  title: z.string().min(1),
+  summary: z.string().min(1).optional(),
+  startedAt: z.string().datetime(),
+  completedAt: z.string().datetime().optional(),
+  durationMs: z.number().int().nonnegative().optional(),
+});
+
+// 约束文本和工具活动按真实发生顺序组成 assistant 内容时间线。
+export const assistantContentBlockSchema = z.discriminatedUnion('type', [
+  assistantTextBlockSchema,
+  assistantToolActivityBlockSchema,
+]);
+
 // 定义 assistant 消息携带的轻量 Agent 与 Workbench 快照。
 export const assistantAgentMetadataSchema = z.object({
   model: z.string().min(1),
+  blocks: z
+    .array(assistantContentBlockSchema)
+    .max(AGENT_PROTOCOL_LIMITS.assistantContentBlocksMax)
+    .optional(),
   agent: z.object({
     toolCallCount: z.number().int().nonnegative().max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
     executions: z.array(toolExecutionSnapshotSchema).max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
@@ -126,14 +157,17 @@ export const chatStreamEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('tool.started'),
     messageId: z.string().min(1),
+    blockId: z.string().min(1),
     toolCallId: z.string().min(1),
     toolName: z.string().min(1),
+    title: z.string().min(1),
     input: z.object({ query: z.string().min(1) }),
     startedAt: z.string().datetime(),
   }),
   z.object({
     type: z.literal('tool.completed'),
     messageId: z.string().min(1),
+    blockId: z.string().min(1),
     toolCallId: z.string().min(1),
     toolName: z.string().min(1),
     completedAt: z.string().datetime(),
@@ -143,6 +177,18 @@ export const chatStreamEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('tool.failed'),
     messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    toolCallId: z.string().min(1),
+    toolName: z.string().min(1),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    code: z.string().min(1),
+    detail: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('tool.cancelled'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
     toolCallId: z.string().min(1),
     toolName: z.string().min(1),
     completedAt: z.string().datetime(),
@@ -153,6 +199,7 @@ export const chatStreamEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('message.delta'),
     messageId: z.string().min(1),
+    blockId: z.string().min(1),
     delta: z.string().min(1),
   }),
   z.object({
@@ -179,3 +226,6 @@ export type SearchToolResult = z.infer<typeof searchToolResultSchema>;
 export type ToolExecutionSnapshot = z.infer<typeof toolExecutionSnapshotSchema>;
 export type SearchSourceSnapshot = z.infer<typeof searchSourceSnapshotSchema>;
 export type AssistantAgentMetadata = z.infer<typeof assistantAgentMetadataSchema>;
+export type AssistantTextBlock = z.infer<typeof assistantTextBlockSchema>;
+export type AssistantToolActivityBlock = z.infer<typeof assistantToolActivityBlockSchema>;
+export type AssistantContentBlock = z.infer<typeof assistantContentBlockSchema>;

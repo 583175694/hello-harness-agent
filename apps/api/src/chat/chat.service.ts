@@ -15,6 +15,7 @@ import { PrismaService } from '../database/prisma.service';
 import { AgentRuntimeService } from '../agent-runtime/agent-runtime.service';
 import { SessionExecutionRegistry } from '../sessions/session-execution.registry';
 import { SearchProjectionCollector } from '../projection/search-projection.collector';
+import { ConversationBlockCollector } from '../projection/conversation-block.collector';
 import { AssistantDeliveryRepository } from '../persistence/assistant-delivery.repository';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import { CHAT_CONTEXT_MESSAGE_LIMIT, CHAT_SYSTEM_PROMPT } from './chat.constants';
@@ -106,6 +107,7 @@ export class ChatService {
       ChatService.name,
     );
     const projection = new SearchProjectionCollector();
+    const conversation = new ConversationBlockCollector(prepared.assistantMessageId);
     let content = '';
     let toolCallCount = 0;
     let firstDeltaAt: number | undefined;
@@ -127,16 +129,31 @@ export class ChatService {
             ChatService.name,
           );
         }
-        yield { type: 'message.delta', messageId: prepared.assistantMessageId, delta: event.delta };
+        const blockId = conversation.appendText(event.delta);
+        yield {
+          type: 'message.delta',
+          messageId: prepared.assistantMessageId,
+          blockId,
+          delta: event.delta,
+        };
         continue;
       }
       if (event.type === 'tool.started') {
+        const input = this.asSearchInput(event.input);
+        const block = conversation.startTool({
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          query: input.query,
+          startedAt: event.startedAt,
+        });
         yield {
           type: 'tool.started',
           messageId: prepared.assistantMessageId,
+          blockId: block.id,
           toolCallId: event.toolCallId,
           toolName: event.toolName,
-          input: this.asSearchInput(event.input),
+          title: block.title,
+          input,
           startedAt: event.startedAt,
         };
         continue;
@@ -152,9 +169,16 @@ export class ChatService {
           durationMs: event.durationMs,
           result,
         });
+        const blockId = conversation.completeTool({
+          toolCallId: event.toolCallId,
+          completedAt: event.completedAt,
+          durationMs: event.durationMs,
+          resultCount: result.results.length,
+        });
         yield {
           type: 'tool.completed',
           messageId: prepared.assistantMessageId,
+          blockId,
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           completedAt: event.completedAt,
@@ -174,9 +198,16 @@ export class ChatService {
           code: event.code,
           detail: event.detail,
         });
+        const blockId = conversation.failTool({
+          toolCallId: event.toolCallId,
+          completedAt: event.completedAt,
+          durationMs: event.durationMs,
+          detail: event.detail,
+        });
         yield {
           type: 'tool.failed',
           messageId: prepared.assistantMessageId,
+          blockId,
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           completedAt: event.completedAt,
@@ -186,7 +217,37 @@ export class ChatService {
         };
         continue;
       }
-      // 除文本和工具事件外只剩 run.completed，它提供最终持久化所需的汇总状态。
+      if (event.type === 'tool.cancelled') {
+        const input = this.asSearchInput(event.input);
+        projection.recordCancelled({
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          query: input.query,
+          completedAt: event.completedAt,
+          durationMs: event.durationMs,
+          code: event.code,
+          detail: event.detail,
+        });
+        const blockId = conversation.cancelTool({
+          toolCallId: event.toolCallId,
+          completedAt: event.completedAt,
+          durationMs: event.durationMs,
+          detail: event.detail,
+        });
+        yield {
+          type: 'tool.cancelled',
+          messageId: prepared.assistantMessageId,
+          blockId,
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          completedAt: event.completedAt,
+          durationMs: event.durationMs,
+          code: event.code,
+          detail: event.detail,
+        };
+        continue;
+      }
+      // 除文本和工具生命周期事件外只剩 run.completed，它提供最终持久化所需的汇总状态。
       content = event.content;
       toolCallCount = event.toolCallCount;
     }
@@ -200,10 +261,13 @@ export class ChatService {
     const linkedContent = this.ensureSourceLinks(content, snapshot.sources);
     // 当前搜索协议要求结果至少带可访问链接；模型未主动输出时补充去重后的来源列表。
     if (linkedContent.length > content.length) {
+      const delta = linkedContent.slice(content.length);
+      const blockId = conversation.appendText(delta);
       yield {
         type: 'message.delta',
         messageId: prepared.assistantMessageId,
-        delta: linkedContent.slice(content.length),
+        blockId,
+        delta,
       };
       content = linkedContent;
     }
@@ -211,7 +275,7 @@ export class ChatService {
       sessionId: prepared.sessionId,
       messageId: prepared.assistantMessageId,
       model,
-      content,
+      blocks: conversation.snapshot(),
       toolCallCount,
       executions: snapshot.executions,
       sources: snapshot.sources,

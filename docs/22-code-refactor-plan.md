@@ -58,7 +58,7 @@ Runtime 负责模型轮次、工具调用循环、参数解析、工具预算、
 
 ### 7. Frontend Feature Boundaries
 
-前端页面层保留会话缓存、SSE 订阅和状态编排；可复用 UI 已拆到 `features/agent/components/`，其中 `conversation.tsx` 负责消息流、Composer、RunCard 和吸底行为，`workbench-views.tsx` 负责统一 Workbench 外壳及 Activity/Sources/Report 视图，`fixtures/preview.tsx` 隔离开发预览数据。这样后续新增工具视图时不需要继续扩大页面组件文件。
+前端页面层保留会话缓存、SSE 订阅和状态编排；可复用 UI 已拆到 `features/agent/components/`，其中 `conversation.tsx` 负责有序文本/Tool Activity 消息流、Composer 和吸底行为，`workbench-views.tsx` 负责统一 Workbench 外壳及 Activity/Sources/Report 视图，`fixtures/preview.tsx` 隔离开发预览数据。这样后续新增工具视图时不需要继续扩大页面组件文件。
 
 ### 8. Constants Policy
 

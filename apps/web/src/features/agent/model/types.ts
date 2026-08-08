@@ -1,10 +1,11 @@
-import type { AssistantContentBlock } from '@harness/agent-protocol';
+import type { AssistantContentBlock, WebFetchPassage } from '@harness/agent-protocol';
 import type { ReactNode } from 'react';
 
 export type ServiceState = 'checking' | 'ready' | 'unavailable';
 export type PreviewState =
   | 'empty' | 'direct-answer' | 'tool-running' | 'tool-running-open' | 'sources' | 'final-report'
-  | 'waiting' | 'steer-accepted' | 'cancelling' | 'cancelled' | 'limited-report' | 'failed';
+  | 'waiting' | 'steer-accepted' | 'cancelling' | 'cancelled' | 'limited-report' | 'failed'
+  | 'fetch-running' | 'fetch-candidate' | 'fetch-failed';
 export type WorkspaceView = 'activity' | 'sources' | 'report';
 export type ActivityStatus = 'running' | 'completed' | 'waiting' | 'cancelling' | 'cancelled' | 'failed';
 export type ToolCallStatus = 'pending' | 'running' | 'waiting' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
@@ -26,7 +27,9 @@ export type ToolCallView = {
 
 export type SourceView = {
   id: string; title: string; domain: string; url: string; excerpt: string; time: string;
-  provider?: string; kind?: 'clue' | 'evidence';
+  provider?: string; kind?: 'clue' | 'evidence_candidate' | 'evidence';
+  author?: string; publishedAt?: string; contentType?: string; cacheStatus?: 'hit' | 'miss';
+  truncated?: boolean; passages?: WebFetchPassage[];
 };
 
 export type ReportView = { title: string; updated: string; content: ReactNode };

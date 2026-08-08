@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useMemo } from 'react';
+import { MarkdownContent } from '../../../components/markdown-content';
 
 import type {
   ActivityStatus,
@@ -181,23 +182,58 @@ function ActivityView({
 
 // 展示已保存的来源片段和外部引用。
 function SourcesView({ sources: items }: { sources: SourceView[] }) {
-  const evidenceCount = items.filter((source) => source.kind !== 'clue').length;
+  const evidenceCount = items.filter((source) => source.kind === 'evidence').length;
+  const candidateCount = items.filter((source) => source.kind === 'evidence_candidate').length;
+  const clueCount = items.filter((source) => source.kind === 'clue').length;
+  const sourceSummary = evidenceCount
+    ? `${evidenceCount} 个正式引用`
+    : candidateCount
+      ? `${candidateCount} 个原文候选 · ${clueCount} 个线索`
+      : `${clueCount} 个检索线索`;
   return (
     <div className="sources-view">
       <div className="view-toolbar">
-        <div><strong>来源</strong><span>{evidenceCount === items.length ? `${items.length} 个有效引用` : `${items.length} 个检索线索`}</span></div>
+        <div><strong>来源</strong><span>{sourceSummary}</span></div>
         <button className="icon-button" type="button" aria-label="筛选来源" title="筛选来源"><SlidersHorizontal size={16} /></button>
       </div>
       <div className="source-list">
         {items.map((source) => (
           <article className="source-item" key={source.id}>
             <div className="source-item-top">
-              <span className="source-id">{source.kind === 'clue' ? source.id : `[${source.id}]`}</span>
+              <span className="source-id">{source.kind === 'evidence' ? `[${source.id}]` : source.id}</span>
               <span className="source-domain">{source.domain}</span>
               <a href={source.url} target="_blank" rel="noopener noreferrer" aria-label={`打开来源 ${source.title}`}><ArrowUpRight size={14} /></a>
             </div>
             <h3>{source.title}</h3><p>{source.excerpt}</p>
-            <small>{source.provider ? `${source.provider} · ` : ''}{source.time} · {source.kind === 'clue' ? '搜索结果摘要，尚未验证为证据' : '已保存引用片段'}</small>
+            {source.kind === 'evidence_candidate' ? (
+              <>
+                <div className="candidate-meta">
+                  {source.author ? <span>{source.author}</span> : null}
+                  {source.publishedAt ? <span>{source.publishedAt}</span> : null}
+                  {source.contentType ? <span>{source.contentType}</span> : null}
+                  {source.cacheStatus ? <span>{source.cacheStatus === 'hit' ? '缓存命中' : '实时读取'}</span> : null}
+                  {source.truncated ? <span>正文已截断</span> : null}
+                </div>
+                <span className="candidate-label">原文候选，尚未成为正式引用</span>
+                {source.passages?.length ? (
+                  <details className="candidate-passages">
+                    <summary>查看 {source.passages.length} 段原文</summary>
+                    <div className="candidate-passage-list">
+                      {source.passages.map((passage) => (
+                        <article className="candidate-passage" key={passage.passageId}>
+                          {passage.locator.sectionPath?.length
+                            ? <div className="passage-section">{passage.locator.sectionPath.join(' / ')}</div>
+                            : null}
+                          <MarkdownContent>{passage.text}</MarkdownContent>
+                          <small>位置 {passage.locator.position.start}–{passage.locator.position.end}</small>
+                        </article>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+              </>
+            ) : null}
+            <small>{source.provider ? `${source.provider} · ` : ''}{source.time} · {source.kind === 'clue' ? '搜索结果摘要，尚未验证为证据' : source.kind === 'evidence_candidate' ? '已保存可定位原文片段' : '正式引用'}</small>
           </article>
         ))}
       </div>

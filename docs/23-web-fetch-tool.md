@@ -1,6 +1,6 @@
 # Web Fetch Tool
 
-> 文档状态：下一阶段权威设计，尚未实现。本文定义 canonical `web_fetch` 的 V1 契约、安全边界、内容处理和验收要求。
+> 文档状态：Web Fetch V1 已实现。本文定义 canonical `web_fetch` 的现行契约、安全边界、内容处理和验收要求。
 
 ## 1. 目标
 
@@ -49,6 +49,7 @@ V1 保留与本地 Agent 风险相称的最小网络安全边界：
 - 拒绝 localhost、loopback、private、link-local、multicast、unspecified 和保留地址。
 - 拒绝云平台 metadata endpoint 和内部服务域名。
 - DNS 解析结果不能包含私网、保留地址或云平台 metadata 地址。
+- 每次重定向重新执行相同的最小 URL、DNS 和 IP 校验，并拒绝 HTTPS 降级到 HTTP。
 - 限制 Crawlee 重定向、超时、重试、响应大小、单次 URL 数量和运行级 URL 预算。
 - R1 不携带用户 Cookie、Authorization 或自定义敏感 Header。
 - TLS 校验默认开启，不提供模型可控的跳过选项。
@@ -99,6 +100,7 @@ type WebFetchPolicy = {
 要求：
 
 - 初始默认单次最多 5 个 URL、单次运行最多读取 10 个 URL、最大并发 3、每个 URL 最多重试 1 次、处理超时 20 秒。
+- 单份文档最多返回 6 个 Passage、单段最多 2,000 Unicode code points，整批 Passage 总量最多 24,000 code points。
 - 每个 URL 独立成功或失败；单个 URL 失败不能丢弃同一批次的成功结果。
 - 用户取消必须停止当前 Crawlee 运行和尚未开始的请求。
 - 响应体和规范化正文都受容量上限控制，不能把完整大页面注入模型。

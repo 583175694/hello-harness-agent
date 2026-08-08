@@ -4,7 +4,7 @@ import { Logger } from 'nestjs-pino';
 import type {
   AssistantContentBlock,
   AssistantTextBlock,
-  SearchSourceSnapshot,
+  ResearchSourceSnapshot,
   ToolExecutionSnapshot,
 } from '@harness/agent-protocol';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
@@ -26,7 +26,7 @@ export class AssistantDeliveryRepository {
     blocks: AssistantContentBlock[];
     toolCallCount: number;
     executions: ToolExecutionSnapshot[];
-    sources: SearchSourceSnapshot[];
+    sources: ResearchSourceSnapshot[];
   }): Promise<void> {
     const startedAt = Date.now();
     const content = input.blocks

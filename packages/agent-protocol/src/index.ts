@@ -4,9 +4,15 @@ export * from './common/problem.js';
 export * from './common/status.js';
 export * from './common/constants.js';
 export * from './sessions/contracts.js';
+export * from './web-fetch/contracts.js';
+import {
+  webFetchInputSchema,
+  webFetchPassageSchema,
+  webFetchResultSchema,
+} from './web-fetch/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.5.0';
+export const protocolVersion = '0.6.0';
 
 
 // 定义聊天和未来工具循环共用的消息基础字段。
@@ -92,24 +98,64 @@ export const searchToolResultSchema = z.object({
 });
 
 // 定义 assistant metadata 中可恢复的工具执行摘要。
-export const toolExecutionSnapshotSchema = z.object({
+const toolExecutionBaseSchema = z.object({
   toolCallId: z.string().min(1),
-  toolName: z.string().min(1),
-  input: z.object({ query: z.string().min(1) }),
   status: z.enum(['completed', 'failed', 'cancelled']),
   startedAt: z.string().datetime(),
   completedAt: z.string().datetime(),
   durationMs: z.number().int().nonnegative(),
   resultCount: z.number().int().nonnegative().optional(),
+  succeededCount: z.number().int().nonnegative().optional(),
+  failedCount: z.number().int().nonnegative().optional(),
+  passageCount: z.number().int().nonnegative().optional(),
   error: z.object({ code: z.string().min(1), detail: z.string().min(1) }).optional(),
 });
 
+// 根据工具名约束可持久化的执行输入，防止搜索和读取参数混淆。
+export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal('web_search'),
+    input: z.object({ query: z.string().min(1) }),
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal('web_fetch'),
+    input: webFetchInputSchema,
+  }),
+]);
+
 // 定义去重后保存的来源线索及其关联工具调用。
 export const searchSourceSnapshotSchema = searchResultSchema.extend({
+  kind: z.literal('clue').default('clue'),
   provider: searchProviderSchema,
   retrievedAt: z.string().datetime(),
   toolCallIds: z.array(z.string().min(1)).min(1),
 });
+
+// 定义 assistant metadata 中可恢复的网页原文候选。
+export const webFetchSourceSnapshotSchema = z.object({
+  kind: z.literal('evidence_candidate'),
+  id: z.string().min(1),
+  requestedUrl: z.string().url(),
+  finalUrl: z.string().url(),
+  normalizedUrl: z.string().url(),
+  title: z.string().min(1),
+  author: z.string().min(1).optional(),
+  publishedAt: z.string().min(1).optional(),
+  language: z.string().min(1).optional(),
+  contentType: z.string().min(1),
+  retrievedAt: z.string().datetime(),
+  contentHash: z.string().min(1),
+  cacheStatus: z.enum(['hit', 'miss']),
+  truncated: z.boolean(),
+  passages: z.array(webFetchPassageSchema).max(AGENT_PROTOCOL_LIMITS.webFetchPassagesMax),
+  toolCallIds: z.array(z.string().min(1)).min(1),
+});
+
+// 定义调研 Workbench 可以恢复的线索和原文候选联合。
+export const researchSourceSnapshotSchema = z.union([
+  searchSourceSnapshotSchema,
+  webFetchSourceSnapshotSchema,
+]);
 
 // 定义 assistant turn 中连续流式 Markdown 文本块。
 export const assistantTextBlockSchema = z.object({
@@ -148,32 +194,61 @@ export const assistantAgentMetadataSchema = z.object({
   agent: z.object({
     toolCallCount: z.number().int().nonnegative().max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
     executions: z.array(toolExecutionSnapshotSchema).max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
-    sources: z.array(searchSourceSnapshotSchema),
+    sources: z.array(researchSourceSnapshotSchema),
   }).optional(),
 });
 
 // 定义 Web SSE 客户端消费的标准增量事件。
-export const chatStreamEventSchema = z.discriminatedUnion('type', [
+const toolStartedEventSchema = z.discriminatedUnion('toolName', [
   z.object({
     type: z.literal('tool.started'),
     messageId: z.string().min(1),
     blockId: z.string().min(1),
     toolCallId: z.string().min(1),
-    toolName: z.string().min(1),
+    toolName: z.literal('web_search'),
     title: z.string().min(1),
     input: z.object({ query: z.string().min(1) }),
     startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('web_fetch'),
+    title: z.string().min(1),
+    input: webFetchInputSchema,
+    startedAt: z.string().datetime(),
+  }),
+]);
+
+const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('web_search'),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: searchToolResultSchema,
   }),
   z.object({
     type: z.literal('tool.completed'),
     messageId: z.string().min(1),
     blockId: z.string().min(1),
     toolCallId: z.string().min(1),
-    toolName: z.string().min(1),
+    toolName: z.literal('web_fetch'),
     completedAt: z.string().datetime(),
     durationMs: z.number().int().nonnegative(),
-    result: searchToolResultSchema,
+    result: webFetchResultSchema,
   }),
+]);
+
+// 定义 Web SSE 客户端消费的标准增量事件。
+export const chatStreamEventSchema = z.union([
+  toolStartedEventSchema,
+  toolCompletedEventSchema,
   z.object({
     type: z.literal('tool.failed'),
     messageId: z.string().min(1),
@@ -225,6 +300,8 @@ export type SearchResult = z.infer<typeof searchResultSchema>;
 export type SearchToolResult = z.infer<typeof searchToolResultSchema>;
 export type ToolExecutionSnapshot = z.infer<typeof toolExecutionSnapshotSchema>;
 export type SearchSourceSnapshot = z.infer<typeof searchSourceSnapshotSchema>;
+export type WebFetchSourceSnapshot = z.infer<typeof webFetchSourceSnapshotSchema>;
+export type ResearchSourceSnapshot = z.infer<typeof researchSourceSnapshotSchema>;
 export type AssistantAgentMetadata = z.infer<typeof assistantAgentMetadataSchema>;
 export type AssistantTextBlock = z.infer<typeof assistantTextBlockSchema>;
 export type AssistantToolActivityBlock = z.infer<typeof assistantToolActivityBlockSchema>;

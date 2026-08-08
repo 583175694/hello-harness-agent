@@ -313,6 +313,100 @@ describe('ChatService session persistence', () => {
     });
   });
 
+  it('projects web search followed by web fetch as one upgraded evidence candidate', async () => {
+    const providerCreate = vi
+      .fn()
+      .mockResolvedValueOnce((async function* () {
+        yield { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-search', function: { name: 'web_search', arguments: '{"query":"AI evidence"}' } }] }, finish_reason: 'tool_calls' }] };
+      })())
+      .mockResolvedValueOnce((async function* () {
+        yield { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-fetch', function: { name: 'web_fetch', arguments: '{"urls":["https://example.com/report"],"query":"AI evidence"}' } }] }, finish_reason: 'tool_calls' }] };
+      })())
+      .mockResolvedValueOnce((async function* () {
+        yield { choices: [{ delta: { content: '已根据原文完成回答：https://example.com/report' } }] };
+        yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
+      })());
+    const searchResult = {
+      query: 'AI evidence',
+      provider: 'serp' as const,
+      results: [{
+        id: 'result-1', title: 'AI Report', url: 'https://example.com/report',
+        domain: 'example.com', snippet: 'search clue',
+      }],
+    };
+    const exact = 'AI adoption increased in production workflows.';
+    const fetchResult = {
+      query: 'AI evidence',
+      results: [{
+        status: 'succeeded' as const,
+        requestedUrl: 'https://example.com/report',
+        finalUrl: 'https://example.com/report',
+        normalizedUrl: 'https://example.com/report',
+        title: 'AI Report',
+        contentType: 'text/html',
+        retrievedAt: '2026-08-08T02:00:00.000Z',
+        contentHash: 'content-hash',
+        cacheStatus: 'miss' as const,
+        truncated: false,
+        passages: [{
+          passageId: 'passage-1', text: exact,
+          locator: {
+            kind: 'web_text' as const,
+            quote: { exact },
+            position: { start: 0, end: Array.from(exact).length },
+          },
+        }],
+      }],
+    };
+    const registry = {
+      definitions: vi.fn(() => [
+        { name: 'web_search', description: '搜索', parameters: {} },
+        { name: 'web_fetch', description: '读取', parameters: {} },
+      ]),
+      parseInput: vi.fn((name: string) => name === 'web_fetch'
+        ? { urls: ['https://example.com/report'], query: 'AI evidence' }
+        : { query: 'AI evidence' }),
+      units: vi.fn((name: string) => name === 'web_fetch'
+        ? { units: 1, limit: 10 }
+        : { units: 1 }),
+      execute: vi.fn((name: string) => Promise.resolve(name === 'web_fetch'
+        ? {
+            status: 'succeeded' as const, output: fetchResult,
+            modelContent: JSON.stringify({ untrustedExternalData: true, evidenceQualification: 'evidence_candidate', ...fetchResult }),
+            metrics: { durationMs: 10, resultCount: 1, succeededCount: 1, failedCount: 0, passageCount: 1 },
+          }
+        : {
+            status: 'succeeded' as const, output: searchResult,
+            modelContent: JSON.stringify({ untrustedExternalData: true, ...searchResult }),
+            metrics: { durationMs: 10, resultCount: 1 },
+          })),
+    };
+    const { service, messageCreate } = makeService(providerCreate, registry);
+    const prepared = await service.prepareSessionStream('session-1', 'research AI');
+    const events = await collect(service.streamPrepared(prepared));
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'tool.completed', toolName: 'web_search' }),
+      expect.objectContaining({ type: 'tool.completed', toolName: 'web_fetch', result: fetchResult }),
+    ]));
+    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+      data: {
+        metadata: {
+          agent: {
+            toolCallCount: 2,
+            sources: [expect.objectContaining({
+              kind: 'evidence_candidate',
+              finalUrl: 'https://example.com/report',
+              toolCallIds: ['call-search', 'call-fetch'],
+              passages: [expect.objectContaining({ passageId: 'passage-1' })],
+            })],
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(messageCreate.mock.calls[1]?.[0])).not.toContain('<html');
+  });
+
   it('projects a cancelled tool separately and updates the same activity block', async () => {
     const providerCreate = vi
       .fn()

@@ -42,6 +42,7 @@ import type {
   WorkspaceView,
 } from './features/agent/model/types';
 import { appendTextDelta, applyToolActivityEvent, cloneAssistantBlocks } from './features/agent/model/conversation-blocks';
+import { nextSourceNumber } from './features/agent/model/source-identifiers';
 import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
@@ -51,6 +52,7 @@ import { AGENT_UI_COPY, SERVICE_STATE_LABELS } from './features/agent/config/ui.
 // 将传输和供应商异常转换为用户可读的提示文案。
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiProblem) return error.problem.detail;
+  if (error instanceof Error && error.name === 'ZodError') return '工具返回的数据格式异常，本次回答未完成，请稍后重试。';
   if (error instanceof Error) return error.message;
   return '请求暂时无法完成。';
 }
@@ -79,6 +81,22 @@ function formatToolDuration(durationMs: number): string {
   return durationMs < 1000 ? `${durationMs} 毫秒` : `${(durationMs / 1000).toFixed(1)} 秒`;
 }
 
+// 从任意网页地址读取适合 Workbench 展示的域名。
+function sourceDomain(url: string): string {
+  try { return new URL(url).hostname; } catch { return url; }
+}
+
+// 规范化来源地址，确保实时事件与持久化投影按同一网页合并。
+function normalizeSourceUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 // 将持久化 assistant metadata 投影为可恢复的轻量 Workbench。
 function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchState | undefined {
   if (message.role !== 'assistant') return undefined;
@@ -87,39 +105,73 @@ function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchStat
   const { executions, sources } = metadata.data.agent;
   const completedCount = executions.filter((execution) => execution.status === 'completed').length;
   const cancelledCount = executions.filter((execution) => execution.status === 'cancelled').length;
-  return {
-    runId: message.id,
-    title: AGENT_UI_COPY.searchWorkbenchTitle,
-    subtitle: `${executions.length} 次调用 · ${sources.length} 个检索线索`,
-    activeView: sources.length ? 'sources' : 'activity',
-    activityStatus: completedCount ? 'completed' : cancelledCount === executions.length ? 'cancelled' : 'failed',
-    executions: executions.map((execution) => ({
-      toolCallId: execution.toolCallId,
-      runId: message.id,
-      stepId: execution.toolCallId,
-      toolName: execution.toolName,
-      title: `搜索：${execution.input.query}`,
-      detail: execution.status === 'completed' ? '公开网页检索已完成' : execution.status === 'cancelled' ? '网页检索已取消' : '网页检索未完成',
-      status: execution.status,
-      elapsed: formatToolDuration(execution.durationMs),
-      inputSummary: execution.input.query,
-      outputSummary: execution.status === 'completed'
-        ? `返回 ${execution.resultCount ?? 0} 条网页结果`
-        : execution.error?.detail,
-      resultCount: execution.resultCount,
-      sourceCount: execution.resultCount,
-    })),
-    followMode: 'auto',
-    sources: sources.map((source, index) => ({
-      id: `R${index + 1}`,
+  let clueIndex = 0;
+  let candidateIndex = 0;
+  const sourceViews = sources.map((source) => {
+    if (source.kind === 'evidence_candidate') {
+      candidateIndex += 1;
+      return {
+        id: `F${candidateIndex}`,
+        title: source.title,
+        domain: sourceDomain(source.finalUrl),
+        url: source.finalUrl,
+        excerpt: source.passages[0]?.text ?? '已读取网页，但没有匹配当前问题的原文片段。',
+        time: new Date(source.retrievedAt).toLocaleString('zh-CN'),
+        kind: 'evidence_candidate' as const,
+        author: source.author,
+        publishedAt: source.publishedAt,
+        contentType: source.contentType,
+        cacheStatus: source.cacheStatus,
+        truncated: source.truncated,
+        passages: source.passages,
+      };
+    }
+    clueIndex += 1;
+    return {
+      id: `R${clueIndex}`,
       title: source.title,
       domain: source.domain,
       url: source.url,
       excerpt: source.snippet,
       time: new Date(source.retrievedAt).toLocaleString('zh-CN'),
       provider: source.provider,
-      kind: 'clue',
-    })),
+      kind: 'clue' as const,
+    };
+  });
+  return {
+    runId: message.id,
+    title: AGENT_UI_COPY.searchWorkbenchTitle,
+    subtitle: `${executions.length} 次调用 · ${sourceViews.length} 个来源`,
+    activeView: sources.length ? 'sources' : 'activity',
+    activityStatus: completedCount ? 'completed' : cancelledCount === executions.length ? 'cancelled' : 'failed',
+    executions: executions.map((execution) => {
+      const isFetch = execution.toolName === 'web_fetch';
+      const inputSummary = isFetch
+        ? `${execution.input.urls.length} 个网页${execution.input.query ? ` · ${execution.input.query}` : ''}`
+        : execution.input.query;
+      return {
+        toolCallId: execution.toolCallId,
+        runId: message.id,
+        stepId: execution.toolCallId,
+        toolName: execution.toolName,
+        title: isFetch ? `读取 ${execution.input.urls.length} 个网页` : `搜索：${execution.input.query}`,
+        detail: execution.status === 'completed'
+          ? isFetch ? '网页原文读取已完成' : '公开网页检索已完成'
+          : execution.status === 'cancelled' ? '工具调用已取消' : '工具调用未完成',
+        status: execution.status,
+        elapsed: formatToolDuration(execution.durationMs),
+        inputSummary,
+        outputSummary: execution.status === 'completed'
+          ? isFetch
+            ? `成功 ${execution.succeededCount ?? 0} 个，失败 ${execution.failedCount ?? 0} 个，提取 ${execution.passageCount ?? 0} 段原文`
+            : `返回 ${execution.resultCount ?? 0} 条网页结果`
+          : execution.error?.detail,
+        resultCount: execution.resultCount,
+        sourceCount: isFetch ? execution.succeededCount : execution.resultCount,
+      };
+    }),
+    followMode: 'auto',
+    sources: sourceViews,
     open: false,
   };
 }
@@ -142,16 +194,20 @@ function applyToolEvent(
     open,
   };
   if (event.type === 'tool.started') {
+    const isFetch = event.toolName === 'web_fetch';
+    const inputSummary = isFetch
+      ? `${event.input.urls.length} 个网页${event.input.query ? ` · ${event.input.query}` : ''}`
+      : event.input.query;
     const tool: ToolCallView = {
       toolCallId: event.toolCallId,
       runId: event.messageId,
       stepId: event.toolCallId,
       toolName: event.toolName,
-      title: `搜索：${event.input.query}`,
-      detail: '正在搜索公开网页',
+      title: isFetch ? `读取 ${event.input.urls.length} 个网页` : `搜索：${event.input.query}`,
+      detail: isFetch ? '正在读取和过滤网页正文' : '正在搜索公开网页',
       status: 'running',
       elapsed: '进行中',
-      inputSummary: event.input.query,
+      inputSummary,
     };
     const executions = base.executions.some((item) => item.toolCallId === event.toolCallId)
       ? base.executions
@@ -169,25 +225,34 @@ function applyToolEvent(
   const failedEvent = event.type === 'tool.failed' ? event : undefined;
   const cancelledEvent = event.type === 'tool.cancelled' ? event : undefined;
   const status = completedEvent ? 'completed' as const : cancelledEvent ? 'cancelled' as const : 'failed' as const;
+  const completedFetch = completedEvent?.toolName === 'web_fetch' ? completedEvent : undefined;
+  const fetchSucceeded = completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
+  const fetchPassages = fetchSucceeded.reduce((total, item) => total + item.passages.length, 0);
   const executions = base.executions.map((tool) => tool.toolCallId === event.toolCallId
     ? {
         ...tool,
         status,
-        detail: completedEvent ? '公开网页检索已完成' : cancelledEvent?.detail ?? failedEvent?.detail ?? '工具执行失败',
+        detail: completedEvent
+          ? completedFetch ? '网页原文读取已完成' : '公开网页检索已完成'
+          : cancelledEvent?.detail ?? failedEvent?.detail ?? '工具执行失败',
         elapsed: formatToolDuration(event.durationMs),
         outputSummary: completedEvent
-          ? `返回 ${completedEvent.result.results.length} 条网页结果`
+          ? completedFetch
+            ? `成功 ${fetchSucceeded.length} 个，失败 ${completedFetch.result.results.length - fetchSucceeded.length} 个，提取 ${fetchPassages} 段原文`
+            : `返回 ${completedEvent.result.results.length} 条网页结果`
           : cancelledEvent?.detail ?? failedEvent?.detail,
         resultCount: completedEvent?.result.results.length,
-        sourceCount: completedEvent?.result.results.length,
+        sourceCount: completedFetch ? fetchSucceeded.length : completedEvent?.result.results.length,
       }
     : tool);
-  const sourceMap = new Map(base.sources.map((source) => [source.url, source]));
-  if (event.type === 'tool.completed') {
+  const sourceMap = new Map(base.sources.map((source) => [normalizeSourceUrl(source.url), source]));
+  if (event.type === 'tool.completed' && event.toolName === 'web_search') {
+    let clueNumber = nextSourceNumber(base.sources, 'R');
     for (const source of event.result.results) {
-      if (!sourceMap.has(source.url)) {
-        sourceMap.set(source.url, {
-          id: `R${sourceMap.size + 1}`,
+      const sourceKey = normalizeSourceUrl(source.url);
+      if (!sourceMap.has(sourceKey)) {
+        sourceMap.set(sourceKey, {
+          id: `R${clueNumber}`,
           title: source.title,
           domain: source.domain,
           url: source.url,
@@ -196,7 +261,37 @@ function applyToolEvent(
           provider: event.result.provider,
           kind: 'clue',
         });
+        clueNumber += 1;
       }
+    }
+  }
+  if (event.type === 'tool.completed' && event.toolName === 'web_fetch') {
+    let candidateNumber = nextSourceNumber(base.sources, 'F');
+    for (const source of event.result.results) {
+      if (source.status !== 'succeeded' || !source.passages.length) continue;
+      const matchedKey = [source.requestedUrl, source.finalUrl, source.normalizedUrl]
+        .map(normalizeSourceUrl)
+        .find((url) => sourceMap.has(url));
+      const matchedSource = matchedKey ? sourceMap.get(matchedKey) : undefined;
+      if (matchedKey) sourceMap.delete(matchedKey);
+      const candidateId = matchedSource?.kind === 'evidence_candidate'
+        ? matchedSource.id
+        : `F${candidateNumber++}`;
+      sourceMap.set(normalizeSourceUrl(source.finalUrl), {
+        id: candidateId,
+        title: source.title,
+        domain: sourceDomain(source.finalUrl),
+        url: source.finalUrl,
+        excerpt: source.passages[0]?.text ?? '',
+        time: new Date(source.retrievedAt).toLocaleString('zh-CN'),
+        kind: 'evidence_candidate',
+        author: source.author,
+        publishedAt: source.publishedAt,
+        contentType: source.contentType,
+        cacheStatus: source.cacheStatus,
+        truncated: source.truncated,
+        passages: source.passages,
+      });
     }
   }
   const sources = [...sourceMap.values()];
@@ -204,7 +299,7 @@ function applyToolEvent(
     ...base,
     open,
     activityStatus: cancelledEvent ? 'cancelled' : base.activityStatus,
-    subtitle: `${executions.length} 次调用 · ${sources.length} 个检索线索`,
+    subtitle: `${executions.length} 次调用 · ${sources.length} 个来源`,
     activeView: event.type === 'tool.completed' && sources.length ? 'sources' : base.activeView,
     executions,
     sources,
@@ -349,6 +444,7 @@ function PersistentAgentApp() {
 
   // 切换会话时先展示缓存，再异步以服务端详情覆盖。
   function selectSession(sessionId: string): void {
+    selectedSessionIdRef.current = sessionId;
     setSelectedSessionId(sessionId);
     setPrompt('');
     setError(null);
@@ -359,6 +455,7 @@ function PersistentAgentApp() {
 
   // 新建按钮只进入本地空白草稿，不提前写数据库。
   function startDraft(): void {
+    selectedSessionIdRef.current = null;
     setSelectedSessionId(null);
     setDraftState(makeFixture('empty'));
     setPrompt('');
@@ -523,7 +620,12 @@ function PersistentAgentApp() {
           if (!target) return current;
           const suppressed = target.autoOpenSuppressedRunIds?.includes(toolEvent.messageId) ?? false;
           const existing = target.workbench?.runId === toolEvent.messageId ? target.workbench : undefined;
-          const open = existing ? existing.open : !suppressed;
+          const hasNewResource = toolEvent.type === 'tool.completed' && (
+            toolEvent.toolName === 'web_search'
+              ? toolEvent.result.results.length > 0
+              : toolEvent.result.results.some((item) => item.status === 'succeeded' && item.passages.length > 0)
+          );
+          const open = existing?.open === true || (!suppressed && hasNewResource);
           const workbench = applyToolEvent(existing, toolEvent, open);
           return {
             ...current,

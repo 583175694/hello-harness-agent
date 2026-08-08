@@ -10,6 +10,9 @@ export const PREVIEW_STATES: Array<{ id: PreviewState; label: string }> = [
   { id: 'tool-running', label: '检索中（已收起）' },
   { id: 'tool-running-open', label: '首次调用自动打开' },
   { id: 'sources', label: '来源视图' },
+  { id: 'fetch-running', label: '读取网页中' },
+  { id: 'fetch-candidate', label: '原文候选' },
+  { id: 'fetch-failed', label: '读取全部失败' },
   { id: 'waiting', label: '等待确认' },
   { id: 'steer-accepted', label: '已接受调整' },
   { id: 'cancelling', label: '取消中' },
@@ -21,11 +24,93 @@ export const PREVIEW_STATES: Array<{ id: PreviewState; label: string }> = [
 
 // 仅供开发 fixture 使用的来源数据，生产 Sources 来自真实工具事件。
 export const sources: SourceView[] = [
-  { id: 'S1', title: 'Global AI Index 2025', domain: 'tortoisemedia.com', url: 'https://www.tortoisemedia.com/intelligence/global-ai/', excerpt: 'The United States remains the leading country for private AI investment and model development.', time: '刚刚' },
-  { id: 'S2', title: 'China AI Development Report', domain: 'cset.georgetown.edu', url: 'https://cset.georgetown.edu/publication/china-ai-development-report/', excerpt: 'China has continued to expand its AI research capacity, talent base, and industrial adoption.', time: '1 分钟前' },
-  { id: 'S3', title: 'Stanford AI Index Report', domain: 'hai.stanford.edu', url: 'https://hai.stanford.edu/ai-index', excerpt: 'AI capability and adoption continue to grow while inference costs decline across leading models.', time: '2 分钟前' },
-  { id: 'S4', title: 'OECD AI Policy Observatory', domain: 'oecd.ai', url: 'https://oecd.ai/en/', excerpt: 'Policy approaches increasingly focus on transparency, safety, and measurable economic impact.', time: '3 分钟前' },
+  { id: 'S1', title: 'Global AI Index 2025', domain: 'tortoisemedia.com', url: 'https://www.tortoisemedia.com/intelligence/global-ai/', excerpt: 'The United States remains the leading country for private AI investment and model development.', time: '刚刚', kind: 'evidence' },
+  { id: 'S2', title: 'China AI Development Report', domain: 'cset.georgetown.edu', url: 'https://cset.georgetown.edu/publication/china-ai-development-report/', excerpt: 'China has continued to expand its AI research capacity, talent base, and industrial adoption.', time: '1 分钟前', kind: 'evidence' },
+  { id: 'S3', title: 'Stanford AI Index Report', domain: 'hai.stanford.edu', url: 'https://hai.stanford.edu/ai-index', excerpt: 'AI capability and adoption continue to grow while inference costs decline across leading models.', time: '2 分钟前', kind: 'evidence' },
+  { id: 'S4', title: 'OECD AI Policy Observatory', domain: 'oecd.ai', url: 'https://oecd.ai/en/', excerpt: 'Policy approaches increasingly focus on transparency, safety, and measurable economic impact.', time: '3 分钟前', kind: 'evidence' },
 ];
+
+// 创建用于 Fetch 预览的可定位原文候选。
+function makeFetchCandidate(): SourceView {
+  const text = '企业正在把生成式 AI 从概念验证推进到客服、研发和知识管理等生产场景。';
+  return {
+    id: 'F1',
+    title: '生成式 AI 产业应用观察',
+    domain: 'example.com',
+    url: 'https://example.com/ai-adoption',
+    excerpt: text,
+    time: '2026/8/8 10:30:00',
+    kind: 'evidence_candidate',
+    author: '研究团队',
+    publishedAt: '2026-07-28',
+    contentType: 'text/html',
+    cacheStatus: 'miss',
+    passages: [{
+      passageId: 'preview-passage-1',
+      text,
+      locator: {
+        kind: 'web_text',
+        quote: { exact: text, prefix: '## 产业落地\n\n', suffix: '\n\n企业仍需关注数据治理。' },
+        position: { start: 9, end: 9 + Array.from(text).length },
+        sectionPath: ['产业落地'],
+      },
+    }],
+  };
+}
+
+// 创建 Search -> Fetch 的开发预览，不接入任何生产 API。
+function makeFetchFixture(state: 'fetch-running' | 'fetch-candidate' | 'fetch-failed'): AgentUiState {
+  const runId = 'run-fetch-preview';
+  const running = state === 'fetch-running';
+  const failed = state === 'fetch-failed';
+  const toolStatus = running ? 'running' as const : 'completed' as const;
+  const fetchTool: ToolCallView = {
+    toolCallId: 'fetch-call-1',
+    runId,
+    stepId: 'fetch-call-1',
+    toolName: 'web_fetch',
+    title: '读取 2 个网页',
+    detail: running ? '正在读取和过滤网页正文' : '网页原文读取已完成',
+    status: toolStatus,
+    elapsed: running ? '进行中' : '2.4 秒',
+    inputSummary: '2 个网页 · 生成式 AI 产业落地证据',
+    outputSummary: failed ? '成功 0 个，失败 2 个，提取 0 段原文' : running ? undefined : '成功 1 个，失败 1 个，提取 1 段原文',
+    resultCount: running ? undefined : 2,
+    sourceCount: running ? undefined : failed ? 0 : 1,
+  };
+  const toolBlock: AssistantContentBlock = {
+    id: 'fetch-block-1',
+    type: 'tool_activity',
+    toolCallId: 'fetch-call-1',
+    toolName: 'web_fetch',
+    status: toolStatus,
+    title: '读取网页',
+    summary: running ? '读取 2 个网页' : fetchTool.outputSummary,
+    startedAt: '2026-08-08T02:29:58.000Z',
+    ...(running ? {} : { completedAt: '2026-08-08T02:30:00.400Z', durationMs: 2_400 }),
+  };
+  const workbench = {
+    runId,
+    title: '网页证据读取',
+    subtitle: running ? '正在读取 2 个网页' : failed ? '2 个来源读取失败' : '1 个原文候选',
+    activeView: state === 'fetch-candidate' ? 'sources' as const : 'activity' as const,
+    activityStatus: running ? 'running' as const : 'completed' as const,
+    executions: [fetchTool],
+    focusTarget: { kind: 'tool_call' as const, runId, stepId: 'fetch-call-1', toolCallId: 'fetch-call-1' },
+    followMode: 'auto' as const,
+    sources: state === 'fetch-candidate' ? [makeFetchCandidate()] : [],
+    open: state !== 'fetch-running',
+  };
+  return {
+    label: '生成式 AI 产业调研',
+    subtitle: '网页证据读取',
+    conversation: [
+      { id: 'fetch-user', kind: 'user', content: '请查找生成式 AI 产业落地的原始依据。' },
+      { id: runId, kind: 'assistant', blocks: [toolBlock], pending: running, workbench },
+    ],
+    workbench,
+  };
+}
 
 // 为开发预览状态构造确定性的工具调用列表。
 export function makeToolCalls(runId: string, status: ActivityStatus, sourceCount: number): ToolCallView[] {
@@ -96,6 +181,9 @@ export function makeFixture(state: PreviewState): AgentUiState {
       { id: 'a1', kind: 'assistant', blocks: [text('a1-text-1', '生成式 AI 是能够根据输入生成文本、图像、音频或代码等新内容的人工智能系统。')] },
     ],
   };
+  if (state === 'fetch-running' || state === 'fetch-candidate' || state === 'fetch-failed') {
+    return makeFetchFixture(state);
+  }
 
   const runId = state === 'final-report' || state === 'limited-report' ? 'run-market-report' : 'run-market-live';
   const blocks: AssistantContentBlock[] = [

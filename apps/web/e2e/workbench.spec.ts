@@ -85,3 +85,22 @@ test('keeps the layout usable at 1280px', async ({ page }) => {
   await expect(page.getByRole('complementary', { name: '工作区' })).toBeVisible();
   await expect(page.locator('body')).toHaveJSProperty('scrollWidth', 1280);
 });
+
+test('renders fetch evidence candidates without formal citation ids', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/agent/preview?state=fetch-candidate');
+  await expect(page.getByText('原文候选，尚未成为正式引用')).toBeVisible();
+  await expect(page.getByText('F1')).toBeVisible();
+  await expect(page.getByText('[F1]')).toHaveCount(0);
+  await expect(page.getByText('[S1]')).toHaveCount(0);
+  await page.getByText('查看 1 段原文').click();
+  await expect(page.locator('.candidate-passage').getByText(/企业正在把生成式 AI/)).toBeVisible();
+  const overflow = await page.evaluate(() => ({
+    body: document.body.scrollWidth > document.body.clientWidth,
+    workspace: (() => {
+      const element = document.querySelector('.workspace-content');
+      return element ? element.scrollWidth > element.clientWidth : true;
+    })(),
+  }));
+  expect(overflow).toEqual({ body: false, workspace: false });
+});

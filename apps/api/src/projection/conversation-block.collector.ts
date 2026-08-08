@@ -32,7 +32,7 @@ export class ConversationBlockCollector {
   startTool(input: {
     toolCallId: string;
     toolName: string;
-    query: string;
+    summary: string;
     startedAt: string;
   }): AssistantToolActivityBlock {
     const existing = this.findTool(input.toolCallId);
@@ -44,7 +44,7 @@ export class ConversationBlockCollector {
       toolName: input.toolName,
       status: 'running',
       title: this.toolTitle(input.toolName),
-      summary: input.query || undefined,
+      summary: input.summary || undefined,
       startedAt: input.startedAt,
     };
     this.blocks.push(block);
@@ -56,11 +56,11 @@ export class ConversationBlockCollector {
     toolCallId: string;
     completedAt: string;
     durationMs: number;
-    resultCount: number;
+    summary: string;
   }): string {
     const block = this.requireTool(input.toolCallId);
     block.status = 'completed';
-    block.summary = `找到 ${input.resultCount} 个结果`;
+    block.summary = input.summary;
     block.completedAt = input.completedAt;
     block.durationMs = input.durationMs;
     return block.id;
@@ -126,6 +126,8 @@ export class ConversationBlockCollector {
 
   // 将 canonical 工具名转换为简洁的用户可见动作标题。
   private toolTitle(toolName: string): string {
-    return toolName === 'web_search' ? '搜索网页' : `运行工具 ${toolName}`;
+    if (toolName === 'web_search') return '搜索网页';
+    if (toolName === 'web_fetch') return '读取网页';
+    return `运行工具 ${toolName}`;
   }
 }

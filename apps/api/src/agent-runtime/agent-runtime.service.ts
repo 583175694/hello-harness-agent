@@ -37,6 +37,7 @@ export class AgentRuntimeService {
     let finalContent = '';
     let visibleContent = '';
     let modelRounds = 0;
+    const toolUnitsUsed = new Map<string, number>();
 
     // 每一轮要么直接得到最终文本，要么执行工具并把结果追加到下一轮上下文。
     while (modelRounds <= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
@@ -172,6 +173,37 @@ export class AgentRuntimeService {
           input: toolInput,
           startedAt: startedAt.toISOString(),
         };
+        const budget = typeof this.tools.units === 'function'
+          ? this.tools.units(call.name, toolInput)
+          : { units: 1 };
+        const usedUnits = toolUnitsUsed.get(call.name) ?? 0;
+        if (budget.limit !== undefined && usedUnits + budget.units > budget.limit) {
+          const completedAt = new Date();
+          const durationMs = completedAt.getTime() - startedAt.getTime();
+          const code = AGENT_ERROR_CODES.fetchBudgetExceeded;
+          const detail = '网页读取已达到本轮 URL 上限。';
+          yield {
+            type: 'tool.failed',
+            toolCallId: call.id,
+            toolName: call.name,
+            input: toolInput,
+            completedAt: completedAt.toISOString(),
+            durationMs,
+            code,
+            detail,
+          };
+          messages.push({
+            role: 'tool',
+            toolCallId: call.id,
+            content: JSON.stringify({ ok: false, code }),
+          });
+          this.logger.warn(
+            `工具单位预算已耗尽 | 会话=${shortLogId(input.sessionId)} | 工具=${call.name} | 已用=${usedUnits} | 请求=${budget.units} | 上限=${budget.limit}`,
+            AgentRuntimeService.name,
+          );
+          continue;
+        }
+        toolUnitsUsed.set(call.name, usedUnits + budget.units);
         let result: ToolExecutionResult<unknown>;
         try {
           result = await this.tools.execute(call.name, toolInput, {

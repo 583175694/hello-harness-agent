@@ -2,13 +2,13 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-07
+> 最后更新：2026-08-08
 
 ## 1. 当前结论
 
-项目已经完成工程基线、持久化普通对话和第一条 Function Calling 联网检索闭环。模型可以在一次 Chat SSE 中调用后端 `web_search`，通过 Bocha 或 Serper 获取公开网页并继续生成回答；真实工具 Activity 和网页线索会投影到生产 Workbench，并随 assistant metadata 刷新恢复。
+项目已经完成工程基线、持久化普通对话和 `web_search -> web_fetch` Function Calling 闭环。模型可以先通过 Bocha 或 Serper 发现网页线索，再批量读取 1-5 个公开静态网页的可定位原文；真实工具 Activity、搜索 clue 和 Evidence Candidate 会投影到生产 Workbench，并随 assistant metadata 刷新恢复。
 
-当前状态可以描述为“具备联网搜索能力和透明工具时间线的简化 Agent Loop”，但不能描述为完整调研 Agent。正式 Run/Event Store、网页正文证据、引用校验、报告 Artifact、steer/cancel 和 fallback 仍未实现；预览页面中的 waiting、report 和控制状态仍为本地确定性 fixture。
+当前状态可以描述为“具备线索发现、静态网页读取和 Evidence Candidate 管道的简化研究 Agent Loop”，但不能描述为完整调研 Agent。正式 Evidence、`[Sx]`、Run/Event Store、引用校验、报告 Artifact、steer/cancel 和搜索 fallback 仍未实现；预览页面中的 waiting、report 和控制状态仍为本地确定性 fixture。
 
 ## 2. 已完成
 
@@ -29,6 +29,10 @@
 - Chat 链路已拆出 Runtime、搜索投影、assistant 交付仓库、标题服务和 SSE Writer，`ChatService` 只保留会话准备与兼容事件编排。
 - 模型流、Runtime 事件流和 Chat SSE 继续使用 `AsyncGenerator` 表达逐步产出；单次数据库操作、工具执行和标题生成使用普通 `async/await`。
 - 模型只看到统一 `web_search({query})`；后端通过 `SEARCH_PROVIDER=bocha|serp` 启用一个 Provider，每次返回最多 10 条标准化结果。
+- 模型同时可以调用 `web_fetch({urls, query?})`，每次读取 1-5 个公开静态网页，每轮最多消耗 10 个去重 URL；批量结果支持逐项成功或失败。
+- Web Fetch 使用无持久化 Crawlee `HttpCrawler`、最小 URL/DNS/逐跳重定向安全校验、5 MiB 流式响应上限、20 秒超时和一次有限重试；不携带 Cookie、Authorization、代理或用户 Header。
+- HTML 通过 JSDOM、Mozilla Readability、Turndown + GFM 转换为 canonical Markdown；字符 n-gram Ranker 只返回连续抽取式原文，Locator 同时保存 quote、Unicode code-point position 和 sectionPath。
+- 完整 canonical Markdown 只存在于请求生命周期和 15 分钟、32 MiB 的进程内 LRU；模型、SSE 和 Message metadata 只消费或保存整批不超过 24,000 code points 的有界 Passage。
 - Bocha/Serper Adapter 已统一标题、URL、domain、摘要、发布日期和来源字段；搜索超时为 10 秒，不记录 Key 或原始响应。
 - 普通对话和启用 Tools 的模型轮次都支持真实 SSE 流式输出；模型文本 delta 到达 Runtime 后立即向 Web 传递，不再等待整轮完成后回放。
 - assistant turn 使用有序 `text/tool_activity` 内容块；工具开始插入一次，完成、失败或取消按 `toolCallId` 原位更新，成功交付后将相同顺序保存到 Message metadata。
@@ -51,10 +55,12 @@
 - 删除会话有确认交互；删除当前、非当前和最后会话分别按约定选择恢复落点。
 - Sidebar 会话项采用单行标题和按需 `…` 菜单，不展示时间或装饰图标；重命名和置顶状态可跨刷新恢复。
 - 生产空状态不渲染空 Workbench。
-- 生产聊天收到工具事件后会自动打开 Workbench；Activity 展示 logical tool call，Sources 展示按 URL 去重的检索线索。
+- 生产聊天先以内联 Activity 展示工具调用；第一条 clue 或 Evidence Candidate 到达后才自动打开 Workbench，用户手动收起后本轮不再强制打开。
+- Sources 使用 `R1` 标识搜索 clue、使用 `F1` 标识原文候选，二者均不带方括号；只有未来正式 Evidence 才允许使用 `[Sx]`。
+- Evidence Candidate 卡片展示来源元数据、缓存状态、截断状态、可展开 Markdown 原文、sectionPath 和 code-point 区间。
 - 最终 assistant metadata 保存有序内容块、工具执行与来源轻量快照；刷新、切换会话或点击历史 Tool Activity 均可恢复 Workbench。
 - `/agent/preview?state=...` 仅在开发环境启用。
-- Preview 已覆盖 empty、direct-answer、running、waiting、steer、cancelling、cancelled、failed、sources、limited-report、final-report 等状态。
+- Preview 已覆盖 empty、direct-answer、search running、fetch running、fetch candidate、fetch failed、waiting、steer、cancelling、cancelled、failed、sources、limited-report、final-report 等状态。
 - Conversation 已移除独立 RunCard，工具调用以紧凑 Tool Activity 穿插在 assistant 文本中展示，避免同一执行状态重复投影。
 - 点击内联 Tool Activity 可以打开 Workbench 并定位到对应 execution。
 - Activity 已实现 execution timeline、当前调用详情、auto-follow 和手动 pinned 行为。
@@ -128,6 +134,8 @@ git diff --check
 
 同日深度复核后执行 workspace lint、typecheck、unit test、production build、API integration 和 Playwright E2E。新增回归直接验证：Tools 可用时首个 delta 早于模型流结束、`text → tool_activity → text` 顺序、工具终态原位更新且不重复、取消与失败分离、未来工具实时/恢复标题一致，以及 assistant 仍使用乐观 ID 时能够定位服务端 Workbench。
 
+2026-08-08 完成 Web Fetch V1 与 Evidence Candidate 管道后执行 `pnpm check`、API integration、Playwright E2E 和 `git diff --check`。共享协议、API、Web 与 testkit 共 60 项 unit test 通过，API integration 9 项通过，Playwright desktop/mobile 共 16 项通过。新增回归覆盖批量输入与部分成功、URL/DNS/重定向安全、Crawlee 无持久化抓取、正文提取、字符 n-gram、Unicode Locator、缺失父级标题时的非稀疏 sectionPath、新建草稿同步清空 session ref、来源升级后的唯一 R/F 编号、24,000 字符批次预算、LRU cache、10 URL 运行预算、Search→Fetch 来源升级、candidate 恢复和 `R/F` 标识。另用 Agent Browser 真实执行多轮 Search→Fetch→回答，并在 1440×900 与 1280×800 下检查：Candidate、刷新恢复和直接回答均符合预期，body、workspace 和 Passage 无横向溢出，浏览器控制台无遗留错误。
+
 覆盖范围包括：
 
 - Web lint、TypeScript typecheck、unit tests、production build。
@@ -148,16 +156,39 @@ git diff --check
 
 - Run、State、Artifact 的持久化和恢复；Session/Message 普通对话持久化已经完成。
 - durable Agent Run、Run/Step/Event、断线 replay 和运行级恢复；当前 `AgentRuntimeService` 仍是一次 Chat 请求内的非持久化 Runtime，不具备运行恢复能力。
-- 搜索 fallback、网页正文抓取、Evidence 持久化和正式引用校验；当前来源仅是 clue。
+- 搜索 fallback、正式 Evidence 持久化和正式引用校验；网页原文当前只具备 `evidence_candidate` 资格。
 - Markdown Report Artifact 的真实生成、保存、下载和重开。
 - 面向 Agent Run 的 SSE/事件投影、真实 steer/cancel 控制链路；普通对话 Chat SSE 已完成。
 - user Memory、Delegation、Worker 和多用户认证。
 
+### Web Fetch / Evidence Candidate 后续 TODO
+
+当前 `web_search -> web_fetch -> evidence_candidate -> 普通回答` 已经可用，但仍需继续完善以下产品化和质量能力：
+
+- [ ] 增加来源质量评分和域名信誉策略，降低营销软文、聚合转载和低质量 SEO 页面在候选来源中的权重。
+- [ ] 增加检索去重、早停和查询预算策略；真实 QA 中一次复杂问题执行了 8 次 Search、3 次 Fetch，功能正确但仍有减少无效轮次和整体耗时的空间。
+- [ ] 优化大量 Clue 的 Workbench 展示；当前复杂调研可能产生数十条线索，需要真正可用的筛选、折叠、分组或虚拟列表，而不是一次平铺全部来源。
+- [ ] 增加 Evidence Candidate 选择与淘汰策略，只保留真正可能支撑结论的高价值 Passage，并明确展示 Fetch 逐项失败和证据缺口。
+- [ ] 增加真实固定调研题集的质量评测，统计来源有效率、原文命中率、低质量来源比例、首个 Candidate 延迟和完整任务耗时。
+- [ ] 为 Web Fetch 增加运行指标和可观测性，包括 cache hit、响应字节、提取失败类型、URL 安全拒绝、Passage 数量和各阶段耗时；日志继续禁止正文和敏感 URL query。
+- [ ] 在公网或多用户部署前补充连接 IP pinning、网络出口隔离和更完整的 DNS rebinding 防护。
+- [ ] 按需支持 JavaScript Browser Fetch、PDF 和其他文件来源；当前只支持公开静态 HTML/XHTML/plain text。
+
+### 正式 Evidence / Report 下一阶段 TODO
+
+- [ ] 从 Candidate Passage 中选择实际支撑结论的正式 Evidence，创建 durable `EvidenceSource`。
+- [ ] 为报告分配稳定、report-scoped 的 `[S1]`、`[S2]`，禁止 Clue 或 Candidate 冒充正式引用。
+- [ ] 生成 Markdown Report Artifact，并保存、下载、刷新恢复和重新打开。
+- [ ] 先生成草稿，再执行一次同模型复核与修订。
+- [ ] 在交付前执行确定性 Citation Validator，检查每个 `[Sx]` 是否存在、Locator 是否可恢复、引用是否支撑相邻事实结论。
+- [ ] 证据不足时交付受限报告，明确证据缺口和未确认结论；完全没有可引用证据时才失败。
+- [ ] 使用固定调研题集进行自动化质量评测和人工抽检，形成阶段验收基线。
+
 ## 6. 下一阶段建议
 
-下一阶段已确定为 `web_fetch` 与 Evidence Candidate 管道，当前尚未实现：工具一次接收 1-5 个 URL；API 使用 Crawlee `HttpCrawler` 完成静态批量抓取和逐项失败收集，原始响应直接进入 JSDOM + Mozilla Readability，再由 Turndown 生成 V1 canonical Markdown，并通过字符 n-gram 筛选产生带 quote/position locator 的连续 Markdown 原文片段。Hash、Passage 和 Locator 均以完整规范化 Markdown 为基准；完整 Markdown 只存在于请求生命周期和 LRU，模型、SSE 和 assistant 快照只消费或保存有界 passages。V1 保留最小 URL/SSRF 边界和响应限制，不使用 Crawlee Dataset/Storage，也不实现 DocumentBlock 或 canonical plain text + block 双表示；实际引用 passage 后续升级为 durable EvidenceSource。详细设计见 `docs/23-web-fetch-tool.md`。
+下一阶段建议实现正式 Evidence Layer：从 Evidence Candidate 中选择实际支撑结论的原文 Passage，创建 durable EvidenceSource，分配 report-scoped `[Sx]`，并接入报告草稿、同模型复核和确定性 Citation Validator。详细 Fetch 契约见 `docs/23-web-fetch-tool.md`。
 
-该阶段完成后，再实现正式 Evidence 持久化、report-scoped `[Sx]`、报告复核和确定性引用校验。durable Run/Step/Event、断线 replay 和运行恢复仍按后续独立阶段推进。
+durable Run/Step/Event、断线 replay、运行恢复、动态 Browser Fetch 和 PDF 仍按后续独立阶段推进。
 
 ## 7. 关联文档
 

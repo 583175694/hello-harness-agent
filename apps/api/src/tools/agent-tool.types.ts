@@ -12,6 +12,9 @@ export type ToolExecutionContext = {
 export type ToolExecutionMetrics = {
   durationMs: number;
   resultCount?: number;
+  succeededCount?: number;
+  failedCount?: number;
+  passageCount?: number;
 };
 
 // 模型可见的通用工具声明，不依赖任何供应商 SDK。
@@ -40,8 +43,11 @@ export type ToolExecutionResult<TOutput> =
 export interface AgentTool<TInput = unknown, TOutput = unknown> {
   readonly name: string;
   readonly inputSchema: ZodType<TInput>;
+  readonly inputErrorCode?: string;
+  readonly maxUnitsPerRun?: number;
   // 返回当前工具对模型公开的 Function Calling 声明。
   definition(): AgentToolDefinition;
   isAvailable(): boolean;
+  units?(input: TInput): number;
   execute(input: TInput, context: ToolExecutionContext): Promise<ToolExecutionResult<TOutput>>;
 }

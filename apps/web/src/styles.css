@@ -1438,7 +1438,7 @@ textarea:focus-visible {
   background: #171717;
 }
 .app-shell:has(+ .preview-switcher) .composer-area {
-  padding-bottom: 96px;
+  padding-bottom: 120px;
 }
 .event-log {
   padding-top: 18px;
@@ -1533,6 +1533,69 @@ textarea:focus-visible {
 .source-item small {
   color: #999995;
   font-size: 10px;
+}
+
+.candidate-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.candidate-label {
+  display: inline-flex;
+  margin-top: 9px;
+  padding: 3px 7px;
+  border: 1px solid #d7d7d3;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.candidate-passages {
+  margin-top: 10px;
+  border-top: 1px solid #e6e6e2;
+  padding-top: 8px;
+}
+
+.candidate-passages summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.candidate-passages summary:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid #171717;
+  outline-offset: 2px;
+}
+
+.candidate-passage-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.candidate-passage {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border-left: 2px solid #d7d7d3;
+  padding: 7px 0 7px 10px;
+}
+
+.candidate-passage .markdown-content {
+  max-width: 100%;
+  overflow-x: auto;
+  font-size: 13px;
+}
+
+.passage-section {
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 .report-document {
   color: #41413e;

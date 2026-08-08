@@ -39,20 +39,30 @@ export function applyToolActivityEvent(
       toolName: event.toolName,
       status: 'running',
       title: event.title,
-      summary: event.input.query,
+      summary: event.toolName === 'web_fetch'
+        ? `读取 ${event.input.urls.length} 个网页`
+        : event.input.query,
       startedAt: event.startedAt,
     }];
   }
   if (index < 0) return blocks;
   return blocks.map((block, blockIndex) => {
     if (blockIndex !== index || block.type !== 'tool_activity') return block;
-    if (event.type === 'tool.completed') return {
-      ...block,
-      status: 'completed',
-      summary: `找到 ${event.result.results.length} 个结果`,
-      completedAt: event.completedAt,
-      durationMs: event.durationMs,
-    };
+    if (event.type === 'tool.completed') {
+      const succeeded = event.toolName === 'web_fetch'
+        ? event.result.results.filter((item) => item.status === 'succeeded')
+        : [];
+      const passageCount = succeeded.reduce((total, item) => total + item.passages.length, 0);
+      return {
+        ...block,
+        status: 'completed',
+        summary: event.toolName === 'web_fetch'
+          ? `成功 ${succeeded.length} 个，失败 ${event.result.results.length - succeeded.length} 个，提取 ${passageCount} 段原文`
+          : `找到 ${event.result.results.length} 个结果`,
+        completedAt: event.completedAt,
+        durationMs: event.durationMs,
+      };
+    }
     return event.type === 'tool.cancelled'
       ? {
           ...block,

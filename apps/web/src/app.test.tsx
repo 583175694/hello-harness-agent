@@ -86,6 +86,18 @@ describe('R1 workbench shell', () => {
     );
   });
 
+  it('renders fetched passages as unnumbered evidence candidates', () => {
+    window.history.replaceState({}, '', '/agent/preview?state=fetch-candidate');
+    render(<App />);
+    expect(screen.getByText('F1')).toBeInTheDocument();
+    expect(screen.queryByText('[F1]')).not.toBeInTheDocument();
+    expect(screen.queryByText('[S1]')).not.toBeInTheDocument();
+    expect(screen.getByText('原文候选，尚未成为正式引用')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('查看 1 段原文'));
+    expect(screen.getAllByText(/企业正在把生成式 AI/)).toHaveLength(2);
+    expect(screen.getByText(/^位置 9–/)).toBeInTheDocument();
+  });
+
   it('opens the workbench from an inline tool activity and pins the selected call', () => {
     window.history.replaceState({}, '', '/agent/preview?state=tool-running');
     render(<App />);
@@ -188,6 +200,69 @@ describe('R1 workbench shell', () => {
         body: JSON.stringify({ content: 'Compare two markets.' }),
       }),
     );
+  });
+
+  it('creates a new session after entering draft mode instead of reusing the previous selection', async () => {
+    const oldSession = {
+      id: 'old-session', title: '旧会话', status: 'active', isPinned: false,
+      createdAt: '2026-08-05T04:00:00.000Z', updatedAt: '2026-08-05T04:00:00.000Z',
+    };
+    const newSession = {
+      ...oldSession, id: 'new-session', title: '新问题', updatedAt: '2026-08-05T04:10:00.000Z',
+    };
+    let created = false;
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/readyz')) {
+        return Promise.resolve(new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' })));
+      }
+      if (url.endsWith('/api/agent/sessions') && init?.method === 'POST') {
+        created = true;
+        return Promise.resolve(new Response(JSON.stringify({ session: newSession }), { status: 201 }));
+      }
+      if (url.endsWith('/api/agent/sessions') && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify({ sessions: created ? [newSession, oldSession] : [oldSession] })));
+      }
+      if (url.endsWith('/old-session')) {
+        return Promise.resolve(new Response(JSON.stringify({ session: { ...oldSession, messages: [] } })));
+      }
+      if (url.endsWith('/new-session/chat/stream')) {
+        return Promise.resolve(new Response(
+          'data: {"type":"message.delta","messageId":"new-message","blockId":"text-1","delta":"新回答"}\n\n' +
+          'data: {"type":"message.completed","messageId":"new-message","model":"test-model"}\n\n',
+          { headers: { 'content-type': 'text/event-stream' } },
+        ));
+      }
+      if (url.endsWith('/new-session/title/generate')) {
+        return Promise.resolve(new Response(JSON.stringify({ session: newSession, generated: true })));
+      }
+      if (url.endsWith('/new-session')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          session: {
+            ...newSession,
+            messages: [
+              { id: 'new-user', sessionId: newSession.id, role: 'user', kind: 'user_message', content: '新问题', createdAt: newSession.createdAt, metadata: {} },
+              { id: 'new-message', sessionId: newSession.id, role: 'assistant', kind: 'assistant_delivery', content: '新回答', createdAt: newSession.updatedAt, metadata: { model: 'test-model' } },
+            ],
+          },
+        })));
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: '旧会话' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), { target: { value: '新问题' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送任务' }));
+    await waitFor(() => expect(screen.getByText('新回答')).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledWith('/api/agent/sessions', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/agent/sessions/new-session/chat/stream',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/old-session/chat/stream'))).toBe(false);
+    expect(window.location.search).toBe('?session=new-session');
   });
 
   it('restores the URL-selected session and its persisted Markdown messages', async () => {

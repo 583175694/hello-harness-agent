@@ -14,12 +14,20 @@ export const AGENT_PROTOCOL_LIMITS = {
   searchQueryMaxLength: 500,
   // 单次网页搜索向模型返回的最大结果数。
   searchResultsMax: 10,
+  // 单次网页读取允许提交的最大 URL 数量。
+  webFetchUrlsMax: 5,
+  // 单次网页读取允许提交的证据查询最大长度。
+  webFetchQueryMaxLength: 500,
+  // 单个网页读取结果允许保存的最大 Passage 数量。
+  webFetchPassagesMax: 6,
 } as const;
 
 // 集中维护协议中稳定的工具标识。
 export const AGENT_TOOL_NAMES = {
   // 网页检索工具在 Function Calling 协议中的稳定名称。
   webSearch: 'web_search',
+  // 网页读取工具在 Function Calling 协议中的稳定名称。
+  webFetch: 'web_fetch',
 } as const;
 
 // 集中维护 API 与 SSE 共用的机器可读错误码。
@@ -56,6 +64,34 @@ export const AGENT_ERROR_CODES = {
   searchTimeout: 'SEARCH_TIMEOUT',
   // 搜索 Provider 返回了不可用或错误响应。
   searchProviderFailed: 'SEARCH_PROVIDER_FAILED',
+  // 网页读取工具参数不符合批量输入约束。
+  fetchInputInvalid: 'FETCH_INPUT_INVALID',
+  // 网页读取目标 URL 超过允许长度。
+  fetchUrlTooLong: 'FETCH_URL_TOO_LONG',
+  // 网页读取目标协议、主机或凭据不被允许。
+  fetchUrlNotAllowed: 'FETCH_URL_NOT_ALLOWED',
+  // 网页读取目标解析为本机、私网或其他受限地址。
+  fetchPrivateAddress: 'FETCH_PRIVATE_ADDRESS',
+  // 网页重定向目标不符合安全策略。
+  fetchRedirectNotAllowed: 'FETCH_REDIRECT_NOT_ALLOWED',
+  // 网页读取未在限定时间内完成。
+  fetchTimeout: 'FETCH_TIMEOUT',
+  // 网页读取收到调用方取消信号。
+  fetchCancelled: 'FETCH_CANCELLED',
+  // 网页来源拒绝请求或触发访问频率限制。
+  fetchTooManyRequests: 'FETCH_TOO_MANY_REQUESTS',
+  // 网页响应体超过允许的字节上限。
+  fetchResponseTooLarge: 'FETCH_RESPONSE_TOO_LARGE',
+  // 网页响应的 Content-Type 不在静态文本白名单中。
+  fetchUnsupportedContentType: 'FETCH_UNSUPPORTED_CONTENT_TYPE',
+  // 网页经过清洗后没有可用正文。
+  fetchContentEmpty: 'FETCH_CONTENT_EMPTY',
+  // 网页主要正文无法被确定性提取。
+  fetchContentExtractionFailed: 'FETCH_CONTENT_EXTRACTION_FAILED',
+  // 网页上游返回无法继续处理的错误。
+  fetchUpstreamFailed: 'FETCH_UPSTREAM_FAILED',
+  // 当前 Agent 运行已用完网页读取 URL 预算。
+  fetchBudgetExceeded: 'FETCH_BUDGET_EXCEEDED',
 } as const;
 
 export type AgentErrorCode = typeof AGENT_ERROR_CODES[keyof typeof AGENT_ERROR_CODES];

@@ -2,19 +2,21 @@ import { Inject, Injectable, NotFoundException, ServiceUnavailableException } fr
 import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 
-import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
+import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import type {
   ChatMessage,
   ChatStreamEvent,
-  SearchSourceSnapshot,
+  ResearchSourceSnapshot,
   SearchToolResult,
+  WebFetchInput,
+  WebFetchResult,
 } from '@harness/agent-protocol';
 import { ENV_KEYS } from '../bootstrap/env.constants';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
 import { AgentRuntimeService } from '../agent-runtime/agent-runtime.service';
 import { SessionExecutionRegistry } from '../sessions/session-execution.registry';
-import { SearchProjectionCollector } from '../projection/search-projection.collector';
+import { ResearchProjectionCollector } from '../projection/research-projection.collector';
 import { ConversationBlockCollector } from '../projection/conversation-block.collector';
 import { AssistantDeliveryRepository } from '../persistence/assistant-delivery.repository';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
@@ -106,7 +108,7 @@ export class ChatService {
       `开始生成回复 | 会话=${shortLogId(prepared.sessionId)} | 模型=${model} | 上下文=${prepared.messages.length} 条`,
       ChatService.name,
     );
-    const projection = new SearchProjectionCollector();
+    const projection = new ResearchProjectionCollector();
     const conversation = new ConversationBlockCollector(prepared.assistantMessageId);
     let content = '';
     let toolCallCount = 0;
@@ -139,60 +141,105 @@ export class ChatService {
         continue;
       }
       if (event.type === 'tool.started') {
-        const input = this.asSearchInput(event.input);
+        const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
+        const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
+        const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
           toolName: event.toolName,
-          query: input.query,
+          summary: fetchInput
+            ? `读取 ${fetchInput.urls.length} 个网页`
+            : searchInput?.query ?? '',
           startedAt: event.startedAt,
         });
-        yield {
-          type: 'tool.started',
-          messageId: prepared.assistantMessageId,
-          blockId: block.id,
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          title: block.title,
-          input,
-          startedAt: event.startedAt,
-        };
+        if (fetchInput) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.webFetch,
+            title: block.title,
+            input: fetchInput,
+            startedAt: event.startedAt,
+          };
+        } else {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.webSearch,
+            title: block.title,
+            input: searchInput ?? { query: '' },
+            startedAt: event.startedAt,
+          };
+        }
         continue;
       }
       if (event.type === 'tool.completed') {
-        const result = event.output as SearchToolResult;
-        const input = this.asSearchInput(event.input);
-        projection.recordCompleted({
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          query: input.query,
-          completedAt: event.completedAt,
-          durationMs: event.durationMs,
-          result,
-        });
+        const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
+        const fetchResult = isFetch ? event.output as WebFetchResult : undefined;
+        const searchResult = isFetch ? undefined : event.output as SearchToolResult;
+        const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
+        const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
+        if (fetchResult && fetchInput) {
+          projection.recordFetchCompleted({
+            toolCallId: event.toolCallId,
+            toolInput: fetchInput,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: fetchResult,
+          });
+        } else if (searchResult) {
+          projection.recordSearchCompleted({
+            toolCallId: event.toolCallId,
+            query: searchInput?.query ?? '',
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: searchResult,
+          });
+        }
+        const fetchSucceeded = fetchResult?.results.filter((item) => item.status === 'succeeded') ?? [];
+        const passageCount = fetchSucceeded.reduce((total, item) => total + item.passages.length, 0);
         const blockId = conversation.completeTool({
           toolCallId: event.toolCallId,
           completedAt: event.completedAt,
           durationMs: event.durationMs,
-          resultCount: result.results.length,
+          summary: fetchResult
+            ? `成功 ${fetchSucceeded.length} 个，失败 ${fetchResult.results.length - fetchSucceeded.length} 个，提取 ${passageCount} 段原文`
+            : `找到 ${searchResult?.results.length ?? 0} 个结果`,
         });
-        yield {
-          type: 'tool.completed',
-          messageId: prepared.assistantMessageId,
-          blockId,
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          completedAt: event.completedAt,
-          durationMs: event.durationMs,
-          result,
-        };
+        if (fetchResult) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.webFetch,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: fetchResult,
+          };
+        } else if (searchResult) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.webSearch,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: searchResult,
+          };
+        }
         continue;
       }
       if (event.type === 'tool.failed') {
-        const input = this.asSearchInput(event.input);
-        projection.recordFailed({
+        const toolInput = this.asProjectionInput(event.toolName, event.input);
+        if (toolInput) projection.recordFailed({
           toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          query: input.query,
+          ...toolInput,
           completedAt: event.completedAt,
           durationMs: event.durationMs,
           code: event.code,
@@ -218,11 +265,10 @@ export class ChatService {
         continue;
       }
       if (event.type === 'tool.cancelled') {
-        const input = this.asSearchInput(event.input);
-        projection.recordCancelled({
+        const toolInput = this.asProjectionInput(event.toolName, event.input);
+        if (toolInput) projection.recordCancelled({
           toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          query: input.query,
+          ...toolInput,
           completedAt: event.completedAt,
           durationMs: event.durationMs,
           code: event.code,
@@ -311,7 +357,7 @@ export class ChatService {
     return key;
   }
 
-  // 当前协议仍是搜索专用，集中保留转换点，后续由 Projection 层替代。
+  // 从 Runtime 未知输入中读取网页搜索参数。
   private asSearchInput(input: unknown): { query: string } {
     if (
       typeof input === 'object' &&
@@ -323,14 +369,45 @@ export class ChatService {
     return { query: '' };
   }
 
+  // 从 Runtime 未知输入中读取批量网页 Fetch 参数。
+  private asWebFetchInput(input: unknown): WebFetchInput {
+    if (
+      typeof input === 'object' &&
+      input !== null &&
+      'urls' in input &&
+      Array.isArray(input.urls) &&
+      input.urls.every((url) => typeof url === 'string')
+    ) {
+      const query = 'query' in input && typeof input.query === 'string' ? input.query : undefined;
+      return { urls: input.urls, ...(query ? { query } : {}) };
+    }
+    return { urls: [] };
+  }
+
+  // 将 Runtime 工具名和输入收敛为研究投影支持的判别联合。
+  private asProjectionInput(toolName: string, input: unknown) {
+    if (toolName === AGENT_TOOL_NAMES.webFetch) {
+      return { toolName: AGENT_TOOL_NAMES.webFetch, input: this.asWebFetchInput(input) } as const;
+    }
+    if (toolName === AGENT_TOOL_NAMES.webSearch) {
+      return { toolName: AGENT_TOOL_NAMES.webSearch, input: this.asSearchInput(input) } as const;
+    }
+    return undefined;
+  }
+
   // 搜索回答缺少真实链接时追加少量可验证来源。
-  private ensureSourceLinks(content: string, sources: SearchSourceSnapshot[]): string {
-    if (!sources.length || sources.some((source) => content.includes(source.url))) return content;
-    const links = sources
+  private ensureSourceLinks(content: string, sources: ResearchSourceSnapshot[]): string {
+    const preferred = sources.some((source) => source.kind === 'evidence_candidate')
+      ? sources.filter((source) => source.kind === 'evidence_candidate')
+      : sources;
+    const sourceUrl = (source: ResearchSourceSnapshot): string =>
+      source.kind === 'evidence_candidate' ? source.finalUrl : source.url;
+    if (!preferred.length || preferred.some((source) => content.includes(sourceUrl(source)))) return content;
+    const links = preferred
       .slice(0, 5)
       .map(
         (source) =>
-          `- [${source.title.replaceAll('[', '\\[').replaceAll(']', '\\]')}](${source.url})`,
+          `- [${source.title.replaceAll('[', '\\[').replaceAll(']', '\\]')}](${sourceUrl(source)})`,
       );
     return `${content.trimEnd()}\n\n### 检索来源\n\n${links.join('\n')}`;
   }

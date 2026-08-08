@@ -44,8 +44,19 @@ export class ToolRegistryService {
     }
     // JSON 语法正确不代表业务参数有效，第二层交给工具自己的 Zod schema 校验。
     const parsed = tool.inputSchema.safeParse(value);
-    if (!parsed.success) throw new Error(AGENT_ERROR_CODES.invalidToolArguments);
+    if (!parsed.success) {
+      throw new Error(tool.inputErrorCode ?? AGENT_ERROR_CODES.invalidToolArguments);
+    }
     return parsed.data;
+  }
+
+  // 返回工具对一次合法输入声明的运行资源单位，默认按一次调用计算。
+  units(name: string, input: unknown): { units: number; limit?: number } {
+    const tool = this.get(name);
+    return {
+      units: tool.units ? tool.units(input) : 1,
+      ...(tool.maxUnitsPerRun === undefined ? {} : { limit: tool.maxUnitsPerRun }),
+    };
   }
 
   // 执行已注册工具，统一处理未知工具、不可用工具和参数错误。

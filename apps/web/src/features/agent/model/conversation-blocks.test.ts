@@ -10,12 +10,12 @@ describe('conversation blocks reducer', () => {
     });
     blocks = applyToolActivityEvent(blocks, {
       type: 'tool.started', messageId: 'message-1', blockId: 'tool-1', toolCallId: 'call-1',
-      toolName: 'future_tool', title: '读取业务数据', input: { query: '市场数据' },
+      toolName: 'web_search', title: '读取业务数据', input: { query: '市场数据' },
       startedAt: '2026-08-07T09:00:00.000Z',
     });
     blocks = applyToolActivityEvent(blocks, {
       type: 'tool.completed', messageId: 'message-1', blockId: 'tool-1', toolCallId: 'call-1',
-      toolName: 'future_tool', completedAt: '2026-08-07T09:00:01.000Z', durationMs: 1000,
+      toolName: 'web_search', completedAt: '2026-08-07T09:00:01.000Z', durationMs: 1000,
       result: { query: '市场数据', provider: 'serp', results: [] },
     });
     blocks = appendTextDelta(blocks, {

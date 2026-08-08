@@ -4,5 +4,6 @@ export type SearchRequest = { query: string };
 
 export interface SearchProviderAdapter {
   readonly name: SearchProvider;
-  search(input: SearchRequest): Promise<SearchToolResult>;
+  // 将供应商响应转换为统一的搜索工具结果。
+  search(input: SearchRequest, signal?: AbortSignal): Promise<SearchToolResult>;
 }

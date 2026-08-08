@@ -63,7 +63,7 @@ receive CompiledStepContext
 ### tool_call
 
 - toolName 必须在 current-step toolset。
-- P6/P7 只允许 `web.search`。
+- P6/P7 只允许 `web_search` 和 `web_fetch`。
 - query reason 必须指向 open gap。
 - 预算必须足够。
 

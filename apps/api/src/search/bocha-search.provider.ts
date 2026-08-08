@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { ENV_KEYS } from '../bootstrap/env.constants';
 import type { SearchToolResult } from '@harness/agent-protocol';
+import { fetchJson } from '../shared/fetch-json';
 import type { SearchProviderAdapter, SearchRequest } from './search.types';
-import { fetchJson, normalizeSearchResult } from './search.utils';
+import { normalizeSearchResult } from './search.utils';
+import { SEARCH_LIMITS } from './search.constants';
 
 type BochaResponse = {
   data?: { webPages?: { value?: Array<Record<string, unknown>> } };
@@ -16,17 +19,18 @@ export class BochaSearchProvider implements SearchProviderAdapter {
 
   constructor(private readonly config: ConfigService) {}
 
-  async search({ query }: SearchRequest): Promise<SearchToolResult> {
-    const payload = await fetchJson(this.config.getOrThrow<string>('BOCHA_SEARCH_URL'), {
+  // 调用 Bocha Web Search，并将摘要结果归一化为网页线索。
+  async search({ query }: SearchRequest, signal?: AbortSignal): Promise<SearchToolResult> {
+    const payload = await fetchJson(this.config.getOrThrow<string>(ENV_KEYS.bochaSearchUrl), {
       method: 'POST',
       headers: {
-        authorization: `Bearer ${this.config.getOrThrow<string>('BOCHA_SEARCH_API_KEY')}`,
+        authorization: `Bearer ${this.config.getOrThrow<string>(ENV_KEYS.bochaSearchApiKey)}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ query, count: 10, freshness: 'noLimit', summary: true }),
-    }) as BochaResponse;
+      body: JSON.stringify({ query, count: SEARCH_LIMITS.resultsMax, freshness: 'noLimit', summary: true }),
+    }, { signal }) as BochaResponse;
     const values = payload.data?.webPages?.value ?? payload.webPages?.value ?? [];
-    const results = values.slice(0, 10).flatMap((item, index) => {
+    const results = values.slice(0, SEARCH_LIMITS.resultsMax).flatMap((item, index) => {
       const result = normalizeSearchResult({
         title: item.name,
         url: item.url,

@@ -238,7 +238,7 @@ artifact_created / artifact_completed / artifact_failed
 answer_completed
 ```
 
-Search lifecycle event 的公开 payload 必须包含 `runId`（envelope 已有）、`stepId` 和 logical `toolCallId`，使前端能把 Conversation run progress card 与 Activity execution 稳定关联。Provider attempt identity 和 raw trace 不进入普通事件 payload。
+Search lifecycle event 的公开 payload 必须包含 `runId`（envelope 已有）、`stepId` 和 logical `toolCallId`，使前端能把 Conversation 内联 Tool Activity 与 Activity execution 稳定关联。Provider attempt identity 和 raw trace 不进入普通事件 payload。
 
 ## 11. Sources API
 
@@ -247,7 +247,7 @@ type SourceView = {
   evidenceId?: string;
   displayId?: string;
   resultId: string;
-  kind: 'clue' | 'evidence';
+  kind: 'clue' | 'evidence_candidate' | 'evidence';
   title: string;
   url: string;
   provider: string;

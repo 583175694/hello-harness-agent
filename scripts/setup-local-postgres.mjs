@@ -15,6 +15,7 @@ function loadLocalEnv() {
   );
 }
 
+// 配置优先级为当前进程环境变量、项目 .env、本地开发默认值。
 const localEnv = loadLocalEnv();
 
 const host = process.env.POSTGRES_HOST ?? localEnv.POSTGRES_HOST ?? '127.0.0.1';
@@ -36,6 +37,7 @@ function sqlIdentifier(value) {
   return `"${value}"`;
 }
 
+// 角色初始化 SQL 可重复执行，不覆盖已存在角色的其他属性。
 const sql = `
 DO $$
 BEGIN

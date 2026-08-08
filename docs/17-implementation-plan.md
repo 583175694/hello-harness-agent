@@ -168,10 +168,10 @@ Development-only `/agent/preview` 已覆盖空会话、直接回答、running、
 已完成的桌面 P3 fixture 交互：
 
 - Run progress card 具有 `runId`，tool call rows 具有 `runId/stepId/toolCallId`，点击 card 或具体调用可以打开 Workbench 并精确定位。
-- Progress 使用独立 fixture 数据并渲染在 RunCard 内；RunCard 更新按 `runId` 定位，不再批量覆盖同类项。
+- Progress fixture 通过有序 Tool Activity block 与 Workbench projection 展示；Activity 更新按 `runId/stepId/toolCallId` 定位，不再批量覆盖同类项。
 - Workbench tab/selection 由 AppShell 受控，支持 auto-follow、manual pin、关闭后当前 run 自动打开抑制。
 - Activity 使用纵向 timeline + detail，展示脱敏业务输入、结果摘要和安全聚合指标。
-- Preview 中 Composer 根据 run 状态切换 new-run/steer/clarification/disabled；Steer 通过 Composer 提交，Cancel 保留在 RunCard。
+- Preview 中 Composer 根据 fixture 状态模拟必要输入；生产普通 Chat 当前不展示 RunCard，工具调用以内联 Activity 展示，Steer/Cancel 的 durable Agent Run 语义后置。
 - 新 run 的首次工具调用自动打开 Workbench；手动点击调用后进入 pinned。
 
 以上仍是本地 fixture，不能作为 SSE、真实 Runtime 或 API 阶段完成证明。其余差异：
@@ -193,7 +193,7 @@ Development-only `/agent/preview` 已覆盖空会话、直接回答、running、
 
 ```text
 P2  session/run identity、真实 Conversation projection、Sidebar 基本行为
-P3  frontend reducer、run progress card、Workbench open/focus、steer/cancel fixture contract
+P3  frontend reducer、inline Tool Activity、Workbench open/focus fixture contract
 P4  durable session/run snapshot recovery
 P5  composer clarification/steer/new-run modes
 P6  logical tool Activity execution、clue projection、tool-call focus
@@ -246,11 +246,11 @@ create session
 - run-scoped monotonic event sequence
 - event projector
 - frontend reducer/projection
-- run progress card identity 与本地 `FOCUS_WORKBENCH_TARGET`
-- RunCard 内独立 Progress projection 与 logical tool call rows
+- inline Tool Activity identity 与本地 `FOCUS_WORKBENCH_TARGET`
+- 内容块 reducer 与 logical tool call projection
 - Workbench open/close、Activity tab、selected execution 和纵向 master/detail fixture
 - 每个新 run 首次 tool call auto-open；auto-follow、manual pin 和 current-run close suppression
-- 桌面 Workbench resize+slide、tab/detail、RunCard collapse 和 tool status 的克制过渡；支持 reduced motion
+- 桌面 Workbench resize+slide、tab/detail、Tool Activity 状态变化的克制过渡；支持 reduced motion
 - connection state
 - `POST /runs/:runId/steer`
 - `POST /runs/:runId/cancel`
@@ -270,7 +270,7 @@ run_cancelled
 run_failed
 ```
 
-验收：steer 通过 Composer 提交且只影响下一 scripted step；重复 event 不重复投影；cancel 后不启动新 step；点击 Conversation run progress card 或具体 tool call row 打开 Workbench 并定位到同一 run 的 Activity execution；展开/cancel 不误触发导航；用户手动 pin 或关闭后不被同一 run 后续调用抢占。
+验收：重复 event 不重复投影；点击 Conversation 内联 Tool Activity 打开 Workbench 并定位到同一 run 的 Activity execution；用户手动 pin 或关闭后不被同一 run 后续调用抢占。
 
 明确不做 SSE replay、真实模型和真实 provider。
 
@@ -333,7 +333,7 @@ final_answer / ask_clarification / fail
 
 验收：明确任务直接完成；阻塞性歧义只问一个问题；waiting 不消耗搜索预算；API Key 不进入日志或 State。
 
-## 9. P6: Search Provider Tooling + Iterative Research
+## 9. P6: Search / Fetch Tooling + Iterative Research
 
 目标：完成真实的多 step 搜索研究，不生成最终正式报告。
 
@@ -342,7 +342,13 @@ final_answer / ask_clarification / fail
 - SearchProvider adapter contract
 - primary/fallback router
 - Bocha/SERP 配置入口
-- canonical `web.search` tool
+- canonical `web_search` tool
+- canonical `web_fetch` tool
+- 1-5 URL batch contract and partial-success result
+- minimum URL/SSRF safety policy
+- Crawlee `HttpCrawler` bounded batch fetch and cache policy
+- JSDOM + Mozilla Readability + Turndown 主要正文提取和 canonical Markdown 规范化
+- character n-gram extractive passage selection
 - input validation
 - provider response normalization
 - clue/evidence-candidate classification
@@ -362,10 +368,11 @@ tool_call / ask_clarification / finish_research / fail
 - 3-6 query budget
 - primary 失败、限流或结果不足时才 fallback
 - snippet-only result 只能作为 clue
-- provider content/passages 才能成为 evidence candidate
+- provider content 或 `web_fetch` 原文 passage 才能成为 evidence candidate
+- 完整正文不进入普通 SSE、长期 Message metadata 或 user Memory
 - 外部内容不能改变 instructions/toolset/budget
 
-验收：模型能基于 gap 迭代查询；fallback 原因可观测；重复查询受抑制；预算耗尽后不再调用 provider；Conversation 中的搜索 progress card 能定位到对应 logical tool call，provider attempts 不重复生成用户可见 execution。
+验收：模型能基于 gap 迭代查询并执行 `web_search -> web_fetch`；一次 Fetch 可处理 1-5 个 URL 并保留逐项失败；fallback 原因可观测；重复查询受抑制；预算耗尽后不再调用 provider；非法 URL、私网地址、超时、超大响应和不支持的 Content-Type 被确定性拒绝；`HttpCrawler` 不使用 Dataset、Storage 或自动 enqueue；规范化 Markdown 是 V1 canonical document，Hash、Passage 和 Locator 均以它为基准，模型只消费有界 Markdown passages；Fetch 结果包含字符 n-gram 筛选的抽取式 passage、W3C 风格 quote/position locator、retrievedAt 和 contentHash；进程内 LRU 有界且按 TTL 失效；Conversation 中的 progress card 能定位到对应 logical tool call，provider attempts 不重复生成用户可见 execution。V1 不实现 DocumentBlock 或 canonical plain text + block 双表示。
 
 ## 10. P7: Evidence/Citation + Report Review + Workbench
 
@@ -408,7 +415,7 @@ research
 - 有部分证据时生成 limited report。
 - 零 eligible evidence 时 failed。
 - Workbench 不显示未实现的 Browser/Terminal/Memory/Worker tab。
-- run progress card、citation 和 Open report 分别精确定位 Activity、Sources 和 Report。
+- inline Tool Activity、citation 和 Open report 分别精确定位 Activity、Sources 和 Report。
 - terminal run 与 snapshot recovery 不会定位到错误 execution/resource。
 
 ## 11. P8: Recovery + Evaluation + Release Hardening

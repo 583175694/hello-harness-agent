@@ -1,12 +1,12 @@
 import type { SearchResult } from '@harness/agent-protocol';
+import { SEARCH_LIMITS } from './search.constants';
 
-const TITLE_LIMIT = 240;
-const SNIPPET_LIMIT = 800;
-
+// 清理供应商文本字段并限制进入模型上下文的数据长度。
 function cleanText(value: unknown, limit: number): string {
   return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, limit) : '';
 }
 
+// 过滤不安全或不完整的结果，并生成稳定的网页线索结构。
 export function normalizeSearchResult(
   value: { title?: unknown; url?: unknown; snippet?: unknown; publishedAt?: unknown; source?: unknown },
   index: number,
@@ -20,28 +20,18 @@ export function normalizeSearchResult(
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
   url.hash = '';
-  const title = cleanText(value.title, TITLE_LIMIT);
+  const title = cleanText(value.title, SEARCH_LIMITS.titleMaxLength);
   if (!title) return undefined;
   const normalizedUrl = url.toString();
-  const publishedAt = cleanText(value.publishedAt, 80);
-  const source = cleanText(value.source, 160);
+  const publishedAt = cleanText(value.publishedAt, SEARCH_LIMITS.publishedAtMaxLength);
+  const source = cleanText(value.source, SEARCH_LIMITS.sourceMaxLength);
   return {
-    id: `result-${index}-${Buffer.from(normalizedUrl).toString('base64url').slice(0, 16)}`,
+    id: `result-${index}-${Buffer.from(normalizedUrl).toString('base64url').slice(0, SEARCH_LIMITS.resultIdHashLength)}`,
     title,
     url: normalizedUrl,
     domain: url.hostname.replace(/^www\./, ''),
-    snippet: cleanText(value.snippet, SNIPPET_LIMIT),
+    snippet: cleanText(value.snippet, SEARCH_LIMITS.snippetMaxLength),
     ...(publishedAt ? { publishedAt } : {}),
     ...(source ? { source } : {}),
   };
-}
-
-export async function fetchJson(
-  url: string,
-  init: RequestInit,
-  timeoutMs = 10_000,
-): Promise<unknown> {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
-  if (!response.ok) throw new Error(`SearchProviderHttpError:${response.status}`);
-  return response.json();
 }

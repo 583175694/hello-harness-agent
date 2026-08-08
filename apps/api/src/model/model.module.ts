@@ -1,0 +1,13 @@
+import { Module } from '@nestjs/common';
+
+import { ModelAdapter } from './model-adapter';
+import { OpenAICompatibleModelAdapter } from './openai-compatible-model.adapter';
+
+@Module({
+  providers: [
+    OpenAICompatibleModelAdapter,
+    { provide: ModelAdapter, useExisting: OpenAICompatibleModelAdapter },
+  ],
+  exports: [ModelAdapter],
+})
+export class ModelModule {}

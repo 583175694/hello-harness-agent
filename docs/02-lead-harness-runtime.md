@@ -78,7 +78,7 @@ load run
 
 ### tool_call
 
-R1 只允许 `web.search`。Runtime 把 canonical request 交给 Tooling，不解析 provider raw output。
+R1 只允许 `web_search` 和 `web_fetch`。Runtime 把 canonical request 交给 Tooling，不解析 provider raw output。
 
 ### ask_clarification
 

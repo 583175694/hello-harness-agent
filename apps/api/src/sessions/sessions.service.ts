@@ -8,8 +8,9 @@ import type {
   SessionSummary,
   UpdateSessionRequest,
 } from '@harness/agent-protocol';
+import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 
-import { ChatService } from '../chat/chat.service';
+import { SessionTitleService } from './session-title.service';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
 import { SessionExecutionRegistry } from './session-execution.registry';
@@ -19,7 +20,7 @@ export class SessionsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(SessionExecutionRegistry) private readonly executions: SessionExecutionRegistry,
-    @Inject(ChatService) private readonly chat: ChatService,
+    @Inject(SessionTitleService) private readonly titles: SessionTitleService,
   ) {}
 
   // 创建属于固定本地用户的持久化会话。
@@ -69,7 +70,7 @@ export class SessionsService {
     await this.requireOwned(sessionId);
     if (this.executions.isActive(sessionId)) {
       throw new ConflictException({
-        code: 'SESSION_BUSY',
+        code: AGENT_ERROR_CODES.sessionBusy,
         detail: '该会话正在生成回复，请等待完成后再删除。',
       });
     }
@@ -94,7 +95,7 @@ export class SessionsService {
     if (!firstUser || !firstAssistant) return { session: this.toSummary(session), generated: false };
 
     try {
-      const title = await this.chat.generateTitle(firstUser.content, firstAssistant.content);
+      const title = await this.titles.generate(firstUser.content, firstAssistant.content);
       const updated = await this.prisma.session.update({
         where: { id: session.id },
         data: { title },
@@ -141,6 +142,6 @@ export class SessionsService {
 
   // 抛出统一的会话不存在或无归属错误。
   private throwNotFound(): never {
-    throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
+    throw new NotFoundException({ code: AGENT_ERROR_CODES.sessionNotFound, detail: '会话不存在。' });
   }
 }

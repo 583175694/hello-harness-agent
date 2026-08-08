@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 
 // 按运行环境生成日志配置：开发环境便于阅读，生产环境保留结构化 JSON。
 export function createLoggingOptions(config: ConfigService): Params {
+  // 开发环境输出彩色单行日志，其他环境保持便于采集的 JSON。
   const isDevelopment = config.get<string>('NODE_ENV') === 'development';
 
   return {
@@ -20,12 +21,14 @@ export function createLoggingOptions(config: ConfigService): Params {
               colorize: true,
               singleLine: true,
               translateTime: 'HH:MM:ss',
-              ignore: 'pid,hostname,req,res,responseTime,context',
+              // 开发终端通过短业务 ID 关联链路，隐藏 Pino 自动附带的冗长请求对象。
+              ignore: 'pid,hostname,req,res,responseTime,context,reqId',
               messageFormat: '[{context}] {msg}',
             },
           }
         : undefined,
       genReqId: (request, response) => {
+        // 优先透传上游请求 ID，缺失时生成新 ID 以关联同一次请求的日志。
         const requestId = request.headers['x-request-id'] ?? randomUUID();
         response.setHeader('x-request-id', requestId);
         return requestId;

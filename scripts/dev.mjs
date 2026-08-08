@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
 
+// 根开发命令统一管理的子服务、固定端口和就绪地址。
 const services = [
   {
     name: 'Web',
@@ -16,9 +17,13 @@ const services = [
   },
 ];
 
+// 保存脚本创建的子进程，退出时只清理自身启动的服务。
 const children = [];
+// 启动阶段的失败状态用于中断统一就绪等待。
 let failedService = null;
+// 区分主动关闭和异常退出，避免清理子进程时误报服务启动失败。
 let shuttingDown = false;
+// 仅交互式终端启用 ANSI 颜色，并遵守 NO_COLOR 约定。
 const useColor = Boolean(process.stdout.isTTY && !process.env.NO_COLOR);
 const colors = {
   reset: '\x1b[0m',

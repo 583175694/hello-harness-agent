@@ -22,9 +22,11 @@ import type {
 
 export type ToolStreamEvent = Extract<
   ChatStreamEvent,
-  { type: 'tool.started' | 'tool.completed' | 'tool.failed' }
+  { type: 'tool.started' | 'tool.completed' | 'tool.failed' | 'tool.cancelled' }
 >;
+export type MessageDeltaEvent = Extract<ChatStreamEvent, { type: 'message.delta' }>;
 
+// 为空时通过 Vite 反向代理访问同源 API，部署时可覆盖为独立服务地址。
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 
 export class ApiProblem extends Error {
@@ -108,7 +110,7 @@ export async function generateSessionTitle(
 export async function requestChatStream(
   sessionId: string,
   content: string,
-  onDelta: (delta: string) => void,
+  onDelta: (event: MessageDeltaEvent) => void,
   onToolEvent: (event: ToolStreamEvent) => void = () => undefined,
 ): Promise<{ model: string; messageId: string }> {
   const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/chat/stream`, {
@@ -121,6 +123,7 @@ export async function requestChatStream(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  // buffer 保留尚未形成完整双换行边界的 SSE 半包。
   let buffer = '';
   let model = '';
   let messageId = '';
@@ -141,11 +144,12 @@ export async function requestChatStream(
           code: payload.code,
           detail: payload.detail,
         });
-      } else if (payload.type === 'message.delta') onDelta(payload.delta);
+      } else if (payload.type === 'message.delta') onDelta(payload);
       else if (
         payload.type === 'tool.started' ||
         payload.type === 'tool.completed' ||
-        payload.type === 'tool.failed'
+        payload.type === 'tool.failed' ||
+        payload.type === 'tool.cancelled'
       ) onToolEvent(payload);
       else if (payload.type === 'message.completed') {
         model = payload.model;

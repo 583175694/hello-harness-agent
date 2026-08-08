@@ -1,6 +1,6 @@
 # Tooling / Execution
 
-> 文档状态：Greenfield R1 工具执行契约。R1 只暴露 canonical `web.search`。
+> 文档状态：Greenfield R1 工具执行契约。当前 production 已实现 `web_search`；`web_fetch` 为下一阶段设计。
 
 ## 1. 职责
 
@@ -27,10 +27,11 @@ Tooling 不负责：
 ## 2. R1 Toolset
 
 ```text
-web.search
+web_search
+web_fetch
 ```
 
-它是一个 logical tool，内部可以路由到 Bocha、SERP 等 provider adapter。Provider 不是模型可见工具。
+`web_search` 是搜索 logical tool，内部可以路由到 Bocha、SERP 等 provider adapter。`web_fetch` 每次获取 1-5 个公开 URL，并产出可定位的原文片段。Provider 和 Fetch 实现不是模型可见工具。
 
 R1 不接 MCP、不接 browser automation、不接文件写工具或代码执行。
 
@@ -49,9 +50,9 @@ type ToolDefinition = {
 };
 ```
 
-R1 `web.search.effect = read_only`，但它仍会向外部供应商发送 query，必须在 trace 中表达 external data transfer。配置对应 provider API Key 即构成部署级发送授权，任务调用不再逐次询问；调用内容仍限于当前任务所需数据，credential 永不进入请求 payload、模型上下文、State 或日志。
+R1 `web_search` 和 `web_fetch` 的 effect 都是 `read_only`，但它们仍会向外部服务发送 query 或 URL，必须在 trace 中表达 external data transfer。配置对应 provider API Key 即构成部署级发送授权，任务调用不再逐次询问；调用内容仍限于当前任务所需数据，credential 永不进入请求 payload、模型上下文、State 或日志。
 
-## 4. web.search Input
+## 4. web_search Input
 
 ```ts
 type WebSearchInput = {
@@ -88,7 +89,7 @@ Adapter 负责把厂商请求/响应隔离在 Tooling 内。Canonical result 不
 ## 6. Primary / Fallback Router
 
 ```text
-logical web.search
+logical web_search
 -> call primary
 -> normalize and inspect availability
 -> success with sufficient candidate material: return
@@ -142,6 +143,17 @@ provider content or non-empty locatable passage
 
 Tooling 可以确定材料是否满足形式资格，但不决定它是否与报告结论相关。Evidence selector 后续选择实际 cited passage。
 
+`web_fetch` 的模型可见输入固定为：
+
+```ts
+type WebFetchInput = {
+  urls: string[];
+  query?: string;
+};
+```
+
+`urls` 固定为 1-5 个公开地址，`query` 为整批来源共用的证据需求。V1 使用 Crawlee `HttpCrawler` 获取原始响应，JSDOM + Mozilla Readability 提取主要正文，Turndown 生成 Markdown；不维护 URL prior-context registry。完整契约见 `23-web-fetch-tool.md`。
+
 ## 9. Untrusted Content
 
 Provider content 必须：
@@ -157,21 +169,29 @@ Tooling 不把网页文本解释为命令。
 ## 10. Tool Call Protocol
 
 ```ts
-type ToolCallRequest = {
+type ToolCallBase = {
   toolCallId: string;
   runId: string;
   stepId: string;
-  toolName: 'web.search';
   toolVersion: string;
-  input: WebSearchInput;
   budget: {
     timeoutMs: number;
     remainingProviderCalls: number;
   };
 };
+
+type ToolCallRequest =
+  | (ToolCallBase & {
+      toolName: 'web_search';
+      input: WebSearchInput;
+    })
+  | (ToolCallBase & {
+      toolName: 'web_fetch';
+      input: WebFetchInput;
+    });
 ```
 
-## 11. ToolExecutionResult
+## 11. web_search ToolExecutionResult
 
 ```ts
 type ToolExecutionResult = {
@@ -197,6 +217,8 @@ type ToolExecutionResult = {
   };
 };
 ```
+
+`web_fetch` 使用同一 execution envelope，但 output 和 metrics 按其 canonical `WebFetchResult` 定义，不复用搜索专用的 provider/result counters。
 
 ## 12. Tool Result / Observation
 
@@ -266,7 +288,7 @@ TOOL_BUDGET_EXCEEDED
 
 ## 18. Current Step Toolset
 
-Context Compiler 接收已经冻结的 ToolCard。P6/P7 Lead 只看到 `web.search`。Waiting、review、validation 和 finalization step 不一定暴露任何 tool。
+Context Compiler 接收已经冻结的 ToolCard。P6/P7 Lead 按 step 需要看到 `web_search`、`web_fetch` 或空工具集。Waiting、review、validation 和 finalization step 不一定暴露任何 tool。
 
 Post-R1 Worker 使用单独 scoped toolset，不自动继承 Lead toolset。
 
@@ -277,7 +299,7 @@ Post-R1 Worker 使用单独 scoped toolset，不自动继承 Lead toolset。
 ```text
 runId + stepId + toolCallId
 -> Activity execution
--> Conversation run progress card focus target
+-> Conversation inline tool activity focus target
 ```
 
 普通 Workbench 只展示用户可理解的 title/detail/status、耗时和结果数量等安全聚合信息。Primary/fallback/retry 可以显示为一句可理解摘要，但 provider attempts、输入参数、完整输出和内部错误体不形成独立 execution。
@@ -311,3 +333,6 @@ Trace 不进入普通 Workbench；只有 development-only Debug 可以读取脱�
 8. cancel/timeout 有界终止。
 9. 同一 tool call 的 retry/idempotency 不产生重复结果。
 10. logical tool call 能通过 runId/stepId/toolCallId 稳定投影到唯一 Activity execution。
+11. `web_fetch` 对批量初始 URL 执行最小网络安全校验，并对 URL 数量、超时、重试和响应大小进行限制。
+12. Fetch passage 是来源原文，模型摘要不得升级为 evidence candidate。
+13. Fetch 网络、缓存、正文提取、切块和相关性排序保持独立模块边界。

@@ -13,7 +13,7 @@ UI       = 协议数据的展示投影
 
 Web/API 只依赖 `packages/agent-protocol` 的 schema，不直接共享 OpenAI SDK 类型。供应商字段在 API 适配层转换为本协议对象。
 
-协议版本当前为 `0.4.0`。新增字段优先保持可选；改变字段语义或删除字段时升级协议版本。
+协议版本当前为 `0.5.0`。新增字段优先保持可选；改变字段语义或删除字段时升级协议版本。
 
 ## 2. 阶段一：纯对话协议
 
@@ -54,15 +54,79 @@ SSE 的每条 `data` 都是以下联合类型之一：
 
 ```ts
 type ChatStreamEvent =
-  | { type: 'tool.started'; messageId: string; toolCallId: string; toolName: string; input: { query: string }; startedAt: string }
-  | { type: 'tool.completed'; messageId: string; toolCallId: string; toolName: string; completedAt: string; durationMs: number; result: SearchToolResult }
-  | { type: 'tool.failed'; messageId: string; toolCallId: string; toolName: string; completedAt: string; durationMs: number; code: string; detail: string }
-  | { type: 'message.delta'; messageId: string; delta: string }
+  | {
+      type: 'tool.started';
+      messageId: string;
+      blockId: string;
+      toolCallId: string;
+      toolName: string;
+      title: string;
+      input: { query: string };
+      startedAt: string;
+    }
+  | {
+      type: 'tool.completed';
+      messageId: string;
+      blockId: string;
+      toolCallId: string;
+      toolName: string;
+      completedAt: string;
+      durationMs: number;
+      result: SearchToolResult;
+    }
+  | {
+      type: 'tool.failed';
+      messageId: string;
+      blockId: string;
+      toolCallId: string;
+      toolName: string;
+      completedAt: string;
+      durationMs: number;
+      code: string;
+      detail: string;
+    }
+  | {
+      type: 'tool.cancelled';
+      messageId: string;
+      blockId: string;
+      toolCallId: string;
+      toolName: string;
+      completedAt: string;
+      durationMs: number;
+      code: string;
+      detail: string;
+    }
+  | { type: 'message.delta'; messageId: string; blockId: string; delta: string }
   | { type: 'message.completed'; messageId: string; model: string }
   | { type: 'stream.failed'; code: string; detail: string };
 ```
 
-`messageId` 用于把所有 delta 绑定到同一条 assistant 消息；完成事件中的 ID 是最终持久化 Message ID。客户端只提交本轮 content，API 从数据库读取最近 20 条 user/assistant 消息。当前仍没有 replay、sequence、断线重连和 cancel，这些属于阶段三 Agent Run 协议。
+`messageId` 把本轮所有事件绑定到同一条 assistant 消息；`blockId` 标识其中一个稳定内容块。文本增量到达 API 后立即向 SSE 写出，不等待当前模型轮次结束。连续文本 delta 共用一个 text block；工具事件插入一个 tool activity block，完成、失败或取消事件通过 `toolCallId/blockId` 原位更新，不追加重复活动。`tool.started.title` 是后端确定的用户可见名称，保证实时展示和刷新恢复一致。完成事件中的 Message ID 是最终持久化 ID。
+
+### 2.4 Assistant 有序内容块
+
+Conversation 的展示与恢复事实是按真实发生顺序保存的内容块：
+
+```ts
+type AssistantContentBlock =
+  | { id: string; type: 'text'; content: string }
+  | {
+      id: string;
+      type: 'tool_activity';
+      toolCallId: string;
+      toolName: string;
+      status: 'running' | 'completed' | 'failed' | 'cancelled';
+      title: string;
+      summary?: string;
+      startedAt: string;
+      completedAt?: string;
+      durationMs?: number;
+    };
+```
+
+成功完成的 assistant turn 将 `blocks` 保存到 Message metadata，顺序可以是 `text → tool_activity → text`。兼容字段 `Message.content` 只由所有 text blocks 顺序拼接生成；API 构造下一轮模型上下文时也只读取这份纯文本，不把工具 UI 标题、状态或摘要注入模型。失败或取消的未完成时间线本阶段只保留在当前页面内存，不落库。
+
+客户端只提交本轮 content，API 从数据库读取最近 20 条 user/assistant 消息。当前仍没有 replay、sequence、断线重连和 cancel，这些属于阶段三 Agent Run 协议。
 
 ## 3. 阶段二：Function Calling 协议
 
@@ -111,6 +175,17 @@ messages + tools
 这仍然可以在一次 HTTP 请求或一次 Chat SSE 内完成，不代表已经具备可恢复的 Agent Run。
 
 当前实现的 `web_search` 固定只接收 `query`，后端一次只启用 Bocha 或 Serper。每次搜索最多返回 10 条标准化结果，每轮用户请求最多接收 20 次通用工具调用。工具事件用最终 assistant `messageId` 关联；最终 Message metadata 保存 Activity/Sources 轻量快照，但不等同于 Event Store。
+
+阶段二下一增量冻结以下模型可见工具契约，当前尚未实现：
+
+```ts
+type WebFetchInput = {
+  urls: string[];
+  query?: string;
+};
+```
+
+`urls` 接受 1-5 个地址，结果按 URL 使用部分成功语义。`web_fetch` 通过 Crawlee `HttpCrawler` 批量获取原始响应，再由 JSDOM + Mozilla Readability + Turndown 生成规范化正文，并返回字符 n-gram 筛选的抽取式原文 passage。V1 不维护 URL prior-context registry，也不向模型暴露缓存参数；进程内 LRU、最小 SSRF、响应限制和 Evidence 资格由 API 内部策略控制。完整设计见 `23-web-fetch-tool.md`。
 
 ## 4. 明确不属于本阶段
 

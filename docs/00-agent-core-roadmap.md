@@ -236,7 +236,7 @@ P12 Multi-user Authentication + Remote Storage
 11. Markdown Artifact 和 Sources 可在 Workbench 恢复。
 12. contract/integration/UI 测试通过。
 13. 固定调研题集评测通过并完成人工抽检。
-14. Conversation run progress card、citation 和 Artifact card 能分别精确定位 Workbench 的 Activity execution、Source evidence 和 Report。
+14. Conversation 内联 Tool Activity、citation 和 Artifact card 能分别精确定位 Workbench 的 Activity execution、Source evidence 和 Report。
 
 ## 11. 决策所有权
 

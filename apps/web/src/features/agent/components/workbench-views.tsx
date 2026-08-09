@@ -182,14 +182,12 @@ function ActivityView({
 
 // 展示已保存的来源片段和外部引用。
 function SourcesView({ sources: items }: { sources: SourceView[] }) {
-  const evidenceCount = items.filter((source) => source.kind === 'evidence').length;
-  const candidateCount = items.filter((source) => source.kind === 'evidence_candidate').length;
+  const usedCount = items.filter((source) => source.kind === 'fetched' && source.used).length;
+  const fetchedCount = items.filter((source) => source.kind === 'fetched').length;
   const clueCount = items.filter((source) => source.kind === 'clue').length;
-  const sourceSummary = evidenceCount
-    ? `${evidenceCount} 个正式引用`
-    : candidateCount
-      ? `${candidateCount} 个原文候选 · ${clueCount} 个线索`
-      : `${clueCount} 个检索线索`;
+  const sourceSummary = fetchedCount
+    ? `${usedCount} 个回答采用 · ${fetchedCount} 个已读取 · ${clueCount} 个搜索线索`
+    : `${clueCount} 个搜索线索`;
   return (
     <div className="sources-view">
       <div className="view-toolbar">
@@ -200,12 +198,12 @@ function SourcesView({ sources: items }: { sources: SourceView[] }) {
         {items.map((source) => (
           <article className="source-item" key={source.id}>
             <div className="source-item-top">
-              <span className="source-id">{source.kind === 'evidence' ? `[${source.id}]` : source.id}</span>
+              <span className="source-id">{source.id}</span>
               <span className="source-domain">{source.domain}</span>
               <a href={source.url} target="_blank" rel="noopener noreferrer" aria-label={`打开来源 ${source.title}`}><ArrowUpRight size={14} /></a>
             </div>
             <h3>{source.title}</h3><p>{source.excerpt}</p>
-            {source.kind === 'evidence_candidate' ? (
+            {source.kind === 'fetched' ? (
               <>
                 <div className="candidate-meta">
                   {source.author ? <span>{source.author}</span> : null}
@@ -214,7 +212,7 @@ function SourcesView({ sources: items }: { sources: SourceView[] }) {
                   {source.cacheStatus ? <span>{source.cacheStatus === 'hit' ? '缓存命中' : '实时读取'}</span> : null}
                   {source.truncated ? <span>正文已截断</span> : null}
                 </div>
-                <span className="candidate-label">原文候选，尚未成为正式引用</span>
+                <span className="candidate-label">{source.used ? '回答采用的已读来源' : '已读取网页'}</span>
                 {source.passages?.length ? (
                   <details className="candidate-passages">
                     <summary>查看 {source.passages.length} 段原文</summary>
@@ -233,7 +231,7 @@ function SourcesView({ sources: items }: { sources: SourceView[] }) {
                 ) : null}
               </>
             ) : null}
-            <small>{source.provider ? `${source.provider} · ` : ''}{source.time} · {source.kind === 'clue' ? '搜索结果摘要，尚未验证为证据' : source.kind === 'evidence_candidate' ? '已保存可定位原文片段' : '正式引用'}</small>
+            <small>{source.provider ? `${source.provider} · ` : ''}{source.time} · {source.kind === 'clue' ? '搜索线索，尚未读取正文' : source.used ? '回答采用的已读来源' : '已读取并保存相关原文'}</small>
           </article>
         ))}
       </div>

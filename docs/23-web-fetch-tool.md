@@ -4,7 +4,7 @@
 
 ## 1. 目标
 
-`web_fetch` 批量获取少量公开 URL，将网页内容转换为有界、可追溯的原文片段，并产出 `evidence_candidate`。
+`web_fetch` 批量获取少量公开 URL，将网页内容转换为有界、可追溯的相关原文片段，并产出 `fetched` Source。
 
 ```text
 1-5 known URLs
@@ -15,10 +15,10 @@
   -> main-content extraction
   -> sanitization and normalization
   -> query-aware passage selection
-  -> untrusted evidence payload
+  -> untrusted fetched-source payload
 ```
 
-工具成功只表示已经取得可定位的来源原文，不表示来源内容必然真实、权威、最新或足以支撑最终结论。正式引用资格仍由 Evidence Layer 决定。
+工具成功只表示已经取得可定位的来源原文，不表示来源内容必然真实、权威、最新或足以支撑最终结论。当前 `used=true` 仅表示最终回答包含该 URL，正式 Evidence/Citation 仍属于后续 Deep Research。
 
 ## 2. 模型可见契约
 
@@ -29,7 +29,7 @@ type WebFetchInput = {
 };
 ```
 
-- `urls` 包含 1-5 个完整 HTTP/HTTPS URL；V1 不维护 URL provenance registry，主要由模型从用户输入或 `web_search` 结果中选择目标。
+- `urls` 包含 1-5 个完整 HTTP/HTTPS URL；Run Resource Ledger 只登记用户当前消息的直链和本轮 `web_search` 结果，未登记 URL 不会发起网络请求。
 - `query` 是这一批 URL 共用的证据需求，用于从每份正文中选择相关抽取式原文片段，不用于生成摘要。
 - 模型不能指定 Header、Cookie、Authorization、代理、缓存 TTL、超时、响应上限、选择器或安全策略。
 
@@ -78,12 +78,14 @@ WebFetchTool
 
 ## 5. 获取限制
 
-内部策略由应用配置，不进入 Function Calling 参数：
+内部策略使用集中的代码常量，不进入环境变量或 Function Calling 参数：
 
 ```ts
 type WebFetchPolicy = {
   maxUrlsPerCall: number;
   maxUrlsPerRun: number;
+  researchTimeoutMs: number;
+  maxExternalPassageCharacters: number;
   maxConcurrency: number;
   timeoutMs: number;
   maxRequestRetries: number;
@@ -99,8 +101,10 @@ type WebFetchPolicy = {
 
 要求：
 
-- 初始默认单次最多 5 个 URL、单次运行最多读取 10 个 URL、最大并发 3、每个 URL 最多重试 1 次、处理超时 20 秒。
+- 默认单次最多 5 个 URL、单轮最多接受 25 个唯一初始 URL、最大并发 3、每个 URL 最多重试 1 次、单页处理超时 20 秒。
 - 单份文档最多返回 6 个 Passage、单段最多 2,000 Unicode code points，整批 Passage 总量最多 24,000 code points。
+- 单轮累计注入的 Fetch Passage 默认最多 60,000 code points；剩余低于 2,000 时不再发起 Fetch。
+- 模型调查轮次与工具共享 120 秒调查时间；触发后移除 Search/Fetch，并为无工具最终回答保留 30 秒。
 - 每个 URL 独立成功或失败；单个 URL 失败不能丢弃同一批次的成功结果。
 - 用户取消必须停止当前 Crawlee 运行和尚未开始的请求。
 - 响应体和规范化正文都受容量上限控制，不能把完整大页面注入模型。
@@ -207,6 +211,14 @@ type WebTextLocator = {
 type WebFetchResult = {
   query?: string;
   results: WebFetchItemResult[];
+  budget: {
+    urls: { used: number; limit: number; remaining: number };
+    passages: { usedCharacters: number; limitCharacters: number; remainingCharacters: number };
+    successfulUniqueDocuments: number;
+    networkAttempts: number;
+    canFetch: boolean;
+    stopReason?: 'url_budget' | 'context_budget' | 'time_budget' | 'no_new_content';
+  };
 };
 
 type WebFetchItemResult =
@@ -235,14 +247,20 @@ type WebFetchItemResult =
       requestedUrl: string;
       code: string;
       detail: string;
+    }
+  | {
+      status: 'skipped';
+      requestedUrl: string;
+      code: string;
+      detail: string;
     };
 ```
 
-结果顺序与去重后的输入 URL 顺序一致。批量采用部分成功语义：一个 URL 失败只生成该项的结构化错误，不能令其他成功项回滚。只有所有 URL 都失败时，调用方才把整次工具结果视为没有可用 evidence candidate。
+结果按输入 URL 顺序返回。批量采用部分成功语义：一个 URL 失败或因重复/预算被 `skipped` 不会令其他成功项回滚，也不会被伪装成网络失败。
 
 `contentHash` 基于完整规范化 Markdown 的 UTF-8 内容生成，用于识别内容变化和绑定引用版本。`retrievedAt` 表示该项返回内容所对应的获取时间；缓存命中时不能伪装成当前时间。
 
-`WebFetchResult` 中的成功项属于 `evidence_candidate` 材料，失败项只用于解释证据缺口。只有 Evidence selector 选中的 passage 才创建 durable `EvidenceSource` 和 report-scoped `displayId`。
+`WebFetchResult` 中的成功项属于 `fetched` 材料，失败与跳过项只用于解释调查缺口或资源边界。当前不从它们创建 durable `EvidenceSource` 或 report-scoped `displayId`。
 
 ## 11. Cache And Retention
 
@@ -256,8 +274,7 @@ type WebFetchItemResult =
 - 涉及敏感 Header、登录态或用户私有数据的内容不进入本阶段缓存，因为 R1 根本不允许这类 Fetch。
 - 完整 Raw HTML 只存在于当前 `HttpCrawler` request handler；进程内 LRU 保存完整规范化 Markdown 和受控来源元数据，不保存 Raw HTML、JSDOM、Readability DOM 或其他解析对象。相同 URL 缓存命中后仍按本轮 `query` 重新选择 passages。
 - 完整规范化 Markdown 不写入 PostgreSQL、Message metadata、普通 SSE 或 user Memory，也不作为完整工具 payload 发送给模型。
-- 返回给模型的有界 passages、来源元数据、locator、hash、retrievedAt 和 cacheStatus 可以保存为 assistant 工具快照，用于刷新后恢复 Workbench；它们保持 `evidence_candidate` 资格。
-- 实际引用 passage、来源元数据、locator、hash 和 retrievedAt 按 Evidence 生命周期持久化。
+- 返回给模型的有界 passages、来源元数据、locator、hash、retrievedAt 和 cacheStatus 可以保存为 assistant 工具快照，用于刷新后恢复 Workbench；它们的当前资格是 `fetched`。
 
 这一分层对应：
 
@@ -266,10 +283,7 @@ full normalized document
   -> ephemeral LRU cache
 
 bounded fetched passages
-  -> assistant tool snapshot / evidence_candidate
-
-actually cited passage
-  -> durable EvidenceSource
+  -> assistant tool snapshot / fetched source
 ```
 
 V1 不为 Fetch Cache 新建数据库表；以后需要跨进程缓存时，只替换 `WebFetchCache` 实现。
@@ -299,8 +313,14 @@ FETCH_RESPONSE_TOO_LARGE
 FETCH_UNSUPPORTED_CONTENT_TYPE
 FETCH_CONTENT_EMPTY
 FETCH_CONTENT_EXTRACTION_FAILED
+FETCH_ACCESS_BLOCKED
+FETCH_JS_RENDER_REQUIRED
+FETCH_CONTENT_NOT_RELEVANT
+FETCH_DUPLICATE_SKIPPED
 FETCH_UPSTREAM_FAILED
 FETCH_BUDGET_EXCEEDED
+AGENT_RESEARCH_TIMEOUT
+AGENT_EXTERNAL_CONTEXT_BUDGET_EXCEEDED
 ```
 
 工具错误作为普通 Tool Result 返回给 Runtime，使模型可以在预算内选择其他来源。安全拒绝、原始响应体、内部地址和敏感配置不进入用户消息。
@@ -310,17 +330,13 @@ FETCH_BUDGET_EXCEEDED
 Workbench Sources 必须区分：
 
 ```text
-clue
+clue (used=false/true)
   标题、URL、搜索摘要
   不分配 [Sx]
 
-evidence_candidate
+fetched (used=false/true)
   已读取来源、原文 passage、检索时间和定位信息
-  尚不分配正式 [Sx]
-
-evidence
-  已选择并持久化的原文 passage
-  可以分配 [Sx] 并被报告引用
+  used 仅表示最终回答出现该 URL，尚不分配正式 [Sx]
 ```
 
 完整正文不通过 SSE 推送。SSE 只传递工具生命周期、受控元数据、passage preview 和可按需展开的资源引用。
@@ -336,7 +352,7 @@ evidence
 7. Locator 同时包含 W3C 风格 quote 和 Unicode code-point position，并绑定正文 hash。
 8. 进程内 LRU 有 TTL 和内存上限，过期内容不做 stale fallback。
 9. 成功项包含最终 URL、retrievedAt、contentHash、cacheStatus 和截断标志。
-10. clue 与 evidence candidate 在协议和 Workbench 中不可混淆。
+10. clue 与 fetched source 在协议和 Workbench 中不可混淆。
 11. 网页 Prompt Injection 不改变指令、工具和预算。
 12. Crawlee Dataset/Storage 不持久化正文，完整正文不进入普通 SSE、PostgreSQL、Message metadata 或 user Memory。
 13. 抓取、缓存、正文提取、规范化、切块和排序可以独立测试和替换。
@@ -361,7 +377,27 @@ evidence
 - canonical plain text + block 双表示
 - 基于原始 DOM 或 Raw HTML 字节位置的精确 locator
 
-## 17. 参考实现
+## 17. General Web Research V1 Hardening（已实现）
+
+现有 Web Fetch V1 已在静态正文获取、规范化、字符 n-gram Passage 筛选、Locator 与网络安全边界上完成以下通用 Agent 增强：
+
+- 运行级上限是 25 个唯一 URL，与 120 秒调查时间和 60,000 Passage 字符上限一起集中定义在 Runtime Policy；只维护硬安全上限，信息充分时由模型提前停止。
+- Tool observation 返回已用、剩余和是否仍可 Fetch；达到硬上限后后续模型轮次移除 `web_fetch`，不得连续制造相同预算失败。
+- network attempts 与 successful unique documents 分开计数；失败请求仍计入资源预算，重复目标不重复发起网络请求。
+- 去重覆盖 input URL、normalized URL、redirect final URL 和正文 contentHash。
+- Passage Ranking 前增加 Document Quality Gate，区分验证码/登录或付费墙、JavaScript 空壳、正文提取失败、正文与 query 无关和可用正文。
+- 保留 query-aware 字符 2-gram/3-gram Ranker，只做标题/章节权重、模板噪声和重复 Passage 的轻量优化；Embedding、模型 rerank 和 Evidence Card 后置。
+- 增加当前前台请求累计 Passage 字符数或粗略 Token 安全阀，为后续推理和最终回答保留空间；旧结果压缩、淘汰、动态加载和精确 Token 编译等待 Context Engineering。
+- 连续调用没有新增唯一正文或相关 Passage 时早停，并做轻量来源多样性控制。
+- 来源状态区分 Search `clue`、正文读取成功 `fetched` 和最终普通回答的轻量 `used`；snippet 不得伪装成已读取正文。
+- 用户直接提供 URL 时允许跳过 Search 调用 Fetch。
+- Search 与 Fetch 在可用时保持同时暴露，不用动态工具发现替模型决定顺序；Run Resource Ledger 在执行 Fetch 前确定性校验 URL 是否来自用户直链或本轮 Search clue。
+- 增加整个前台 Agent 请求的总执行时间预算与端到端取消传播。
+- Workbench 展示 Search、Fetch、成功、失败、重复、预算和最终采用来源；复杂虚拟列表只在真实数据证明需要时实现。
+
+阶段完成后，Web Fetch 应能支撑普通用户的产品比较、时事解释、技术排障、旅行规划、政策解读和直链阅读。后台执行、断线恢复、Worker 独立上下文和大规模 Wide Research 依赖 Durable Run/Delegation；JavaScript Browser Fetch、PDF 和登录态网页属于独立来源能力扩展；正式 EvidenceSource、CitationValidator 和 Report Artifact 属于后续 Deep Research。
+
+## 18. 参考实现
 
 - [Anthropic Web fetch tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-fetch-tool)
 - [Firecrawl Scrape](https://docs.firecrawl.dev/features/scrape)

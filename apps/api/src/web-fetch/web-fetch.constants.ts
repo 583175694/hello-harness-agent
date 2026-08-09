@@ -2,8 +2,6 @@
 export const WEB_FETCH_POLICY = {
   // 单个 URL 允许的最大字符数。
   maxUrlLength: 2_048,
-  // 单次 Agent 运行允许读取的最大 URL 数量。
-  maxUrlsPerRun: 10,
   // 同一批次允许并行进行的最大网络请求数。
   maxConcurrency: 3,
   // 单个 URL 从导航到内容处理的超时时间。

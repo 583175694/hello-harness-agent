@@ -1,6 +1,6 @@
-# Research Workflow / 首发产品契约
+# Research Workflow / Deep Research 产品契约
 
-> 文档状态：Greenfield R1 产品规范。本文定义首个真实用户版本必须完成的网络调研工作流。
+> 文档状态：后续 Deep Research 产品规范。本文保留严谨网络调研、正式 Evidence、引用与报告交付契约，不再定义通用 Agent 的首个真实用户版本；当前联网调查阶段以 `docs/00-agent-core-roadmap.md`、`docs/17-implementation-plan.md` 和 `docs/implementation-status.md` 为准。
 
 ## 1. 目标
 
@@ -24,7 +24,7 @@ Input
 
 ## 2. 非目标
 
-R1 不实现：
+Deep Research V1 不实现：
 
 - browser automation 和任意页面交互
 - JavaScript Browser Rendering、登录态网页和需要用户凭据的内容获取
@@ -94,7 +94,7 @@ type SearchProviderConfig = {
 
 ### 5.1 外部发送授权
 
-部署者配置模型或搜索供应商 API Key，即视为同意应用在执行所有任务时，将完成当前任务所需的用户输入、搜索 query、上下文和证据材料发送给对应外部供应商。R1 不提供逐任务确认弹窗或 allowlist；未配置相应 Key 的 provider 不可调用。
+部署者配置模型或搜索供应商 API Key，即视为同意应用在执行所有任务时，将完成当前任务所需的用户输入、搜索 query、上下文和证据材料发送给对应外部供应商。Deep Research V1 不提供逐任务确认弹窗或 allowlist；未配置相应 Key 的 provider 不可调用。
 
 该授权不允许发送 API Key、其他环境变量、内部凭据或与当前任务无关的历史数据。实际调用仍须记录 external data transfer trace，并遵守 Context Compiler 的范围裁剪。
 
@@ -211,7 +211,7 @@ Agent 可以根据 clues 和 evidence gaps 发起下一查询。每次查询必�
 
 ## 11. 报告结构
 
-R1 报告至少包含：
+Deep Research V1 报告至少包含：
 
 ```text
 # 标题
@@ -299,7 +299,7 @@ type ReportQuality = 'standard' | 'limited';
 
 ## 15. Workbench 投影
 
-R1 只展示真实能力：
+Deep Research V1 只展示真实能力：
 
 ```text
 Conversation   用户输入、澄清、steer、最终交付说明

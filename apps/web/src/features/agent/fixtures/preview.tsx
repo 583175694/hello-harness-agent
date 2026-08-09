@@ -11,7 +11,7 @@ export const PREVIEW_STATES: Array<{ id: PreviewState; label: string }> = [
   { id: 'tool-running-open', label: '首次调用自动打开' },
   { id: 'sources', label: '来源视图' },
   { id: 'fetch-running', label: '读取网页中' },
-  { id: 'fetch-candidate', label: '原文候选' },
+  { id: 'fetch-candidate', label: '已读网页' },
   { id: 'fetch-failed', label: '读取全部失败' },
   { id: 'waiting', label: '等待确认' },
   { id: 'steer-accepted', label: '已接受调整' },
@@ -24,13 +24,13 @@ export const PREVIEW_STATES: Array<{ id: PreviewState; label: string }> = [
 
 // 仅供开发 fixture 使用的来源数据，生产 Sources 来自真实工具事件。
 export const sources: SourceView[] = [
-  { id: 'S1', title: 'Global AI Index 2025', domain: 'tortoisemedia.com', url: 'https://www.tortoisemedia.com/intelligence/global-ai/', excerpt: 'The United States remains the leading country for private AI investment and model development.', time: '刚刚', kind: 'evidence' },
-  { id: 'S2', title: 'China AI Development Report', domain: 'cset.georgetown.edu', url: 'https://cset.georgetown.edu/publication/china-ai-development-report/', excerpt: 'China has continued to expand its AI research capacity, talent base, and industrial adoption.', time: '1 分钟前', kind: 'evidence' },
-  { id: 'S3', title: 'Stanford AI Index Report', domain: 'hai.stanford.edu', url: 'https://hai.stanford.edu/ai-index', excerpt: 'AI capability and adoption continue to grow while inference costs decline across leading models.', time: '2 分钟前', kind: 'evidence' },
-  { id: 'S4', title: 'OECD AI Policy Observatory', domain: 'oecd.ai', url: 'https://oecd.ai/en/', excerpt: 'Policy approaches increasingly focus on transparency, safety, and measurable economic impact.', time: '3 分钟前', kind: 'evidence' },
+  { id: 'S1', title: 'Global AI Index 2025', domain: 'tortoisemedia.com', url: 'https://www.tortoisemedia.com/intelligence/global-ai/', excerpt: 'The United States remains the leading country for private AI investment and model development.', time: '刚刚', kind: 'fetched', used: true },
+  { id: 'S2', title: 'China AI Development Report', domain: 'cset.georgetown.edu', url: 'https://cset.georgetown.edu/publication/china-ai-development-report/', excerpt: 'China has continued to expand its AI research capacity, talent base, and industrial adoption.', time: '1 分钟前', kind: 'fetched', used: true },
+  { id: 'S3', title: 'Stanford AI Index Report', domain: 'hai.stanford.edu', url: 'https://hai.stanford.edu/ai-index', excerpt: 'AI capability and adoption continue to grow while inference costs decline across leading models.', time: '2 分钟前', kind: 'fetched', used: true },
+  { id: 'S4', title: 'OECD AI Policy Observatory', domain: 'oecd.ai', url: 'https://oecd.ai/en/', excerpt: 'Policy approaches increasingly focus on transparency, safety, and measurable economic impact.', time: '3 分钟前', kind: 'fetched', used: true },
 ];
 
-// 创建用于 Fetch 预览的可定位原文候选。
+// 创建用于 Fetch 预览的可定位已读网页。
 function makeFetchCandidate(): SourceView {
   const text = '企业正在把生成式 AI 从概念验证推进到客服、研发和知识管理等生产场景。';
   return {
@@ -40,7 +40,8 @@ function makeFetchCandidate(): SourceView {
     url: 'https://example.com/ai-adoption',
     excerpt: text,
     time: '2026/8/8 10:30:00',
-    kind: 'evidence_candidate',
+    kind: 'fetched',
+    used: false,
     author: '研究团队',
     publishedAt: '2026-07-28',
     contentType: 'text/html',
@@ -92,7 +93,7 @@ function makeFetchFixture(state: 'fetch-running' | 'fetch-candidate' | 'fetch-fa
   const workbench = {
     runId,
     title: '网页证据读取',
-    subtitle: running ? '正在读取 2 个网页' : failed ? '2 个来源读取失败' : '1 个原文候选',
+    subtitle: running ? '正在读取 2 个网页' : failed ? '2 个来源读取失败' : '1 个已读来源',
     activeView: state === 'fetch-candidate' ? 'sources' as const : 'activity' as const,
     activityStatus: running ? 'running' as const : 'completed' as const,
     executions: [fetchTool],

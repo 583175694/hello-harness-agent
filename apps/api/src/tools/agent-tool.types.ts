@@ -1,4 +1,5 @@
 import type { ZodType } from 'zod';
+import type { RunResourceLedger } from '../agent-runtime/run-resource-ledger';
 
 // 工具执行上下文，负责把会话关联信息和取消信号传给具体工具。
 export type ToolExecutionContext = {
@@ -6,6 +7,7 @@ export type ToolExecutionContext = {
   messageId?: string;
   toolCallId: string;
   signal?: AbortSignal;
+  resources: RunResourceLedger;
 };
 
 // 工具执行指标，供日志和后续 Workbench 投影使用。
@@ -14,7 +16,14 @@ export type ToolExecutionMetrics = {
   resultCount?: number;
   succeededCount?: number;
   failedCount?: number;
+  skippedCount?: number;
   passageCount?: number;
+  passageCharacterCount?: number;
+  networkAttemptCount?: number;
+  successfulUniqueDocumentCount?: number;
+  urlUsedCount?: number;
+  urlRemainingCount?: number;
+  stopReason?: string;
 };
 
 // 模型可见的通用工具声明，不依赖任何供应商 SDK。
@@ -31,12 +40,14 @@ export type ToolExecutionResult<TOutput> =
       output: TOutput;
       modelContent: string;
       metrics: ToolExecutionMetrics;
+      control?: { disableTools?: string[]; forceFinalAnswer?: boolean };
     }
   | {
       status: 'failed' | 'timeout' | 'cancelled';
       error: { code: string; detail: string; retryable: boolean };
       modelContent: string;
       metrics: ToolExecutionMetrics;
+      control?: { disableTools?: string[]; forceFinalAnswer?: boolean };
     };
 
 // 具体工具实现的最小契约；Registry 只依赖这组能力。

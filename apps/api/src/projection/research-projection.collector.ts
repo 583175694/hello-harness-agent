@@ -1,4 +1,4 @@
-import { AGENT_TOOL_NAMES } from '@harness/agent-protocol';
+import { AGENT_TOOL_NAMES, normalizeSourceUrl } from '@harness/agent-protocol';
 import type {
   ResearchSourceSnapshot,
   SearchSourceSnapshot,
@@ -13,7 +13,7 @@ type ToolProjectionInput =
   | { toolName: typeof AGENT_TOOL_NAMES.webSearch; input: { query: string } }
   | { toolName: typeof AGENT_TOOL_NAMES.webFetch; input: WebFetchInput };
 
-// 收集研究工具执行摘要、搜索线索和网页原文候选。
+// 收集研究工具执行摘要、搜索线索和已读取网页。
 export class ResearchProjectionCollector {
   private readonly executions: ToolExecutionSnapshot[] = [];
   private readonly sources = new Map<string, ResearchSourceSnapshot>();
@@ -43,6 +43,7 @@ export class ResearchProjectionCollector {
       else this.sources.set(key, {
         ...source,
         kind: 'clue',
+        used: false,
         provider: input.result.provider,
         retrievedAt: input.completedAt,
         toolCallIds: [input.toolCallId],
@@ -50,7 +51,7 @@ export class ResearchProjectionCollector {
     }
   }
 
-  // 记录一次批量网页读取，并把匹配的 clue 原位升级为 Evidence Candidate。
+  // 记录一次批量网页读取，并把匹配的 clue 原位升级为 fetched 来源。
   recordFetchCompleted(input: {
     toolCallId: string;
     toolInput: WebFetchInput;
@@ -59,6 +60,8 @@ export class ResearchProjectionCollector {
     result: WebFetchResult;
   }): void {
     const succeeded = input.result.results.filter((item) => item.status === 'succeeded');
+    const failed = input.result.results.filter((item) => item.status === 'failed');
+    const skipped = input.result.results.filter((item) => item.status === 'skipped');
     const passageCount = succeeded.reduce((total, item) => total + item.passages.length, 0);
     this.executions.push({
       toolCallId: input.toolCallId,
@@ -70,8 +73,12 @@ export class ResearchProjectionCollector {
       durationMs: input.durationMs,
       resultCount: input.result.results.length,
       succeededCount: succeeded.length,
-      failedCount: input.result.results.length - succeeded.length,
+      failedCount: failed.length,
+      skippedCount: skipped.length,
       passageCount,
+      networkAttemptCount: input.result.budget.networkAttempts,
+      successfulUniqueDocumentCount: input.result.budget.successfulUniqueDocuments,
+      budget: input.result.budget,
     });
     for (const source of succeeded) {
       if (!source.passages.length) continue;
@@ -84,7 +91,8 @@ export class ResearchProjectionCollector {
         : [input.toolCallId];
       if (matchingKey) this.sources.delete(matchingKey);
       const candidate: WebFetchSourceSnapshot = {
-        kind: 'evidence_candidate',
+        kind: 'fetched',
+        used: false,
         id: existing?.id ?? source.contentHash.slice(0, 16),
         requestedUrl: source.requestedUrl,
         finalUrl: source.finalUrl,
@@ -132,6 +140,30 @@ export class ResearchProjectionCollector {
     return { executions: [...this.executions], sources: [...this.sources.values()] };
   }
 
+  // 最终回答完成后，用其中真实出现的 URL 确定性标记轻量 used 状态。
+  markUsed(content: string): void {
+    const mentionedUrls = this.extractNormalizedUrls(content);
+    for (const source of this.sources.values()) {
+      const urls = source.kind === 'fetched'
+        ? [source.requestedUrl, source.finalUrl, source.normalizedUrl]
+        : [source.url];
+      source.used = urls.some((url) => {
+        try { return mentionedUrls.has(normalizeSourceUrl(url)); }
+        catch { return content.includes(url); }
+      });
+    }
+  }
+
+  // Markdown 和纯文本回答都可能包含链接；先提取再规范化，避免追踪参数导致误判。
+  private extractNormalizedUrls(content: string): Set<string> {
+    const urls = new Set<string>();
+    for (const match of content.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)) {
+      const rawUrl = match[0].replace(/[.,;:!?，。；：！？]+$/gu, '');
+      try { urls.add(normalizeSourceUrl(rawUrl)); } catch { /* 忽略模型输出中的损坏链接。 */ }
+    }
+    return urls;
+  }
+
   // 构造搜索或读取工具的失败/取消执行快照。
   private terminalExecution(
     input: ToolProjectionInput & {
@@ -169,9 +201,7 @@ export class ResearchProjectionCollector {
   // 规范化来源 URL，供搜索线索和 Fetch 结果跨工具去重。
   private normalizeUrl(rawUrl: string): string {
     try {
-      const url = new URL(rawUrl);
-      url.hash = '';
-      return url.toString();
+      return normalizeSourceUrl(rawUrl);
     } catch { return rawUrl; }
   }
 }

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
 
-import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
+import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import type { ChatMessage } from '@harness/agent-protocol';
 import { ModelAdapter } from '../model/model-adapter';
 import type { ModelMessage } from '../model/model-adapter';
@@ -15,6 +15,7 @@ import { ToolRegistryService } from '../tools/tool-registry.service';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import type { AgentRuntimeEvent, AgentRuntimeInput } from './agent-runtime.types';
 import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
+import { RunResourceLedger } from './run-resource-ledger';
 
 @Injectable()
 export class AgentRuntimeService {
@@ -27,7 +28,14 @@ export class AgentRuntimeService {
   // 执行有硬预算的模型-工具循环，并输出供应商无关的 Runtime 事件。
   async *run(input: AgentRuntimeInput): AsyncGenerator<AgentRuntimeEvent> {
     const runtimeStartedAt = Date.now();
-    const definitions = this.tools.definitions();
+    const disabledTools = new Set<string>();
+    const resources = new RunResourceLedger(
+      DEFAULT_RUNTIME_POLICY.maxWebFetchUrlsPerRun,
+      DEFAULT_RUNTIME_POLICY.maxExternalPassageCharacters,
+    );
+    resources.allowFetchUrls(this.latestUserUrls(input.messages));
+    const researchTimeoutMs = DEFAULT_RUNTIME_POLICY.researchTimeoutMs;
+    const researchDeadline = runtimeStartedAt + researchTimeoutMs;
     const messages: ModelMessage[] = [
       { role: 'system', content: input.systemPrompt },
       ...this.toModelMessages(input.messages),
@@ -43,6 +51,21 @@ export class AgentRuntimeService {
     while (modelRounds <= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
       modelRounds += 1;
       const roundStartedAt = Date.now();
+      if (!forceFinalAnswer && Date.now() >= researchDeadline) {
+        resources.markStopped('time_budget');
+        disabledTools.add(AGENT_TOOL_NAMES.webSearch);
+        disabledTools.add(AGENT_TOOL_NAMES.webFetch);
+        forceFinalAnswer = true;
+        messages.push({
+          role: 'system',
+          content: `联网调查时间已用完（${AGENT_ERROR_CODES.agentResearchTimeout}）。请仅使用已有材料完成回答并说明限制。`,
+        });
+      }
+      // 工具集保持稳定；Fetch URL 是否来自用户直链或 Search clue 由执行层校验。
+      const definitions = this.tools.definitions(disabledTools);
+      const roundSignal = this.roundSignal(input.signal, forceFinalAnswer
+        ? DEFAULT_RUNTIME_POLICY.finalAnswerTimeoutMs
+        : Math.max(1, researchDeadline - Date.now()));
       const textDeltas: string[] = [];
       let calls: Array<{ id: string; name: string; arguments: string }> = [];
       let finishReason: string | null = null;
@@ -58,7 +81,7 @@ export class AgentRuntimeService {
           messages,
           tools: definitions,
           forceFinalAnswer,
-          signal: input.signal,
+          signal: roundSignal,
         })) {
           if (event.type === 'text.delta') {
             textDeltas.push(event.delta);
@@ -69,12 +92,23 @@ export class AgentRuntimeService {
           else finishReason = event.finishReason;
         }
       } catch (error) {
-        if (input.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+        if (input.signal?.aborted) {
           this.logger.warn(
             `模型轮次已取消 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds}`,
             AgentRuntimeService.name,
           );
           throw error;
+        }
+        if (roundSignal.aborted && !forceFinalAnswer) {
+          resources.markStopped('time_budget');
+          disabledTools.add(AGENT_TOOL_NAMES.webSearch);
+          disabledTools.add(AGENT_TOOL_NAMES.webFetch);
+          forceFinalAnswer = true;
+          messages.push({
+            role: 'system',
+            content: `联网调查时间已用完（${AGENT_ERROR_CODES.agentResearchTimeout}）。请仅使用已有材料完成回答并说明限制。`,
+          });
+          continue;
         }
         this.logger.warn(
           `模型请求失败 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 原因=${describeLogError(error)} | 耗时=${formatLogDuration(Date.now() - roundStartedAt)}`,
@@ -143,6 +177,15 @@ export class AgentRuntimeService {
           continue;
         }
 
+        if (disabledTools.has(call.name)) {
+          messages.push({
+            role: 'tool',
+            toolCallId: call.id,
+            content: JSON.stringify({ ok: false, code: AGENT_ERROR_CODES.toolUnavailable }),
+          });
+          continue;
+        }
+
         let toolInput: unknown;
         try {
           toolInput = this.tools.parseInput(call.name, call.arguments);
@@ -205,23 +248,54 @@ export class AgentRuntimeService {
         }
         toolUnitsUsed.set(call.name, usedUnits + budget.units);
         let result: ToolExecutionResult<unknown>;
+        const toolSignal = this.roundSignal(
+          input.signal,
+          Math.max(1, researchDeadline - Date.now()),
+        );
         try {
           result = await this.tools.execute(call.name, toolInput, {
             sessionId: input.sessionId,
             messageId: input.messageId,
             toolCallId: call.id,
-            signal: input.signal,
+            signal: toolSignal,
+            resources,
           });
         } catch (error) {
           const completedAt = new Date();
           const durationMs = completedAt.getTime() - startedAt.getTime();
-          const cancelled = input.signal?.aborted || (error instanceof Error && error.name === 'AbortError');
+          const researchTimedOut = !input.signal?.aborted && toolSignal.aborted;
+          const cancelled = input.signal?.aborted ||
+            (!researchTimedOut && error instanceof Error && error.name === 'AbortError');
           this.logger.warn(
             `工具执行异常 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 原因=${describeLogError(error)}`,
             AgentRuntimeService.name,
           );
           // 即使工具抛出异常，也先交付终态事件，避免前端 Activity 永久停留在运行中。
-          if (cancelled) {
+          if (researchTimedOut) {
+            yield {
+              type: 'tool.failed',
+              toolCallId: call.id,
+              toolName: call.name,
+              input: toolInput,
+              completedAt: completedAt.toISOString(),
+              durationMs,
+              code: AGENT_ERROR_CODES.agentResearchTimeout,
+              detail: '联网调查达到本轮时间上限。',
+            };
+            messages.push({
+              role: 'tool',
+              toolCallId: call.id,
+              content: JSON.stringify({
+                ok: false,
+                code: AGENT_ERROR_CODES.agentResearchTimeout,
+              }),
+            });
+            resources.markStopped('time_budget');
+            disabledTools.add(AGENT_TOOL_NAMES.webSearch);
+            disabledTools.add(AGENT_TOOL_NAMES.webFetch);
+            forceFinalAnswer = true;
+            continue;
+          } else if (cancelled) {
             yield {
               type: 'tool.cancelled',
               toolCallId: call.id,
@@ -254,8 +328,11 @@ export class AgentRuntimeService {
             result.metrics.resultCount === undefined
               ? ''
               : ` | 结果=${result.metrics.resultCount} 条`;
+          const researchMetrics = call.name === AGENT_TOOL_NAMES.webFetch
+            ? ` | URL=${result.metrics.urlUsedCount ?? 0}/${(result.metrics.urlUsedCount ?? 0) + (result.metrics.urlRemainingCount ?? 0)} | 网络请求=${result.metrics.networkAttemptCount ?? 0} | 唯一文档=${result.metrics.successfulUniqueDocumentCount ?? 0} | 跳过=${result.metrics.skippedCount ?? 0} | Passage=${result.metrics.passageCharacterCount ?? 0} 字 | 停止=${result.metrics.stopReason ?? '否'}`
+            : '';
           this.logger.log(
-            `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=成功${resultCount} | 耗时=${formatLogDuration(durationMs)}`,
+            `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=成功${resultCount}${researchMetrics} | 耗时=${formatLogDuration(durationMs)}`,
             AgentRuntimeService.name,
           );
           yield {
@@ -268,20 +345,27 @@ export class AgentRuntimeService {
             durationMs,
           };
         } else if (result.status === 'cancelled') {
+          const researchTimedOut = !input.signal?.aborted && Date.now() >= researchDeadline;
           this.logger.warn(
             `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=已取消 | 错误码=${result.error.code} | 耗时=${formatLogDuration(durationMs)}`,
             AgentRuntimeService.name,
           );
           yield {
-            type: 'tool.cancelled',
+            type: researchTimedOut ? 'tool.failed' : 'tool.cancelled',
             toolCallId: call.id,
             toolName: call.name,
             input: toolInput,
             completedAt: completedAt.toISOString(),
             durationMs,
-            code: result.error.code,
-            detail: result.error.detail,
+            code: researchTimedOut ? AGENT_ERROR_CODES.agentResearchTimeout : result.error.code,
+            detail: researchTimedOut ? '联网调查达到本轮时间上限。' : result.error.detail,
           };
+          if (researchTimedOut) {
+            resources.markStopped('time_budget');
+            disabledTools.add(AGENT_TOOL_NAMES.webSearch);
+            disabledTools.add(AGENT_TOOL_NAMES.webFetch);
+            forceFinalAnswer = true;
+          }
         } else {
           this.logger.warn(
             `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=${result.status} | 错误码=${result.error.code} | 耗时=${formatLogDuration(durationMs)}`,
@@ -300,6 +384,8 @@ export class AgentRuntimeService {
         }
         // 工具结果只作为不可信 tool message 回传模型，不提升为 system/user instruction。
         messages.push({ role: 'tool', toolCallId: call.id, content: result.modelContent });
+        for (const name of result.control?.disableTools ?? []) disabledTools.add(name);
+        if (result.control?.forceFinalAnswer) forceFinalAnswer = true;
         if (toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls) forceFinalAnswer = true;
       }
     }
@@ -309,6 +395,19 @@ export class AgentRuntimeService {
       AgentRuntimeService.name,
     );
     yield { type: 'run.completed', content: finalContent, toolCallCount };
+  }
+
+  private roundSignal(external: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    return external ? AbortSignal.any([external, timeout]) : timeout;
+  }
+
+  // 只把当前最后一条用户消息中的公开 HTTP/HTTPS 地址登记为直链候选。
+  private latestUserUrls(messages: ChatMessage[]): string[] {
+    const content = [...messages].reverse().find((message) => message.role === 'user')?.content;
+    if (!content) return [];
+    return [...content.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)]
+      .map((match) => match[0].replace(/[.,;:!?，。；：！？]+$/gu, ''));
   }
 
   // 将共享聊天消息转换为 Runtime 使用的 canonical model message。

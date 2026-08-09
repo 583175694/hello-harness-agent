@@ -1,6 +1,6 @@
 # Incremental Implementation Plan
 
-> 文档状态：权威实施计划。P0 文档冻结和 P1 工程基线已完成；P2-P12 待实施。阶段完成必须有代码、测试和验收记录。
+> 文档状态：权威实施目标与顺序。实际完成状态以 `docs/implementation-status.md` 为准；阶段完成必须有代码、测试和验收记录。
 
 ## 1. 实施原则
 
@@ -19,7 +19,7 @@ fixed fixture
 -> scripted action
 -> real model final answer
 -> real search tooling
--> evidence and report quality
+-> general web research quality and boundaries
 -> later Memory and Delegation
 ```
 
@@ -38,16 +38,16 @@ Runtime 只管理 lifecycle、step scheduling、dispatch、steer/cancel 和 term
 ## 2. 阶段总览
 
 ```text
-P0  Architecture and Product Freeze                         completed
-P1  Workspace + Local Web/API Skeleton                      completed
+P0  Architecture and Product Freeze
+P1  Workspace + Local Web/API Skeleton
 P2  Deterministic Session/Run Vertical Slice
-P3  Live Event Projection + Control Fixtures                    in progress
+P3  Live Event Projection + Control Fixtures
 P4  PostgreSQL Durable State + Local Artifact Foundation
 P5  Real Model Final Answer + Clarification
 P6  Search Provider Tooling + Iterative Research
-P7  Evidence/Citation + Report Review + Workbench
+P7  General Web Research Hardening
 P8  Recovery + Evaluation + Release Hardening
-R1  First User-Ready Research Release
+R1  First User-Ready General Agent Release
 P9  User Memory Read Path
 P10 User Memory Write/Review
 P11 Bounded Delegation + Worker
@@ -58,11 +58,11 @@ Memory 和 Delegation 不阻塞 R1。
 
 ## 3. P0: Architecture and Product Freeze
 
-目标：冻结黄金任务、领域语言、依赖方向和 R1 停止点。
+目标：冻结通用 Agent 黄金能力、领域语言、依赖方向和 R1 停止点。
 
 交付：
 
-- 本文档和 `13-research-workflow.md`
+- 本文档、`00-agent-core-roadmap.md` 和 `23-web-fetch-tool.md`
 - ADR：pnpm / React/Vite / NestJS / Prisma / PostgreSQL
 - ADR：NestJS 不侵入 Runtime core
 - ADR：OpenAI SDK + configurable baseURL
@@ -197,7 +197,7 @@ P3  frontend reducer、inline Tool Activity、Workbench open/focus fixture contr
 P4  durable session/run snapshot recovery
 P5  composer clarification/steer/new-run modes
 P6  logical tool Activity execution、clue projection、tool-call focus
-P7  evidence/source distinction、report lifecycle、citation/Artifact navigation
+P7  discovered/fetched/used source distinction、Fetch budget/quality/stop、source navigation
 P8  replay/fallback、mobile top-level views、keyboard/focus/E2E hardening、Debug gating
 ```
 
@@ -374,49 +374,55 @@ tool_call / ask_clarification / finish_research / fail
 
 验收：模型能基于 gap 迭代查询并执行 `web_search -> web_fetch`；一次 Fetch 可处理 1-5 个 URL 并保留逐项失败；fallback 原因可观测；重复查询受抑制；预算耗尽后不再调用 provider；非法 URL、私网地址、超时、超大响应和不支持的 Content-Type 被确定性拒绝；`HttpCrawler` 不使用 Dataset、Storage 或自动 enqueue；规范化 Markdown 是 V1 canonical document，Hash、Passage 和 Locator 均以它为基准，模型只消费有界 Markdown passages；Fetch 结果包含字符 n-gram 筛选的抽取式 passage、W3C 风格 quote/position locator、retrievedAt 和 contentHash；进程内 LRU 有界且按 TTL 失效；Conversation 中的 progress card 能定位到对应 logical tool call，provider attempts 不重复生成用户可见 execution。V1 不实现 DocumentBlock 或 canonical plain text + block 双表示。
 
-## 10. P7: Evidence/Citation + Report Review + Workbench
+## 10. P7: General Web Research Hardening
 
-目标：把研究结果变成可验证、可恢复的正式交付物。
+目标：把现有 `web_search -> web_fetch -> Passage -> 普通回答` 完善为通用 Agent 好用、透明、受控的联网调查闭环，不提前实现学术级 Evidence/Report pipeline。
 
 新增：
 
-- `evidence_sources`
-- cited passage persistence
-- stable `evidenceId` and report-scoped `displayId` allocation
-- report draft Artifact
-- structured ReportReview
-- revised report Artifact
-- deterministic CitationValidator
-- report quality `standard | limited`
-- deterministic Finalizer
-- Sources / Report / Activity / Debug projection
-- Conversation / Workbench cross-panel navigation
-- Activity execution history and focus recovery
-- inline citation renderer
-- Markdown preview
+- 代码常量定义的 25 个唯一 URL 运行级硬安全上限；模型信息充分时提前停止，不实现软预算申请状态机
+- 已用/剩余/是否可 Fetch 的简洁预算 observation；预算耗尽后后续模型轮次移除 `web_fetch`
+- network attempts 与 successful unique documents 分开计数
+- input URL、normalized URL、final URL 和 contentHash 去重
+- Document Quality Gate：识别验证码、登录/付费墙、JavaScript 空壳、空正文、模板噪声和 query 无关正文
+- 稳定的 `ACCESS_BLOCKED`、`JS_RENDER_REQUIRED`、`CONTENT_EXTRACTION_FAILED`、`CONTENT_NOT_RELEVANT` 等错误语义
+- 现有 n-gram Passage Ranker 的轻量标题/章节权重、噪声和重复优化
+- 基于保守字符数或粗略 Token 的累计 Passage 上下文安全阀
+- 无新增唯一正文或相关 Passage 时的早停与基础来源多样性
+- `discovered` Clue、`fetched` Source 和最终回答 `used` Source 的轻量区分
+- 用户直接提供 URL 时无需先 Search 即可 Fetch
+- 整个前台 Agent 请求的总执行时间预算和端到端取消传播
+- Activity / Sources 投影和恢复；展示成功、失败、重复、预算和最终采用来源
+- 通用 Agent 固定题集和 Fetch 运行指标
 
 流程：
 
 ```text
-research
--> select durable evidence
--> draft
--> same-model review
--> revise
--> citation validation
--> final Artifact + delivery message
+user task or direct URL
+-> search when needed
+-> select URLs
+-> bounded fetch
+-> document quality gate
+-> query-aware passage selection
+-> dedup + marginal-gain/stop check
+-> continue investigation or answer
+-> lightweight used sources + Workbench projection
 ```
 
 验收：
 
-- `[Sx]` 全部可解析。
-- clue-only result 不可引用。
-- cited passage、URL、provider、retrievedAt 可恢复。
-- 有部分证据时生成 limited report。
-- 零 eligible evidence 时 failed。
-- Workbench 不显示未实现的 Browser/Terminal/Memory/Worker tab。
-- inline Tool Activity、citation 和 Open report 分别精确定位 Activity、Sources 和 Report。
-- terminal run 与 snapshot recovery 不会定位到错误 execution/resource。
+- URL 上限提高后仍受网络、工具、时间、响应大小和累计上下文安全预算约束。
+- 预算耗尽后不再重复生成相同 Fetch 失败；部分 URL 失败不阻塞基于已有材料回答。
+- normalized/final URL 和相同正文不会被重复读取或重复计作有效材料。
+- HTTP 200 的验证码、登录页、JavaScript 空壳和无有效正文页面不会进入 Passage 上下文。
+- 连续调用没有新增唯一正文或相关 Passage 时能够早停。
+- Search snippet 只保持 `discovered` Clue 身份；普通回答的主要来源来自成功读取的网页。
+- 模型只消费有界相关 Passage，触及累计安全阀时停止继续注入并为最终回答保留空间。
+- 用户直链、产品比较、时事解释、技术排障、旅行规划和政策解读固定题通过。
+- Workbench 与刷新恢复能区分 Search、Fetch、成功、失败、重复和最终采用来源。
+- 本阶段不创建 `EvidenceSource`、`[Sx]`、Report Artifact、ReportReview 或 CitationValidator。
+
+正式 Evidence/Citation、报告复核和可验证 Markdown Report 保留为后续 Deep Research 或严谨垂直场景能力。Evidence Card、语义重排、旧材料压缩与淘汰、动态加载和精确 Token 编译等待 Context Engineering；后台执行、断线恢复和 Worker 独立上下文等待 Durable Run 与 Delegation。
 
 ## 11. P8: Recovery + Evaluation + Release Hardening
 
@@ -429,34 +435,34 @@ research
 - provider overload/backoff
 - API restart recovery
 - orphan temp Artifact cleanup
-- uncited provider result short retention cleanup
+- provider/tool result short retention cleanup
 - context/tool/event payload limits
-- fixed Chinese research evaluation set
-- citation hard-failure checks
-- manual report review rubric
+- fixed Chinese general-agent evaluation set
+- Search/Fetch degradation and repeated-call hard-failure checks
+- manual answer/source quality rubric
 - Playwright desktop/mobile E2E
 
 R1 发布门槛：
 
 - contract/integration/UI tests 全部通过
-- 固定题集无 invalid `displayId`
-- 无 clue-as-evidence
-- 无 zero-evidence completed run
-- steer/cancel/fallback/limited-report 场景通过
+- 固定题集无重复预算失败或无界 Search/Fetch
+- 无 search-snippet-as-fetched-source
+- 无 invalid-page-as-successful-document
+- steer/cancel/fallback/partial-source-failure 场景通过
 - 人工抽检完成
 
-## 12. R1: First User-Ready Research Release
+## 12. R1: First User-Ready General Agent Release
 
 R1 交付：
 
 ```text
 single local user
 durable sessions
-single Lead iterative research
+single Lead agent loop
 primary/fallback search
-evidence-backed Markdown report
-same-model review
-deterministic citations
+bounded general web research
+query-aware fetched passages
+lightweight real sources
 Workbench
 steer/cancel
 recovery and evaluation baseline
@@ -497,9 +503,9 @@ Memory、Delegation、认证、远程存储不是 R1 release blocker。
 
 目标：在单 Lead 质量稳定后增加一轮 bounded fan-out/fan-in。
 
-限制：单层、worker 不再 delegation、worker 不交付最终报告、scoped context/toolset/budget、结果回到 Lead review pipeline。
+限制：单层、worker 不再 delegation、worker 不直接向用户交付最终结果、scoped context/toolset/budget、结果回到 Lead 汇总。
 
-Delegation 不能改变 R1 的 EvidenceSource、CitationValidator 和 Finalizer 契约。
+Delegation 不能改变 R1 的工具安全、来源边界、预算和最终交付所有权。
 
 ## 16. P12: Multi-user Authentication + Remote Storage
 

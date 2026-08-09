@@ -88,10 +88,22 @@ export const AGENT_ERROR_CODES = {
   fetchContentEmpty: 'FETCH_CONTENT_EMPTY',
   // 网页主要正文无法被确定性提取。
   fetchContentExtractionFailed: 'FETCH_CONTENT_EXTRACTION_FAILED',
+  // 网页返回验证码、登录或付费墙等不可公开读取内容。
+  fetchAccessBlocked: 'FETCH_ACCESS_BLOCKED',
+  // 网页只有需要浏览器执行 JavaScript 后才能获得的内容壳层。
+  fetchJsRenderRequired: 'FETCH_JS_RENDER_REQUIRED',
+  // 网页正文有效，但没有与本次 query 相关的原文片段。
+  fetchContentNotRelevant: 'FETCH_CONTENT_NOT_RELEVANT',
+  // 当前运行已经读取过等价 URL 或相同正文，本次目标被跳过。
+  fetchDuplicateSkipped: 'FETCH_DUPLICATE_SKIPPED',
   // 网页上游返回无法继续处理的错误。
   fetchUpstreamFailed: 'FETCH_UPSTREAM_FAILED',
   // 当前 Agent 运行已用完网页读取 URL 预算。
   fetchBudgetExceeded: 'FETCH_BUDGET_EXCEEDED',
+  // 当前 Agent 调查阶段达到总执行时间预算。
+  agentResearchTimeout: 'AGENT_RESEARCH_TIMEOUT',
+  // 当前 Agent 运行已用完允许注入模型的外部 Passage 预算。
+  agentExternalContextBudgetExceeded: 'AGENT_EXTERNAL_CONTEXT_BUDGET_EXCEEDED',
 } as const;
 
 export type AgentErrorCode = typeof AGENT_ERROR_CODES[keyof typeof AGENT_ERROR_CODES];

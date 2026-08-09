@@ -27,7 +27,7 @@ export type ToolCallView = {
 
 export type SourceView = {
   id: string; title: string; domain: string; url: string; excerpt: string; time: string;
-  provider?: string; kind?: 'clue' | 'evidence_candidate' | 'evidence';
+  provider?: string; kind?: 'clue' | 'fetched'; used?: boolean;
   author?: string; publishedAt?: string; contentType?: string; cacheStatus?: 'hit' | 'miss';
   truncated?: boolean; passages?: WebFetchPassage[];
 };

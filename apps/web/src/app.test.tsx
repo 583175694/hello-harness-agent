@@ -86,13 +86,13 @@ describe('R1 workbench shell', () => {
     );
   });
 
-  it('renders fetched passages as unnumbered evidence candidates', () => {
+  it('renders fetched passages as unnumbered read sources', () => {
     window.history.replaceState({}, '', '/agent/preview?state=fetch-candidate');
     render(<App />);
     expect(screen.getByText('F1')).toBeInTheDocument();
     expect(screen.queryByText('[F1]')).not.toBeInTheDocument();
     expect(screen.queryByText('[S1]')).not.toBeInTheDocument();
-    expect(screen.getByText('原文候选，尚未成为正式引用')).toBeInTheDocument();
+    expect(screen.getByText('已读取网页')).toBeInTheDocument();
     fireEvent.click(screen.getByText('查看 1 段原文'));
     expect(screen.getAllByText(/企业正在把生成式 AI/)).toHaveLength(2);
     expect(screen.getByText(/^位置 9–/)).toBeInTheDocument();
@@ -173,7 +173,7 @@ describe('R1 workbench shell', () => {
                   agent: {
                     toolCallCount: 1,
                     executions: [{ toolCallId: 'call-1', toolName: 'web_search', input: { query: '两个市场最新数据' }, status: 'completed', startedAt: '2026-08-05T04:00:01.000Z', completedAt: '2026-08-05T04:00:02.000Z', durationMs: 1000, resultCount: 1 }],
-                    sources: [{ id: 'result-1', title: '市场数据来源', url: 'https://example.com/market', domain: 'example.com', snippet: '最新公开市场数据。', provider: 'serp', retrievedAt: '2026-08-05T04:00:02.000Z', toolCallIds: ['call-1'] }],
+                    sources: [{ id: 'result-1', kind: 'clue', used: false, title: '市场数据来源', url: 'https://example.com/market', domain: 'example.com', snippet: '最新公开市场数据。', provider: 'serp', retrievedAt: '2026-08-05T04:00:02.000Z', toolCallIds: ['call-1'] }],
                   },
                 } },
               ],
@@ -300,7 +300,7 @@ describe('R1 workbench shell', () => {
               agent: {
                 toolCallCount: 1,
                 executions: [{ toolCallId: 'restored-call', toolName: 'web_search', input: { query: '持久化检索' }, status: 'completed', startedAt: '2026-08-05T04:09:58.000Z', completedAt: '2026-08-05T04:09:59.000Z', durationMs: 1000, resultCount: 1 }],
-                sources: [{ id: 'restored-result', title: '恢复后的来源', url: 'https://example.com/restored', domain: 'example.com', snippet: '刷新后仍能查看。', provider: 'bocha', retrievedAt: '2026-08-05T04:09:59.000Z', toolCallIds: ['restored-call'] }],
+                sources: [{ id: 'restored-result', kind: 'clue', used: false, title: '恢复后的来源', url: 'https://example.com/restored', domain: 'example.com', snippet: '刷新后仍能查看。', provider: 'bocha', retrievedAt: '2026-08-05T04:09:59.000Z', toolCallIds: ['restored-call'] }],
               },
             } },
           ],

@@ -201,13 +201,15 @@ export class ChatService {
           });
         }
         const fetchSucceeded = fetchResult?.results.filter((item) => item.status === 'succeeded') ?? [];
+        const fetchFailed = fetchResult?.results.filter((item) => item.status === 'failed') ?? [];
+        const fetchSkipped = fetchResult?.results.filter((item) => item.status === 'skipped') ?? [];
         const passageCount = fetchSucceeded.reduce((total, item) => total + item.passages.length, 0);
         const blockId = conversation.completeTool({
           toolCallId: event.toolCallId,
           completedAt: event.completedAt,
           durationMs: event.durationMs,
           summary: fetchResult
-            ? `成功 ${fetchSucceeded.length} 个，失败 ${fetchResult.results.length - fetchSucceeded.length} 个，提取 ${passageCount} 段原文`
+            ? `成功 ${fetchSucceeded.length} 个，失败 ${fetchFailed.length} 个，跳过 ${fetchSkipped.length} 个，提取 ${passageCount} 段原文 · URL ${fetchResult.budget.urls.used}/${fetchResult.budget.urls.limit}`
             : `找到 ${searchResult?.results.length ?? 0} 个结果`,
         });
         if (fetchResult) {
@@ -303,7 +305,7 @@ export class ChatService {
         code: AGENT_ERROR_CODES.modelEmptyResponse,
         detail: '模型没有返回可显示的文本，请稍后重试。',
       });
-    const snapshot = projection.snapshot();
+    let snapshot = projection.snapshot();
     const linkedContent = this.ensureSourceLinks(content, snapshot.sources);
     // 当前搜索协议要求结果至少带可访问链接；模型未主动输出时补充去重后的来源列表。
     if (linkedContent.length > content.length) {
@@ -317,6 +319,8 @@ export class ChatService {
       };
       content = linkedContent;
     }
+    projection.markUsed(content);
+    snapshot = projection.snapshot();
     await this.delivery.save({
       sessionId: prepared.sessionId,
       messageId: prepared.assistantMessageId,
@@ -397,11 +401,11 @@ export class ChatService {
 
   // 搜索回答缺少真实链接时追加少量可验证来源。
   private ensureSourceLinks(content: string, sources: ResearchSourceSnapshot[]): string {
-    const preferred = sources.some((source) => source.kind === 'evidence_candidate')
-      ? sources.filter((source) => source.kind === 'evidence_candidate')
+    const preferred = sources.some((source) => source.kind === 'fetched')
+      ? sources.filter((source) => source.kind === 'fetched')
       : sources;
     const sourceUrl = (source: ResearchSourceSnapshot): string =>
-      source.kind === 'evidence_candidate' ? source.finalUrl : source.url;
+      source.kind === 'fetched' ? source.finalUrl : source.url;
     if (!preferred.length || preferred.some((source) => content.includes(sourceUrl(source)))) return content;
     const links = preferred
       .slice(0, 5)
@@ -409,6 +413,9 @@ export class ChatService {
         (source) =>
           `- [${source.title.replaceAll('[', '\\[').replaceAll(']', '\\]')}](${sourceUrl(source)})`,
       );
-    return `${content.trimEnd()}\n\n### 检索来源\n\n${links.join('\n')}`;
+    const heading = preferred.some((source) => source.kind === 'fetched')
+      ? '### 已读取来源'
+      : '### 搜索线索（未读取正文）';
+    return `${content.trimEnd()}\n\n${heading}\n\n${links.join('\n')}`;
   }
 }

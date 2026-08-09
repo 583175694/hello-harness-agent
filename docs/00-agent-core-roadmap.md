@@ -1,42 +1,32 @@
 # Harness Agent Roadmap / 总指挥文档
 
-> 文档状态：权威路线图。P1 工程基线已实现；P2 及之后的 Agent 能力仍为待实现目标。
+> 文档状态：权威路线图。本文定义目标范围和顺序，实际完成状态以 `docs/implementation-status.md` 为准。
 
 本文是项目范围、产品方向、架构不变量和里程碑顺序的最高优先级文档。
 
 ## 1. 产品定义
 
-Harness Agent 是一个面向终端用户的本地任务工作台，产品形态参考 Manus，但首个版本只把一个黄金任务做到完整可用：
+Harness Agent 是一个面向终端用户的本地任务工作台，产品形态参考 Manus。首个真实用户版本优先验证通用型 Agent 的完整任务体验，其中联网调查的黄金能力是：
 
 ```text
-用户提出调研目标
--> Agent 迭代搜索公开来源
--> 读取搜索供应商返回的正文或可定位原文片段
--> 基于证据生成草稿
--> 同模型复核与修订
--> 确定性校验引用
--> 交付带内联引用的 Markdown 报告
+用户提出需要联网的信息任务或直接提供 URL
+-> Agent 搜索并选择值得阅读的公开来源
+-> 读取网页并筛选与当前问题相关的可定位原文片段
+-> 过滤无效、重复和低价值材料
+-> 在有限资源内继续调查或主动早停
+-> 基于真正读取过的来源完成普通回答
+-> Conversation 与 Workbench 展示工具进度和轻量来源
 ```
 
-首个真实用户版本不是 Agent Runtime SDK，也不是通用工具市场。Runtime、State、Context、Tooling 和 Workbench 都服务于上述端到端产品体验。
+首个真实用户版本不是 Agent Runtime SDK，也不是通用工具市场。Runtime、State、Context、Tooling 和 Workbench 都服务于通用 Agent 的端到端产品体验。正式 Evidence、`[Sx]`、报告复核和 Citation Validator 保留为后续 Deep Research 或严谨垂直场景能力，不作为当前版本前置条件。
 
-完整产品契约见 [13-research-workflow.md](./13-research-workflow.md)。
+当前联网调查实施边界见 [17-implementation-plan.md](./17-implementation-plan.md) 和 [23-web-fetch-tool.md](./23-web-fetch-tool.md)；[13-research-workflow.md](./13-research-workflow.md) 保留为后续 Deep Research 产品契约。
 
 ## 2. 当前基线
 
-当前仓库已完成 P1：
+当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答` 和真实 Workbench 投影。Web Fetch 仍需完成本文 P7 的扩量、去重、正文可用性、早停和累计上下文安全边界；durable Run/State、Memory 和 Delegation 尚未完成。
 
-- pnpm workspace，包含 React/Vite Web、NestJS API 和共享 package
-- 本地 PostgreSQL、Prisma schema 和首个 migration
-- `users` 最小表及唯一 `local-user` 自动初始化
-- `/healthz`、`/readyz` 和明确返回未实现错误的 session 创建入口
-- `/agent` 工作台壳层、任务输入和 Sources/Report 空状态
-- 环境校验、结构化日志、secret redaction 和本地 Artifact 根目录检查
-- unit、API integration、Playwright desktop/mobile 测试
-
-本地开发端口固定为 Web `4317`、API `4318`、PostgreSQL `5432`，均可通过配置调整。开发环境直接使用本机 PostgreSQL，不依赖 Docker。
-
-已经实现 OpenAI-compatible 普通对话、Chat SSE 和 durable Session/Message；尚未实现 Agent Runtime、durable Run/State、搜索、正式 Artifact、Memory 或 Delegation。只有代码、测试和验收记录同时存在时，能力才算完成。
+详细代码状态、验证记录和已知限制统一维护在 [implementation-status.md](./implementation-status.md)。只有代码、测试和验收记录同时存在时，能力才算完成。
 
 ## 3. 首次发布范围
 
@@ -50,22 +40,21 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 - `steer`，从下一安全 step 生效
 - `cancel`
 - 主搜索供应商和 fallback 搜索供应商
-- 3-6 次迭代查询预算
-- 5-10 个有效引用来源目标
-- 搜索正文证据与摘要线索分离
-- 草稿、同模型 review、修订和确定性引用校验
-- Markdown Report Artifact
-- Sources / Report / Activity / Debug Workbench
-- 证据不足时交付受限报告
-- 完全没有可引用证据时失败
-- 固定调研题集评测和人工抽检
+- 有界的 Search、Fetch、工具调用、总执行时间和累计上下文安全预算
+- 搜索摘要 Clue、已读取 Source 和最终采用 Source 的轻量区分
+- URL/final URL/contentHash 去重、正文可用性判断和无新增信息早停
+- query-aware 原文 Passage 筛选，外部内容不能改变 Agent 指令和预算
+- 基于真正读取来源的普通回答与 Sources / Activity Workbench
+- 部分来源失败或触及资源边界时使用已有材料平稳交付
+- 通用 Agent 固定题集评测和人工抽检
 
 首次发布明确不包含：
 
 - user Memory
 - Delegation / Worker
 - browser automation
-- 网页正文额外抓取器
+- JavaScript Browser Fetch、PDF、登录态网页和其他来源格式
+- 正式 Evidence/Citation、Report Artifact 和 Deep Research review pipeline
 - 动态 MCP 注册
 - 多用户认证和权限 UI
 - 项目、组织或 workspace scope
@@ -208,9 +197,9 @@ P3  Live Event Projection + Control Fixtures
 P4  PostgreSQL Durable State + Local Artifact Foundation
 P5  Real Model Final Answer + Clarification
 P6  Search Provider Tooling + Iterative Research
-P7  Evidence/Citation + Report Review + Workbench
+P7  General Web Research Hardening
 P8  Recovery + Evaluation + Release Hardening
-R1  First User-Ready Research Release
+R1  First User-Ready General Agent Release
 P9  User Memory Read Path
 P10 User Memory Write/Review
 P11 Bounded Delegation + Worker
@@ -227,16 +216,14 @@ P12 Multi-user Authentication + Remote Storage
 2. 用户可以创建和恢复 durable session。
 3. Agent 能对明确任务直接开始，对阻塞性歧义只问一个问题。
 4. 运行中 steer 从下一安全 step 生效，cancel 可终止活动执行。
-5. Agent 在预算内执行迭代搜索并使用 primary/fallback provider。
-6. 只有 eligible evidence passage 能获得稳定 `evidenceId` 和 report-scoped `displayId`。
-7. 报告经过 draft、review、revise 和 deterministic citation validation。
-8. 每个重要事实、数字和比较带内联引用。
-9. 引用片段、URL、标题、provider 和检索时间可恢复。
-10. 证据不足交付受限报告；零正式证据时失败。
-11. Markdown Artifact 和 Sources 可在 Workbench 恢复。
-12. contract/integration/UI 测试通过。
-13. 固定调研题集评测通过并完成人工抽检。
-14. Conversation 内联 Tool Activity、citation 和 Artifact card 能分别精确定位 Workbench 的 Activity execution、Source evidence 和 Report。
+5. Agent 在预算内执行迭代 Search/Fetch，信息充分时早停，预算耗尽后不重复调用不可用工具。
+6. 无效页面、重复 URL/正文和无关 Passage 不被当作有效调查结果。
+7. 搜索摘要 Clue 与成功读取的 Source 明确区分，最终普通回答优先使用真正读取过的来源。
+8. URL、标题、provider、retrievedAt、相关 Passage 和工具 Activity 可以随会话轻量恢复。
+9. 部分来源失败、总时间或上下文安全阀触发时，Agent 能使用已有材料平稳交付并说明限制。
+10. Workbench 能恢复 Search、Fetch、成功、失败、重复、预算和最终采用来源。
+11. contract/integration/UI 测试通过。
+12. 通用 Agent 固定题集评测通过并完成人工抽检。
 
 ## 11. 决策所有权
 

@@ -3,15 +3,16 @@ import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import type {
   WebFetchInput,
   WebFetchItemResult,
-  WebFetchResult,
   WebFetchSucceededItem,
 } from '@harness/agent-protocol';
 import { BatchPassageBudgeter } from './batch-passage.budgeter';
 import { CrawleeWebContentFetcher } from './crawlee-web-content.fetcher';
 import { DocumentNormalizer } from './document.normalizer';
+import { DocumentQualityGate } from './document-quality.gate';
 import { HtmlContentExtractor } from './html-content.extractor';
 import { PassageChunker } from './passage.chunker';
 import { PassageRanker } from './passage.ranker';
+import { WEB_FETCH_POLICY } from './web-fetch.constants';
 import { WebFetchCache } from './web-fetch.cache';
 import { asWebFetchError, WebFetchError } from './web-fetch.error';
 import { WebFetchUrlGuard } from './web-fetch-url.guard';
@@ -25,13 +26,18 @@ export class WebFetchService {
     private readonly cache: WebFetchCache,
     private readonly extractor: HtmlContentExtractor,
     private readonly normalizer: DocumentNormalizer,
+    private readonly qualityGate: DocumentQualityGate,
     private readonly chunker: PassageChunker,
     private readonly ranker: PassageRanker,
     private readonly budgeter: BatchPassageBudgeter,
   ) {}
 
-  // 批量读取 URL 并生成按输入顺序排列的 Evidence Candidate 材料。
-  async fetch(input: WebFetchInput, signal?: AbortSignal): Promise<WebFetchResult> {
+  // 批量读取 URL 并生成按输入顺序排列的 fetched-source 材料。
+  async fetch(
+    input: WebFetchInput,
+    signal?: AbortSignal,
+    maxPassageCharacters: number = WEB_FETCH_POLICY.maxTotalPassageCharactersPerCall,
+  ): Promise<{ result: { query?: string; results: WebFetchItemResult[] }; networkAttempts: number }> {
     if (signal?.aborted) throw new WebFetchError(AGENT_ERROR_CODES.fetchCancelled, '网页读取已取消。');
     const uniqueInputs = this.deduplicate(input.urls);
     const results = new Map<number, WebFetchItemResult>();
@@ -78,6 +84,7 @@ export class WebFetchService {
             extracted,
             normalizedUrl,
           });
+          this.qualityGate.validate(document);
           documents.set(miss.index, document);
           cacheStatuses.set(miss.index, 'miss');
           this.cache.set(miss.target.normalizedUrl, document);
@@ -94,7 +101,7 @@ export class WebFetchService {
         ? this.ranker.rank(document, this.chunker.chunk(document), input.query, index)
         : [];
     }
-    const selected = this.budgeter.select(rankedByDocument);
+    const selected = this.budgeter.select(rankedByDocument, maxPassageCharacters);
     for (let index = 0; index < uniqueInputs.length; index += 1) {
       if (results.has(index)) continue;
       const document = documents.get(index);
@@ -107,6 +114,15 @@ export class WebFetchService {
         });
         continue;
       }
+      if (input.query && !rankedByDocument[index]?.length) {
+        results.set(index, {
+          status: 'failed',
+          requestedUrl: uniqueInputs[index] ?? '',
+          code: AGENT_ERROR_CODES.fetchContentNotRelevant,
+          detail: '网页正文与当前信息需求不相关。',
+        });
+        continue;
+      }
       results.set(index, this.succeeded(
         document,
         cacheStatuses.get(index) ?? 'miss',
@@ -114,8 +130,11 @@ export class WebFetchService {
       ));
     }
     return {
-      ...(input.query ? { query: input.query } : {}),
-      results: uniqueInputs.map((_url, index) => results.get(index) as WebFetchItemResult),
+      result: {
+        ...(input.query ? { query: input.query } : {}),
+        results: uniqueInputs.map((_url, index) => results.get(index) as WebFetchItemResult),
+      },
+      networkAttempts: misses.length,
     };
   }
 

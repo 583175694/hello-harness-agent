@@ -357,6 +357,13 @@ describe('ChatService session persistence', () => {
           },
         }],
       }],
+      budget: {
+        urls: { used: 1, limit: 25, remaining: 24 },
+        passages: { usedCharacters: Array.from(exact).length, limitCharacters: 60_000, remainingCharacters: 60_000 - Array.from(exact).length },
+        successfulUniqueDocuments: 1,
+        networkAttempts: 1,
+        canFetch: true,
+      },
     };
     const registry = {
       definitions: vi.fn(() => [
@@ -395,7 +402,8 @@ describe('ChatService session persistence', () => {
           agent: {
             toolCallCount: 2,
             sources: [expect.objectContaining({
-              kind: 'evidence_candidate',
+              kind: 'fetched',
+              used: true,
               finalUrl: 'https://example.com/report',
               toolCallIds: ['call-search', 'call-fetch'],
               passages: [expect.objectContaining({ passageId: 'passage-1' })],

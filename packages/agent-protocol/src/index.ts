@@ -3,16 +3,18 @@ import { AGENT_PROTOCOL_LIMITS } from './common/constants.js';
 export * from './common/problem.js';
 export * from './common/status.js';
 export * from './common/constants.js';
+export * from './common/source-url.js';
 export * from './sessions/contracts.js';
 export * from './web-fetch/contracts.js';
 import {
+  webFetchBudgetSchema,
   webFetchInputSchema,
   webFetchPassageSchema,
   webFetchResultSchema,
 } from './web-fetch/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.6.0';
+export const protocolVersion = '0.7.0';
 
 
 // 定义聊天和未来工具循环共用的消息基础字段。
@@ -107,7 +109,10 @@ const toolExecutionBaseSchema = z.object({
   resultCount: z.number().int().nonnegative().optional(),
   succeededCount: z.number().int().nonnegative().optional(),
   failedCount: z.number().int().nonnegative().optional(),
+  skippedCount: z.number().int().nonnegative().optional(),
   passageCount: z.number().int().nonnegative().optional(),
+  networkAttemptCount: z.number().int().nonnegative().optional(),
+  successfulUniqueDocumentCount: z.number().int().nonnegative().optional(),
   error: z.object({ code: z.string().min(1), detail: z.string().min(1) }).optional(),
 });
 
@@ -120,20 +125,23 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
   toolExecutionBaseSchema.extend({
     toolName: z.literal('web_fetch'),
     input: webFetchInputSchema,
+    budget: webFetchBudgetSchema.optional(),
   }),
 ]);
 
 // 定义去重后保存的来源线索及其关联工具调用。
 export const searchSourceSnapshotSchema = searchResultSchema.extend({
   kind: z.literal('clue').default('clue'),
+  used: z.boolean(),
   provider: searchProviderSchema,
   retrievedAt: z.string().datetime(),
   toolCallIds: z.array(z.string().min(1)).min(1),
 });
 
-// 定义 assistant metadata 中可恢复的网页原文候选。
+// 定义 assistant metadata 中可恢复的已读网页。
 export const webFetchSourceSnapshotSchema = z.object({
-  kind: z.literal('evidence_candidate'),
+  kind: z.literal('fetched'),
+  used: z.boolean(),
   id: z.string().min(1),
   requestedUrl: z.string().url(),
   finalUrl: z.string().url(),
@@ -151,7 +159,7 @@ export const webFetchSourceSnapshotSchema = z.object({
   toolCallIds: z.array(z.string().min(1)).min(1),
 });
 
-// 定义调研 Workbench 可以恢复的线索和原文候选联合。
+// 定义调研 Workbench 可以恢复的线索和已读网页联合。
 export const researchSourceSnapshotSchema = z.union([
   searchSourceSnapshotSchema,
   webFetchSourceSnapshotSchema,

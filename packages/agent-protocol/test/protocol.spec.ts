@@ -12,13 +12,23 @@ import {
   toolCallSchema,
   updateSessionRequestSchema,
   assistantAgentMetadataSchema,
+  normalizeSourceUrl,
   webFetchInputSchema,
   webFetchResultSchema,
 } from '../src/index.js';
 
 describe('foundation protocol', () => {
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.6.0');
+    expect(protocolVersion).toBe('0.7.0');
+  });
+
+  it('normalizes source URLs deterministically without deleting business parameters', () => {
+    expect(normalizeSourceUrl(
+      'https://EXAMPLE.com:443/article?b=2&utm_source=news&id=7&a=1&fbclid=tracking#section',
+    )).toBe('https://example.com/article?a=1&b=2&id=7');
+    expect(normalizeSourceUrl('http://example.com:80/path?ref=home&lang=zh')).toBe(
+      'http://example.com/path?lang=zh&ref=home',
+    );
   });
 
   it('validates service status payloads', () => {
@@ -164,9 +174,22 @@ describe('foundation protocol', () => {
           code: 'FETCH_TIMEOUT',
           detail: '网页读取超时。',
         },
+        {
+          status: 'skipped',
+          requestedUrl: 'https://example.com/a?utm_source=test',
+          code: 'FETCH_DUPLICATE_SKIPPED',
+          detail: '本轮已读取过等价网页。',
+        },
       ],
+      budget: {
+        urls: { used: 2, limit: 25, remaining: 23 },
+        passages: { usedCharacters: 6, limitCharacters: 60_000, remainingCharacters: 59_994 },
+        successfulUniqueDocuments: 1,
+        networkAttempts: 2,
+        canFetch: true,
+      },
     });
-    expect(result.results).toHaveLength(2);
+    expect(result.results).toHaveLength(3);
     expect(() => webFetchResultSchema.parse({
       ...result,
       results: [{
@@ -199,7 +222,7 @@ describe('foundation protocol', () => {
     })).toThrow();
   });
 
-  it('restores legacy search sources as clues', () => {
+  it('requires the new source usage state and rejects legacy metadata', () => {
     const parsed = assistantAgentMetadataSchema.parse({
       model: 'test-model',
       agent: {
@@ -220,11 +243,20 @@ describe('foundation protocol', () => {
           domain: 'example.com',
           snippet: '旧摘要',
           provider: 'serp',
+          kind: 'clue',
+          used: false,
           retrievedAt: '2026-08-08T02:00:01.000Z',
           toolCallIds: ['call-1'],
         }],
       },
     });
     expect(parsed.agent?.sources[0]).toMatchObject({ kind: 'clue' });
+    expect(() => assistantAgentMetadataSchema.parse({
+      ...parsed,
+      agent: {
+        ...parsed.agent,
+        sources: [{ ...parsed.agent?.sources[0], kind: 'evidence_candidate' }],
+      },
+    })).toThrow();
   });
 });

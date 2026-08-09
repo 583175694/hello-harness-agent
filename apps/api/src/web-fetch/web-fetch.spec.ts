@@ -10,6 +10,7 @@ import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import { BatchPassageBudgeter } from './batch-passage.budgeter';
 import { CrawleeWebContentFetcher } from './crawlee-web-content.fetcher';
 import { DocumentNormalizer } from './document.normalizer';
+import { DocumentQualityGate } from './document-quality.gate';
 import { HtmlContentExtractor } from './html-content.extractor';
 import { PassageChunker } from './passage.chunker';
 import { PassageRanker } from './passage.ranker';
@@ -189,6 +190,30 @@ describe('content extraction and passage selection', () => {
   });
 });
 
+describe('DocumentQualityGate', () => {
+  const normalize = (markdown: string, title = 'Example') => new DocumentNormalizer().normalize({
+    fetched: {
+      requestedUrl: 'https://example.com', finalUrl: 'https://example.com',
+      contentType: 'text/plain', body: '', retrievedAt: '2026-08-09T00:00:00.000Z',
+    },
+    extracted: { markdown, title },
+    normalizedUrl: 'https://example.com',
+  });
+
+  it.each([
+    ['Please sign in to continue. '.repeat(20), 'Sign in', AGENT_ERROR_CODES.fetchAccessBlocked],
+    ['Please enable JavaScript to continue. '.repeat(20), 'JavaScript required', AGENT_ERROR_CODES.fetchJsRenderRequired],
+  ])('rejects unusable shell content', (markdown, title, code) => {
+    expect(() => new DocumentQualityGate().validate(normalize(markdown, title)))
+      .toThrowError(expect.objectContaining({ code }));
+  });
+
+  it('accepts a normal short article above the minimum useful length', () => {
+    const document = normalize('这是一篇包含实际正文的公开文章，用于说明产品能力、使用限制和具体实现方式。'.repeat(8));
+    expect(() => new DocumentQualityGate().validate(document)).not.toThrow();
+  });
+});
+
 describe('BatchPassageBudgeter', () => {
   it('keeps source diversity and enforces the 24000-character batch limit', () => {
     const passagesByDocument: RankedWebPassage[][] = Array.from({ length: 5 }, (_, documentIndex) =>
@@ -213,11 +238,11 @@ describe('BatchPassageBudgeter', () => {
         };
       }),
     );
-    const selected = new BatchPassageBudgeter().select(passagesByDocument);
+    const selected = new BatchPassageBudgeter().select(passagesByDocument, 10_000);
     expect(selected.size).toBe(5);
     const total = [...selected.values()].flat()
       .reduce((sum, item) => sum + Array.from(item.passage.text).length, 0);
-    expect(total).toBeLessThanOrEqual(WEB_FETCH_POLICY.maxTotalPassageCharactersPerCall);
+    expect(total).toBeLessThanOrEqual(10_000);
   });
 });
 
@@ -233,7 +258,7 @@ describe('WebFetchService', () => {
               requestedUrl: target.requestedUrl,
               finalUrl: target.normalizedUrl,
               contentType: 'text/plain',
-              body: '生成式 AI 正在进入客服和研发生产场景。',
+              body: '生成式 AI 正在进入客服和研发生产场景。'.repeat(12),
               retrievedAt: '2026-08-08T02:00:00.000Z',
             },
           },
@@ -244,6 +269,7 @@ describe('WebFetchService', () => {
       new WebFetchCache(),
       new HtmlContentExtractor(),
       new DocumentNormalizer(),
+      new DocumentQualityGate(),
       new PassageChunker(),
       new PassageRanker(),
       new BatchPassageBudgeter(),
@@ -253,10 +279,10 @@ describe('WebFetchService', () => {
       query: '生成式 AI 客服',
     };
     const first = await service.fetch(input);
-    expect(first.results.map((item) => item.status)).toEqual(['succeeded', 'failed']);
-    expect(first.results[0]).toMatchObject({ status: 'succeeded', cacheStatus: 'miss' });
+    expect(first.result.results.map((item) => item.status)).toEqual(['succeeded', 'failed']);
+    expect(first.result.results[0]).toMatchObject({ status: 'succeeded', cacheStatus: 'miss' });
     const cached = await service.fetch({ urls: ['https://example.com/a'], query: '研发生产场景' });
-    expect(cached.results[0]).toMatchObject({ status: 'succeeded', cacheStatus: 'hit' });
+    expect(cached.result.results[0]).toMatchObject({ status: 'succeeded', cacheStatus: 'hit' });
     expect(fetchAll).toHaveBeenCalledTimes(1);
   });
 });

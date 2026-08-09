@@ -29,7 +29,7 @@ import {
   updateSession,
 } from './api/client';
 import type { ToolStreamEvent } from './api/client';
-import { AGENT_PROTOCOL_LIMITS, assistantAgentMetadataSchema } from '@harness/agent-protocol';
+import { AGENT_PROTOCOL_LIMITS, assistantAgentMetadataSchema, normalizeSourceUrl } from '@harness/agent-protocol';
 import type { AssistantContentBlock, PersistedMessage, SessionSummary } from '@harness/agent-protocol';
 import type {
   AgentUiState,
@@ -86,17 +86,6 @@ function sourceDomain(url: string): string {
   try { return new URL(url).hostname; } catch { return url; }
 }
 
-// 规范化来源地址，确保实时事件与持久化投影按同一网页合并。
-function normalizeSourceUrl(rawUrl: string): string {
-  try {
-    const url = new URL(rawUrl);
-    url.hash = '';
-    return url.toString();
-  } catch {
-    return rawUrl;
-  }
-}
-
 // 将持久化 assistant metadata 投影为可恢复的轻量 Workbench。
 function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchState | undefined {
   if (message.role !== 'assistant') return undefined;
@@ -108,7 +97,7 @@ function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchStat
   let clueIndex = 0;
   let candidateIndex = 0;
   const sourceViews = sources.map((source) => {
-    if (source.kind === 'evidence_candidate') {
+    if (source.kind === 'fetched') {
       candidateIndex += 1;
       return {
         id: `F${candidateIndex}`,
@@ -117,7 +106,8 @@ function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchStat
         url: source.finalUrl,
         excerpt: source.passages[0]?.text ?? '已读取网页，但没有匹配当前问题的原文片段。',
         time: new Date(source.retrievedAt).toLocaleString('zh-CN'),
-        kind: 'evidence_candidate' as const,
+        kind: 'fetched' as const,
+        used: source.used,
         author: source.author,
         publishedAt: source.publishedAt,
         contentType: source.contentType,
@@ -136,6 +126,7 @@ function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchStat
       time: new Date(source.retrievedAt).toLocaleString('zh-CN'),
       provider: source.provider,
       kind: 'clue' as const,
+      used: source.used,
     };
   });
   return {
@@ -227,6 +218,8 @@ function applyToolEvent(
   const status = completedEvent ? 'completed' as const : cancelledEvent ? 'cancelled' as const : 'failed' as const;
   const completedFetch = completedEvent?.toolName === 'web_fetch' ? completedEvent : undefined;
   const fetchSucceeded = completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
+  const fetchFailed = completedFetch?.result.results.filter((item) => item.status === 'failed') ?? [];
+  const fetchSkipped = completedFetch?.result.results.filter((item) => item.status === 'skipped') ?? [];
   const fetchPassages = fetchSucceeded.reduce((total, item) => total + item.passages.length, 0);
   const executions = base.executions.map((tool) => tool.toolCallId === event.toolCallId
     ? {
@@ -238,7 +231,7 @@ function applyToolEvent(
         elapsed: formatToolDuration(event.durationMs),
         outputSummary: completedEvent
           ? completedFetch
-            ? `成功 ${fetchSucceeded.length} 个，失败 ${completedFetch.result.results.length - fetchSucceeded.length} 个，提取 ${fetchPassages} 段原文`
+            ? `成功 ${fetchSucceeded.length} 个，失败 ${fetchFailed.length} 个，跳过 ${fetchSkipped.length} 个，网络请求 ${completedFetch.result.budget.networkAttempts} 次，提取 ${fetchPassages} 段原文 · URL ${completedFetch.result.budget.urls.used}/${completedFetch.result.budget.urls.limit}`
             : `返回 ${completedEvent.result.results.length} 条网页结果`
           : cancelledEvent?.detail ?? failedEvent?.detail,
         resultCount: completedEvent?.result.results.length,
@@ -274,7 +267,7 @@ function applyToolEvent(
         .find((url) => sourceMap.has(url));
       const matchedSource = matchedKey ? sourceMap.get(matchedKey) : undefined;
       if (matchedKey) sourceMap.delete(matchedKey);
-      const candidateId = matchedSource?.kind === 'evidence_candidate'
+      const candidateId = matchedSource?.kind === 'fetched'
         ? matchedSource.id
         : `F${candidateNumber++}`;
       sourceMap.set(normalizeSourceUrl(source.finalUrl), {
@@ -284,7 +277,8 @@ function applyToolEvent(
         url: source.finalUrl,
         excerpt: source.passages[0]?.text ?? '',
         time: new Date(source.retrievedAt).toLocaleString('zh-CN'),
-        kind: 'evidence_candidate',
+        kind: 'fetched',
+        used: false,
         author: source.author,
         publishedAt: source.publishedAt,
         contentType: source.contentType,

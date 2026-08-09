@@ -6,10 +6,13 @@ import { codePointLength } from './unicode.utils';
 @Injectable()
 export class BatchPassageBudgeter {
   // 先保留每个来源最高分片段，再按稳定相关性顺序填满整批字符预算。
-  select(passagesByDocument: RankedWebPassage[][]): Map<number, RankedWebPassage[]> {
+  select(
+    passagesByDocument: RankedWebPassage[][],
+    maxCharacters: number = WEB_FETCH_POLICY.maxTotalPassageCharactersPerCall,
+  ): Map<number, RankedWebPassage[]> {
     const selected = new Map<number, RankedWebPassage[]>();
     const usedIds = new Set<string>();
-    let remaining = WEB_FETCH_POLICY.maxTotalPassageCharactersPerCall;
+    let remaining = Math.min(maxCharacters, WEB_FETCH_POLICY.maxTotalPassageCharactersPerCall);
     const trySelect = (item: RankedWebPassage): void => {
       const length = codePointLength(item.passage.text);
       if (length > remaining || usedIds.has(item.passage.passageId)) return;

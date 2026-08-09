@@ -4,17 +4,17 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：P1 工程基线、OpenAI-compatible 模型适配、持久化普通对话、Chat SSE、会话并发隔离、Workbench 状态边界。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、持久化对话、Chat SSE、会话并发隔离、Function Calling Agent Loop、Search/Fetch 联网调查与真实 Workbench 投影。
 
 ## 1. 项目一句话介绍
 
-这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通可刷新恢复的 OpenAI-compatible 持久化普通对话，后续再逐步接入 Function Calling、Agent loop、搜索工具和可验证报告。
+这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答` 和可刷新恢复的 Workbench。
 
 面试时需要主动区分：
 
 ```text
-已经完成：持久化 Session/Message、普通对话、Chat SSE、Workbench UI fixture、工程基建
-尚未完成：真实 Agent Runtime、搜索、持久化 Run、Run Event SSE
+已经完成：持久化 Session/Message、Chat SSE、简化 Agent Runtime、Search/Fetch、Workbench 实时投影与消息快照恢复
+尚未完成：durable Run/Step/Event、断线 replay、Context Compiler、正式 Evidence/Citation、Memory 和 Delegation
 ```
 
 ## 2. 阶段一：工程基线
@@ -161,17 +161,16 @@ buffer = events.pop() ?? '';
 
 ### 4.4 当前边界
 
-这是 Chat SSE，不是 Agent Run Event SSE。当前只传递文本 delta 和完成事件，还没有：
+这仍是 Chat SSE，不是 durable Agent Run Event SSE。当前已传递文本增量、工具生命周期和消息完成事件，但还没有：
 
 - run-scoped sequence
 - 断线重连和 replay
-- tool call event
 - steer/cancel event
-- Workbench event projection
+- 跨进程的活动 Run 恢复
 
 ## 5. 阶段四：Workbench 的状态边界
 
-Workbench 当前是 development-only fixture，但它已经验证了一个重要的架构边界：Workbench 不是另一套对话页面，而是 Agent Run 事实的投影容器。
+Workbench 不是另一套对话页面，而是 Agent 执行事实的投影容器。生产链路已经接入真实 Search/Fetch Activity 和 Sources；Preview fixture 只保留 waiting、report、steer/cancel 等尚未进入生产链路的状态。
 
 ```text
 Agent Runtime / Event Stream
@@ -191,7 +190,7 @@ Agent Runtime / Event Stream
 - Activity、Sources、Report 是同一运行上下文的不同视图，不应由各组件分别维护一份运行状态。
 - 用户手动收起 Workbench 后，本次 run 内由 `pinned/auto-follow` 语义阻止自动重新打开；这类交互状态必须与运行事实分开保存。
 
-当前 fixture 尚未替代真实 Agent Event Store，也没有断线 replay、run-scoped sequence 或真实 steer/cancel。面试时应明确说明：UI 状态已先验证，生产事件协议和持久化投影仍是下一阶段工作。
+当前恢复依赖最终 assistant metadata 的轻量 execution/source 快照，不是 Agent Event Store。因此已完成的消息可刷新恢复，正在运行的任务仍没有断线 replay、run-scoped sequence 或真实 steer/cancel。
 
 ## 6. 阶段五：会话持久化与并发隔离
 
@@ -243,57 +242,7 @@ React         只负责展示和触发动作
 
 这是一个可验证的演进策略：当前先统一消息 ID、Chat SSE 事件和 Function Calling 的结构化对象；进入 Agent Run 阶段后，再增加 `sessionId/runId/eventId/sequence` 和事件 envelope。在此之前，不把供应商 SDK 的响应对象直接泄漏到前端，也不让 Workbench 组件解析裸 SSE JSON。
 
-## 8. 日志分层与模型链路可观测性
-
-### 8.1 开发和生产日志承担不同职责
-
-开发环境优先让人快速定位问题，生产环境优先让日志系统稳定采集和查询，因此没有强行让两者使用相同输出形式：
-
-```text
-development  -> pino-pretty、彩色中文单行、隐藏 req/res 等高噪声对象
-production   -> 结构化 JSON，保留 level、context、requestId 等机器可查询字段
-```
-
-普通 HTTP 自动访问日志已经关闭。健康检查、静态轮询和 Nest 路由初始化如果逐条输出完整请求头、响应对象与 `request completed`，会掩盖真正的模型链路事件，也可能把 Cookie 或认证信息带入日志。关闭自动访问明细不等于放弃可观测性，而是把日志预算留给有业务含义的事件。
-
-### 8.2 request ID 与统一脱敏
-
-API 优先复用调用方传入的 `x-request-id`，缺失时生成 UUID，并把同一 ID 写回响应头。这样将来可以把 Web 请求、API 日志和下游模型调用关联起来，而不需要在每个 Controller 中重复实现 correlation ID。
-
-敏感字段在日志基础设施层统一脱敏：
-
-```text
-Authorization
-Cookie
-Set-Cookie
-req.body.apiKey
-req.body.api_key
-```
-
-统一脱敏比要求每个业务模块“记得不要打印密钥”更可靠。当前日志只使用 session ID 的前 8 位做人工关联，降低整段内部标识在终端中扩散的必要性；这不是权限控制或密码学匿名化，只是日志最小化。
-
-### 8.3 为什么模型链路需要 TTFT
-
-流式模型体验不能只看总耗时。用户感知更直接的指标是 TTFT（Time To First Token，首字耗时）：
-
-```text
-请求开始
-  -> 供应商排队 / 建连 / 首轮推理
-  -> 首个有效 delta                       # TTFT
-  -> 后续持续生成
-  -> 完整响应和 assistant message 落库    # total latency
-```
-
-当前模型链路只记录几个关键事件：
-
-- 开始生成：会话短 ID、模型和上下文条数。
-- 首次收到有效 delta：首字耗时。
-- 完成：总耗时和输出字符数。
-- 失败：会话短 ID、已耗时和归一化后的错误类型。
-
-TTFT 高通常指向供应商排队、网络或首轮推理延迟；TTFT 正常但总耗时高，更可能是输出过长或生成速率低。把两者分开，排查时才不会把所有“回复慢”归为同一种问题。当前尚未接入集中式 metrics/tracing，也没有记录 prompt 或完整模型响应，避免为了排障把用户内容和密钥复制到日志系统。
-
-## 9. 不可信 Markdown 的安全渲染边界
+## 8. 不可信 Markdown 的安全渲染边界
 
 模型回复、用户输入和后续搜索报告都属于不可信内容。前端状态保存原始 Markdown 字符串，统一交给 `MarkdownContent` 投影，不把模型文本拼接成 HTML，也不使用 `dangerouslySetInnerHTML`：
 
@@ -315,29 +264,89 @@ untrusted Markdown string
 
 这里需要避免过度表述：当前安全性依赖 `react-markdown` 默认不渲染原始 HTML，代码尚未引入 `rehype-raw`。如果后续允许供应商 HTML、自定义组件或更丰富的 URL scheme，必须重新评估 sanitization、协议白名单和内容安全策略，不能把当前边界等同于通用 HTML sanitizer。
 
-## 10. Function Calling Agent Loop 与搜索投影
+## 9. Function Calling Agent Loop 与 Tool Module
 
 这一阶段不是“给 OpenAI 请求加一个 tools 参数”就结束。模型只返回工具名称和参数，真正的循环由应用负责：
 
 ```text
 model(tool_calls)
-  -> 聚合流式 arguments
-  -> Zod 校验并串行执行后端工具
-  -> tool result 放回上下文
+  -> 按 index 聚合流式 name / arguments
+  -> JSON + Zod 校验
+  -> Registry 查找并串行执行后端工具
+  -> assistant tool-call message + tool result 放回本轮上下文
   -> model 继续决策或输出最终回答
 ```
 
-OpenAI-compatible 流中的函数名和 JSON arguments 都可能跨 chunk 返回，因此必须按 tool-call `index` 累加，等本轮结束后再解析，不能对单个 delta 直接 `JSON.parse`。循环使用 20 次通用工具预算作为硬上限；这是防止模型重复调用或未来多工具相互触发的安全边界，不是要求模型用满预算。
+OpenAI-compatible 流中的函数名和 JSON arguments 都可能跨 chunk 返回，因此必须按 tool-call `index` 累加，等本轮结束后再解析，不能对单个 delta 直接 `JSON.parse`。同一模型响应含多个调用时按返回顺序串行执行，使用 20 次通用工具硬上限防止失控，但不要求模型用满预算。
 
-模型只看到 `web_search({query})`，Bocha/Serper 选择留在后端 Adapter。每次统一保留最多 10 条结果，标题和摘要截断、URL 只允许 HTTP/HTTPS。搜索响应以带 `untrustedExternalData` 标记的 tool message 进入上下文，网页摘要不能成为新的指令来源。
+工具层拆成稳定的通用边界：
 
-Workbench 同时消费 `tool.started/completed/failed`，但当前没有把 Chat SSE 冒充 durable Run Event。最终 assistant metadata 只保存本轮 execution/source 快照，让刷新后能恢复用户已经看到的检索列表；断线 replay、sequence、steer/cancel 和正式 Evidence 仍留给后续 Run/Event Store。搜索结果在 UI 中明确叫 clue，而不是可引用 evidence。
+```text
+AgentTool             定义名称、Function Schema、可用性和 execute
+Tool Catalog          作为工具白名单与唯一注册入口
+Tool Registry         负责发现、JSON/Zod 校验和分派
+Agent Runtime         负责模型-工具循环、通用预算、超时和终止
+Tool implementation   只负责具体能力和自己的业务不变量
+```
 
-## 11. 面试表达模板
+新增工具时，只需实现 `AgentTool` 并加入 Catalog，Registry 和 Runtime 不应出现 `if (toolName === ...)` 式的业务执行逻辑。Prompt 负责引导模型何时用工具，具体 Tool/Executor 负责强制权限、参数、来源和资源不变量；不能把安全性寄托在 Prompt 上。
+
+通用 Runtime 把执行过程转换为 `tool.started/completed/failed/cancelled`，Conversation 和 Workbench 只消费这些 canonical lifecycle event，不解析 OpenAI 原始 chunk 或具体 Provider 响应。当前这仍是 Chat SSE 投影，不是 durable Run Event Store。
+
+## 10. Web Search：Clue 发现与搜索投影
+
+模型只看到统一的 `web_search({query})`，不能选择 Provider、API 地址、密钥或供应商私有参数。后端 `SearchService` 再根据配置路由到 Bocha 或 Serper Adapter，并统一归一化为标题、URL、domain、snippet、publishedAt 和 source。当前单次最多返回 10 条，不做 fallback、并行 Provider 或分页。
+
+搜索标题和摘要只是 `clue`，目的是帮助模型选择值得读正文的 URL，不是直接冒充事实依据。Search 成功后会把 clue URL 登记到当前 Run Ledger，成为 Fetch 可接受的候选；用户当前消息中的 HTTP/HTTPS 直链也可以直接登记。模型自行猜测的 URL 在网络请求前被拒绝。
+
+Search 和 Fetch 在可用时同时暴露，调用顺序由模型决定，不把 Agent Loop 写死成固定流程。Prompt 引导没有直链的联网任务先搜索，执行层则通过 URL provenance 确保只读取用户直链或真实 clue。
+
+Workbench 实时消费 Search 的工具生命周期事件，并把去重后 clue 投影到 Sources。最终 assistant metadata 保存 execution/source 轻量快照，用于刷新恢复；它不是 Run/Event replay，也不将 clue 提升为正式 Evidence。
+
+## 11. Web Fetch：从网页到有界原文
+
+### 11.1 正文处理和 Passage 筛选
+
+`web_fetch` 不把整页 HTML 直接丢给模型，而是把网络获取、正文提取、规范化和相关性筛选分层：
+
+```text
+URL/DNS/redirect guard
+  -> Crawlee HttpCrawler 有界获取
+  -> JSDOM + Readability 提取主正文
+  -> Turndown 转 canonical Markdown
+  -> Document Quality Gate
+  -> 按标题/段落切块
+  -> 字符 2-gram/3-gram query-aware ranking
+  -> 有界抽取式 Passage + Locator
+```
+
+Quality Gate 在写入 LRU 和 Passage Ranking 前拒绝过短正文、登录/付费墙/验证码、JavaScript 空壳和高度重复模板。query 存在但没有达到相关性门槛的 Passage 时，返回 `FETCH_CONTENT_NOT_RELEVANT`，不把“读到了页面”误表达成“获得了有用依据”。
+
+Passage 必须是 canonical Markdown 的连续直接子串，不由模型改写或拼接。Locator 保存 quote、Unicode code-point position 和 sectionPath，并与 contentHash、retrievedAt 一起解释；这给 Workbench 提供可恢复的原文定位，但不等同于页面 DOM 字节位置。
+
+### 11.2 Run-scoped 资源台账与平稳早停
+
+单次 Fetch 的 `maxItems` 不能约束多轮 Agent Loop。General Web Research V1 因此为每个 Runtime run 创建独立 `RunResourceLedger`，累计唯一初始 URL、final/normalized URL alias、contentHash、网络尝试、成功文档和注入 Passage 字符。运行状态不放在 singleton Tool/Service 上，避免并发会话互相污染。
+
+预算超限和网络失败不是同一语义。批次只有部分 URL 能被接受时，前缀继续执行，其余以 `skipped` 返回；重复 URL 或重复正文也是 `skipped`，不伪装成上游错误。连续两次 Fetch 没有新增唯一文档，或者触及 URL、Passage 或调查时间边界后，Runtime 动态移除 Search/Fetch，再给模型一次无工具最终回答机会。这使“安全停止”成为可交付状态，而不是连续红色失败。
+
+调查 deadline 与用户 Abort 必须分开：内部 deadline 触发后使用已有材料作答；用户主动取消或 SSE 断开则立即中止，不生成和持久化一份用户不再需要的最终回答。
+
+### 11.3 轻量 Source 语义不等于 Evidence
+
+搜索标题和 snippet 是 `clue`，成功读取并经质量门/相关性筛选的网页是 `fetched`。最终回答完成后，后端抽取回答中的 HTTP/HTTPS URL，执行去 fragment、tracking 参数和参数排序的同一规范化，再确定性设置 `used`。`used=true` 只表示回答采用了该链接，不能表述成“该来源逐句支撑了某个事实”。这个边界以很低的复杂度给通用 Agent 提供真实来源透明度，同时不冒充后续 Deep Research 的 Evidence/Citation Validator。
+
+### 11.4 网页内容是数据，不是指令
+
+Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独立 tool message 进入模型上下文。网页里的“忽略原有指令”、角色声明、工具调用要求或外链都只是不可信数据，不能改变 system prompt、工具集、预算、完成条件或 URL 来源规则。完整 Raw HTML、Cookie、Authorization、API Key 和内部 prompt 不进入模型或 Workbench。
+
+这里需要区分两种不可信内容：前端的“不可信 Markdown”解决渲染与链接安全；Agent 上下文中的“不可信 Tool Result”解决 Prompt Injection 和能力边界。两者的信任边界不同，不能只做 HTML sanitization 就宣称解决了 Agent Prompt Injection。
+
+## 12. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
-答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，然后通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 普通对话。当前完成了 Session/Message 持久化、数据库上下文、Chat SSE、会话级并发隔离和即时 optimistic UI；同时把 Workbench 设计成运行事件的投影边界，为后续 Function Calling 和真实 Agent Run 协议预留演进路径。
+答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message 持久化、Chat SSE、会话级并发隔离、Function Calling Agent Loop、Search/Fetch 有界联网调查，以及 Activity/Sources 的实时 Workbench 投影和消息快照恢复。当前 Runtime 仍是单次 Chat 请求内的非持久化循环，不冒充 durable Run/Event Store。
 
 ### 问：SSE 为什么没有直接使用 WebSocket？
 
@@ -351,7 +360,15 @@ Workbench 同时消费 `tool.started/completed/failed`，但当前没有把 Chat
 
 答：提交时先完成本地状态事务：追加 user message、创建空 assistant 占位并清空输入框；网络请求只负责向已有 assistant message 追加 delta。这样 UI 不依赖模型完成时机，供应商失败时也不会丢失用户刚提交的内容。
 
-## 12. 后续追加规则
+### 问：Function Calling 是模型自己的 Agent Loop 吗？
+
+答：模型只决定“返回最终文本”还是“返回工具名称和参数”，真正的 Loop 由应用实现。后端聚合分片参数、校验、执行工具、把结果放回上下文，再请求下一轮模型。工具预算、超时、取消和安全校验都必须由应用强制。
+
+### 问：为什么 Web Fetch 不直接把整个网页放进上下文？
+
+答：整页 HTML 同时包含脚本、导航、模板噪声和大量无关文本，直接注入会浪费上下文并放大 Prompt Injection。当前先提取 canonical Markdown，再做质量门、结构切块和 query-aware 排序，只返回可定位的抽取式 Passage。这是 Context Compiler 前的最小上下文安全阀，不等同于完整 Context Engineering。
+
+## 13. 后续追加规则
 
 每个阶段只追加四类内容：
 

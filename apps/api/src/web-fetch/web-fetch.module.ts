@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BatchPassageBudgeter } from './batch-passage.budgeter';
 import { CrawleeWebContentFetcher } from './crawlee-web-content.fetcher';
 import { DocumentNormalizer } from './document.normalizer';
+import { DocumentQualityGate } from './document-quality.gate';
 import { HtmlContentExtractor } from './html-content.extractor';
 import { PassageChunker } from './passage.chunker';
 import { PassageRanker } from './passage.ranker';
@@ -19,6 +20,7 @@ import { systemWebFetchDnsResolver, WebFetchUrlGuard } from './web-fetch-url.gua
     WebFetchCache,
     HtmlContentExtractor,
     DocumentNormalizer,
+    DocumentQualityGate,
     PassageChunker,
     PassageRanker,
     BatchPassageBudgeter,

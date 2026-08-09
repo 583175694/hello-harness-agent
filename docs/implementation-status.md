@@ -2,13 +2,13 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-08
+> 最后更新：2026-08-10
 
 ## 1. 当前结论
 
-项目已经完成工程基线、持久化普通对话和 `web_search -> web_fetch` Function Calling 闭环。模型可以先通过 Bocha 或 Serper 发现网页线索，再批量读取 1-5 个公开静态网页的可定位原文；真实工具 Activity、搜索 clue 和 Evidence Candidate 会投影到生产 Workbench，并随 assistant metadata 刷新恢复。
+项目已经完成工程基线、持久化普通对话和 General Web Research V1。模型可以通过 Bocha 或 Serper 发现网页线索，再批量读取 1-5 个公开静态网页的可定位相关原文；当前每轮受 25 个唯一 URL、120 秒调查时间和 60,000 字符 Fetch Passage 代码常量约束。
 
-当前状态可以描述为“具备线索发现、静态网页读取和 Evidence Candidate 管道的简化研究 Agent Loop”，但不能描述为完整调研 Agent。正式 Evidence、`[Sx]`、Run/Event Store、引用校验、报告 Artifact、steer/cancel 和搜索 fallback 仍未实现；预览页面中的 waiting、report 和控制状态仍为本地确定性 fixture。
+当前状态可以描述为“具备有界联网调查闭环的简化通用 Agent Loop”：它能过滤重复 URL/正文、登录或验证页、JavaScript 空壳、模板噪声和 query 无关正文，连续无新增信息或触及资源边界后停止 Search/Fetch，并用已有材料作答。正式 Evidence、`[Sx]`、报告 Artifact 和引用校验保留给后续 Deep Research；Run/Event Store、Context Compiler、steer/cancel 和搜索 fallback 仍未实现。
 
 ## 2. 已完成
 
@@ -29,7 +29,11 @@
 - Chat 链路已拆出 Runtime、搜索投影、assistant 交付仓库、标题服务和 SSE Writer，`ChatService` 只保留会话准备与兼容事件编排。
 - 模型流、Runtime 事件流和 Chat SSE 继续使用 `AsyncGenerator` 表达逐步产出；单次数据库操作、工具执行和标题生成使用普通 `async/await`。
 - 模型只看到统一 `web_search({query})`；后端通过 `SEARCH_PROVIDER=bocha|serp` 启用一个 Provider，每次返回最多 10 条标准化结果。
-- 模型同时可以调用 `web_fetch({urls, query?})`，每次读取 1-5 个公开静态网页，每轮最多消耗 10 个去重 URL；批量结果支持逐项成功或失败。
+- 模型同时可以调用 `web_fetch({urls, query?})`，每次读取 1-5 个公开静态网页，每轮默认最多接受 25 个唯一 URL；批量结果支持逐项 `succeeded/failed/skipped` 的部分成功语义。
+- 每轮 Runtime 使用独立 `RunResourceLedger`，跟踪 URL、final/normalized URL alias、contentHash、网络尝试、成功唯一文档、Passage 字符和连续无新增 Fetch；运行状态不保存在 singleton Tool/Service。
+- Search 与 Fetch 在可用时同时暴露，Runtime 只把用户当前消息的直链和本轮 Search clue 登记为 Fetch 候选；模型自行拼出的 URL 不会发起网络请求。
+- URL 、上下文、时间或无新增信息边界触发后，Runtime 在后续轮次动态移除 Search/Fetch，并进入一次最多 30 秒的无工具最终回答。
+- `DocumentQualityGate` 在写入 LRU 和 Passage Ranking 前拒绝过短正文、登录/付费墙/验证码、JavaScript 空壳和高度重复模板；query 无相关 Passage 返回稳定错误。
 - Web Fetch 使用无持久化 Crawlee `HttpCrawler`、最小 URL/DNS/逐跳重定向安全校验、5 MiB 流式响应上限、20 秒超时和一次有限重试；不携带 Cookie、Authorization、代理或用户 Header。
 - HTML 通过 JSDOM、Mozilla Readability、Turndown + GFM 转换为 canonical Markdown；字符 n-gram Ranker 只返回连续抽取式原文，Locator 同时保存 quote、Unicode code-point position 和 sectionPath。
 - 完整 canonical Markdown 只存在于请求生命周期和 15 分钟、32 MiB 的进程内 LRU；模型、SSE 和 Message metadata 只消费或保存整批不超过 24,000 code points 的有界 Passage。
@@ -55,9 +59,9 @@
 - 删除会话有确认交互；删除当前、非当前和最后会话分别按约定选择恢复落点。
 - Sidebar 会话项采用单行标题和按需 `…` 菜单，不展示时间或装饰图标；重命名和置顶状态可跨刷新恢复。
 - 生产空状态不渲染空 Workbench。
-- 生产聊天先以内联 Activity 展示工具调用；第一条 clue 或 Evidence Candidate 到达后才自动打开 Workbench，用户手动收起后本轮不再强制打开。
-- Sources 使用 `R1` 标识搜索 clue、使用 `F1` 标识原文候选，二者均不带方括号；只有未来正式 Evidence 才允许使用 `[Sx]`。
-- Evidence Candidate 卡片展示来源元数据、缓存状态、截断状态、可展开 Markdown 原文、sectionPath 和 code-point 区间。
+- 生产聊天先以内联 Activity 展示工具调用；第一条 clue 或 fetched Source 到达后才自动打开 Workbench，用户手动收起后本轮不再强制打开。
+- Sources 使用 `R1` 标识搜索 clue、使用 `F1` 标识已读取网页，并以 `used` 区分最终回答中出现的链接；这不等同于逐句事实支撑验证。
+- fetched Source 卡片展示来源元数据、缓存状态、截断状态、可展开 Markdown 原文、sectionPath 和 code-point 区间。
 - 最终 assistant metadata 保存有序内容块、工具执行与来源轻量快照；刷新、切换会话或点击历史 Tool Activity 均可恢复 Workbench。
 - `/agent/preview?state=...` 仅在开发环境启用。
 - Preview 已覆盖 empty、direct-answer、search running、fetch running、fetch candidate、fetch failed、waiting、steer、cancelling、cancelled、failed、sources、limited-report、final-report 等状态。
@@ -136,6 +140,8 @@ git diff --check
 
 2026-08-08 完成 Web Fetch V1 与 Evidence Candidate 管道后执行 `pnpm check`、API integration、Playwright E2E 和 `git diff --check`。共享协议、API、Web 与 testkit 共 60 项 unit test 通过，API integration 9 项通过，Playwright desktop/mobile 共 16 项通过。新增回归覆盖批量输入与部分成功、URL/DNS/重定向安全、Crawlee 无持久化抓取、正文提取、字符 n-gram、Unicode Locator、缺失父级标题时的非稀疏 sectionPath、新建草稿同步清空 session ref、来源升级后的唯一 R/F 编号、24,000 字符批次预算、LRU cache、10 URL 运行预算、Search→Fetch 来源升级、candidate 恢复和 `R/F` 标识。另用 Agent Browser 真实执行多轮 Search→Fetch→回答，并在 1440×900 与 1280×800 下检查：Candidate、刷新恢复和直接回答均符合预期，body、workspace 和 Passage 无横向溢出，浏览器控制台无遗留错误。
 
+2026-08-10 完成 General Web Research V1 hardening 后执行 `pnpm check`、`pnpm test:integration`、`pnpm test:e2e` 和 `git diff --check`。workspace lint、typecheck、production build 全部通过；共享协议 12 项、API 44 项、Web 17 项、testkit 1 项 unit test 通过，API integration 9 项通过，Playwright desktop/mobile 16 项通过。新增回归覆盖 Runtime Policy 常量、URL 确定性规范化、Search/Fetch 稳定工具集、用户直链/Search clue 来源登记、模型自造 URL 网络前拒绝、Run Ledger 的 URL/正文去重与早停、Document Quality Gate、动态 Passage 预算、partial-success skipped、同一模型响应的后续调用静默补齐、内部调查超时与强制最终回答，以及最终回答带追踪参数 URL 的 `used` 规范化匹配。自动验收没有请求真实外部搜索或网页 Provider。
+
 覆盖范围包括：
 
 - Web lint、TypeScript typecheck、unit tests、production build。
@@ -156,49 +162,39 @@ git diff --check
 
 - Run、State、Artifact 的持久化和恢复；Session/Message 普通对话持久化已经完成。
 - durable Agent Run、Run/Step/Event、断线 replay 和运行级恢复；当前 `AgentRuntimeService` 仍是一次 Chat 请求内的非持久化 Runtime，不具备运行恢复能力。
-- 搜索 fallback、正式 Evidence 持久化和正式引用校验；网页原文当前只具备 `evidence_candidate` 资格。
-- Markdown Report Artifact 的真实生成、保存、下载和重开。
+- 搜索 fallback；正式 Evidence 持久化、正式引用校验和 Markdown Report Artifact 已调整为后续 Deep Research 范围。
 - 面向 Agent Run 的 SSE/事件投影、真实 steer/cancel 控制链路；普通对话 Chat SSE 已完成。
 - user Memory、Delegation、Worker 和多用户认证。
 
-### 第一阶段：闭合 Evidence / Citation / Report 核心流程
+### General Web Research V1 完成边界
 
-当前 `web_search -> web_fetch -> evidence_candidate -> 普通回答` 已经可用。下一阶段优先完成研究材料到正式交付物的核心价值链，不先展开 Web Fetch 的完整扩量和生产治理：
+当前 `web_search -> web_fetch -> 相关原文 Passage -> 普通回答` 已按本阶段边界完成：
 
-- [ ] 从 Candidate Passage 中选择真正支撑结论的高价值原文，记录其对应结论和选择理由；未被选择的 Candidate 不能冒充正式 Evidence。
-- [ ] 将实际采用的 Passage 创建为 durable `EvidenceSource`，保存来源、retrievedAt、contentHash 和可恢复 Locator。
-- [ ] 为报告分配稳定、report-scoped 的 `[S1]`、`[S2]`，禁止 Clue 或未选中的 Candidate 被正式引用。
-- [ ] 生成 Markdown Report Artifact，并支持保存、下载、刷新恢复和重新打开。
-- [ ] 先生成草稿，再执行一次同模型复核与修订。
-- [ ] 在交付前执行确定性 Citation Validator，检查每个 `[Sx]` 是否存在、Locator 是否可恢复、引用是否位于需要依据的结论附近；语义支撑关系先由模型复核。
-- [ ] 证据不足时交付受限报告，明确证据缺口和未确认结论；完全没有可引用证据时才失败。
-- [ ] 使用固定调研题集进行自动化质量评测和人工抽检，形成端到端验收基线。
-- [ ] 做一个最小预算体验修复：运行级 URL 预算耗尽后只返回一次明确状态，后续模型轮次不再注册 `web_fetch`，避免相同失败连续出现；本阶段不引入完整弹性预算。
+- [x] 25 个唯一 URL 代码常量硬限制、预算快照、partial-success skipped 和动态工具移除。
+- [x] Search/Fetch 保持稳定工具集；Fetch 执行层只接受用户当前直链或本轮 Search clue，模型自造 URL 不发起网络请求。
+- [x] 网络尝试/成功唯一文档分开计数，以及 input/final/normalized URL 与 contentHash 去重。
+- [x] Document Quality Gate、query 无关正文错误、动态单批/累计 Passage 预算。
+- [x] 两次连续 Fetch 无新增唯一文档早停，Prompt 约束相同 URL 不重复、普通批次每域名最多两个。
+- [x] `clue/fetched + used` 来源协议、确定性 URL 匹配、已读来源优先 fallback 和 Workbench 恢复。
+- [x] 用户直链 Fetch Prompt、120 秒调查 deadline、30 秒最终回答 deadline 和用户 Abort 分离。
+- [x] Workbench 展示成功/失败/跳过、网络请求、相关 Passage、URL 预算和采用/已读/线索数量。
+- [ ] 通用 Agent 真实固定题集、指标聚合与人工抽检属于发布硬化，当前自动验收使用 Mock，不请求真实外部 API。
+- [ ] 公网/多用户部署前的连接 IP pinning、网络出口隔离和完整 DNS rebinding 防护仍属后续安全加固。
 
-第一阶段的完成标准是：`Clue -> Evidence Candidate -> EvidenceSource -> [Sx] -> Report -> Review -> Citation Validation` 可以端到端运行，引用能够从报告定位到可恢复的原文 Passage。
+当前阶段的完成标准是：对需要联网的普通用户问题，Agent 能在合理时间和有限资源内自主找到并读取足够的公开静态网页，过滤无效与重复内容，只注入相关原文，在信息充分或触及资源边界时停止，并基于真正读取过的来源完成普通回答；部分网页失败不能导致重复调用或整体任务失败。
 
-### 第二阶段：Web Fetch Research Hardening
+### 后续阶段边界
 
-核心研究流程闭合后，再扩大调查范围并补齐资源、质量和生产边界：
-
-- [ ] 将固定 URL 限制升级为弹性预算：以 10 个 URL 为软目标、20-30 个 URL 为硬安全上限；证据存在明确缺口时可以继续调查，信息充分时提前停止。
-- [ ] 向 Agent Loop 返回已用、剩余和硬上限等预算状态；继续 Search/Fetch 时必须说明待填补的 evidence gap，达到硬上限后禁用 Fetch。
-- [ ] 增加输入 URL、规范化 URL、最终重定向 URL 和正文 contentHash 去重；已成功读取或确定性失败的目标不重复消耗预算。
-- [ ] 增加检索去重、早停和查询预算策略；真实 QA 中一次复杂问题执行了 8 次 Search、3 次 Fetch，功能正确但仍有减少无效轮次和整体耗时的空间。
-- [ ] 增加来源质量评分和基础域名信誉策略，降低营销软文、聚合转载和低质量 SEO 页面在候选来源中的权重；来源质量只影响优先级，不直接等同于事实真伪。
-- [ ] 在完整 Context Engineering 前增加最小累计上下文安全阀，限制当前 Run 累计注入的 Passage 字符数或估算 Token，并为后续推理和最终报告预留空间；暂不实现压缩、动态淘汰或 Context Compiler。
-- [ ] 优化大量 Clue、Candidate 和 Evidence 的 Workbench 展示，增加筛选、折叠、分组或虚拟列表，并展示 Fetch 逐项失败、证据缺口和预算状态。
-- [ ] 增加真实固定调研题集的质量回归，统计来源有效率、原文命中率、Candidate 到 Evidence 的升级率、低质量来源比例、首个 Evidence 延迟和完整任务耗时。
-- [ ] 为 Web Fetch 增加运行指标和可观测性，包括 cache hit、响应字节、提取失败类型、URL 安全拒绝、去重数量、Passage 数量和各阶段耗时；日志继续禁止正文和敏感 URL query。
-- [ ] 在公网或多用户部署前补充连接 IP pinning、网络出口隔离和更完整的 DNS rebinding 防护。
-
-第二阶段不提前实现完整 Context Engineering。Evidence Card、语义重排、旧材料压缩和淘汰、精确 Token 编译、后台 Research Run 与 Worker 独立上下文仍按后续阶段推进。JavaScript Browser Fetch、PDF、登录态网页和其他来源格式属于独立的工具能力扩展，不并入本阶段。
+- 完整 Context Engineering 再实现 Evidence Card、语义重排、旧工具结果压缩与淘汰、按任务动态加载和精确 Token 编译。
+- Durable Run / Event Store 与 Delegation 再实现后台执行、断线恢复、Worker 独立上下文和大规模 Wide Research；这些能力不属于当前 Web Fetch 模块本身。
+- 正式 `EvidenceSource`、report-scoped `[Sx]`、Report Artifact、同模型复核和 Citation Validator 保留为后续 Deep Research 或严谨垂直场景能力，不阻塞通用 Agent 当前阶段。
+- JavaScript Browser Fetch、PDF、登录态网页、页面操作和其他来源格式属于独立的工具能力扩展，不并入当前阶段。
 
 ## 6. 下一阶段建议
 
-下一阶段按上述第一阶段实现正式 Evidence Layer：从 Evidence Candidate 中选择实际支撑结论的原文 Passage，创建 durable EvidenceSource，分配 report-scoped `[Sx]`，并接入报告草稿、同模型复核和确定性 Citation Validator。第一阶段闭环并通过固定题集验收后，再进入 Web Fetch Research Hardening；详细 Fetch 契约见 `docs/23-web-fetch-tool.md`。
+下一阶段不再扩张 Web Fetch 自身。先基于通用 Agent 真实固定题集和人工抽检观察实际失败模式；如果主要瓶颈是长工具历史、相关材料动态进出和最终回答空间，则进入 Context Engineering / Context Compiler，而不是继续增加 Fetch 硬限制。
 
-durable Run/Step/Event、断线 replay、运行恢复、动态 Browser Fetch 和 PDF 仍按后续独立阶段推进。
+Context Engineering、durable Run/Step/Event、断线 replay、Worker 独立上下文、正式 Evidence/Report、动态 Browser Fetch 和 PDF 仍按上述后续边界独立推进。
 
 ## 7. 关联文档
 

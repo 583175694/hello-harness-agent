@@ -1,8 +1,8 @@
 # Hello Harness Agent
 
-面向终端用户的本地任务工作台。首个黄金任务是使用搜索 API 完成迭代网络调研，并交付带可验证引用的 Markdown 报告。
+面向终端用户的本地任务工作台。当前优先完成通用型 Agent 的端到端任务体验，其中联网调查能够搜索线索、读取公开网页、筛选相关原文并在有界资源内作答。
 
-当前已完成工程基线、持久化聊天和第一条 Function Calling 联网检索链路：模型可以调用后端统一的 `web_search`，搜索过程和网页线索实时显示在 Workbench，并可随消息恢复。正式 Run/Event Store、证据抽取、报告生成、Memory 和 Delegation 尚未实现。
+当前已完成工程基线、持久化聊天和 General Web Research V1：模型可以迭代调用 `web_search` 与 `web_fetch`，过滤重复或不可用页面，并把已读取来源、资源边界和工具过程投影到 Workbench。正式 Run/Event Store、Context Compiler、Deep Research 引用/报告、Memory 和 Delegation 尚未实现。
 
 ## 当前能力
 
@@ -13,7 +13,10 @@
   OpenAI-compatible 持久化对话与 session-scoped Chat SSE
   最多 20 次工具调用的简化 Agent Loop
   Bocha 或 Serper 单 Provider 网页搜索（每次最多 10 条）
-  真实工具 Activity、网页线索 Workbench 与刷新恢复
+  公开静态网页批量读取与 query-aware Passage 筛选
+  每轮 25 个唯一 URL、120 秒调查和 60,000 字符原文安全边界
+  URL/正文去重、正文质量门、无新增信息早停
+  真实工具 Activity、Clue/已读/采用来源 Workbench 与刷新恢复
   可配置模型、base URL 和 API key
   PostgreSQL 连接和 Prisma migration
   单个本地用户自动初始化
@@ -24,7 +27,7 @@
 待实现（P2+）
   durable session/run/state
   durable Run/Step/Event 与可恢复 Agent Runtime
-  网页正文证据提取、引用校验与搜索 fallback
+  Context Compiler、正式 Evidence/引用校验与搜索 fallback
   Markdown Report Artifact
   steer/cancel 和实时事件
   user Memory 与 Delegation
@@ -58,7 +61,11 @@ pnpm dev
 
 普通对话需要在 `.env` 中配置 `OPENAI_API_KEY`；使用其他 OpenAI-compatible 厂商时，同时填写 `OPENAI_BASE_URL` 和对应的 `OPENAI_MODEL`。未配置 Key 时 API 仍可启动，但发送消息会返回 `MODEL_NOT_CONFIGURED`。
 
-联网检索一次只启用一个 Provider，例如 `SEARCH_PROVIDER=bocha` 并填写 `BOCHA_SEARCH_API_KEY`，或使用 `SEARCH_PROVIDER=serp` 和 `SERPER_SEARCH_API_KEY`。未配置 Provider 或对应 Key 时不向模型暴露 `web_search`，普通聊天不受影响；不支持 `bocha,serp`、fallback 或并行 Provider。
+联网检索一次只启用一个 Provider，例如 `SEARCH_PROVIDER=bocha` 并填写 `BOCHA_SEARCH_API_KEY`，或使用 `SEARCH_PROVIDER=serp` 和 `SERPER_SEARCH_API_KEY`。未配置 Provider 或对应 Key 时不向模型暴露 `web_search`，普通聊天不受影响。当前不支持 `bocha,serp`、fallback 或并行 Provider。
+
+`web_search` 和 `web_fetch` 在可用时同时暴露给模型，由模型决定调用顺序。`web_fetch` 的执行层只允许读取用户在当前消息中明确提供的 HTTP/HTTPS 直链，或本轮 `web_search` 返回的 clue URL；模型自行拼出的 URL 不会发起网络请求。
+
+General Web Research 每轮最多接受 25 个唯一 URL，调查阶段最多 120 秒，累计注入模型的 Fetch Passage 最多 60,000 Unicode code points。这些是集中在 Runtime Policy 中的代码常量；触及边界后会停止联网工具，并给最终无工具回答保留 30 秒。
 
 完成首次初始化和迁移后，日常开发只需运行 `pnpm dev`；本机 PostgreSQL 由操作系统/Homebrew 服务持续运行。
 

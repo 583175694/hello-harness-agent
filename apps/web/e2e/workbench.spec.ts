@@ -86,10 +86,10 @@ test('keeps the layout usable at 1280px', async ({ page }) => {
   await expect(page.locator('body')).toHaveJSProperty('scrollWidth', 1280);
 });
 
-test('renders fetch evidence candidates without formal citation ids', async ({ page }) => {
+test('renders fetched sources without formal citation ids', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/agent/preview?state=fetch-candidate');
-  await expect(page.getByText('原文候选，尚未成为正式引用')).toBeVisible();
+  await expect(page.getByText('已读取网页')).toBeVisible();
   await expect(page.getByText('F1')).toBeVisible();
   await expect(page.getByText('[F1]')).toHaveCount(0);
   await expect(page.getByText('[S1]')).toHaveCount(0);

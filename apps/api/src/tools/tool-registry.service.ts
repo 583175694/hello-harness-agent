@@ -25,10 +25,10 @@ export class ToolRegistryService {
   }
 
   // 返回当前可用工具的 OpenAI Function Calling 声明。
-  definitions(): AgentToolDefinition[] | undefined {
+  definitions(excludedNames: ReadonlySet<string> = new Set()): AgentToolDefinition[] | undefined {
     // 未配置供应商的工具不会暴露给模型，避免模型调用一个注定失败的能力。
     const definitions = [...this.toolsByName.values()]
-      .filter((tool) => tool.isAvailable())
+      .filter((tool) => tool.isAvailable() && !excludedNames.has(tool.name))
       .map((tool) => tool.definition());
     return definitions.length ? definitions : undefined;
   }

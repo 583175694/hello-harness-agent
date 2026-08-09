@@ -52,6 +52,8 @@ export class WebSearchTool implements AgentTool<{ query: string }, SearchToolRes
     const startedAt = Date.now();
     try {
       const output = await this.search.search(input.query, context.signal);
+      // 搜索结果是后续 Web Fetch 的唯一候选来源之一，用户直链由 Runtime 单独登记。
+      context.resources.allowFetchUrls(output.results.map((result) => result.url));
       return {
         status: 'succeeded',
         output,

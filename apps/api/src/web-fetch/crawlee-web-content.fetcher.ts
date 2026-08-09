@@ -10,12 +10,13 @@ import {
   type Request,
 } from '@crawlee/http';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
-import { WEB_FETCH_POLICY, WEB_FETCH_REQUEST_LABEL } from './web-fetch.constants';
+import { WEB_FETCH_POLICY } from './web-fetch.constants';
 import { asWebFetchError, WebFetchError } from './web-fetch.error';
 import { WebFetchUrlGuard } from './web-fetch-url.guard';
 import type { GuardedWebUrl, WebFetchTransportResult } from './web-fetch.types';
 
 type FetchRequestData = { index: number; requestedUrl: string };
+const REQUEST_LABEL = 'WEB_FETCH' as const;
 
 // 在 Crawlee 缓冲正文前为响应流增加解压后字节上限。
 class BoundedHttpCrawler extends HttpCrawler<HttpCrawlingContext<FetchRequestData>> {
@@ -190,8 +191,8 @@ export class CrawleeWebContentFetcher {
     try {
       await crawler.run(targets.map((target, index) => ({
         url: target.normalizedUrl,
-        uniqueKey: `${WEB_FETCH_REQUEST_LABEL}-${index}`,
-        label: WEB_FETCH_REQUEST_LABEL,
+        uniqueKey: `${REQUEST_LABEL}-${index}`,
+        label: REQUEST_LABEL,
         userData: { index, requestedUrl: target.requestedUrl } satisfies FetchRequestData,
         headers: {},
       })));

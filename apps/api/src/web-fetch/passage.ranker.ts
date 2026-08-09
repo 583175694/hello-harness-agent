@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
+import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
 import type { WebFetchPassage } from '@harness/agent-protocol';
 import { WEB_FETCH_POLICY } from './web-fetch.constants';
 import type {
@@ -28,7 +29,7 @@ export class PassageRanker {
       : scored;
     return eligible
       .sort((left, right) => right.score - left.score || left.block.start - right.block.start)
-      .slice(0, WEB_FETCH_POLICY.maxPassagesPerDocument)
+      .slice(0, AGENT_PROTOCOL_LIMITS.webFetchPassagesMax)
       .map((item) => ({
         passage: this.toPassage(document, item.block),
         score: item.score,

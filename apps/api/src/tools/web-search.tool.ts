@@ -15,20 +15,6 @@ const webSearchInputSchema = z
 @Injectable()
 export class WebSearchTool implements AgentTool<{ query: string }, SearchToolResult> {
   readonly name = AGENT_TOOL_NAMES.webSearch;
-  readonly description =
-    '搜索公开网页以获取最新或需要来源验证的信息。信息足够后停止搜索并直接回答。';
-  readonly parameters = {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      query: {
-        type: 'string',
-        maxLength: SEARCH_LIMITS.queryMaxLength,
-        description: '清晰、具体且不重复的搜索词。',
-      },
-    },
-    required: ['query'],
-  };
   readonly inputSchema = webSearchInputSchema;
 
   constructor(private readonly search: SearchService) {}
@@ -36,9 +22,20 @@ export class WebSearchTool implements AgentTool<{ query: string }, SearchToolRes
   // 返回网页搜索工具的稳定 Function Calling 声明。
   definition() {
     return {
-      name: this.name,
-      description: this.description,
-      parameters: this.parameters,
+      name: AGENT_TOOL_NAMES.webSearch,
+      description: '搜索公开网页以获取最新或需要来源验证的信息。信息足够后停止搜索并直接回答。',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          query: {
+            type: 'string',
+            maxLength: SEARCH_LIMITS.queryMaxLength,
+            description: '清晰、具体且不重复的搜索词。',
+          },
+        },
+        required: ['query'],
+      },
     };
   }
 

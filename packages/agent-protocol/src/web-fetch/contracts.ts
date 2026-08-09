@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AGENT_PROTOCOL_LIMITS } from '../common/constants.js';
 
 // 统计字符串中的 Unicode code point 数量，避免把代理对拆成两个位置。
 function codePointLength(value: string): number {
@@ -14,8 +15,8 @@ const publicWebUrlSchema = z.string().url().refine(
 // 定义模型调用批量网页读取工具时允许提交的参数。
 export const webFetchInputSchema = z
   .object({
-    urls: z.array(publicWebUrlSchema).min(1).max(5),
-    query: z.string().trim().min(1).max(500).optional(),
+    urls: z.array(publicWebUrlSchema).min(1).max(AGENT_PROTOCOL_LIMITS.webFetchUrlsMax),
+    query: z.string().trim().min(1).max(AGENT_PROTOCOL_LIMITS.webFetchQueryMaxLength).optional(),
   })
   .strict();
 
@@ -79,7 +80,7 @@ export const webFetchSucceededItemSchema = z.object({
   contentHash: z.string().min(1),
   cacheStatus: z.enum(['hit', 'miss']),
   truncated: z.boolean(),
-  passages: z.array(webFetchPassageSchema).max(6),
+  passages: z.array(webFetchPassageSchema).max(AGENT_PROTOCOL_LIMITS.webFetchPassagesMax),
 });
 
 // 定义单个 URL 无法读取时返回给模型的安全错误摘要。
@@ -99,7 +100,7 @@ export const webFetchItemResultSchema = z.discriminatedUnion('status', [
 // 定义 web_fetch 返回给 Runtime、SSE 和 Workbench 的批量结果。
 export const webFetchResultSchema = z.object({
   query: z.string().min(1).optional(),
-  results: z.array(webFetchItemResultSchema).min(1).max(5),
+  results: z.array(webFetchItemResultSchema).min(1).max(AGENT_PROTOCOL_LIMITS.webFetchUrlsMax),
 });
 
 export type WebFetchInput = z.infer<typeof webFetchInputSchema>;

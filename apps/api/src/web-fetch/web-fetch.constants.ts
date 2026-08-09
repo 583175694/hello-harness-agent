@@ -2,8 +2,6 @@
 export const WEB_FETCH_POLICY = {
   // 单个 URL 允许的最大字符数。
   maxUrlLength: 2_048,
-  // 单次工具调用允许读取的最大 URL 数量。
-  maxUrlsPerCall: 5,
   // 单次 Agent 运行允许读取的最大 URL 数量。
   maxUrlsPerRun: 10,
   // 同一批次允许并行进行的最大网络请求数。
@@ -18,8 +16,6 @@ export const WEB_FETCH_POLICY = {
   maxResponseBytes: 5 * 1024 * 1024,
   // 单份规范化 Markdown 允许保留的最大 Unicode code point 数。
   maxDocumentCharacters: 200_000,
-  // 单份网页最多向模型返回的原文 Passage 数量。
-  maxPassagesPerDocument: 6,
   // 单个 Passage 允许包含的最大 Unicode code point 数。
   maxPassageCharacters: 2_000,
   // 单次批量调用向模型返回的 Passage 总字符预算。
@@ -39,9 +35,6 @@ export const WEB_FETCH_POLICY = {
   // 缓存失效时区分网络安全策略的版本。
   securityVersion: 'url-guard-v1',
 } as const;
-
-// Crawlee 使用的请求标签，避免内部 request.userData 出现散落字符串。
-export const WEB_FETCH_REQUEST_LABEL = 'WEB_FETCH' as const;
 
 // 注入可替换 DNS Resolver 时使用的 Nest 标识。
 export const WEB_FETCH_DNS_RESOLVER = Symbol('WEB_FETCH_DNS_RESOLVER');

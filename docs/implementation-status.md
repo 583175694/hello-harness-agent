@@ -161,32 +161,42 @@ git diff --check
 - 面向 Agent Run 的 SSE/事件投影、真实 steer/cancel 控制链路；普通对话 Chat SSE 已完成。
 - user Memory、Delegation、Worker 和多用户认证。
 
-### Web Fetch / Evidence Candidate 后续 TODO
+### 第一阶段：闭合 Evidence / Citation / Report 核心流程
 
-当前 `web_search -> web_fetch -> evidence_candidate -> 普通回答` 已经可用，但仍需继续完善以下产品化和质量能力：
+当前 `web_search -> web_fetch -> evidence_candidate -> 普通回答` 已经可用。下一阶段优先完成研究材料到正式交付物的核心价值链，不先展开 Web Fetch 的完整扩量和生产治理：
 
-- [ ] 增加来源质量评分和域名信誉策略，降低营销软文、聚合转载和低质量 SEO 页面在候选来源中的权重。
-- [ ] 增加检索去重、早停和查询预算策略；真实 QA 中一次复杂问题执行了 8 次 Search、3 次 Fetch，功能正确但仍有减少无效轮次和整体耗时的空间。
-- [ ] 优化大量 Clue 的 Workbench 展示；当前复杂调研可能产生数十条线索，需要真正可用的筛选、折叠、分组或虚拟列表，而不是一次平铺全部来源。
-- [ ] 增加 Evidence Candidate 选择与淘汰策略，只保留真正可能支撑结论的高价值 Passage，并明确展示 Fetch 逐项失败和证据缺口。
-- [ ] 增加真实固定调研题集的质量评测，统计来源有效率、原文命中率、低质量来源比例、首个 Candidate 延迟和完整任务耗时。
-- [ ] 为 Web Fetch 增加运行指标和可观测性，包括 cache hit、响应字节、提取失败类型、URL 安全拒绝、Passage 数量和各阶段耗时；日志继续禁止正文和敏感 URL query。
-- [ ] 在公网或多用户部署前补充连接 IP pinning、网络出口隔离和更完整的 DNS rebinding 防护。
-- [ ] 按需支持 JavaScript Browser Fetch、PDF 和其他文件来源；当前只支持公开静态 HTML/XHTML/plain text。
-
-### 正式 Evidence / Report 下一阶段 TODO
-
-- [ ] 从 Candidate Passage 中选择实际支撑结论的正式 Evidence，创建 durable `EvidenceSource`。
-- [ ] 为报告分配稳定、report-scoped 的 `[S1]`、`[S2]`，禁止 Clue 或 Candidate 冒充正式引用。
-- [ ] 生成 Markdown Report Artifact，并保存、下载、刷新恢复和重新打开。
+- [ ] 从 Candidate Passage 中选择真正支撑结论的高价值原文，记录其对应结论和选择理由；未被选择的 Candidate 不能冒充正式 Evidence。
+- [ ] 将实际采用的 Passage 创建为 durable `EvidenceSource`，保存来源、retrievedAt、contentHash 和可恢复 Locator。
+- [ ] 为报告分配稳定、report-scoped 的 `[S1]`、`[S2]`，禁止 Clue 或未选中的 Candidate 被正式引用。
+- [ ] 生成 Markdown Report Artifact，并支持保存、下载、刷新恢复和重新打开。
 - [ ] 先生成草稿，再执行一次同模型复核与修订。
-- [ ] 在交付前执行确定性 Citation Validator，检查每个 `[Sx]` 是否存在、Locator 是否可恢复、引用是否支撑相邻事实结论。
+- [ ] 在交付前执行确定性 Citation Validator，检查每个 `[Sx]` 是否存在、Locator 是否可恢复、引用是否位于需要依据的结论附近；语义支撑关系先由模型复核。
 - [ ] 证据不足时交付受限报告，明确证据缺口和未确认结论；完全没有可引用证据时才失败。
-- [ ] 使用固定调研题集进行自动化质量评测和人工抽检，形成阶段验收基线。
+- [ ] 使用固定调研题集进行自动化质量评测和人工抽检，形成端到端验收基线。
+- [ ] 做一个最小预算体验修复：运行级 URL 预算耗尽后只返回一次明确状态，后续模型轮次不再注册 `web_fetch`，避免相同失败连续出现；本阶段不引入完整弹性预算。
+
+第一阶段的完成标准是：`Clue -> Evidence Candidate -> EvidenceSource -> [Sx] -> Report -> Review -> Citation Validation` 可以端到端运行，引用能够从报告定位到可恢复的原文 Passage。
+
+### 第二阶段：Web Fetch Research Hardening
+
+核心研究流程闭合后，再扩大调查范围并补齐资源、质量和生产边界：
+
+- [ ] 将固定 URL 限制升级为弹性预算：以 10 个 URL 为软目标、20-30 个 URL 为硬安全上限；证据存在明确缺口时可以继续调查，信息充分时提前停止。
+- [ ] 向 Agent Loop 返回已用、剩余和硬上限等预算状态；继续 Search/Fetch 时必须说明待填补的 evidence gap，达到硬上限后禁用 Fetch。
+- [ ] 增加输入 URL、规范化 URL、最终重定向 URL 和正文 contentHash 去重；已成功读取或确定性失败的目标不重复消耗预算。
+- [ ] 增加检索去重、早停和查询预算策略；真实 QA 中一次复杂问题执行了 8 次 Search、3 次 Fetch，功能正确但仍有减少无效轮次和整体耗时的空间。
+- [ ] 增加来源质量评分和基础域名信誉策略，降低营销软文、聚合转载和低质量 SEO 页面在候选来源中的权重；来源质量只影响优先级，不直接等同于事实真伪。
+- [ ] 在完整 Context Engineering 前增加最小累计上下文安全阀，限制当前 Run 累计注入的 Passage 字符数或估算 Token，并为后续推理和最终报告预留空间；暂不实现压缩、动态淘汰或 Context Compiler。
+- [ ] 优化大量 Clue、Candidate 和 Evidence 的 Workbench 展示，增加筛选、折叠、分组或虚拟列表，并展示 Fetch 逐项失败、证据缺口和预算状态。
+- [ ] 增加真实固定调研题集的质量回归，统计来源有效率、原文命中率、Candidate 到 Evidence 的升级率、低质量来源比例、首个 Evidence 延迟和完整任务耗时。
+- [ ] 为 Web Fetch 增加运行指标和可观测性，包括 cache hit、响应字节、提取失败类型、URL 安全拒绝、去重数量、Passage 数量和各阶段耗时；日志继续禁止正文和敏感 URL query。
+- [ ] 在公网或多用户部署前补充连接 IP pinning、网络出口隔离和更完整的 DNS rebinding 防护。
+
+第二阶段不提前实现完整 Context Engineering。Evidence Card、语义重排、旧材料压缩和淘汰、精确 Token 编译、后台 Research Run 与 Worker 独立上下文仍按后续阶段推进。JavaScript Browser Fetch、PDF、登录态网页和其他来源格式属于独立的工具能力扩展，不并入本阶段。
 
 ## 6. 下一阶段建议
 
-下一阶段建议实现正式 Evidence Layer：从 Evidence Candidate 中选择实际支撑结论的原文 Passage，创建 durable EvidenceSource，分配 report-scoped `[Sx]`，并接入报告草稿、同模型复核和确定性 Citation Validator。详细 Fetch 契约见 `docs/23-web-fetch-tool.md`。
+下一阶段按上述第一阶段实现正式 Evidence Layer：从 Evidence Candidate 中选择实际支撑结论的原文 Passage，创建 durable EvidenceSource，分配 report-scoped `[Sx]`，并接入报告草稿、同模型复核和确定性 Citation Validator。第一阶段闭环并通过固定题集验收后，再进入 Web Fetch Research Hardening；详细 Fetch 契约见 `docs/23-web-fetch-tool.md`。
 
 durable Run/Step/Event、断线 replay、运行恢复、动态 Browser Fetch 和 PDF 仍按后续独立阶段推进。
 

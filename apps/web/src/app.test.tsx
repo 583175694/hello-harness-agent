@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App, AppShell } from './app';
+import { Composer } from './features/agent/components/conversation';
 
 function mockReady() {
   // 为组件测试提供稳定的 API 就绪响应。
@@ -38,6 +39,29 @@ describe('R1 workbench shell', () => {
     expect(screen.getByRole('textbox', { name: '任务输入' })).toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not submit Enter while an input method is composing text', () => {
+    const onSubmit = vi.fn((event: React.FormEvent<HTMLFormElement>) => event.preventDefault());
+    render(
+      <Composer
+        prompt="候选内容"
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={vi.fn()}
+        onSubmit={onSubmit}
+      />,
+    );
+    const input = screen.getByRole('textbox', { name: '任务输入' });
+
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', isComposing: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
   it('renders sources and report in the development fixture preview', () => {

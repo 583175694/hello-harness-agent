@@ -281,6 +281,7 @@ export function Composer({
   onPromptChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const composingRef = useRef(false);
   const placeholder =
     mode === 'steer'
       ? AGENT_UI_COPY.composerPlaceholders.steer
@@ -298,8 +299,20 @@ export function Composer({
         value={prompt}
         disabled={mode === 'disabled'}
         onChange={(event) => onPromptChange(event.target.value)}
+        onCompositionStart={() => {
+          composingRef.current = true;
+        }}
+        onCompositionEnd={() => {
+          composingRef.current = false;
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
+            // 中文等输入法正在确认候选词时，Enter 只结束组合输入，不提交消息。
+            if (
+              composingRef.current ||
+              event.nativeEvent.isComposing ||
+              event.nativeEvent.keyCode === 229
+            ) return;
             event.preventDefault();
             if (prompt.trim() && !submitting && mode !== 'disabled')
               event.currentTarget.form?.requestSubmit();

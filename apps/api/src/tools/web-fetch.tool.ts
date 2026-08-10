@@ -10,6 +10,7 @@ import type { WebFetchInput, WebFetchResult } from '@harness/agent-protocol';
 import { WebFetchError } from '../web-fetch/web-fetch.error';
 import { WebFetchService } from '../web-fetch/web-fetch.service';
 import type { AgentTool, ToolExecutionContext, ToolExecutionResult } from './agent-tool.types';
+import { getWebResearchRunState } from './web-research-run-state';
 
 @Injectable()
 export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
@@ -59,24 +60,29 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
     input: WebFetchInput,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult<WebFetchResult>> {
-    // 记录工具开始时间，用于计算成功或失败结果的总执行耗时。
-    const startedAt = Date.now();
     try {
-      if (context.resources.remainingPassageCharacters() < 2_000) {
-        context.resources.markStopped('context_budget');
+      const research = getWebResearchRunState(context);
+      if (research.remainingPassageCharacters() < 2_000) {
+        research.markStopped('context_budget');
       }
-      const reservations = context.resources.reserveUrls(input.urls);
+      const reservations = research.reserveUrls(input.urls);
       const acceptedUrls = reservations
-        .filter((item): item is Extract<typeof item, { status: 'accepted' }> => item.status === 'accepted')
+        .filter(
+          (item): item is Extract<typeof item, { status: 'accepted' }> =>
+            item.status === 'accepted',
+        )
         .map((item) => item.requestedUrl);
       const fetched = acceptedUrls.length
         ? await this.webFetch.fetch(
             { urls: acceptedUrls, ...(input.query ? { query: input.query } : {}) },
             context.signal,
-            context.resources.remainingPassageCharacters(),
+            research.remainingPassageCharacters(),
           )
-        : { result: { ...(input.query ? { query: input.query } : {}), results: [] }, networkAttempts: 0 };
-      context.resources.registerNetworkAttempts(fetched.networkAttempts);
+        : {
+            result: { ...(input.query ? { query: input.query } : {}), results: [] },
+            networkAttempts: 0,
+          };
+      research.registerNetworkAttempts(fetched.networkAttempts);
       let acceptedIndex = 0;
       let newDocumentCount = 0;
       const results = reservations.map((reservation) => {
@@ -91,7 +97,7 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
           };
         }
         if (item.status !== 'succeeded') return item;
-        const isNew = context.resources.registerDocument(item);
+        const isNew = research.registerDocument(item);
         if (!isNew) {
           return {
             status: 'skipped' as const,
@@ -107,19 +113,15 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
         .filter((item) => item.status === 'succeeded')
         .flatMap((item) => item.passages)
         .reduce((total, passage) => total + Array.from(passage.text).length, 0);
-      context.resources.registerPassageCharacters(passageCharacterCount);
-      context.resources.registerFetchGain(newDocumentCount);
+      research.registerPassageCharacters(passageCharacterCount);
+      research.registerFetchGain(newDocumentCount);
       const output = webFetchResultSchema.parse({
         ...(input.query ? { query: input.query } : {}),
         results,
-        budget: context.resources.budget(),
+        budget: research.budget(),
       });
-      // 只收集逐 URL 成功项，用于生成成功数、失败数和 Passage 数指标。
-      const succeeded = output.results.filter((item) => item.status === 'succeeded');
-      const failed = output.results.filter((item) => item.status === 'failed');
+      // 跳过数量与预算快照一起作为工具声明的通用日志字段。
       const skipped = output.results.filter((item) => item.status === 'skipped');
-      // 汇总所有成功来源最终返回给模型的原文 Passage 数量。
-      const passageCount = succeeded.reduce((total, item) => total + item.passages.length, 0);
       return {
         status: 'succeeded',
         output,
@@ -128,32 +130,31 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
           sourceQualification: 'fetched',
           ...output,
         }),
-        metrics: {
-          durationMs: Date.now() - startedAt,
-          resultCount: output.results.length,
-          succeededCount: succeeded.length,
-          failedCount: failed.length,
-          skippedCount: skipped.length,
-          passageCount,
-          passageCharacterCount,
-          networkAttemptCount: fetched.networkAttempts,
-          successfulUniqueDocumentCount: newDocumentCount,
-          urlUsedCount: output.budget.urls.used,
-          urlRemainingCount: output.budget.urls.remaining,
-          stopReason: output.budget.stopReason,
+        logFields: {
+          结果: output.results.length,
+          URL: `${output.budget.urls.used}/${output.budget.urls.limit}`,
+          网络请求: fetched.networkAttempts,
+          唯一文档: newDocumentCount,
+          跳过: skipped.length,
+          Passage: `${passageCharacterCount} 字`,
+          停止: output.budget.stopReason ?? '否',
         },
-        ...(!output.budget.canFetch
-          ? { control: { disableTools: [AGENT_TOOL_NAMES.webSearch, AGENT_TOOL_NAMES.webFetch], forceFinalAnswer: true } }
-          : {}),
+        ...(!output.budget.canFetch ? { control: { forceFinalAnswer: true } } : {}),
       };
     } catch (error) {
       // 调用方中止或核心 Service 返回取消错误时，将工具终态标记为 cancelled。
-      const cancelled = context.signal?.aborted ||
+      const cancelled =
+        context.signal?.aborted ||
         (error instanceof WebFetchError && error.code === AGENT_ERROR_CODES.fetchCancelled);
       // 保留已归一化的 Web Fetch 错误，并把未知异常收敛为安全的上游失败。
-      const normalized = error instanceof WebFetchError
-        ? error
-        : new WebFetchError(AGENT_ERROR_CODES.fetchUpstreamFailed, '网页来源暂时无法读取。', true);
+      const normalized =
+        error instanceof WebFetchError
+          ? error
+          : new WebFetchError(
+              AGENT_ERROR_CODES.fetchUpstreamFailed,
+              '网页来源暂时无法读取。',
+              true,
+            );
       return {
         status: cancelled ? 'cancelled' : 'failed',
         error: {
@@ -163,9 +164,7 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
           cause: error,
         },
         modelContent: JSON.stringify({ ok: false, code: normalized.code }),
-        metrics: { durationMs: Date.now() - startedAt },
       };
     }
   }
-
 }

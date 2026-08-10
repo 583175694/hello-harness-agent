@@ -381,7 +381,7 @@ tool_call / ask_clarification / finish_research / fail
 新增：
 
 - 代码常量定义的 25 个唯一 URL 运行级硬安全上限；模型信息充分时提前停止，不实现软预算申请状态机
-- 已用/剩余/是否可 Fetch 的简洁预算 observation；预算耗尽后后续模型轮次移除 `web_fetch`
+- 已用/剩余/是否可 Fetch 的简洁预算 observation；预算耗尽后由工具领域请求结束工具阶段，Runtime 统一进入无工具最终回答
 - network attempts 与 successful unique documents 分开计数
 - input URL、normalized URL、final URL 和 contentHash 去重
 - Document Quality Gate：识别验证码、登录/付费墙、JavaScript 空壳、空正文、模板噪声和 query 无关正文
@@ -391,7 +391,7 @@ tool_call / ask_clarification / finish_research / fail
 - 无新增唯一正文或相关 Passage 时的早停与基础来源多样性
 - `discovered` Clue、`fetched` Source 和最终回答 `used` Source 的轻量区分
 - 用户直接提供 URL 时无需先 Search 即可 Fetch
-- 整个前台 Agent 请求的总执行时间预算和端到端取消传播
+- 模型、Search、Fetch 各自独立的单操作超时和端到端取消传播；不设置整个 Agent run 的总执行时间预算
 - Activity / Sources 投影和恢复；展示成功、失败、重复、预算和最终采用来源
 - 通用 Agent 固定题集和 Fetch 运行指标
 

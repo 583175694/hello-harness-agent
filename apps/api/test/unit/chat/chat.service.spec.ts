@@ -94,8 +94,18 @@ describe('ChatService session persistence', () => {
     service.releaseSession('session-1');
 
     expect(events).toEqual([
-      { type: 'message.delta', messageId: prepared.assistantMessageId, blockId: `${prepared.assistantMessageId}-text-1`, delta: '完整' },
-      { type: 'message.delta', messageId: prepared.assistantMessageId, blockId: `${prepared.assistantMessageId}-text-1`, delta: '回答' },
+      {
+        type: 'message.delta',
+        messageId: prepared.assistantMessageId,
+        blockId: `${prepared.assistantMessageId}-text-1`,
+        delta: '完整',
+      },
+      {
+        type: 'message.delta',
+        messageId: prepared.assistantMessageId,
+        blockId: `${prepared.assistantMessageId}-text-1`,
+        delta: '回答',
+      },
       { type: 'message.completed', messageId: prepared.assistantMessageId, model: 'test-model' },
     ]);
     expect(messageCreate).toHaveBeenCalledTimes(2);
@@ -106,7 +116,9 @@ describe('ChatService session persistence', () => {
         kind: 'assistant_delivery',
         content: '完整回答',
         metadata: {
-          blocks: [{ id: `${prepared.assistantMessageId}-text-1`, type: 'text', content: '完整回答' }],
+          blocks: [
+            { id: `${prepared.assistantMessageId}-text-1`, type: 'text', content: '完整回答' },
+          ],
         },
       },
     });
@@ -203,7 +215,7 @@ describe('ChatService session persistence', () => {
         status: 'succeeded',
         output: toolResult,
         modelContent: JSON.stringify(toolResult),
-        metrics: { durationMs: 10, resultCount: 1 },
+        logFields: { durationMs: 10, resultCount: 1 },
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
@@ -225,7 +237,11 @@ describe('ChatService session persistence', () => {
           model: 'test-model',
           blocks: [
             expect.objectContaining({ type: 'text', content: '我先检索。' }),
-            expect.objectContaining({ type: 'tool_activity', toolCallId: 'call-search', status: 'completed' }),
+            expect.objectContaining({
+              type: 'tool_activity',
+              toolCallId: 'call-search',
+              status: 'completed',
+            }),
             expect.objectContaining({ type: 'text', content: expect.stringContaining('检索完成') }),
           ],
           agent: {
@@ -281,7 +297,7 @@ describe('ChatService session persistence', () => {
         status: 'timeout',
         error: { code: 'SEARCH_TIMEOUT', detail: '搜索服务响应超时。', retryable: true },
         modelContent: JSON.stringify({ ok: false, code: 'SEARCH_TIMEOUT' }),
-        metrics: { durationMs: 10 },
+        logFields: { durationMs: 10 },
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
@@ -316,50 +332,105 @@ describe('ChatService session persistence', () => {
   it('projects web search followed by web fetch as one upgraded evidence candidate', async () => {
     const providerCreate = vi
       .fn()
-      .mockResolvedValueOnce((async function* () {
-        yield { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-search', function: { name: 'web_search', arguments: '{"query":"AI evidence"}' } }] }, finish_reason: 'tool_calls' }] };
-      })())
-      .mockResolvedValueOnce((async function* () {
-        yield { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-fetch', function: { name: 'web_fetch', arguments: '{"urls":["https://example.com/report"],"query":"AI evidence"}' } }] }, finish_reason: 'tool_calls' }] };
-      })())
-      .mockResolvedValueOnce((async function* () {
-        yield { choices: [{ delta: { content: '已根据原文完成回答：https://example.com/report' } }] };
-        yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
-      })());
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call-search',
+                      function: { name: 'web_search', arguments: '{"query":"AI evidence"}' },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+          };
+        })(),
+      )
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call-fetch',
+                      function: {
+                        name: 'web_fetch',
+                        arguments: '{"urls":["https://example.com/report"],"query":"AI evidence"}',
+                      },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+          };
+        })(),
+      )
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield {
+            choices: [{ delta: { content: '已根据原文完成回答：https://example.com/report' } }],
+          };
+          yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
+        })(),
+      );
     const searchResult = {
       query: 'AI evidence',
       provider: 'serp' as const,
-      results: [{
-        id: 'result-1', title: 'AI Report', url: 'https://example.com/report',
-        domain: 'example.com', snippet: 'search clue',
-      }],
+      results: [
+        {
+          id: 'result-1',
+          title: 'AI Report',
+          url: 'https://example.com/report',
+          domain: 'example.com',
+          snippet: 'search clue',
+        },
+      ],
     };
     const exact = 'AI adoption increased in production workflows.';
     const fetchResult = {
       query: 'AI evidence',
-      results: [{
-        status: 'succeeded' as const,
-        requestedUrl: 'https://example.com/report',
-        finalUrl: 'https://example.com/report',
-        normalizedUrl: 'https://example.com/report',
-        title: 'AI Report',
-        contentType: 'text/html',
-        retrievedAt: '2026-08-08T02:00:00.000Z',
-        contentHash: 'content-hash',
-        cacheStatus: 'miss' as const,
-        truncated: false,
-        passages: [{
-          passageId: 'passage-1', text: exact,
-          locator: {
-            kind: 'web_text' as const,
-            quote: { exact },
-            position: { start: 0, end: Array.from(exact).length },
-          },
-        }],
-      }],
+      results: [
+        {
+          status: 'succeeded' as const,
+          requestedUrl: 'https://example.com/report',
+          finalUrl: 'https://example.com/report',
+          normalizedUrl: 'https://example.com/report',
+          title: 'AI Report',
+          contentType: 'text/html',
+          retrievedAt: '2026-08-08T02:00:00.000Z',
+          contentHash: 'content-hash',
+          cacheStatus: 'miss' as const,
+          truncated: false,
+          passages: [
+            {
+              passageId: 'passage-1',
+              text: exact,
+              locator: {
+                kind: 'web_text' as const,
+                quote: { exact },
+                position: { start: 0, end: Array.from(exact).length },
+              },
+            },
+          ],
+        },
+      ],
       budget: {
         urls: { used: 1, limit: 25, remaining: 24 },
-        passages: { usedCharacters: Array.from(exact).length, limitCharacters: 60_000, remainingCharacters: 60_000 - Array.from(exact).length },
+        passages: {
+          usedCharacters: Array.from(exact).length,
+          limitCharacters: 60_000,
+          remainingCharacters: 60_000 - Array.from(exact).length,
+        },
         successfulUniqueDocuments: 1,
         networkAttempts: 1,
         canFetch: true,
@@ -370,44 +441,64 @@ describe('ChatService session persistence', () => {
         { name: 'web_search', description: '搜索', parameters: {} },
         { name: 'web_fetch', description: '读取', parameters: {} },
       ]),
-      parseInput: vi.fn((name: string) => name === 'web_fetch'
-        ? { urls: ['https://example.com/report'], query: 'AI evidence' }
-        : { query: 'AI evidence' }),
-      units: vi.fn((name: string) => name === 'web_fetch'
-        ? { units: 1, limit: 10 }
-        : { units: 1 }),
-      execute: vi.fn((name: string) => Promise.resolve(name === 'web_fetch'
-        ? {
-            status: 'succeeded' as const, output: fetchResult,
-            modelContent: JSON.stringify({ untrustedExternalData: true, evidenceQualification: 'evidence_candidate', ...fetchResult }),
-            metrics: { durationMs: 10, resultCount: 1, succeededCount: 1, failedCount: 0, passageCount: 1 },
-          }
-        : {
-            status: 'succeeded' as const, output: searchResult,
-            modelContent: JSON.stringify({ untrustedExternalData: true, ...searchResult }),
-            metrics: { durationMs: 10, resultCount: 1 },
-          })),
+      parseInput: vi.fn((name: string) =>
+        name === 'web_fetch'
+          ? { urls: ['https://example.com/report'], query: 'AI evidence' }
+          : { query: 'AI evidence' },
+      ),
+      execute: vi.fn((name: string) =>
+        Promise.resolve(
+          name === 'web_fetch'
+            ? {
+                status: 'succeeded' as const,
+                output: fetchResult,
+                modelContent: JSON.stringify({
+                  untrustedExternalData: true,
+                  evidenceQualification: 'evidence_candidate',
+                  ...fetchResult,
+                }),
+                logFields: {
+                  durationMs: 10,
+                  resultCount: 1,
+                },
+              }
+            : {
+                status: 'succeeded' as const,
+                output: searchResult,
+                modelContent: JSON.stringify({ untrustedExternalData: true, ...searchResult }),
+                logFields: { durationMs: 10, resultCount: 1 },
+              },
+        ),
+      ),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'research AI');
     const events = await collect(service.streamPrepared(prepared));
 
-    expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'tool.completed', toolName: 'web_search' }),
-      expect.objectContaining({ type: 'tool.completed', toolName: 'web_fetch', result: fetchResult }),
-    ]));
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'tool.completed', toolName: 'web_search' }),
+        expect.objectContaining({
+          type: 'tool.completed',
+          toolName: 'web_fetch',
+          result: fetchResult,
+        }),
+      ]),
+    );
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
       data: {
         metadata: {
           agent: {
             toolCallCount: 2,
-            sources: [expect.objectContaining({
-              kind: 'fetched',
-              used: true,
-              finalUrl: 'https://example.com/report',
-              toolCallIds: ['call-search', 'call-fetch'],
-              passages: [expect.objectContaining({ passageId: 'passage-1' })],
-            })],
+            sources: [
+              expect.objectContaining({
+                kind: 'fetched',
+                used: true,
+                finalUrl: 'https://example.com/report',
+                toolCallIds: ['call-search', 'call-fetch'],
+                passages: [expect.objectContaining({ passageId: 'passage-1' })],
+              }),
+            ],
           },
         },
       },
@@ -418,15 +509,31 @@ describe('ChatService session persistence', () => {
   it('projects a cancelled tool separately and updates the same activity block', async () => {
     const providerCreate = vi
       .fn()
-      .mockResolvedValueOnce((async function* () {
-        yield { choices: [{
-          delta: { tool_calls: [{ index: 0, id: 'call-cancelled', function: { name: 'web_search', arguments: '{"query":"latest news"}' } }] },
-          finish_reason: 'tool_calls',
-        }] };
-      })())
-      .mockResolvedValueOnce((async function* () {
-        yield { choices: [{ delta: { content: '检索已停止。' }, finish_reason: 'stop' }] };
-      })());
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call-cancelled',
+                      function: { name: 'web_search', arguments: '{"query":"latest news"}' },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+          };
+        })(),
+      )
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield { choices: [{ delta: { content: '检索已停止。' }, finish_reason: 'stop' }] };
+        })(),
+      );
     const registry = {
       definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
       parseInput: vi.fn(() => ({ query: 'latest news' })),
@@ -434,26 +541,36 @@ describe('ChatService session persistence', () => {
         status: 'cancelled',
         error: { code: 'SEARCH_CANCELLED', detail: '网页搜索已取消。', retryable: false },
         modelContent: JSON.stringify({ ok: false, code: 'SEARCH_CANCELLED' }),
-        metrics: { durationMs: 10 },
+        logFields: { durationMs: 10 },
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'stop search');
     const events = await collect(service.streamPrepared(prepared));
 
-    const started = events.find((event) => (event as { type?: string }).type === 'tool.started') as { blockId: string };
-    const cancelled = events.find((event) => (event as { type?: string }).type === 'tool.cancelled') as { blockId: string; code: string };
+    const started = events.find(
+      (event) => (event as { type?: string }).type === 'tool.started',
+    ) as { blockId: string };
+    const cancelled = events.find(
+      (event) => (event as { type?: string }).type === 'tool.cancelled',
+    ) as { blockId: string; code: string };
     expect(cancelled).toMatchObject({ blockId: started.blockId, code: 'SEARCH_CANCELLED' });
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
       data: {
         content: '检索已停止。',
         metadata: {
           blocks: [
-            expect.objectContaining({ type: 'tool_activity', toolCallId: 'call-cancelled', status: 'cancelled' }),
+            expect.objectContaining({
+              type: 'tool_activity',
+              toolCallId: 'call-cancelled',
+              status: 'cancelled',
+            }),
             expect.objectContaining({ type: 'text', content: '检索已停止。' }),
           ],
           agent: {
-            executions: [expect.objectContaining({ toolCallId: 'call-cancelled', status: 'cancelled' })],
+            executions: [
+              expect.objectContaining({ toolCallId: 'call-cancelled', status: 'cancelled' }),
+            ],
           },
         },
       },
@@ -461,12 +578,26 @@ describe('ChatService session persistence', () => {
   });
 
   it('does not persist a partial assistant timeline when tool execution is aborted', async () => {
-    const providerCreate = vi.fn().mockResolvedValue((async function* () {
-      yield { choices: [{
-        delta: { tool_calls: [{ index: 0, id: 'call-aborted', function: { name: 'web_search', arguments: '{"query":"latest news"}' } }] },
-        finish_reason: 'tool_calls',
-      }] };
-    })());
+    const providerCreate = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield {
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'call-aborted',
+                    function: { name: 'web_search', arguments: '{"query":"latest news"}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+        };
+      })(),
+    );
     const controller = new AbortController();
     const registry = {
       definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
@@ -480,14 +611,23 @@ describe('ChatService session persistence', () => {
     const prepared = await service.prepareSessionStream('session-1', 'stop search');
     const events: unknown[] = [];
 
-    await expect((async () => {
-      for await (const event of service.streamPrepared(prepared, controller.signal)) events.push(event);
-    })()).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(
+      (async () => {
+        for await (const event of service.streamPrepared(prepared, controller.signal))
+          events.push(event);
+      })(),
+    ).rejects.toMatchObject({ name: 'AbortError' });
 
-    expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'tool.started', toolCallId: 'call-aborted' }),
-      expect.objectContaining({ type: 'tool.cancelled', toolCallId: 'call-aborted', code: 'TOOL_CANCELLED' }),
-    ]));
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'tool.started', toolCallId: 'call-aborted' }),
+        expect.objectContaining({
+          type: 'tool.cancelled',
+          toolCallId: 'call-aborted',
+          code: 'TOOL_CANCELLED',
+        }),
+      ]),
+    );
     expect(messageCreate).toHaveBeenCalledTimes(1);
     expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({ data: { role: 'user' } });
   });
@@ -553,7 +693,7 @@ describe('ChatService session persistence', () => {
           status: 'succeeded' as const,
           output,
           modelContent: JSON.stringify(output),
-          metrics: { durationMs: 10, resultCount: 1 },
+          logFields: { durationMs: 10, resultCount: 1 },
         });
       }),
     };
@@ -582,6 +722,132 @@ describe('ChatService session persistence', () => {
         },
       },
     });
+  });
+
+  it('persists only the validated retry after a forced answer leaks DSML', async () => {
+    let modelRound = 0;
+    const providerCreate = vi.fn().mockImplementation(() => {
+      modelRound += 1;
+      if (modelRound === 1) {
+        return Promise.resolve(
+          (async function* () {
+            yield {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: 'call-search',
+                        function: { name: 'web_search', arguments: '{"query":"test"}' },
+                      },
+                    ],
+                  },
+                  finish_reason: 'tool_calls',
+                },
+              ],
+            };
+          })(),
+        );
+      }
+      const content = modelRound === 2 ? '<｜DSML｜tool_calls>污染内容' : '经过校验的最终回答';
+      return Promise.resolve(
+        (async function* () {
+          yield { choices: [{ delta: { content }, finish_reason: 'stop' }] };
+        })(),
+      );
+    });
+    const registry = {
+      definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
+      parseInput: vi.fn(() => ({ query: 'test' })),
+      execute: vi.fn().mockResolvedValue({
+        status: 'succeeded',
+        output: { query: 'test', provider: 'serp', results: [] },
+        modelContent: '{"query":"test","provider":"serp","results":[]}',
+        logFields: { durationMs: 1, resultCount: 0 },
+        control: { forceFinalAnswer: true },
+      }),
+    };
+    const { service, messageCreate } = makeService(providerCreate, registry);
+    const prepared = await service.prepareSessionStream('session-1', 'research');
+
+    const events = await collect(service.streamPrepared(prepared));
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'message.delta', delta: '经过校验的最终回答' }),
+      ]),
+    );
+    expect(events).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'message.delta', delta: expect.stringContaining('DSML') }),
+      ]),
+    );
+    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+      data: { content: '经过校验的最终回答' },
+    });
+  });
+
+  it('does not persist an assistant when both forced answers leak DSML', async () => {
+    let modelRound = 0;
+    const providerCreate = vi.fn().mockImplementation(() => {
+      modelRound += 1;
+      if (modelRound === 1) {
+        return Promise.resolve(
+          (async function* () {
+            yield {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: 'call-search',
+                        function: { name: 'web_search', arguments: '{"query":"test"}' },
+                      },
+                    ],
+                  },
+                  finish_reason: 'tool_calls',
+                },
+              ],
+            };
+          })(),
+        );
+      }
+      return Promise.resolve(
+        (async function* () {
+          yield {
+            choices: [
+              {
+                delta: { content: '<|DSML|tool_calls>污染内容' },
+                finish_reason: 'stop',
+              },
+            ],
+          };
+        })(),
+      );
+    });
+    const registry = {
+      definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
+      parseInput: vi.fn(() => ({ query: 'test' })),
+      execute: vi.fn().mockResolvedValue({
+        status: 'succeeded',
+        output: { query: 'test', provider: 'serp', results: [] },
+        modelContent: '{"query":"test","provider":"serp","results":[]}',
+        logFields: { durationMs: 1, resultCount: 0 },
+        control: { forceFinalAnswer: true },
+      }),
+    };
+    const { service, messageCreate } = makeService(providerCreate, registry);
+    const prepared = await service.prepareSessionStream('session-1', 'research');
+
+    await expect(collect(service.streamPrepared(prepared))).rejects.toMatchObject({
+      response: { code: 'MODEL_STREAM_FAILED' },
+    });
+
+    expect(providerCreate).toHaveBeenCalledTimes(3);
+    expect(messageCreate).toHaveBeenCalledTimes(1);
+    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({ data: { role: 'user' } });
   });
 
   it('forces a tool-free final model round after the shared 20-call budget is exhausted', async () => {
@@ -637,7 +903,7 @@ describe('ChatService session persistence', () => {
           status: 'succeeded' as const,
           output,
           modelContent: JSON.stringify(output),
-          metrics: { durationMs: 10, resultCount: 0 },
+          logFields: { durationMs: 10, resultCount: 0 },
         });
       }),
     };
@@ -647,7 +913,9 @@ describe('ChatService session persistence', () => {
     await collect(service.streamPrepared(prepared));
 
     expect(providerCreate).toHaveBeenCalledTimes(21);
-    expect(providerCreate.mock.calls[20]?.[0]).toMatchObject({ tool_choice: 'none' });
+    expect(providerCreate.mock.calls[0]?.[0]).toMatchObject({ tool_choice: 'auto' });
+    expect(providerCreate.mock.calls[20]?.[0]).not.toHaveProperty('tools');
+    expect(providerCreate.mock.calls[20]?.[0]).not.toHaveProperty('tool_choice');
     expect(registry.execute).toHaveBeenCalledTimes(20);
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
       data: {

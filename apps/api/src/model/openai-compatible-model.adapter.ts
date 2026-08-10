@@ -33,7 +33,6 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         ...(input.tools && !input.forceFinalAnswer
           ? { tools: this.toProviderTools(input.tools), tool_choice: 'auto' as const }
           : {}),
-        ...(input.forceFinalAnswer ? { tool_choice: 'none' as const } : {}),
       },
       input.signal ? { signal: input.signal } : undefined,
     );

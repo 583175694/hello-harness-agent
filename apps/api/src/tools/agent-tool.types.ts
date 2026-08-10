@@ -1,5 +1,5 @@
 import type { ZodType } from 'zod';
-import type { RunResourceLedger } from '../agent-runtime/run-resource-ledger';
+import type { ToolRunState } from './tool-run-state';
 
 // 工具执行上下文，负责把会话关联信息和取消信号传给具体工具。
 export type ToolExecutionContext = {
@@ -7,24 +7,11 @@ export type ToolExecutionContext = {
   messageId?: string;
   toolCallId: string;
   signal?: AbortSignal;
-  resources: RunResourceLedger;
+  latestUserContent: string;
+  runState: ToolRunState;
 };
 
-// 工具执行指标，供日志和后续 Workbench 投影使用。
-export type ToolExecutionMetrics = {
-  durationMs: number;
-  resultCount?: number;
-  succeededCount?: number;
-  failedCount?: number;
-  skippedCount?: number;
-  passageCount?: number;
-  passageCharacterCount?: number;
-  networkAttemptCount?: number;
-  successfulUniqueDocumentCount?: number;
-  urlUsedCount?: number;
-  urlRemainingCount?: number;
-  stopReason?: string;
-};
+export type ToolExecutionLogFields = Readonly<Record<string, string | number | boolean>>;
 
 // 模型可见的通用工具声明，不依赖任何供应商 SDK。
 export type AgentToolDefinition = {
@@ -39,7 +26,7 @@ export type ToolExecutionResult<TOutput> =
       status: 'succeeded';
       output: TOutput;
       modelContent: string;
-      metrics: ToolExecutionMetrics;
+      logFields?: ToolExecutionLogFields;
       control?: { disableTools?: string[]; forceFinalAnswer?: boolean };
     }
   | {
@@ -52,7 +39,7 @@ export type ToolExecutionResult<TOutput> =
         cause?: unknown;
       };
       modelContent: string;
-      metrics: ToolExecutionMetrics;
+      logFields?: ToolExecutionLogFields;
       control?: { disableTools?: string[]; forceFinalAnswer?: boolean };
     };
 
@@ -61,10 +48,8 @@ export interface AgentTool<TInput = unknown, TOutput = unknown> {
   readonly name: string;
   readonly inputSchema: ZodType<TInput>;
   readonly inputErrorCode?: string;
-  readonly maxUnitsPerRun?: number;
   // 返回当前工具对模型公开的 Function Calling 声明。
   definition(): AgentToolDefinition;
   isAvailable(): boolean;
-  units?(input: TInput): number;
   execute(input: TInput, context: ToolExecutionContext): Promise<ToolExecutionResult<TOutput>>;
 }

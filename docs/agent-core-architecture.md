@@ -151,7 +151,7 @@ Runtime 负责：
 - run/step lifecycle
 - safe-step scheduling
 - canonical action dispatch
-- budget/timeout
+- 通用工具调用预算和模型单轮超时
 - steer inbox
 - cancel propagation
 - terminal handling
@@ -159,6 +159,8 @@ Runtime 负责：
 Runtime 不负责：
 
 - prompt/content selection
+- 具体工具识别、结果解释和领域资源记账
+- 按工具名称决定启停或早停条件
 - provider response interpretation
 - evidence eligibility
 - report writing/review
@@ -166,7 +168,9 @@ Runtime 不负责：
 - Memory extraction
 - worker result merge
 
-能力通过 `ActionHandler` 或显式 pipeline service 接入。
+能力通过 `ActionHandler` 或显式 pipeline service 接入。Runtime 必须保持工具中立：它只依据统一契约编排定义、调用、结果、指标和控制意图，不能通过 `if (toolName === ...)` 理解具体工具。新增工具原则上只修改工具领域实现和注册入口，不要求修改 Runtime。
+
+运行级共享状态通过通用、run-scoped 的 `ToolRunState` 容器传递。Runtime 只负责为本次 run 创建和转交容器，不读取其中的领域状态；Search、Fetch 等同一领域的工具可以从中取得自己拥有的 `WebResearchRunState`。URL provenance、URL/Passage 预算、去重和无新增内容计数均属于 Web Research 领域，而不是 Runtime Policy。工具通过统一执行结果声明 `logFields` 和 `forceFinalAnswer` 等通用控制意图，Runtime 只执行这些意图，不推断其业务原因。
 
 ## 8. Search Tooling
 

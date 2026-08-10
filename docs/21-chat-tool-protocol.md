@@ -185,7 +185,7 @@ type WebFetchInput = {
 };
 ```
 
-`urls` 接受 1-5 个地址，结果按 URL 使用部分成功语义。`web_fetch` 通过 Crawlee `HttpCrawler` 批量获取原始响应，再由 JSDOM + Mozilla Readability + Turndown 生成规范化正文，并返回字符 n-gram 筛选的抽取式原文 passage。V1 不维护 URL prior-context registry，也不向模型暴露缓存参数；进程内 LRU、最小 SSRF、响应限制和 Evidence 资格由 API 内部策略控制。完整设计见 `23-web-fetch-tool.md`。
+`urls` 接受 1-5 个地址，结果按 URL 使用部分成功语义。`web_fetch` 通过 Crawlee `HttpCrawler` 批量获取原始响应，再由 JSDOM + Mozilla Readability + Turndown 生成规范化正文，并返回字符 n-gram 筛选的抽取式原文 passage。V1 通过 run-scoped `WebResearchRunState` 只接受用户当前消息直链或本轮 Search clue，不向模型暴露来源注册、缓存或资源预算参数；进程内 LRU、最小 SSRF、响应限制和 Evidence 资格由 API 内部策略控制。完整设计见 `23-web-fetch-tool.md`。
 
 ## 4. 明确不属于本阶段
 

@@ -40,7 +40,7 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 - `steer`，从下一安全 step 生效
 - `cancel`
 - 主搜索供应商和 fallback 搜索供应商
-- 有界的 Search、Fetch、工具调用、总执行时间和累计上下文安全预算
+- 有界的 Search、Fetch、工具调用和累计上下文安全预算，以及模型和工具各自独立的单操作超时与取消传播
 - 搜索摘要 Clue、已读取 Source 和最终采用 Source 的轻量区分
 - URL/final URL/contentHash 去重、正文可用性判断和无新增信息早停
 - query-aware 原文 Passage 筛选，外部内容不能改变 Agent 指令和预算

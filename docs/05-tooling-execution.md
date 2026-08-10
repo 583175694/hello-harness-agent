@@ -1,6 +1,6 @@
 # Tooling / Execution
 
-> 文档状态：Greenfield R1 工具执行契约。当前 production 已实现 `web_search`；`web_fetch` 为下一阶段设计。
+> 文档状态：Greenfield R1 工具执行契约。当前 production 已实现 `web_search` 和 `web_fetch`。
 
 ## 1. 职责
 
@@ -34,6 +34,25 @@ web_fetch
 `web_search` 是搜索 logical tool，内部可以路由到 Bocha、SERP 等 provider adapter。`web_fetch` 每次获取 1-5 个公开 URL，并产出可定位的原文片段。Provider 和 Fetch 实现不是模型可见工具。
 
 R1 不接 MCP、不接 browser automation、不接文件写工具或代码执行。
+
+### 2.1 当前生产内部契约
+
+当前 `AgentRuntimeService` 不理解上述具体工具名称。每次 run 创建一个通用、进程内的 `ToolRunState`，并通过统一上下文传给所有工具：
+
+```ts
+type ToolExecutionContext = {
+  sessionId?: string;
+  messageId?: string;
+  toolCallId: string;
+  signal?: AbortSignal;
+  latestUserContent: string;
+  runState: ToolRunState;
+};
+```
+
+工具领域通过类型化 key 使用 `runState.getOrCreate()` 延迟创建自己的状态。相同 key 在同一次 run 内共享实例，不同 run 和不同 key 相互隔离；Runtime 不读取、持久化或解释其中的领域数据。当前 Web Research 使用 `WebResearchRunState` 在 Search 与 Fetch 之间共享 URL provenance、URL/正文去重、URL/Passage 预算和连续无新增内容状态。
+
+工具结果通过 `logFields` 声明需要进入服务端日志的领域指标，通过 `control.disableTools` 或 `control.forceFinalAnswer` 声明通用控制意图。Runtime 只按契约记录或执行，不从工具名称和结果字段推断业务含义。新增工具只需要实现 `AgentTool` 并加入 Catalog，不应修改 Runtime 的业务分支。
 
 ## 3. Tool Definition
 
@@ -152,7 +171,7 @@ type WebFetchInput = {
 };
 ```
 
-`urls` 固定为 1-5 个公开地址，`query` 为整批来源共用的证据需求。V1 使用 Crawlee `HttpCrawler` 获取原始响应，JSDOM + Mozilla Readability 提取主要正文，Turndown 生成 Markdown；不维护 URL prior-context registry。完整契约见 `23-web-fetch-tool.md`。
+`urls` 固定为 1-5 个公开地址，`query` 为整批来源共用的证据需求。V1 使用 Crawlee `HttpCrawler` 获取原始响应，JSDOM + Mozilla Readability 提取主要正文，Turndown 生成 Markdown；`WebResearchRunState` 只允许 Fetch 用户当前消息中的 HTTP/HTTPS 直链或本轮 Search 登记的 clue URL。完整契约见 `23-web-fetch-tool.md`。
 
 ## 9. Untrusted Content
 
@@ -191,34 +210,34 @@ type ToolCallRequest =
     });
 ```
 
-## 11. web_search ToolExecutionResult
+## 11. ToolExecutionResult
 
 ```ts
-type ToolExecutionResult = {
-  toolCallId: string;
-  status: 'succeeded' | 'failed' | 'cancelled' | 'timeout';
-  output?: {
-    results: SearchResult[];
-    primaryProvider: string;
-    fallbackProvider?: string;
-    fallbackReason?: string;
-  };
-  error?: {
-    code: string;
-    message: string;
-    retryable: boolean;
-  };
-  metrics: {
-    durationMs: number;
-    providerCalls: number;
-    resultCount: number;
-    clueCount: number;
-    evidenceCandidateCount: number;
-  };
-};
+type ToolExecutionResult<TOutput> =
+  | {
+      status: 'succeeded';
+      output: TOutput;
+      modelContent: string;
+      logFields?: Readonly<Record<string, string | number | boolean>>;
+      control?: { disableTools?: string[]; forceFinalAnswer?: boolean };
+    }
+  | {
+      status: 'failed' | 'timeout' | 'cancelled';
+      error: {
+        code: string;
+        detail: string;
+        retryable: boolean;
+        cause?: unknown;
+      };
+      modelContent: string;
+      logFields?: Readonly<Record<string, string | number | boolean>>;
+      control?: { disableTools?: string[]; forceFinalAnswer?: boolean };
+    };
 ```
 
-`web_fetch` 使用同一 execution envelope，但 output 和 metrics 按其 canonical `WebFetchResult` 定义，不复用搜索专用的 provider/result counters。
+`web_search` 和 `web_fetch` 使用同一 execution envelope，但分别返回自己的 canonical output。`modelContent` 是回传给下一模型轮次的有界工具观察；错误 `cause` 只用于脱敏服务端诊断，不进入模型上下文、SSE 或数据库。工具通过通用 `logFields` 声明领域指标，Runtime 只按声明顺序输出 `key=value`，不解释搜索或读取专用字段。
+
+`forceFinalAnswer` 只请求 Runtime 结束工具阶段。最终回答轮完全省略工具定义，并在服务端缓冲校验后交付；工具本身不生成最终研究结论。`disableTools` 作为通用能力保留，Web Research 的资源停止当前只使用 `forceFinalAnswer`。
 
 ## 12. Tool Result / Observation
 
@@ -253,6 +272,8 @@ Tooling 强制执行：
 - max parallel tool calls
 
 模型不能扩大预算。Fallback 计入 provider calls。
+
+当前生产实现按所有权分层：Runtime 只维护最多 20 次通用工具调用；Web Research 维护每轮 25 个唯一 URL、60,000 个外部 Passage 字符和连续两次无新增内容早停；Search 和 Fetch 分别维护 10 秒、20 秒单操作超时。Agent run 不设置 wall-clock 总截止时间，用户取消独立传播到模型和在途工具。
 
 ## 15. Retry
 

@@ -16,7 +16,7 @@
   最多 20 次工具调用的简化 Agent Loop
   Bocha 或 Serper 单 Provider 网页搜索（每次最多 10 条）
   公开静态网页批量读取与 query-aware Passage 筛选
-  每轮 25 个唯一 URL、120 秒调查和 60,000 字符原文安全边界
+  每轮 25 个唯一 URL、60,000 字符原文和最多 20 次工具调用的结构性边界
   URL/正文去重、正文质量门、无新增信息早停
   真实工具 Activity、Clue/已读/采用来源 Workbench 与刷新恢复
   可配置模型、base URL 和 API key
@@ -67,7 +67,7 @@ pnpm dev
 
 `web_search` 和 `web_fetch` 在可用时同时暴露给模型，由模型决定调用顺序。`web_fetch` 的执行层只允许读取用户在当前消息中明确提供的 HTTP/HTTPS 直链，或本轮 `web_search` 返回的 clue URL；模型自行拼出的 URL 不会发起网络请求。
 
-General Web Research 每轮最多接受 25 个唯一 URL，调查阶段最多 120 秒，累计注入模型的 Fetch Passage 最多 60,000 Unicode code points。这些是集中在 Runtime Policy 中的代码常量；触及边界后会停止联网工具，并给最终无工具回答保留 30 秒。
+General Web Research 每轮最多接受 25 个唯一 URL，累计注入模型的 Fetch Passage 最多 60,000 Unicode code points，整个 Agent run 不设置 wall-clock 总截止时间。普通模型单轮请求最多 120 秒，强制最终回答单轮请求最多 30 秒；Search 和 Fetch 分别使用 10 秒和 20 秒的单操作超时。触及工具调用、URL、原文字符或无新增内容等结构性边界后，Runtime 进入一次无工具最终回答；用户取消仍独立传播到在途模型和工具请求。
 
 完成首次初始化和迁移后，日常开发只需运行 `pnpm dev`；本机 PostgreSQL 由操作系统/Homebrew 服务持续运行。
 

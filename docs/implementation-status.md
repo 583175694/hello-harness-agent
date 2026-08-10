@@ -2,11 +2,11 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-10
+> 最后更新：2026-08-11
 
 ## 1. 当前结论
 
-项目已经完成工程基线、持久化普通对话和 General Web Research V1。模型可以通过 Bocha 或 Serper 发现网页线索，再批量读取 1-5 个公开静态网页的可定位相关原文；当前每轮受 25 个唯一 URL、120 秒调查时间和 60,000 字符 Fetch Passage 代码常量约束。
+项目已经完成工程基线、持久化普通对话和 General Web Research V1。模型可以通过 Bocha 或 Serper 发现网页线索，再批量读取 1-5 个公开静态网页的可定位相关原文；当前每轮受 25 个唯一 URL、60,000 字符 Fetch Passage 和最多 20 次工具调用等结构性边界约束，不再设置整个 Agent run 的 wall-clock 总截止时间。
 
 当前状态可以描述为“P7 已完成，进入 P8 Evaluation / Release Hardening”：有界联网调查闭环已具备独立真实黑盒评测工具，可以用固定题集检查生产 Session、Chat SSE、Search/Fetch、最终回答和持久化快照。正式 Evidence、`[Sx]`、报告 Artifact 和引用校验保留给后续 Deep Research；Run/Event Store、Context Compiler、steer/cancel 和搜索 fallback 仍未实现。
 
@@ -30,9 +30,9 @@
 - 模型流、Runtime 事件流和 Chat SSE 继续使用 `AsyncGenerator` 表达逐步产出；单次数据库操作、工具执行和标题生成使用普通 `async/await`。
 - 模型只看到统一 `web_search({query})`；后端通过 `SEARCH_PROVIDER=bocha|serp` 启用一个 Provider，每次返回最多 10 条标准化结果。
 - 模型同时可以调用 `web_fetch({urls, query?})`，每次读取 1-5 个公开静态网页，每轮默认最多接受 25 个唯一 URL；批量结果支持逐项 `succeeded/failed/skipped` 的部分成功语义。
-- 每轮 Runtime 使用独立 `RunResourceLedger`，跟踪 URL、final/normalized URL alias、contentHash、网络尝试、成功唯一文档、Passage 字符和连续无新增 Fetch；运行状态不保存在 singleton Tool/Service。
-- Search 与 Fetch 在可用时同时暴露，Runtime 只把用户当前消息的直链和本轮 Search clue 登记为 Fetch 候选；模型自行拼出的 URL 不会发起网络请求。
-- URL 、上下文、时间或无新增信息边界触发后，Runtime 在后续轮次动态移除 Search/Fetch，并进入一次最多 30 秒的无工具最终回答。
+- 每轮 Runtime 只创建通用、run-scoped 的 `ToolRunState`；Web Research 领域通过类型化 key 自行创建和维护 `WebResearchRunState`，跟踪 URL、final/normalized URL alias、contentHash、网络尝试、成功唯一文档、Passage 字符和连续无新增 Fetch。
+- Search 与 Fetch 在可用时同时暴露，并通过同一个 `WebResearchRunState` 登记用户当前消息直链和本轮 Search clue；模型自行拼出的 URL 不会发起网络请求，Runtime 不解析 URL 或理解具体工具结果。
+- URL、上下文或无新增信息边界由 Web Research 请求 `forceFinalAnswer`，20 次通用工具调用边界由 Runtime 触发；两者都只进入一次最多 30 秒的无工具最终回答。普通模型单轮请求最多 120 秒，Search 与 Fetch 分别保留 10 秒和 20 秒的单操作超时；这些都不是 Agent 总运行时限。
 - `DocumentQualityGate` 在写入 LRU 和 Passage Ranking 前拒绝过短正文、登录/付费墙/验证码、JavaScript 空壳和高度重复模板；query 无相关 Passage 返回稳定错误。
 - Web Fetch 使用无持久化 Crawlee `HttpCrawler`、最小 URL/DNS/逐跳重定向安全校验、5 MiB 流式响应上限、20 秒超时和一次有限重试；不携带 Cookie、Authorization、代理或用户 Header。
 - HTML 通过 JSDOM、Mozilla Readability、Turndown + GFM 转换为 canonical Markdown；字符 n-gram Ranker 只返回连续抽取式原文，Locator 同时保存 quote、Unicode code-point position 和 sectionPath。
@@ -143,11 +143,15 @@ git diff --check
 
 2026-08-08 完成 Web Fetch V1 与 Evidence Candidate 管道后执行 `pnpm check`、API integration、Playwright E2E 和 `git diff --check`。共享协议、API、Web 与 testkit 共 60 项 unit test 通过，API integration 9 项通过，Playwright desktop/mobile 共 16 项通过。新增回归覆盖批量输入与部分成功、URL/DNS/重定向安全、Crawlee 无持久化抓取、正文提取、字符 n-gram、Unicode Locator、缺失父级标题时的非稀疏 sectionPath、新建草稿同步清空 session ref、来源升级后的唯一 R/F 编号、24,000 字符批次预算、LRU cache、10 URL 运行预算、Search→Fetch 来源升级、candidate 恢复和 `R/F` 标识。另用 Agent Browser 真实执行多轮 Search→Fetch→回答，并在 1440×900 与 1280×800 下检查：Candidate、刷新恢复和直接回答均符合预期，body、workspace 和 Passage 无横向溢出，浏览器控制台无遗留错误。
 
-2026-08-10 完成 General Web Research V1 hardening 后执行 `pnpm check`、`pnpm test:integration`、`pnpm test:e2e` 和 `git diff --check`。workspace lint、typecheck、production build 全部通过；共享协议 12 项、API 44 项、Web 17 项、testkit 1 项 unit test 通过，API integration 9 项通过，Playwright desktop/mobile 16 项通过。新增回归覆盖 Runtime Policy 常量、URL 确定性规范化、Search/Fetch 稳定工具集、用户直链/Search clue 来源登记、模型自造 URL 网络前拒绝、Run Ledger 的 URL/正文去重与早停、Document Quality Gate、动态 Passage 预算、partial-success skipped、同一模型响应的后续调用静默补齐、内部调查超时与强制最终回答，以及最终回答带追踪参数 URL 的 `used` 规范化匹配。自动验收没有请求真实外部搜索或网页 Provider。
+2026-08-10 完成 General Web Research V1 hardening 后执行 `pnpm check`、`pnpm test:integration`、`pnpm test:e2e` 和 `git diff --check`。workspace lint、typecheck、production build 全部通过；共享协议 12 项、API 44 项、Web 17 项、testkit 1 项 unit test 通过，API integration 9 项通过，Playwright desktop/mobile 16 项通过。新增回归覆盖 Runtime Policy 常量、URL 确定性规范化、Search/Fetch 稳定工具集、用户直链/Search clue 来源登记、模型自造 URL 网络前拒绝、Run Ledger 的 URL/正文去重与早停、Document Quality Gate、动态 Passage 预算、partial-success skipped、同一模型响应的后续调用静默补齐、当时实现的内部调查超时与强制最终回答，以及最终回答带追踪参数 URL 的 `used` 规范化匹配。自动验收没有请求真实外部搜索或网页 Provider。该条是历史验收记录，其中的内部调查超时已于 2026-08-11 被单轮模型超时替代。
 
 2026-08-10 新增 General Web Research 真实评测 V1。题集版本为 `v1`，包含 Smoke 6 题和 Full 24 题；评测包 26 项 Mock 自动测试覆盖 SSE 半包、生产 API 客户端、硬规则、指标、Judge 修复、本地能力预检、workspace 根 `.env` 定位、Session 标题边界、Runner 清理/保留/异常恢复、CLI 和报告输出。本轮 `pnpm check`、评测包独立 build 和 `git diff --check` 均通过。真实外部 Smoke 需要 API、PostgreSQL、主模型和 Search Provider 就绪后单独执行；首次结果只作为人工校准基线，不作为冻结发布阈值。
 
 同日首次真实 Smoke 已执行：6 题中硬规则 2 题通过、4 题失败，评测 Session 清理全部成功。首轮暴露的主要问题包括直链题仍先调用 Search、部分工具 execution/source 快照与 SSE 不一致、部分题超出题目工具调用上限、模型流中断，以及 Judge 请求超时。原始结果保存在 `.eval/research/2026-08-10T12-09-47-750Z/`。评测报告已补充逐题问题、Agent 最终回答、失败规则、工具摘要、来源摘要和 Judge 信息；下一轮继续观察真实链路后再决定哪些属于 Agent 行为缺陷、哪些属于评测规则需要校准。
+
+2026-08-11 完成 Agent 运行边界和 Runtime 工具中立化重构。删除会误伤正常长任务的 120 秒 Agent 总截止时间，改为普通模型单轮 120 秒、最终回答单轮 30 秒以及 Search/Fetch 各自 10/20 秒的故障隔离；保留 20 次通用工具调用、25 个 URL、60,000 Passage 字符和连续两次无新增内容等结构性边界。强制最终回答不再发送任何工具定义，服务端完整缓冲并拒绝 DSML 或结构化工具调用污染，最多重试一次；污染内容不会进入 SSE、数据库或后续上下文。
+
+同次重构将 URL provenance、URL/正文去重、Web 资源预算和无新增内容状态从 Runtime 下沉到 `WebResearchRunState`，Runtime 只创建通用 `ToolRunState`，按统一契约执行任意命名工具并处理 `logFields`、`disableTools` 和 `forceFinalAnswer`。上游调用失败日志继续保留脱敏后的真实原因、HTTP 状态、请求 ID、上游地址和响应摘要。执行 `pnpm check` 与 `git diff --check` 全部通过：Protocol 12 项、API 56 项、Web 18 项、Evals 26 项、Testkit 1 项 unit test 通过，workspace lint、typecheck 和 production build 全部通过。本轮没有重复执行依赖数据库或浏览器环境的 integration/E2E。
 
 覆盖范围包括：
 
@@ -177,18 +181,22 @@ git diff --check
 
 当前 `web_search -> web_fetch -> 相关原文 Passage -> 普通回答` 已按本阶段边界完成：
 
-- [x] 25 个唯一 URL 代码常量硬限制、预算快照、partial-success skipped 和动态工具移除。
+- [x] 25 个唯一 URL 代码常量硬限制、预算快照和 partial-success skipped；资源停止由 Web Research 请求统一进入无工具最终回答。
 - [x] Search/Fetch 保持稳定工具集；Fetch 执行层只接受用户当前直链或本轮 Search clue，模型自造 URL 不发起网络请求。
 - [x] 网络尝试/成功唯一文档分开计数，以及 input/final/normalized URL 与 contentHash 去重。
 - [x] Document Quality Gate、query 无关正文错误、动态单批/累计 Passage 预算。
 - [x] 两次连续 Fetch 无新增唯一文档早停，Prompt 约束相同 URL 不重复、普通批次每域名最多两个。
 - [x] `clue/fetched + used` 来源协议、确定性 URL 匹配、已读来源优先 fallback 和 Workbench 恢复。
-- [x] 用户直链 Fetch Prompt、120 秒调查 deadline、30 秒最终回答 deadline 和用户 Abort 分离。
+- [x] 用户直链 Fetch Prompt、普通模型单轮 120 秒超时、最终回答单轮 30 秒超时和用户 Abort 分离；Agent run 无总截止时间。
 - [x] Workbench 展示成功/失败/跳过、网络请求、相关 Passage、URL 预算和采用/已读/线索数量。
 - [x] 通用 Agent 固定题集、真实 API 黑盒 Runner、指标聚合、模型 Judge 和人工抽检文件已实现；真实基线运行与两轮人工阈值校准仍待执行。
 - [ ] 公网/多用户部署前的连接 IP pinning、网络出口隔离和完整 DNS rebinding 防护仍属后续安全加固。
 
 当前阶段的完成标准是：对需要联网的普通用户问题，Agent 能在合理时间和有限资源内自主找到并读取足够的公开静态网页，过滤无效与重复内容，只注入相关原文，在信息充分或触及资源边界时停止，并基于真正读取过的来源完成普通回答；部分网页失败不能导致重复调用或整体任务失败。
+
+### Runtime 工具中立化（已实现）
+
+`AgentRuntimeService` 已移除对 Search/Fetch 名称、Web URL 解析、领域资源账本和专属指标字段的依赖。Runtime 只创建通用 `ToolRunState` 并传递 `latestUserContent`、标识和取消信号；Web Research 领域自行维护 `WebResearchRunState`、URL provenance、URL/Passage 预算、去重和无新增内容状态，通过统一 `logFields` 与 `forceFinalAnswer` 控制意图和 Runtime 协作。未使用且与领域预算重复的 per-tool units 接口已删除。
 
 ### 后续阶段边界
 

@@ -6,6 +6,7 @@ import type { SearchToolResult } from '@harness/agent-protocol';
 import { SearchService } from '../search/search.service';
 import { SEARCH_LIMITS } from '../search/search.constants';
 import type { AgentTool, ToolExecutionContext, ToolExecutionResult } from './agent-tool.types';
+import { getWebResearchRunState } from './web-research-run-state';
 
 // 校验模型传入的网页搜索参数，并限制查询长度。
 const webSearchInputSchema = z
@@ -49,16 +50,15 @@ export class WebSearchTool implements AgentTool<{ query: string }, SearchToolRes
     input: { query: string },
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult<SearchToolResult>> {
-    const startedAt = Date.now();
     try {
       const output = await this.search.search(input.query, context.signal);
-      // 搜索结果是后续 Web Fetch 的唯一候选来源之一，用户直链由 Runtime 单独登记。
-      context.resources.allowFetchUrls(output.results.map((result) => result.url));
+      // 搜索结果是后续 Web Fetch 的候选来源之一，用户直链由同一领域状态初始化。
+      getWebResearchRunState(context).allowFetchUrls(output.results.map((result) => result.url));
       return {
         status: 'succeeded',
         output,
         modelContent: JSON.stringify({ untrustedExternalData: true, ...output }),
-        metrics: { durationMs: Date.now() - startedAt, resultCount: output.results.length },
+        logFields: { 结果: output.results.length },
       };
     } catch (error) {
       // 取消、超时和供应商失败对模型具有不同语义，统一在工具边界转换为稳定错误码。
@@ -78,7 +78,6 @@ export class WebSearchTool implements AgentTool<{ query: string }, SearchToolRes
           cause: error,
         },
         modelContent: JSON.stringify({ ok: false, code }),
-        metrics: { durationMs: Date.now() - startedAt },
       };
     }
   }

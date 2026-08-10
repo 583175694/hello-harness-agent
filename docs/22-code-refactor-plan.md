@@ -44,6 +44,12 @@ Runtime 只使用项目内的 canonical `ModelMessage` 和 `ModelRoundEvent`。O
 
 Runtime 负责模型轮次、工具调用循环、参数解析、工具预算、强制最终回答和标准事件输出。`MAX_TOOL_CALLS` 变为显式 Runtime Policy，后续可以按任务类型或配置替换，但当前仍保持单一默认策略。
 
+本次结构重构已经落实工具中立边界：Agent Runtime 只编排工具，不理解工具。Runtime 不导入具体工具类型，不按工具名称解释输入、输出、资源预算、日志或停止条件；新增工具不需要在 Runtime 增加 `if (toolName === ...)` 分支。
+
+现已引入类型化、run-scoped 的通用 `ToolRunState`。Runtime 只创建并传递该容器以及 `latestUserContent`、session/message/tool-call 标识和取消信号；具体工具领域负责创建、读取和维护自己的状态。Web Research 使用领域内的 `WebResearchRunState`，Search 与 Fetch 通过同一个 `ToolRunState` 共享 URL provenance、URL/Passage 预算、去重与无新增内容状态。
+
+工具执行结果通过统一契约声明可观测字段和控制意图：`logFields` 供 Runtime 结构化记录，`forceFinalAnswer` 请求结束工具阶段。Runtime 不根据结果内容推断这些意图，也不按名称关闭某个工具；强制最终回答统一省略全部工具定义。`disableTools: string[]` 作为通用契约保留，但 Web Research 的资源停止不再返回具体工具名称。此前未实际用于生产工具且与领域预算重复的 per-tool units 接口已经删除。
+
 ### 4. Projection 与 Persistence
 
 搜索投影负责从通用工具事件收集 Activity、来源去重和恢复快照；交付仓库负责 assistant 消息、metadata 和 session 时间更新的事务。业务编排仍在 ChatService，但数据库写入和搜索投影已经可以独立测试和替换。
@@ -62,7 +68,7 @@ Runtime 负责模型轮次、工具调用循环、参数解析、工具预算、
 
 ### 8. Constants Policy
 
-常量按作用域分层：协议限制和错误码放在共享包，环境变量键放在 API bootstrap，运行策略放在 Runtime，搜索归一化限制放在 Search，交互阈值和稳定 UI 文案放在 Web feature config。只使用一次且与结构强绑定的 JSX 文案、CSS 尺寸和测试数据不强行抽取；抽取标准是“是否需要跨模块一致、是否可能调整、是否代表业务规则”。
+常量按作用域分层：协议限制和错误码放在共享包，环境变量键放在 API bootstrap，通用模型轮次、工具调用和最终回答策略放在 Runtime，URL/Passage 等 Web Research 资源规则放在 Web Research 领域，搜索归一化限制放在 Search，交互阈值和稳定 UI 文案放在 Web feature config。只使用一次且与结构强绑定的 JSX 文案、CSS 尺寸和测试数据不强行抽取；抽取标准是“是否需要跨模块一致、是否可能调整、是否代表业务规则”。
 
 ### 9. AsyncGenerator Boundary
 

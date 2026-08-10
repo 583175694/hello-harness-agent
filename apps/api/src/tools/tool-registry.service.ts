@@ -50,15 +50,6 @@ export class ToolRegistryService {
     return parsed.data;
   }
 
-  // 返回工具对一次合法输入声明的运行资源单位，默认按一次调用计算。
-  units(name: string, input: unknown): { units: number; limit?: number } {
-    const tool = this.get(name);
-    return {
-      units: tool.units ? tool.units(input) : 1,
-      ...(tool.maxUnitsPerRun === undefined ? {} : { limit: tool.maxUnitsPerRun }),
-    };
-  }
-
   // 执行已注册工具，统一处理未知工具、不可用工具和参数错误。
   async execute(
     name: string,
@@ -75,7 +66,6 @@ export class ToolRegistryService {
           retryable: true,
         },
         modelContent: JSON.stringify({ ok: false, code: AGENT_ERROR_CODES.toolUnavailable }),
-        metrics: { durationMs: 0 },
       };
     }
     return tool.execute(input, context);

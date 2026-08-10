@@ -3,9 +3,16 @@ export type FetchJsonOptions = {
   signal?: AbortSignal;
 };
 
+const UPSTREAM_ERROR_BODY_LIMIT = 2_000;
+
 // 表示外部 HTTP 服务返回了非成功状态。
 export class UpstreamHttpError extends Error {
-  constructor(readonly status: number) {
+  constructor(
+    readonly status: number,
+    readonly url: string,
+    readonly responseBody: string,
+    readonly requestId?: string,
+  ) {
     super(`上游 HTTP 请求失败，状态码：${status}`);
     this.name = 'UpstreamHttpError';
   }
@@ -25,6 +32,20 @@ export async function fetchJson(
     : timeoutSignal;
   const response = await fetch(url, { ...init, signal });
 
-  if (!response.ok) throw new UpstreamHttpError(response.status);
+  if (!response.ok) {
+    const responseBody = (await response.text()).slice(0, UPSTREAM_ERROR_BODY_LIMIT);
+    const requestId = response.headers.get('x-request-id')
+      ?? response.headers.get('request-id')
+      ?? response.headers.get('trace-id')
+      ?? undefined;
+    const upstreamUrl = new URL(response.url || url.toString());
+    // 查询参数可能包含凭据，只保留定位供应商接口所需的 origin 和 pathname。
+    throw new UpstreamHttpError(
+      response.status,
+      `${upstreamUrl.origin}${upstreamUrl.pathname}`,
+      responseBody,
+      requestId,
+    );
+  }
   return response.json();
 }

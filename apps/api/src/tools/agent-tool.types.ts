@@ -44,7 +44,13 @@ export type ToolExecutionResult<TOutput> =
     }
   | {
       status: 'failed' | 'timeout' | 'cancelled';
-      error: { code: string; detail: string; retryable: boolean };
+      error: {
+        code: string;
+        detail: string;
+        retryable: boolean;
+        // 仅供服务端诊断日志使用，不写入模型上下文或客户端事件。
+        cause?: unknown;
+      };
       modelContent: string;
       metrics: ToolExecutionMetrics;
       control?: { disableTools?: string[]; forceFinalAnswer?: boolean };

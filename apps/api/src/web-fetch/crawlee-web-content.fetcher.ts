@@ -1,6 +1,7 @@
 import type { IncomingMessage } from 'node:http';
 import { Transform } from 'node:stream';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Logger } from 'nestjs-pino';
 import {
   Configuration,
   HttpCrawler,
@@ -10,6 +11,7 @@ import {
   type Request,
 } from '@crawlee/http';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
+import { describeLogError } from '../shared/logging.utils';
 import { WEB_FETCH_POLICY } from './web-fetch.constants';
 import { asWebFetchError, WebFetchError } from './web-fetch.error';
 import { WebFetchUrlGuard } from './web-fetch-url.guard';
@@ -68,7 +70,10 @@ class BoundedHttpCrawler extends HttpCrawler<HttpCrawlingContext<FetchRequestDat
 
 @Injectable()
 export class CrawleeWebContentFetcher {
-  constructor(private readonly guard: WebFetchUrlGuard) {}
+  constructor(
+    private readonly guard: WebFetchUrlGuard,
+    @Optional() @Inject(Logger) private readonly logger?: Logger,
+  ) {}
 
   // 使用无持久化 HttpCrawler 并发抓取已通过初始校验的少量 URL。
   async fetchAll(
@@ -135,6 +140,7 @@ export class CrawleeWebContentFetcher {
             AGENT_ERROR_CODES.fetchUpstreamFailed,
             '网页来源返回不可用响应。',
             statusCode >= 500,
+            new Error(`HTTP ${statusCode}`),
           );
         }
         if (!WEB_FETCH_POLICY.allowedContentTypes.includes(
@@ -178,6 +184,10 @@ export class CrawleeWebContentFetcher {
       failedRequestHandler: async ({ request }, error) => {
         const data = request.userData as FetchRequestData;
         const normalized = errors.get(request.id) ?? this.classifyError(error, signal);
+        this.logger?.warn(
+          `网页上游请求失败 | URL=${this.safeLogUrl(data.requestedUrl)} | 错误码=${normalized.code} | 上游原因=${describeLogError(error)}`,
+          CrawleeWebContentFetcher.name,
+        );
         results.set(data.index, {
           status: 'failed',
           requestedUrl: data.requestedUrl,
@@ -239,5 +249,15 @@ export class CrawleeWebContentFetcher {
   // 构造整个批次被调用方取消时使用的稳定异常。
   private cancelledError(): WebFetchError {
     return new WebFetchError(AGENT_ERROR_CODES.fetchCancelled, '网页读取已取消。');
+  }
+
+  // URL 查询参数可能携带令牌或用户输入，日志只保留站点与路径。
+  private safeLogUrl(rawUrl: string): string {
+    try {
+      const url = new URL(rawUrl);
+      return `${url.origin}${url.pathname}`;
+    } catch {
+      return '无效 URL';
+    }
   }
 }

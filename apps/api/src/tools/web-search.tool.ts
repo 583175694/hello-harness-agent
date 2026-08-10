@@ -75,6 +75,7 @@ export class WebSearchTool implements AgentTool<{ query: string }, SearchToolRes
           code,
           detail: cancelled ? '网页搜索已取消。' : '网页搜索暂时不可用。',
           retryable: !cancelled,
+          cause: error,
         },
         modelContent: JSON.stringify({ ok: false, code }),
         metrics: { durationMs: Date.now() - startedAt },

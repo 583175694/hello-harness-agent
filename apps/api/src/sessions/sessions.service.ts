@@ -1,5 +1,6 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Message, Session } from '@prisma/client';
+import { Logger } from 'nestjs-pino';
 
 import type {
   GenerateSessionTitleResponse,
@@ -14,6 +15,7 @@ import { SessionTitleService } from './session-title.service';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
 import { SessionExecutionRegistry } from './session-execution.registry';
+import { describeLogError, shortLogId } from '../shared/logging.utils';
 
 @Injectable()
 export class SessionsService {
@@ -21,6 +23,7 @@ export class SessionsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(SessionExecutionRegistry) private readonly executions: SessionExecutionRegistry,
     @Inject(SessionTitleService) private readonly titles: SessionTitleService,
+    @Inject(Logger) private readonly logger: Logger,
   ) {}
 
   // 创建属于固定本地用户的持久化会话。
@@ -101,7 +104,11 @@ export class SessionsService {
         data: { title },
       });
       return { session: this.toSummary(updated), generated: true };
-    } catch {
+    } catch (error) {
+      this.logger.warn(
+        `会话标题生成失败 | 会话=${shortLogId(sessionId)} | 上游原因=${describeLogError(error)}`,
+        SessionsService.name,
+      );
       return { session: this.toSummary(session), generated: false };
     }
   }

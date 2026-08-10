@@ -5,6 +5,7 @@ import type { ModelAdapter } from '../../../src/model/model-adapter';
 import type { ToolRegistryService } from '../../../src/tools/tool-registry.service';
 import { AgentRuntimeService } from '../../../src/agent-runtime/agent-runtime.service';
 import { AGENT_TOOL_NAMES } from '@harness/agent-protocol';
+import { UpstreamHttpError } from '../../../src/shared/fetch-json';
 
 // 创建可从测试侧控制继续时机的 Promise。
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -14,6 +15,59 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 describe('AgentRuntimeService streaming', () => {
+  it('logs the retained upstream reason when a tool returns a provider failure', async () => {
+    let round = 0;
+    const model = {
+      streamRound: vi.fn(async function* () {
+        round += 1;
+        if (round === 1) {
+          yield {
+            type: 'tool_calls.completed' as const,
+            calls: [{ id: 'call-search', name: AGENT_TOOL_NAMES.webSearch, arguments: '{"query":"market"}' }],
+          };
+          yield { type: 'round.completed' as const, finishReason: 'tool_calls' };
+          return;
+        }
+        yield { type: 'text.delta' as const, delta: '搜索失败。' };
+        yield { type: 'round.completed' as const, finishReason: 'stop' };
+      }),
+    } as unknown as ModelAdapter;
+    const tools = {
+      definitions: vi.fn(() => [{ name: AGENT_TOOL_NAMES.webSearch, description: '搜索网页', parameters: {} }]),
+      parseInput: vi.fn(() => ({ query: 'market' })),
+      execute: vi.fn().mockResolvedValue({
+        status: 'failed',
+        error: {
+          code: 'SEARCH_PROVIDER_FAILED',
+          detail: '网页搜索暂时不可用。',
+          retryable: true,
+          cause: new UpstreamHttpError(
+            401,
+            'https://search.example/v1/search',
+            '{"error":"invalid subscription token"}',
+            'provider-request-1',
+          ),
+        },
+        modelContent: '{"ok":false,"code":"SEARCH_PROVIDER_FAILED"}',
+        metrics: { durationMs: 1 },
+      }),
+    } as unknown as ToolRegistryService;
+    const logger = { log: vi.fn(), warn: vi.fn() } as unknown as Logger;
+    const runtime = new AgentRuntimeService(model, tools, logger);
+
+    for await (const event of runtime.run({
+      sessionId: 'session-1', messageId: 'message-1', model: 'test-model',
+      systemPrompt: 'test', messages: [{ role: 'user', content: 'hello' }],
+    })) void event;
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '错误码=SEARCH_PROVIDER_FAILED | 上游原因=UpstreamHttpError: 上游 HTTP 请求失败，状态码：401 | HTTP=401 | 请求ID=provider-request-1 | 上游=https://search.example/v1/search | 响应={"error":"invalid subscription token"}',
+      ),
+      AgentRuntimeService.name,
+    );
+  });
+
   it('yields the first text delta before a tool-enabled model round finishes', async () => {
     const gate = deferred();
     const model = {

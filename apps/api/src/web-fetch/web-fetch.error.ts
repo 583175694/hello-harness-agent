@@ -4,8 +4,9 @@ export class WebFetchError extends Error {
     readonly code: string,
     message: string,
     readonly retryable = false,
+    cause?: unknown,
   ) {
-    super(message);
+    super(message, cause === undefined ? undefined : { cause });
     this.name = 'WebFetchError';
   }
 }

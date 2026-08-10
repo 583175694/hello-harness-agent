@@ -160,6 +160,7 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
           code: normalized.code,
           detail: normalized.message,
           retryable: normalized.retryable,
+          cause: error,
         },
         modelContent: JSON.stringify({ ok: false, code: normalized.code }),
         metrics: { durationMs: Date.now() - startedAt },

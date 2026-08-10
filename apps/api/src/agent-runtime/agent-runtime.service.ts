@@ -346,8 +346,11 @@ export class AgentRuntimeService {
           };
         } else if (result.status === 'cancelled') {
           const researchTimedOut = !input.signal?.aborted && Date.now() >= researchDeadline;
+          const upstreamReason = result.error.cause === undefined
+            ? ''
+            : ` | 上游原因=${describeLogError(result.error.cause)}`;
           this.logger.warn(
-            `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=已取消 | 错误码=${result.error.code} | 耗时=${formatLogDuration(durationMs)}`,
+            `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=已取消 | 错误码=${result.error.code}${upstreamReason} | 耗时=${formatLogDuration(durationMs)}`,
             AgentRuntimeService.name,
           );
           yield {
@@ -367,8 +370,11 @@ export class AgentRuntimeService {
             forceFinalAnswer = true;
           }
         } else {
+          const upstreamReason = result.error.cause === undefined
+            ? ''
+            : ` | 上游原因=${describeLogError(result.error.cause)}`;
           this.logger.warn(
-            `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=${result.status} | 错误码=${result.error.code} | 耗时=${formatLogDuration(durationMs)}`,
+            `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=${result.status} | 错误码=${result.error.code}${upstreamReason} | 耗时=${formatLogDuration(durationMs)}`,
             AgentRuntimeService.name,
           );
           yield {

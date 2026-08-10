@@ -4,6 +4,8 @@
 
 当前已完成工程基线、持久化聊天和 General Web Research V1：模型可以迭代调用 `web_search` 与 `web_fetch`，过滤重复或不可用页面，并把已读取来源、资源边界和工具过程投影到 Workbench。正式 Run/Event Store、Context Compiler、Deep Research 引用/报告、Memory 和 Delegation 尚未实现。
 
+独立的 `@harness/agent-evals` 已提供 6 题 Smoke 和 24 题 Full 真实黑盒评测，覆盖生产 Session、Chat SSE、工具执行、持久化快照、确定性硬规则、模型 Judge 和人工抽检文件。
+
 ## 当前能力
 
 ```text
@@ -84,6 +86,8 @@ curl http://127.0.0.1:4318/readyz
 pnpm check             # lint + typecheck + unit tests + build
 pnpm test:integration  # API/PostgreSQL integration tests
 pnpm test:e2e          # desktop/mobile browser tests
+pnpm eval:research      # 串行运行 6 题真实联网 Smoke 评测
+pnpm eval:research:full # 串行运行 24 题真实联网 Full 评测
 pnpm db:local:init     # 初始化本地 harness 用户和数据库
 pnpm db:migrate        # 开发期创建并应用 Prisma migration
 pnpm db:studio         # 打开 Prisma Studio
@@ -98,6 +102,7 @@ apps/web                React/Vite 工作台
 apps/api                NestJS API + Prisma
 packages/agent-protocol 跨前后端 canonical schema/type
 packages/agent-testkit  确定性测试 fixtures
+packages/agent-evals    General Web Research 真实黑盒评测
 scripts                 本地开发和 PostgreSQL 初始化脚本
 artifacts               本地 Artifact 内容根目录
 docs                    产品、架构与实施文档
@@ -115,6 +120,7 @@ docs                    产品、架构与实施文档
 8. [工程结构](./docs/18-project-structure.md)
 9. [API 协议](./docs/11-api-protocol.md)
 10. [存储方案](./docs/12-storage-schema.md)
+11. [General Web Research 真实评测](./docs/24-general-web-research-evaluation.md)
 
 ## 文档规则
 

@@ -8,7 +8,7 @@
 
 项目已经完成工程基线、持久化普通对话和 General Web Research V1。模型可以通过 Bocha 或 Serper 发现网页线索，再批量读取 1-5 个公开静态网页的可定位相关原文；当前每轮受 25 个唯一 URL、120 秒调查时间和 60,000 字符 Fetch Passage 代码常量约束。
 
-当前状态可以描述为“具备有界联网调查闭环的简化通用 Agent Loop”：它能过滤重复 URL/正文、登录或验证页、JavaScript 空壳、模板噪声和 query 无关正文，连续无新增信息或触及资源边界后停止 Search/Fetch，并用已有材料作答。正式 Evidence、`[Sx]`、报告 Artifact 和引用校验保留给后续 Deep Research；Run/Event Store、Context Compiler、steer/cancel 和搜索 fallback 仍未实现。
+当前状态可以描述为“P7 已完成，进入 P8 Evaluation / Release Hardening”：有界联网调查闭环已具备独立真实黑盒评测工具，可以用固定题集检查生产 Session、Chat SSE、Search/Fetch、最终回答和持久化快照。正式 Evidence、`[Sx]`、报告 Artifact 和引用校验保留给后续 Deep Research；Run/Event Store、Context Compiler、steer/cancel 和搜索 fallback 仍未实现。
 
 ## 2. 已完成
 
@@ -49,6 +49,9 @@
 - 不同 Session 可并行生成；同一 Session 由内存执行注册表限制为单流，活跃会话禁止删除。
 - 用户消息、模型消息和后续报告共用 `MarkdownContent` 组件，支持 GFM、代码块、表格和安全外链。
 - 根目录 `pnpm dev` 会分别启动 Web/API，等待健康检查通过后输出可点击地址。
+- 新增独立 `@harness/agent-evals` workspace 包；默认串行运行 6 题 Smoke，发布前运行 24 题 Full，不进入生产 Runtime 或数据库 Schema。
+- 评测通过生产 Session/Chat SSE 黑盒采集标准事件与 assistant metadata，并输出确定性硬规则、聚合指标、无联网检索权限的模型 Judge 和稳定人工抽检 CSV。
+- 评测 Session 默认在结果采集后删除；支持 `--keep-sessions`、单题、跳过 Judge、自定义 API 和输出目录。
 
 ### Web 工作台
 
@@ -142,6 +145,10 @@ git diff --check
 
 2026-08-10 完成 General Web Research V1 hardening 后执行 `pnpm check`、`pnpm test:integration`、`pnpm test:e2e` 和 `git diff --check`。workspace lint、typecheck、production build 全部通过；共享协议 12 项、API 44 项、Web 17 项、testkit 1 项 unit test 通过，API integration 9 项通过，Playwright desktop/mobile 16 项通过。新增回归覆盖 Runtime Policy 常量、URL 确定性规范化、Search/Fetch 稳定工具集、用户直链/Search clue 来源登记、模型自造 URL 网络前拒绝、Run Ledger 的 URL/正文去重与早停、Document Quality Gate、动态 Passage 预算、partial-success skipped、同一模型响应的后续调用静默补齐、内部调查超时与强制最终回答，以及最终回答带追踪参数 URL 的 `used` 规范化匹配。自动验收没有请求真实外部搜索或网页 Provider。
 
+2026-08-10 新增 General Web Research 真实评测 V1。题集版本为 `v1`，包含 Smoke 6 题和 Full 24 题；评测包 26 项 Mock 自动测试覆盖 SSE 半包、生产 API 客户端、硬规则、指标、Judge 修复、本地能力预检、workspace 根 `.env` 定位、Session 标题边界、Runner 清理/保留/异常恢复、CLI 和报告输出。本轮 `pnpm check`、评测包独立 build 和 `git diff --check` 均通过。真实外部 Smoke 需要 API、PostgreSQL、主模型和 Search Provider 就绪后单独执行；首次结果只作为人工校准基线，不作为冻结发布阈值。
+
+同日首次真实 Smoke 已执行：6 题中硬规则 2 题通过、4 题失败，评测 Session 清理全部成功。首轮暴露的主要问题包括直链题仍先调用 Search、部分工具 execution/source 快照与 SSE 不一致、部分题超出题目工具调用上限、模型流中断，以及 Judge 请求超时。原始结果保存在 `.eval/research/2026-08-10T12-09-47-750Z/`。评测报告已补充逐题问题、Agent 最终回答、失败规则、工具摘要、来源摘要和 Judge 信息；下一轮继续观察真实链路后再决定哪些属于 Agent 行为缺陷、哪些属于评测规则需要校准。
+
 覆盖范围包括：
 
 - Web lint、TypeScript typecheck、unit tests、production build。
@@ -178,7 +185,7 @@ git diff --check
 - [x] `clue/fetched + used` 来源协议、确定性 URL 匹配、已读来源优先 fallback 和 Workbench 恢复。
 - [x] 用户直链 Fetch Prompt、120 秒调查 deadline、30 秒最终回答 deadline 和用户 Abort 分离。
 - [x] Workbench 展示成功/失败/跳过、网络请求、相关 Passage、URL 预算和采用/已读/线索数量。
-- [ ] 通用 Agent 真实固定题集、指标聚合与人工抽检属于发布硬化，当前自动验收使用 Mock，不请求真实外部 API。
+- [x] 通用 Agent 固定题集、真实 API 黑盒 Runner、指标聚合、模型 Judge 和人工抽检文件已实现；真实基线运行与两轮人工阈值校准仍待执行。
 - [ ] 公网/多用户部署前的连接 IP pinning、网络出口隔离和完整 DNS rebinding 防护仍属后续安全加固。
 
 当前阶段的完成标准是：对需要联网的普通用户问题，Agent 能在合理时间和有限资源内自主找到并读取足够的公开静态网页，过滤无效与重复内容，只注入相关原文，在信息充分或触及资源边界时停止，并基于真正读取过的来源完成普通回答；部分网页失败不能导致重复调用或整体任务失败。
@@ -192,7 +199,16 @@ git diff --check
 
 ## 6. 下一阶段建议
 
-下一阶段不再扩张 Web Fetch 自身。先基于通用 Agent 真实固定题集和人工抽检观察实际失败模式；如果主要瓶颈是长工具历史、相关材料动态进出和最终回答空间，则进入 Context Engineering / Context Compiler，而不是继续增加 Fetch 硬限制。
+当前进入 P8 Evaluation / Release Hardening。先运行 Smoke 真实基线并人工检查全部 6 题，再根据成本、耗时和 Judge 稳定性运行 Full 24 题；至少完成两轮人工校准后再冻结发布阈值。如果主要瓶颈是长工具历史、相关材料动态进出和最终回答空间，则进入 Context Engineering / Context Compiler，而不是继续增加 Fetch 硬限制。
+
+### 评测报告 TODO
+
+- [x] `summary.md` 展示总体指标和每题状态。
+- [x] `review.md` 展示每题问题、Agent 最终回答、失败规则、工具执行、来源摘要和 Judge 结果。
+- [x] `human-review.csv` 保留人工评分字段，同时带上自动诊断上下文。
+- [ ] 将 Judge 超时、Agent 流中断和工具快照不一致拆成可聚合的失败分类。
+- [ ] 为直链题、搜索题和 Fetch 题分别校准硬规则，避免单一规则把行为问题和协议投影问题混在一起。
+- [ ] 根据至少两轮真实 Smoke 结果冻结语义质量阈值，再决定 Full suite 是否进入发布门槛。
 
 Context Engineering、durable Run/Step/Event、断线 replay、Worker 独立上下文、正式 Evidence/Report、动态 Browser Fetch 和 PDF 仍按上述后续边界独立推进。
 
@@ -206,6 +222,7 @@ Context Engineering、durable Run/Step/Event、断线 replay、Worker 独立上�
 - 工程结构：[docs/18-project-structure.md](./18-project-structure.md)
 - 面试知识点：[docs/interview-knowledge.md](./interview-knowledge.md)
 - Web Fetch 设计：[docs/23-web-fetch-tool.md](./23-web-fetch-tool.md)
+- 真实评测：[docs/24-general-web-research-evaluation.md](./24-general-web-research-evaluation.md)
 
 ## 8. 维护规则
 

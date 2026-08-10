@@ -24,7 +24,7 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 
 ## 2. 当前基线
 
-当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答` 和真实 Workbench 投影。Web Fetch 仍需完成本文 P7 的扩量、去重、正文可用性、早停和累计上下文安全边界；durable Run/State、Memory 和 Delegation 尚未完成。
+当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、真实 Workbench 投影和独立真实评测工具。P7 General Web Research Hardening 已完成，当前进入 P8 Evaluation / Release Hardening；durable Run/State、Memory 和 Delegation 尚未完成。
 
 详细代码状态、验证记录和已知限制统一维护在 [implementation-status.md](./implementation-status.md)。只有代码、测试和验收记录同时存在时，能力才算完成。
 

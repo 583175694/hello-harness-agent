@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
-import { RunResourceLedger } from '../agent-runtime/run-resource-ledger';
-import type { WebFetchService } from '../web-fetch/web-fetch.service';
-import { WebFetchTool } from './web-fetch.tool';
+import { RunResourceLedger } from '../../../src/agent-runtime/run-resource-ledger';
+import type { WebFetchService } from '../../../src/web-fetch/web-fetch.service';
+import { WebFetchTool } from '../../../src/tools/web-fetch.tool';
 
 const passage = (id: string, text: string) => ({
   passageId: id,

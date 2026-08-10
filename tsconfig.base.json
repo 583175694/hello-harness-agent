@@ -10,7 +10,6 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "moduleResolution": "Bundler",
-    "baseUrl": "."
+    "moduleResolution": "Bundler"
   }
 }

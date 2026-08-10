@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ResearchProjectionCollector } from './research-projection.collector';
+import { ResearchProjectionCollector } from '../../../src/projection/research-projection.collector';
 
 describe('ResearchProjectionCollector', () => {
   it('marks a source used after normalizing URLs mentioned in the final answer', () => {

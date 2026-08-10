@@ -1,9 +1,9 @@
 import type { Logger } from 'nestjs-pino';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ModelAdapter } from '../model/model-adapter';
-import type { ToolRegistryService } from '../tools/tool-registry.service';
-import { AgentRuntimeService } from './agent-runtime.service';
+import type { ModelAdapter } from '../../../src/model/model-adapter';
+import type { ToolRegistryService } from '../../../src/tools/tool-registry.service';
+import { AgentRuntimeService } from '../../../src/agent-runtime/agent-runtime.service';
 import { AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 
 // 创建可从测试侧控制继续时机的 Promise。

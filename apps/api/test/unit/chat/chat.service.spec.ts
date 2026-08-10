@@ -3,13 +3,13 @@ import type OpenAI from 'openai';
 import type { Logger } from 'nestjs-pino';
 import { describe, expect, it, vi } from 'vitest';
 
-import { PrismaService } from '../database/prisma.service';
-import { OpenAICompatibleModelAdapter } from '../model/openai-compatible-model.adapter';
-import { AgentRuntimeService } from '../agent-runtime/agent-runtime.service';
-import { AssistantDeliveryRepository } from '../persistence/assistant-delivery.repository';
-import { SessionExecutionRegistry } from '../sessions/session-execution.registry';
-import { ChatService } from './chat.service';
-import { ToolRegistryService } from '../tools/tool-registry.service';
+import { PrismaService } from '../../../src/database/prisma.service';
+import { OpenAICompatibleModelAdapter } from '../../../src/model/openai-compatible-model.adapter';
+import { AgentRuntimeService } from '../../../src/agent-runtime/agent-runtime.service';
+import { AssistantDeliveryRepository } from '../../../src/persistence/assistant-delivery.repository';
+import { SessionExecutionRegistry } from '../../../src/sessions/session-execution.registry';
+import { ChatService } from '../../../src/chat/chat.service';
+import { ToolRegistryService } from '../../../src/tools/tool-registry.service';
 
 // 创建不连接数据库和网络的 ChatService 测试环境。
 function makeService(

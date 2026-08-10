@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { describe, expect, it } from 'vitest';
 
-import { createLoggingOptions } from './logging.module';
+import { createLoggingOptions } from '../../../src/bootstrap/logging.module';
 
 describe('createLoggingOptions', () => {
   it('开发环境使用彩色单行日志并关闭自动访问日志', () => {

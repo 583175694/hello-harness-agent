@@ -7,18 +7,18 @@ import {
 import { once } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
-import { BatchPassageBudgeter } from './batch-passage.budgeter';
-import { CrawleeWebContentFetcher } from './crawlee-web-content.fetcher';
-import { DocumentNormalizer } from './document.normalizer';
-import { DocumentQualityGate } from './document-quality.gate';
-import { HtmlContentExtractor } from './html-content.extractor';
-import { PassageChunker } from './passage.chunker';
-import { PassageRanker } from './passage.ranker';
-import { WebFetchCache } from './web-fetch.cache';
-import { WEB_FETCH_POLICY } from './web-fetch.constants';
-import { WebFetchService } from './web-fetch.service';
-import { WebFetchUrlGuard } from './web-fetch-url.guard';
-import type { GuardedWebUrl, RankedWebPassage } from './web-fetch.types';
+import { BatchPassageBudgeter } from '../../../src/web-fetch/batch-passage.budgeter';
+import { CrawleeWebContentFetcher } from '../../../src/web-fetch/crawlee-web-content.fetcher';
+import { DocumentNormalizer } from '../../../src/web-fetch/document.normalizer';
+import { DocumentQualityGate } from '../../../src/web-fetch/document-quality.gate';
+import { HtmlContentExtractor } from '../../../src/web-fetch/html-content.extractor';
+import { PassageChunker } from '../../../src/web-fetch/passage.chunker';
+import { PassageRanker } from '../../../src/web-fetch/passage.ranker';
+import { WebFetchCache } from '../../../src/web-fetch/web-fetch.cache';
+import { WEB_FETCH_POLICY } from '../../../src/web-fetch/web-fetch.constants';
+import { WebFetchService } from '../../../src/web-fetch/web-fetch.service';
+import { WebFetchUrlGuard } from '../../../src/web-fetch/web-fetch-url.guard';
+import type { GuardedWebUrl, RankedWebPassage } from '../../../src/web-fetch/web-fetch.types';
 
 const servers: Server[] = [];
 

@@ -3,10 +3,10 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { AppModule } from '../src/app.module';
-import { HttpExceptionFilter } from '../src/shared/http-exception.filter';
-import { PrismaService } from '../src/database/prisma.service';
-import { SessionExecutionRegistry } from '../src/sessions/session-execution.registry';
+import { AppModule } from '../../src/app.module';
+import { HttpExceptionFilter } from '../../src/shared/http-exception.filter';
+import { PrismaService } from '../../src/database/prisma.service';
+import { SessionExecutionRegistry } from '../../src/sessions/session-execution.registry';
 
 describe('foundation API', () => {
   let app: INestApplication;

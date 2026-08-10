@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
-import { RunResourceLedger } from './run-resource-ledger';
+import { RunResourceLedger } from '../../../src/agent-runtime/run-resource-ledger';
 
 describe('RunResourceLedger', () => {
   it('normalizes tracking URLs and enforces a partial unique URL budget', () => {

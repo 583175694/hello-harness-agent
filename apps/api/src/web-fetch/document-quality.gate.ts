@@ -4,11 +4,14 @@ import { WebFetchError } from './web-fetch.error';
 import type { NormalizedWebDocument } from './web-fetch.types';
 import { codePointLength, sliceCodePoints } from './unicode.utils';
 
+// 识别登录、验证码、订阅或付费墙等无法直接作为公开依据的页面。
 const ACCESS_PATTERN = /(?:captcha|verify you are human|登录(?:后|以)|登入|订阅后|付费墙|subscribe to continue|sign in to continue|access denied)/iu;
+// 识别只返回 JavaScript 壳、需要浏览器执行后才能显示正文的页面。
 const JAVASCRIPT_PATTERN = /(?:enable javascript|javascript (?:is )?required|请(?:启用|开启)\s*javascript|需要启用\s*javascript)/iu;
 
 @Injectable()
 export class DocumentQualityGate {
+  // 校验规范化网页是否包含足够、可读且与静态抓取能力匹配的正文。
   validate(document: NormalizedWebDocument): void {
     const readable = this.readableText(document.markdown);
     const length = codePointLength(readable);
@@ -37,6 +40,7 @@ export class DocumentQualityGate {
     }
   }
 
+  // 去掉 Markdown 标记和代码等非正文内容，得到用于质量判断的纯文本样本。
   private readableText(markdown: string): string {
     return markdown
       .replace(/```[\s\S]*?```/gu, ' ')

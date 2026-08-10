@@ -6,7 +6,12 @@ import type { AgentTool } from './agent-tool.types';
 export const AGENT_TOOLS = Symbol('AGENT_TOOLS');
 
 // 工具白名单是唯一的注册入口，新增工具时只需在此数组加入实现类。
-export const AGENT_TOOL_CLASSES = [WebSearchTool, WebFetchTool] as const;
+export const AGENT_TOOL_CLASSES = [
+  // 网页搜索工具，负责从外部 Provider 发现候选线索。
+  WebSearchTool,
+  // 网页读取工具，负责获取并筛选可定位原文。
+  WebFetchTool,
+] as const;
 
 // 将 catalog 中的工具类实例聚合为 Registry 所需的统一集合。
 export const AGENT_TOOLS_PROVIDER = {

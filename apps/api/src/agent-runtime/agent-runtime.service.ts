@@ -397,6 +397,7 @@ export class AgentRuntimeService {
     yield { type: 'run.completed', content: finalContent, toolCallCount };
   }
 
+  // 将客户端取消信号与当前模型轮次的超时信号合并。
   private roundSignal(external: AbortSignal | undefined, timeoutMs: number): AbortSignal {
     const timeout = AbortSignal.timeout(timeoutMs);
     return external ? AbortSignal.any([external, timeout]) : timeout;

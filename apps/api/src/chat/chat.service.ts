@@ -414,8 +414,8 @@ export class ChatService {
           `- [${source.title.replaceAll('[', '\\[').replaceAll(']', '\\]')}](${sourceUrl(source)})`,
       );
     const heading = preferred.some((source) => source.kind === 'fetched')
-      ? '### 已读取来源'
-      : '### 搜索线索（未读取正文）';
+      ? '### 搜索来源'
+      : '### 搜索线索';
     return `${content.trimEnd()}\n\n${heading}\n\n${links.join('\n')}`;
   }
 }

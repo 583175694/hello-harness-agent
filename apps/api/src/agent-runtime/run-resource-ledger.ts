@@ -24,6 +24,7 @@ export class RunResourceLedger {
   private consecutiveEmptyFetches = 0;
   private stopReason?: WebFetchStopReason;
 
+  // 初始化本轮联网调查的 URL 和原文上下文硬预算。
   constructor(
     private readonly urlLimit: number,
     private readonly passageCharacterLimit: number,
@@ -37,6 +38,7 @@ export class RunResourceLedger {
     }
   }
 
+  // 预留本批次 URL，并把来源约束、重复项和运行级预算统一转换为结构化结果。
   reserveUrls(urls: string[]): UrlReservation[] {
     const reservations = urls.map((requestedUrl): UrlReservation => {
       if (this.stopReason === 'context_budget') {
@@ -86,6 +88,7 @@ export class RunResourceLedger {
     return reservations;
   }
 
+  // 累加实际发起的网络请求次数，缓存命中不会计入这里。
   registerNetworkAttempts(count: number): void {
     this.networkAttempts += Math.max(0, count);
   }
@@ -107,30 +110,36 @@ export class RunResourceLedger {
     return true;
   }
 
+  // 累加注入模型上下文的原文字符数，并在剩余空间不足时停止 Fetch。
   registerPassageCharacters(count: number): void {
     this.passageCharacters += Math.max(0, count);
     if (this.remainingPassageCharacters() < 2_000) this.stopReason ??= 'context_budget';
   }
 
+  // 根据本次 Fetch 是否产生新文档更新连续空结果计数，并触发无新内容早停。
   registerFetchGain(newDocumentCount: number): void {
     this.consecutiveEmptyFetches = newDocumentCount > 0 ? 0 : this.consecutiveEmptyFetches + 1;
     if (this.consecutiveEmptyFetches >= 2) this.stopReason ??= 'no_new_content';
   }
 
+  // 记录本轮联网调查的确定性停止原因。
   markStopped(reason: WebFetchStopReason): void {
     this.stopReason = reason;
   }
 
+  // 返回当前 run 还可以向模型上下文注入的原文字符数。
   remainingPassageCharacters(): number {
     return Math.max(0, this.passageCharacterLimit - this.passageCharacters);
   }
 
+  // 判断当前 run 是否仍满足继续读取网页的基本资源条件。
   canFetch(): boolean {
     return !this.stopReason &&
       this.acceptedUrlKeys.size < this.urlLimit &&
       this.remainingPassageCharacters() >= 2_000;
   }
 
+  // 生成对工具响应和日志可见的有界资源快照。
   budget(): WebFetchBudget {
     const used = this.acceptedUrlKeys.size;
     return {
@@ -147,6 +156,7 @@ export class RunResourceLedger {
     };
   }
 
+  // 构造不会触发网络请求的单 URL 跳过结果。
   private skipped(requestedUrl: string, code: string, detail: string): WebFetchSkippedItem {
     return { status: 'skipped', requestedUrl, code, detail };
   }

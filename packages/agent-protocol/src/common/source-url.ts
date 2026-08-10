@@ -1,3 +1,4 @@
+// 需要从来源身份中移除的常见广告追踪参数。
 const TRACKING_PARAMETERS = new Set(['gclid', 'fbclid', 'msclkid']);
 
 // 为预算、去重和最终来源匹配生成跨前后端一致的公开 URL key。

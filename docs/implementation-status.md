@@ -10,7 +10,72 @@
 
 当前状态可以描述为“P7 已完成，进入 P8 Evaluation / Release Hardening”：有界联网调查闭环已具备独立真实黑盒评测工具，可以用固定题集检查生产 Session、Chat SSE、Search/Fetch、最终回答和持久化快照。正式 Evidence、`[Sx]`、报告 Artifact 和引用校验保留给后续 Deep Research；Run/Event Store、Context Compiler、steer/cancel 和搜索 fallback 仍未实现。
 
-## 2. 已完成
+## 2. 从空项目到当前 Agent 的阶段演进
+
+这一节记录的不是功能清单，而是每个实际阶段面对的问题、采取的方案、留下的边界和下一步动因。它用于解释项目为什么演进成现在的形态，避免后续只看到最终代码而丢失关键工程判断。
+
+### 阶段一：从空仓库到可运行工程基线
+
+**当时的问题**：项目没有可启动的 Web/API、数据库、共享协议、配置校验和测试入口。此时直接开发 Agent Loop，会把业务问题与环境、协议和部署问题混在一起，后续无法判断失败来自模型还是工程基线。
+
+**解决方式**：建立 pnpm monorepo、React/Vite、NestJS、Prisma/PostgreSQL、共享协议包、环境变量校验、健康检查、日志脱敏、Vitest、integration test 和 Playwright 基线。生产 `/agent` 只展示真实空状态和明确的 capability unavailable；复杂 Workbench 状态先放在 development-only Preview，不用假数据冒充生产能力。
+
+**阶段结果**：仓库从空项目变成了可以确定性安装、启动、检查和部署的应用骨架。前后端、协议、数据库和测试的责任边界先于智能能力稳定下来。
+
+**仍未解决**：没有真实模型、会话、流式回答或 Agent 行为。下一阶段需要先打通最小 AI 对话闭环，而不是同时引入工具、Memory 和多 Agent。
+
+### 阶段二：从普通 HTTP 接口到基础 AI 对话
+
+**当时的问题**：模型供应商存在 base URL、模型名和流式协议差异；如果前端直接依赖供应商响应，Provider chunk、错误结构和密钥边界会扩散到整个系统。非流式回答又无法满足长生成过程中的用户反馈。
+
+**解决方式**：使用 OpenAI 官方 SDK 接入 OpenAI-compatible Chat Completions，并通过项目内 `ModelAdapter`、canonical message 和模型事件隔离供应商协议。API 把模型文本转换为 Chat SSE，Web 使用乐观 user message 和空 assistant 占位实时追加 delta；长度截断、供应商失败和客户端断开都有明确失败语义。
+
+**阶段结果**：形成了“用户提交 -> 后端模型调用 -> SSE 增量回答”的真实基础 AI 对话，模型与 Web 不再直接耦合。
+
+**仍未解决**：对话历史仍需要可靠事实源，会话刷新、切换、并发和失败后的数据一致性尚未解决。下一阶段需要先把 Session/Message 持久化做扎实。
+
+### 阶段三：从一次性对话到可恢复会话
+
+**当时的问题**：如果由前端回传完整历史，浏览器缓存会成为上下文事实源；刷新、后台生成、会话切换和未来多端访问都可能产生历史分叉。流式过程中先写什么、失败时保存什么也缺少确定性规则。
+
+**解决方式**：PostgreSQL 成为 Session/Message 权威来源，Web 只提交当前用户内容；API 先持久化 user message，再读取数据库最近 20 条消息，完整 assistant 回答成功后才落库。增加 session-scoped 执行注册表、会话 CRUD、标题生成、级联删除、前端分会话缓存和 URL 恢复。失败时保留用户已提交事实，但不持久化不完整 assistant 内容。
+
+**阶段结果**：普通 AI 对话具备刷新恢复、会话切换、并发隔离和确定性持久化语义，前端缓存回归为低延迟投影而不是事实源。
+
+**仍未解决**：模型只能依靠已有对话知识回答，不能主动获取外部信息。下一阶段需要引入 Function Calling，但必须由应用拥有循环、校验和预算，而不是把工具执行权交给模型或前端。
+
+### 阶段四：从 AI 对话到会调用工具的 Agent
+
+**当时的问题**：模型返回的 Function Calling 参数可能跨 chunk、JSON 不完整、工具不存在或参数无效；同一响应还可能声明多个调用。只有 `tools` 参数而没有应用侧循环、权限、预算和生命周期，就不是可控 Agent。
+
+**解决方式**：实现 `AgentRuntimeService`、Tool Catalog、通用 Registry 和 `AgentTool` 契约。Runtime 聚合 tool-call chunk、解析并校验参数、串行执行工具、把 assistant tool-call message 与 tool result 放回上下文，再让模型继续决策。加入 20 次通用工具调用上限、取消传播、工具生命周期事件和 Workbench Activity/Sources 投影；首个真实工具是统一 Provider 边界后的 `web_search`。后续重构进一步引入通用 `ToolRunState`、`logFields` 和控制意图，移除 Runtime 对具体工具名称、输入输出、领域预算和指标的理解；工具领域自行维护运行状态，Registry 和 Runtime 只负责通用发现、校验、执行与编排。
+
+**阶段结果**：系统从“模型生成文本”升级为“模型决定下一步、应用确定性执行并继续循环”的基础 Agent，用户可以看到真实工具进度和搜索 clue。Runtime 最终收敛为工具中立编排器，新增工具原则上只需要实现 `AgentTool`、自己的领域状态并加入 Catalog，不需要修改核心循环。
+
+**仍未解决**：搜索摘要只是线索，模型没有真正读取网页正文；重复 URL、模型自造 URL、低质量页面和上下文膨胀仍可能损害回答。下一阶段需要建设有界 Web Fetch 和来源语义。
+
+### 阶段五：从搜索 Agent 到有边界的 General Web Research
+
+**当时的问题**：直接把网页 HTML 注入模型会带来脚本/导航噪声、Prompt Injection、上下文浪费和无法定位原文；多轮 Fetch 还会绕过单次限制，重复读取 URL 或正文，并在无新信息时继续消耗资源。
+
+**解决方式**：实现 `web_fetch` 的 URL/DNS/redirect guard、Crawlee 有界获取、Readability 正文提取、canonical Markdown、Document Quality Gate、字符 n-gram 相关性筛选和可定位 Passage。通过 run-scoped `WebResearchRunState` 限制 URL 来源，只允许用户直链或 Search clue，并累计 25 个 URL、60,000 Passage 字符、URL/contentHash 去重和连续两次无新增内容早停。Workbench 区分 clue、fetched 和轻量 used 来源。
+
+**后续加固**：在能力闭环完成后，本阶段继续删除会误伤健康长任务的 Agent run 总截止时间，保留普通模型单轮 120 秒、最终回答单轮 30 秒、Search 10 秒、Fetch 20 秒和用户取消；用 20 次通用工具调用及 Web Research 自己的 URL/Passage/无新增内容边界保证结构性收敛。最终回答完全省略工具定义，服务端整轮缓冲并校验空响应、长度截断、结构化工具调用和 DSML，污染时整轮丢弃并最多重试一次；上游失败日志保留脱敏后的真实原因、HTTP 状态、请求 ID、上游地址和响应摘要。
+
+**阶段结果**：形成了 `search -> fetch -> relevant passages -> answer` 的完整联网调查闭环。Agent 不只“搜到链接”，而是基于真正读取过的公开静态网页完成普通回答，并能在部分来源失败时继续交付。健康长任务不再被总时钟误杀，单操作故障仍能隔离；异常工具循环有确定上限；协议污染不会进入 SSE、数据库或后续上下文；Search 和 Fetch 在同一次 run 内共享 Web Research 状态但不污染并发会话。
+
+**当前仍未解决**：
+
+- 首次真实 Smoke 只有 2/6 题通过硬规则；直链题工具选择、execution/source 快照一致性、题目工具调用上限、模型流中断和 Judge 超时仍需分类和校准。
+- Runtime 仍属于一次 Chat 请求内的内存循环，没有持久化 Run/Step/Event、断线 replay、后台继续执行、真正的 steer 和可恢复 cancel。
+- 上下文仍主要使用最近消息和本轮工具历史，没有独立 Context Compiler、精确 Token 预算、旧观察压缩和相关材料动态进出。
+- Search 仍是单 Provider，没有 fallback、运行内熔断或失败查询抑制；重复上游失败会安全地消耗 20 次额度，但不够高效。
+- `used` 只表示最终回答出现了来源 URL，不是逐句 Evidence/Citation；没有 Report Artifact、引用校验或独立复核。
+- Fetch 只覆盖公开静态网页；JavaScript 页面、PDF、登录态内容、浏览器操作和完整公网 SSRF/DNS rebinding 防护尚未实现。
+
+**下一阶段结论**：进入 P8 Evaluation / Release Hardening，不继续横向增加工具。先用真实评测把协议一致性、工具选择和失败分类修准，再补最小 durable Run/Event 恢复能力；只有评测证明主要瓶颈是上下文质量时，才进入 Context Compiler。这个顺序先解决“现有能力是否稳定可信”，再解决“任务能否跨连接恢复”，最后才解决“更长任务如何管理上下文”。
+
+## 3. 已完成
 
 ### 工程与基础设施
 
@@ -79,7 +144,7 @@
 - 跨前后端协议已按 `common`、`sessions` 拆分内部模块；共享限制、工具名和错误码，以及 API/Web 各自的稳定配置均已集中治理。
 - 新增和重构的业务函数已补充精简中文注释；对象型常量的每个字段均单独说明用途。
 
-## 3. 可用入口
+## 4. 可用入口
 
 ```text
 Web production:  http://127.0.0.1:4317/agent
@@ -102,7 +167,7 @@ pnpm dev
 
 首次完成 `db:local:init` 和 `db:deploy` 后，日常开发只需运行 `pnpm dev`；PostgreSQL 由本机服务管理。
 
-## 4. 验证记录
+## 5. 验证记录
 
 最近一次 UI/工程验证已通过：
 
@@ -167,7 +232,7 @@ git diff --check
 - running / Sources / Report / waiting / failed / cancel fixture。
 - Conversation 内联 Tool Activity 到 Workbench 的定位、状态切换和 1280px 布局。
 
-## 5. 当前未完成
+## 6. 当前未完成
 
 以下内容仍按 `docs/17-implementation-plan.md` 和相关契约文档执行，不能从 Preview 状态推断已经完成：
 
@@ -205,9 +270,17 @@ git diff --check
 - 正式 `EvidenceSource`、report-scoped `[Sx]`、Report Artifact、同模型复核和 Citation Validator 保留为后续 Deep Research 或严谨垂直场景能力，不阻塞通用 Agent 当前阶段。
 - JavaScript Browser Fetch、PDF、登录态网页、页面操作和其他来源格式属于独立的工具能力扩展，不并入当前阶段。
 
-## 6. 下一阶段建议
+## 7. 下一阶段建议
 
-当前进入 P8 Evaluation / Release Hardening。先运行 Smoke 真实基线并人工检查全部 6 题，再根据成本、耗时和 Judge 稳定性运行 Full 24 题；至少完成两轮人工校准后再冻结发布阈值。如果主要瓶颈是长工具历史、相关材料动态进出和最终回答空间，则进入 Context Engineering / Context Compiler，而不是继续增加 Fetch 硬限制。
+当前进入 P8 Evaluation / Release Hardening。下一阶段按以下顺序推进：
+
+1. **先修评测事实源**：统一 SSE、tool execution 和 assistant metadata snapshot 的投影结果；把 Agent 流中断、Provider 失败、Judge 超时、规则不匹配和真实行为缺陷拆成可聚合分类。
+2. **再校准真实行为**：修复直链任务仍优先 Search、无效重复调用和题目工具上限偏差；连续运行至少两轮 Smoke 并人工检查全部 6 题，冻结可信硬规则后再运行 Full 24 题。
+3. **补最小恢复闭环**：设计并实现 durable Run/Step/Event、事件序号、断线 replay、后台继续执行和真实 cancel；steer 只在明确 safe step 生效。不要把当前 Chat SSE 直接扩写成不可恢复的伪 Run 协议。
+4. **用评测决定 Context Compiler**：如果失败主要来自长工具历史、相关材料不能动态进出或最终回答空间不足，再实现纯函数 Context Compiler、精确 Token 预算、工具观察压缩和选择；如果主要是 Provider 可用性，则优先实现 Search fallback 和有限熔断。
+5. **保持能力边界**：正式 Evidence/Citation、Report Artifact、Browser/PDF Fetch、Memory 和 Delegation 继续独立排期，不与 P8 稳定性修复混成一次大重构。
+
+P8 的完成标准不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Search/Fetch -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败、可重复评测和最小恢复能力。
 
 ### 评测报告 TODO
 
@@ -220,7 +293,7 @@ git diff --check
 
 Context Engineering、durable Run/Step/Event、断线 replay、Worker 独立上下文、正式 Evidence/Report、动态 Browser Fetch 和 PDF 仍按上述后续边界独立推进。
 
-## 7. 关联文档
+## 8. 关联文档
 
 - 产品与范围：[docs/00-agent-core-roadmap.md](./00-agent-core-roadmap.md)
 - 实施阶段：[docs/17-implementation-plan.md](./17-implementation-plan.md)
@@ -232,7 +305,7 @@ Context Engineering、durable Run/Step/Event、断线 replay、Worker 独立上�
 - Web Fetch 设计：[docs/23-web-fetch-tool.md](./23-web-fetch-tool.md)
 - 真实评测：[docs/24-general-web-research-evaluation.md](./24-general-web-research-evaluation.md)
 
-## 8. 维护规则
+## 9. 维护规则
 
 - 每完成一个可验证的阶段或跨模块切片，更新本文件的“当前结论”“已完成”“验证记录”和“下一阶段建议”。
 - 设计变更写入对应契约文档，不在本文件复制完整规范。

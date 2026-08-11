@@ -13,13 +13,15 @@ describe('ResearchProjectionCollector', () => {
       result: {
         query: 'test',
         provider: 'serp',
-        results: [{
-          id: 'source-1',
-          title: 'Example',
-          url: 'https://example.com/article?b=2&utm_source=search&a=1#summary',
-          domain: 'example.com',
-          snippet: 'Example source',
-        }],
+        results: [
+          {
+            id: 'source-1',
+            title: 'Example',
+            url: 'https://example.com/article?b=2&utm_source=search&a=1#summary',
+            domain: 'example.com',
+            snippet: 'Example source',
+          },
+        ],
       },
     });
 
@@ -38,10 +40,15 @@ describe('ResearchProjectionCollector', () => {
       result: {
         query: 'test',
         provider: 'serp',
-        results: [{
-          id: 'source-1', title: 'Example', url: 'https://example.com/article',
-          domain: 'example.com', snippet: 'Example source',
-        }],
+        results: [
+          {
+            id: 'source-1',
+            title: 'Example',
+            url: 'https://example.com/article',
+            domain: 'example.com',
+            snippet: 'Example source',
+          },
+        ],
       },
     });
 

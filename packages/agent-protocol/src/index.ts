@@ -16,7 +16,6 @@ import {
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
 export const protocolVersion = '0.7.0';
 
-
 // 定义聊天和未来工具循环共用的消息基础字段。
 const messageBaseSchema = z.object({
   id: z.string().min(1).optional(),
@@ -61,11 +60,16 @@ export const chatMessageSchema = z.discriminatedUnion('role', [
 export const chatRequestSchema = z.object({
   messages: z.array(chatMessageSchema).min(1).max(AGENT_PROTOCOL_LIMITS.chatHistoryMaxMessages),
   sessionId: z.string().min(1).optional(),
-  tools: z.array(z.object({
-    name: z.string().min(1),
-    description: z.string().min(1).optional(),
-    parameters: z.record(z.unknown()),
-  })).max(32).optional(),
+  tools: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        description: z.string().min(1).optional(),
+        parameters: z.record(z.unknown()),
+      }),
+    )
+    .max(32)
+    .optional(),
 });
 
 // 定义非流式 assistant 响应。
@@ -199,11 +203,13 @@ export const assistantAgentMetadataSchema = z.object({
     .array(assistantContentBlockSchema)
     .max(AGENT_PROTOCOL_LIMITS.assistantContentBlocksMax)
     .optional(),
-  agent: z.object({
-    toolCallCount: z.number().int().nonnegative().max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
-    executions: z.array(toolExecutionSnapshotSchema).max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
-    sources: z.array(researchSourceSnapshotSchema),
-  }).optional(),
+  agent: z
+    .object({
+      toolCallCount: z.number().int().nonnegative().max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
+      executions: z.array(toolExecutionSnapshotSchema).max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
+      sources: z.array(researchSourceSnapshotSchema),
+    })
+    .optional(),
 });
 
 // 定义 Web SSE 客户端消费的标准增量事件。

@@ -40,14 +40,15 @@ export class ResearchProjectionCollector {
       const key = this.normalizeUrl(source.url);
       const existing = this.sources.get(key);
       if (existing) this.addToolCall(existing, input.toolCallId);
-      else this.sources.set(key, {
-        ...source,
-        kind: 'clue',
-        used: false,
-        provider: input.result.provider,
-        retrievedAt: input.completedAt,
-        toolCallIds: [input.toolCallId],
-      });
+      else
+        this.sources.set(key, {
+          ...source,
+          kind: 'clue',
+          used: false,
+          provider: input.result.provider,
+          retrievedAt: input.completedAt,
+          toolCallIds: [input.toolCallId],
+        });
     }
   }
 
@@ -114,24 +115,28 @@ export class ResearchProjectionCollector {
   }
 
   // 记录工具失败，让 Activity 在刷新后仍能恢复安全错误摘要。
-  recordFailed(input: ToolProjectionInput & {
-    toolCallId: string;
-    completedAt: string;
-    durationMs: number;
-    code: string;
-    detail: string;
-  }): void {
+  recordFailed(
+    input: ToolProjectionInput & {
+      toolCallId: string;
+      completedAt: string;
+      durationMs: number;
+      code: string;
+      detail: string;
+    },
+  ): void {
     this.executions.push(this.terminalExecution(input, 'failed'));
   }
 
   // 记录工具取消，并与普通失败保持不同终态。
-  recordCancelled(input: ToolProjectionInput & {
-    toolCallId: string;
-    completedAt: string;
-    durationMs: number;
-    code: string;
-    detail: string;
-  }): void {
+  recordCancelled(
+    input: ToolProjectionInput & {
+      toolCallId: string;
+      completedAt: string;
+      durationMs: number;
+      code: string;
+      detail: string;
+    },
+  ): void {
     this.executions.push(this.terminalExecution(input, 'cancelled'));
   }
 
@@ -144,12 +149,16 @@ export class ResearchProjectionCollector {
   markUsed(content: string): void {
     const mentionedUrls = this.extractNormalizedUrls(content);
     for (const source of this.sources.values()) {
-      const urls = source.kind === 'fetched'
-        ? [source.requestedUrl, source.finalUrl, source.normalizedUrl]
-        : [source.url];
+      const urls =
+        source.kind === 'fetched'
+          ? [source.requestedUrl, source.finalUrl, source.normalizedUrl]
+          : [source.url];
       source.used = urls.some((url) => {
-        try { return mentionedUrls.has(normalizeSourceUrl(url)); }
-        catch { return content.includes(url); }
+        try {
+          return mentionedUrls.has(normalizeSourceUrl(url));
+        } catch {
+          return content.includes(url);
+        }
       });
     }
   }
@@ -159,7 +168,11 @@ export class ResearchProjectionCollector {
     const urls = new Set<string>();
     for (const match of content.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)) {
       const rawUrl = match[0].replace(/[.,;:!?，。；：！？]+$/gu, '');
-      try { urls.add(normalizeSourceUrl(rawUrl)); } catch { /* 忽略模型输出中的损坏链接。 */ }
+      try {
+        urls.add(normalizeSourceUrl(rawUrl));
+      } catch {
+        /* 忽略模型输出中的损坏链接。 */
+      }
     }
     return urls;
   }
@@ -194,7 +207,10 @@ export class ResearchProjectionCollector {
   }
 
   // 为来源关联新增工具调用 ID，同时保持首次出现顺序。
-  private addToolCall(source: SearchSourceSnapshot | WebFetchSourceSnapshot, toolCallId: string): void {
+  private addToolCall(
+    source: SearchSourceSnapshot | WebFetchSourceSnapshot,
+    toolCallId: string,
+  ): void {
     if (!source.toolCallIds.includes(toolCallId)) source.toolCallIds.push(toolCallId);
   }
 
@@ -202,6 +218,8 @@ export class ResearchProjectionCollector {
   private normalizeUrl(rawUrl: string): string {
     try {
       return normalizeSourceUrl(rawUrl);
-    } catch { return rawUrl; }
+    } catch {
+      return rawUrl;
+    }
   }
 }

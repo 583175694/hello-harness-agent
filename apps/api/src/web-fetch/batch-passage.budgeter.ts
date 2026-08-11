@@ -25,14 +25,17 @@ export class BatchPassageBudgeter {
     for (const passages of passagesByDocument) if (passages[0]) trySelect(passages[0]);
     const rest = passagesByDocument
       .flat()
-      .sort((left, right) =>
-        right.score - left.score ||
-        left.documentIndex - right.documentIndex ||
-        left.passage.locator.position.start - right.passage.locator.position.start,
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          left.documentIndex - right.documentIndex ||
+          left.passage.locator.position.start - right.passage.locator.position.start,
       );
     for (const passage of rest) trySelect(passage);
     for (const passages of selected.values()) {
-      passages.sort((left, right) => left.passage.locator.position.start - right.passage.locator.position.start);
+      passages.sort(
+        (left, right) => left.passage.locator.position.start - right.passage.locator.position.start,
+      );
     }
     return selected;
   }

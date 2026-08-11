@@ -8,7 +8,11 @@ import { runEvaluation } from '../src/runner.js';
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true })),
+  );
 });
 
 // 创建单题 Runner 测试使用的隔离输出目录和固定参数。
@@ -38,12 +42,23 @@ function completedEvents(): ChatStreamEvent[] {
 // 构造持久化完成的最小会话详情。
 function completedSession(): SessionDetail {
   return {
-    id: 'session-1', title: 'eval', status: 'active', isPinned: false,
-    createdAt: '2026-08-10T00:00:00.000Z', updatedAt: '2026-08-10T00:01:00.000Z',
-    messages: [{
-      id: 'assistant-1', sessionId: 'session-1', role: 'assistant', kind: 'assistant_delivery',
-      content: '回答', createdAt: '2026-08-10T00:01:00.000Z', metadata: {},
-    }],
+    id: 'session-1',
+    title: 'eval',
+    status: 'active',
+    isPinned: false,
+    createdAt: '2026-08-10T00:00:00.000Z',
+    updatedAt: '2026-08-10T00:01:00.000Z',
+    messages: [
+      {
+        id: 'assistant-1',
+        sessionId: 'session-1',
+        role: 'assistant',
+        kind: 'assistant_delivery',
+        content: '回答',
+        createdAt: '2026-08-10T00:01:00.000Z',
+        metadata: {},
+      },
+    ],
   };
 }
 
@@ -69,13 +84,25 @@ describe('runEvaluation', () => {
     const runnerOptions = await options();
     const report = await runEvaluation(runnerOptions, { api });
     expect(report.hardPassed).toBe(true);
-    expect(api.createSession).toHaveBeenCalledWith('[EVAL] direct-event-loop', expect.any(AbortSignal));
+    expect(api.createSession).toHaveBeenCalledWith(
+      '[EVAL] direct-event-loop',
+      expect.any(AbortSignal),
+    );
     expect(api.deleteSession).toHaveBeenCalledWith('session-1', expect.any(AbortSignal));
-    const stored = JSON.parse(await readFile(join(runnerOptions.outputDirectory, 'summary.json'), 'utf8')) as typeof report;
+    const stored = JSON.parse(
+      await readFile(join(runnerOptions.outputDirectory, 'summary.json'), 'utf8'),
+    ) as typeof report;
     expect(stored.summary).toEqual(report.summary);
-    expect(await readFile(join(runnerOptions.outputDirectory, 'summary.md'), 'utf8')).toContain('| direct-event-loop | PASS |');
-    expect(await readFile(join(runnerOptions.outputDirectory, 'review.md'), 'utf8')).toContain('### Agent 最终结果');
-    const reviewCsv = await readFile(join(runnerOptions.outputDirectory, 'human-review.csv'), 'utf8');
+    expect(await readFile(join(runnerOptions.outputDirectory, 'summary.md'), 'utf8')).toContain(
+      '| direct-event-loop | PASS |',
+    );
+    expect(await readFile(join(runnerOptions.outputDirectory, 'review.md'), 'utf8')).toContain(
+      '### Agent 最终结果',
+    );
+    const reviewCsv = await readFile(
+      join(runnerOptions.outputDirectory, 'human-review.csv'),
+      'utf8',
+    );
     expect(reviewCsv).toContain('Agent结果');
     expect(reviewCsv).toContain('回答');
   });
@@ -103,8 +130,15 @@ describe('runEvaluation', () => {
 
   it('records judge failure as advisory and still cleans up', async () => {
     const api = fakeApi();
-    const judge = { evaluate: vi.fn(async () => { throw new Error('Judge 不可用'); }) };
-    const report = await runEvaluation(await options({ skipJudge: false }), { api, judge: judge as never });
+    const judge = {
+      evaluate: vi.fn(async () => {
+        throw new Error('Judge 不可用');
+      }),
+    };
+    const report = await runEvaluation(await options({ skipJudge: false }), {
+      api,
+      judge: judge as never,
+    });
     expect(report.cases[0]).toMatchObject({ hardPassed: true, judgeError: 'Judge 不可用' });
     expect(api.deleteSession).toHaveBeenCalledOnce();
   });

@@ -6,28 +6,53 @@ import { EvalApiClient } from '../src/api-client.js';
 const openedServers: Array<ReturnType<typeof createServer>> = [];
 
 afterEach(async () => {
-  await Promise.all(openedServers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+  await Promise.all(
+    openedServers
+      .splice(0)
+      .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+  );
 });
 
 // 启动只服务于当前测试的本地 HTTP API，并返回随机监听端口。
-async function startMockApi(): Promise<{ baseUrl: string; requests: Array<{ method?: string; url?: string; body: string }> }> {
+async function startMockApi(): Promise<{
+  baseUrl: string;
+  requests: Array<{ method?: string; url?: string; body: string }>;
+}> {
   const requests: Array<{ method?: string; url?: string; body: string }> = [];
   const server = createServer((request, response) => {
     const chunks: Buffer[] = [];
     request.on('data', (chunk: Buffer) => chunks.push(chunk));
     request.on('end', () => {
-      requests.push({ method: request.method, url: request.url, body: Buffer.concat(chunks).toString('utf8') });
-      response.setHeader('content-type', request.url?.endsWith('/stream') ? 'text/event-stream' : 'application/json');
-      if (request.url === '/readyz') response.end(JSON.stringify({ status: 'ok', service: 'api', version: 'test' }));
-      else if (request.method === 'POST' && request.url === '/api/agent/sessions') response.end(JSON.stringify({ session: sessionSummary() }));
+      requests.push({
+        method: request.method,
+        url: request.url,
+        body: Buffer.concat(chunks).toString('utf8'),
+      });
+      response.setHeader(
+        'content-type',
+        request.url?.endsWith('/stream') ? 'text/event-stream' : 'application/json',
+      );
+      if (request.url === '/readyz')
+        response.end(JSON.stringify({ status: 'ok', service: 'api', version: 'test' }));
+      else if (request.method === 'POST' && request.url === '/api/agent/sessions')
+        response.end(JSON.stringify({ session: sessionSummary() }));
       else if (request.method === 'POST' && request.url?.endsWith('/chat/stream')) {
-        response.write('data: {"type":"message.delta","messageId":"assistant-1","blockId":"text-1","delta":"回');
-        response.end('答"}\n\ndata: {"type":"message.completed","messageId":"assistant-1","model":"test-model"}\n\n');
+        response.write(
+          'data: {"type":"message.delta","messageId":"assistant-1","blockId":"text-1","delta":"回',
+        );
+        response.end(
+          '答"}\n\ndata: {"type":"message.completed","messageId":"assistant-1","model":"test-model"}\n\n',
+        );
       } else if (request.method === 'GET' && request.url === '/api/agent/sessions/session-1') {
-        response.end(JSON.stringify({ session: { ...sessionSummary(), messages: [assistantMessage()] } }));
+        response.end(
+          JSON.stringify({ session: { ...sessionSummary(), messages: [assistantMessage()] } }),
+        );
       } else if (request.method === 'DELETE' && request.url === '/api/agent/sessions/session-1') {
         response.end(JSON.stringify({ deletedSessionId: 'session-1' }));
-      } else { response.statusCode = 404; response.end(JSON.stringify({ detail: 'not found' })); }
+      } else {
+        response.statusCode = 404;
+        response.end(JSON.stringify({ detail: 'not found' }));
+      }
     });
   });
   openedServers.push(server);
@@ -39,16 +64,25 @@ async function startMockApi(): Promise<{ baseUrl: string; requests: Array<{ meth
 // 构造符合共享协议的稳定 Session 摘要。
 function sessionSummary() {
   return {
-    id: 'session-1', title: '[EVAL] test', status: 'active', isPinned: false,
-    createdAt: '2026-08-10T00:00:00.000Z', updatedAt: '2026-08-10T00:01:00.000Z',
+    id: 'session-1',
+    title: '[EVAL] test',
+    status: 'active',
+    isPinned: false,
+    createdAt: '2026-08-10T00:00:00.000Z',
+    updatedAt: '2026-08-10T00:01:00.000Z',
   } as const;
 }
 
 // 构造已持久化的最小 assistant 消息。
 function assistantMessage() {
   return {
-    id: 'assistant-1', sessionId: 'session-1', role: 'assistant', kind: 'assistant_delivery',
-    content: '回答', createdAt: '2026-08-10T00:01:00.000Z', metadata: {},
+    id: 'assistant-1',
+    sessionId: 'session-1',
+    role: 'assistant',
+    kind: 'assistant_delivery',
+    content: '回答',
+    createdAt: '2026-08-10T00:01:00.000Z',
+    metadata: {},
   } as const;
 }
 

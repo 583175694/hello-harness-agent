@@ -37,8 +37,12 @@ export class WebFetchService {
     input: WebFetchInput,
     signal?: AbortSignal,
     maxPassageCharacters: number = WEB_FETCH_POLICY.maxTotalPassageCharactersPerCall,
-  ): Promise<{ result: { query?: string; results: WebFetchItemResult[] }; networkAttempts: number }> {
-    if (signal?.aborted) throw new WebFetchError(AGENT_ERROR_CODES.fetchCancelled, '网页读取已取消。');
+  ): Promise<{
+    result: { query?: string; results: WebFetchItemResult[] };
+    networkAttempts: number;
+  }> {
+    if (signal?.aborted)
+      throw new WebFetchError(AGENT_ERROR_CODES.fetchCancelled, '网页读取已取消。');
     const uniqueInputs = this.deduplicate(input.urls);
     const results = new Map<number, WebFetchItemResult>();
     const documents = new Map<number, NormalizedWebDocument>();
@@ -59,7 +63,10 @@ export class WebFetchService {
     }
 
     if (misses.length) {
-      const fetched = await this.fetcher.fetchAll(misses.map((item) => item.target), signal);
+      const fetched = await this.fetcher.fetchAll(
+        misses.map((item) => item.target),
+        signal,
+      );
       for (let missIndex = 0; missIndex < misses.length; missIndex += 1) {
         const miss = misses[missIndex];
         const transport = fetched[missIndex];
@@ -69,12 +76,13 @@ export class WebFetchService {
           continue;
         }
         try {
-          const extracted = transport.content.contentType === 'text/plain'
-            ? {
-                markdown: transport.content.body,
-                title: new URL(transport.content.finalUrl).hostname,
-              }
-            : this.extractor.extract(transport.content.body, transport.content.finalUrl);
+          const extracted =
+            transport.content.contentType === 'text/plain'
+              ? {
+                  markdown: transport.content.body,
+                  title: new URL(transport.content.finalUrl).hostname,
+                }
+              : this.extractor.extract(transport.content.body, transport.content.finalUrl);
           const normalizedUrl = await this.chooseNormalizedUrl(
             transport.content.finalUrl,
             extracted.canonicalUrl,
@@ -123,11 +131,14 @@ export class WebFetchService {
         });
         continue;
       }
-      results.set(index, this.succeeded(
-        document,
-        cacheStatuses.get(index) ?? 'miss',
-        (selected.get(index) ?? []).map((item) => item.passage),
-      ));
+      results.set(
+        index,
+        this.succeeded(
+          document,
+          cacheStatuses.get(index) ?? 'miss',
+          (selected.get(index) ?? []).map((item) => item.passage),
+        ),
+      );
     }
     return {
       result: {
@@ -148,7 +159,9 @@ export class WebFetchService {
         const url = new URL(rawUrl);
         url.hash = '';
         key = url.toString();
-      } catch { /* 参数 Schema 会处理格式错误，这里保留原始值供安全结果使用。 */ }
+      } catch {
+        /* 参数 Schema 会处理格式错误，这里保留原始值供安全结果使用。 */
+      }
       if (!seen.has(key)) {
         seen.add(key);
         output.push(rawUrl);
@@ -160,7 +173,11 @@ export class WebFetchService {
   // canonical URL 只有通过同一最小安全校验后才能成为来源规范地址。
   private async chooseNormalizedUrl(finalUrl: string, canonicalUrl?: string): Promise<string> {
     if (canonicalUrl) {
-      try { return (await this.guard.validate(canonicalUrl)).normalizedUrl; } catch { /* 回退最终地址。 */ }
+      try {
+        return (await this.guard.validate(canonicalUrl)).normalizedUrl;
+      } catch {
+        /* 回退最终地址。 */
+      }
     }
     return (await this.guard.validate(finalUrl)).normalizedUrl;
   }

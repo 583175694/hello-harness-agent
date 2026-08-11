@@ -135,7 +135,10 @@ async function main() {
   }
   if (occupied.length) {
     console.error(
-      colorize(`端口已被占用：${occupied.join('、')}。请先停止已有服务后再运行 pnpm dev。`, colors.red),
+      colorize(
+        `端口已被占用：${occupied.join('、')}。请先停止已有服务后再运行 pnpm dev。`,
+        colors.red,
+      ),
     );
     process.exitCode = 1;
     return;

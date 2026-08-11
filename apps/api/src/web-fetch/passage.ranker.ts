@@ -61,7 +61,10 @@ export class PassageRanker {
 
   // 将文本归一化为适合中英文混合字符 n-gram 的形式。
   private normalizeForNgrams(value: string): string {
-    return value.toLowerCase().normalize('NFKC').replace(/[\s\p{P}\p{S}]+/gu, '');
+    return value
+      .toLowerCase()
+      .normalize('NFKC')
+      .replace(/[\s\p{P}\p{S}]+/gu, '');
   }
 
   // 同时生成字符 2-gram 和 3-gram 集合。
@@ -85,13 +88,20 @@ export class PassageRanker {
   }
 
   // 生成绑定内容 Hash 和 code-point 位置的稳定 Passage 与 Locator。
-  private toPassage(document: NormalizedWebDocument, block: NormalizedDocumentBlock): WebFetchPassage {
+  private toPassage(
+    document: NormalizedWebDocument,
+    block: NormalizedDocumentBlock,
+  ): WebFetchPassage {
     const context = WEB_FETCH_POLICY.locatorContextCharacters;
     const passageId = createHash('sha256')
       .update(`${document.contentHash}:${block.start}:${block.end}`)
       .digest('hex')
       .slice(0, 24);
-    const prefix = sliceCodePoints(document.markdown, Math.max(0, block.start - context), block.start);
+    const prefix = sliceCodePoints(
+      document.markdown,
+      Math.max(0, block.start - context),
+      block.start,
+    );
     const suffix = sliceCodePoints(document.markdown, block.end, block.end + context);
     return {
       passageId,

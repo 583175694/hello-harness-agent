@@ -27,17 +27,16 @@ export async function fetchJson(
   // 超时信号始终存在；调用方信号用于把上层取消继续传递给 fetch。
   const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? 10_000);
   const externalSignal = options.signal ?? init.signal;
-  const signal = externalSignal
-    ? AbortSignal.any([externalSignal, timeoutSignal])
-    : timeoutSignal;
+  const signal = externalSignal ? AbortSignal.any([externalSignal, timeoutSignal]) : timeoutSignal;
   const response = await fetch(url, { ...init, signal });
 
   if (!response.ok) {
     const responseBody = (await response.text()).slice(0, UPSTREAM_ERROR_BODY_LIMIT);
-    const requestId = response.headers.get('x-request-id')
-      ?? response.headers.get('request-id')
-      ?? response.headers.get('trace-id')
-      ?? undefined;
+    const requestId =
+      response.headers.get('x-request-id') ??
+      response.headers.get('request-id') ??
+      response.headers.get('trace-id') ??
+      undefined;
     const upstreamUrl = new URL(response.url || url.toString());
     // 查询参数可能包含凭据，只保留定位供应商接口所需的 origin 和 pathname。
     throw new UpstreamHttpError(

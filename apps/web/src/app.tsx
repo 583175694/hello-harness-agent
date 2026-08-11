@@ -1,13 +1,4 @@
-import {
-  Ellipsis,
-  Menu,
-  Pencil,
-  Pin,
-  PinOff,
-  Plus,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { Ellipsis, Menu, Pencil, Pin, PinOff, Plus, Trash2, X } from 'lucide-react';
 import {
   useEffect,
   useRef,
@@ -29,8 +20,16 @@ import {
   updateSession,
 } from './api/client';
 import type { ToolStreamEvent } from './api/client';
-import { AGENT_PROTOCOL_LIMITS, assistantAgentMetadataSchema, normalizeSourceUrl } from '@harness/agent-protocol';
-import type { AssistantContentBlock, PersistedMessage, SessionSummary } from '@harness/agent-protocol';
+import {
+  AGENT_PROTOCOL_LIMITS,
+  assistantAgentMetadataSchema,
+  normalizeSourceUrl,
+} from '@harness/agent-protocol';
+import type {
+  AssistantContentBlock,
+  PersistedMessage,
+  SessionSummary,
+} from '@harness/agent-protocol';
 import type {
   AgentUiState,
   ConversationItem,
@@ -41,22 +40,25 @@ import type {
   WorkbenchState,
   WorkspaceView,
 } from './features/agent/model/types';
-import { appendTextDelta, applyToolActivityEvent, cloneAssistantBlocks } from './features/agent/model/conversation-blocks';
+import {
+  appendTextDelta,
+  applyToolActivityEvent,
+  cloneAssistantBlocks,
+} from './features/agent/model/conversation-blocks';
 import { nextSourceNumber } from './features/agent/model/source-identifiers';
 import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
 import { AGENT_UI_COPY, SERVICE_STATE_LABELS } from './features/agent/config/ui.constants';
 
-
 // 将传输和供应商异常转换为用户可读的提示文案。
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiProblem) return error.problem.detail;
-  if (error instanceof Error && error.name === 'ZodError') return '工具返回的数据格式异常，本次回答未完成，请稍后重试。';
+  if (error instanceof Error && error.name === 'ZodError')
+    return '工具返回的数据格式异常，本次回答未完成，请稍后重试。';
   if (error instanceof Error) return error.message;
   return '请求暂时无法完成。';
 }
-
 
 // 仅在开发环境的预览路由中启用 fixture。
 function getPreviewState(): PreviewState | null {
@@ -70,7 +72,11 @@ export function App() {
   const preview = getPreviewState();
   return (
     <>
-      {preview ? <AppShell key={preview} previewState={makeFixture(preview)} /> : <PersistentAgentApp />}
+      {preview ? (
+        <AppShell key={preview} previewState={makeFixture(preview)} />
+      ) : (
+        <PersistentAgentApp />
+      )}
       {preview ? <PreviewSwitcher active={preview} /> : null}
     </>
   );
@@ -83,7 +89,11 @@ function formatToolDuration(durationMs: number): string {
 
 // 从任意网页地址读取适合 Workbench 展示的域名。
 function sourceDomain(url: string): string {
-  try { return new URL(url).hostname; } catch { return url; }
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
 }
 
 // 将持久化 assistant metadata 投影为可恢复的轻量 Workbench。
@@ -134,7 +144,11 @@ function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchStat
     title: AGENT_UI_COPY.searchWorkbenchTitle,
     subtitle: `${executions.length} 次调用 · ${sourceViews.length} 个来源`,
     activeView: sources.length ? 'sources' : 'activity',
-    activityStatus: completedCount ? 'completed' : cancelledCount === executions.length ? 'cancelled' : 'failed',
+    activityStatus: completedCount
+      ? 'completed'
+      : cancelledCount === executions.length
+        ? 'cancelled'
+        : 'failed',
     executions: executions.map((execution) => {
       const isFetch = execution.toolName === 'web_fetch';
       const inputSummary = isFetch
@@ -145,18 +159,26 @@ function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchStat
         runId: message.id,
         stepId: execution.toolCallId,
         toolName: execution.toolName,
-        title: isFetch ? `读取 ${execution.input.urls.length} 个网页` : `搜索：${execution.input.query}`,
-        detail: execution.status === 'completed'
-          ? isFetch ? '网页原文读取已完成' : '公开网页检索已完成'
-          : execution.status === 'cancelled' ? '工具调用已取消' : '工具调用未完成',
+        title: isFetch
+          ? `读取 ${execution.input.urls.length} 个网页`
+          : `搜索：${execution.input.query}`,
+        detail:
+          execution.status === 'completed'
+            ? isFetch
+              ? '网页原文读取已完成'
+              : '公开网页检索已完成'
+            : execution.status === 'cancelled'
+              ? '工具调用已取消'
+              : '工具调用未完成',
         status: execution.status,
         elapsed: formatToolDuration(execution.durationMs),
         inputSummary,
-        outputSummary: execution.status === 'completed'
-          ? isFetch
-            ? `成功 ${execution.succeededCount ?? 0} 个，失败 ${execution.failedCount ?? 0} 个，提取 ${execution.passageCount ?? 0} 段原文`
-            : `返回 ${execution.resultCount ?? 0} 条网页结果`
-          : execution.error?.detail,
+        outputSummary:
+          execution.status === 'completed'
+            ? isFetch
+              ? `成功 ${execution.succeededCount ?? 0} 个，失败 ${execution.failedCount ?? 0} 个，提取 ${execution.passageCount ?? 0} 段原文`
+              : `返回 ${execution.resultCount ?? 0} 条网页结果`
+            : execution.error?.detail,
         resultCount: execution.resultCount,
         sourceCount: isFetch ? execution.succeededCount : execution.resultCount,
       };
@@ -208,36 +230,54 @@ function applyToolEvent(
       open,
       activityStatus: 'running',
       executions,
-      focusTarget: { kind: 'tool_call', runId: event.messageId, stepId: event.toolCallId, toolCallId: event.toolCallId },
+      focusTarget: {
+        kind: 'tool_call',
+        runId: event.messageId,
+        stepId: event.toolCallId,
+        toolCallId: event.toolCallId,
+      },
     };
   }
 
   const completedEvent = event.type === 'tool.completed' ? event : undefined;
   const failedEvent = event.type === 'tool.failed' ? event : undefined;
   const cancelledEvent = event.type === 'tool.cancelled' ? event : undefined;
-  const status = completedEvent ? 'completed' as const : cancelledEvent ? 'cancelled' as const : 'failed' as const;
+  const status = completedEvent
+    ? ('completed' as const)
+    : cancelledEvent
+      ? ('cancelled' as const)
+      : ('failed' as const);
   const completedFetch = completedEvent?.toolName === 'web_fetch' ? completedEvent : undefined;
-  const fetchSucceeded = completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
-  const fetchFailed = completedFetch?.result.results.filter((item) => item.status === 'failed') ?? [];
-  const fetchSkipped = completedFetch?.result.results.filter((item) => item.status === 'skipped') ?? [];
+  const fetchSucceeded =
+    completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
+  const fetchFailed =
+    completedFetch?.result.results.filter((item) => item.status === 'failed') ?? [];
+  const fetchSkipped =
+    completedFetch?.result.results.filter((item) => item.status === 'skipped') ?? [];
   const fetchPassages = fetchSucceeded.reduce((total, item) => total + item.passages.length, 0);
-  const executions = base.executions.map((tool) => tool.toolCallId === event.toolCallId
-    ? {
-        ...tool,
-        status,
-        detail: completedEvent
-          ? completedFetch ? '网页原文读取已完成' : '公开网页检索已完成'
-          : cancelledEvent?.detail ?? failedEvent?.detail ?? '工具执行失败',
-        elapsed: formatToolDuration(event.durationMs),
-        outputSummary: completedEvent
-          ? completedFetch
-            ? `成功 ${fetchSucceeded.length} 个，失败 ${fetchFailed.length} 个，跳过 ${fetchSkipped.length} 个，网络请求 ${completedFetch.result.budget.networkAttempts} 次，提取 ${fetchPassages} 段原文 · URL ${completedFetch.result.budget.urls.used}/${completedFetch.result.budget.urls.limit}`
-            : `返回 ${completedEvent.result.results.length} 条网页结果`
-          : cancelledEvent?.detail ?? failedEvent?.detail,
-        resultCount: completedEvent?.result.results.length,
-        sourceCount: completedFetch ? fetchSucceeded.length : completedEvent?.result.results.length,
-      }
-    : tool);
+  const executions = base.executions.map((tool) =>
+    tool.toolCallId === event.toolCallId
+      ? {
+          ...tool,
+          status,
+          detail: completedEvent
+            ? completedFetch
+              ? '网页原文读取已完成'
+              : '公开网页检索已完成'
+            : (cancelledEvent?.detail ?? failedEvent?.detail ?? '工具执行失败'),
+          elapsed: formatToolDuration(event.durationMs),
+          outputSummary: completedEvent
+            ? completedFetch
+              ? `成功 ${fetchSucceeded.length} 个，失败 ${fetchFailed.length} 个，跳过 ${fetchSkipped.length} 个，网络请求 ${completedFetch.result.budget.networkAttempts} 次，提取 ${fetchPassages} 段原文 · URL ${completedFetch.result.budget.urls.used}/${completedFetch.result.budget.urls.limit}`
+              : `返回 ${completedEvent.result.results.length} 条网页结果`
+            : (cancelledEvent?.detail ?? failedEvent?.detail),
+          resultCount: completedEvent?.result.results.length,
+          sourceCount: completedFetch
+            ? fetchSucceeded.length
+            : completedEvent?.result.results.length,
+        }
+      : tool,
+  );
   const sourceMap = new Map(base.sources.map((source) => [normalizeSourceUrl(source.url), source]));
   if (event.type === 'tool.completed' && event.toolName === 'web_search') {
     let clueNumber = nextSourceNumber(base.sources, 'R');
@@ -267,9 +307,8 @@ function applyToolEvent(
         .find((url) => sourceMap.has(url));
       const matchedSource = matchedKey ? sourceMap.get(matchedKey) : undefined;
       if (matchedKey) sourceMap.delete(matchedKey);
-      const candidateId = matchedSource?.kind === 'fetched'
-        ? matchedSource.id
-        : `F${candidateNumber++}`;
+      const candidateId =
+        matchedSource?.kind === 'fetched' ? matchedSource.id : `F${candidateNumber++}`;
       sourceMap.set(normalizeSourceUrl(source.finalUrl), {
         id: candidateId,
         title: source.title,
@@ -302,16 +341,18 @@ function applyToolEvent(
 
 // 将持久化消息转换为 Conversation 可直接渲染的项目。
 function toConversationItem(message: PersistedMessage): ConversationItem {
-  if (message.role === 'user') return {
-    id: message.id,
-    kind: 'user',
-    content: message.content,
-    createdAt: message.createdAt,
-  };
+  if (message.role === 'user')
+    return {
+      id: message.id,
+      kind: 'user',
+      content: message.content,
+      createdAt: message.createdAt,
+    };
   const metadata = assistantAgentMetadataSchema.safeParse(message.metadata);
-  const blocks: AssistantContentBlock[] = metadata.success && metadata.data.blocks?.length
-    ? cloneAssistantBlocks(metadata.data.blocks)
-    : [{ id: `${message.id}-text-1`, type: 'text', content: message.content }];
+  const blocks: AssistantContentBlock[] =
+    metadata.success && metadata.data.blocks?.length
+      ? cloneAssistantBlocks(metadata.data.blocks)
+      : [{ id: `${message.id}-text-1`, type: 'text', content: message.content }];
   return {
     id: message.id,
     kind: 'assistant',
@@ -381,7 +422,8 @@ function PersistentAgentApp() {
         setServiceState('ready');
         setSessions(loadedSessions);
         const requestedId = new URLSearchParams(window.location.search).get('session');
-        const target = loadedSessions.find((session) => session.id === requestedId) ?? loadedSessions[0];
+        const target =
+          loadedSessions.find((session) => session.id === requestedId) ?? loadedSessions[0];
         if (target) {
           setSelectedSessionId(target.id);
           updateSessionUrl(target.id, true);
@@ -408,9 +450,12 @@ function PersistentAgentApp() {
         const conversation = session.messages.map(toConversationItem);
         const activeWorkbench = current[sessionId]?.workbench;
         const restoredItem = activeWorkbench
-          ? conversation.find((item) => item.kind === 'assistant' && item.id === activeWorkbench.runId)
+          ? conversation.find(
+              (item) => item.kind === 'assistant' && item.id === activeWorkbench.runId,
+            )
           : undefined;
-        const restoredWorkbench = restoredItem?.kind === 'assistant' ? restoredItem.workbench : undefined;
+        const restoredWorkbench =
+          restoredItem?.kind === 'assistant' ? restoredItem.workbench : undefined;
         return {
           ...current,
           [sessionId]: {
@@ -465,16 +510,26 @@ function PersistentAgentApp() {
     setSessionStates((current) => {
       const state = current[sessionId];
       if (!state) return current;
-      const historicalItem = state.conversation.find((item) => item.kind === 'assistant' && item.id === target.runId);
-      const historical = historicalItem?.kind === 'assistant' ? historicalItem.workbench : undefined;
+      const historicalItem = state.conversation.find(
+        (item) => item.kind === 'assistant' && item.id === target.runId,
+      );
+      const historical =
+        historicalItem?.kind === 'assistant' ? historicalItem.workbench : undefined;
       const workbench = state.workbench?.runId === target.runId ? state.workbench : historical;
       if (!workbench) return current;
-      const activeView: WorkspaceView = target.kind === 'source' ? 'sources' : target.kind === 'report' ? 'report' : 'activity';
+      const activeView: WorkspaceView =
+        target.kind === 'source' ? 'sources' : target.kind === 'report' ? 'report' : 'activity';
       return {
         ...current,
         [sessionId]: {
           ...state,
-          workbench: { ...workbench, open: true, activeView, focusTarget: target, followMode: 'pinned' },
+          workbench: {
+            ...workbench,
+            open: true,
+            activeView,
+            focusTarget: target,
+            followMode: 'pinned',
+          },
         },
       };
     });
@@ -508,13 +563,17 @@ function PersistentAgentApp() {
   ): Promise<void> {
     try {
       const updated = await updateSession(sessionId, input);
-      setSessions((current) => sortSessionSummaries(
-        current.map((session) => session.id === sessionId ? updated : session),
-      ));
+      setSessions((current) =>
+        sortSessionSummaries(
+          current.map((session) => (session.id === sessionId ? updated : session)),
+        ),
+      );
       if (input.title !== undefined) {
-        setSessionStates((current) => current[sessionId]
-          ? { ...current, [sessionId]: { ...current[sessionId], label: updated.title } }
-          : current);
+        setSessionStates((current) =>
+          current[sessionId]
+            ? { ...current, [sessionId]: { ...current[sessionId], label: updated.title } }
+            : current,
+        );
       }
       setError(null);
     } catch (requestError) {
@@ -589,59 +648,69 @@ function PersistentAgentApp() {
       });
       setSessionPending(targetId, true);
 
-      const completed = await requestChatStream(targetId, task, (deltaEvent) => {
-        setSessionStates((current) => {
-          const target = current[targetId];
-          if (!target) return current;
-          return {
-            ...current,
-            [targetId]: {
-              ...target,
-              conversation: target.conversation.map((item) =>
-                item.kind === 'assistant' && item.id === localAssistantId
-                  ? {
-                      ...item,
-                      blocks: appendTextDelta(item.blocks, deltaEvent),
-                    }
-                  : item,
-              ),
-            },
-          };
-        });
-      }, (toolEvent) => {
-        setSessionStates((current) => {
-          const target = current[targetId];
-          if (!target) return current;
-          const suppressed = target.autoOpenSuppressedRunIds?.includes(toolEvent.messageId) ?? false;
-          const existing = target.workbench?.runId === toolEvent.messageId ? target.workbench : undefined;
-          const hasNewResource = toolEvent.type === 'tool.completed' && (
-            toolEvent.toolName === 'web_search'
-              ? toolEvent.result.results.length > 0
-              : toolEvent.result.results.some((item) => item.status === 'succeeded' && item.passages.length > 0)
-          );
-          const open = existing?.open === true || (!suppressed && hasNewResource);
-          const workbench = applyToolEvent(existing, toolEvent, open);
-          return {
-            ...current,
-            [targetId]: {
-              ...target,
-              workbench,
-              conversation: target.conversation.map((item) =>
-                item.kind === 'assistant' && item.id === localAssistantId
-              ? { ...item, blocks: applyToolActivityEvent(item.blocks, toolEvent), workbench }
-                  : item,
-              ),
-            },
-          };
-        });
-      });
+      const completed = await requestChatStream(
+        targetId,
+        task,
+        (deltaEvent) => {
+          setSessionStates((current) => {
+            const target = current[targetId];
+            if (!target) return current;
+            return {
+              ...current,
+              [targetId]: {
+                ...target,
+                conversation: target.conversation.map((item) =>
+                  item.kind === 'assistant' && item.id === localAssistantId
+                    ? {
+                        ...item,
+                        blocks: appendTextDelta(item.blocks, deltaEvent),
+                      }
+                    : item,
+                ),
+              },
+            };
+          });
+        },
+        (toolEvent) => {
+          setSessionStates((current) => {
+            const target = current[targetId];
+            if (!target) return current;
+            const suppressed =
+              target.autoOpenSuppressedRunIds?.includes(toolEvent.messageId) ?? false;
+            const existing =
+              target.workbench?.runId === toolEvent.messageId ? target.workbench : undefined;
+            const hasNewResource =
+              toolEvent.type === 'tool.completed' &&
+              (toolEvent.toolName === 'web_search'
+                ? toolEvent.result.results.length > 0
+                : toolEvent.result.results.some(
+                    (item) => item.status === 'succeeded' && item.passages.length > 0,
+                  ));
+            const open = existing?.open === true || (!suppressed && hasNewResource);
+            const workbench = applyToolEvent(existing, toolEvent, open);
+            return {
+              ...current,
+              [targetId]: {
+                ...target,
+                workbench,
+                conversation: target.conversation.map((item) =>
+                  item.kind === 'assistant' && item.id === localAssistantId
+                    ? { ...item, blocks: applyToolActivityEvent(item.blocks, toolEvent), workbench }
+                    : item,
+                ),
+              },
+            };
+          });
+        },
+      );
       setSessionPending(targetId, false);
       setSessionStates((current) => {
         const target = current[targetId];
         if (!target) return current;
-        const completedWorkbench = target.workbench?.runId === completed.messageId
-          ? { ...target.workbench, activityStatus: 'completed' as const }
-          : target.workbench;
+        const completedWorkbench =
+          target.workbench?.runId === completed.messageId
+            ? { ...target.workbench, activityStatus: 'completed' as const }
+            : target.workbench;
         return {
           ...current,
           [targetId]: {
@@ -649,7 +718,12 @@ function PersistentAgentApp() {
             workbench: completedWorkbench,
             conversation: target.conversation.map((item) =>
               item.id === localAssistantId
-                ? { ...item, id: completed.messageId, pending: false, workbench: completedWorkbench }
+                ? {
+                    ...item,
+                    id: completed.messageId,
+                    pending: false,
+                    workbench: completedWorkbench,
+                  }
                 : item,
             ),
           },
@@ -666,12 +740,17 @@ function PersistentAgentApp() {
           const titleResult = await generateSessionTitle(targetId);
           setSessions((current) =>
             current
-              .map((item) => item.id === targetId ? titleResult.session : item)
+              .map((item) => (item.id === targetId ? titleResult.session : item))
               .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
           );
-          setSessionStates((current) => current[targetId]
-            ? { ...current, [targetId]: { ...current[targetId], label: titleResult.session.title } }
-            : current);
+          setSessionStates((current) =>
+            current[targetId]
+              ? {
+                  ...current,
+                  [targetId]: { ...current[targetId], label: titleResult.session.title },
+                }
+              : current,
+          );
         } catch {
           // 标题生成是非关键后处理，失败时保留临时标题。
         }
@@ -691,7 +770,15 @@ function PersistentAgentApp() {
                   ? {
                       ...item,
                       pending: false,
-                      blocks: item.blocks.length ? item.blocks : [{ id: `${localAssistantId}-failed`, type: 'text', content: '本次回答未完成，请稍后重试。' }],
+                      blocks: item.blocks.length
+                        ? item.blocks
+                        : [
+                            {
+                              id: `${localAssistantId}-failed`,
+                              type: 'text',
+                              content: '本次回答未完成，请稍后重试。',
+                            },
+                          ],
                     }
                   : item,
               ),
@@ -715,11 +802,11 @@ function PersistentAgentApp() {
 
   // 以下派生状态统一决定当前 Conversation、Composer 和 Workbench 布局。
   const uiState = selectedSessionId
-    ? sessionStates[selectedSessionId] ?? {
+    ? (sessionStates[selectedSessionId] ?? {
         label: sessions.find((session) => session.id === selectedSessionId)?.title ?? '加载中…',
         subtitle: '',
         conversation: [],
-      }
+      })
     : draftState;
   const submitting = selectedSessionId ? Boolean(pendingSessions[selectedSessionId]) : draftPending;
   const hasWorkbench = Boolean(uiState.workbench?.open);
@@ -741,14 +828,27 @@ function PersistentAgentApp() {
         onTogglePin={(sessionId, isPinned) => void modifySession(sessionId, { isPinned })}
       />
       {mobileNavOpen ? (
-        <button className="mobile-backdrop" type="button" aria-label="关闭会话栏" onClick={() => setMobileNavOpen(false)} />
+        <button
+          className="mobile-backdrop"
+          type="button"
+          aria-label="关闭会话栏"
+          onClick={() => setMobileNavOpen(false)}
+        />
       ) : null}
       <main className="main-shell">
         <header className="topbar">
-          <button className="icon-button open-mobile-nav" type="button" aria-label="打开会话栏" title="打开会话栏" onClick={() => setMobileNavOpen(true)}>
+          <button
+            className="icon-button open-mobile-nav"
+            type="button"
+            aria-label="打开会话栏"
+            title="打开会话栏"
+            onClick={() => setMobileNavOpen(true)}
+          >
             <Menu size={18} />
           </button>
-          <div className="task-title"><span className="task-title__label">{uiState.label}</span></div>
+          <div className="task-title">
+            <span className="task-title__label">{uiState.label}</span>
+          </div>
         </header>
         <div className={`workbench-grid ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}>
           <Conversation
@@ -768,31 +868,40 @@ function PersistentAgentApp() {
               state={uiState.workbench}
               onViewChange={(activeView) => {
                 if (!selectedSessionId) return;
-                setSessionStates((current) => current[selectedSessionId]?.workbench
-                  ? {
-                      ...current,
-                      [selectedSessionId]: {
-                        ...current[selectedSessionId],
-                        workbench: { ...current[selectedSessionId].workbench!, activeView },
-                      },
-                    }
-                  : current);
+                setSessionStates((current) =>
+                  current[selectedSessionId]?.workbench
+                    ? {
+                        ...current,
+                        [selectedSessionId]: {
+                          ...current[selectedSessionId],
+                          workbench: { ...current[selectedSessionId].workbench!, activeView },
+                        },
+                      }
+                    : current,
+                );
               }}
               onExecutionSelect={(tool) => {
                 if (!selectedSessionId) return;
-                setSessionStates((current) => current[selectedSessionId]?.workbench
-                  ? {
-                      ...current,
-                      [selectedSessionId]: {
-                        ...current[selectedSessionId],
-                        workbench: {
-                          ...current[selectedSessionId].workbench!,
-                          followMode: 'pinned',
-                          focusTarget: { kind: 'tool_call', runId: tool.runId, stepId: tool.stepId, toolCallId: tool.toolCallId },
+                setSessionStates((current) =>
+                  current[selectedSessionId]?.workbench
+                    ? {
+                        ...current,
+                        [selectedSessionId]: {
+                          ...current[selectedSessionId],
+                          workbench: {
+                            ...current[selectedSessionId].workbench!,
+                            followMode: 'pinned',
+                            focusTarget: {
+                              kind: 'tool_call',
+                              runId: tool.runId,
+                              stepId: tool.stepId,
+                              toolCallId: tool.toolCallId,
+                            },
+                          },
                         },
-                      },
-                    }
-                  : current);
+                      }
+                    : current,
+                );
               }}
               onClose={() => {
                 if (!selectedSessionId) return;
@@ -803,7 +912,12 @@ function PersistentAgentApp() {
                     ...current,
                     [selectedSessionId]: {
                       ...state,
-                      autoOpenSuppressedRunIds: [...new Set([...(state.autoOpenSuppressedRunIds ?? []), state.workbench.runId])],
+                      autoOpenSuppressedRunIds: [
+                        ...new Set([
+                          ...(state.autoOpenSuppressedRunIds ?? []),
+                          state.workbench.runId,
+                        ]),
+                      ],
                       workbench: { ...state.workbench, open: false },
                     },
                   };
@@ -891,10 +1005,19 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
       const now = Date.now();
       setUiState((current) => ({
         ...current,
-        label: current.conversation.length ? current.label : task.slice(0, AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength),
-        conversation: [...current.conversation,
+        label: current.conversation.length
+          ? current.label
+          : task.slice(0, AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength),
+        conversation: [
+          ...current.conversation,
           { id: `u-${now}`, kind: 'user', content: task, createdAt: new Date().toISOString() },
-          { id: `a-${now}`, kind: 'assistant', blocks: [{ id: `a-${now}-text-1`, type: 'text', content: '这是开发预览中的本地回复。' }] },
+          {
+            id: `a-${now}`,
+            kind: 'assistant',
+            blocks: [
+              { id: `a-${now}-text-1`, type: 'text', content: '这是开发预览中的本地回复。' },
+            ],
+          },
         ],
       }));
       setSubmitting(false);
@@ -934,8 +1057,8 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
           </button>
           <div className="task-title">
             <span className="task-title__label">{uiState.label}</span>
-          {uiState.subtitle ? <span className="task-title__meta">{uiState.subtitle}</span> : null}
-        </div>
+            {uiState.subtitle ? <span className="task-title__meta">{uiState.subtitle}</span> : null}
+          </div>
         </header>
         <div className={`workbench-grid ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}>
           <Conversation
@@ -1036,7 +1159,10 @@ function Sidebar({
         if (!savingTitle) setEditingSession(null);
         return;
       }
-      if (event instanceof PointerEvent && !(event.target as Element).closest('.session-actions, .session-menu')) {
+      if (
+        event instanceof PointerEvent &&
+        !(event.target as Element).closest('.session-actions, .session-menu')
+      ) {
         setMenuSessionId(null);
         setMenuAnchor(null);
       }
@@ -1058,10 +1184,7 @@ function Sidebar({
   }
 
   // 将菜单锚定到更多按钮下方，必要时先滚动列表为菜单留出空间。
-  function toggleSessionMenu(
-    sessionId: string,
-    event: ReactMouseEvent<HTMLButtonElement>,
-  ): void {
+  function toggleSessionMenu(sessionId: string, event: ReactMouseEvent<HTMLButtonElement>): void {
     if (menuSessionId === sessionId) {
       setMenuSessionId(null);
       setMenuAnchor(null);
@@ -1093,7 +1216,13 @@ function Sidebar({
   async function submitRename(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const title = editTitle.replace(/\s+/g, ' ').trim();
-    if (!editingSession || !title || title.length > AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength || title === editingSession.title) return;
+    if (
+      !editingSession ||
+      !title ||
+      title.length > AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength ||
+      title === editingSession.title
+    )
+      return;
     setSavingTitle(true);
     try {
       await onRename?.(editingSession.id, title);
@@ -1105,161 +1234,206 @@ function Sidebar({
 
   return (
     <>
-    <aside className={`session-sidebar ${mobileNavOpen ? 'session-sidebar--open' : ''}`}>
-      <div className="brand-row">
-        <div className="brand-mark" aria-hidden="true">
-          H
-        </div>
-        <div>
-          <strong>Harness</strong>
-          <span>Agent Workbench</span>
-        </div>
-        <button
-          className="icon-button close-mobile-nav"
-          type="button"
-          aria-label="关闭会话栏"
-          title="关闭会话栏"
-          onClick={onClose}
-        >
-          <X size={18} />
-        </button>
-      </div>
-      <div className="sidebar-heading">
-        <span>会话</span>
-        <button className="icon-button" type="button" aria-label="新建会话" title="新建会话" onClick={onNew}>
-          <Plus size={18} />
-        </button>
-      </div>
-      <div className="session-list">
-        {sessions && selectedSessionId === null ? (
-          <div className="session-row">
-            <button className="session-item is-active" type="button">
-              <strong>{AGENT_UI_COPY.defaultSessionTitle}</strong>
-            </button>
+      <aside className={`session-sidebar ${mobileNavOpen ? 'session-sidebar--open' : ''}`}>
+        <div className="brand-row">
+          <div className="brand-mark" aria-hidden="true">
+            H
           </div>
-        ) : null}
-        {sessions ? sessions.map((session) => (
-          <div className="session-row" key={session.id}>
-            <button
-              className={`session-item ${selectedSessionId === session.id ? 'is-active' : ''}`}
-              type="button"
-              onClick={() => onSelect?.(session.id)}
-              aria-label={pendingSessions?.[session.id] ? `${session.title}，正在生成回复` : session.title}
-            >
-              <strong>{session.title}</strong>
-            </button>
-            <div className="session-actions">
-              <button
-                className="session-more icon-button icon-button--small"
-                type="button"
-                aria-label={`更多操作 ${session.title}`}
-                aria-haspopup="menu"
-                aria-expanded={menuSessionId === session.id}
-                title="更多操作"
-                onClick={(event) => toggleSessionMenu(session.id, event)}
-              >
-                <Ellipsis size={16} />
+          <div>
+            <strong>Harness</strong>
+            <span>Agent Workbench</span>
+          </div>
+          <button
+            className="icon-button close-mobile-nav"
+            type="button"
+            aria-label="关闭会话栏"
+            title="关闭会话栏"
+            onClick={onClose}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="sidebar-heading">
+          <span>会话</span>
+          <button
+            className="icon-button"
+            type="button"
+            aria-label="新建会话"
+            title="新建会话"
+            onClick={onNew}
+          >
+            <Plus size={18} />
+          </button>
+        </div>
+        <div className="session-list">
+          {sessions && selectedSessionId === null ? (
+            <div className="session-row">
+              <button className="session-item is-active" type="button">
+                <strong>{AGENT_UI_COPY.defaultSessionTitle}</strong>
               </button>
             </div>
-          </div>
-        )) : (
-          <>
-            <button className="session-item is-active" type="button">
-              <strong>{AGENT_UI_COPY.defaultSessionTitle}</strong>
-            </button>
-            <div className="sidebar-section"><span>最近使用</span></div>
+          ) : null}
+          {sessions ? (
+            sessions.map((session) => (
+              <div className="session-row" key={session.id}>
+                <button
+                  className={`session-item ${selectedSessionId === session.id ? 'is-active' : ''}`}
+                  type="button"
+                  onClick={() => onSelect?.(session.id)}
+                  aria-label={
+                    pendingSessions?.[session.id] ? `${session.title}，正在生成回复` : session.title
+                  }
+                >
+                  <strong>{session.title}</strong>
+                </button>
+                <div className="session-actions">
+                  <button
+                    className="session-more icon-button icon-button--small"
+                    type="button"
+                    aria-label={`更多操作 ${session.title}`}
+                    aria-haspopup="menu"
+                    aria-expanded={menuSessionId === session.id}
+                    title="更多操作"
+                    onClick={(event) => toggleSessionMenu(session.id, event)}
+                  >
+                    <Ellipsis size={16} />
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <>
+              <button className="session-item is-active" type="button">
+                <strong>{AGENT_UI_COPY.defaultSessionTitle}</strong>
+              </button>
+              <div className="sidebar-section">
+                <span>最近使用</span>
+              </div>
+              <div className="sessions-empty">
+                <span>暂无其他会话</span>
+              </div>
+            </>
+          )}
+          {sessions && sessions.length === 0 && selectedSessionId !== null ? (
             <div className="sessions-empty">
-              <span>暂无其他会话</span>
+              <span>暂无会话</span>
             </div>
-          </>
-        )}
-        {sessions && sessions.length === 0 && selectedSessionId !== null ? (
-          <div className="sessions-empty"><span>暂无会话</span></div>
-        ) : null}
-      </div>
-      {serviceLabel ? (
-        <div className="sidebar-footer">
-          <span className={`status-dot status-dot--${serviceState}`} aria-hidden="true" />
-          <span>{serviceLabel}</span>
-          <span className="local-badge">本地</span>
+          ) : null}
         </div>
-      ) : null}
-    </aside>
-    {menuSessionId && menuAnchor && sessions ? (() => {
-      const session = sessions.find((item) => item.id === menuSessionId);
-      return session ? createPortal(
-        <div
-          className="session-menu"
-          role="menu"
-          aria-label={`${session.title} 会话操作`}
-          style={{ top: menuAnchor.top, left: menuAnchor.left }}
-        >
-          <button type="button" role="menuitem" onClick={() => openRename(session)}>
-            <Pencil size={15} /><span>重命名</span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setMenuSessionId(null);
-              setMenuAnchor(null);
-              onTogglePin?.(session.id, !session.isPinned);
-            }}
-          >
-            {session.isPinned ? <PinOff size={15} /> : <Pin size={15} />}
-            <span>{session.isPinned ? '取消置顶' : '置顶'}</span>
-          </button>
-          <div className="session-menu__separator" />
-          <button
-            className="session-menu__danger"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setMenuSessionId(null);
-              setMenuAnchor(null);
-              onDelete?.(session.id);
-            }}
-          >
-            <Trash2 size={15} /><span>删除</span>
-          </button>
-        </div>,
-        document.body,
-      ) : null;
-    })() : null}
-    {editingSession ? createPortal(
-      <div className="rename-dialog-backdrop" role="presentation" onMouseDown={() => !savingTitle && setEditingSession(null)}>
-        <form
-          className="rename-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="rename-dialog-title"
-          onSubmit={(event) => void submitRename(event)}
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <div className="rename-dialog__header">
-            <h2 id="rename-dialog-title">编辑会话名称</h2>
-            <button className="icon-button" type="button" aria-label="关闭" onClick={() => setEditingSession(null)} disabled={savingTitle}>
-              <X size={18} />
-            </button>
+        {serviceLabel ? (
+          <div className="sidebar-footer">
+            <span className={`status-dot status-dot--${serviceState}`} aria-hidden="true" />
+            <span>{serviceLabel}</span>
+            <span className="local-badge">本地</span>
           </div>
-          <label htmlFor="session-title-input">会话名称</label>
-          <input
-            id="session-title-input"
-            autoFocus
-            maxLength={AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength}
-            value={editTitle}
-            onChange={(event) => setEditTitle(event.target.value)}
-          />
-          <div className="rename-dialog__actions">
-            <button className="secondary-button" type="button" onClick={() => setEditingSession(null)} disabled={savingTitle}>取消</button>
-            <button className="primary-button" type="submit" disabled={savingTitle || !editTitle.trim() || editTitle.trim() === editingSession.title}>
-              {savingTitle ? '保存中…' : '确认'}
-            </button>
-          </div>
-        </form>
-      </div>,
-      document.body,
-    ) : null}
+        ) : null}
+      </aside>
+      {menuSessionId && menuAnchor && sessions
+        ? (() => {
+            const session = sessions.find((item) => item.id === menuSessionId);
+            return session
+              ? createPortal(
+                  <div
+                    className="session-menu"
+                    role="menu"
+                    aria-label={`${session.title} 会话操作`}
+                    style={{ top: menuAnchor.top, left: menuAnchor.left }}
+                  >
+                    <button type="button" role="menuitem" onClick={() => openRename(session)}>
+                      <Pencil size={15} />
+                      <span>重命名</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuSessionId(null);
+                        setMenuAnchor(null);
+                        onTogglePin?.(session.id, !session.isPinned);
+                      }}
+                    >
+                      {session.isPinned ? <PinOff size={15} /> : <Pin size={15} />}
+                      <span>{session.isPinned ? '取消置顶' : '置顶'}</span>
+                    </button>
+                    <div className="session-menu__separator" />
+                    <button
+                      className="session-menu__danger"
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuSessionId(null);
+                        setMenuAnchor(null);
+                        onDelete?.(session.id);
+                      }}
+                    >
+                      <Trash2 size={15} />
+                      <span>删除</span>
+                    </button>
+                  </div>,
+                  document.body,
+                )
+              : null;
+          })()
+        : null}
+      {editingSession
+        ? createPortal(
+            <div
+              className="rename-dialog-backdrop"
+              role="presentation"
+              onMouseDown={() => !savingTitle && setEditingSession(null)}
+            >
+              <form
+                className="rename-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="rename-dialog-title"
+                onSubmit={(event) => void submitRename(event)}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <div className="rename-dialog__header">
+                  <h2 id="rename-dialog-title">编辑会话名称</h2>
+                  <button
+                    className="icon-button"
+                    type="button"
+                    aria-label="关闭"
+                    onClick={() => setEditingSession(null)}
+                    disabled={savingTitle}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <label htmlFor="session-title-input">会话名称</label>
+                <input
+                  id="session-title-input"
+                  autoFocus
+                  maxLength={AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength}
+                  value={editTitle}
+                  onChange={(event) => setEditTitle(event.target.value)}
+                />
+                <div className="rename-dialog__actions">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => setEditingSession(null)}
+                    disabled={savingTitle}
+                  >
+                    取消
+                  </button>
+                  <button
+                    className="primary-button"
+                    type="submit"
+                    disabled={
+                      savingTitle || !editTitle.trim() || editTitle.trim() === editingSession.title
+                    }
+                  >
+                    {savingTitle ? '保存中…' : '确认'}
+                  </button>
+                </div>
+              </form>
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

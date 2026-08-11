@@ -5,8 +5,14 @@ export const researchEvalCaseSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/u),
   version: z.string().min(1),
   category: z.enum([
-    'direct_answer', 'direct_url', 'product_comparison', 'current_research',
-    'technical_troubleshooting', 'policy_research', 'travel_research', 'limited_evidence',
+    'direct_answer',
+    'direct_url',
+    'product_comparison',
+    'current_research',
+    'technical_troubleshooting',
+    'policy_research',
+    'travel_research',
+    'limited_evidence',
   ]),
   prompt: z.string().min(1),
   suites: z.array(z.enum(['smoke', 'full'])).min(1),
@@ -35,12 +41,14 @@ export const semanticJudgeResultSchema = z.object({
   taskCompletion: scoreReasonSchema,
   sourceQuality: scoreReasonSchema,
   groundedness: scoreReasonSchema.extend({
-    claims: z.array(z.object({
-      claim: z.string().min(1),
-      status: z.enum(['supported', 'partially_supported', 'unsupported', 'contradicted']),
-      sourceIds: z.array(z.string()),
-      reason: z.string().min(1),
-    })),
+    claims: z.array(
+      z.object({
+        claim: z.string().min(1),
+        status: z.enum(['supported', 'partially_supported', 'unsupported', 'contradicted']),
+        sourceIds: z.array(z.string()),
+        reason: z.string().min(1),
+      }),
+    ),
   }),
   sourceRelevance: scoreReasonSchema,
   limitationHandling: scoreReasonSchema,

@@ -54,8 +54,12 @@ export class DocumentNormalizer {
     const withoutControls = Array.from(value)
       .filter((character) => {
         const code = character.codePointAt(0) ?? 0;
-        return character === '\n' || character === '\r' || character === '\t' ||
-          (code >= 32 && code !== 127);
+        return (
+          character === '\n' ||
+          character === '\r' ||
+          character === '\t' ||
+          (code >= 32 && code !== 127)
+        );
       })
       .join('');
     return withoutControls

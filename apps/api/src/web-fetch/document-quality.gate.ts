@@ -5,9 +5,11 @@ import type { NormalizedWebDocument } from './web-fetch.types';
 import { codePointLength, sliceCodePoints } from './unicode.utils';
 
 // 识别登录、验证码、订阅或付费墙等无法直接作为公开依据的页面。
-const ACCESS_PATTERN = /(?:captcha|verify you are human|登录(?:后|以)|登入|订阅后|付费墙|subscribe to continue|sign in to continue|access denied)/iu;
+const ACCESS_PATTERN =
+  /(?:captcha|verify you are human|登录(?:后|以)|登入|订阅后|付费墙|subscribe to continue|sign in to continue|access denied)/iu;
 // 识别只返回 JavaScript 壳、需要浏览器执行后才能显示正文的页面。
-const JAVASCRIPT_PATTERN = /(?:enable javascript|javascript (?:is )?required|请(?:启用|开启)\s*javascript|需要启用\s*javascript)/iu;
+const JAVASCRIPT_PATTERN =
+  /(?:enable javascript|javascript (?:is )?required|请(?:启用|开启)\s*javascript|需要启用\s*javascript)/iu;
 
 @Injectable()
 export class DocumentQualityGate {
@@ -31,7 +33,10 @@ export class DocumentQualityGate {
         '网页需要登录、验证或订阅后才能读取正文。',
       );
     }
-    const lines = readable.split('\n').map((line) => line.trim().toLowerCase()).filter(Boolean);
+    const lines = readable
+      .split('\n')
+      .map((line) => line.trim().toLowerCase())
+      .filter(Boolean);
     if (lines.length >= 10 && new Set(lines).size / lines.length < 0.2) {
       throw new WebFetchError(
         AGENT_ERROR_CODES.fetchContentExtractionFailed,

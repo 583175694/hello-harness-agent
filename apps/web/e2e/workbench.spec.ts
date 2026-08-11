@@ -25,7 +25,9 @@ test('opens and focuses the workbench from a conversation tool call', async ({ p
   await expect(page.getByRole('complementary', { name: '工作区' })).toBeVisible();
   await expect(page.getByText('已固定')).toBeVisible();
   await expect(
-    page.getByRole('complementary', { name: '工作区' }).getByText('中国生成式 AI 市场规模 增速 产业落地'),
+    page
+      .getByRole('complementary', { name: '工作区' })
+      .getByText('中国生成式 AI 市场规模 增速 产业落地'),
   ).toBeVisible();
 });
 

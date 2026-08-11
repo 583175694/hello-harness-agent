@@ -21,23 +21,35 @@ export class BochaSearchProvider implements SearchProviderAdapter {
 
   // 调用 Bocha Web Search，并将摘要结果归一化为网页线索。
   async search({ query }: SearchRequest, signal?: AbortSignal): Promise<SearchToolResult> {
-    const payload = await fetchJson(this.config.getOrThrow<string>(ENV_KEYS.bochaSearchUrl), {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${this.config.getOrThrow<string>(ENV_KEYS.bochaSearchApiKey)}`,
-        'content-type': 'application/json',
+    const payload = (await fetchJson(
+      this.config.getOrThrow<string>(ENV_KEYS.bochaSearchUrl),
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.config.getOrThrow<string>(ENV_KEYS.bochaSearchApiKey)}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          query,
+          count: SEARCH_LIMITS.resultsMax,
+          freshness: 'noLimit',
+          summary: true,
+        }),
       },
-      body: JSON.stringify({ query, count: SEARCH_LIMITS.resultsMax, freshness: 'noLimit', summary: true }),
-    }, { signal }) as BochaResponse;
+      { signal },
+    )) as BochaResponse;
     const values = payload.data?.webPages?.value ?? payload.webPages?.value ?? [];
     const results = values.slice(0, SEARCH_LIMITS.resultsMax).flatMap((item, index) => {
-      const result = normalizeSearchResult({
-        title: item.name,
-        url: item.url,
-        snippet: item.summary || item.snippet,
-        publishedAt: item.datePublished,
-        source: item.siteName,
-      }, index);
+      const result = normalizeSearchResult(
+        {
+          title: item.name,
+          url: item.url,
+          snippet: item.summary || item.snippet,
+          publishedAt: item.datePublished,
+          source: item.siteName,
+        },
+        index,
+      );
       return result ? [result] : [];
     });
     return { query, provider: this.name, results };

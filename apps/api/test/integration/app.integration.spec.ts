@@ -64,13 +64,11 @@ describe('foundation API', () => {
     });
 
     const list = await request(app.getHttpServer()).get('/api/agent/sessions').expect(200);
-    expect(list.body.sessions
-      .map((session: { id: string }) => session.id)
-      .filter((id: string) => id === first.body.session.id || id === second.body.session.id),
-    ).toEqual([
-      first.body.session.id,
-      second.body.session.id,
-    ]);
+    expect(
+      list.body.sessions
+        .map((session: { id: string }) => session.id)
+        .filter((id: string) => id === first.body.session.id || id === second.body.session.id),
+    ).toEqual([first.body.session.id, second.body.session.id]);
     const detail = await request(app.getHttpServer())
       .get(`/api/agent/sessions/${first.body.session.id}`)
       .expect(200);
@@ -95,9 +93,7 @@ describe('foundation API', () => {
     const otherSession = await prisma.session.create({
       data: { id: crypto.randomUUID(), userId: otherUserId, title: '其他用户会话' },
     });
-    await request(app.getHttpServer())
-      .get(`/api/agent/sessions/${otherSession.id}`)
-      .expect(404);
+    await request(app.getHttpServer()).get(`/api/agent/sessions/${otherSession.id}`).expect(404);
     await prisma.user.delete({ where: { id: otherUserId } });
   });
 
@@ -122,8 +118,10 @@ describe('foundation API', () => {
     expect(updated.body.session).toMatchObject({ title: '__test__已重命名会话', isPinned: true });
 
     const list = await request(app.getHttpServer()).get('/api/agent/sessions').expect(200);
-    const relevant = list.body.sessions.filter((session: { id: string }) =>
-      session.id === regular.body.session.id || session.id === pinned.body.session.id);
+    const relevant = list.body.sessions.filter(
+      (session: { id: string }) =>
+        session.id === regular.body.session.id || session.id === pinned.body.session.id,
+    );
     expect(relevant.map((session: { id: string }) => session.id)).toEqual([
       pinned.body.session.id,
       regular.body.session.id,
@@ -185,6 +183,9 @@ describe('foundation API', () => {
       .post(`/api/agent/sessions/${created.body.session.id}/title/generate`)
       .send({})
       .expect(200);
-    expect(response.body).toMatchObject({ generated: false, session: { title: '__test__临时标题' } });
+    expect(response.body).toMatchObject({
+      generated: false,
+      session: { title: '__test__临时标题' },
+    });
   });
 });

@@ -7,10 +7,10 @@ function codePointLength(value: string): number {
 }
 
 // 定义模型调用批量网页读取工具时允许提交的参数。
-const publicWebUrlSchema = z.string().url().refine(
-  (value) => /^https?:\/\//iu.test(value),
-  '仅允许完整 HTTP/HTTPS URL',
-);
+const publicWebUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => /^https?:\/\//iu.test(value), '仅允许完整 HTTP/HTTPS URL');
 
 // 定义模型调用批量网页读取工具时允许提交的参数。
 export const webFetchInputSchema = z

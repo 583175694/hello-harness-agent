@@ -8,7 +8,13 @@ function cleanText(value: unknown, limit: number): string {
 
 // 过滤不安全或不完整的结果，并生成稳定的网页线索结构。
 export function normalizeSearchResult(
-  value: { title?: unknown; url?: unknown; snippet?: unknown; publishedAt?: unknown; source?: unknown },
+  value: {
+    title?: unknown;
+    url?: unknown;
+    snippet?: unknown;
+    publishedAt?: unknown;
+    source?: unknown;
+  },
   index: number,
 ): SearchResult | undefined {
   if (typeof value.url !== 'string') return undefined;

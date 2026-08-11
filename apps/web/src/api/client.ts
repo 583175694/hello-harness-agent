@@ -150,7 +150,8 @@ export async function requestChatStream(
         payload.type === 'tool.completed' ||
         payload.type === 'tool.failed' ||
         payload.type === 'tool.cancelled'
-      ) onToolEvent(payload);
+      )
+        onToolEvent(payload);
       else if (payload.type === 'message.completed') {
         model = payload.model;
         messageId = payload.messageId;

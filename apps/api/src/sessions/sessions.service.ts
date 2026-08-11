@@ -44,7 +44,10 @@ export class SessionsService {
   }
 
   // 更新会话名称或置顶状态，并返回新的会话摘要。
-  async update(sessionId: string, input: UpdateSessionRequest): Promise<{ session: SessionSummary }> {
+  async update(
+    sessionId: string,
+    input: UpdateSessionRequest,
+  ): Promise<{ session: SessionSummary }> {
     await this.requireOwned(sessionId);
     const session = await this.prisma.session.update({
       where: { id: sessionId },
@@ -95,7 +98,8 @@ export class SessionsService {
     if (!session) this.throwNotFound();
     const firstUser = session.messages.find((message) => message.role === 'user');
     const firstAssistant = session.messages.find((message) => message.role === 'assistant');
-    if (!firstUser || !firstAssistant) return { session: this.toSummary(session), generated: false };
+    if (!firstUser || !firstAssistant)
+      return { session: this.toSummary(session), generated: false };
 
     try {
       const title = await this.titles.generate(firstUser.content, firstAssistant.content);
@@ -143,12 +147,18 @@ export class SessionsService {
       kind: message.kind,
       content: message.content,
       createdAt: message.createdAt.toISOString(),
-      metadata: typeof message.metadata === 'object' && message.metadata ? message.metadata as Record<string, unknown> : {},
+      metadata:
+        typeof message.metadata === 'object' && message.metadata
+          ? (message.metadata as Record<string, unknown>)
+          : {},
     };
   }
 
   // 抛出统一的会话不存在或无归属错误。
   private throwNotFound(): never {
-    throw new NotFoundException({ code: AGENT_ERROR_CODES.sessionNotFound, detail: '会话不存在。' });
+    throw new NotFoundException({
+      code: AGENT_ERROR_CODES.sessionNotFound,
+      detail: '会话不存在。',
+    });
   }
 }

@@ -312,7 +312,8 @@ export function Composer({
               composingRef.current ||
               event.nativeEvent.isComposing ||
               event.nativeEvent.keyCode === 229
-            ) return;
+            )
+              return;
             event.preventDefault();
             if (prompt.trim() && !submitting && mode !== 'disabled')
               event.currentTarget.form?.requestSubmit();

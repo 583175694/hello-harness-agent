@@ -1,9 +1,4 @@
-import {
-  createServer,
-  type IncomingMessage,
-  type Server,
-  type ServerResponse,
-} from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { once } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
@@ -23,7 +18,11 @@ import type { GuardedWebUrl, RankedWebPassage } from '../../../src/web-fetch/web
 const servers: Server[] = [];
 
 afterEach(async () => {
-  await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+  await Promise.all(
+    servers
+      .splice(0)
+      .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+  );
 });
 
 // 创建监听随机本地端口的静态测试服务，不依赖真实互联网。
@@ -77,11 +76,13 @@ describe('CrawleeWebContentFetcher', () => {
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end('{"hidden":"data"}');
     });
-    const guard = { validate: vi.fn(async (url: string) => ({
-      requestedUrl: url,
-      normalizedUrl: url,
-      url: new URL(url),
-    })) } as unknown as WebFetchUrlGuard;
+    const guard = {
+      validate: vi.fn(async (url: string) => ({
+        requestedUrl: url,
+        normalizedUrl: url,
+        url: new URL(url),
+      })),
+    } as unknown as WebFetchUrlGuard;
     const fetcher = new CrawleeWebContentFetcher(guard);
     const targets: GuardedWebUrl[] = ['/ok', '/json'].map((path) => ({
       requestedUrl: `${baseUrl}${path}`,
@@ -101,17 +102,21 @@ describe('CrawleeWebContentFetcher', () => {
       response.writeHead(302, { location: `${baseUrl}/target` });
       response.end();
     });
-    const guard = { validate: vi.fn(async (url: string) => ({
-      requestedUrl: url,
-      normalizedUrl: url,
-      url: new URL(url),
-    })) } as unknown as WebFetchUrlGuard;
+    const guard = {
+      validate: vi.fn(async (url: string) => ({
+        requestedUrl: url,
+        normalizedUrl: url,
+        url: new URL(url),
+      })),
+    } as unknown as WebFetchUrlGuard;
     const fetcher = new CrawleeWebContentFetcher(guard);
-    const result = await fetcher.fetchAll([{
-      requestedUrl: `https://127.0.0.1:${new URL(baseUrl).port}/start`,
-      normalizedUrl: `${baseUrl}/start`,
-      url: new URL(`${baseUrl}/start`),
-    }]);
+    const result = await fetcher.fetchAll([
+      {
+        requestedUrl: `https://127.0.0.1:${new URL(baseUrl).port}/start`,
+        normalizedUrl: `${baseUrl}/start`,
+        url: new URL(`${baseUrl}/start`),
+      },
+    ]);
     expect(result[0]).toMatchObject({
       status: 'failed',
       code: AGENT_ERROR_CODES.fetchRedirectNotAllowed,
@@ -126,12 +131,15 @@ describe('content extraction and passage selection', () => {
     const normalizer = new DocumentNormalizer();
     const chunker = new PassageChunker();
     const ranker = new PassageRanker();
-    const extracted = extractor.extract(`<!doctype html><html lang="zh-CN"><head>
+    const extracted = extractor.extract(
+      `<!doctype html><html lang="zh-CN"><head>
       <title>产业报告</title><meta property="article:published_time" content="2026-08-01" />
       </head><body><nav>导航噪声</nav><article><h1>产业落地</h1>
       <p>企业正在把生成式 AI 😀 应用于客服、研发和知识管理。</p>
       <table><tr><th>场景</th><th>状态</th></tr><tr><td>客服</td><td>生产</td></tr></table>
-      <script>ignore me</script></article></body></html>`, 'https://example.com/report');
+      <script>ignore me</script></article></body></html>`,
+      'https://example.com/report',
+    );
     const document = normalizer.normalize({
       fetched: {
         requestedUrl: 'https://example.com/report',
@@ -180,8 +188,11 @@ describe('content extraction and passage selection', () => {
     const ranker = new PassageRanker();
     const document = normalizer.normalize({
       fetched: {
-        requestedUrl: 'https://example.com', finalUrl: 'https://example.com',
-        contentType: 'text/plain', body: '', retrievedAt: '2026-08-08T02:00:00.000Z',
+        requestedUrl: 'https://example.com',
+        finalUrl: 'https://example.com',
+        contentType: 'text/plain',
+        body: '',
+        retrievedAt: '2026-08-08T02:00:00.000Z',
       },
       extracted: { markdown: '苹果种植需要充足日照。' },
       normalizedUrl: 'https://example.com',
@@ -191,25 +202,36 @@ describe('content extraction and passage selection', () => {
 });
 
 describe('DocumentQualityGate', () => {
-  const normalize = (markdown: string, title = 'Example') => new DocumentNormalizer().normalize({
-    fetched: {
-      requestedUrl: 'https://example.com', finalUrl: 'https://example.com',
-      contentType: 'text/plain', body: '', retrievedAt: '2026-08-09T00:00:00.000Z',
-    },
-    extracted: { markdown, title },
-    normalizedUrl: 'https://example.com',
-  });
+  const normalize = (markdown: string, title = 'Example') =>
+    new DocumentNormalizer().normalize({
+      fetched: {
+        requestedUrl: 'https://example.com',
+        finalUrl: 'https://example.com',
+        contentType: 'text/plain',
+        body: '',
+        retrievedAt: '2026-08-09T00:00:00.000Z',
+      },
+      extracted: { markdown, title },
+      normalizedUrl: 'https://example.com',
+    });
 
   it.each([
     ['Please sign in to continue. '.repeat(20), 'Sign in', AGENT_ERROR_CODES.fetchAccessBlocked],
-    ['Please enable JavaScript to continue. '.repeat(20), 'JavaScript required', AGENT_ERROR_CODES.fetchJsRenderRequired],
+    [
+      'Please enable JavaScript to continue. '.repeat(20),
+      'JavaScript required',
+      AGENT_ERROR_CODES.fetchJsRenderRequired,
+    ],
   ])('rejects unusable shell content', (markdown, title, code) => {
-    expect(() => new DocumentQualityGate().validate(normalize(markdown, title)))
-      .toThrowError(expect.objectContaining({ code }));
+    expect(() => new DocumentQualityGate().validate(normalize(markdown, title))).toThrowError(
+      expect.objectContaining({ code }),
+    );
   });
 
   it('accepts a normal short article above the minimum useful length', () => {
-    const document = normalize('这是一篇包含实际正文的公开文章，用于说明产品能力、使用限制和具体实现方式。'.repeat(8));
+    const document = normalize(
+      '这是一篇包含实际正文的公开文章，用于说明产品能力、使用限制和具体实现方式。'.repeat(8),
+    );
     expect(() => new DocumentQualityGate().validate(document)).not.toThrow();
   });
 });
@@ -240,7 +262,8 @@ describe('BatchPassageBudgeter', () => {
     );
     const selected = new BatchPassageBudgeter().select(passagesByDocument, 10_000);
     expect(selected.size).toBe(5);
-    const total = [...selected.values()].flat()
+    const total = [...selected.values()]
+      .flat()
       .reduce((sum, item) => sum + Array.from(item.passage.text).length, 0);
     expect(total).toBeLessThanOrEqual(10_000);
   });
@@ -249,20 +272,27 @@ describe('BatchPassageBudgeter', () => {
 describe('WebFetchService', () => {
   it('preserves partial success order and reuses cached normalized documents', async () => {
     const guard = new WebFetchUrlGuard(async () => [{ address: '93.184.216.34', family: 4 }]);
-    const fetchAll = vi.fn(async (targets: GuardedWebUrl[]) => targets.map((target, index) =>
-      index === 1
-        ? { status: 'failed' as const, requestedUrl: target.requestedUrl, code: 'FETCH_TIMEOUT', detail: '网页读取超时。' }
-        : {
-            status: 'succeeded' as const,
-            content: {
+    const fetchAll = vi.fn(async (targets: GuardedWebUrl[]) =>
+      targets.map((target, index) =>
+        index === 1
+          ? {
+              status: 'failed' as const,
               requestedUrl: target.requestedUrl,
-              finalUrl: target.normalizedUrl,
-              contentType: 'text/plain',
-              body: '生成式 AI 正在进入客服和研发生产场景。'.repeat(12),
-              retrievedAt: '2026-08-08T02:00:00.000Z',
+              code: 'FETCH_TIMEOUT',
+              detail: '网页读取超时。',
+            }
+          : {
+              status: 'succeeded' as const,
+              content: {
+                requestedUrl: target.requestedUrl,
+                finalUrl: target.normalizedUrl,
+                contentType: 'text/plain',
+                body: '生成式 AI 正在进入客服和研发生产场景。'.repeat(12),
+                retrievedAt: '2026-08-08T02:00:00.000Z',
+              },
             },
-          },
-    ));
+      ),
+    );
     const service = new WebFetchService(
       guard,
       { fetchAll } as unknown as CrawleeWebContentFetcher,

@@ -29,7 +29,10 @@ describe('SemanticJudge', () => {
   it('repairs one invalid JSON response', async () => {
     const judge = new FakeJudge(['not json', valid]);
     const result = await judge.evaluate({
-      testCase: selectCases('smoke')[0]!, answer: '回答', sources: [], executions: [],
+      testCase: selectCases('smoke')[0]!,
+      answer: '回答',
+      sources: [],
+      executions: [],
     });
     expect(result.overallScore).toBe(3.8);
     expect(judge.prompts).toHaveLength(2);
@@ -37,24 +40,37 @@ describe('SemanticJudge', () => {
 
   it('falls back to the main model configuration', () => {
     expect(resolveJudgeProfile({ OPENAI_API_KEY: 'key', OPENAI_MODEL: 'model' })).toMatchObject({
-      source: 'main', model: 'model', endpointLabel: 'api.openai.com/v1',
+      source: 'main',
+      model: 'model',
+      endpointLabel: 'api.openai.com/v1',
     });
   });
 
   it('uses the independent judge configuration when it is complete', () => {
-    expect(resolveJudgeProfile({
-      EVAL_JUDGE_API_KEY: 'judge-key', EVAL_JUDGE_MODEL: 'judge-model',
-      EVAL_JUDGE_BASE_URL: 'https://judge.example/v1?secret=hidden',
-      OPENAI_API_KEY: 'main-key', OPENAI_MODEL: 'main-model',
-    })).toMatchObject({
-      source: 'eval', model: 'judge-model', endpointLabel: 'judge.example/v1',
+    expect(
+      resolveJudgeProfile({
+        EVAL_JUDGE_API_KEY: 'judge-key',
+        EVAL_JUDGE_MODEL: 'judge-model',
+        EVAL_JUDGE_BASE_URL: 'https://judge.example/v1?secret=hidden',
+        OPENAI_API_KEY: 'main-key',
+        OPENAI_MODEL: 'main-model',
+      }),
+    ).toMatchObject({
+      source: 'eval',
+      model: 'judge-model',
+      endpointLabel: 'judge.example/v1',
     });
   });
 
   it('reports an error after two invalid structured responses', async () => {
     const judge = new FakeJudge(['not json', 'still not json']);
-    await expect(judge.evaluate({
-      testCase: selectCases('smoke')[0]!, answer: '回答', sources: [], executions: [],
-    })).rejects.toThrow('连续两次');
+    await expect(
+      judge.evaluate({
+        testCase: selectCases('smoke')[0]!,
+        answer: '回答',
+        sources: [],
+        executions: [],
+      }),
+    ).rejects.toThrow('连续两次');
   });
 });

@@ -9,16 +9,19 @@ afterEach(() => {
 
 describe('upstream error logging', () => {
   it('retains the upstream status, safe URL, request id and response body', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
-      JSON.stringify({ error: 'invalid api key', apiKey: 'super-secret-value' }),
-      {
-        status: 401,
-        headers: { 'x-request-id': 'provider-request-123' },
-      },
-    )));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'invalid api key', apiKey: 'super-secret-value' }), {
+          status: 401,
+          headers: { 'x-request-id': 'provider-request-123' },
+        }),
+      ),
+    );
 
-    const failure = await fetchJson('https://search.example/v1/search?token=query-secret')
-      .catch((error: unknown) => error);
+    const failure = await fetchJson('https://search.example/v1/search?token=query-secret').catch(
+      (error: unknown) => error,
+    );
 
     expect(failure).toBeInstanceOf(UpstreamHttpError);
     expect(failure).toMatchObject({

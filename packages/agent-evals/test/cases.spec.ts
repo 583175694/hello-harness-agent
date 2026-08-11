@@ -6,14 +6,18 @@ describe('research eval cases', () => {
   it('contains six smoke and twenty-four full protocol-valid cases', () => {
     expect(selectCases('smoke')).toHaveLength(6);
     expect(selectCases('full')).toHaveLength(24);
-    expect(RESEARCH_EVAL_CASES.every((item) => researchEvalCaseSchema.safeParse(item).success)).toBe(true);
+    expect(
+      RESEARCH_EVAL_CASES.every((item) => researchEvalCaseSchema.safeParse(item).success),
+    ).toBe(true);
     expect(new Set(RESEARCH_EVAL_CASES.map((item) => item.id)).size).toBe(24);
   });
 
   it('keeps the required full-suite category distribution', () => {
     const counts = Object.fromEntries(
-      [...new Set(RESEARCH_EVAL_CASES.map((item) => item.category))]
-        .map((category) => [category, selectCases('full').filter((item) => item.category === category).length]),
+      [...new Set(RESEARCH_EVAL_CASES.map((item) => item.category))].map((category) => [
+        category,
+        selectCases('full').filter((item) => item.category === category).length,
+      ]),
     );
     expect(counts).toEqual({
       direct_answer: 3,

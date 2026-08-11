@@ -60,7 +60,8 @@ export class HtmlContentExtractor {
   private removeUnavailableNodes(document: Document): void {
     for (const node of document.querySelectorAll(
       'script,style,noscript,iframe,template,form,svg,[hidden],[aria-hidden="true"]',
-    )) node.remove();
+    ))
+      node.remove();
     for (const node of document.querySelectorAll<HTMLElement>('[style]')) {
       const style = node.getAttribute('style')?.toLowerCase() ?? '';
       if (style.includes('display:none') || style.includes('visibility:hidden')) node.remove();
@@ -73,7 +74,11 @@ export class HtmlContentExtractor {
       const href = link.getAttribute('href') ?? '';
       if (href.startsWith('data:')) link.removeAttribute('href');
       else {
-        try { link.href = new URL(href, finalUrl).toString(); } catch { link.removeAttribute('href'); }
+        try {
+          link.href = new URL(href, finalUrl).toString();
+        } catch {
+          link.removeAttribute('href');
+        }
       }
     }
     for (const image of document.querySelectorAll<HTMLImageElement>('img')) {

@@ -106,4 +106,4 @@ export const AGENT_ERROR_CODES = {
   agentExternalContextBudgetExceeded: 'AGENT_EXTERNAL_CONTEXT_BUDGET_EXCEEDED',
 } as const;
 
-export type AgentErrorCode = typeof AGENT_ERROR_CODES[keyof typeof AGENT_ERROR_CODES];
+export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[keyof typeof AGENT_ERROR_CODES];

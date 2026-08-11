@@ -23,9 +23,11 @@ describe('foundation protocol', () => {
   });
 
   it('normalizes source URLs deterministically without deleting business parameters', () => {
-    expect(normalizeSourceUrl(
-      'https://EXAMPLE.com:443/article?b=2&utm_source=news&id=7&a=1&fbclid=tracking#section',
-    )).toBe('https://example.com/article?a=1&b=2&id=7');
+    expect(
+      normalizeSourceUrl(
+        'https://EXAMPLE.com:443/article?b=2&utm_source=news&id=7&a=1&fbclid=tracking#section',
+      ),
+    ).toBe('https://example.com/article?a=1&b=2&id=7');
     expect(normalizeSourceUrl('http://example.com:80/path?ref=home&lang=zh')).toBe(
       'http://example.com/path?lang=zh&ref=home',
     );
@@ -60,27 +62,31 @@ describe('foundation protocol', () => {
         delta: 'hello',
       }),
     ).toMatchObject({ type: 'message.delta', messageId: 'msg_1' });
-    expect(chatStreamEventSchema.parse({
-      type: 'tool.started',
-      messageId: 'msg_1',
-      blockId: 'tool_1',
-      toolCallId: 'call_1',
-      toolName: 'web_search',
-      title: '搜索网页',
-      input: { query: 'test' },
-      startedAt: '2026-08-07T09:00:00.000Z',
-    })).toMatchObject({ type: 'tool.started', title: '搜索网页' });
-    expect(chatStreamEventSchema.parse({
-      type: 'tool.cancelled',
-      messageId: 'msg_1',
-      blockId: 'tool_1',
-      toolCallId: 'call_1',
-      toolName: 'web_search',
-      completedAt: '2026-08-07T09:00:01.000Z',
-      durationMs: 1000,
-      code: 'SEARCH_CANCELLED',
-      detail: '网页搜索已取消。',
-    })).toMatchObject({ type: 'tool.cancelled', code: 'SEARCH_CANCELLED' });
+    expect(
+      chatStreamEventSchema.parse({
+        type: 'tool.started',
+        messageId: 'msg_1',
+        blockId: 'tool_1',
+        toolCallId: 'call_1',
+        toolName: 'web_search',
+        title: '搜索网页',
+        input: { query: 'test' },
+        startedAt: '2026-08-07T09:00:00.000Z',
+      }),
+    ).toMatchObject({ type: 'tool.started', title: '搜索网页' });
+    expect(
+      chatStreamEventSchema.parse({
+        type: 'tool.cancelled',
+        messageId: 'msg_1',
+        blockId: 'tool_1',
+        toolCallId: 'call_1',
+        toolName: 'web_search',
+        completedAt: '2026-08-07T09:00:01.000Z',
+        durationMs: 1000,
+        code: 'SEARCH_CANCELLED',
+        detail: '网页搜索已取消。',
+      }),
+    ).toMatchObject({ type: 'tool.cancelled', code: 'SEARCH_CANCELLED' });
   });
 
   it('requires structured function call arguments', () => {
@@ -99,15 +105,17 @@ describe('foundation protocol', () => {
       createdAt: '2026-08-05T04:00:00.000Z',
       metadata: {},
     });
-    expect(sessionDetailSchema.parse({
-      id: 'session-1',
-      title: '测试会话',
-      status: 'active',
-      isPinned: false,
-      createdAt: '2026-08-05T04:00:00.000Z',
-      updatedAt: '2026-08-05T04:00:01.000Z',
-      messages: [message],
-    }).messages).toHaveLength(1);
+    expect(
+      sessionDetailSchema.parse({
+        id: 'session-1',
+        title: '测试会话',
+        status: 'active',
+        isPinned: false,
+        createdAt: '2026-08-05T04:00:00.000Z',
+        updatedAt: '2026-08-05T04:00:01.000Z',
+        messages: [message],
+      }).messages,
+    ).toHaveLength(1);
   });
 
   it('requires a short title and non-empty session chat content', () => {
@@ -124,22 +132,28 @@ describe('foundation protocol', () => {
   });
 
   it('validates batch web fetch input and rejects unsafe shapes', () => {
-    expect(webFetchInputSchema.parse({
-      urls: ['https://example.com/a', 'https://example.com/b'],
-      query: '  产业落地证据  ',
-    })).toEqual({
+    expect(
+      webFetchInputSchema.parse({
+        urls: ['https://example.com/a', 'https://example.com/b'],
+        query: '  产业落地证据  ',
+      }),
+    ).toEqual({
       urls: ['https://example.com/a', 'https://example.com/b'],
       query: '产业落地证据',
     });
     expect(() => webFetchInputSchema.parse({ urls: [] })).toThrow();
     expect(() => webFetchInputSchema.parse({ urls: ['ftp://example.com/file'] })).toThrow();
-    expect(() => webFetchInputSchema.parse({
-      urls: Array.from({ length: 6 }, (_, index) => `https://example.com/${index}`),
-    })).toThrow();
-    expect(() => webFetchInputSchema.parse({
-      urls: ['https://example.com'],
-      headers: { authorization: 'secret' },
-    })).toThrow();
+    expect(() =>
+      webFetchInputSchema.parse({
+        urls: Array.from({ length: 6 }, (_, index) => `https://example.com/${index}`),
+      }),
+    ).toThrow();
+    expect(() =>
+      webFetchInputSchema.parse({
+        urls: ['https://example.com'],
+        headers: { authorization: 'secret' },
+      }),
+    ).toThrow();
   });
 
   it('validates partial web fetch results and code-point locators', () => {
@@ -158,15 +172,17 @@ describe('foundation protocol', () => {
           contentHash: 'hash',
           cacheStatus: 'miss',
           truncated: false,
-          passages: [{
-            passageId: 'passage-1',
-            text: exact,
-            locator: {
-              kind: 'web_text',
-              quote: { exact },
-              position: { start: 10, end: 10 + Array.from(exact).length },
+          passages: [
+            {
+              passageId: 'passage-1',
+              text: exact,
+              locator: {
+                kind: 'web_text',
+                quote: { exact },
+                position: { start: 10, end: 10 + Array.from(exact).length },
+              },
             },
-          }],
+          ],
         },
         {
           status: 'failed',
@@ -190,36 +206,48 @@ describe('foundation protocol', () => {
       },
     });
     expect(result.results).toHaveLength(3);
-    expect(() => webFetchResultSchema.parse({
-      ...result,
-      results: [{
-        ...(result.results[0] as object),
-        passages: [{
-          passageId: 'invalid',
-          text: exact,
-          locator: {
-            kind: 'web_text',
-            quote: { exact },
-            position: { start: 0, end: 2 },
+    expect(() =>
+      webFetchResultSchema.parse({
+        ...result,
+        results: [
+          {
+            ...(result.results[0] as object),
+            passages: [
+              {
+                passageId: 'invalid',
+                text: exact,
+                locator: {
+                  kind: 'web_text',
+                  quote: { exact },
+                  position: { start: 0, end: 2 },
+                },
+              },
+            ],
           },
-        }],
-      }],
-    })).toThrow();
-    expect(() => webFetchResultSchema.parse({
-      ...result,
-      results: [{
-        ...(result.results[0] as object),
-        passages: [{
-          passageId: 'mismatched-quote',
-          text: exact,
-          locator: {
-            kind: 'web_text',
-            quote: { exact: '长度相同但内容不同' },
-            position: { start: 0, end: Array.from('长度相同但内容不同').length },
+        ],
+      }),
+    ).toThrow();
+    expect(() =>
+      webFetchResultSchema.parse({
+        ...result,
+        results: [
+          {
+            ...(result.results[0] as object),
+            passages: [
+              {
+                passageId: 'mismatched-quote',
+                text: exact,
+                locator: {
+                  kind: 'web_text',
+                  quote: { exact: '长度相同但内容不同' },
+                  position: { start: 0, end: Array.from('长度相同但内容不同').length },
+                },
+              },
+            ],
           },
-        }],
-      }],
-    })).toThrow();
+        ],
+      }),
+    ).toThrow();
   });
 
   it('requires the new source usage state and rejects legacy metadata', () => {
@@ -227,36 +255,42 @@ describe('foundation protocol', () => {
       model: 'test-model',
       agent: {
         toolCallCount: 1,
-        executions: [{
-          toolCallId: 'call-1',
-          toolName: 'web_search',
-          input: { query: 'test' },
-          status: 'completed',
-          startedAt: '2026-08-08T02:00:00.000Z',
-          completedAt: '2026-08-08T02:00:01.000Z',
-          durationMs: 1000,
-        }],
-        sources: [{
-          id: 'result-1',
-          title: '旧来源',
-          url: 'https://example.com',
-          domain: 'example.com',
-          snippet: '旧摘要',
-          provider: 'serp',
-          kind: 'clue',
-          used: false,
-          retrievedAt: '2026-08-08T02:00:01.000Z',
-          toolCallIds: ['call-1'],
-        }],
+        executions: [
+          {
+            toolCallId: 'call-1',
+            toolName: 'web_search',
+            input: { query: 'test' },
+            status: 'completed',
+            startedAt: '2026-08-08T02:00:00.000Z',
+            completedAt: '2026-08-08T02:00:01.000Z',
+            durationMs: 1000,
+          },
+        ],
+        sources: [
+          {
+            id: 'result-1',
+            title: '旧来源',
+            url: 'https://example.com',
+            domain: 'example.com',
+            snippet: '旧摘要',
+            provider: 'serp',
+            kind: 'clue',
+            used: false,
+            retrievedAt: '2026-08-08T02:00:01.000Z',
+            toolCallIds: ['call-1'],
+          },
+        ],
       },
     });
     expect(parsed.agent?.sources[0]).toMatchObject({ kind: 'clue' });
-    expect(() => assistantAgentMetadataSchema.parse({
-      ...parsed,
-      agent: {
-        ...parsed.agent,
-        sources: [{ ...parsed.agent?.sources[0], kind: 'evidence_candidate' }],
-      },
-    })).toThrow();
+    expect(() =>
+      assistantAgentMetadataSchema.parse({
+        ...parsed,
+        agent: {
+          ...parsed.agent,
+          sources: [{ ...parsed.agent?.sources[0], kind: 'evidence_candidate' }],
+        },
+      }),
+    ).toThrow();
   });
 });

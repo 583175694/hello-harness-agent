@@ -6,8 +6,16 @@ describe('parseSseResponse', () => {
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(encoder.encode('data: {"type":"message.delta","messageId":"m1","blockId":"b1","delta":"你'));
-        controller.enqueue(encoder.encode('好"}\n\ndata: {"type":"message.completed","messageId":"m1","model":"test"}\n\n'));
+        controller.enqueue(
+          encoder.encode(
+            'data: {"type":"message.delta","messageId":"m1","blockId":"b1","delta":"你',
+          ),
+        );
+        controller.enqueue(
+          encoder.encode(
+            '好"}\n\ndata: {"type":"message.completed","messageId":"m1","model":"test"}\n\n',
+          ),
+        );
         controller.close();
       },
     });

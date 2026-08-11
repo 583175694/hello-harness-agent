@@ -149,7 +149,7 @@ export class ChatService {
           toolName: event.toolName,
           summary: fetchInput
             ? `读取 ${fetchInput.urls.length} 个网页`
-            : searchInput?.query ?? '',
+            : (searchInput?.query ?? ''),
           startedAt: event.startedAt,
         });
         if (fetchInput) {
@@ -179,8 +179,8 @@ export class ChatService {
       }
       if (event.type === 'tool.completed') {
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
-        const fetchResult = isFetch ? event.output as WebFetchResult : undefined;
-        const searchResult = isFetch ? undefined : event.output as SearchToolResult;
+        const fetchResult = isFetch ? (event.output as WebFetchResult) : undefined;
+        const searchResult = isFetch ? undefined : (event.output as SearchToolResult);
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
         if (fetchResult && fetchInput) {
@@ -200,10 +200,14 @@ export class ChatService {
             result: searchResult,
           });
         }
-        const fetchSucceeded = fetchResult?.results.filter((item) => item.status === 'succeeded') ?? [];
+        const fetchSucceeded =
+          fetchResult?.results.filter((item) => item.status === 'succeeded') ?? [];
         const fetchFailed = fetchResult?.results.filter((item) => item.status === 'failed') ?? [];
         const fetchSkipped = fetchResult?.results.filter((item) => item.status === 'skipped') ?? [];
-        const passageCount = fetchSucceeded.reduce((total, item) => total + item.passages.length, 0);
+        const passageCount = fetchSucceeded.reduce(
+          (total, item) => total + item.passages.length,
+          0,
+        );
         const blockId = conversation.completeTool({
           toolCallId: event.toolCallId,
           completedAt: event.completedAt,
@@ -239,14 +243,15 @@ export class ChatService {
       }
       if (event.type === 'tool.failed') {
         const toolInput = this.asProjectionInput(event.toolName, event.input);
-        if (toolInput) projection.recordFailed({
-          toolCallId: event.toolCallId,
-          ...toolInput,
-          completedAt: event.completedAt,
-          durationMs: event.durationMs,
-          code: event.code,
-          detail: event.detail,
-        });
+        if (toolInput)
+          projection.recordFailed({
+            toolCallId: event.toolCallId,
+            ...toolInput,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            code: event.code,
+            detail: event.detail,
+          });
         const blockId = conversation.failTool({
           toolCallId: event.toolCallId,
           completedAt: event.completedAt,
@@ -268,14 +273,15 @@ export class ChatService {
       }
       if (event.type === 'tool.cancelled') {
         const toolInput = this.asProjectionInput(event.toolName, event.input);
-        if (toolInput) projection.recordCancelled({
-          toolCallId: event.toolCallId,
-          ...toolInput,
-          completedAt: event.completedAt,
-          durationMs: event.durationMs,
-          code: event.code,
-          detail: event.detail,
-        });
+        if (toolInput)
+          projection.recordCancelled({
+            toolCallId: event.toolCallId,
+            ...toolInput,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            code: event.code,
+            detail: event.detail,
+          });
         const blockId = conversation.cancelTool({
           toolCallId: event.toolCallId,
           completedAt: event.completedAt,
@@ -406,7 +412,8 @@ export class ChatService {
       : sources;
     const sourceUrl = (source: ResearchSourceSnapshot): string =>
       source.kind === 'fetched' ? source.finalUrl : source.url;
-    if (!preferred.length || preferred.some((source) => content.includes(sourceUrl(source)))) return content;
+    if (!preferred.length || preferred.some((source) => content.includes(sourceUrl(source))))
+      return content;
     const links = preferred
       .slice(0, 5)
       .map(

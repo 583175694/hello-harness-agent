@@ -16,8 +16,10 @@ export function resolveJudgeProfile(env: NodeJS.ProcessEnv = process.env): Judge
   const evalKey = env.EVAL_JUDGE_API_KEY?.trim();
   const apiKey = evalKey || env.OPENAI_API_KEY?.trim();
   const model = (evalKey ? env.EVAL_JUDGE_MODEL : undefined)?.trim() || env.OPENAI_MODEL?.trim();
-  const baseUrl = (evalKey ? env.EVAL_JUDGE_BASE_URL : undefined)?.trim() || env.OPENAI_BASE_URL?.trim();
-  if (!apiKey || !model) throw new Error('未配置评审模型，请设置 EVAL_JUDGE_* 或 OPENAI_API_KEY/OPENAI_MODEL。');
+  const baseUrl =
+    (evalKey ? env.EVAL_JUDGE_BASE_URL : undefined)?.trim() || env.OPENAI_BASE_URL?.trim();
+  if (!apiKey || !model)
+    throw new Error('未配置评审模型，请设置 EVAL_JUDGE_* 或 OPENAI_API_KEY/OPENAI_MODEL。');
   return {
     apiKey,
     model,
@@ -45,17 +47,19 @@ export class SemanticJudge {
     executions: ToolExecutionSnapshot[];
     signal?: AbortSignal;
   }): Promise<SemanticJudgeResult> {
-    const fetched = input.sources.filter((source) => source.kind === 'fetched').map((source) => ({
-      id: source.id,
-      title: source.title,
-      url: source.finalUrl,
-      retrievedAt: source.retrievedAt,
-      passages: source.passages.map((passage) => ({
-        passageId: passage.passageId,
-        text: passage.text,
-        sectionPath: passage.locator.sectionPath,
-      })),
-    }));
+    const fetched = input.sources
+      .filter((source) => source.kind === 'fetched')
+      .map((source) => ({
+        id: source.id,
+        title: source.title,
+        url: source.finalUrl,
+        retrievedAt: source.retrievedAt,
+        passages: source.passages.map((passage) => ({
+          passageId: passage.passageId,
+          text: passage.text,
+          sectionPath: passage.locator.sectionPath,
+        })),
+      }));
     const payload = {
       question: input.testCase.prompt,
       expectations: input.testCase.expectations,
@@ -85,28 +89,37 @@ export class SemanticJudge {
 
   // 调用 OpenAI-compatible Chat Completions 获取评审文本。
   protected async complete(prompt: string, signal?: AbortSignal): Promise<string> {
-    const response = await this.client.chat.completions.create({
-      model: this.profile.model,
-      temperature: 0,
-      messages: [
-        {
-          role: 'system',
-          content: '你是离线质量评审器。不得联网，不得使用未提供的知识补充事实，只能依据用户问题、Rubric、最终回答和 fetched passages 评分。搜索摘要不属于证据。',
-        },
-        { role: 'user', content: prompt },
-      ],
-    }, { signal });
+    const response = await this.client.chat.completions.create(
+      {
+        model: this.profile.model,
+        temperature: 0,
+        messages: [
+          {
+            role: 'system',
+            content:
+              '你是离线质量评审器。不得联网，不得使用未提供的知识补充事实，只能依据用户问题、Rubric、最终回答和 fetched passages 评分。搜索摘要不属于证据。',
+          },
+          { role: 'user', content: prompt },
+        ],
+      },
+      { signal },
+    );
     return response.choices[0]?.message.content ?? '';
   }
 
   // 从兼容 Markdown code fence 的模型输出中解析并校验 Judge JSON。
   private parse(content: string): SemanticJudgeResult | undefined {
-    const normalized = content.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '');
+    const normalized = content
+      .trim()
+      .replace(/^```(?:json)?\s*/iu, '')
+      .replace(/\s*```$/u, '');
     try {
       const parsed: unknown = JSON.parse(normalized);
       const result = semanticJudgeResultSchema.safeParse(parsed);
       return result.success ? result.data : undefined;
-    } catch { return undefined; }
+    } catch {
+      return undefined;
+    }
   }
 
   // 构造固定评分说明，避免 Judge 自行发明维度或访问外部内容。
@@ -121,5 +134,7 @@ function safeEndpointLabel(baseUrl?: string): string {
   try {
     const url = new URL(baseUrl);
     return `${url.host}${url.pathname}`.replace(/\/$/u, '');
-  } catch { return 'custom-openai-compatible-endpoint'; }
+  } catch {
+    return 'custom-openai-compatible-endpoint';
+  }
 }

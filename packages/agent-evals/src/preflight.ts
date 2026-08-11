@@ -18,7 +18,9 @@ export function assertLocalResearchConfiguration(
   }
   const providerKey = provider === 'bocha' ? env.BOCHA_SEARCH_API_KEY : env.SERPER_SEARCH_API_KEY;
   if (!providerKey?.trim()) {
-    throw new Error(`搜索 Provider 未就绪，请配置 ${provider === 'bocha' ? 'BOCHA_SEARCH_API_KEY' : 'SERPER_SEARCH_API_KEY'}。`);
+    throw new Error(
+      `搜索 Provider 未就绪，请配置 ${provider === 'bocha' ? 'BOCHA_SEARCH_API_KEY' : 'SERPER_SEARCH_API_KEY'}。`,
+    );
   }
 }
 
@@ -26,7 +28,8 @@ export function assertLocalResearchConfiguration(
 function isLocalApi(apiBaseUrl: string): boolean {
   try {
     const url = new URL(apiBaseUrl);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('unsupported protocol');
+    if (url.protocol !== 'http:' && url.protocol !== 'https:')
+      throw new Error('unsupported protocol');
     const hostname = url.hostname;
     return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]';
   } catch {

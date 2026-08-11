@@ -64,7 +64,13 @@ export function WorkbenchShell({
           <h2>{state.title}</h2>
           <p>{state.subtitle}</p>
         </div>
-        <button className="icon-button" type="button" aria-label="收起工作区" title="收起工作区" onClick={onClose}>
+        <button
+          className="icon-button"
+          type="button"
+          aria-label="收起工作区"
+          title="收起工作区"
+          onClick={onClose}
+        >
           <PanelRight size={17} />
         </button>
       </header>
@@ -80,7 +86,13 @@ export function WorkbenchShell({
           >
             <TabIcon
               size={15}
-              className={id === 'activity' && state.activeView === id && (state.activityStatus === 'running' || state.activityStatus === 'cancelling') ? 'spin' : ''}
+              className={
+                id === 'activity' &&
+                state.activeView === id &&
+                (state.activityStatus === 'running' || state.activityStatus === 'cancelling')
+                  ? 'spin'
+                  : ''
+              }
             />
             {label}
           </button>
@@ -121,9 +133,10 @@ function ActivityView({
 }) {
   const { title, subtitle } = ACTIVITY_STATUS_COPY[status];
   const isBusy = status === 'running' || status === 'cancelling';
-  const selectedTool = focusTarget?.kind === 'tool_call'
-    ? executions.find((tool) => tool.toolCallId === focusTarget.toolCallId)
-    : executions.at(-1);
+  const selectedTool =
+    focusTarget?.kind === 'tool_call'
+      ? executions.find((tool) => tool.toolCallId === focusTarget.toolCallId)
+      : executions.at(-1);
 
   // 根据工具状态选择时间线图标。
   function toolIcon(toolStatus: ToolCallStatus): LucideIcon {
@@ -138,9 +151,22 @@ function ActivityView({
     <div className="activity-view">
       <div className="activity-heading">
         <div className={`activity-loader activity-loader--${status}`}>
-          {status === 'failed' ? <CircleAlert size={20} /> : status === 'cancelled' ? <X size={20} /> : status === 'waiting' ? <Clock3 size={20} /> : status === 'completed' ? <Check size={20} /> : <LoaderCircle className={isBusy ? 'spin' : ''} size={20} />}
+          {status === 'failed' ? (
+            <CircleAlert size={20} />
+          ) : status === 'cancelled' ? (
+            <X size={20} />
+          ) : status === 'waiting' ? (
+            <Clock3 size={20} />
+          ) : status === 'completed' ? (
+            <Check size={20} />
+          ) : (
+            <LoaderCircle className={isBusy ? 'spin' : ''} size={20} />
+          )}
         </div>
-        <div><strong>{title}</strong><span>{subtitle}</span></div>
+        <div>
+          <strong>{title}</strong>
+          <span>{subtitle}</span>
+        </div>
         <span className="follow-mode">{followMode === 'auto' ? '自动跟随' : '已固定'}</span>
       </div>
       <div className="execution-timeline">
@@ -150,9 +176,20 @@ function ActivityView({
           const selected = selectedTool?.toolCallId === tool.toolCallId;
           const busy = tool.status === 'running' || tool.status === 'cancelling';
           return (
-            <button className={`execution-item ${selected ? 'is-selected' : ''}`} type="button" key={tool.toolCallId} aria-pressed={selected} onClick={() => onSelect(tool)}>
-              <span className={`tool-call-status tool-call-status--${tool.status}`}><ToolIcon className={busy ? 'spin' : ''} size={13} /></span>
-              <span><strong>{tool.title}</strong><small>{tool.elapsed}</small></span>
+            <button
+              className={`execution-item ${selected ? 'is-selected' : ''}`}
+              type="button"
+              key={tool.toolCallId}
+              aria-pressed={selected}
+              onClick={() => onSelect(tool)}
+            >
+              <span className={`tool-call-status tool-call-status--${tool.status}`}>
+                <ToolIcon className={busy ? 'spin' : ''} size={13} />
+              </span>
+              <span>
+                <strong>{tool.title}</strong>
+                <small>{tool.elapsed}</small>
+              </span>
               <ChevronRight size={14} />
             </button>
           );
@@ -161,21 +198,38 @@ function ActivityView({
       {selectedTool ? (
         <article className="execution-detail" key={selectedTool.toolCallId} tabIndex={-1}>
           <div className="execution-detail-heading">
-            <div><span className="tool-name">{selectedTool.toolName}</span><h3>{selectedTool.title}</h3></div>
-            <span className={`execution-status execution-status--${selectedTool.status}`}>{selectedTool.status}</span>
+            <div>
+              <span className="tool-name">{selectedTool.toolName}</span>
+              <h3>{selectedTool.title}</h3>
+            </div>
+            <span className={`execution-status execution-status--${selectedTool.status}`}>
+              {selectedTool.status}
+            </span>
           </div>
           <p>{selectedTool.detail}</p>
           <dl>
-            <div><dt>业务输入</dt><dd>{selectedTool.inputSummary}</dd></div>
-            <div><dt>结果摘要</dt><dd>{selectedTool.outputSummary ?? '执行中，结果尚未生成'}</dd></div>
+            <div>
+              <dt>业务输入</dt>
+              <dd>{selectedTool.inputSummary}</dd>
+            </div>
+            <div>
+              <dt>结果摘要</dt>
+              <dd>{selectedTool.outputSummary ?? '执行中，结果尚未生成'}</dd>
+            </div>
             <div className="execution-metrics">
               <span>耗时 {selectedTool.elapsed}</span>
-              {selectedTool.resultCount !== undefined ? <span>{selectedTool.resultCount} 条结果</span> : null}
-              {selectedTool.sourceCount !== undefined ? <span>{selectedTool.sourceCount} 个来源</span> : null}
+              {selectedTool.resultCount !== undefined ? (
+                <span>{selectedTool.resultCount} 条结果</span>
+              ) : null}
+              {selectedTool.sourceCount !== undefined ? (
+                <span>{selectedTool.sourceCount} 个来源</span>
+              ) : null}
             </div>
           </dl>
         </article>
-      ) : <div className="execution-empty">执行详情暂不可用</div>}
+      ) : (
+        <div className="execution-empty">执行详情暂不可用</div>
+      )}
     </div>
   );
 }
@@ -191,8 +245,13 @@ function SourcesView({ sources: items }: { sources: SourceView[] }) {
   return (
     <div className="sources-view">
       <div className="view-toolbar">
-        <div><strong>来源</strong><span>{sourceSummary}</span></div>
-        <button className="icon-button" type="button" aria-label="筛选来源" title="筛选来源"><SlidersHorizontal size={16} /></button>
+        <div>
+          <strong>来源</strong>
+          <span>{sourceSummary}</span>
+        </div>
+        <button className="icon-button" type="button" aria-label="筛选来源" title="筛选来源">
+          <SlidersHorizontal size={16} />
+        </button>
       </div>
       <div className="source-list">
         {items.map((source) => (
@@ -200,30 +259,46 @@ function SourcesView({ sources: items }: { sources: SourceView[] }) {
             <div className="source-item-top">
               <span className="source-id">{source.id}</span>
               <span className="source-domain">{source.domain}</span>
-              <a href={source.url} target="_blank" rel="noopener noreferrer" aria-label={`打开来源 ${source.title}`}><ArrowUpRight size={14} /></a>
+              <a
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`打开来源 ${source.title}`}
+              >
+                <ArrowUpRight size={14} />
+              </a>
             </div>
-            <h3>{source.title}</h3><p>{source.excerpt}</p>
+            <h3>{source.title}</h3>
+            <p>{source.excerpt}</p>
             {source.kind === 'fetched' ? (
               <>
                 <div className="candidate-meta">
                   {source.author ? <span>{source.author}</span> : null}
                   {source.publishedAt ? <span>{source.publishedAt}</span> : null}
                   {source.contentType ? <span>{source.contentType}</span> : null}
-                  {source.cacheStatus ? <span>{source.cacheStatus === 'hit' ? '缓存命中' : '实时读取'}</span> : null}
+                  {source.cacheStatus ? (
+                    <span>{source.cacheStatus === 'hit' ? '缓存命中' : '实时读取'}</span>
+                  ) : null}
                   {source.truncated ? <span>正文已截断</span> : null}
                 </div>
-                <span className="candidate-label">{source.used ? '回答采用的已读来源' : '已读取网页'}</span>
+                <span className="candidate-label">
+                  {source.used ? '回答采用的已读来源' : '已读取网页'}
+                </span>
                 {source.passages?.length ? (
                   <details className="candidate-passages">
                     <summary>查看 {source.passages.length} 段原文</summary>
                     <div className="candidate-passage-list">
                       {source.passages.map((passage) => (
                         <article className="candidate-passage" key={passage.passageId}>
-                          {passage.locator.sectionPath?.length
-                            ? <div className="passage-section">{passage.locator.sectionPath.join(' / ')}</div>
-                            : null}
+                          {passage.locator.sectionPath?.length ? (
+                            <div className="passage-section">
+                              {passage.locator.sectionPath.join(' / ')}
+                            </div>
+                          ) : null}
                           <MarkdownContent>{passage.text}</MarkdownContent>
-                          <small>位置 {passage.locator.position.start}–{passage.locator.position.end}</small>
+                          <small>
+                            位置 {passage.locator.position.start}–{passage.locator.position.end}
+                          </small>
                         </article>
                       ))}
                     </div>
@@ -231,7 +306,15 @@ function SourcesView({ sources: items }: { sources: SourceView[] }) {
                 ) : null}
               </>
             ) : null}
-            <small>{source.provider ? `${source.provider} · ` : ''}{source.time} · {source.kind === 'clue' ? '搜索线索，尚未读取正文' : source.used ? '回答采用的已读来源' : '已读取并保存相关原文'}</small>
+            <small>
+              {source.provider ? `${source.provider} · ` : ''}
+              {source.time} ·{' '}
+              {source.kind === 'clue'
+                ? '搜索线索，尚未读取正文'
+                : source.used
+                  ? '回答采用的已读来源'
+                  : '已读取并保存相关原文'}
+            </small>
           </article>
         ))}
       </div>
@@ -244,13 +327,26 @@ function ReportView({ report, sources: items }: { report: ReportView; sources: S
   return (
     <div className="report-view">
       <div className="view-toolbar">
-        <div><strong>{report.title}</strong><span>{report.updated}</span></div>
-        <button className="secondary-button" type="button"><FileText size={15} />文件</button>
+        <div>
+          <strong>{report.title}</strong>
+          <span>{report.updated}</span>
+        </div>
+        <button className="secondary-button" type="button">
+          <FileText size={15} />
+          文件
+        </button>
       </div>
       <div className="report-document">
         {report.content}
-        <div className="report-sources"><h3>来源列表</h3>
-          {items.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer"><span className="source-id">[{source.id}]</span>{source.title}<ArrowUpRight size={13} /></a>)}
+        <div className="report-sources">
+          <h3>来源列表</h3>
+          {items.map((source) => (
+            <a key={source.id} href={source.url} target="_blank" rel="noreferrer">
+              <span className="source-id">[{source.id}]</span>
+              {source.title}
+              <ArrowUpRight size={13} />
+            </a>
+          ))}
         </div>
       </div>
     </div>

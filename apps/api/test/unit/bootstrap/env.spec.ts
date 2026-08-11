@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { validateEnvironment } from '../../../src/bootstrap/env.schema';
 
 const validEnvironment = {
-    DATABASE_URL: 'postgresql://user:pass@127.0.0.1:5432/db',
+  DATABASE_URL: 'postgresql://user:pass@127.0.0.1:5432/db',
 };
 
 describe('environment validation', () => {
@@ -16,12 +16,14 @@ describe('environment validation', () => {
   });
 
   it.each(['bocha', 'serp'] as const)('accepts the %s search provider', (provider) => {
-    expect(validateEnvironment({ ...validEnvironment, SEARCH_PROVIDER: provider }).SEARCH_PROVIDER)
-      .toBe(provider);
+    expect(
+      validateEnvironment({ ...validEnvironment, SEARCH_PROVIDER: provider }).SEARCH_PROVIDER,
+    ).toBe(provider);
   });
 
   it.each(['bocha,serp', 'google', 'BOCHA'])('rejects invalid search provider %s', (provider) => {
-    expect(() => validateEnvironment({ ...validEnvironment, SEARCH_PROVIDER: provider }))
-      .toThrow('SEARCH_PROVIDER');
+    expect(() => validateEnvironment({ ...validEnvironment, SEARCH_PROVIDER: provider })).toThrow(
+      'SEARCH_PROVIDER',
+    );
   });
 });

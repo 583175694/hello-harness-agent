@@ -1,5 +1,9 @@
 import { assistantAgentMetadataSchema } from '@harness/agent-protocol';
-import type { AssistantAgentMetadata, ChatStreamEvent, SessionDetail } from '@harness/agent-protocol';
+import type {
+  AssistantAgentMetadata,
+  ChatStreamEvent,
+  SessionDetail,
+} from '@harness/agent-protocol';
 import { EvalApiClient } from './api-client.js';
 import { analyzeCase, collectMetrics } from './analyzer.js';
 import { selectCases } from './cases.js';
@@ -18,7 +22,10 @@ export type EvalRunnerOptions = {
 };
 
 export type EvalRunnerDependencies = {
-  api?: Pick<EvalApiClient, 'assertReady' | 'createSession' | 'runChat' | 'getSession' | 'deleteSession'>;
+  api?: Pick<
+    EvalApiClient,
+    'assertReady' | 'createSession' | 'runChat' | 'getSession' | 'deleteSession'
+  >;
   judge?: SemanticJudge;
   judgeProfile?: JudgeProfile;
 };
@@ -38,7 +45,7 @@ export async function runEvaluation(
     results.push(await runCase(testCase, options, api, dependencies.judge));
   }
   const completedAt = new Date();
-  const judged = results.flatMap((item) => item.judge ? [item.judge.overallScore] : []);
+  const judged = results.flatMap((item) => (item.judge ? [item.judge.overallScore] : []));
   const report: EvalRunReport = {
     runId,
     suite: options.suite,
@@ -53,7 +60,9 @@ export async function runEvaluation(
       hardFailed: results.filter((item) => !item.hardPassed).length,
       judgeErrors: results.filter((item) => item.judgeError).length,
       cleanupErrors: results.filter((item) => item.cleanupError).length,
-      ...(judged.length ? { averageJudgeScore: judged.reduce((sum, score) => sum + score, 0) / judged.length } : {}),
+      ...(judged.length
+        ? { averageJudgeScore: judged.reduce((sum, score) => sum + score, 0) / judged.length }
+        : {}),
     },
   };
   await writeReport(options.outputDirectory, report, {
@@ -77,10 +86,19 @@ async function runCase(
   let result: EvalCaseResult;
   try {
     sessionId = await api.createSession(evalSessionTitle(testCase.id), AbortSignal.timeout(10_000));
-    events = await api.runChat(sessionId, testCase.prompt, AbortSignal.timeout(testCase.expectations.maxDurationMs));
+    events = await api.runChat(
+      sessionId,
+      testCase.prompt,
+      AbortSignal.timeout(testCase.expectations.maxDurationMs),
+    );
     session = await api.getSession(sessionId, AbortSignal.timeout(10_000));
     const completedAt = new Date();
-    const analysis = analyzeCase(testCase, events, session, completedAt.getTime() - startedAt.getTime());
+    const analysis = analyzeCase(
+      testCase,
+      events,
+      session,
+      completedAt.getTime() - startedAt.getTime(),
+    );
     result = {
       caseId: testCase.id,
       category: testCase.category,
@@ -114,8 +132,11 @@ async function runCase(
     }
   } catch (error) {
     if (sessionId && !session) {
-      try { session = await api.getSession(sessionId, AbortSignal.timeout(10_000)); }
-      catch { /* 原始执行错误优先；详情读取失败不覆盖它。 */ }
+      try {
+        session = await api.getSession(sessionId, AbortSignal.timeout(10_000));
+      } catch {
+        /* 原始执行错误优先；详情读取失败不覆盖它。 */
+      }
     }
     const completedAt = new Date();
     const metadata = latestMetadata(session);
@@ -141,8 +162,11 @@ async function runCase(
     };
   }
   if (sessionId && !options.keepSessions) {
-    try { await api.deleteSession(sessionId, AbortSignal.timeout(10_000)); }
-    catch (error) { result.cleanupError = describeError(error); }
+    try {
+      await api.deleteSession(sessionId, AbortSignal.timeout(10_000));
+    } catch (error) {
+      result.cleanupError = describeError(error);
+    }
   }
   return result;
 }
@@ -165,7 +189,10 @@ function latestMetadata(session?: SessionDetail): AssistantAgentMetadata | undef
 }
 
 function compactRunId(value: Date): string {
-  return value.toISOString().replace(/[-:]/gu, '').replace(/\.\d{3}Z$/u, 'Z');
+  return value
+    .toISOString()
+    .replace(/[-:]/gu, '')
+    .replace(/\.\d{3}Z$/u, 'Z');
 }
 
 function describeError(error: unknown): string {

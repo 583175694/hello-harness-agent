@@ -30,7 +30,10 @@ function sanitizeLogDetail(value: unknown): string {
     text = String(value);
   }
   return (text || String(value))
-    .replace(/((?:api[-_]?key|authorization|token|secret|password)["']?\s*[:=]\s*["']?)[^\s,"'}]+/giu, '$1[REDACTED]')
+    .replace(
+      /((?:api[-_]?key|authorization|token|secret|password)["']?\s*[:=]\s*["']?)[^\s,"'}]+/giu,
+      '$1[REDACTED]',
+    )
     .replace(/\bBearer\s+[^\s,"'}]+/giu, 'Bearer [REDACTED]')
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gu, 'sk-[REDACTED]')
     .replace(/[\r\n\t]+/gu, ' ')

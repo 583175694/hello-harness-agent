@@ -30,28 +30,33 @@ class BoundedHttpCrawler extends HttpCrawler<HttpCrawlingContext<FetchRequestDat
     const declared = Number(responseStream.headers['content-length'] ?? 0);
     if (Number.isFinite(declared) && declared > WEB_FETCH_POLICY.maxResponseBytes) {
       responseStream.destroy();
-      throw new WebFetchError(
-        AGENT_ERROR_CODES.fetchResponseTooLarge,
-        '网页响应超过允许大小。',
-      );
+      throw new WebFetchError(AGENT_ERROR_CODES.fetchResponseTooLarge, '网页响应超过允许大小。');
     }
     let bytes = 0;
     const limiter = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
         bytes += chunk.byteLength;
         if (bytes > WEB_FETCH_POLICY.maxResponseBytes) {
-          callback(new WebFetchError(
-            AGENT_ERROR_CODES.fetchResponseTooLarge,
-            '网页响应超过允许大小。',
-          ));
+          callback(
+            new WebFetchError(AGENT_ERROR_CODES.fetchResponseTooLarge, '网页响应超过允许大小。'),
+          );
           return;
         }
         callback(null, chunk);
       },
     });
     for (const property of [
-      'statusCode', 'statusMessage', 'headers', 'rawHeaders', 'trailers', 'rawTrailers',
-      'httpVersion', 'httpVersionMajor', 'httpVersionMinor', 'url', 'complete',
+      'statusCode',
+      'statusMessage',
+      'headers',
+      'rawHeaders',
+      'trailers',
+      'rawTrailers',
+      'httpVersion',
+      'httpVersionMajor',
+      'httpVersionMinor',
+      'url',
+      'complete',
     ] as const) {
       if (property in responseStream) {
         Object.defineProperty(limiter, property, {
@@ -88,134 +93,148 @@ export class CrawleeWebContentFetcher {
       purgeOnStart: false,
       logLevel: LogLevel.OFF,
     });
-    const crawler = new BoundedHttpCrawler({
-      maxConcurrency: WEB_FETCH_POLICY.maxConcurrency,
-      maxRequestRetries: WEB_FETCH_POLICY.maxRequestRetries,
-      maxRequestsPerCrawl: targets.length,
-      navigationTimeoutSecs: WEB_FETCH_POLICY.timeoutMs / 1_000,
-      requestHandlerTimeoutSecs: WEB_FETCH_POLICY.timeoutMs / 1_000,
-      useSessionPool: false,
-      persistCookiesPerSession: false,
-      retryOnBlocked: false,
-      log: new Log({ level: LogLevel.OFF }),
-      ignoreSslErrors: false,
-      additionalMimeTypes: ['text/plain'],
-      preNavigationHooks: [async ({ request }, gotOptions) => {
-        gotOptions.maxRedirects = WEB_FETCH_POLICY.maxRedirects;
-        gotOptions.headers = {
-          accept: 'text/html,application/xhtml+xml,text/plain;q=0.9',
-          'user-agent': 'HelloHarnessAgent-WebFetch/1.0',
-        };
-        gotOptions.hooks ??= {};
-        const existing = gotOptions.hooks.beforeRedirect ?? [];
-        gotOptions.hooks.beforeRedirect = [
-          ...existing,
-          async (options: { url: URL }, response: { url: string }) => {
-            const nextUrl = options.url.toString();
-            const previousUrl = response.url;
-            if (previousUrl.startsWith('https:') && nextUrl.startsWith('http:')) {
-              request.noRetry = true;
-              throw new WebFetchError(
-                AGENT_ERROR_CODES.fetchRedirectNotAllowed,
-                '网页重定向发生不安全的协议降级。',
-              );
-            }
-            await this.guard.validate(nextUrl, true);
+    const crawler = new BoundedHttpCrawler(
+      {
+        maxConcurrency: WEB_FETCH_POLICY.maxConcurrency,
+        maxRequestRetries: WEB_FETCH_POLICY.maxRequestRetries,
+        maxRequestsPerCrawl: targets.length,
+        navigationTimeoutSecs: WEB_FETCH_POLICY.timeoutMs / 1_000,
+        requestHandlerTimeoutSecs: WEB_FETCH_POLICY.timeoutMs / 1_000,
+        useSessionPool: false,
+        persistCookiesPerSession: false,
+        retryOnBlocked: false,
+        log: new Log({ level: LogLevel.OFF }),
+        ignoreSslErrors: false,
+        additionalMimeTypes: ['text/plain'],
+        preNavigationHooks: [
+          async ({ request }, gotOptions) => {
+            gotOptions.maxRedirects = WEB_FETCH_POLICY.maxRedirects;
+            gotOptions.headers = {
+              accept: 'text/html,application/xhtml+xml,text/plain;q=0.9',
+              'user-agent': 'HelloHarnessAgent-WebFetch/1.0',
+            };
+            gotOptions.hooks ??= {};
+            const existing = gotOptions.hooks.beforeRedirect ?? [];
+            gotOptions.hooks.beforeRedirect = [
+              ...existing,
+              async (options: { url: URL }, response: { url: string }) => {
+                const nextUrl = options.url.toString();
+                const previousUrl = response.url;
+                if (previousUrl.startsWith('https:') && nextUrl.startsWith('http:')) {
+                  request.noRetry = true;
+                  throw new WebFetchError(
+                    AGENT_ERROR_CODES.fetchRedirectNotAllowed,
+                    '网页重定向发生不安全的协议降级。',
+                  );
+                }
+                await this.guard.validate(nextUrl, true);
+              },
+            ];
           },
-        ];
-      }],
-      requestHandler: async ({ request, response, body, contentType }) => {
-        const data = request.userData as FetchRequestData;
-        const statusCode = response.statusCode ?? 0;
-        if (statusCode === 429) {
-          request.noRetry = true;
-          throw new WebFetchError(
-            AGENT_ERROR_CODES.fetchTooManyRequests,
-            '网页来源暂时限制访问频率。',
+        ],
+        requestHandler: async ({ request, response, body, contentType }) => {
+          const data = request.userData as FetchRequestData;
+          const statusCode = response.statusCode ?? 0;
+          if (statusCode === 429) {
+            request.noRetry = true;
+            throw new WebFetchError(
+              AGENT_ERROR_CODES.fetchTooManyRequests,
+              '网页来源暂时限制访问频率。',
+            );
+          }
+          if (statusCode >= 400) {
+            request.noRetry = statusCode < 500;
+            throw new WebFetchError(
+              AGENT_ERROR_CODES.fetchUpstreamFailed,
+              '网页来源返回不可用响应。',
+              statusCode >= 500,
+              new Error(`HTTP ${statusCode}`),
+            );
+          }
+          if (
+            !WEB_FETCH_POLICY.allowedContentTypes.includes(
+              contentType.type as (typeof WEB_FETCH_POLICY.allowedContentTypes)[number],
+            )
+          ) {
+            request.noRetry = true;
+            throw new WebFetchError(
+              AGENT_ERROR_CODES.fetchUnsupportedContentType,
+              '网页内容类型暂不支持。',
+            );
+          }
+          const text = Buffer.isBuffer(body) ? body.toString(contentType.encoding) : body;
+          if (!text.trim()) {
+            request.noRetry = true;
+            throw new WebFetchError(AGENT_ERROR_CODES.fetchContentEmpty, '网页响应没有可用正文。');
+          }
+          const nulCount = Array.from(text).filter((character) => character === '\0').length;
+          if (nulCount > Math.max(2, text.length * 0.01)) {
+            request.noRetry = true;
+            throw new WebFetchError(
+              AGENT_ERROR_CODES.fetchUnsupportedContentType,
+              '网页响应不是可读取的文本内容。',
+            );
+          }
+          results.set(data.index, {
+            status: 'succeeded',
+            content: {
+              requestedUrl: data.requestedUrl,
+              finalUrl: request.loadedUrl ?? request.url,
+              contentType: contentType.type,
+              body: text,
+              retrievedAt: new Date().toISOString(),
+            },
+          });
+        },
+        errorHandler: async ({ request }, error) => {
+          const normalized = this.classifyError(error, signal);
+          errors.set(request.id, normalized);
+          if (!normalized.retryable) request.noRetry = true;
+        },
+        failedRequestHandler: async ({ request }, error) => {
+          const data = request.userData as FetchRequestData;
+          const normalized = errors.get(request.id) ?? this.classifyError(error, signal);
+          this.logger?.warn(
+            `网页上游请求失败 | URL=${this.safeLogUrl(data.requestedUrl)} | 错误码=${normalized.code} | 上游原因=${describeLogError(error)}`,
+            CrawleeWebContentFetcher.name,
           );
-        }
-        if (statusCode >= 400) {
-          request.noRetry = statusCode < 500;
-          throw new WebFetchError(
-            AGENT_ERROR_CODES.fetchUpstreamFailed,
-            '网页来源返回不可用响应。',
-            statusCode >= 500,
-            new Error(`HTTP ${statusCode}`),
-          );
-        }
-        if (!WEB_FETCH_POLICY.allowedContentTypes.includes(
-          contentType.type as typeof WEB_FETCH_POLICY.allowedContentTypes[number],
-        )) {
-          request.noRetry = true;
-          throw new WebFetchError(
-            AGENT_ERROR_CODES.fetchUnsupportedContentType,
-            '网页内容类型暂不支持。',
-          );
-        }
-        const text = Buffer.isBuffer(body) ? body.toString(contentType.encoding) : body;
-        if (!text.trim()) {
-          request.noRetry = true;
-          throw new WebFetchError(AGENT_ERROR_CODES.fetchContentEmpty, '网页响应没有可用正文。');
-        }
-        const nulCount = Array.from(text).filter((character) => character === '\0').length;
-        if (nulCount > Math.max(2, text.length * 0.01)) {
-          request.noRetry = true;
-          throw new WebFetchError(
-            AGENT_ERROR_CODES.fetchUnsupportedContentType,
-            '网页响应不是可读取的文本内容。',
-          );
-        }
-        results.set(data.index, {
-          status: 'succeeded',
-          content: {
+          results.set(data.index, {
+            status: 'failed',
             requestedUrl: data.requestedUrl,
-            finalUrl: request.loadedUrl ?? request.url,
-            contentType: contentType.type,
-            body: text,
-            retrievedAt: new Date().toISOString(),
-          },
-        });
+            code: normalized.code,
+            detail: normalized.message,
+          });
+        },
       },
-      errorHandler: async ({ request }, error) => {
-        const normalized = this.classifyError(error, signal);
-        errors.set(request.id, normalized);
-        if (!normalized.retryable) request.noRetry = true;
-      },
-      failedRequestHandler: async ({ request }, error) => {
-        const data = request.userData as FetchRequestData;
-        const normalized = errors.get(request.id) ?? this.classifyError(error, signal);
-        this.logger?.warn(
-          `网页上游请求失败 | URL=${this.safeLogUrl(data.requestedUrl)} | 错误码=${normalized.code} | 上游原因=${describeLogError(error)}`,
-          CrawleeWebContentFetcher.name,
-        );
-        results.set(data.index, {
-          status: 'failed',
-          requestedUrl: data.requestedUrl,
-          code: normalized.code,
-          detail: normalized.message,
-        });
-      },
-    }, configuration);
-    const cancel = (): void => { void crawler.teardown(); };
+      configuration,
+    );
+    const cancel = (): void => {
+      void crawler.teardown();
+    };
     signal?.addEventListener('abort', cancel, { once: true });
     try {
-      await crawler.run(targets.map((target, index) => ({
-        url: target.normalizedUrl,
-        uniqueKey: `${REQUEST_LABEL}-${index}`,
-        label: REQUEST_LABEL,
-        userData: { index, requestedUrl: target.requestedUrl } satisfies FetchRequestData,
-        headers: {},
-      })));
+      await crawler.run(
+        targets.map((target, index) => ({
+          url: target.normalizedUrl,
+          uniqueKey: `${REQUEST_LABEL}-${index}`,
+          label: REQUEST_LABEL,
+          userData: { index, requestedUrl: target.requestedUrl } satisfies FetchRequestData,
+          headers: {},
+        })),
+      );
       if (signal?.aborted) throw this.cancelledError();
     } finally {
       signal?.removeEventListener('abort', cancel);
     }
-    return targets.map((target, index) => results.get(index) ?? ({
-      status: 'failed',
-      requestedUrl: target.requestedUrl,
-      code: AGENT_ERROR_CODES.fetchUpstreamFailed,
-      detail: '网页读取未返回结果。',
-    }));
+    return targets.map(
+      (target, index) =>
+        results.get(index) ?? {
+          status: 'failed',
+          requestedUrl: target.requestedUrl,
+          code: AGENT_ERROR_CODES.fetchUpstreamFailed,
+          detail: '网页读取未返回结果。',
+        },
+    );
   }
 
   // 将 Crawlee、网络和取消异常转换为稳定且不泄露上游细节的错误。
@@ -239,11 +258,7 @@ export class CrawleeWebContentFetcher {
         '网页内容类型暂不支持。',
       );
     }
-    return asWebFetchError(
-      error,
-      AGENT_ERROR_CODES.fetchUpstreamFailed,
-      '网页来源暂时无法读取。',
-    );
+    return asWebFetchError(error, AGENT_ERROR_CODES.fetchUpstreamFailed, '网页来源暂时无法读取。');
   }
 
   // 构造整个批次被调用方取消时使用的稳定异常。

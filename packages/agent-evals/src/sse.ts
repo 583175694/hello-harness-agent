@@ -14,7 +14,8 @@ export async function parseSseResponse(response: Response): Promise<ChatStreamEv
     const frames = buffer.split(/\r?\n\r?\n/u);
     buffer = frames.pop() ?? '';
     for (const frame of frames) {
-      const data = frame.split(/\r?\n/u)
+      const data = frame
+        .split(/\r?\n/u)
         .filter((line) => line.startsWith('data:'))
         .map((line) => line.slice(5).trimStart())
         .join('\n');

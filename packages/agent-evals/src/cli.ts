@@ -16,8 +16,11 @@ type CliOptions = {
 
 // 读取仓库根目录 .env，同时允许调用方环境变量覆盖文件值。
 function loadEnvironment(): void {
-  try { process.loadEnvFile(resolveWorkspaceEnvironmentPath()); }
-  catch { /* 环境变量可由 shell 直接提供。 */ }
+  try {
+    process.loadEnvFile(resolveWorkspaceEnvironmentPath());
+  } catch {
+    /* 环境变量可由 shell 直接提供。 */
+  }
 }
 
 // 根据 CLI 模块位置稳定定位 workspace 根目录，不依赖 pnpm filter 的当前目录。
@@ -44,11 +47,19 @@ export function parseCliArguments(args: string[]): CliOptions {
     const value = args[index + 1];
     if (argument === '--keep-sessions') options.keepSessions = true;
     else if (argument === '--skip-judge') options.skipJudge = true;
-    else if (argument === '--suite' && (value === 'smoke' || value === 'full')) { options.suite = value; index += 1; }
-    else if (argument === '--case' && value) { options.caseId = value; index += 1; }
-    else if (argument === '--api-base-url' && value) { options.apiBaseUrl = value.replace(/\/$/u, ''); index += 1; }
-    else if (argument === '--output' && value) { options.output = value; index += 1; }
-    else throw new Error(`未知或缺少值的参数：${argument ?? ''}`);
+    else if (argument === '--suite' && (value === 'smoke' || value === 'full')) {
+      options.suite = value;
+      index += 1;
+    } else if (argument === '--case' && value) {
+      options.caseId = value;
+      index += 1;
+    } else if (argument === '--api-base-url' && value) {
+      options.apiBaseUrl = value.replace(/\/$/u, '');
+      index += 1;
+    } else if (argument === '--output' && value) {
+      options.output = value;
+      index += 1;
+    } else throw new Error(`未知或缺少值的参数：${argument ?? ''}`);
   }
   return options;
 }
@@ -66,16 +77,21 @@ export async function main(): Promise<void> {
     judge = new SemanticJudge(judgeProfile);
   }
   console.log(`开始 General Web Research 评测 | suite=${cli.suite} | API=${cli.apiBaseUrl}`);
-  const report = await runEvaluation({
-    suite: cli.suite,
-    ...(cli.caseId ? { caseId: cli.caseId } : {}),
-    keepSessions: cli.keepSessions,
-    skipJudge: cli.skipJudge,
-    apiBaseUrl: cli.apiBaseUrl,
-    outputDirectory: output,
-    command: process.argv,
-  }, { judge, judgeProfile });
-  console.log(`评测完成 | 通过=${report.summary.hardPassed}/${report.summary.total} | Judge=${report.summary.averageJudgeScore?.toFixed(2) ?? 'N/A'} | 输出=${output}`);
+  const report = await runEvaluation(
+    {
+      suite: cli.suite,
+      ...(cli.caseId ? { caseId: cli.caseId } : {}),
+      keepSessions: cli.keepSessions,
+      skipJudge: cli.skipJudge,
+      apiBaseUrl: cli.apiBaseUrl,
+      outputDirectory: output,
+      command: process.argv,
+    },
+    { judge, judgeProfile },
+  );
+  console.log(
+    `评测完成 | 通过=${report.summary.hardPassed}/${report.summary.total} | Judge=${report.summary.averageJudgeScore?.toFixed(2) ?? 'N/A'} | 输出=${output}`,
+  );
   if (!report.hardPassed) process.exitCode = 1;
 }
 

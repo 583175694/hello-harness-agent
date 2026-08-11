@@ -36,12 +36,33 @@ async function startMockApi(): Promise<{
         response.end(JSON.stringify({ status: 'ok', service: 'api', version: 'test' }));
       else if (request.method === 'POST' && request.url === '/api/agent/sessions')
         response.end(JSON.stringify({ session: sessionSummary() }));
-      else if (request.method === 'POST' && request.url?.endsWith('/chat/stream')) {
+      else if (request.method === 'POST' && request.url?.endsWith('/runs')) {
+        response.end(
+          JSON.stringify({
+            sessionId: 'session-1',
+            runId: 'run-1',
+            userMessageId: 'user-1',
+            assistantMessageId: 'assistant-1',
+            status: 'queued',
+            eventsUrl: '/api/agent/runs/run-1/events',
+          }),
+        );
+      } else if (request.method === 'GET' && request.url === '/api/agent/runs/run-1/events') {
+        const envelope = (seq: number, payload: object) => ({
+          version: '0.9.0',
+          eventId: `run-1:${seq}`,
+          seq,
+          sessionId: 'session-1',
+          runId: 'run-1',
+          type: 'message.delta',
+          occurredAt: '2026-08-10T00:01:00.000Z',
+          payload,
+        });
         response.write(
-          'data: {"type":"message.delta","messageId":"assistant-1","blockId":"text-1","delta":"回',
+          `id: 1\nevent: message.delta\ndata: ${JSON.stringify(envelope(1, { type: 'message.delta', messageId: 'assistant-1', blockId: 'text-1', delta: '回答' }))}\n\n`,
         );
         response.end(
-          '答"}\n\ndata: {"type":"message.completed","messageId":"assistant-1","model":"test-model"}\n\n',
+          `id: 2\nevent: run.completed\ndata: ${JSON.stringify({ ...envelope(2, { status: 'completed' }), type: 'run.completed' })}\n\n`,
         );
       } else if (request.method === 'GET' && request.url === '/api/agent/sessions/session-1') {
         response.end(
@@ -96,16 +117,18 @@ describe('EvalApiClient', () => {
     const detail = await client.getSession(sessionId);
     await client.deleteSession(sessionId);
 
-    expect(events.map((event) => event.type)).toEqual(['message.delta', 'message.completed']);
+    expect(events.map((event) => event.type)).toEqual(['message.delta']);
     expect(detail.messages[0]?.content).toBe('回答');
     expect(mock.requests.map((request) => `${request.method} ${request.url}`)).toEqual([
       'GET /readyz',
       'POST /api/agent/sessions',
-      'POST /api/agent/sessions/session-1/chat/stream',
+      'POST /api/agent/sessions/session-1/runs',
+      'GET /api/agent/runs/run-1/events',
       'GET /api/agent/sessions/session-1',
       'DELETE /api/agent/sessions/session-1',
     ]);
-    expect(JSON.parse(mock.requests[2]!.body)).toEqual({ content: '问题' });
+    expect(JSON.parse(mock.requests[2]!.body)).toMatchObject({ content: '问题' });
+    expect(JSON.parse(mock.requests[2]!.body).idempotencyKey).toEqual(expect.any(String));
   });
 
   it('returns a concise Chinese readiness error when the API cannot be reached', async () => {

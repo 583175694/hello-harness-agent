@@ -920,6 +920,11 @@ textarea:focus-visible {
   color: #777773;
   animation: thinking-blink 1800ms ease-in-out infinite;
 }
+.assistant-delivery-status {
+  margin: 4px 0 8px;
+  color: #8e3f35;
+  font-size: 12px;
+}
 .assistant-failed {
   color: #8e3f35;
 }

@@ -1,4 +1,5 @@
 import {
+  createRunResponseSchema,
   createSessionResponseSchema,
   deleteSessionResponseSchema,
   serviceStatusSchema,
@@ -54,14 +55,19 @@ export class EvalApiClient {
     content: string,
     signal?: AbortSignal,
   ): Promise<ChatStreamEvent[]> {
-    const response = await fetch(`${this.baseUrl}/api/agent/sessions/${sessionId}/chat/stream`, {
+    const createResponse = await fetch(`${this.baseUrl}/api/agent/sessions/${sessionId}/runs`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
-      body: JSON.stringify({ content }),
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content, idempotencyKey: crypto.randomUUID() }),
       signal,
     });
-    if (!response.ok) await this.requireJson(response);
-    return parseSseResponse(response);
+    const run = createRunResponseSchema.parse(await this.requireJson(createResponse));
+    const eventsResponse = await fetch(`${this.baseUrl}${run.eventsUrl}`, {
+      headers: { accept: 'text/event-stream' },
+      signal,
+    });
+    if (!eventsResponse.ok) await this.requireJson(eventsResponse);
+    return parseSseResponse(eventsResponse);
   }
 
   // 读取完成后的持久化消息、执行和来源快照。

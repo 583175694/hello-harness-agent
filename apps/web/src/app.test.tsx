@@ -6,6 +6,25 @@ import type { PersistedMessage, WebFetchResult } from '@harness/agent-protocol';
 import type { ToolStreamEvent } from './api/client';
 import { Composer } from './features/agent/components/conversation';
 
+function runFrame(
+  type: string,
+  payload: unknown,
+  seq: number,
+  runId = 'run-test',
+  sessionId = 'session-test',
+): string {
+  return `id: ${seq}\nevent: ${type}\ndata: ${JSON.stringify({
+    version: '0.9.0',
+    eventId: `event-${seq}`,
+    seq,
+    sessionId,
+    runId,
+    type,
+    occurredAt: '2026-08-05T04:00:01.000Z',
+    payload,
+  })}\n\n`;
+}
+
 function mockReady() {
   // 为组件测试提供稳定的 API 就绪响应。
   vi.stubGlobal(
@@ -314,13 +333,30 @@ describe('R1 workbench shell', () => {
         if (url.endsWith('/api/agent/sessions') && init?.method === 'POST') {
           return Promise.resolve(new Response(JSON.stringify({ session }), { status: 201 }));
         }
-        if (url.endsWith('/chat/stream')) {
+        if (url.endsWith('/session-test/runs') && init?.method === 'POST') {
           return Promise.resolve(
             new Response(
-              'data: {"type":"message.delta","messageId":"msg-test","blockId":"text-1","delta":"我先查询。"}\n\n' +
-                'data: {"type":"tool.started","messageId":"msg-test","blockId":"tool-1","toolCallId":"call-1","toolName":"web_search","title":"搜索网页","input":{"query":"两个市场最新数据"},"startedAt":"2026-08-05T04:00:01.000Z"}\n\n' +
-                'data: {"type":"tool.completed","messageId":"msg-test","blockId":"tool-1","toolCallId":"call-1","toolName":"web_search","completedAt":"2026-08-05T04:00:02.000Z","durationMs":1000,"result":{"query":"两个市场最新数据","provider":"serp","results":[{"id":"result-1","title":"市场数据来源","url":"https://example.com/market","domain":"example.com","snippet":"最新公开市场数据。"}]}}\n\n' +
-                'data: {"type":"message.delta","messageId":"msg-test","blockId":"text-2","delta":"你好，我已经"}\n\ndata: {"type":"message.delta","messageId":"msg-test","blockId":"text-2","delta":"接入模型了。"}\n\ndata: {"type":"message.completed","messageId":"msg-test","model":"test-model"}\n\n',
+              JSON.stringify({
+                sessionId: 'session-test',
+                runId: 'run-test',
+                userMessageId: 'user-test',
+                assistantMessageId: 'msg-test',
+                status: 'queued',
+                eventsUrl: '/api/agent/runs/run-test/events',
+              }),
+              { status: 201 },
+            ),
+          );
+        }
+        if (url.endsWith('/runs/run-test/events')) {
+          return Promise.resolve(
+            new Response(
+              runFrame('message.delta', { type: 'message.delta', messageId: 'msg-test', blockId: 'text-1', delta: '我先查询。' }, 1) +
+                runFrame('tool.started', { type: 'tool.started', messageId: 'msg-test', blockId: 'tool-1', toolCallId: 'call-1', toolName: 'web_search', title: '搜索网页', input: { query: '两个市场最新数据' }, startedAt: '2026-08-05T04:00:01.000Z' }, 2) +
+                runFrame('tool.completed', { type: 'tool.completed', messageId: 'msg-test', blockId: 'tool-1', toolCallId: 'call-1', toolName: 'web_search', completedAt: '2026-08-05T04:00:02.000Z', durationMs: 1000, result: { query: '两个市场最新数据', provider: 'serp', results: [{ id: 'result-1', title: '市场数据来源', url: 'https://example.com/market', domain: 'example.com', snippet: '最新公开市场数据。' }] } }, 3) +
+                runFrame('message.delta', { type: 'message.delta', messageId: 'msg-test', blockId: 'text-2', delta: '你好，我已经' }, 4) +
+                runFrame('message.delta', { type: 'message.delta', messageId: 'msg-test', blockId: 'text-2', delta: '接入模型了。' }, 5) +
+                runFrame('run.completed', { status: 'completed' }, 6),
               { status: 200, headers: { 'content-type': 'text/event-stream' } },
             ),
           );
@@ -429,9 +465,9 @@ describe('R1 workbench shell', () => {
     expect(screen.getByText('市场数据来源')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '搜索网页，已完成' })).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(
-      '/api/agent/sessions/session-test/chat/stream',
+      '/api/agent/sessions/session-test/runs',
       expect.objectContaining({
-        body: JSON.stringify({ content: 'Compare two markets.' }),
+        method: 'POST',
       }),
     );
   });
@@ -477,11 +513,26 @@ describe('R1 workbench shell', () => {
           new Response(JSON.stringify({ session: { ...oldSession, messages: [] } })),
         );
       }
-      if (url.endsWith('/new-session/chat/stream')) {
+      if (url.endsWith('/new-session/runs') && init?.method === 'POST') {
         return Promise.resolve(
           new Response(
-            'data: {"type":"message.delta","messageId":"new-message","blockId":"text-1","delta":"新回答"}\n\n' +
-              'data: {"type":"message.completed","messageId":"new-message","model":"test-model"}\n\n',
+            JSON.stringify({
+              sessionId: 'new-session',
+              runId: 'new-run',
+              userMessageId: 'new-user',
+              assistantMessageId: 'new-message',
+              status: 'queued',
+              eventsUrl: '/api/agent/runs/new-run/events',
+            }),
+            { status: 201 },
+          ),
+        );
+      }
+      if (url.endsWith('/runs/new-run/events')) {
+        return Promise.resolve(
+          new Response(
+            runFrame('message.delta', { type: 'message.delta', messageId: 'new-message', blockId: 'text-1', delta: '新回答' }, 1, 'new-run', 'new-session') +
+              runFrame('run.completed', { status: 'completed' }, 2, 'new-run', 'new-session'),
             { headers: { 'content-type': 'text/event-stream' } },
           ),
         );
@@ -538,11 +589,11 @@ describe('R1 workbench shell', () => {
       expect.objectContaining({ method: 'POST' }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/agent/sessions/new-session/chat/stream',
+      '/api/agent/sessions/new-session/runs',
       expect.objectContaining({ method: 'POST' }),
     );
     expect(
-      fetchMock.mock.calls.some(([input]) => String(input).endsWith('/old-session/chat/stream')),
+      fetchMock.mock.calls.some(([input]) => String(input).endsWith('/old-session/runs')),
     ).toBe(false);
     expect(window.location.search).toBe('?session=new-session');
   });
@@ -767,7 +818,22 @@ describe('R1 workbench shell', () => {
             new Response(JSON.stringify({ sessions: [sessionA, sessionB] }), { status: 200 }),
           );
         }
-        if (url.endsWith('/session-a/chat/stream')) {
+        if (url.endsWith('/session-a/runs')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                sessionId: 'session-a',
+                runId: 'run-a',
+                userMessageId: 'user-a',
+                assistantMessageId: 'assistant-a',
+                status: 'queued',
+                eventsUrl: '/api/agent/runs/run-a/events',
+              }),
+              { status: 201 },
+            ),
+          );
+        }
+        if (url.endsWith('/runs/run-a/events')) {
           return Promise.resolve(
             new Response(
               new ReadableStream<Uint8Array>({
@@ -824,7 +890,7 @@ describe('R1 workbench shell', () => {
     await waitFor(() => expect(streamController).toBeDefined());
     streamController?.enqueue(
       encoder.encode(
-        'data: {"type":"message.delta","messageId":"assistant-a","blockId":"assistant-a-text-1","delta":"后台"}\n\n',
+        runFrame('message.delta', { type: 'message.delta', messageId: 'assistant-a', blockId: 'assistant-a-text-1', delta: '后台' }, 1, 'run-a', 'session-a'),
       ),
     );
     await waitFor(() => expect(screen.getByText('后台')).toBeInTheDocument());
@@ -837,7 +903,8 @@ describe('R1 workbench shell', () => {
     streamCompleted = true;
     streamController?.enqueue(
       encoder.encode(
-        'data: {"type":"message.delta","messageId":"assistant-a","blockId":"assistant-a-text-1","delta":"完整回答"}\n\ndata: {"type":"message.completed","messageId":"assistant-a","model":"test-model"}\n\n',
+        runFrame('message.delta', { type: 'message.delta', messageId: 'assistant-a', blockId: 'assistant-a-text-1', delta: '完整回答' }, 2, 'run-a', 'session-a') +
+          runFrame('run.completed', { status: 'completed' }, 3, 'run-a', 'session-a'),
       ),
     );
     streamController?.close();

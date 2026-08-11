@@ -4,17 +4,17 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：工程基线、OpenAI-compatible 模型适配、持久化对话、Chat SSE、会话并发隔离、Function Calling Agent Loop、Search/Fetch 联网调查与真实 Workbench 投影。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影，以及 Connection-Durable Agent Loop 的 Run/Step、snapshot、SSE replay、cancel 和重启中断收敛。
 
 ## 1. 项目一句话介绍
 
-这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答` 和可刷新恢复的 Workbench。
+这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、Connection-Durable Run 和可断线恢复的 Conversation/Workbench。
 
 面试时需要主动区分：
 
 ```text
-已经完成：持久化 Session/Message、Chat SSE、简化 Agent Runtime、Search/Fetch、Workbench 实时投影与消息快照恢复
-尚未完成：durable Run/Step/Event、断线 replay、Context Compiler、正式 Evidence/Citation、Memory 和 Delegation
+已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch 和 Workbench 恢复
+尚未完成：服务重启后续跑、多实例 Worker lease、Context Compiler、正式 Evidence/Citation、Memory 和 Delegation
 ```
 
 ## 2. 阶段一：工程基线
@@ -60,10 +60,13 @@ OPENAI_MODEL
 
 后端使用 OpenAI 官方 Node SDK，但通过 `baseURL` 支持兼容 OpenAI 接口格式的供应商。模型 ID 不写死在代码里，由 `OPENAI_MODEL` 配置。
 
-当前 API：
+早期 Chat SSE API 已被 Durable Run API 替代。当前公开边界是：
 
 ```text
-POST /api/agent/sessions/:sessionId/chat/stream
+POST /api/agent/sessions/:sessionId/runs
+GET  /api/agent/runs/:runId
+GET  /api/agent/runs/:runId/events
+POST /api/agent/runs/:runId/cancel
 ```
 
 ### 3.2 数据库作为上下文权威
@@ -159,14 +162,9 @@ buffer = events.pop() ?? '';
 
 这里的工程重点不是实现“打字机效果”，而是不能把底层传输分块误当成业务消息边界。当前实现已经处理增量 UTF-8 解码和事件缓冲，但仍未实现断线续传、`Last-Event-ID`、sequence 和 replay。
 
-### 4.4 当前边界
+### 4.4 从 Chat SSE 到 Run Event SSE
 
-这仍是 Chat SSE，不是 durable Agent Run Event SSE。当前已传递文本增量、工具生命周期和消息完成事件，但还没有：
-
-- run-scoped sequence
-- 断线重连和 replay
-- steer/cancel event
-- 跨进程的活动 Run 恢复
+当前 SSE 已是独立观察通道：每个 Run 使用从 1 开始的严格递增 `seq`，通过标准 `id/event/data` 字段发送；客户端用 `Last-Event-ID` replay 内存窗口，cursor 过期或 Run 不在当前进程时改用 PostgreSQL snapshot。SSE close 只移除 subscriber，不触发 Runtime 的 AbortSignal；Cancel 使用独立 command API。当前仍不承诺跨进程继续执行，服务重启会把遗留 Run 收敛为 `failed + RUN_INTERRUPTED`。
 
 ## 5. 阶段四：Workbench 的状态边界
 
@@ -190,7 +188,7 @@ Agent Runtime / Event Stream
 - Activity、Sources、Report 是同一运行上下文的不同视图，不应由各组件分别维护一份运行状态。
 - 用户手动收起 Workbench 后，本次 run 内由 `pinned/auto-follow` 语义阻止自动重新打开；这类交互状态必须与运行事实分开保存。
 
-当前恢复依赖最终 assistant metadata 的轻量 execution/source 快照，不是 Agent Event Store。因此已完成的消息可刷新恢复，正在运行的任务仍没有断线 replay、run-scoped sequence 或真实 steer/cancel。
+当前恢复同时使用 assistant draft metadata、Run snapshot 和进程内 replay window。Workbench 的 open/tab/focus/pinned 属于本地选择，不被 server snapshot 覆盖；blocks、execution、source 和 Run 状态属于服务端投影。系统实现了真实 cancel，但 steer、pause 和跨进程 Event Store 仍不在当前范围。
 
 ## 6. 阶段五：会话持久化与并发隔离
 
@@ -208,7 +206,7 @@ Agent Runtime / Event Stream
   -> message.completed 返回真实持久化 ID
 ```
 
-供应商失败时保留 user message，但不写空 assistant 或不完整正文。这一取舍使数据库表达“已经提交的用户事实”和“已经完成交付的模型事实”，不会把网络中断误表示成完整回答。代价是页面刷新后无法恢复尚未完成的部分流，这要等 Run/Event 持久化阶段解决。
+供应商失败时保留 user message，但不写空 assistant 或不完整正文。这是早期普通 Chat 阶段的边界；进入 Durable Run 后，assistant draft 会按时间/大小和语义边界阶段性持久化，刷新可以恢复已保存的部分文本、Activity 和 Sources，只有 completed assistant 才进入后续模型历史。
 
 ### 6.2 为什么需要会话级执行注册表
 
@@ -441,15 +439,52 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 
 这套验收可以概括为：用混合失败证明通用调用边界，用 Tool Message 配对证明协议闭合，用实时与恢复对照证明投影一致，用反向硬规则证明 Eval 读取了正确事实源。这样才能说明 Model-led 不只是接口换名，而是决策权、执行权和观测投影真正完成了职责迁移。
 
-## 13. 面试表达模板
+## 13. Connection-Durable Agent Loop
+
+### 13.1 为什么不能让 Run 依附 SSE
+
+早期链路把“执行命令”和“观察结果”合并在一个 `POST chat/stream` 请求里。刷新、路由切换或网络断开会关闭 response，后端很容易把 transport close 误认为用户取消；未完成正文也只存在请求内存，刷新后无法回答这轮任务是否仍在执行。
+
+当前拆成三个独立边界：Create Run 只负责持久化命令并立即返回；Run Executor 只接受 `runId` 并在后台驱动 Runtime；SSE 只订阅 Event Hub。核心不变量是：
+
+```text
+SSE close != Run cancel
+subscriber count == 0 != Run stop
+只有 Cancel API 可以触发用户主动取消
+```
+
+### 13.2 为什么 PostgreSQL 和内存 Event Hub 同时存在
+
+逐 token 写 PostgreSQL 会产生高频小事务、写放大和大量低价值事件，因此 PostgreSQL 只保存 Run/Step、完整 assistant draft、blocks、execution/source projection 和 terminal 状态。正文约每 1 秒或新增约 1 KiB flush，Tool/Run 语义边界立即持久化。
+
+进程内 Event Hub 负责低延迟广播、run-scoped sequence、最多 500 条且约 2 MiB 的 Ring Buffer、多 subscriber 和有界队列。cursor 仍在窗口时 replay `seq > cursor`；过期时发送完整 `run.snapshot`，客户端替换服务端投影后再接 live tail。这里的 snapshot 用于恢复 UI，不是恢复模型执行的 checkpoint。
+
+### 13.3 一致性、幂等和取消
+
+- Create Run 在一个事务中创建 user message、空 assistant draft 和 queued Run；`(sessionId, idempotencyKey)` 唯一，同 key 同 payload 返回原 Run，不同 payload 返回 `IDEMPOTENCY_CONFLICT`。
+- PostgreSQL partial unique index 保证每个 Session 最多一个 `queued/running/cancel_requested` Run；删除 active Session 返回 `SESSION_BUSY`。
+- completed/failed/cancelled 使用 terminal transaction 同时更新 Run 和 assistant delivery，失败或取消草稿保留展示，但不会进入后续模型历史。
+- Cancel 先持久化 `cancel_requested`，再 Abort 本进程执行句柄；Cancel 与 Executor 启动都使用条件状态更新，避免已取消 Run 被重新改回 running。
+
+### 13.4 服务重启为什么不自动续跑
+
+当前是单 API executor 实例，没有 Worker lease、Provider cursor、Tool 副作用幂等和 checkpoint-compatible Runtime。贸然自动重放可能重复调用工具或产生重复副作用。因此每个实例保存 `ownerInstanceId/heartbeat/version`，启动和定时 reconciliation 把遗留 active Run 收敛为 `failed + RUN_INTERRUPTED`，保留已有 draft、Activity 和 Sources，但不伪装成可继续执行。
+
+### 13.5 面试口述版
+
+> 我把原来依附一次 Chat SSE 请求的 Tool Loop 改成了独立 Durable Run。Create API 在事务里创建用户消息、assistant draft 和 queued Run 后立即返回，后台 Executor 只按 runId 驱动 Runtime，SSE 只是可随时断开重建的观察通道。PostgreSQL 保存 Run、语义 Step 和阶段性完整 draft，内存 Event Hub 保存 sequence、snapshot 和有限 replay window，所以刷新后可以先恢复 snapshot，再用 Last-Event-ID 接续事件。
+>
+> 我没有把每个 token 持久化，也没有引入 Redis。token delta 只走内存广播，正文按时间、大小和 Tool/terminal 边界合并写库。Cancel 是独立持久化命令，SSE close 不会传播 Abort。服务重启后当前也不自动重放，因为缺少 lease、checkpoint 和副作用幂等；遗留 Run 会明确标成 RUN_INTERRUPTED。这让连接恢复、执行恢复和分布式接管三个问题保持清晰边界。
+
+## 14. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
-答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message 持久化、Chat SSE、会话级并发隔离、Function Calling Agent Loop、Search/Fetch 有界联网调查，以及 Activity/Sources 的实时 Workbench 投影和消息快照恢复。当前 Runtime 仍是单次 Chat 请求内的非持久化循环，不冒充 durable Run/Event Store。
+答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、Activity/Sources 投影，以及客户端断线可恢复的 Durable Run。服务重启自动续跑和多实例 Worker lease 仍明确不在当前范围。
 
 ### 问：SSE 为什么没有直接使用 WebSocket？
 
-答：当前阶段是服务端单向推送文本 delta，客户端只需要提交一次请求并接收增量结果，SSE 的语义和 HTTP 部署链路更简单。后续 Agent Run 需要 steer/cancel、双向控制和事件恢复时，会重新评估控制请求与事件流的组合，而不是把当前 Chat SSE 直接当成完整 Agent 协议。
+答：事件主体仍是服务端单向推送，SSE 的部署和消费模型更简单；Create、Cancel 等客户端动作使用独立 HTTP command，不需要为了少量双向动作升级整条连接。恢复依赖 run-scoped sequence、Last-Event-ID、Ring Buffer 和 snapshot，而不是恢复原 TCP 连接。未来若高频 steer 或多端协作成为主要需求，再评估 WebSocket。
 
 ### 问：为什么上下文由后端从 PostgreSQL 读取？
 
@@ -471,7 +506,7 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 
 答：取消的是整个 run 的墙上时钟，不是取消所有边界。单次模型和 Tool 仍有独立超时，用户取消会立即传播；每个 assistant run 还有 20 次 Tool Call 上限。达到上限后，最终回答请求完全不发送工具定义，并在服务端缓冲校验。因此正常复杂任务不会被累计耗时误杀，异常循环也仍然确定收敛。历史版本中的 Web URL/Passage/无新增内容边界已经删除，不应再作为当前目标架构讲解。
 
-## 14. 后续追加规则
+## 15. 后续追加规则
 
 每个阶段只追加四类内容：
 

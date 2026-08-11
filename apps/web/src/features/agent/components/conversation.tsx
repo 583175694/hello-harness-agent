@@ -66,6 +66,8 @@ export function Conversation({
   composerMode,
   onPromptChange,
   onSubmit,
+  onCancel,
+  onReconnect,
 }: {
   state: AgentUiState;
   error: string | null;
@@ -77,6 +79,8 @@ export function Conversation({
   composerMode: 'new-run' | 'steer' | 'clarification' | 'disabled';
   onPromptChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onCancel?: () => void;
+  onReconnect?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -141,6 +145,11 @@ export function Conversation({
                   </div>
                   <div className="assistant-content">
                     <div className="message-meta">Harness</div>
+                    {item.deliveryStatus === 'cancelled' ? (
+                      <div className="assistant-delivery-status">本次回答已取消</div>
+                    ) : item.deliveryStatus === 'failed' ? (
+                      <div className="assistant-delivery-status">本次回答未完成</div>
+                    ) : null}
                     {item.pending && item.blocks.length === 0 ? (
                       <p className="assistant-thinking" role="status" aria-live="polite">
                         正在思考中…
@@ -181,6 +190,15 @@ export function Conversation({
           <div className="error-notice" role="alert">
             <CircleAlert size={17} />
             <span>{error}</span>
+            {onReconnect ? (
+              <button
+                className="text-button"
+                type="button"
+                onClick={onReconnect}
+              >
+                重新连接
+              </button>
+            ) : null}
             <button
               className="icon-button icon-button--small"
               type="button"
@@ -199,6 +217,7 @@ export function Conversation({
           mode={composerMode}
           onPromptChange={onPromptChange}
           onSubmit={handleComposerSubmit}
+          onCancel={onCancel}
         />
       </div>
     </section>
@@ -273,6 +292,7 @@ export function Composer({
   mode,
   onPromptChange,
   onSubmit,
+  onCancel,
 }: {
   prompt: string;
   submitting: boolean;
@@ -280,6 +300,7 @@ export function Composer({
   mode: 'new-run' | 'steer' | 'clarification' | 'disabled';
   onPromptChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onCancel?: () => void;
 }) {
   const composingRef = useRef(false);
   const placeholder =
@@ -335,12 +356,17 @@ export function Composer({
         )}
         <button
           className="send-button"
-          type="submit"
-          aria-label="发送任务"
-          title="发送任务"
-          disabled={!prompt.trim() || submitting || serviceState !== 'ready' || mode === 'disabled'}
+          type={submitting ? 'button' : 'submit'}
+          aria-label={submitting ? '停止任务' : '发送任务'}
+          title={submitting ? '停止任务' : '发送任务'}
+          disabled={
+            submitting
+              ? !onCancel
+              : !prompt.trim() || serviceState !== 'ready' || mode === 'disabled'
+          }
+          onClick={submitting ? onCancel : undefined}
         >
-          {submitting ? <LoaderCircle className="spin" size={18} /> : <Send size={18} />}
+          {submitting ? <X size={18} /> : <Send size={18} />}
         </button>
       </div>
     </form>

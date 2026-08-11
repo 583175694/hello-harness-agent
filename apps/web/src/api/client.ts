@@ -1,30 +1,37 @@
 import {
-  chatStreamEventSchema,
+  cancelRunResponseSchema,
+  createRunResponseSchema,
   createSessionResponseSchema,
   deleteSessionResponseSchema,
   generateSessionTitleResponseSchema,
   listSessionsResponseSchema,
   problemDetailsSchema,
+  runSnapshotSchema,
+  runStreamEventSchema,
   serviceStatusSchema,
   sessionDetailResponseSchema,
   updateSessionResponseSchema,
 } from '@harness/agent-protocol';
 import type {
-  ChatStreamEvent,
+  CancelRunResponse,
+  CreateRunResponse,
   DeleteSessionResponse,
   GenerateSessionTitleResponse,
   ProblemDetails,
   ServiceStatus,
   SessionDetailResponse,
   SessionSummary,
+  RunSnapshot,
+  RunStreamEvent,
   UpdateSessionRequest,
 } from '@harness/agent-protocol';
 
+type RunPayload = RunStreamEvent['payload'];
 export type ToolStreamEvent = Extract<
-  ChatStreamEvent,
+  RunPayload,
   { type: 'tool.started' | 'tool.completed' | 'tool.failed' | 'tool.cancelled' }
 >;
-export type MessageDeltaEvent = Extract<ChatStreamEvent, { type: 'message.delta' }>;
+export type MessageDeltaEvent = Extract<RunPayload, { type: 'message.delta' }>;
 
 // 为空时通过 Vite 反向代理访问同源 API，部署时可覆盖为独立服务地址。
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -106,61 +113,59 @@ export async function generateSessionTitle(
   return generateSessionTitleResponseSchema.parse(await parseResponse(response));
 }
 
-// 发送本轮内容并消费会话级标准聊天 SSE 事件。
-export async function requestChatStream(
-  sessionId: string,
-  content: string,
-  onDelta: (event: MessageDeltaEvent) => void,
-  onToolEvent: (event: ToolStreamEvent) => void = () => undefined,
-): Promise<{ model: string; messageId: string }> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/chat/stream`, {
+export async function createRun(sessionId: string, content: string): Promise<CreateRunResponse> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/runs`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
-    body: JSON.stringify({ content }),
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ content, idempotencyKey: crypto.randomUUID() }),
+  });
+  return createRunResponseSchema.parse(await parseResponse(response));
+}
+
+export async function getRun(runId: string, signal?: AbortSignal): Promise<RunSnapshot> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/runs/${runId}`, { signal });
+  return runSnapshotSchema.parse(await parseResponse(response));
+}
+
+export async function cancelRun(runId: string): Promise<CancelRunResponse> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/runs/${runId}/cancel`, { method: 'POST' });
+  return cancelRunResponseSchema.parse(await parseResponse(response));
+}
+
+// 独立订阅 Run；连接关闭只结束观察，不向后端发送取消命令。
+export async function subscribeRun(
+  runId: string,
+  lastEventId: number | undefined,
+  onEvent: (event: RunStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/runs/${runId}/events`, {
+    headers: {
+      accept: 'text/event-stream',
+      ...(lastEventId !== undefined ? { 'Last-Event-ID': String(lastEventId) } : {}),
+    },
+    signal,
   });
   if (!response.ok) await parseResponse(response);
-  if (!response.body) throw new Error('模型流式响应不可用。');
-
+  if (!response.body) throw new Error('Run 事件流不可用。');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  // buffer 保留尚未形成完整双换行边界的 SSE 半包。
   let buffer = '';
-  let model = '';
-  let messageId = '';
   while (true) {
     const { value, done } = await reader.read();
     buffer += decoder.decode(value, { stream: !done });
-    const events = buffer.split('\n\n');
-    buffer = events.pop() ?? '';
-    for (const event of events) {
-      const dataLine = event.split('\n').find((line) => line.startsWith('data: '));
-      if (!dataLine) continue;
-      const payload = chatStreamEventSchema.parse(JSON.parse(dataLine.slice(6)));
-      if (payload.type === 'stream.failed') {
-        throw new ApiProblem({
-          type: 'https://hello-harness.local/problems/model-stream-failed',
-          title: 'Model stream failed',
-          status: 502,
-          code: payload.code,
-          detail: payload.detail,
-        });
-      } else if (payload.type === 'message.delta') onDelta(payload);
-      else if (
-        payload.type === 'tool.started' ||
-        payload.type === 'tool.completed' ||
-        payload.type === 'tool.failed' ||
-        payload.type === 'tool.cancelled'
-      )
-        onToolEvent(payload);
-      else if (payload.type === 'message.completed') {
-        model = payload.model;
-        messageId = payload.messageId;
-      }
+    const frames = buffer.split('\n\n');
+    buffer = frames.pop() ?? '';
+    for (const frame of frames) {
+      const data = frame
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n');
+      if (data) onEvent(runStreamEventSchema.parse(JSON.parse(data)));
     }
-    if (done) break;
+    if (done) return;
   }
-  if (!messageId) throw new Error('模型流没有返回完成事件。');
-  return { model, messageId };
 }
 
 // 统一解析 JSON API，并将 Problem Details 转换为前端异常。

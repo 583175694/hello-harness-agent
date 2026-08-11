@@ -8,6 +8,7 @@ import { HealthController } from './health/health.controller';
 import { HealthService } from './health/health.service';
 import { SessionsModule } from './sessions/sessions.module';
 import { ToolsModule } from './tools/tools.module';
+import { RunsModule } from './runs/runs.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ToolsModule } from './tools/tools.module';
     DatabaseModule,
     ToolsModule,
     ChatModule,
+    RunsModule,
     SessionsModule,
   ],
   controllers: [HealthController],

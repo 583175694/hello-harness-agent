@@ -1,6 +1,6 @@
 # API / Protocol
 
-> 文档状态：R1 API 目标契约。健康检查和普通对话 Session/Message API 已实现；Run、Workbench 和 Artifact endpoint 按后续阶段实现。
+> 文档状态：长期 R1 API 目标契约。健康检查和普通对话 Session/Message API 已实现；当前 Run/Create/Subscribe/Snapshot/Cancel 与 SSE 恢复的实施边界以 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 为准。本文中的持久化 replay log、Clarification、Steer 和 Artifact endpoint 不属于当前恢复切片。
 
 ## 1. 原则
 

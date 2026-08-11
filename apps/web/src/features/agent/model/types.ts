@@ -41,6 +41,7 @@ export type ConversationItem =
       kind: 'assistant';
       blocks: AssistantContentBlock[];
       pending?: boolean;
+      deliveryStatus?: 'streaming' | 'completed' | 'failed' | 'cancelled';
       time?: string;
       createdAt?: string;
       workbench?: WorkbenchState;
@@ -106,4 +107,5 @@ export type AgentUiState = {
   conversation: ConversationItem[];
   workbench?: WorkbenchState;
   autoOpenSuppressedRunIds?: string[];
+  activeRunId?: string;
 };

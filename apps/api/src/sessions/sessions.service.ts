@@ -14,14 +14,13 @@ import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import { SessionTitleService } from './session-title.service';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
-import { SessionExecutionRegistry } from './session-execution.registry';
 import { describeLogError, shortLogId } from '../shared/logging.utils';
+import { compareMessageOrder } from '../chat/message-order';
 
 @Injectable()
 export class SessionsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(SessionExecutionRegistry) private readonly executions: SessionExecutionRegistry,
     @Inject(SessionTitleService) private readonly titles: SessionTitleService,
     @Inject(Logger) private readonly logger: Logger,
   ) {}
@@ -60,13 +59,28 @@ export class SessionsService {
   async detail(sessionId: string): Promise<SessionDetailResponse> {
     const session = await this.prisma.session.findFirst({
       where: { id: sessionId, userId: LOCAL_USER_ID },
-      include: { messages: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] } },
+      include: {
+        messages: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
+        runs: {
+          where: { status: { in: ['queued', 'running', 'cancel_requested'] } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
     });
     if (!session) this.throwNotFound();
     return {
       session: {
         ...this.toSummary(session),
-        messages: session.messages.map((message) => this.toMessage(message)),
+        messages: [...session.messages].sort(compareMessageOrder).map((message) => this.toMessage(message)),
+        activeRun: session.runs[0]
+          ? {
+              runId: session.runs[0].id,
+              assistantMessageId: session.runs[0].assistantMessageId,
+              status: session.runs[0].status as 'queued' | 'running' | 'cancel_requested',
+              lastEventSequence: Number(session.runs[0].lastEventSequence),
+            }
+          : null,
       },
     };
   }
@@ -74,7 +88,10 @@ export class SessionsService {
   // 删除空闲会话，消息由数据库外键级联清理。
   async delete(sessionId: string): Promise<{ deletedSessionId: string }> {
     await this.requireOwned(sessionId);
-    if (this.executions.isActive(sessionId)) {
+    const active = await this.prisma.agentRun.findFirst({
+      where: { sessionId, status: { in: ['queued', 'running', 'cancel_requested'] } },
+    });
+    if (active) {
       throw new ConflictException({
         code: AGENT_ERROR_CODES.sessionBusy,
         detail: '该会话正在生成回复，请等待完成后再删除。',
@@ -140,17 +157,26 @@ export class SessionsService {
 
   // 将数据库消息转换为共享持久化消息协议。
   private toMessage(message: Message): PersistedMessage {
+    const metadata =
+      typeof message.metadata === 'object' && message.metadata
+        ? (message.metadata as Record<string, unknown>)
+        : {};
+    const deliveryStatus =
+      message.role === 'assistant' &&
+      typeof metadata.deliveryStatus === 'string' &&
+      ['streaming', 'completed', 'failed', 'cancelled'].includes(metadata.deliveryStatus)
+        ? (metadata.deliveryStatus as 'streaming' | 'completed' | 'failed' | 'cancelled')
+        : undefined;
     return {
       id: message.id,
       sessionId: message.sessionId,
       role: message.role,
       kind: message.kind,
       content: message.content,
+      ...(message.runId ? { runId: message.runId } : {}),
+      ...(deliveryStatus ? { deliveryStatus } : {}),
       createdAt: message.createdAt.toISOString(),
-      metadata:
-        typeof message.metadata === 'object' && message.metadata
-          ? (message.metadata as Record<string, unknown>)
-          : {},
+      metadata,
     };
   }
 

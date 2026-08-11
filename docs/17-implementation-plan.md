@@ -2,7 +2,7 @@
 
 > 文档状态：权威实施目标与顺序。实际完成状态以 `docs/implementation-status.md` 为准；阶段完成必须有代码、测试和验收记录。
 
-> P0-P7 中未落地的接口和能力只保留历史规划价值，不会自动成为当前承诺。当前实施目标从 P8 及其引用的权威边界文档读取；Evidence、Citation Validator、权限策略和 Artifact Finalizer 等未确定能力需重新立项后才进入计划。
+> P0-P7 中未落地的接口和能力只保留历史规划价值，不会自动成为当前承诺。当前实施目标从 P8、`25-model-led-tool-boundary.md` 和 `26-connection-durable-agent-loop.md` 读取；Evidence、Citation Validator、权限策略和 Artifact Finalizer 等未确定能力需重新立项后才进入计划。
 
 ## 1. 实施原则
 
@@ -300,7 +300,7 @@ P3 只实现桌面 fixture 交互，不修改 mobile Workbench 形态；mobile �
 - Artifact 写入采用 temp + atomic rename。
 - PostgreSQL 由本机服务提供。
 
-测试：migration、repository contract、API restart recovery、delete cleanup、Artifact atomic write。
+测试：migration、repository contract、API restart 后的 snapshot query recovery、delete cleanup、Artifact atomic write；这里不表示自动恢复执行中的 Run。
 
 明确不做 Memory tables、搜索证据表和自动 resume execution。
 
@@ -423,11 +423,13 @@ user task or direct URL
 - Workbench 与刷新恢复能区分 Search、Fetch、成功、失败、重复和最终采用来源。
 - 本阶段不创建 `EvidenceSource`、`[Sx]`、Report Artifact、ReportReview 或 CitationValidator。
 
-正式 Evidence/Citation、报告复核和可验证 Markdown Report 不属于当前阶段，未来是否实现根据产品需求再决定。完整上下文的 Token 计量、选择、压缩、淘汰、动态加载和最终回答预留等待 Context Engineering；后台执行、断线恢复和 Worker 独立上下文等待 Durable Run 与 Delegation。
+正式 Evidence/Citation、报告复核和可验证 Markdown Report 不属于当前阶段，未来是否实现根据产品需求再决定。完整上下文的 Token 计量、选择、压缩、淘汰、动态加载和最终回答预留等待 Context Engineering。后台执行与客户端断线恢复已进入当前 Connection-Durable Agent Loop 方案；Worker 独立上下文继续等待 Delegation。
 
 ## 11. P8: Recovery + Evaluation + Release Hardening
 
 目标：让 P1-P7 达到真实用户可用门槛。
+
+P8 当前实施主线是 [Connection-Durable Agent Loop](./26-connection-durable-agent-loop.md)：将 Run 与 Chat HTTP/SSE 连接解耦，使用 PostgreSQL Run/Step/assistant draft snapshot、进程内 Event Hub/Ring Buffer、标准 SSE cursor 和独立 Cancel 实现客户端断线恢复。当前不引入 Redis，也不实现服务端重启后的自动续跑；重启遗留 Run 收敛为 `RUN_INTERRUPTED`。实施按文档中的 Run identity、Event Hub、Draft/Snapshot、Web reconnect 和 interruption hardening 五个 Slice 推进。
 
 P8 首个架构收敛项 [Model-led Tool Boundary](./25-model-led-tool-boundary.md) 已于 2026-08-11 完成：
 
@@ -448,9 +450,12 @@ P8 首个架构收敛项 [Model-led Tool Boundary](./25-model-led-tool-boundary.
 范围：
 
 - SSE replay / Last-Event-ID
+- create-run 与 subscribe 分离、后台 Run 执行和独立 cancel
+- PostgreSQL Run/Step/assistant draft snapshot
+- 进程内 replay window、snapshot fallback 和前端自动重连
 - bounded retry and timeout
 - provider overload/backoff
-- API restart recovery
+- API restart interruption reconciliation；不自动恢复执行
 - orphan temp Artifact cleanup
 - provider/tool result short retention cleanup
 - context/tool/event payload limits
@@ -485,7 +490,7 @@ steer/cancel
 recovery and evaluation baseline
 ```
 
-Memory、Delegation、认证、远程存储不是 R1 release blocker。
+Memory、Delegation、认证、远程存储和服务端重启自动续跑不是 R1 release blocker。
 
 ## 13. P9: User Memory Read Path
 

@@ -21,12 +21,21 @@ import { ConversationBlockCollector } from '../projection/conversation-block.col
 import { AssistantDeliveryRepository } from '../persistence/assistant-delivery.repository';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import { CHAT_CONTEXT_MESSAGE_LIMIT, CHAT_SYSTEM_PROMPT } from './chat.constants';
+import { compareMessageOrder } from './message-order';
 
-type PreparedSessionStream = {
+export type PreparedSessionStream = {
   sessionId: string;
   userMessageId: string;
   assistantMessageId: string;
   messages: ChatMessage[];
+};
+
+export type ChatProjectionSnapshot = {
+  model: string;
+  blocks: import('@harness/agent-protocol').AssistantContentBlock[];
+  toolCallCount: number;
+  executions: import('@harness/agent-protocol').ToolExecutionSnapshot[];
+  sources: ResearchSourceSnapshot[];
 };
 
 @Injectable()
@@ -83,7 +92,7 @@ export class ChatService {
         userMessageId,
         assistantMessageId,
         // 数据库按倒序截取最近消息，交给模型前恢复为自然时间顺序。
-        messages: stored.reverse().map((message) => ({
+        messages: stored.sort(compareMessageOrder).map((message) => ({
           id: message.id,
           role: message.role,
           content: message.content,
@@ -100,6 +109,10 @@ export class ChatService {
   async *streamPrepared(
     prepared: PreparedSessionStream,
     signal?: AbortSignal,
+    options: {
+      persistFinal?: boolean;
+      onProjection?: (snapshot: ChatProjectionSnapshot) => void | Promise<void>;
+    } = {},
   ): AsyncGenerator<ChatStreamEvent> {
     const model = this.config.getOrThrow<string>(ENV_KEYS.openAiModel);
     const startedAt = Date.now();
@@ -118,6 +131,16 @@ export class ChatService {
     let content = '';
     let toolCallCount = 0;
     let firstDeltaAt: number | undefined;
+    const notifyProjection = async (): Promise<void> => {
+      const snapshot = projection.snapshot();
+      await options.onProjection?.({
+        model,
+        blocks: conversation.snapshot(),
+        toolCallCount,
+        executions: snapshot.executions,
+        sources: snapshot.sources,
+      });
+    };
 
     for await (const event of this.runtime.run({
       sessionId: prepared.sessionId,
@@ -137,6 +160,7 @@ export class ChatService {
           );
         }
         const blockId = conversation.appendText(event.delta);
+        await notifyProjection();
         yield {
           type: 'message.delta',
           messageId: prepared.assistantMessageId,
@@ -157,6 +181,7 @@ export class ChatService {
             : (searchInput?.query ?? ''),
           startedAt: event.startedAt,
         });
+        await notifyProjection();
         if (fetchInput) {
           yield {
             type: 'tool.started',
@@ -213,6 +238,7 @@ export class ChatService {
             ? `成功 ${fetchResult.stats.succeededCount} 个，失败 ${fetchResult.stats.failedCount} 个，跳过 ${fetchResult.stats.skippedCount} 个，网络请求 ${fetchResult.stats.networkAttemptCount} 次，提取 ${fetchResult.stats.passageCount} 段原文`
             : `找到 ${searchResult?.results.length ?? 0} 个结果`,
         });
+        await notifyProjection();
         if (fetchResult) {
           yield {
             type: 'tool.completed',
@@ -256,6 +282,7 @@ export class ChatService {
           durationMs: event.durationMs,
           detail: event.detail,
         });
+        await notifyProjection();
         yield {
           type: 'tool.failed',
           messageId: prepared.assistantMessageId,
@@ -287,6 +314,7 @@ export class ChatService {
           durationMs: event.durationMs,
           detail: event.detail,
         });
+        await notifyProjection();
         yield {
           type: 'tool.cancelled',
           messageId: prepared.assistantMessageId,
@@ -303,6 +331,7 @@ export class ChatService {
       // 除文本和工具生命周期事件外只剩 run.completed，它提供最终持久化所需的汇总状态。
       content = event.content;
       toolCallCount = event.toolCallCount;
+      await notifyProjection();
     }
 
     if (!content.trim())
@@ -316,6 +345,7 @@ export class ChatService {
     if (linkedContent.length > content.length) {
       const delta = linkedContent.slice(content.length);
       const blockId = conversation.appendText(delta);
+      await notifyProjection();
       yield {
         type: 'message.delta',
         messageId: prepared.assistantMessageId,
@@ -326,15 +356,17 @@ export class ChatService {
     }
     projection.markUsed(content);
     snapshot = projection.snapshot();
-    await this.delivery.save({
-      sessionId: prepared.sessionId,
-      messageId: prepared.assistantMessageId,
-      model,
-      blocks: conversation.snapshot(),
-      toolCallCount,
-      executions: snapshot.executions,
-      sources: snapshot.sources,
-    });
+    await notifyProjection();
+    if (options.persistFinal !== false)
+      await this.delivery.save({
+        sessionId: prepared.sessionId,
+        messageId: prepared.assistantMessageId,
+        model,
+        blocks: conversation.snapshot(),
+        toolCallCount,
+        executions: snapshot.executions,
+        sources: snapshot.sources,
+      });
     this.logger.log(
       `回复完成 | 会话=${shortLogId(prepared.sessionId)} | 总耗时=${formatLogDuration(Date.now() - startedAt)} | 输出=${content.length} 字 | 工具=${toolCallCount} 次`,
       ChatService.name,

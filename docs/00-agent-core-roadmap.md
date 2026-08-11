@@ -20,11 +20,11 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 
 首个真实用户版本不是 Agent Runtime SDK，也不是通用工具市场。Runtime、State、Context、Tooling 和 Workbench 都服务于通用 Agent 的端到端产品体验。当前阶段不把正式 Evidence、`[Sx]`、报告复核、Citation Validator 或 Artifact Finalizer 作为前置条件，也不承诺这些尚未确定的未来能力。
 
-当前联网调查实施边界见 [17-implementation-plan.md](./17-implementation-plan.md) 和 [23-web-fetch-tool.md](./23-web-fetch-tool.md)；[13-research-workflow.md](./13-research-workflow.md) 只是可能的后续 Deep Research 设计草案，不约束当前实现。Model、Runtime、Tool 与 Projection 的决策权以 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) 为准：模型负责语义规划，Runtime 负责通用执行边界，Tool 只执行能力并返回结构化结果，Projection 派生展示和来源事实。
+当前联网调查实施边界见 [17-implementation-plan.md](./17-implementation-plan.md) 和 [23-web-fetch-tool.md](./23-web-fetch-tool.md)；[13-research-workflow.md](./13-research-workflow.md) 只是可能的后续 Deep Research 设计草案，不约束当前实现。Model、Runtime、Tool 与 Projection 的决策权以 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) 为准；当前 Run、SSE 重连、快照与取消方案以 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 为准。
 
 ## 2. 当前基线
 
-当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、真实 Workbench 投影和独立真实评测工具。P7 General Web Research Hardening 已完成，当前进入 P8 Evaluation / Release Hardening；durable Run/State、Memory 和 Delegation 尚未完成。
+当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、真实 Workbench 投影和独立真实评测工具。P7 General Web Research Hardening 与 P8 Model-led Tool Boundary 已完成；当前 P8 主线是实现 Connection-Durable Agent Loop，再以真实评测持续校准行为。Run 仍未与 Chat HTTP/SSE 解耦，Context Engineering、Memory 和 Delegation 尚未完成。
 
 详细代码状态、验证记录和已知限制统一维护在 [implementation-status.md](./implementation-status.md)。只有代码、测试和验收记录同时存在时，能力才算完成。
 
@@ -33,7 +33,7 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 首个真实用户版本必须包含：
 
 - 本地 Web UI 和 API
-- durable session、message、run、step 和 State
+- durable Session/Message，以及客户端断线可恢复的 Run/Step 与 UI snapshot
 - OpenAI SDK 模型适配器，支持配置 `baseURL`、`apiKey` 和模型配置表
 - 单 Lead 多 step loop
 - `ask_clarification`
@@ -47,6 +47,8 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 - 基于真正读取来源的普通回答与 Sources / Activity Workbench
 - 部分来源失败或触及通用硬边界时使用已有材料平稳交付
 - 通用 Agent 固定题集评测和人工抽检
+
+当前首次发布不要求服务端重启后自动续跑。进程重启导致的 active Run 必须明确收敛为 `failed + RUN_INTERRUPTED`；Checkpoint、Worker lease 和跨进程接管仅保留未来升级空间。
 
 首次发布明确不包含：
 
@@ -193,14 +195,14 @@ P11 Bounded Delegation + Worker
 P12 Multi-user Authentication + Remote Storage
 ```
 
-`R1` 是第一次真实用户发布。Memory 和 Delegation 不阻塞 R1。
+P8 当前 Recovery 切片采用 [Connection-Durable Agent Loop](./26-connection-durable-agent-loop.md)：先让 Run 独立于客户端连接，不实现服务端重启后的自动恢复。`R1` 是第一次真实用户发布。Memory、Delegation 和 process-durable recovery 不阻塞 R1。
 
 详细交付和验收见 [17-implementation-plan.md](./17-implementation-plan.md)。
 
 ## 10. R1 成功标准
 
 1. 空环境按 README 可启动 PostgreSQL、API 和 Web。
-2. 用户可以创建和恢复 durable session。
+2. 用户可以创建和恢复 durable session；刷新或客户端断线不会取消 active Run。
 3. Agent 能对明确任务直接开始，对阻塞性歧义只问一个问题。
 4. 运行中 steer 从下一安全 step 生效，cancel 可终止活动执行。
 5. Agent 在通用执行边界内迭代 Search/Fetch，由模型根据 Tool Result 判断信息是否充分并及时交付。

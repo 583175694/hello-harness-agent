@@ -1,6 +1,6 @@
 # Runtime State Machine
 
-> 文档状态：后续 durable Runtime 状态草案，不约束当前一次 Chat 请求内的 Agent Runtime。
+> 文档状态：后续完整 durable Runtime 状态草案。当前 Connection-Durable Agent Loop 只冻结 `queued/running/cancel_requested/completed/failed/cancelled`，不实现 `waiting_for_user`、可恢复 `interrupted`、Checkpoint resume 或服务端重启自动续跑；具体以 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 为准。
 
 ## 1. 原则
 

@@ -10,16 +10,18 @@ import { createPortal } from 'react-dom';
 
 import {
   ApiProblem,
+  cancelRun,
+  createRun,
   createSession,
   deleteSession,
-  generateSessionTitle,
+  getRun,
   getReadiness,
   getSession,
   listSessions,
-  requestChatStream,
+  subscribeRun,
   updateSession,
 } from './api/client';
-import type { ToolStreamEvent } from './api/client';
+import type { MessageDeltaEvent, ToolStreamEvent } from './api/client';
 import {
   AGENT_PROTOCOL_LIMITS,
   assistantAgentMetadataSchema,
@@ -28,6 +30,8 @@ import {
 import type {
   AssistantContentBlock,
   PersistedMessage,
+  RunSnapshot,
+  RunStreamEvent,
   SessionSummary,
   SourceProvenance,
 } from '@harness/agent-protocol';
@@ -177,7 +181,7 @@ export function workbenchFromPersistedMessage(
     };
   });
   return {
-    runId: message.id,
+    runId: message.runId ?? message.id,
     title: AGENT_UI_COPY.searchWorkbenchTitle,
     subtitle: `${executions.length} 次调用 · ${sourceViews.length} 个来源`,
     activeView: sources.length ? 'sources' : 'activity',
@@ -193,7 +197,7 @@ export function workbenchFromPersistedMessage(
         : execution.input.query;
       return {
         toolCallId: execution.toolCallId,
-        runId: message.id,
+        runId: message.runId ?? message.id,
         stepId: execution.toolCallId,
         toolName: execution.toolName,
         title: isFetch
@@ -451,6 +455,7 @@ function toConversationItem(message: PersistedMessage): ConversationItem {
     id: message.id,
     kind: 'assistant',
     blocks,
+    ...(message.deliveryStatus ? { deliveryStatus: message.deliveryStatus } : {}),
     createdAt: message.createdAt,
     workbench: workbenchFromPersistedMessage(message),
   };
@@ -488,10 +493,13 @@ function PersistentAgentApp() {
   const [draftState, setDraftState] = useState<AgentUiState>(() => makeFixture('empty'));
   const [prompt, setPrompt] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [reconnectRunId, setReconnectRunId] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // ref 为异步 SSE 回调提供最新值，避免闭包读取过期 React state。
   const selectedSessionIdRef = useRef<string | null>(null);
   const pendingSessionsRef = useRef<Record<string, boolean>>({});
+  const runControllersRef = useRef<Record<string, AbortController>>({});
+  const runSequencesRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     selectedSessionIdRef.current = selectedSessionId;
@@ -506,6 +514,269 @@ function PersistentAgentApp() {
     const next = { ...pendingSessionsRef.current, [sessionId]: pending };
     pendingSessionsRef.current = next;
     setPendingSessions(next);
+  }
+
+  function applyRunSnapshot(sessionId: string, snapshot: RunSnapshot): void {
+    runSequencesRef.current[snapshot.runId] = snapshot.lastEventSequence;
+    const active = ['queued', 'running', 'cancel_requested'].includes(snapshot.status);
+    setSessionPending(sessionId, active);
+    const restored = toConversationItem({
+      id: snapshot.assistantMessageId,
+      sessionId,
+      role: 'assistant',
+      kind: 'assistant_delivery',
+      content: snapshot.assistantContent,
+      runId: snapshot.runId,
+      deliveryStatus:
+        snapshot.status === 'completed'
+          ? 'completed'
+          : snapshot.status === 'cancelled'
+            ? 'cancelled'
+            : snapshot.status === 'failed'
+              ? 'failed'
+              : 'streaming',
+      createdAt: snapshot.createdAt,
+      metadata: {
+        model: 'restored',
+        deliveryStatus:
+          snapshot.status === 'completed'
+            ? 'completed'
+            : snapshot.status === 'cancelled'
+              ? 'cancelled'
+              : snapshot.status === 'failed'
+                ? 'failed'
+                : 'streaming',
+        runId: snapshot.runId,
+        blocks: snapshot.blocks,
+        agent: {
+          toolCallCount: snapshot.toolCallCount,
+          executions: snapshot.executions,
+          sources: snapshot.sources,
+        },
+      },
+    });
+    if (restored.kind !== 'assistant') return;
+    const workbench = restored.workbench
+      ? {
+          ...restored.workbench,
+          runId: snapshot.runId,
+          activityStatus:
+            snapshot.status === 'cancelled'
+              ? ('cancelled' as const)
+              : snapshot.status === 'failed'
+                ? ('failed' as const)
+                : snapshot.status === 'completed'
+                  ? ('completed' as const)
+                  : ('running' as const),
+          executions: restored.workbench.executions.map((item) => ({
+            ...item,
+            runId: snapshot.runId,
+          })),
+        }
+      : undefined;
+    setSessionStates((current) => {
+      const target = current[sessionId];
+      if (!target) return current;
+      const item = { ...restored, pending: active, ...(workbench ? { workbench } : {}) };
+      const exists = target.conversation.some(
+        (entry) => entry.kind === 'assistant' && entry.id === snapshot.assistantMessageId,
+      );
+      return {
+        ...current,
+        [sessionId]: {
+          ...target,
+          conversation: exists
+            ? target.conversation.map((entry) =>
+                entry.kind === 'assistant' && entry.id === snapshot.assistantMessageId
+                  ? item
+                  : entry,
+              )
+            : [...target.conversation, item],
+          ...(workbench ? { workbench } : {}),
+          ...(active ? { activeRunId: snapshot.runId } : { activeRunId: undefined }),
+        },
+      };
+    });
+    if (snapshot.error && selectedSessionIdRef.current === sessionId)
+      setError(snapshot.error.detail);
+  }
+
+  function applyRunEvent(sessionId: string, event: RunStreamEvent, task = ''): void {
+    if (event.seq <= (runSequencesRef.current[event.runId] ?? 0)) return;
+    runSequencesRef.current[event.runId] = event.seq;
+    if (event.type === 'run.snapshot') {
+      applyRunSnapshot(sessionId, event.payload as RunSnapshot);
+      return;
+    }
+    if (event.type === 'message.delta') {
+      const delta = event.payload as MessageDeltaEvent;
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' && item.id === delta.messageId
+                ? { ...item, blocks: appendTextDelta(item.blocks, delta) }
+                : item,
+            ),
+          },
+        };
+      });
+      return;
+    }
+    if (
+      event.type === 'tool.started' ||
+      event.type === 'tool.completed' ||
+      event.type === 'tool.failed' ||
+      event.type === 'tool.cancelled'
+    ) {
+      const toolEvent = event.payload as ToolStreamEvent;
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        const existing = target.workbench?.runId === event.runId ? target.workbench : undefined;
+        const suppressed = target.autoOpenSuppressedRunIds?.includes(event.runId) ?? false;
+        const hasNewResource =
+          toolEvent.type === 'tool.completed' &&
+          (toolEvent.toolName === 'web_search'
+            ? toolEvent.result.results.length > 0
+            : toolEvent.result.results.some(
+                (item) => item.status === 'succeeded' && item.passages.length > 0,
+              ));
+        const currentUserUrls = new Set(
+          [...task.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)].map((match) =>
+            canonicalUrl(match[0].replace(/[.,;:!?，。；：！？]+$/gu, '')),
+          ),
+        );
+        const workbench = applyToolEvent(
+          existing,
+          toolEvent,
+          existing?.open === true || (!suppressed && hasNewResource),
+          currentUserUrls,
+        );
+        workbench.runId = event.runId;
+        workbench.executions = workbench.executions.map((item) => ({ ...item, runId: event.runId }));
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            workbench,
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' && item.id === toolEvent.messageId
+                ? { ...item, blocks: applyToolActivityEvent(item.blocks, toolEvent), workbench }
+                : item,
+            ),
+          },
+        };
+      });
+      return;
+    }
+    if (
+      event.type === 'run.completed' ||
+      event.type === 'run.failed' ||
+      event.type === 'run.cancelled'
+    ) {
+      const status =
+        event.type === 'run.completed'
+          ? 'completed'
+          : event.type === 'run.cancelled'
+            ? 'cancelled'
+            : 'failed';
+      setSessionPending(sessionId, false);
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        const workbench = target.workbench
+          ? { ...target.workbench, activityStatus: status as WorkbenchState['activityStatus'] }
+          : undefined;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            activeRunId: undefined,
+            workbench,
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' && item.pending
+                ? { ...item, pending: false, deliveryStatus: status, workbench }
+                : item,
+            ),
+          },
+        };
+      });
+      if (event.type === 'run.failed' && 'detail' in event.payload) setError(event.payload.detail);
+    }
+  }
+
+  async function observeRun(
+    sessionId: string,
+    runId: string,
+    task = '',
+    skipInitialSnapshot = false,
+  ): Promise<void> {
+    if (runControllersRef.current[runId]) return;
+    const controller = new AbortController();
+    runControllersRef.current[runId] = controller;
+    setReconnectRunId((current) => (current === runId ? null : current));
+    let terminalObserved = false;
+    try {
+      for (const [attempt, delay] of [0, 1_000, 2_000, 4_000, 8_000].entries()) {
+        if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay));
+        if (controller.signal.aborted) return;
+        if (!(skipInitialSnapshot && attempt === 0)) {
+          const snapshot = await getRun(runId, controller.signal);
+          applyRunSnapshot(sessionId, snapshot);
+          if (['completed', 'failed', 'cancelled'].includes(snapshot.status)) {
+            terminalObserved = true;
+            return;
+          }
+        }
+        try {
+          await subscribeRun(
+            runId,
+            runSequencesRef.current[runId],
+            (event) => {
+              applyRunEvent(sessionId, event, task);
+              terminalObserved =
+                event.type === 'run.completed' ||
+                event.type === 'run.failed' ||
+                event.type === 'run.cancelled' ||
+                (event.type === 'run.snapshot' &&
+                  'status' in event.payload &&
+                  ['completed', 'failed', 'cancelled'].includes(event.payload.status));
+            },
+            controller.signal,
+          );
+          if (terminalObserved) return;
+        } catch (requestError) {
+          if (controller.signal.aborted) return;
+          if (delay === 8_000) throw requestError;
+          continue;
+        }
+      }
+    } catch (requestError) {
+      if (!controller.signal.aborted) setError(getErrorMessage(requestError));
+      if (!controller.signal.aborted) setReconnectRunId(runId);
+    } finally {
+      delete runControllersRef.current[runId];
+      if (!controller.signal.aborted) {
+        try {
+          if (terminalObserved) {
+            setReconnectRunId(null);
+            await loadSessionDetail(sessionId);
+          }
+          else {
+            const snapshot = await getRun(runId);
+            applyRunSnapshot(sessionId, snapshot);
+          }
+          await refreshSessions();
+        } catch {
+          // Run 已持久化；最终刷新失败时保留当前投影。
+        }
+      }
+    }
   }
 
   // 首次进入时检查服务、加载列表并恢复 URL 指定或最近会话。
@@ -532,6 +803,8 @@ function PersistentAgentApp() {
         setError(getErrorMessage(requestError));
       });
     return () => controller.abort();
+    // Initial bootstrap intentionally runs once; subsequent session loads are user or Run driven.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 从 API 覆盖指定会话缓存，以数据库结果作为最终事实。
@@ -545,8 +818,10 @@ function PersistentAgentApp() {
         const activeWorkbench = current[sessionId]?.workbench;
         const restoredItem = activeWorkbench
           ? conversation.find(
-              (item) => item.kind === 'assistant' && item.id === activeWorkbench.runId,
-            )
+              (item) =>
+                item.kind === 'assistant' &&
+                (item.workbench?.runId === activeWorkbench.runId || item.id === activeWorkbench.runId),
+            ) ?? [...conversation].reverse().find((item) => item.kind === 'assistant')
           : undefined;
         const restoredWorkbench =
           restoredItem?.kind === 'assistant' ? restoredItem.workbench : undefined;
@@ -563,6 +838,10 @@ function PersistentAgentApp() {
           },
         };
       });
+      if (session.activeRun) {
+        setSessionPending(sessionId, true);
+        void observeRun(sessionId, session.activeRun.runId);
+      }
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     }
@@ -688,8 +967,8 @@ function PersistentAgentApp() {
     // 乐观 ID 在服务端返回真实 messageId 前稳定定位本轮消息。
     const localUserId = `local-user-${crypto.randomUUID()}`;
     const localAssistantId = `local-assistant-${crypto.randomUUID()}`;
+    let assistantMessageId = localAssistantId;
     let sessionId = currentId;
-    let isFirstTurn = !sessionId;
     const optimisticUser: ConversationItem = {
       id: localUserId,
       kind: 'user',
@@ -702,6 +981,7 @@ function PersistentAgentApp() {
       createdAt,
       blocks: [],
       pending: true,
+      deliveryStatus: 'streaming',
     };
     if (!sessionId) {
       setDraftPending(true);
@@ -720,9 +1000,6 @@ function PersistentAgentApp() {
         setSelectedSessionId(created.id);
         selectedSessionIdRef.current = created.id;
         updateSessionUrl(created.id, true);
-      } else {
-        const existing = sessionStates[sessionId]?.conversation ?? [];
-        isFirstTurn = !existing.some((item) => item.kind === 'assistant');
       }
 
       const targetId = sessionId;
@@ -742,117 +1019,31 @@ function PersistentAgentApp() {
       });
       setSessionPending(targetId, true);
 
-      const completed = await requestChatStream(
-        targetId,
-        task,
-        (deltaEvent) => {
-          setSessionStates((current) => {
-            const target = current[targetId];
-            if (!target) return current;
-            return {
-              ...current,
-              [targetId]: {
-                ...target,
-                conversation: target.conversation.map((item) =>
-                  item.kind === 'assistant' && item.id === localAssistantId
-                    ? {
-                        ...item,
-                        blocks: appendTextDelta(item.blocks, deltaEvent),
-                      }
-                    : item,
-                ),
-              },
-            };
-          });
-        },
-        (toolEvent) => {
-          setSessionStates((current) => {
-            const target = current[targetId];
-            if (!target) return current;
-            const suppressed =
-              target.autoOpenSuppressedRunIds?.includes(toolEvent.messageId) ?? false;
-            const existing =
-              target.workbench?.runId === toolEvent.messageId ? target.workbench : undefined;
-            const hasNewResource =
-              toolEvent.type === 'tool.completed' &&
-              (toolEvent.toolName === 'web_search'
-                ? toolEvent.result.results.length > 0
-                : toolEvent.result.results.some(
-                    (item) => item.status === 'succeeded' && item.passages.length > 0,
-                  ));
-            const open = existing?.open === true || (!suppressed && hasNewResource);
-            const currentUserUrls = new Set(
-              [...task.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)].map((match) =>
-                canonicalUrl(match[0].replace(/[.,;:!?，。；：！？]+$/gu, '')),
-              ),
-            );
-            const workbench = applyToolEvent(existing, toolEvent, open, currentUserUrls);
-            return {
-              ...current,
-              [targetId]: {
-                ...target,
-                workbench,
-                conversation: target.conversation.map((item) =>
-                  item.kind === 'assistant' && item.id === localAssistantId
-                    ? { ...item, blocks: applyToolActivityEvent(item.blocks, toolEvent), workbench }
-                    : item,
-                ),
-              },
-            };
-          });
-        },
-      );
-      setSessionPending(targetId, false);
+      const run = await createRun(targetId, task);
+      assistantMessageId = run.assistantMessageId;
       setSessionStates((current) => {
         const target = current[targetId];
         if (!target) return current;
-        const completedWorkbench =
-          target.workbench?.runId === completed.messageId
-            ? { ...target.workbench, activityStatus: 'completed' as const }
-            : target.workbench;
         return {
           ...current,
           [targetId]: {
             ...target,
-            workbench: completedWorkbench,
+            activeRunId: run.runId,
             conversation: target.conversation.map((item) =>
-              item.id === localAssistantId
-                ? {
-                    ...item,
-                    id: completed.messageId,
-                    pending: false,
-                    workbench: completedWorkbench,
-                  }
-                : item,
+              item.id === localUserId
+                ? { ...item, id: run.userMessageId }
+                : item.id === localAssistantId
+                  ? { ...item, id: run.assistantMessageId }
+                  : item,
             ),
           },
         };
       });
-      await loadSessionDetail(targetId);
+      await observeRun(targetId, run.runId, task, true);
       try {
         await refreshSessions();
       } catch {
         // 回答已经交付，侧栏刷新失败不回滚消息。
-      }
-      if (isFirstTurn) {
-        try {
-          const titleResult = await generateSessionTitle(targetId);
-          setSessions((current) =>
-            current
-              .map((item) => (item.id === targetId ? titleResult.session : item))
-              .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-          );
-          setSessionStates((current) =>
-            current[targetId]
-              ? {
-                  ...current,
-                  [targetId]: { ...current[targetId], label: titleResult.session.title },
-                }
-              : current,
-          );
-        } catch {
-          // 标题生成是非关键后处理，失败时保留临时标题。
-        }
       }
     } catch (requestError) {
       if (sessionId) {
@@ -865,15 +1056,16 @@ function PersistentAgentApp() {
             [targetId]: {
               ...target,
               conversation: target.conversation.map((item) =>
-                item.kind === 'assistant' && item.id === localAssistantId
+                item.kind === 'assistant' && item.id === assistantMessageId
                   ? {
                       ...item,
                       pending: false,
+                      deliveryStatus: 'failed',
                       blocks: item.blocks.length
                         ? item.blocks
                         : [
                             {
-                              id: `${localAssistantId}-failed`,
+                              id: `${assistantMessageId}-failed`,
                               type: 'text',
                               content: '本次回答未完成，请稍后重试。',
                             },
@@ -896,6 +1088,30 @@ function PersistentAgentApp() {
         setSessionPending(targetId, false);
       }
       setDraftPending(false);
+    }
+  }
+
+  async function handleCancel(): Promise<void> {
+    const sessionId = selectedSessionIdRef.current;
+    const runId = sessionId ? sessionStates[sessionId]?.activeRunId : undefined;
+    if (!sessionId || !runId) return;
+    try {
+      await cancelRun(runId);
+      setSessionStates((current) =>
+        current[sessionId]
+          ? {
+              ...current,
+              [sessionId]: {
+                ...current[sessionId],
+                workbench: current[sessionId].workbench
+                  ? { ...current[sessionId].workbench, activityStatus: 'cancelling' }
+                  : undefined,
+              },
+            }
+          : current,
+      );
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
     }
   }
 
@@ -954,6 +1170,15 @@ function PersistentAgentApp() {
             state={uiState}
             error={error}
             onDismissError={() => setError(null)}
+            onReconnect={
+              reconnectRunId && selectedSessionId
+                ? () => {
+                    setError(null);
+                    setReconnectRunId(null);
+                    void observeRun(selectedSessionId, reconnectRunId);
+                  }
+                : undefined
+            }
             onFocusWorkbench={focusCurrentWorkbench}
             prompt={prompt}
             submitting={submitting}
@@ -961,6 +1186,7 @@ function PersistentAgentApp() {
             composerMode="new-run"
             onPromptChange={setPrompt}
             onSubmit={(event) => void handleSubmit(event)}
+            onCancel={() => void handleCancel()}
           />
           {uiState.workbench ? (
             <WorkbenchShell

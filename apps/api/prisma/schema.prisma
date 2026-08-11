@@ -39,6 +39,7 @@ model Session {
   updatedAt DateTime  @updatedAt @map("updated_at")
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages  Message[]
+  runs      AgentRun[]
 
   @@index([userId, isPinned(sort: Desc), updatedAt(sort: Desc)])
   @@map("sessions")
@@ -53,9 +54,85 @@ model Message {
   content   String
   createdAt DateTime    @default(now()) @map("created_at")
   metadata  Json        @default("{}")
+  runId     String?     @map("run_id")
   user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   session   Session     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  run       AgentRun?   @relation(fields: [runId], references: [id], onDelete: SetNull)
 
   @@index([sessionId, createdAt])
+  @@index([runId])
   @@map("messages")
+}
+
+model AgentRun {
+  id                 String          @id
+  sessionId          String          @map("session_id")
+  inputMessageId     String          @map("input_message_id")
+  assistantMessageId String          @map("assistant_message_id")
+  status             AgentRunStatus  @default(queued)
+  activeStepId       String?         @map("active_step_id")
+  toolCallCount      Int             @default(0) @map("tool_call_count")
+  lastEventSequence  BigInt          @default(0) @map("last_event_sequence")
+  ownerInstanceId    String?         @map("owner_instance_id")
+  heartbeatAt        DateTime?       @map("heartbeat_at")
+  errorCode          String?         @map("error_code")
+  errorDetail        String?         @map("error_detail")
+  idempotencyKey     String          @map("idempotency_key")
+  payloadHash        String          @map("payload_hash")
+  version            Int             @default(0)
+  metadata           Json            @default("{}")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  startedAt          DateTime?       @map("started_at")
+  endedAt            DateTime?       @map("ended_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+  session            Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  messages           Message[]
+  steps              AgentRunStep[]
+
+  @@unique([sessionId, idempotencyKey])
+  @@index([sessionId, status])
+  @@map("agent_runs")
+}
+
+model AgentRunStep {
+  id           String         @id
+  runId        String         @map("run_id")
+  sequence     Int
+  kind         AgentStepKind
+  status       AgentStepStatus
+  attempt      Int            @default(1)
+  toolCallId   String?        @map("tool_call_id")
+  toolName     String?        @map("tool_name")
+  input        Json?
+  output       Json?
+  errorCode    String?        @map("error_code")
+  errorDetail  String?        @map("error_detail")
+  startedAt    DateTime       @default(now()) @map("started_at")
+  endedAt      DateTime?      @map("ended_at")
+  metadata     Json           @default("{}")
+  run          AgentRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, sequence])
+  @@map("agent_run_steps")
+}
+
+enum AgentRunStatus {
+  queued
+  running
+  cancel_requested
+  completed
+  failed
+  cancelled
+}
+
+enum AgentStepKind {
+  model
+  tool
+}
+
+enum AgentStepStatus {
+  running
+  completed
+  failed
+  cancelled
 }

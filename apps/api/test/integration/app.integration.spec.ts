@@ -6,12 +6,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../../src/app.module';
 import { HttpExceptionFilter } from '../../src/shared/http-exception.filter';
 import { PrismaService } from '../../src/database/prisma.service';
-import { SessionExecutionRegistry } from '../../src/sessions/session-execution.registry';
 
 describe('foundation API', () => {
   let app: INestApplication;
   let prisma: PrismaService;
-  let executions: SessionExecutionRegistry;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -19,7 +17,6 @@ describe('foundation API', () => {
     app.useGlobalFilters(new HttpExceptionFilter());
     await app.init();
     prisma = app.get(PrismaService);
-    executions = app.get(SessionExecutionRegistry);
   });
 
   afterAll(async () => {
@@ -138,30 +135,41 @@ describe('foundation API', () => {
     expect(await prisma.session.count({ where: { userId: 'local-user' } })).toBe(before);
   });
 
-  it('rejects an invalid session chat request before calling the model', async () => {
+  it('rejects an invalid create-run request before calling the model', async () => {
     const created = await request(app.getHttpServer())
       .post('/api/agent/sessions')
       .send({ title: '__test__校验聊天请求' })
       .expect(201);
     const response = await request(app.getHttpServer())
-      .post(`/api/agent/sessions/${created.body.session.id}/chat/stream`)
-      .send({ content: '   ' })
+      .post(`/api/agent/sessions/${created.body.session.id}/runs`)
+      .send({ content: '   ', idempotencyKey: 'invalid-run' })
       .expect(400);
     expect(response.headers['content-type']).toContain('application/problem+json');
     expect(response.body.code).toBe('INVALID_SESSION_REQUEST');
   });
 
-  it('blocks concurrent chat and deletion while a session is active', async () => {
+  it('blocks concurrent runs and deletion while a session is active', async () => {
     const created = await request(app.getHttpServer())
       .post('/api/agent/sessions')
       .send({ title: '__test__活跃会话' })
       .expect(201);
     const sessionId = created.body.session.id as string;
-    executions.acquire(sessionId);
+    const activeRunId = crypto.randomUUID();
+    await prisma.agentRun.create({
+      data: {
+        id: activeRunId,
+        sessionId,
+        inputMessageId: crypto.randomUUID(),
+        assistantMessageId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
+        payloadHash: 'test',
+        status: 'running',
+      },
+    });
     try {
       const chat = await request(app.getHttpServer())
-        .post(`/api/agent/sessions/${sessionId}/chat/stream`)
-        .send({ content: '第二条并发消息' })
+        .post(`/api/agent/sessions/${sessionId}/runs`)
+        .send({ content: '第二条并发消息', idempotencyKey: crypto.randomUUID() })
         .expect(409);
       expect(chat.body.code).toBe('SESSION_BUSY');
       const deletion = await request(app.getHttpServer())
@@ -170,7 +178,7 @@ describe('foundation API', () => {
       expect(deletion.body.code).toBe('SESSION_BUSY');
       expect(await prisma.message.count({ where: { sessionId } })).toBe(0);
     } finally {
-      executions.release(sessionId);
+      await prisma.agentRun.delete({ where: { id: activeRunId } });
     }
   });
 
@@ -187,5 +195,27 @@ describe('foundation API', () => {
       generated: false,
       session: { title: '__test__临时标题' },
     });
+  });
+
+  it('creates an idempotent durable run and rejects a changed payload', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/agent/sessions')
+      .send({ title: '__test__幂等运行' })
+      .expect(201);
+    const path = `/api/agent/sessions/${created.body.session.id}/runs`;
+    const first = await request(app.getHttpServer())
+      .post(path)
+      .send({ content: '幂等问题', idempotencyKey: 'same-key' })
+      .expect(201);
+    const second = await request(app.getHttpServer())
+      .post(path)
+      .send({ content: '幂等问题', idempotencyKey: 'same-key' })
+      .expect(201);
+    expect(second.body.runId).toBe(first.body.runId);
+    const conflict = await request(app.getHttpServer())
+      .post(path)
+      .send({ content: '另一条问题', idempotencyKey: 'same-key' })
+      .expect(409);
+    expect(conflict.body.code).toBe('IDEMPOTENCY_CONFLICT');
   });
 });

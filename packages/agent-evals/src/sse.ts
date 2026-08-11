@@ -1,4 +1,4 @@
-import { chatStreamEventSchema } from '@harness/agent-protocol';
+import { chatStreamEventSchema, runStreamEventSchema } from '@harness/agent-protocol';
 import type { ChatStreamEvent } from '@harness/agent-protocol';
 
 // 增量解析标准 SSE data 事件，正确处理网络半包和多事件 chunk。
@@ -20,7 +20,15 @@ export async function parseSseResponse(response: Response): Promise<ChatStreamEv
         .map((line) => line.slice(5).trimStart())
         .join('\n');
       if (!data) continue;
-      events.push(chatStreamEventSchema.parse(JSON.parse(data)));
+      const event = runStreamEventSchema.parse(JSON.parse(data));
+      if (
+        event.type === 'message.delta' ||
+        event.type === 'tool.started' ||
+        event.type === 'tool.completed' ||
+        event.type === 'tool.failed' ||
+        event.type === 'tool.cancelled'
+      )
+        events.push(chatStreamEventSchema.parse(event.payload));
     }
     if (done) break;
   }

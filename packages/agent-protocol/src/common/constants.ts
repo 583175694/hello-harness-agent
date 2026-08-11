@@ -38,6 +38,9 @@ export const AGENT_ERROR_CODES = {
   sessionNotFound: 'SESSION_NOT_FOUND',
   // 同一会话已有一个正在执行的模型流。
   sessionBusy: 'SESSION_BUSY',
+  runNotFound: 'RUN_NOT_FOUND',
+  runInterrupted: 'RUN_INTERRUPTED',
+  idempotencyConflict: 'IDEMPOTENCY_CONFLICT',
   // 未配置模型供应商 API Key。
   modelNotConfigured: 'MODEL_NOT_CONFIGURED',
   // 模型供应商请求失败。

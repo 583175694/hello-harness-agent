@@ -4,23 +4,34 @@ import { parseSseResponse } from '../src/sse.js';
 describe('parseSseResponse', () => {
   it('parses split chunks and multiple standard events', async () => {
     const encoder = new TextEncoder();
+    const envelope = (seq: number, type: string, payload: object) =>
+      JSON.stringify({
+        version: '0.9.0',
+        eventId: `run-1:${seq}`,
+        seq,
+        sessionId: 'session-1',
+        runId: 'run-1',
+        type,
+        occurredAt: '2026-08-10T00:01:00.000Z',
+        payload,
+      });
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(
           encoder.encode(
-            'data: {"type":"message.delta","messageId":"m1","blockId":"b1","delta":"你',
+            `data: ${envelope(1, 'message.delta', { type: 'message.delta', messageId: 'm1', blockId: 'b1', delta: '你' }).slice(0, 120)}`,
           ),
         );
         controller.enqueue(
           encoder.encode(
-            '好"}\n\ndata: {"type":"message.completed","messageId":"m1","model":"test"}\n\n',
+            `${envelope(1, 'message.delta', { type: 'message.delta', messageId: 'm1', blockId: 'b1', delta: '你' }).slice(120)}\n\ndata: ${envelope(2, 'message.delta', { type: 'message.delta', messageId: 'm1', blockId: 'b1', delta: '好' })}\n\n`,
           ),
         );
         controller.close();
       },
     });
     const events = await parseSseResponse(new Response(stream));
-    expect(events.map((event) => event.type)).toEqual(['message.delta', 'message.completed']);
+    expect(events.map((event) => event.type)).toEqual(['message.delta', 'message.delta']);
   });
 
   it('rejects an incomplete final frame', async () => {
@@ -29,7 +40,7 @@ describe('parseSseResponse', () => {
   });
 
   it('rejects complete frames that do not match the shared protocol', async () => {
-    const response = new Response('data: {"type":"unknown.event"}\n\n');
+    const response = new Response('data: {"version":"0.9.0","eventId":"x","seq":1,"sessionId":"s","runId":"r","type":"unknown.event","occurredAt":"2026-08-10T00:01:00.000Z","payload":{}}\n\n');
     await expect(parseSseResponse(response)).rejects.toThrow();
   });
 });

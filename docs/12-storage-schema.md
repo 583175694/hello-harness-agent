@@ -1,6 +1,6 @@
 # PostgreSQL / Prisma Storage Schema
 
-> 文档状态：后续 durable Run/State 探索草案。当前生产数据库事实以 Prisma Schema 和 `implementation-status.md` 为准；未实现的 Evidence/Artifact 表不代表已承诺能力。
+> 文档状态：后续完整 durable Run/State 探索草案。当前生产数据库事实以 Prisma Schema 和 `implementation-status.md` 为准；当前恢复切片只计划实现 `agent_runs`、`agent_run_steps` 和 assistant draft snapshot，不实现本文的 `runtime_events`、`stream_event_log`、Checkpoint、Evidence 或 Artifact 全量模型。具体以 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 为准。
 
 ## 1. 存储选择
 

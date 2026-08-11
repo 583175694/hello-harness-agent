@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import {
   chatStreamEventSchema,
+  createRunRequestSchema,
+  runSnapshotSchema,
+  runStreamEventSchema,
   createSessionRequestSchema,
   persistedMessageSchema,
   problemDetailsSchema,
   protocolVersion,
   serviceStatusSchema,
-  sessionChatRequestSchema,
   sessionDetailSchema,
   toolCallSchema,
   updateSessionRequestSchema,
@@ -19,7 +21,7 @@ import {
 
 describe('foundation protocol', () => {
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.8.0');
+    expect(protocolVersion).toBe('0.9.0');
   });
 
   it('normalizes source URLs deterministically without deleting business parameters', () => {
@@ -114,15 +116,48 @@ describe('foundation protocol', () => {
         createdAt: '2026-08-05T04:00:00.000Z',
         updatedAt: '2026-08-05T04:00:01.000Z',
         messages: [message],
+        activeRun: null,
       }).messages,
     ).toHaveLength(1);
   });
 
   it('requires a short title and non-empty session chat content', () => {
     expect(createSessionRequestSchema.parse({ title: '新的会话' }).title).toBe('新的会话');
-    expect(sessionChatRequestSchema.parse({ content: '  hello  ' }).content).toBe('hello');
+    expect(
+      createRunRequestSchema.parse({ content: '  hello  ', idempotencyKey: 'request-1' }).content,
+    ).toBe('hello');
     expect(() => createSessionRequestSchema.parse({ title: 'x'.repeat(29) })).toThrow();
-    expect(() => sessionChatRequestSchema.parse({ content: '   ' })).toThrow();
+    expect(() =>
+      createRunRequestSchema.parse({ content: '   ', idempotencyKey: 'request-1' }),
+    ).toThrow();
+  });
+
+  it('validates durable run snapshots and sequenced SSE envelopes', () => {
+    const snapshot = runSnapshotSchema.parse({
+      runId: 'run-1',
+      sessionId: 'session-1',
+      status: 'running',
+      assistantMessageId: 'assistant-1',
+      assistantContent: '',
+      blocks: [],
+      executions: [],
+      sources: [],
+      toolCallCount: 0,
+      lastEventSequence: 0,
+      createdAt: '2026-08-12T00:00:00.000Z',
+    });
+    expect(
+      runStreamEventSchema.parse({
+        version: '0.9.0',
+        eventId: 'event-1',
+        seq: 0,
+        sessionId: 'session-1',
+        runId: 'run-1',
+        type: 'run.snapshot',
+        occurredAt: '2026-08-12T00:00:00.000Z',
+        payload: snapshot,
+      }),
+    ).toMatchObject({ type: 'run.snapshot', seq: 0 });
   });
 
   it('validates partial session updates and rejects empty patches', () => {

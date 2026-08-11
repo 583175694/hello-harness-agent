@@ -7,7 +7,9 @@ export const persistedMessageSchema = z.object({
   sessionId: z.string().min(1),
   role: z.enum(['user', 'assistant']),
   kind: z.enum(['user_message', 'assistant_delivery']),
-  content: z.string().min(1),
+  content: z.string(),
+  runId: z.string().min(1).optional(),
+  deliveryStatus: z.enum(['streaming', 'completed', 'failed', 'cancelled']).optional(),
   createdAt: z.string().datetime(),
   metadata: z.record(z.unknown()),
 });
@@ -25,6 +27,15 @@ export const sessionSummarySchema = z.object({
 // 定义会话详情及其按时间排序的持久化消息。
 export const sessionDetailSchema = sessionSummarySchema.extend({
   messages: z.array(persistedMessageSchema),
+  activeRun: z
+    .object({
+      runId: z.string().min(1),
+      assistantMessageId: z.string().min(1),
+      status: z.enum(['queued', 'running', 'cancel_requested']),
+      lastEventSequence: z.number().int().nonnegative(),
+    })
+    .nullable()
+    .default(null),
 });
 
 // 定义创建会话时提交的标题请求。
@@ -59,10 +70,6 @@ export const updateSessionRequestSchema = z
 export const updateSessionResponseSchema = z.object({ session: sessionSummarySchema });
 
 // 定义会话级聊天流只提交本轮内容的请求。
-export const sessionChatRequestSchema = z.object({
-  content: z.string().trim().min(1).max(AGENT_PROTOCOL_LIMITS.sessionChatContentMaxLength),
-});
-
 // 定义标题生成接口的空请求体，保留后续扩展空间。
 export const generateSessionTitleRequestSchema = z.object({}).strict();
 
@@ -82,6 +89,5 @@ export type SessionDetailResponse = z.infer<typeof sessionDetailResponseSchema>;
 export type DeleteSessionResponse = z.infer<typeof deleteSessionResponseSchema>;
 export type UpdateSessionRequest = z.infer<typeof updateSessionRequestSchema>;
 export type UpdateSessionResponse = z.infer<typeof updateSessionResponseSchema>;
-export type SessionChatRequest = z.infer<typeof sessionChatRequestSchema>;
 export type GenerateSessionTitleRequest = z.infer<typeof generateSessionTitleRequestSchema>;
 export type GenerateSessionTitleResponse = z.infer<typeof generateSessionTitleResponseSchema>;

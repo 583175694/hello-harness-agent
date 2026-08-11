@@ -2,15 +2,17 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-11（Model-led Tool Boundary 已实现）
+> 最后更新：2026-08-12（Connection-Durable Agent Loop 已实施并完成验证）
 
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 20 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P7 已完成，进入 P8 Evaluation / Release Hardening”：联网调查闭环已具备独立真实黑盒评测工具，可以用固定题集检查生产 Session、Chat SSE、Search/Fetch、最终回答和持久化快照。正式 Evidence、`[Sx]`、报告 Artifact 和引用校验不属于当前阶段，未来是否实现根据产品需求决定；Run/Event Store、Context Engineering、steer/cancel 和搜索 fallback 仍未实现。
+当前状态可以描述为“P8 Connection-Durable Agent Loop 已完成，进入 Context Engineering / Evaluation / Release Hardening”：联网调查闭环具备独立真实黑盒评测工具；Run 已与 Chat HTTP/SSE 解耦，具备后台执行、PostgreSQL draft/snapshot、SSE replay、断线重连、独立 cancel 和重启中断收敛。Context Engineering、steer、搜索 fallback、Memory 和 Delegation 仍未实现。
 
 Model-led Tool Boundary 已落地为协议 `0.8.0`：模型负责语义规划，Runtime 只执行模型决策和通用执行边界，Tool 只执行能力并返回 canonical 结构化结果，Runtime 统一序列化 Tool Message，Projection 派生 provenance 并按 URL/contentHash 归并 canonical source。`ToolRunState`、`WebResearchRunState`、Tool `modelContent/control` 和跨调用 URL allowlist 已删除；没有新增 Runtime Decision Policy、Web Research Policy 或 Tool observation 预算协议。详见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md)。
+
+Connection-Durable Agent Loop 已按当前方案实施，不引入 Redis，不实现服务端重启后的自动续跑：PostgreSQL 保存 Run/Step/assistant draft snapshot，进程内 Event Hub 保存实时事件窗口，客户端通过 run snapshot、SSE cursor 和重新订阅恢复；服务端重启遗留 active Run 收敛为 `failed + RUN_INTERRUPTED`。详见 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)。
 
 ## 2. 从空项目到当前 Agent 的阶段演进
 
@@ -75,7 +77,7 @@ Model-led Tool Boundary 已落地为协议 `0.8.0`：模型负责语义规划，
 - `used` 只表示最终回答出现了来源 URL，不是逐句 Evidence/Citation；没有 Report Artifact、引用校验或独立复核。
 - Fetch 只覆盖公开静态网页；JavaScript 页面、PDF、登录态内容、浏览器操作和完整公网 SSRF/DNS rebinding 防护尚未实现。
 
-**下一阶段结论**：继续 P8 Evaluation / Release Hardening，不横向增加工具。Model-led Tool Boundary 已完成，接下来用真实评测把协议一致性、工具选择、执行效率和失败分类修准，再根据实际需求决定 durable Run/Event、Search fallback 或 Context Engineering 的优先级。
+**下一阶段结论**：Durable Agent Loop 已完成，不横向增加工具。真实评测继续作为伴随验证，用于校准工具选择、执行效率和失败分类；下一步优先进入 Context Engineering，Search fallback 的顺序再根据评测与 Provider 稳定性决定。
 
 ## 3. 已完成
 
@@ -220,6 +222,8 @@ git diff --check
 
 同次重构将 URL provenance、URL/正文去重、Web 资源预算和无新增内容状态从 Runtime 下沉到 `WebResearchRunState`，Runtime 只创建通用 `ToolRunState`，按统一契约执行任意命名工具并处理 `logFields`、`disableTools` 和 `forceFinalAnswer`。上游调用失败日志继续保留脱敏后的真实原因、HTTP 状态、请求 ID、上游地址和响应摘要。执行 `pnpm check` 与 `git diff --check` 全部通过：Protocol 12 项、API 56 项、Web 18 项、Evals 26 项、Testkit 1 项 unit test 通过，workspace lint、typecheck 和 production build 全部通过。本轮没有重复执行依赖数据库或浏览器环境的 integration/E2E。
 
+2026-08-12 完成 Connection-Durable Agent Loop 实施与收尾审计。新增 `AgentRun/AgentRunStep`、Run 幂等键和 active Session partial unique index；创建、后台执行、draft flush、语义 Step、terminal transaction、heartbeat/restart reconciliation、独立 cancel 和优雅停机收敛全部接入。新增 Run Event Hub 的 run-scoped sequence、Ring Buffer、snapshot fallback、多 subscriber、有界队列和 terminal close；Web 首次提交、刷新、切换会话、断网重连统一走 `createRun -> observeRun`，并保留失败/取消草稿终态。补齐消息同事务时间戳导致的 user/assistant 随机排序、并发幂等竞争、终态 SSE 不关闭、服务关闭时后台写库等回归问题。验证结果：Protocol 13、API unit 58、API integration 10、Web unit 19、Agent evals 28、Playwright E2E 16 全部通过；workspace lint、typecheck、production build 和 `git diff --check` 全部通过。当前明确不实现服务重启自动续跑、多实例 Worker lease、checkpoint replay、Redis、逐 token 持久化和 Context Engineering。
+
 2026-08-11 随后完成 Model-led Tool Boundary 代码迁移，协议升级到 `0.8.0`。删除 `ToolRunState`、`WebResearchRunState`、Tool `modelContent/control`、跨调用 URL/Passage 预算、URL allowlist 和领域早停；Runtime 统一序列化 canonical `output/error`，Tool 失败可由模型下一轮继续处理。Search/Fetch 外层 timeout 分别为 10/45 秒，Fetch transport timeout 保持 20 秒；Projection 派生 provenance，Execution 完整保留，Source 按 URL/contentHash 归并。后续验收补齐混合 Tool Call 计数、实时/恢复 canonical merge、Fetch stats 全分支与真实 retry 计数、Eval provenance/canonical/toolCallCount 反向规则；评测使用 `modelProposedSourceCount` 表示最终保留的模型直提 canonical 来源数量，避免与 Fetch 调用次数混淆。最终执行 `pnpm check`、API integration、Playwright E2E 和 `git diff --check`：Protocol 12 项、API 52 项、Web 19 项、Evals 28 项、Testkit 1 项，共 112 项 unit test，API integration 9 项和 Playwright desktop/mobile 16 项全部通过。真实外部 `pnpm eval:research` 未执行，避免在未明确要求时产生模型和搜索 Provider 调用费用。
 
 覆盖范围包括：
@@ -240,10 +244,10 @@ git diff --check
 
 以下内容仍按 `docs/17-implementation-plan.md` 和相关契约文档执行，不能从 Preview 状态推断已经完成：
 
-- Run、State、Artifact 的持久化和恢复；Session/Message 普通对话持久化已经完成。
-- durable Agent Run、Run/Step/Event、断线 replay 和运行级恢复；当前 `AgentRuntimeService` 仍是一次 Chat 请求内的非持久化 Runtime，不具备运行恢复能力。
+- Artifact 持久化和正式 Report 恢复；Session/Message/Run/Step 和 assistant draft snapshot 已完成。
+- 服务端重启后继续原 Run、多实例 Worker lease、Provider cursor 和 Tool 副作用幂等；当前重启遗留 Run 收敛为 `RUN_INTERRUPTED`。
 - 搜索 fallback；正式 Evidence、引用校验和 Markdown Report Artifact 不属于当前范围，是否进入后续 Deep Research 由未来产品需求决定。
-- 面向 Agent Run 的 SSE/事件投影、真实 steer/cancel 控制链路；普通对话 Chat SSE 已完成。
+- steer、pause 和 Human-in-the-loop 尚未实现；独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
 - user Memory、Delegation、Worker 和多用户认证。
 
 ### General Web Research V1 完成边界
@@ -275,19 +279,19 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 ### 后续阶段边界
 
 - 完整 Context Engineering 面向 System Prompt、历史消息、用户输入、Assistant Tool Calls、Tool Results 和最终回答预留统一实现 Token 计量、选择、压缩、淘汰和编译；当前不预先冻结具体 schema。
-- Durable Run / Event Store 与 Delegation 再实现后台执行、断线恢复、Worker 独立上下文和大规模 Wide Research；这些能力不属于当前 Web Fetch 模块本身。
+- Connection-Durable Agent Loop 已按独立方案完成后台执行和客户端断线恢复；Delegation 再实现 Worker 独立上下文和大规模 Wide Research。这些能力都不属于当前 Web Fetch 模块本身。
 - 正式 `EvidenceSource`、report-scoped `[Sx]`、Report Artifact、同模型复核和 Citation Validator 不阻塞当前阶段，也不在本次架构中承诺实现。
 - JavaScript Browser Fetch、PDF、登录态网页、页面操作和其他来源格式属于独立的工具能力扩展，不并入当前阶段。
 
 ## 7. 下一阶段建议
 
-当前进入 P8 Evaluation / Release Hardening。下一阶段按以下顺序推进：
+当前已完成 P8 Connection-Durable Agent Loop。下一阶段按以下顺序推进：
 
-1. **继续修评测事实源**：Model-led Tool Boundary 已完成；下一步统一 SSE、tool execution 和 assistant metadata snapshot 的投影结果，把 Agent 流中断、Provider 失败、Judge 超时、规则不匹配和真实行为缺陷拆成可聚合分类。
-2. **校准真实行为**：修复直链任务工具选择和题目工具上限偏差；将重复调用作为效率信号而非领域协议错误，连续运行至少两轮 Smoke 并人工检查全部 6 题，冻结可信硬规则后再运行 Full 24 题。
-3. **按需求补最小恢复闭环**：如评测证明断线与后台执行是主要问题，再设计 durable Run/Step/Event、事件序号、断线 replay、后台继续执行和真实 cancel。
-4. **用评测决定 Context Engineering**：如果失败主要来自长工具历史、相关材料不能动态进出或最终回答空间不足，再面向完整上下文实现精确 Token 预算、选择、压缩和淘汰；如果主要是 Provider 可用性，则优先实现 Search fallback 和有限熔断。
-5. **保持能力边界**：Evidence/Citation、Report Artifact、Browser/PDF Fetch、Memory 和 Delegation 都不与 P8 稳定性修复混成一次大重构；尚未确定的能力不提前承诺或冻结抽象。
+1. **进入 Context Engineering**：在 Run/Step 和完整事实边界稳定后，面向完整模型上下文实现 Token 计量、选择、压缩、淘汰和最终回答预留。
+2. **伴随修正评测事实源**：统一 Run snapshot、assistant metadata 和 Tool execution 指标，把 Provider 失败、Judge 超时、规则不匹配和真实行为缺陷拆成可聚合分类。
+3. **校准真实行为**：修复直链任务工具选择和题目工具上限偏差；将重复调用作为效率信号，连续运行至少两轮 Smoke 并人工检查全部 6 题，再决定 Full 24 题门槛。
+4. **根据数据决定 Search fallback**：优先读取真实 Provider 失败分布，不在 Context Engineering 前并行增加另一套复杂运行状态。
+5. **保持能力边界**：服务端重启自动续跑、Evidence/Citation、Report Artifact、Browser/PDF Fetch、Memory 和 Delegation 不与 Context Engineering 混成一次大重构。
 
 P8 的完成标准不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Search/Fetch -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败、可重复评测和最小恢复能力。
 
@@ -300,7 +304,7 @@ P8 的完成标准不是“再增加一个工具”，而是现有 `Chat -> Agen
 - [ ] 为直链题、搜索题和 Fetch 题分别校准硬规则，避免单一规则把行为问题和协议投影问题混在一起。
 - [ ] 根据至少两轮真实 Smoke 结果冻结语义质量阈值，再决定 Full suite 是否进入发布门槛。
 
-Context Engineering、durable Run/Step/Event、断线 replay、Worker 独立上下文、动态 Browser Fetch 和 PDF 按真实需求独立推进；正式 Evidence/Report 等未确定能力不属于当前承诺。
+Connection-Durable Agent Loop 已完成；Context Engineering 成为下一阶段主线。服务端重启自动续跑、Worker 独立上下文、动态 Browser Fetch、PDF 和正式 Evidence/Report 等能力按真实需求独立推进。
 
 ## 8. 关联文档
 
@@ -313,6 +317,7 @@ Context Engineering、durable Run/Step/Event、断线 replay、Worker 独立上�
 - 面试知识点：[docs/interview-knowledge.md](./interview-knowledge.md)
 - Web Fetch 设计：[docs/23-web-fetch-tool.md](./23-web-fetch-tool.md)
 - 真实评测：[docs/24-general-web-research-evaluation.md](./24-general-web-research-evaluation.md)
+- Connection-Durable Agent Loop：[docs/26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)
 
 ## 9. 维护规则
 

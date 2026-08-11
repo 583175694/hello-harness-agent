@@ -14,7 +14,7 @@ import {
 } from './web-fetch/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.8.0';
+export const protocolVersion = '0.9.0';
 
 // 定义聊天和未来工具循环共用的消息基础字段。
 const messageBaseSchema = z.object({
@@ -214,6 +214,10 @@ export const assistantContentBlockSchema = z.discriminatedUnion('type', [
 // 定义 assistant 消息携带的轻量 Agent 与 Workbench 快照。
 export const assistantAgentMetadataSchema = z.object({
   model: z.string().min(1),
+  deliveryStatus: z.enum(['streaming', 'completed', 'failed', 'cancelled']).optional(),
+  runId: z.string().min(1).optional(),
+  draftVersion: z.number().int().nonnegative().optional(),
+  lastEventSequence: z.number().int().nonnegative().optional(),
   blocks: z
     .array(assistantContentBlockSchema)
     .max(AGENT_PROTOCOL_LIMITS.assistantContentBlocksMax)
@@ -319,6 +323,81 @@ export const chatStreamEventSchema = z.union([
   }),
 ]);
 
+export const agentRunStatusSchema = z.enum([
+  'queued',
+  'running',
+  'cancel_requested',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+export const assistantDeliveryStatusSchema = z.enum([
+  'streaming',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+export const createRunRequestSchema = z.object({
+  content: z.string().trim().min(1).max(AGENT_PROTOCOL_LIMITS.sessionChatContentMaxLength),
+  idempotencyKey: z.string().min(1).max(200),
+});
+export const createRunResponseSchema = z.object({
+  sessionId: z.string().min(1),
+  runId: z.string().min(1),
+  userMessageId: z.string().min(1),
+  assistantMessageId: z.string().min(1),
+  status: agentRunStatusSchema,
+  eventsUrl: z.string().min(1),
+});
+export const runSnapshotSchema = z.object({
+  runId: z.string().min(1),
+  sessionId: z.string().min(1),
+  status: agentRunStatusSchema,
+  assistantMessageId: z.string().min(1),
+  assistantContent: z.string(),
+  blocks: z.array(assistantContentBlockSchema),
+  executions: z.array(toolExecutionSnapshotSchema),
+  sources: z.array(researchSourceSnapshotSchema),
+  toolCallCount: z.number().int().nonnegative(),
+  lastEventSequence: z.number().int().nonnegative(),
+  error: z.object({ code: z.string().min(1), detail: z.string().min(1) }).optional(),
+  createdAt: z.string().datetime(),
+  startedAt: z.string().datetime().optional(),
+  endedAt: z.string().datetime().optional(),
+});
+export const runEventPayloadSchema = z.union([
+  chatStreamEventSchema,
+  runSnapshotSchema,
+  z.object({ status: agentRunStatusSchema }),
+  z.object({ code: z.string().min(1), detail: z.string().min(1) }),
+]);
+export const runStreamEventSchema = z.object({
+  version: z.literal(protocolVersion),
+  eventId: z.string().min(1),
+  seq: z.number().int().nonnegative(),
+  sessionId: z.string().min(1),
+  runId: z.string().min(1),
+  type: z.enum([
+    'run.snapshot',
+    'run.started',
+    'message.delta',
+    'tool.started',
+    'tool.completed',
+    'tool.failed',
+    'tool.cancelled',
+    'run.cancel_requested',
+    'run.completed',
+    'run.failed',
+    'run.cancelled',
+  ]),
+  occurredAt: z.string().datetime(),
+  payload: runEventPayloadSchema,
+});
+export const cancelRunResponseSchema = z.object({
+  runId: z.string().min(1),
+  status: z.enum(['cancel_requested', 'cancelled', 'completed', 'failed']),
+});
+
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export type ChatResponse = z.infer<typeof chatResponseSchema>;
@@ -337,3 +416,10 @@ export type AssistantAgentMetadata = z.infer<typeof assistantAgentMetadataSchema
 export type AssistantTextBlock = z.infer<typeof assistantTextBlockSchema>;
 export type AssistantToolActivityBlock = z.infer<typeof assistantToolActivityBlockSchema>;
 export type AssistantContentBlock = z.infer<typeof assistantContentBlockSchema>;
+export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
+export type AssistantDeliveryStatus = z.infer<typeof assistantDeliveryStatusSchema>;
+export type CreateRunRequest = z.infer<typeof createRunRequestSchema>;
+export type CreateRunResponse = z.infer<typeof createRunResponseSchema>;
+export type RunSnapshot = z.infer<typeof runSnapshotSchema>;
+export type RunStreamEvent = z.infer<typeof runStreamEventSchema>;
+export type CancelRunResponse = z.infer<typeof cancelRunResponseSchema>;

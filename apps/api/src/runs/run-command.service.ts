@@ -1,0 +1,139 @@
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { AGENT_ERROR_CODES, type CreateRunResponse } from '@harness/agent-protocol';
+import type { ChatProjectionSnapshot } from '../chat/chat.service';
+import { ActiveRunRegistry } from './active-run.registry';
+import { RunEventHub } from './run-event-hub';
+import { RunExecutor } from './run.executor';
+import { RunRepository } from './run.repository';
+
+@Injectable()
+export class RunCommandService {
+  constructor(
+    @Inject(RunRepository) private readonly repository: RunRepository,
+    @Inject(ActiveRunRegistry) private readonly registry: ActiveRunRegistry,
+    @Inject(RunEventHub) private readonly events: RunEventHub,
+    @Inject(RunExecutor) private readonly executor: RunExecutor,
+  ) {}
+
+  async create(
+    sessionId: string,
+    input: { content: string; idempotencyKey: string },
+  ): Promise<CreateRunResponse> {
+    const runId = crypto.randomUUID();
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+    const payloadHash = createHash('sha256').update(input.content).digest('hex');
+    let result;
+    try {
+      result = await this.repository.create({
+        sessionId,
+        content: input.content,
+        idempotencyKey: input.idempotencyKey,
+        payloadHash,
+        runId,
+        userMessageId,
+        assistantMessageId,
+      });
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002') {
+        const existing = await this.repository.findByIdempotency(
+          sessionId,
+          input.idempotencyKey,
+        );
+        if (existing) {
+          if (existing.payloadHash !== payloadHash)
+            throw new ConflictException({
+              code: AGENT_ERROR_CODES.idempotencyConflict,
+              detail: '相同幂等键已用于不同的请求内容。',
+            });
+          result = { kind: 'existing' as const, run: existing };
+        } else throw this.busy();
+      } else throw error;
+    }
+    if (result.kind === 'not_found')
+      throw new NotFoundException({
+        code: AGENT_ERROR_CODES.sessionNotFound,
+        detail: '会话不存在。',
+      });
+    if (result.kind === 'conflict')
+      throw new ConflictException({
+        code: AGENT_ERROR_CODES.idempotencyConflict,
+        detail: '相同幂等键已用于不同的请求内容。',
+      });
+    if (result.kind === 'busy') throw this.busy();
+    const run = result.run;
+    const snapshot = await this.repository.snapshot(run.id);
+    if (!snapshot) throw new Error('CreatedRunSnapshotMissing');
+    if (result.kind === 'created') {
+      this.registry.register(snapshot);
+      setImmediate(() => this.executor.start(run.id));
+    }
+    return {
+      sessionId: run.sessionId,
+      runId: run.id,
+      userMessageId: run.inputMessageId,
+      assistantMessageId: run.assistantMessageId,
+      status: run.status,
+      eventsUrl: `/api/agent/runs/${run.id}/events`,
+    };
+  }
+
+  async snapshot(runId: string) {
+    const snapshot = await this.repository.snapshot(runId);
+    if (!snapshot) this.notFound();
+    const live = this.registry.get(runId)?.snapshot;
+    return live ?? snapshot;
+  }
+
+  async cancel(runId: string) {
+    const snapshot = await this.repository.snapshot(runId);
+    if (!snapshot) this.notFound();
+    if (snapshot.status === 'completed' || snapshot.status === 'failed' || snapshot.status === 'cancelled')
+      return { runId, status: snapshot.status };
+    const requestedStatus = await this.repository.requestCancel(runId);
+    if (requestedStatus !== 'cancel_requested') return { runId, status: requestedStatus };
+    const active = this.registry.get(runId);
+    if (active) {
+      this.events.publish(runId, 'run.cancel_requested', { status: 'cancel_requested' });
+      active.abortController.abort();
+      return { runId, status: 'cancel_requested' as const };
+    }
+    const projection: ChatProjectionSnapshot = {
+      model: 'unknown',
+      blocks: snapshot.blocks,
+      executions: snapshot.executions,
+      sources: snapshot.sources,
+      toolCallCount: snapshot.toolCallCount,
+    };
+    await this.repository.terminal({
+      runId,
+      assistantMessageId: snapshot.assistantMessageId,
+      status: 'cancelled',
+      projection,
+      lastEventSequence: snapshot.lastEventSequence,
+      draftVersion: 1,
+      error: { code: 'RUN_CANCELLED', detail: '用户已取消本次运行。' },
+    });
+    return { runId, status: 'cancelled' as const };
+  }
+
+  private busy(): ConflictException {
+    return new ConflictException({
+      code: AGENT_ERROR_CODES.sessionBusy,
+      detail: '该会话已有一个正在执行的 Run。',
+    });
+  }
+
+  private notFound(): never {
+    throw new NotFoundException({
+      code: AGENT_ERROR_CODES.runNotFound,
+      detail: 'Run 不存在。',
+    });
+  }
+}

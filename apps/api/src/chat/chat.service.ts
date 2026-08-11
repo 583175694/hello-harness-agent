@@ -108,7 +108,12 @@ export class ChatService {
       `开始生成回复 | 会话=${shortLogId(prepared.sessionId)} | 模型=${model} | 上下文=${prepared.messages.length} 条`,
       ChatService.name,
     );
-    const projection = new ResearchProjectionCollector();
+    const currentUserContent = [...prepared.messages]
+      .reverse()
+      .find((message) => message.role === 'user')?.content;
+    const projection = new ResearchProjectionCollector(
+      this.extractHttpUrls(currentUserContent ?? ''),
+    );
     const conversation = new ConversationBlockCollector(prepared.assistantMessageId);
     let content = '';
     let toolCallCount = 0;
@@ -200,20 +205,12 @@ export class ChatService {
             result: searchResult,
           });
         }
-        const fetchSucceeded =
-          fetchResult?.results.filter((item) => item.status === 'succeeded') ?? [];
-        const fetchFailed = fetchResult?.results.filter((item) => item.status === 'failed') ?? [];
-        const fetchSkipped = fetchResult?.results.filter((item) => item.status === 'skipped') ?? [];
-        const passageCount = fetchSucceeded.reduce(
-          (total, item) => total + item.passages.length,
-          0,
-        );
         const blockId = conversation.completeTool({
           toolCallId: event.toolCallId,
           completedAt: event.completedAt,
           durationMs: event.durationMs,
           summary: fetchResult
-            ? `成功 ${fetchSucceeded.length} 个，失败 ${fetchFailed.length} 个，跳过 ${fetchSkipped.length} 个，提取 ${passageCount} 段原文 · URL ${fetchResult.budget.urls.used}/${fetchResult.budget.urls.limit}`
+            ? `成功 ${fetchResult.stats.succeededCount} 个，失败 ${fetchResult.stats.failedCount} 个，跳过 ${fetchResult.stats.skippedCount} 个，网络请求 ${fetchResult.stats.networkAttemptCount} 次，提取 ${fetchResult.stats.passageCount} 段原文`
             : `找到 ${searchResult?.results.length ?? 0} 个结果`,
         });
         if (fetchResult) {
@@ -251,6 +248,7 @@ export class ChatService {
             durationMs: event.durationMs,
             code: event.code,
             detail: event.detail,
+            retryable: event.retryable,
           });
         const blockId = conversation.failTool({
           toolCallId: event.toolCallId,
@@ -268,6 +266,7 @@ export class ChatService {
           durationMs: event.durationMs,
           code: event.code,
           detail: event.detail,
+          retryable: event.retryable,
         };
         continue;
       }
@@ -365,6 +364,13 @@ export class ChatService {
         detail: `请在 .env 中配置 ${ENV_KEYS.openAiApiKey} 后再发送消息。`,
       });
     return key;
+  }
+
+  // 从当前用户消息中提取公开 HTTP/HTTPS URL，供来源投影派生 provenance。
+  private extractHttpUrls(content: string): string[] {
+    return [...content.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)].map((match) =>
+      match[0].replace(/[.,;:!?，。；：！？]+$/gu, ''),
+    );
   }
 
   // 从 Runtime 未知输入中读取网页搜索参数。

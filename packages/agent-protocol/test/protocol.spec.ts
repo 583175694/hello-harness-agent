@@ -19,7 +19,7 @@ import {
 
 describe('foundation protocol', () => {
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.7.0');
+    expect(protocolVersion).toBe('0.8.0');
   });
 
   it('normalizes source URLs deterministically without deleting business parameters', () => {
@@ -197,12 +197,15 @@ describe('foundation protocol', () => {
           detail: '本轮已读取过等价网页。',
         },
       ],
-      budget: {
-        urls: { used: 2, limit: 25, remaining: 23 },
-        passages: { usedCharacters: 6, limitCharacters: 60_000, remainingCharacters: 59_994 },
-        successfulUniqueDocuments: 1,
-        networkAttempts: 2,
-        canFetch: true,
+      stats: {
+        requestedCount: 3,
+        networkAttemptCount: 2,
+        succeededCount: 1,
+        failedCount: 1,
+        skippedCount: 1,
+        passageCount: 1,
+        passageCharacterCount: Array.from(exact).length,
+        cacheHitCount: 0,
       },
     });
     expect(result.results).toHaveLength(3);
@@ -250,7 +253,7 @@ describe('foundation protocol', () => {
     ).toThrow();
   });
 
-  it('requires the new source usage state and rejects legacy metadata', () => {
+  it('restores legacy provenance defaults and strips retired execution budget fields', () => {
     const parsed = assistantAgentMetadataSchema.parse({
       model: 'test-model',
       agent: {
@@ -264,6 +267,7 @@ describe('foundation protocol', () => {
             startedAt: '2026-08-08T02:00:00.000Z',
             completedAt: '2026-08-08T02:00:01.000Z',
             durationMs: 1000,
+            budget: { legacy: true },
           },
         ],
         sources: [
@@ -279,10 +283,34 @@ describe('foundation protocol', () => {
             retrievedAt: '2026-08-08T02:00:01.000Z',
             toolCallIds: ['call-1'],
           },
+          {
+            kind: 'fetched',
+            used: false,
+            id: 'fetched-1',
+            requestedUrl: 'https://example.com/article',
+            finalUrl: 'https://example.com/article',
+            normalizedUrl: 'https://example.com/article',
+            title: '旧已读来源',
+            contentType: 'text/html',
+            retrievedAt: '2026-08-08T02:00:01.000Z',
+            contentHash: 'legacy-hash',
+            cacheStatus: 'miss',
+            truncated: false,
+            passages: [],
+            toolCallIds: ['call-1'],
+          },
         ],
       },
     });
-    expect(parsed.agent?.sources[0]).toMatchObject({ kind: 'clue' });
+    expect(parsed.agent?.sources[0]).toMatchObject({
+      kind: 'clue',
+      provenance: 'search_clue',
+    });
+    expect(parsed.agent?.sources[1]).toMatchObject({
+      kind: 'fetched',
+      provenance: 'unknown',
+    });
+    expect(parsed.agent?.executions[0]).not.toHaveProperty('budget');
     expect(() =>
       assistantAgentMetadataSchema.parse({
         ...parsed,

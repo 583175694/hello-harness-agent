@@ -106,36 +106,23 @@ export const webFetchItemResultSchema = z.discriminatedUnion('status', [
   webFetchSkippedItemSchema,
 ]);
 
-export const webFetchStopReasonSchema = z.enum([
-  'url_budget',
-  'context_budget',
-  'time_budget',
-  'no_new_content',
-]);
-
-// 定义 Runtime、模型和 Workbench 共同消费的本轮网页调查预算快照。
-export const webFetchBudgetSchema = z.object({
-  urls: z.object({
-    used: z.number().int().nonnegative(),
-    limit: z.number().int().positive(),
-    remaining: z.number().int().nonnegative(),
-  }),
-  passages: z.object({
-    usedCharacters: z.number().int().nonnegative(),
-    limitCharacters: z.number().int().positive(),
-    remainingCharacters: z.number().int().nonnegative(),
-  }),
-  successfulUniqueDocuments: z.number().int().nonnegative(),
-  networkAttempts: z.number().int().nonnegative(),
-  canFetch: z.boolean(),
-  stopReason: webFetchStopReasonSchema.optional(),
+// 定义一次网页读取调用已经发生的纯事实统计，不携带跨调用控制语义。
+export const webFetchStatsSchema = z.object({
+  requestedCount: z.number().int().nonnegative(),
+  networkAttemptCount: z.number().int().nonnegative(),
+  succeededCount: z.number().int().nonnegative(),
+  failedCount: z.number().int().nonnegative(),
+  skippedCount: z.number().int().nonnegative(),
+  passageCount: z.number().int().nonnegative(),
+  passageCharacterCount: z.number().int().nonnegative(),
+  cacheHitCount: z.number().int().nonnegative(),
 });
 
 // 定义 web_fetch 返回给 Runtime、SSE 和 Workbench 的批量结果。
 export const webFetchResultSchema = z.object({
   query: z.string().min(1).optional(),
   results: z.array(webFetchItemResultSchema).min(1).max(AGENT_PROTOCOL_LIMITS.webFetchUrlsMax),
-  budget: webFetchBudgetSchema,
+  stats: webFetchStatsSchema,
 });
 
 export type WebFetchInput = z.infer<typeof webFetchInputSchema>;
@@ -145,6 +132,5 @@ export type WebFetchSucceededItem = z.infer<typeof webFetchSucceededItemSchema>;
 export type WebFetchFailedItem = z.infer<typeof webFetchFailedItemSchema>;
 export type WebFetchSkippedItem = z.infer<typeof webFetchSkippedItemSchema>;
 export type WebFetchItemResult = z.infer<typeof webFetchItemResultSchema>;
-export type WebFetchBudget = z.infer<typeof webFetchBudgetSchema>;
-export type WebFetchStopReason = z.infer<typeof webFetchStopReasonSchema>;
+export type WebFetchStats = z.infer<typeof webFetchStatsSchema>;
 export type WebFetchResult = z.infer<typeof webFetchResultSchema>;

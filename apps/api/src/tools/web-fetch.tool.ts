@@ -8,9 +8,9 @@ import {
 } from '@harness/agent-protocol';
 import type { WebFetchInput, WebFetchResult } from '@harness/agent-protocol';
 import { WebFetchError } from '../web-fetch/web-fetch.error';
+import { WEB_FETCH_POLICY } from '../web-fetch/web-fetch.constants';
 import { WebFetchService } from '../web-fetch/web-fetch.service';
 import type { AgentTool, ToolExecutionContext, ToolExecutionResult } from './agent-tool.types';
-import { getWebResearchRunState } from './web-research-run-state';
 
 @Injectable()
 export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
@@ -20,6 +20,8 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
   readonly inputSchema = webFetchInputSchema;
   // 输入无法通过 Schema 时向 Runtime 返回这个 Web Fetch 专用错误码。
   readonly inputErrorCode = AGENT_ERROR_CODES.fetchInputInvalid;
+  // Runtime 使用这个外层超时约束整批网页读取，内部单 URL 仍保留更细超时。
+  readonly executionPolicy = { timeoutMs: WEB_FETCH_POLICY.toolTimeoutMs } as const;
   // 核心 Service 负责安全校验、抓取、正文处理和 Passage 选择。
   constructor(private readonly webFetch: WebFetchService) {}
 
@@ -61,85 +63,41 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult<WebFetchResult>> {
     try {
-      const research = getWebResearchRunState(context);
-      if (research.remainingPassageCharacters() < 2_000) {
-        research.markStopped('context_budget');
-      }
-      const reservations = research.reserveUrls(input.urls);
-      const acceptedUrls = reservations
-        .filter(
-          (item): item is Extract<typeof item, { status: 'accepted' }> =>
-            item.status === 'accepted',
-        )
-        .map((item) => item.requestedUrl);
-      const fetched = acceptedUrls.length
-        ? await this.webFetch.fetch(
-            { urls: acceptedUrls, ...(input.query ? { query: input.query } : {}) },
-            context.signal,
-            research.remainingPassageCharacters(),
-          )
-        : {
-            result: { ...(input.query ? { query: input.query } : {}), results: [] },
-            networkAttempts: 0,
-          };
-      research.registerNetworkAttempts(fetched.networkAttempts);
-      let acceptedIndex = 0;
-      let newDocumentCount = 0;
-      const results = reservations.map((reservation) => {
-        if (reservation.status === 'skipped') return reservation.result;
-        const item = fetched.result.results[acceptedIndex++];
-        if (!item) {
-          return {
-            status: 'failed' as const,
-            requestedUrl: reservation.requestedUrl,
-            code: AGENT_ERROR_CODES.fetchUpstreamFailed,
-            detail: '网页读取未返回结果。',
-          };
-        }
-        if (item.status !== 'succeeded') return item;
-        const isNew = research.registerDocument(item);
-        if (!isNew) {
-          return {
-            status: 'skipped' as const,
-            requestedUrl: item.requestedUrl,
-            code: AGENT_ERROR_CODES.fetchDuplicateSkipped,
-            detail: '网页最终地址或正文与本轮已有来源重复。',
-          };
-        }
-        newDocumentCount += 1;
-        return item;
-      });
+      const fetched = await this.webFetch.fetch(input, context.signal);
+      const results = fetched.result.results;
       const passageCharacterCount = results
         .filter((item) => item.status === 'succeeded')
         .flatMap((item) => item.passages)
         .reduce((total, passage) => total + Array.from(passage.text).length, 0);
-      research.registerPassageCharacters(passageCharacterCount);
-      research.registerFetchGain(newDocumentCount);
+      const succeeded = results.filter((item) => item.status === 'succeeded');
+      const failed = results.filter((item) => item.status === 'failed');
+      const skipped = results.filter((item) => item.status === 'skipped');
+      const passageCount = succeeded.reduce((total, item) => total + item.passages.length, 0);
       const output = webFetchResultSchema.parse({
         ...(input.query ? { query: input.query } : {}),
         results,
-        budget: research.budget(),
+        stats: {
+          requestedCount: input.urls.length,
+          networkAttemptCount: fetched.networkAttempts,
+          succeededCount: succeeded.length,
+          failedCount: failed.length,
+          skippedCount: skipped.length,
+          passageCount,
+          passageCharacterCount,
+          cacheHitCount: succeeded.filter((item) => item.cacheStatus === 'hit').length,
+        },
       });
-      // 跳过数量与预算快照一起作为工具声明的通用日志字段。
-      const skipped = output.results.filter((item) => item.status === 'skipped');
       return {
         status: 'succeeded',
         output,
-        modelContent: JSON.stringify({
-          untrustedExternalData: true,
-          sourceQualification: 'fetched',
-          ...output,
-        }),
         logFields: {
           结果: output.results.length,
-          URL: `${output.budget.urls.used}/${output.budget.urls.limit}`,
           网络请求: fetched.networkAttempts,
-          唯一文档: newDocumentCount,
+          成功: succeeded.length,
+          失败: failed.length,
           跳过: skipped.length,
           Passage: `${passageCharacterCount} 字`,
-          停止: output.budget.stopReason ?? '否',
         },
-        ...(!output.budget.canFetch ? { control: { forceFinalAnswer: true } } : {}),
       };
     } catch (error) {
       // 调用方中止或核心 Service 返回取消错误时，将工具终态标记为 cancelled。
@@ -163,7 +121,6 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
           retryable: normalized.retryable,
           cause: error,
         },
-        modelContent: JSON.stringify({ ok: false, code: normalized.code }),
       };
     }
   }

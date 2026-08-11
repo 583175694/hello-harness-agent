@@ -90,8 +90,8 @@ describe('CrawleeWebContentFetcher', () => {
       url: new URL(`${baseUrl}${path}`),
     }));
     const result = await fetcher.fetchAll(targets);
-    expect(result[0]).toMatchObject({ status: 'succeeded', content: { body: '公开网页正文' } });
-    expect(result[1]).toMatchObject({
+    expect(result.results[0]).toMatchObject({ status: 'succeeded', content: { body: '公开网页正文' } });
+    expect(result.results[1]).toMatchObject({
       status: 'failed',
       code: AGENT_ERROR_CODES.fetchUnsupportedContentType,
     });
@@ -117,11 +117,44 @@ describe('CrawleeWebContentFetcher', () => {
         url: new URL(`${baseUrl}/start`),
       },
     ]);
-    expect(result[0]).toMatchObject({
+    expect(result.results[0]).toMatchObject({
       status: 'failed',
       code: AGENT_ERROR_CODES.fetchRedirectNotAllowed,
     });
     expect(guard.validate).toHaveBeenCalled();
+  });
+
+  it('counts each recoverable transport retry as a separate network attempt', async () => {
+    let requestCount = 0;
+    const baseUrl = await fixtureServer((_request, response) => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        response.writeHead(500, { 'content-type': 'text/plain' });
+        response.end('temporary failure');
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+      response.end('public article body');
+    });
+    const guard = {
+      validate: vi.fn(async (url: string) => ({
+        requestedUrl: url,
+        normalizedUrl: url,
+        url: new URL(url),
+      })),
+    } as unknown as WebFetchUrlGuard;
+    const fetcher = new CrawleeWebContentFetcher(guard);
+    const result = await fetcher.fetchAll([
+      {
+        requestedUrl: `${baseUrl}/retry`,
+        normalizedUrl: `${baseUrl}/retry`,
+        url: new URL(`${baseUrl}/retry`),
+      },
+    ]);
+
+    expect(result.results[0]).toMatchObject({ status: 'succeeded' });
+    expect(result.networkAttemptCount).toBe(2);
+    expect(requestCount).toBe(2);
   });
 });
 
@@ -270,10 +303,49 @@ describe('BatchPassageBudgeter', () => {
 });
 
 describe('WebFetchService', () => {
+  it('deduplicates equivalent URLs only within the current call', async () => {
+    const guard = new WebFetchUrlGuard(async () => [{ address: '93.184.216.34', family: 4 }]);
+    const fetchAll = vi.fn(async (targets: GuardedWebUrl[]) => ({
+      networkAttemptCount: targets.length,
+      results: targets.map((target) => ({
+        status: 'succeeded' as const,
+        content: {
+          requestedUrl: target.requestedUrl,
+          finalUrl: target.normalizedUrl,
+          contentType: 'text/plain',
+          body: 'This public article contains enough useful original text for passage extraction.'.repeat(8),
+          retrievedAt: '2026-08-08T02:00:00.000Z',
+        },
+      })),
+    }));
+    const service = new WebFetchService(
+      guard,
+      { fetchAll } as unknown as CrawleeWebContentFetcher,
+      new WebFetchCache(),
+      new HtmlContentExtractor(),
+      new DocumentNormalizer(),
+      new DocumentQualityGate(),
+      new PassageChunker(),
+      new PassageRanker(),
+      new BatchPassageBudgeter(),
+    );
+
+    const first = await service.fetch({
+      urls: ['https://example.com/article#first', 'https://example.com/article#second'],
+    });
+    const second = await service.fetch({ urls: ['https://example.com/article'] });
+
+    expect(first.result.results.map((item) => item.status)).toEqual(['succeeded', 'skipped']);
+    expect(first.networkAttempts).toBe(1);
+    expect(second.result.results[0]).toMatchObject({ status: 'succeeded', cacheStatus: 'hit' });
+    expect(fetchAll).toHaveBeenCalledOnce();
+  });
+
   it('preserves partial success order and reuses cached normalized documents', async () => {
     const guard = new WebFetchUrlGuard(async () => [{ address: '93.184.216.34', family: 4 }]);
-    const fetchAll = vi.fn(async (targets: GuardedWebUrl[]) =>
-      targets.map((target, index) =>
+    const fetchAll = vi.fn(async (targets: GuardedWebUrl[]) => ({
+      networkAttemptCount: targets.length,
+      results: targets.map((target, index) =>
         index === 1
           ? {
               status: 'failed' as const,
@@ -292,7 +364,7 @@ describe('WebFetchService', () => {
               },
             },
       ),
-    );
+    }));
     const service = new WebFetchService(
       guard,
       { fetchAll } as unknown as CrawleeWebContentFetcher,

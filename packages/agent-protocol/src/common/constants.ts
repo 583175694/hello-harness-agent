@@ -48,8 +48,10 @@ export const AGENT_ERROR_CODES = {
   modelLengthLimit: 'MODEL_LENGTH_LIMIT',
   // 模型返回了空内容，无法交付 assistant 消息。
   modelEmptyResponse: 'MODEL_EMPTY_RESPONSE',
-  // Agent 已达到本轮工具调用预算。
-  toolBudgetExceeded: 'TOOL_BUDGET_EXCEEDED',
+  // 当前 assistant run 已达到模型工具调用次数上限。
+  toolCallLimitExceeded: 'TOOL_CALL_LIMIT_EXCEEDED',
+  // 工具未在自身声明的外层执行时间内完成。
+  toolTimeout: 'TOOL_TIMEOUT',
   // 模型返回的工具参数无法通过工具 Schema 校验。
   invalidToolArguments: 'INVALID_TOOL_ARGUMENTS',
   // 模型请求了未注册的工具名称。
@@ -94,16 +96,10 @@ export const AGENT_ERROR_CODES = {
   fetchJsRenderRequired: 'FETCH_JS_RENDER_REQUIRED',
   // 网页正文有效，但没有与本次 query 相关的原文片段。
   fetchContentNotRelevant: 'FETCH_CONTENT_NOT_RELEVANT',
-  // 当前运行已经读取过等价 URL 或相同正文，本次目标被跳过。
+  // 当前批次已经包含等价 URL，本次重复输入被跳过。
   fetchDuplicateSkipped: 'FETCH_DUPLICATE_SKIPPED',
   // 网页上游返回无法继续处理的错误。
   fetchUpstreamFailed: 'FETCH_UPSTREAM_FAILED',
-  // 当前 Agent 运行已用完网页读取 URL 预算。
-  fetchBudgetExceeded: 'FETCH_BUDGET_EXCEEDED',
-  // 当前 Agent 调查阶段达到总执行时间预算。
-  agentResearchTimeout: 'AGENT_RESEARCH_TIMEOUT',
-  // 当前 Agent 运行已用完允许注入模型的外部 Passage 预算。
-  agentExternalContextBudgetExceeded: 'AGENT_EXTERNAL_CONTEXT_BUDGET_EXCEEDED',
 } as const;
 
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[keyof typeof AGENT_ERROR_CODES];

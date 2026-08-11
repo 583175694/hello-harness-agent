@@ -1,14 +1,11 @@
 import type { ZodType } from 'zod';
-import type { ToolRunState } from './tool-run-state';
 
 // 工具执行上下文，负责把会话关联信息和取消信号传给具体工具。
 export type ToolExecutionContext = {
-  sessionId?: string;
-  messageId?: string;
+  sessionId: string;
+  messageId: string;
   toolCallId: string;
   signal?: AbortSignal;
-  latestUserContent: string;
-  runState: ToolRunState;
 };
 
 export type ToolExecutionLogFields = Readonly<Record<string, string | number | boolean>>;
@@ -25,9 +22,7 @@ export type ToolExecutionResult<TOutput> =
   | {
       status: 'succeeded';
       output: TOutput;
-      modelContent: string;
       logFields?: ToolExecutionLogFields;
-      control?: { disableTools?: string[]; forceFinalAnswer?: boolean };
     }
   | {
       status: 'failed' | 'timeout' | 'cancelled';
@@ -38,9 +33,7 @@ export type ToolExecutionResult<TOutput> =
         // 仅供服务端诊断日志使用，不写入模型上下文或客户端事件。
         cause?: unknown;
       };
-      modelContent: string;
       logFields?: ToolExecutionLogFields;
-      control?: { disableTools?: string[]; forceFinalAnswer?: boolean };
     };
 
 // 具体工具实现的最小契约；Registry 只依赖这组能力。
@@ -48,6 +41,9 @@ export interface AgentTool<TInput = unknown, TOutput = unknown> {
   readonly name: string;
   readonly inputSchema: ZodType<TInput>;
   readonly inputErrorCode?: string;
+  readonly executionPolicy: {
+    timeoutMs: number;
+  };
   // 返回当前工具对模型公开的 Function Calling 声明。
   definition(): AgentToolDefinition;
   isAvailable(): boolean;

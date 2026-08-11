@@ -174,9 +174,9 @@ messages + tools
 
 这仍然可以在一次 HTTP 请求或一次 Chat SSE 内完成，不代表已经具备可恢复的 Agent Run。
 
-当前实现的 `web_search` 固定只接收 `query`，后端一次只启用 Bocha 或 Serper。每次搜索最多返回 10 条标准化结果，每轮用户请求最多接收 20 次通用工具调用。工具事件用最终 assistant `messageId` 关联；最终 Message metadata 保存 Activity/Sources 轻量快照，但不等同于 Event Store。
+当前实现的 `web_search` 固定只接收 `query`，后端一次只启用 Bocha 或 Serper。每次搜索最多返回 10 条标准化结果，每个 assistant run 最多执行 20 次模型声明的 Function Tool Call；成功、失败、超时和参数校验失败都占用一次调用。工具事件用最终 assistant `messageId` 关联；最终 Message metadata 保存 Activity/Sources 轻量快照，但不等同于 Event Store。
 
-阶段二下一增量冻结以下模型可见工具契约，当前尚未实现：
+阶段二已经实现以下模型可见工具契约：
 
 ```ts
 type WebFetchInput = {
@@ -185,7 +185,7 @@ type WebFetchInput = {
 };
 ```
 
-`urls` 接受 1-5 个地址，结果按 URL 使用部分成功语义。`web_fetch` 通过 Crawlee `HttpCrawler` 批量获取原始响应，再由 JSDOM + Mozilla Readability + Turndown 生成规范化正文，并返回字符 n-gram 筛选的抽取式原文 passage。V1 通过 run-scoped `WebResearchRunState` 只接受用户当前消息直链或本轮 Search clue，不向模型暴露来源注册、缓存或资源预算参数；进程内 LRU、最小 SSRF、响应限制和 Evidence 资格由 API 内部策略控制。完整设计见 `23-web-fetch-tool.md`。
+`urls` 接受 1-5 个地址，结果按 URL 使用部分成功语义。`web_fetch` 通过 Crawlee `HttpCrawler` 批量获取原始响应，再由 JSDOM + Mozilla Readability + Turndown 生成规范化正文，并返回字符 n-gram 筛选的抽取式原文 passage。模型可以 Fetch 任意通过安全 Guard 的公开 URL，由 Projection 派生 provenance 和 canonical source。当前不增加 observation 或字符注入预算，Runtime 会把 Tool 的 canonical output/error 序列化后始终注入下一模型轮次。完整设计见 `23-web-fetch-tool.md` 和 `25-model-led-tool-boundary.md`。
 
 ## 4. 明确不属于本阶段
 

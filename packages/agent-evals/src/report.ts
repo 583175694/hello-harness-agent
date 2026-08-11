@@ -109,7 +109,8 @@ function detailedReview(report: EvalRunReport): string {
       `- 网络尝试：${item.metrics.networkAttempts}`,
       `- 成功唯一文档：${item.metrics.uniqueDocuments}`,
       `- Passage 字符：${item.metrics.passageCharacters}`,
-      `- 停止原因：${item.metrics.stopReason ?? '未触发'}`,
+      `- 重复 Fetch：${item.metrics.duplicateFetchCount}`,
+      `- 模型直接提出的 canonical 来源：${item.metrics.modelProposedSourceCount}`,
       `- 来源：clue=${item.metrics.clueSources}，fetched=${item.metrics.fetchedSources}，used=${item.metrics.usedSources}`,
       '',
     );

@@ -12,7 +12,6 @@ import { DocumentQualityGate } from './document-quality.gate';
 import { HtmlContentExtractor } from './html-content.extractor';
 import { PassageChunker } from './passage.chunker';
 import { PassageRanker } from './passage.ranker';
-import { WEB_FETCH_POLICY } from './web-fetch.constants';
 import { WebFetchCache } from './web-fetch.cache';
 import { asWebFetchError, WebFetchError } from './web-fetch.error';
 import { WebFetchUrlGuard } from './web-fetch-url.guard';
@@ -36,22 +35,32 @@ export class WebFetchService {
   async fetch(
     input: WebFetchInput,
     signal?: AbortSignal,
-    maxPassageCharacters: number = WEB_FETCH_POLICY.maxTotalPassageCharactersPerCall,
   ): Promise<{
     result: { query?: string; results: WebFetchItemResult[] };
     networkAttempts: number;
   }> {
     if (signal?.aborted)
       throw new WebFetchError(AGENT_ERROR_CODES.fetchCancelled, '网页读取已取消。');
-    const uniqueInputs = this.deduplicate(input.urls);
     const results = new Map<number, WebFetchItemResult>();
     const documents = new Map<number, NormalizedWebDocument>();
     const cacheStatuses = new Map<number, 'hit' | 'miss'>();
     const misses: Array<{ index: number; target: GuardedWebUrl }> = [];
+    const guardedUrlIndexes = new Map<string, number>();
+    let networkAttemptCount = 0;
 
-    for (const [index, requestedUrl] of uniqueInputs.entries()) {
+    for (const [index, requestedUrl] of input.urls.entries()) {
       try {
         const target = await this.guard.validate(requestedUrl);
+        if (guardedUrlIndexes.has(target.normalizedUrl)) {
+          results.set(index, {
+            status: 'skipped',
+            requestedUrl,
+            code: AGENT_ERROR_CODES.fetchDuplicateSkipped,
+            detail: '当前批次已经包含等价网页地址。',
+          });
+          continue;
+        }
+        guardedUrlIndexes.set(target.normalizedUrl, index);
         const cached = this.cache.get(target.normalizedUrl);
         if (cached) {
           documents.set(index, { ...cached, requestedUrl });
@@ -67,9 +76,10 @@ export class WebFetchService {
         misses.map((item) => item.target),
         signal,
       );
+      networkAttemptCount = fetched.networkAttemptCount;
       for (let missIndex = 0; missIndex < misses.length; missIndex += 1) {
         const miss = misses[missIndex];
-        const transport = fetched[missIndex];
+        const transport = fetched.results[missIndex];
         if (!miss || !transport) continue;
         if (transport.status === 'failed') {
           results.set(miss.index, transport);
@@ -103,20 +113,20 @@ export class WebFetchService {
     }
 
     const rankedByDocument: RankedWebPassage[][] = [];
-    for (let index = 0; index < uniqueInputs.length; index += 1) {
+    for (let index = 0; index < input.urls.length; index += 1) {
       const document = documents.get(index);
       rankedByDocument[index] = document
         ? this.ranker.rank(document, this.chunker.chunk(document), input.query, index)
         : [];
     }
-    const selected = this.budgeter.select(rankedByDocument, maxPassageCharacters);
-    for (let index = 0; index < uniqueInputs.length; index += 1) {
+    const selected = this.budgeter.select(rankedByDocument);
+    for (let index = 0; index < input.urls.length; index += 1) {
       if (results.has(index)) continue;
       const document = documents.get(index);
       if (!document) {
         results.set(index, {
           status: 'failed',
-          requestedUrl: uniqueInputs[index] ?? '',
+          requestedUrl: input.urls[index] ?? '',
           code: AGENT_ERROR_CODES.fetchUpstreamFailed,
           detail: '网页读取未返回结果。',
         });
@@ -125,7 +135,7 @@ export class WebFetchService {
       if (input.query && !rankedByDocument[index]?.length) {
         results.set(index, {
           status: 'failed',
-          requestedUrl: uniqueInputs[index] ?? '',
+          requestedUrl: input.urls[index] ?? '',
           code: AGENT_ERROR_CODES.fetchContentNotRelevant,
           detail: '网页正文与当前信息需求不相关。',
         });
@@ -143,31 +153,10 @@ export class WebFetchService {
     return {
       result: {
         ...(input.query ? { query: input.query } : {}),
-        results: uniqueInputs.map((_url, index) => results.get(index) as WebFetchItemResult),
+        results: input.urls.map((_url, index) => results.get(index) as WebFetchItemResult),
       },
-      networkAttempts: misses.length,
+      networkAttempts: networkAttemptCount,
     };
-  }
-
-  // 按规范化 URL 去重并保留每组首次出现的原始地址。
-  private deduplicate(urls: string[]): string[] {
-    const seen = new Set<string>();
-    const output: string[] = [];
-    for (const rawUrl of urls) {
-      let key = rawUrl;
-      try {
-        const url = new URL(rawUrl);
-        url.hash = '';
-        key = url.toString();
-      } catch {
-        /* 参数 Schema 会处理格式错误，这里保留原始值供安全结果使用。 */
-      }
-      if (!seen.has(key)) {
-        seen.add(key);
-        output.push(rawUrl);
-      }
-    }
-    return output;
   }
 
   // canonical URL 只有通过同一最小安全校验后才能成为来源规范地址。

@@ -6,7 +6,6 @@ import type { SearchToolResult } from '@harness/agent-protocol';
 import { SearchService } from '../search/search.service';
 import { SEARCH_LIMITS } from '../search/search.constants';
 import type { AgentTool, ToolExecutionContext, ToolExecutionResult } from './agent-tool.types';
-import { getWebResearchRunState } from './web-research-run-state';
 
 // 校验模型传入的网页搜索参数，并限制查询长度。
 const webSearchInputSchema = z
@@ -17,6 +16,7 @@ const webSearchInputSchema = z
 export class WebSearchTool implements AgentTool<{ query: string }, SearchToolResult> {
   readonly name = AGENT_TOOL_NAMES.webSearch;
   readonly inputSchema = webSearchInputSchema;
+  readonly executionPolicy = { timeoutMs: SEARCH_LIMITS.toolTimeoutMs } as const;
 
   constructor(private readonly search: SearchService) {}
 
@@ -52,12 +52,9 @@ export class WebSearchTool implements AgentTool<{ query: string }, SearchToolRes
   ): Promise<ToolExecutionResult<SearchToolResult>> {
     try {
       const output = await this.search.search(input.query, context.signal);
-      // 搜索结果是后续 Web Fetch 的候选来源之一，用户直链由同一领域状态初始化。
-      getWebResearchRunState(context).allowFetchUrls(output.results.map((result) => result.url));
       return {
         status: 'succeeded',
         output,
-        modelContent: JSON.stringify({ untrustedExternalData: true, ...output }),
         logFields: { 结果: output.results.length },
       };
     } catch (error) {
@@ -77,7 +74,6 @@ export class WebSearchTool implements AgentTool<{ query: string }, SearchToolRes
           retryable: !cancelled,
           cause: error,
         },
-        modelContent: JSON.stringify({ ok: false, code }),
       };
     }
   }

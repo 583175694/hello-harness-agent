@@ -38,7 +38,7 @@ describe('analyzeCase', () => {
     expect(result.rules.every((rule) => rule.passed)).toBe(true);
   });
 
-  it('detects an invented fetch URL before a search clue authorizes it', () => {
+  it('allows a model-proposed public URL and keeps structured failures observable', () => {
     const testCase = selectCases('smoke', 'direct-node-url')[0]!;
     const events: ChatStreamEvent[] = [
       {
@@ -61,23 +61,23 @@ describe('analyzeCase', () => {
         durationMs: 1000,
         code: 'FETCH_URL_NOT_ALLOWED',
         detail: 'not allowed',
+        retryable: false,
       },
       { type: 'message.completed', messageId: 'assistant-1', model: 'test' },
     ];
     const result = analyzeCase(testCase, events, session('受限回答'), 1000);
-    expect(result.rules.find((rule) => rule.id === 'fetch_provenance')).toMatchObject({
-      passed: false,
-    });
+    expect(result.rules.some((rule) => rule.id === 'fetch_provenance')).toBe(false);
+    expect(result.rules.find((rule) => rule.id === 'tool_terminal')).toMatchObject({ passed: true });
   });
 
-  it('detects repeated fetches, post-stop calls, and unknown answer links', () => {
+  it('treats repeated fetches as efficiency metrics and still rejects unknown answer links', () => {
     const testCase = selectCases('smoke', 'direct-node-url')[0]!;
     const target = 'https://nodejs.org/api/events.html';
     const events: ChatStreamEvent[] = [
       fetchStarted('call-1', target),
-      fetchCompleted('call-1', target, false, 'no_new_content'),
+      fetchCompleted('call-1', target),
       fetchStarted('call-2', target),
-      fetchCompleted('call-2', target, true),
+      fetchCompleted('call-2', target),
       { type: 'message.completed', messageId: 'assistant-1', model: 'test' },
     ];
     const metadata = {
@@ -94,19 +94,83 @@ describe('analyzeCase', () => {
       session('回答 https://unknown.example/fact', metadata),
       1000,
     );
-    expect(result.rules.find((rule) => rule.id === 'duplicate_fetch')).toMatchObject({
-      passed: false,
-    });
-    expect(result.rules.find((rule) => rule.id === 'stop_respected')).toMatchObject({
-      passed: false,
-    });
+    expect(result.rules.some((rule) => rule.id === 'duplicate_fetch')).toBe(false);
+    expect(result.rules.some((rule) => rule.id === 'stop_respected')).toBe(false);
     expect(result.rules.find((rule) => rule.id === 'answer_links_known')).toMatchObject({
       passed: false,
     });
     expect(result.rules.find((rule) => rule.id === 'fetched_preferred')).toMatchObject({
       passed: false,
     });
-    expect(result.metrics).toMatchObject({ fetchCalls: 2, networkAttempts: 2, uniqueDocuments: 1 });
+    expect(result.metrics).toMatchObject({
+      fetchCalls: 2,
+      networkAttempts: 4,
+      uniqueDocuments: 1,
+      duplicateFetchCount: 1,
+      modelProposedSourceCount: 0,
+    });
+  });
+
+  it('rejects unknown provenance and sources that remain mergeable by content hash', () => {
+    const testCase = selectCases('smoke', 'direct-node-url')[0]!;
+    const firstUrl = 'https://example.com/original';
+    const secondUrl = 'https://mirror.example/original';
+    const metadata = {
+      model: 'test',
+      agent: {
+        toolCallCount: 2,
+        executions: [],
+        sources: [
+          {
+            ...fetchedSource(firstUrl, false),
+            id: 'source-model',
+            provenance: 'model_proposed',
+          },
+          {
+            ...fetchedSource(secondUrl, false),
+            id: 'source-unknown',
+            provenance: 'unknown',
+          },
+        ],
+      },
+    };
+    const result = analyzeCase(
+      testCase,
+      [{ type: 'message.completed', messageId: 'assistant-1', model: 'test' }],
+      session('受限回答', metadata),
+      100,
+    );
+
+    expect(result.rules.find((rule) => rule.id === 'source_provenance')).toMatchObject({
+      passed: false,
+    });
+    expect(result.rules.find((rule) => rule.id === 'canonical_sources')).toMatchObject({
+      passed: false,
+    });
+    expect(result.metrics.modelProposedSourceCount).toBe(1);
+  });
+
+  it('uses persisted toolCallCount as the tool-call limit fact source', () => {
+    const baseCase = selectCases('smoke', 'direct-node-url')[0]!;
+    const testCase = {
+      ...baseCase,
+      expectations: { ...baseCase.expectations, maxToolCalls: 1 },
+    };
+    const metadata = {
+      model: 'test',
+      agent: { toolCallCount: 2, executions: [], sources: [] },
+    };
+    const result = analyzeCase(
+      testCase,
+      [{ type: 'message.completed', messageId: 'assistant-1', model: 'test' }],
+      session('回答', metadata),
+      100,
+    );
+
+    expect(result.rules.find((rule) => rule.id === 'tool_call_limit')).toMatchObject({
+      passed: false,
+      detail: expect.stringContaining('工具调用 2 次'),
+    });
   });
 });
 
@@ -137,13 +201,8 @@ function execution(toolCallId: string, url: string) {
   } as const;
 }
 
-// 构造带运行预算快照的网页读取完成事件。
-function fetchCompleted(
-  toolCallId: string,
-  url: string,
-  canFetch: boolean,
-  stopReason?: 'no_new_content',
-): ChatStreamEvent {
+// 构造带单次事实统计的网页读取完成事件。
+function fetchCompleted(toolCallId: string, url: string): ChatStreamEvent {
   return {
     type: 'tool.completed',
     messageId: 'assistant-1',
@@ -156,13 +215,15 @@ function fetchCompleted(
       results: [
         { status: 'failed', requestedUrl: url, code: 'FETCH_UPSTREAM_FAILED', detail: 'failed' },
       ],
-      budget: {
-        urls: { used: 1, limit: 25, remaining: 24 },
-        passages: { usedCharacters: 10, limitCharacters: 60_000, remainingCharacters: 59_990 },
-        successfulUniqueDocuments: 1,
-        networkAttempts: 2,
-        canFetch,
-        ...(stopReason ? { stopReason } : {}),
+      stats: {
+        requestedCount: 1,
+        networkAttemptCount: 2,
+        succeededCount: 0,
+        failedCount: 1,
+        skippedCount: 0,
+        passageCount: 0,
+        passageCharacterCount: 0,
+        cacheHitCount: 0,
       },
     },
   };
@@ -195,5 +256,6 @@ function fetchedSource(url: string, used: boolean) {
       },
     ],
     toolCallIds: ['call-1'],
+    provenance: 'user_provided',
   } as const;
 }

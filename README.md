@@ -1,8 +1,8 @@
 # Hello Harness Agent
 
-面向终端用户的本地任务工作台。当前优先完成通用型 Agent 的端到端任务体验，其中联网调查能够搜索线索、读取公开网页、筛选相关原文并在有界资源内作答。
+面向终端用户的本地任务工作台。当前优先完成通用型 Agent 的端到端任务体验，其中联网调查能够搜索线索、读取公开网页、筛选相关原文，并由模型决定继续调查或作答。
 
-当前已完成工程基线、持久化聊天和 General Web Research V1：模型可以迭代调用 `web_search` 与 `web_fetch`，过滤重复或不可用页面，并把已读取来源、资源边界和工具过程投影到 Workbench。正式 Run/Event Store、Context Compiler、Deep Research 引用/报告、Memory 和 Delegation 尚未实现。
+当前已完成工程基线、持久化聊天、General Web Research V1 和 Model-led Tool Boundary：模型可以迭代调用 `web_search` 与 `web_fetch`，Runtime 统一执行并回传 canonical Tool Result，Projection 将完整 execution 派生为可恢复的 canonical source。正式 Run/Event Store、Context Compiler、Memory 和 Delegation 尚未实现；Deep Research 引用/报告是否建设由后续产品需求决定。
 
 独立的 `@harness/agent-evals` 已提供 6 题 Smoke 和 24 题 Full 真实黑盒评测，覆盖生产 Session、Chat SSE、工具执行、持久化快照、确定性硬规则、模型 Judge 和人工抽检文件。
 
@@ -16,8 +16,8 @@
   最多 20 次工具调用的简化 Agent Loop
   Bocha 或 Serper 单 Provider 网页搜索（每次最多 10 条）
   公开静态网页批量读取与 query-aware Passage 筛选
-  每轮 25 个唯一 URL、60,000 字符原文和最多 20 次工具调用的结构性边界
-  URL/正文去重、正文质量门、无新增信息早停
+  每个 assistant run 最多 20 次模型声明的 Tool Call
+  单次 Fetch URL/正文去重、正文质量门和安全处理边界
   真实工具 Activity、Clue/已读/采用来源 Workbench 与刷新恢复
   可配置模型、base URL 和 API key
   PostgreSQL 连接和 Prisma migration
@@ -29,7 +29,7 @@
 待实现（P2+）
   durable session/run/state
   durable Run/Step/Event 与可恢复 Agent Runtime
-  Context Compiler、正式 Evidence/引用校验与搜索 fallback
+  全局 Context Engineering 与搜索 fallback
   Markdown Report Artifact
   steer/cancel 和实时事件
   user Memory 与 Delegation
@@ -65,9 +65,11 @@ pnpm dev
 
 联网检索一次只启用一个 Provider，例如 `SEARCH_PROVIDER=bocha` 并填写 `BOCHA_SEARCH_API_KEY`，或使用 `SEARCH_PROVIDER=serp` 和 `SERPER_SEARCH_API_KEY`。未配置 Provider 或对应 Key 时不向模型暴露 `web_search`，普通聊天不受影响。当前不支持 `bocha,serp`、fallback 或并行 Provider。
 
-`web_search` 和 `web_fetch` 在可用时同时暴露给模型，由模型决定调用顺序。`web_fetch` 的执行层只允许读取用户在当前消息中明确提供的 HTTP/HTTPS 直链，或本轮 `web_search` 返回的 clue URL；模型自行拼出的 URL 不会发起网络请求。
+`web_search` 和 `web_fetch` 在可用时同时暴露给模型，由模型决定调用顺序。`web_fetch` 可以读取任意通过 URL/DNS/redirect 安全 Guard 的公开 HTTP/HTTPS URL；来源是用户直链、搜索线索还是模型直接提出，由 Projection 作为 provenance 事实记录，不作为执行权限。
 
-General Web Research 每轮最多接受 25 个唯一 URL，累计注入模型的 Fetch Passage 最多 60,000 Unicode code points，整个 Agent run 不设置 wall-clock 总截止时间。普通模型单轮请求最多 120 秒，强制最终回答单轮请求最多 30 秒；Search 和 Fetch 分别使用 10 秒和 20 秒的单操作超时。触及工具调用、URL、原文字符或无新增内容等结构性边界后，Runtime 进入一次无工具最终回答；用户取消仍独立传播到在途模型和工具请求。
+当前 Runtime 每个 assistant run 最多执行 20 次模型声明的 Tool Call；达到上限后进入一次无工具最终回答。Search 与 Fetch 外层 Tool timeout 分别为 10 秒和 45 秒，Fetch 单 URL transport timeout 为 20 秒。Fetch 仍保留单次调用的安全、响应容量和 24,000 code-point Passage 输出限制，但不再维护跨调用 URL/Passage 预算或领域早停状态。
+
+Model-led Tool Boundary 已实现：模型负责是否继续调查，Runtime 只维护通用执行边界，Tool 只返回 canonical output/error，不再通过领域运行状态或控制意图改变主循环。Tool Result 当前始终注入模型上下文；全局上下文计量、选择、压缩和淘汰留给后续 Context Engineering。设计与落地边界见 [`docs/25-model-led-tool-boundary.md`](./docs/25-model-led-tool-boundary.md)。
 
 完成首次初始化和迁移后，日常开发只需运行 `pnpm dev`；本机 PostgreSQL 由操作系统/Homebrew 服务持续运行。
 

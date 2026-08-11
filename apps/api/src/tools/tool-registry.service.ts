@@ -25,12 +25,17 @@ export class ToolRegistryService {
   }
 
   // 返回当前可用工具的 OpenAI Function Calling 声明。
-  definitions(excludedNames: ReadonlySet<string> = new Set()): AgentToolDefinition[] | undefined {
+  definitions(): AgentToolDefinition[] | undefined {
     // 未配置供应商的工具不会暴露给模型，避免模型调用一个注定失败的能力。
     const definitions = [...this.toolsByName.values()]
-      .filter((tool) => tool.isAvailable() && !excludedNames.has(tool.name))
+      .filter((tool) => tool.isAvailable())
       .map((tool) => tool.definition());
     return definitions.length ? definitions : undefined;
+  }
+
+  // 返回工具声明的不可由模型覆盖的外层执行策略。
+  executionPolicy(name: string): AgentTool['executionPolicy'] {
+    return this.get(name).executionPolicy;
   }
 
   // 按工具自身 schema 解析模型返回的 JSON 参数。
@@ -65,7 +70,6 @@ export class ToolRegistryService {
           detail: '当前工具未配置或暂不可用。',
           retryable: true,
         },
-        modelContent: JSON.stringify({ ok: false, code: AGENT_ERROR_CODES.toolUnavailable }),
       };
     }
     return tool.execute(input, context);

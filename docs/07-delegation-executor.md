@@ -1,6 +1,6 @@
 # Delegation Executor
 
-> 文档状态：Greenfield P11 capability。Executor 不属于 R1。
+> 文档状态：未进入当前路线图的探索草案，不代表已承诺 capability 或冻结协议。
 
 ## 1. 定义
 
@@ -116,7 +116,7 @@ Merger 是确定性结构合并器：
 - 去重 refs
 - 保留冲突，不替 Lead 裁决
 - 标记 required worker/gap 缺失
-- 生成 delegation_result 和 merged_observation
+- 生成 delegation_result 和 merged_result
 
 Merger 不调用模型、不写最终结论。
 
@@ -151,18 +151,18 @@ create round
 -> worker terminal facts
 -> worker_result records/artifacts
 -> delegation_result
--> merged_observation
+-> merged_result
 -> round terminal
 -> next Lead step
 ```
 
-下一 Lead step 不能早于 merged_observation durable。
+下一 Lead step 不能早于 merged_result durable。
 
 ## 13. Cancel / Timeout
 
 父 cancel：阻止新 worker，abort active worker/provider calls，等待有界 cleanup，保留 terminal partial facts。
 
-Round timeout 不自动等于 parent run timeout；Lead 可以基于 partial observation 继续或交付 limited report。
+Round timeout 不自动等于 parent run timeout；Lead 可以基于 partial result 继续或受限交付。
 
 ## 14. Resume / Idempotency
 
@@ -170,7 +170,7 @@ Resume：
 
 - 不重启 terminal worker。
 - 只恢复未 terminal worker/merge。
-- 已存在 delegation_result/merged_observation 时不重复生成。
+- 已存在 delegation_result/merged_result 时不重复生成。
 - merge 输入集合和版本决定 deterministic hash。
 
 ## 15. Events
@@ -183,7 +183,7 @@ Resume：
 
 Executor 不分配最终 report source alias，不运行 CitationValidator，不调用 Finalizer。
 
-Lead 接收 merged_observation 后选择真正用于报告的 EvidenceSource，完成 review/revise/validate。
+如果未来引入报告链路，Lead 可以基于 merged_result 选择后续材料；具体 Evidence/Review/Validation 契约尚未批准。
 
 ## 17. P11 验收
 

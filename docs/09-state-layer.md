@@ -1,6 +1,6 @@
 # State Layer
 
-> 文档状态：Greenfield R1 durable-facts 契约。
+> 文档状态：后续 durable State 草案，不约束当前 Session/Message 与 assistant metadata 实现。
 
 ## 1. 定义
 
@@ -59,7 +59,6 @@ run_control
 model_action
 tool_call
 tool_result
-tool_observation
 search_result_set
 research_gap
 research_plan
@@ -97,14 +96,13 @@ type StateRef = {
 
 Ref 不等于授权。展开时仍校验 ownership、当前 capability 和显式 sourceRef path。
 
-## 6. Raw Result / Observation
+## 6. Tool Result Fact
 
 ```text
-tool_result       execution fact, provider-normalized refs/metrics
-tool_observation  compact next-step consumable fact
+tool_result       execution fact, provider-normalized result/metrics
 ```
 
-下一 step 默认消费 observation，不消费无限 raw provider payload。Observation 不能宣称任务已完成。
+当前阶段不创建独立 `tool_observation` StateRecord。Tool 的合法结构化结果用于 execution、Projection 和当前 Tool Message；未来 Context Engineering 如何选择或压缩结果尚未冻结，不能由 State 或 Tool 宣称任务已经完成。
 
 ## 7. Search Facts
 
@@ -203,7 +201,7 @@ type RunSnapshot = {
   activeStep?: StepState;
   messages: MessageFact[];
   latestActions: ModelActionFact[];
-  observations: ObservationFact[];
+  toolResults: ToolResultFact[];
   openGaps: GapFact[];
   evidence: EvidenceSource[];
   artifacts: ArtifactRecord[];
@@ -223,7 +221,6 @@ Tool：
 tool execution terminal
 -> Artifact if needed
 -> tool_result
--> tool_observation
 -> refs
 -> events
 -> step completed
@@ -271,8 +268,7 @@ State 必须足以判断：
 - provider/tool 是否已提交 outcome
 - steer 是否 pending/applied
 - Evidence/Artifact 是否 durable
-- report review/validation 是否完成
-- Finalizer 是否已经 committed
+- 已批准的下游交付是否完成
 
 ## 17. User Memory (P9/P10)
 

@@ -1,8 +1,4 @@
-import {
-  AGENT_ERROR_CODES,
-  assistantAgentMetadataSchema,
-  normalizeSourceUrl,
-} from '@harness/agent-protocol';
+import { assistantAgentMetadataSchema, normalizeSourceUrl } from '@harness/agent-protocol';
 import type {
   AssistantAgentMetadata,
   ChatStreamEvent,
@@ -104,8 +100,9 @@ export function analyzeCase(
   );
   add(
     'tool_call_limit',
-    started.length <= testCase.expectations.maxToolCalls,
-    `工具调用 ${started.length} 次，题目上限 ${testCase.expectations.maxToolCalls} 次。`,
+    (agent?.toolCallCount ?? started.length) <=
+      Math.min(testCase.expectations.maxToolCalls, 20),
+    `工具调用 ${agent?.toolCallCount ?? started.length} 次，题目上限 ${Math.min(testCase.expectations.maxToolCalls, 20)} 次。`,
   );
   checkToolExpectation(add, 'tool_use', testCase.expectations.toolUse, started.length, '工具');
   checkToolExpectation(add, 'search_use', testCase.expectations.search, searches.length, '搜索');
@@ -116,60 +113,27 @@ export function analyzeCase(
     `已读来源 ${fetchedSources.length} 个，最低要求 ${testCase.expectations.minFetchedSources ?? 0} 个。`,
   );
 
-  const maxUrlUsed = events
-    .filter((event) => event.type === 'tool.completed' && event.toolName === 'web_fetch')
-    .reduce((maximum, event) => Math.max(maximum, event.result.budget.urls.used), 0);
-  const maxPassages = events
-    .filter((event) => event.type === 'tool.completed' && event.toolName === 'web_fetch')
-    .reduce((maximum, event) => Math.max(maximum, event.result.budget.passages.usedCharacters), 0);
-  const startedFetchUrls = new Set(
-    fetches.flatMap((event) =>
-      event.toolName === 'web_fetch' ? event.input.urls.map(normalizeSourceUrl) : [],
-    ),
-  );
-  const persistedPassageCharacters = fetchedSources.reduce(
-    (total, source) =>
-      total +
-      source.passages.reduce(
-        (sourceTotal, passage) => sourceTotal + Array.from(passage.text).length,
-        0,
-      ),
-    0,
-  );
-  const observedUrlCount = Math.max(maxUrlUsed, startedFetchUrls.size);
-  const observedPassageCharacters = Math.max(maxPassages, persistedPassageCharacters);
-  add(
-    'runtime_budgets',
-    observedUrlCount <= 25 && observedPassageCharacters <= 60_000,
-    `URL ${observedUrlCount}/25，Passage ${observedPassageCharacters}/60000 字符。`,
-  );
-
-  const orderCheck = checkEventOrder(testCase.prompt, events);
-  add(
-    'fetch_provenance',
-    orderCheck.invalidFetchUrls.length === 0,
-    orderCheck.invalidFetchUrls.length
-      ? `未登记 URL：${orderCheck.invalidFetchUrls.join(', ')}`
-      : 'Fetch URL 均来自用户直链或先前 Search clue。',
-  );
-  add(
-    'duplicate_fetch',
-    orderCheck.duplicateFetchUrls.length === 0,
-    orderCheck.duplicateFetchUrls.length
-      ? `重复 Fetch：${orderCheck.duplicateFetchUrls.join(', ')}`
-      : '没有重复提交等价 Fetch URL。',
-  );
-  add(
-    'stop_respected',
-    !orderCheck.calledAfterStop,
-    orderCheck.calledAfterStop ? '调查停止后仍发起 Search/Fetch。' : '调查停止状态得到遵守。',
-  );
-
   const kindsValid = sources.every((source) => source.kind === 'clue' || source.kind === 'fetched');
   add(
     'source_qualification',
     kindsValid,
     kindsValid ? '来源保持 clue/fetched 资格。' : '存在未知来源资格。',
+  );
+  const unknownProvenance = sources.filter((source) => source.provenance === 'unknown');
+  add(
+    'source_provenance',
+    unknownProvenance.length === 0,
+    unknownProvenance.length
+      ? `${unknownProvenance.length} 个新来源缺少可还原的 provenance。`
+      : '所有新来源均记录了明确 provenance。',
+  );
+  const canonicalDuplicates = findCanonicalSourceDuplicates(sources);
+  add(
+    'canonical_sources',
+    canonicalDuplicates.length === 0,
+    canonicalDuplicates.length
+      ? `来源投影仍可归并：${canonicalDuplicates.join(', ')}`
+      : '来源投影不存在 URL/hash 重复项。',
   );
   const missingProjectedUrls = findMissingProjectedUrls(events, sources);
   add(
@@ -242,7 +206,7 @@ function checkToolExpectation(
   add(id, passed, `${label}调用 ${count} 次，预期 ${expectation}。`);
 }
 
-// 从事件预算快照和持久化来源中提取可横向比较的确定性指标。
+// 从单次调用 stats 和持久化来源中提取可横向比较的确定性指标。
 export function collectMetrics(
   events: ChatStreamEvent[],
   sources: ResearchSourceSnapshot[],
@@ -256,18 +220,34 @@ export function collectMetrics(
   const fetchCompletions = events.filter(
     (event) => event.type === 'tool.completed' && event.toolName === 'web_fetch',
   );
-  const budgets = fetchCompletions.map((event) => event.result.budget);
-  const networkAttempts = Math.max(0, ...budgets.map((budget) => budget.networkAttempts));
-  const uniqueDocuments = Math.max(0, ...budgets.map((budget) => budget.successfulUniqueDocuments));
-  const passageCharacters = Math.max(0, ...budgets.map((budget) => budget.passages.usedCharacters));
-  const stopReason = [...budgets].reverse().find((budget) => budget.stopReason)?.stopReason;
+  const networkAttempts = fetchCompletions.reduce(
+    (total, event) => total + event.result.stats.networkAttemptCount,
+    0,
+  );
+  const passageCharacters = fetchCompletions.reduce(
+    (total, event) => total + event.result.stats.passageCharacterCount,
+    0,
+  );
+  const fetchedUrls = new Set<string>();
+  let duplicateFetchCount = 0;
+  for (const event of events) {
+    if (event.type !== 'tool.started' || event.toolName !== 'web_fetch') continue;
+    for (const url of event.input.urls) {
+      const normalized = normalizeSourceUrl(url);
+      if (fetchedUrls.has(normalized)) duplicateFetchCount += 1;
+      fetchedUrls.add(normalized);
+    }
+  }
   return {
     searchCalls,
     fetchCalls,
     networkAttempts,
-    uniqueDocuments,
+    uniqueDocuments: sources.filter((source) => source.kind === 'fetched').length,
     passageCharacters,
-    ...(stopReason ? { stopReason } : {}),
+    duplicateFetchCount,
+    modelProposedSourceCount: sources.filter(
+      (source) => source.kind === 'fetched' && source.provenance === 'model_proposed',
+    ).length,
     clueSources: sources.filter((source) => source.kind === 'clue').length,
     fetchedSources: sources.filter((source) => source.kind === 'fetched').length,
     usedSources: sources.filter((source) => source.used).length,
@@ -288,69 +268,55 @@ function findMissingProjectedUrls(
       )
       .map(normalizeSourceUrl),
   );
-  const expected: string[] = [];
+  const missing: string[] = [];
   for (const event of events) {
     if (event.type === 'tool.completed' && event.toolName === 'web_search') {
-      expected.push(...event.result.results.map((result) => result.url));
-    }
-    if (event.type === 'tool.completed' && event.toolName === 'web_fetch') {
-      expected.push(
-        ...event.result.results.flatMap((item) =>
-          item.status === 'succeeded' && item.passages.length ? [item.finalUrl] : [],
-        ),
-      );
-    }
-  }
-  return [...new Set(expected.filter((url) => !projected.has(normalizeSourceUrl(url))))];
-}
-
-// 按真实事件顺序验证 Search clue 授权、Fetch 去重和停止后的调用。
-function checkEventOrder(
-  prompt: string,
-  events: ChatStreamEvent[],
-): {
-  invalidFetchUrls: string[];
-  duplicateFetchUrls: string[];
-  calledAfterStop: boolean;
-} {
-  const allowed = new Set(extractUrls(prompt).map(normalizeSourceUrl));
-  const fetched = new Set<string>();
-  const invalidFetchUrls: string[] = [];
-  const duplicateFetchUrls: string[] = [];
-  let stopped = false;
-  let calledAfterStop = false;
-  for (const event of events) {
-    if (
-      event.type === 'tool.started' &&
-      (event.toolName === 'web_search' || event.toolName === 'web_fetch')
-    ) {
-      if (stopped) calledAfterStop = true;
-      if (event.toolName === 'web_fetch') {
-        for (const url of event.input.urls) {
-          const key = normalizeSourceUrl(url);
-          if (!allowed.has(key)) invalidFetchUrls.push(url);
-          if (fetched.has(key)) duplicateFetchUrls.push(url);
-          fetched.add(key);
-        }
+      for (const result of event.result.results) {
+        if (!projected.has(normalizeSourceUrl(result.url))) missing.push(result.url);
       }
     }
-    if (event.type === 'tool.completed' && event.toolName === 'web_search') {
-      for (const result of event.result.results) allowed.add(normalizeSourceUrl(result.url));
+    if (event.type === 'tool.completed' && event.toolName === 'web_fetch') {
+      for (const item of event.result.results) {
+        if (item.status !== 'succeeded' || !item.passages.length) continue;
+        const urlMatched = [item.requestedUrl, item.finalUrl, item.normalizedUrl].some((url) =>
+          projected.has(normalizeSourceUrl(url)),
+        );
+        const hashMatched = sources.some(
+          (source) => source.kind === 'fetched' && source.contentHash === item.contentHash,
+        );
+        if (!urlMatched && !hashMatched) missing.push(item.finalUrl);
+      }
     }
-    if (
-      event.type === 'tool.completed' &&
-      event.toolName === 'web_fetch' &&
-      !event.result.budget.canFetch
-    )
-      stopped = true;
-    if (event.type === 'tool.failed' && event.code === AGENT_ERROR_CODES.fetchBudgetExceeded)
-      stopped = true;
   }
-  return {
-    invalidFetchUrls: [...new Set(invalidFetchUrls)],
-    duplicateFetchUrls: [...new Set(duplicateFetchUrls)],
-    calledAfterStop,
-  };
+  return [...new Set(missing)];
+}
+
+// 查找仍可通过 URL 或正文 hash 归并的来源对。
+function findCanonicalSourceDuplicates(sources: ResearchSourceSnapshot[]): string[] {
+  const duplicates: string[] = [];
+  for (let left = 0; left < sources.length; left += 1) {
+    for (let right = left + 1; right < sources.length; right += 1) {
+      const leftSource = sources[left]!;
+      const rightSource = sources[right]!;
+      const leftUrls = new Set(
+        (leftSource.kind === 'fetched'
+          ? [leftSource.requestedUrl, leftSource.finalUrl, leftSource.normalizedUrl]
+          : [leftSource.url]
+        ).map(normalizeSourceUrl),
+      );
+      const rightUrls =
+        rightSource.kind === 'fetched'
+          ? [rightSource.requestedUrl, rightSource.finalUrl, rightSource.normalizedUrl]
+          : [rightSource.url];
+      const urlMatch = rightUrls.some((url) => leftUrls.has(normalizeSourceUrl(url)));
+      const hashMatch =
+        leftSource.kind === 'fetched' &&
+        rightSource.kind === 'fetched' &&
+        leftSource.contentHash === rightSource.contentHash;
+      if (urlMatch || hashMatch) duplicates.push(`${leftSource.id}/${rightSource.id}`);
+    }
+  }
+  return duplicates;
 }
 
 // 从 Prompt 或 Markdown 回答中提取可公开访问的 HTTP/HTTPS URL。

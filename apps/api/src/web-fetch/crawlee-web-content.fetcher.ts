@@ -76,7 +76,7 @@ class BoundedHttpCrawler extends HttpCrawler<HttpCrawlingContext<FetchRequestDat
 @Injectable()
 export class CrawleeWebContentFetcher {
   constructor(
-    private readonly guard: WebFetchUrlGuard,
+    @Inject(WebFetchUrlGuard) private readonly guard: WebFetchUrlGuard,
     @Optional() @Inject(Logger) private readonly logger?: Logger,
   ) {}
 
@@ -84,10 +84,11 @@ export class CrawleeWebContentFetcher {
   async fetchAll(
     targets: GuardedWebUrl[],
     signal?: AbortSignal,
-  ): Promise<WebFetchTransportResult[]> {
+  ): Promise<{ results: WebFetchTransportResult[]; networkAttemptCount: number }> {
     if (signal?.aborted) throw this.cancelledError();
     const results = new Map<number, WebFetchTransportResult>();
     const errors = new Map<string, WebFetchError>();
+    let networkAttemptCount = 0;
     const configuration = new Configuration({
       persistStorage: false,
       purgeOnStart: false,
@@ -98,8 +99,8 @@ export class CrawleeWebContentFetcher {
         maxConcurrency: WEB_FETCH_POLICY.maxConcurrency,
         maxRequestRetries: WEB_FETCH_POLICY.maxRequestRetries,
         maxRequestsPerCrawl: targets.length,
-        navigationTimeoutSecs: WEB_FETCH_POLICY.timeoutMs / 1_000,
-        requestHandlerTimeoutSecs: WEB_FETCH_POLICY.timeoutMs / 1_000,
+        navigationTimeoutSecs: WEB_FETCH_POLICY.transportTimeoutMs / 1_000,
+        requestHandlerTimeoutSecs: WEB_FETCH_POLICY.transportTimeoutMs / 1_000,
         useSessionPool: false,
         persistCookiesPerSession: false,
         retryOnBlocked: false,
@@ -108,6 +109,7 @@ export class CrawleeWebContentFetcher {
         additionalMimeTypes: ['text/plain'],
         preNavigationHooks: [
           async ({ request }, gotOptions) => {
+            networkAttemptCount += 1;
             gotOptions.maxRedirects = WEB_FETCH_POLICY.maxRedirects;
             gotOptions.headers = {
               accept: 'text/html,application/xhtml+xml,text/plain;q=0.9',
@@ -226,15 +228,18 @@ export class CrawleeWebContentFetcher {
     } finally {
       signal?.removeEventListener('abort', cancel);
     }
-    return targets.map(
-      (target, index) =>
-        results.get(index) ?? {
-          status: 'failed',
-          requestedUrl: target.requestedUrl,
-          code: AGENT_ERROR_CODES.fetchUpstreamFailed,
-          detail: '网页读取未返回结果。',
-        },
-    );
+    return {
+      results: targets.map(
+        (target, index) =>
+          results.get(index) ?? {
+            status: 'failed',
+            requestedUrl: target.requestedUrl,
+            code: AGENT_ERROR_CODES.fetchUpstreamFailed,
+            detail: '网页读取未返回结果。',
+          },
+      ),
+      networkAttemptCount,
+    };
   }
 
   // 将 Crawlee、网络和取消异常转换为稳定且不泄露上游细节的错误。

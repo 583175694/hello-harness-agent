@@ -53,7 +53,9 @@ pnpm eval:research:full
 
 ## 4. 判定方法
 
-确定性硬规则决定 CLI 退出码，覆盖工具使用契约、SSE 终态、持久化一致性、工具/URL/Passage 预算、Fetch URL 来源、重复调用、早停、来源资格和回答链接可追溯性。Provider 或模型失败会作为明确执行失败记录，不能降格为低质量答案。
+确定性硬规则决定 CLI 退出码。迁移前的评测仍覆盖现有工具使用契约、SSE 终态、持久化一致性、工具/URL/Passage 预算、Fetch URL 来源、重复调用、早停、来源资格和回答链接可追溯性。Provider 或模型失败会作为明确执行失败记录，不能降格为低质量答案。
+
+Model-led Tool Boundary 落地后必须同步校准硬规则：保留每个 assistant run 最多 20 次 Tool Call、协议终态、持久化一致性、来源资格、安全限制和链接可追溯性；删除对 Web 运行级 URL/Passage 预算、URL provenance allowlist、跨调用执行去重、Tool 强制早停和 Tool Result 字符注入预算的协议性要求。provenance 仍作为 Projection 派生的可观测事实参与报告，但不能作为 Fetch 权限。模型重复 Fetch 或继续调查不应仅因策略不理想就成为硬协议失败，应转为执行效率指标、Judge 信号和人工复核项；只有突破通用执行/安全边界或产生协议错误才确定性失败。
 
 模型 Judge 只接收用户问题、Rubric、最终回答、已读取来源的有界 Passage 和工具摘要；它不能联网，也不能把 Search clue 当作原文。Judge 使用 1-5 分评估任务完成度、来源质量、事实支撑、来源相关性、限制说明和执行效率。结构化结果首次失败时允许一次格式修复，再次失败记为 `judgeError`。
 
@@ -87,4 +89,4 @@ V1 的 Judge 结果是比较和人工筛选信号，不影响 CLI 退出码。�
 - 评测默认串行，优先降低限流和非确定性。
 - Mock 集成测试不访问真实模型、搜索 Provider 或公网。
 - 真实评测成本、延迟和网页波动属于结果的一部分，需要记录运行环境后再横向比较。
-- 本阶段不引入正式 Evidence、`[Sx]`、Citation Validator、durable Run 或 SSE replay。
+- 本阶段不引入正式 Evidence、`[Sx]`、Citation Validator、durable Run 或 SSE replay，也不以评测实现为这些未确定能力预留协议。

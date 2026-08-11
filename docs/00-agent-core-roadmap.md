@@ -12,15 +12,15 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 用户提出需要联网的信息任务或直接提供 URL
 -> Agent 搜索并选择值得阅读的公开来源
 -> 读取网页并筛选与当前问题相关的可定位原文片段
--> 过滤无效、重复和低价值材料
--> 在有限资源内继续调查或主动早停
+-> 过滤无效和低价值材料
+-> 由模型判断继续调查、改换来源或交付回答
 -> 基于真正读取过的来源完成普通回答
 -> Conversation 与 Workbench 展示工具进度和轻量来源
 ```
 
-首个真实用户版本不是 Agent Runtime SDK，也不是通用工具市场。Runtime、State、Context、Tooling 和 Workbench 都服务于通用 Agent 的端到端产品体验。正式 Evidence、`[Sx]`、报告复核和 Citation Validator 保留为后续 Deep Research 或严谨垂直场景能力，不作为当前版本前置条件。
+首个真实用户版本不是 Agent Runtime SDK，也不是通用工具市场。Runtime、State、Context、Tooling 和 Workbench 都服务于通用 Agent 的端到端产品体验。当前阶段不把正式 Evidence、`[Sx]`、报告复核、Citation Validator 或 Artifact Finalizer 作为前置条件，也不承诺这些尚未确定的未来能力。
 
-当前联网调查实施边界见 [17-implementation-plan.md](./17-implementation-plan.md) 和 [23-web-fetch-tool.md](./23-web-fetch-tool.md)；[13-research-workflow.md](./13-research-workflow.md) 保留为后续 Deep Research 产品契约。
+当前联网调查实施边界见 [17-implementation-plan.md](./17-implementation-plan.md) 和 [23-web-fetch-tool.md](./23-web-fetch-tool.md)；[13-research-workflow.md](./13-research-workflow.md) 只是可能的后续 Deep Research 设计草案，不约束当前实现。Model、Runtime、Tool 与 Projection 的决策权以 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) 为准：模型负责语义规划，Runtime 负责通用执行边界，Tool 只执行能力并返回结构化结果，Projection 派生展示和来源事实。
 
 ## 2. 当前基线
 
@@ -40,12 +40,12 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 - `steer`，从下一安全 step 生效
 - `cancel`
 - 主搜索供应商和 fallback 搜索供应商
-- 有界的 Search、Fetch、工具调用和累计上下文安全预算，以及模型和工具各自独立的单操作超时与取消传播
+- 每个 assistant run 最多 20 次 Tool Call、Search/Fetch 单次能力边界，以及模型和工具各自独立的单操作超时与取消传播
 - 搜索摘要 Clue、已读取 Source 和最终采用 Source 的轻量区分
-- URL/final URL/contentHash 去重、正文可用性判断和无新增信息早停
-- query-aware 原文 Passage 筛选，外部内容不能改变 Agent 指令和预算
+- 正文可用性判断、单次调用内去重和模型主导的调查停止决策
+- query-aware 原文 Passage 筛选，外部内容不能改变 Agent 指令和执行边界
 - 基于真正读取来源的普通回答与 Sources / Activity Workbench
-- 部分来源失败或触及资源边界时使用已有材料平稳交付
+- 部分来源失败或触及通用硬边界时使用已有材料平稳交付
 - 通用 Agent 固定题集评测和人工抽检
 
 首次发布明确不包含：
@@ -131,14 +131,9 @@ packages/agent-protocol
 
 前后端和 testkit 只消费导出，不复制 union、enum 或 runtime schema。
 
-### 7.2 Pure Context Compiler
+### 7.2 Context Engineering（后续方向）
 
-```text
-compile(StateSnapshot, ContextCompileInput, ContextCompileConfig)
-  -> CompiledStepContext
-```
-
-相同输入和版本必须产生相同输出。数据库读取、搜索执行、Memory retrieval 和模型辅助选择都发生在 compiler 外。
+当前不冻结 Context Compiler 接口。未来如果真实评测证明有必要，应面向 System Prompt、历史消息、用户输入、Assistant Tool Calls、Tool Results 和最终回答预留等完整上下文统一计量、选择、压缩和编译；不能用 Web Research 或 Tool observation 的局部字符预算代替。
 
 ### 7.3 Thin Runtime
 
@@ -146,24 +141,19 @@ Runtime 只拥有 lifecycle、step scheduling、action dispatch、steer/cancel �
 
 Runtime 不做搜索结果理解、引用选择、报告 review、Memory 提炼或答案重写。
 
-### 7.4 Evidence Boundary
+### 7.4 当前来源边界
 
 ```text
 provider snippet  = discovery clue
-provider content  = untrusted evidence material
-cited passage     = durable evidence
-model conclusion  = must reference durable evidence when factual
+fetched passage   = 已读取的不可信原文
+used source       = 最终回答包含该来源 URL
 ```
 
-外部内容只能进入不可信证据区，不能成为 system/user instruction。
+外部内容只能作为不可信数据进入 Tool Message，不能成为 system/user instruction。当前 `used` 不表示逐句引用或正式 Evidence。
 
-### 7.5 Deterministic Commit
+### 7.5 未确定能力
 
-Citation Validator 和 Finalizer 都是确定性组件：
-
-- Validator 校验 report-scoped `displayId`、证据资格和引用完整性。
-- Finalizer 提交已经通过验证的报告、消息、State facts 和 projection events。
-- 二者都不调用模型或工具。
+正式 Evidence、Citation Validator、报告复核和 Artifact Finalizer 当前不在实施范围，也不作为其他模块的前置依赖。未来如有明确产品需求，再分别制定契约和实施方案。
 
 ### 7.6 Capability Gating
 
@@ -173,19 +163,16 @@ Citation Validator 和 Finalizer 都是确定性组件：
 
 ```text
 User/API
--> Lead Harness Runtime
--> Context Material Loader
--> Pure Context Compiler
--> Agent Loop
--> Canonical Action Validation
--> Runtime Action Dispatch
--> Search Tooling / Clarification / Report Pipeline / Finalizer
--> State + Evidence + Artifact
--> next step or terminal
--> Agent Gateway / SSE / Workbench projection
+-> Chat / Agent Runtime
+-> Model semantic decision
+-> Tool Registry / Tool execution
+-> Tool Result message
+-> Model continues or answers
+-> Message persistence
+-> Conversation / Workbench projection
 ```
 
-下一轮模型默认消费 observation、evidence cards 和 refs，不直接消费未裁剪的原始供应商响应。
+当前生产 Runtime 将 Tool 的 canonical `output/error` 统一序列化为 Tool Message 并注入下一模型轮次。未来如果建设 Context Engineering，应面向完整上下文统一选择、压缩和编译，而不是围绕 Tool Result 建立局部字符预算。
 
 ## 9. 渐进实施顺序
 
@@ -216,12 +203,12 @@ P12 Multi-user Authentication + Remote Storage
 2. 用户可以创建和恢复 durable session。
 3. Agent 能对明确任务直接开始，对阻塞性歧义只问一个问题。
 4. 运行中 steer 从下一安全 step 生效，cancel 可终止活动执行。
-5. Agent 在预算内执行迭代 Search/Fetch，信息充分时早停，预算耗尽后不重复调用不可用工具。
-6. 无效页面、重复 URL/正文和无关 Passage 不被当作有效调查结果。
+5. Agent 在通用执行边界内迭代 Search/Fetch，由模型根据 Tool Result 判断信息是否充分并及时交付。
+6. 无效页面和无关 Passage 不被当作有效调查结果；单次工具调用中的重复输入不重复执行。
 7. 搜索摘要 Clue 与成功读取的 Source 明确区分，最终普通回答优先使用真正读取过的来源。
 8. URL、标题、provider、retrievedAt、相关 Passage 和工具 Activity 可以随会话轻量恢复。
-9. 部分来源失败、总时间或上下文安全阀触发时，Agent 能使用已有材料平稳交付并说明限制。
-10. Workbench 能恢复 Search、Fetch、成功、失败、重复、预算和最终采用来源。
+9. 部分来源失败或通用硬边界触发时，Agent 能使用已有材料平稳交付并说明限制。
+10. Workbench 能恢复 Search、Fetch、成功、失败和最终采用来源。
 11. contract/integration/UI 测试通过。
 12. 通用 Agent 固定题集评测通过并完成人工抽检。
 
@@ -230,13 +217,11 @@ P12 Multi-user Authentication + Remote Storage
 ```text
 Product Spec owns golden workflow and release quality.
 Protocol owns canonical schemas.
-Runtime owns control flow.
-Context Compiler owns deterministic model input compilation.
-Agent Loop owns model decisions.
-Tooling owns provider execution and normalization.
-Evidence Layer owns source eligibility and citation records.
-Report Pipeline owns draft/review/revise orchestration.
-Finalizer owns deterministic commit.
+Model owns semantic planning and task decisions.
+Runtime owns execution flow and generic hard boundaries.
+Context Engineering may own complete model-input compilation when implemented.
+Agent Loop turns model decisions into bounded execution.
+Tooling owns capability execution and canonical result normalization.
 State owns durable execution facts.
 Gateway owns frontend projection.
 Memory owns later user-scoped cross-session recall.

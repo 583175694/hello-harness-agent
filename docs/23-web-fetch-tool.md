@@ -1,6 +1,6 @@
 # Web Fetch Tool
 
-> 文档状态：Web Fetch V1 已实现。本文定义 canonical `web_fetch` 的现行契约、安全边界、内容处理和验收要求。
+> 文档状态：Web Fetch V1 与 Model-led Tool Boundary 已实现。第 2-16 节描述当前契约；第 17 节记录历史过渡实现和已完成的迁移结果。
 
 ## 1. 目标
 
@@ -18,7 +18,7 @@
   -> untrusted fetched-source payload
 ```
 
-工具成功只表示已经取得可定位的来源原文，不表示来源内容必然真实、权威、最新或足以支撑最终结论。当前 `used=true` 仅表示最终回答包含该 URL，正式 Evidence/Citation 仍属于后续 Deep Research。
+工具成功只表示已经取得可定位的来源原文，不表示来源内容必然真实、权威、最新或足以支撑最终结论。当前 `used=true` 仅表示最终回答包含该 URL；正式 Evidence/Citation 不属于当前承诺，是否建设由后续产品需求决定。
 
 ## 2. 模型可见契约
 
@@ -29,9 +29,11 @@ type WebFetchInput = {
 };
 ```
 
-- `urls` 包含 1-5 个完整 HTTP/HTTPS URL；`WebResearchRunState` 只登记用户当前消息的直链和本轮 `web_search` 结果，未登记 URL 不会发起网络请求。
+- `urls` 包含 1-5 个完整 HTTP/HTTPS URL；模型可以提交任意公开 URL，是否允许执行只由 URL/DNS/redirect 安全 Guard 决定。
 - `query` 是这一批 URL 共用的证据需求，用于从每份正文中选择相关抽取式原文片段，不用于生成摘要。
 - 模型不能指定 Header、Cookie、Authorization、代理、缓存 TTL、超时、响应上限、选择器或安全策略。
+
+URL provenance 不属于 Fetch 权限。Chat / Research Projection 根据用户直链、Search clue 和模型调用记录派生 `user_provided | search_clue | model_proposed | unknown`，仅用于来源展示、恢复和评测。
 
 工具描述：
 
@@ -83,8 +85,6 @@ WebFetchTool
 ```ts
 type WebFetchPolicy = {
   maxUrlsPerCall: number;
-  maxUrlsPerRun: number;
-  maxExternalPassageCharacters: number;
   maxConcurrency: number;
   timeoutMs: number;
   maxRequestRetries: number;
@@ -100,14 +100,13 @@ type WebFetchPolicy = {
 
 要求：
 
-- 默认单次最多 5 个 URL、单轮最多接受 25 个唯一初始 URL、最大并发 3、每个 URL 最多重试 1 次、单页处理超时 20 秒。
+- 默认单次最多 5 个 URL、最大并发 3、每个 URL 最多重试 1 次、单页 transport timeout 为 20 秒。
 - 单份文档最多返回 6 个 Passage、单段最多 2,000 Unicode code points，整批 Passage 总量最多 24,000 code points。
-- 单轮累计注入的 Fetch Passage 默认最多 60,000 code points；剩余低于 2,000 时不再发起 Fetch。
-- 整个 Agent run 不设置 wall-clock 总截止时间。普通模型单轮请求最多 120 秒，强制最终回答单轮请求最多 30 秒；Web Fetch 仍使用独立的 20 秒单操作超时。
+- 整批 24,000 code points 是 `web_fetch` 单次合法输出契约，不是 Runtime 的跨调用 Context 预算；完整 Tool Result 当前始终注入模型。
+- Tool 通过 `executionPolicy.timeoutMs` 声明整个调用的外层超时，由 Runtime 与用户取消信号统一组合；Crawler 和单 URL 仍保留更细的 transport timeout。
 - 每个 URL 独立成功或失败；单个 URL 失败不能丢弃同一批次的成功结果。
 - 用户取消必须停止当前 Crawlee 运行和尚未开始的请求。
 - 响应体和规范化正文都受容量上限控制，不能把完整大页面注入模型。
-- 成功、超时、提取失败和网络失败的 URL 都计入运行级 URL 预算。
 - 校验错误、明确 4xx 和安全拒绝不重试。
 
 ## 6. 内容类型
@@ -170,7 +169,7 @@ clean document
 - `query` 缺失时返回文档开头、关键标题下内容和有限的代表性片段。
 - 每个 passage 必须包含稳定 `passageId` 和 locator；`sectionPath` 由扫描 Markdown `#` 至 `######` 标题时维护的当前标题路径生成。
 - 相邻命中片段可以确定性合并，但不得改变原文。
-- 模型生成的摘要可以作为 observation，不能作为 Evidence passage。
+- 模型生成的摘要不是 Fetch passage，不能替代可定位原文。
 - 相关性不足时返回零 passage 和明确原因，不制造证据。
 
 V1 Ranker 使用字符 n-gram、标题/章节命中加权和简单噪声惩罚，不调用额外模型、Embedding 或 Code Execution。`PassageRanker` 保持独立接口，后续可以替换为 BM25、Embedding rerank 或动态过滤。
@@ -210,13 +209,15 @@ type WebTextLocator = {
 type WebFetchResult = {
   query?: string;
   results: WebFetchItemResult[];
-  budget: {
-    urls: { used: number; limit: number; remaining: number };
-    passages: { usedCharacters: number; limitCharacters: number; remainingCharacters: number };
-    successfulUniqueDocuments: number;
-    networkAttempts: number;
-    canFetch: boolean;
-    stopReason?: 'url_budget' | 'context_budget' | 'time_budget' | 'no_new_content';
+  stats: {
+    requestedCount: number;
+    networkAttemptCount: number;
+    succeededCount: number;
+    failedCount: number;
+    skippedCount: number;
+    passageCount: number;
+    passageCharacterCount: number;
+    cacheHitCount: number;
   };
 };
 
@@ -255,13 +256,11 @@ type WebFetchItemResult =
     };
 ```
 
-`time_budget` 为共享协议兼容枚举保留，当前运行路径不再产生该停止原因。
-
-结果按输入 URL 顺序返回。批量采用部分成功语义：一个 URL 失败或因重复/预算被 `skipped` 不会令其他成功项回滚，也不会被伪装成网络失败。
+结果按输入 URL 顺序返回。批量采用部分成功语义：一个 URL 失败或因本次调用内重复输入被 `skipped` 不会令其他成功项回滚，也不会被伪装成网络失败。`stats` 只描述本次调用已经发生的事实，不包含 `remaining`、`canFetch`、`stopReason` 或其他控制语义。
 
 `contentHash` 基于完整规范化 Markdown 的 UTF-8 内容生成，用于识别内容变化和绑定引用版本。`retrievedAt` 表示该项返回内容所对应的获取时间；缓存命中时不能伪装成当前时间。
 
-`WebFetchResult` 中的成功项属于 `fetched` 材料，失败与跳过项只用于解释调查缺口或资源边界。当前不从它们创建 durable `EvidenceSource` 或 report-scoped `displayId`。
+`WebFetchResult` 中的成功项属于 `fetched` 材料，失败与跳过项只用于解释调查缺口或单次处理边界。当前不从它们创建 durable `EvidenceSource` 或 report-scoped `displayId`。
 
 ## 11. Cache And Retention
 
@@ -295,7 +294,7 @@ Fetch 到的标题、正文、链接、结构化数据和文件内容全部属�
 
 - 与 system、user instruction 和 runtime guidance 分区。
 - 网页中的角色声明、命令、工具要求和 Prompt Injection 不得执行。
-- 外部内容不能改变工具集、预算、安全策略、完成条件或引用规则。
+- 外部内容不能改变工具集、执行边界、安全策略或完成条件。
 - 网页中的链接只作为不可信候选数据，不自动触发后续 Fetch。
 - API Key、环境变量、内部 prompt 和其他 Session 内容不得进入网页请求。
 
@@ -319,12 +318,9 @@ FETCH_JS_RENDER_REQUIRED
 FETCH_CONTENT_NOT_RELEVANT
 FETCH_DUPLICATE_SKIPPED
 FETCH_UPSTREAM_FAILED
-FETCH_BUDGET_EXCEEDED
-AGENT_RESEARCH_TIMEOUT
-AGENT_EXTERNAL_CONTEXT_BUDGET_EXCEEDED
 ```
 
-工具错误作为普通 Tool Result 返回给 Runtime，使模型可以在预算内选择其他来源。安全拒绝、原始响应体、内部地址和敏感配置不进入用户消息。
+工具错误作为普通 Tool Result 返回给 Runtime，使模型可以在剩余 Tool Call 额度内选择重试、换来源、换工具或受限回答。Tool 失败不自动结束 Runtime；安全拒绝、原始响应体、内部地址和敏感配置不进入用户消息。
 
 ## 14. Projection
 
@@ -347,14 +343,14 @@ fetched (used=false/true)
 1. 模型可以执行 `web_search -> web_fetch(urls: 1-5) -> final answer`。
 2. `HttpCrawler` 能并发处理多个 URL，并按输入顺序返回逐项成功或失败结果。
 3. localhost、私网和 metadata 地址被最小 URL Guard 拒绝。
-4. 超时、取消、响应大小、Content-Type、批量数量和运行级 URL 预算均被强制执行。
+4. Tool 外层超时、transport timeout、取消、响应大小、Content-Type 和单次批量数量均被强制执行。
 5. 静态 HTML 经过 `JSDOM -> Readability -> Turndown` 提取主要正文，Raw HTML 不进入模型上下文。
 6. query-aware passages 使用字符 n-gram 筛选，是可定位的抽取式原文而非模型摘要。
 7. Locator 同时包含 W3C 风格 quote 和 Unicode code-point position，并绑定正文 hash。
 8. 进程内 LRU 有 TTL 和内存上限，过期内容不做 stale fallback。
 9. 成功项包含最终 URL、retrievedAt、contentHash、cacheStatus 和截断标志。
 10. clue 与 fetched source 在协议和 Workbench 中不可混淆。
-11. 网页 Prompt Injection 不改变指令、工具和预算。
+11. 网页 Prompt Injection 不改变指令、工具和执行边界。
 12. Crawlee Dataset/Storage 不持久化正文，完整正文不进入普通 SSE、PostgreSQL、Message metadata 或 user Memory。
 13. 抓取、缓存、正文提取、规范化、切块和排序可以独立测试和替换。
 
@@ -378,31 +374,40 @@ fetched (used=false/true)
 - canonical plain text + block 双表示
 - 基于原始 DOM 或 Raw HTML 字节位置的精确 locator
 
-## 17. General Web Research V1 Hardening（已实现）
+## 17. 当前代码与历史边界
 
-现有 Web Fetch V1 已在静态正文获取、规范化、字符 n-gram Passage 筛选、Locator 与网络安全边界上完成以下通用 Agent 增强：
+### 17.1 已实现能力
 
-- 运行级上限是 25 个唯一 URL 和 60,000 Passage 字符，另有最多 20 次工具调用的通用 Runtime 边界；只维护硬安全上限，信息充分时由模型提前停止。
-- Tool observation 返回已用、剩余和是否仍可 Fetch；达到硬上限后请求结束工具阶段并进入一次无工具最终回答，不得连续制造相同预算失败。
-- network attempts 与 successful unique documents 分开计数；失败请求仍计入资源预算，重复目标不重复发起网络请求。
-- 去重覆盖 input URL、normalized URL、redirect final URL 和正文 contentHash。
-- Passage Ranking 前增加 Document Quality Gate，区分验证码/登录或付费墙、JavaScript 空壳、正文提取失败、正文与 query 无关和可用正文。
-- 保留 query-aware 字符 2-gram/3-gram Ranker，只做标题/章节权重、模板噪声和重复 Passage 的轻量优化；Embedding、模型 rerank 和 Evidence Card 后置。
-- 增加当前前台请求累计 Passage 字符数或粗略 Token 安全阀，为后续推理和最终回答保留空间；旧结果压缩、淘汰、动态加载和精确 Token 编译等待 Context Engineering。
-- 连续调用没有新增唯一正文或相关 Passage 时早停，并做轻量来源多样性控制。
-- 来源状态区分 Search `clue`、正文读取成功 `fetched` 和最终普通回答的轻量 `used`；snippet 不得伪装成已读取正文。
-- 用户直接提供 URL 时允许跳过 Search 调用 Fetch。
-- Search 与 Fetch 在可用时保持同时暴露，不用动态工具发现替模型决定顺序；两者通过通用 `ToolRunState` 共享 `WebResearchRunState`，后者在执行 Fetch 前确定性校验 URL 是否来自用户直链或本轮 Search clue。
-- 模型、Search 和 Fetch 使用各自独立的单操作超时，并保留端到端用户取消传播；不设置整个前台 Agent 请求的总执行时间预算。
-- Workbench 展示 Search、Fetch、成功、失败、重复、预算和最终采用来源；复杂虚拟列表只在真实数据证明需要时实现。
+Web Fetch V1 已实现静态网页批量获取、URL/DNS/redirect 安全校验、正文规范化、Document Quality Gate、字符 n-gram Passage 筛选、Locator、进程内 LRU、部分成功结果、Activity 和来源恢复。它已经能够支撑产品比较、时事解释、技术排障、旅行规划、政策解读和直链阅读等普通联网任务。
 
-阶段完成后，Web Fetch 应能支撑普通用户的产品比较、时事解释、技术排障、旅行规划、政策解读和直链阅读。后台执行、断线恢复、Worker 独立上下文和大规模 Wide Research 依赖 Durable Run/Delegation；JavaScript Browser Fetch、PDF 和登录态网页属于独立来源能力扩展；正式 EvidenceSource、CitationValidator 和 Report Artifact 属于后续 Deep Research。
+历史上的 Runtime 工具名称中立化重构曾由 `ToolRunState` 向 Tool 领域传递 `WebResearchRunState`，后者维护 URL provenance、跨调用 URL/contentHash/Passage 去重、25 个 URL、60,000 Passage 字符和连续无新增内容状态；Tool 通过 `forceFinalAnswer` 请求 Runtime 收尾。这些结构已从当前代码删除。
 
-### 17.1 Runtime 工具中立化迁移（已实现）
+这段描述只用于解释迁移前的真实代码，不是目标契约。它虽然删除了 Runtime 对具体工具名称的判断，却仍让 Tool 领域拥有一部分 planner 权力。
 
-原 `RunResourceLedger` 已移入 Web Research 领域并命名为 `WebResearchRunState`。Runtime 只创建通用 `ToolRunState` 并传给所有工具，Search 与 Fetch 从中取得同一份 Web Research 状态。URL 来源登记、URL/正文去重、URL/Passage 预算、网络尝试和连续无新增内容都由该领域状态维护。
+### 17.2 Model-led Tool Boundary（已实现）
 
-资源停止时，Web Research 只通过统一工具结果返回 `forceFinalAnswer: true` 和通用 `logFields`，不要求 Runtime 识别或禁用 `web_search`、`web_fetch`。此迁移没有改变模型可见输入、SSE、数据库或现有 `WebFetchResult` 协议。
+当前实现已经删除：
+
+- `ToolRunState`、`WebResearchRunState` 及 Search/Fetch 的跨调用状态共享。
+- 用户直链/Search clue URL allowlist；模型可以 Fetch 任意通过安全 Guard 的公开 URL。
+- 跨调用 URL alias、contentHash、累计 Passage 去重和领域预算。
+- 连续无新增内容计数及其强制早停。
+- `WebFetchResult.budget`、`canFetch`、`stopReason` 的控制语义。
+- Tool 返回的 `forceFinalAnswer` 和 `disableTools`。
+
+当前实现继续保留：
+
+- 每次 Fetch 的 1-5 个 URL、并发、有限 transport retry、响应体和正文大小限制。
+- Tool 声明的外层超时、内部单 URL/网络 timeout 和端到端用户取消。
+- URL/DNS/redirect/SSRF/MIME/二进制内容安全防护。
+- Readability、canonical Markdown、Document Quality Gate、Passage Ranker、Locator 与 LRU Cache。
+- 单次调用内的 URL 去重、部分成功语义和无控制含义的 `stats`。
+- Runtime 每个 assistant run 最多 20 次 Tool Call、模型单轮超时和最终回答协议校验。
+- Execution 完整记录，Projection 按 canonical URL/contentHash 归并 source 并派生 provenance。
+
+当前不新增 Tool observation 字符预算或注入状态。Tool Result 始终进入下一模型轮次；完整上下文的 Token 计量、选择、压缩和淘汰留给后续 Context Engineering。
+
+Web Fetch 只提供公开网页内容能力。模型决定读取哪个 URL、是否重试、信息是否充分以及何时回答；Runtime 不新增 Web 专属 Policy，也不把 Web 状态迁移成另一个决策层。完整决策见 [Model-led Tool Boundary](./25-model-led-tool-boundary.md)。
 
 ## 18. 参考实现
 

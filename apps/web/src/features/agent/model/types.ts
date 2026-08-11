@@ -1,4 +1,8 @@
-import type { AssistantContentBlock, WebFetchPassage } from '@harness/agent-protocol';
+import type {
+  AssistantContentBlock,
+  SourceProvenance,
+  WebFetchPassage,
+} from '@harness/agent-protocol';
 import type { ReactNode } from 'react';
 
 export type ServiceState = 'checking' | 'ready' | 'unavailable';
@@ -73,6 +77,11 @@ export type SourceView = {
   cacheStatus?: 'hit' | 'miss';
   truncated?: boolean;
   passages?: WebFetchPassage[];
+  provenance?: SourceProvenance;
+  requestedUrl?: string;
+  normalizedUrl?: string;
+  contentHash?: string;
+  toolCallIds?: string[];
 };
 
 export type ReportView = { title: string; updated: string; content: ReactNode };

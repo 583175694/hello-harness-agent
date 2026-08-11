@@ -37,7 +37,7 @@ R1 不接 MCP、不接 browser automation、不接文件写工具或代码执行
 
 ### 2.1 当前生产内部契约
 
-当前 `AgentRuntimeService` 不理解上述具体工具名称。每次 run 创建一个通用、进程内的 `ToolRunState`，并通过统一上下文传给所有工具：
+当前 `AgentRuntimeService` 不理解上述具体工具名称。Runtime 只把本次调用的关联标识和组合取消信号传给 Tool：
 
 ```ts
 type ToolExecutionContext = {
@@ -45,14 +45,10 @@ type ToolExecutionContext = {
   messageId?: string;
   toolCallId: string;
   signal?: AbortSignal;
-  latestUserContent: string;
-  runState: ToolRunState;
 };
 ```
 
-工具领域通过类型化 key 使用 `runState.getOrCreate()` 延迟创建自己的状态。相同 key 在同一次 run 内共享实例，不同 run 和不同 key 相互隔离；Runtime 不读取、持久化或解释其中的领域数据。当前 Web Research 使用 `WebResearchRunState` 在 Search 与 Fetch 之间共享 URL provenance、URL/正文去重、URL/Passage 预算和连续无新增内容状态。
-
-工具结果通过 `logFields` 声明需要进入服务端日志的领域指标，通过 `control.disableTools` 或 `control.forceFinalAnswer` 声明通用控制意图。Runtime 只按契约记录或执行，不从工具名称和结果字段推断业务含义。新增工具只需要实现 `AgentTool` 并加入 Catalog，不应修改 Runtime 的业务分支。
+Tool 不接收跨调用规划状态，也不能改变后续工具集或请求 Runtime 收尾。模型负责全部任务语义决策，Runtime 只执行模型决策并维护通用执行边界，Tool 只执行单次能力并返回结构化结果。来源 provenance 和 canonical source 由 Projection 根据已经发生的事件派生，详见 [Model-led Tool Boundary](./25-model-led-tool-boundary.md)。
 
 ## 3. Tool Definition
 
@@ -64,12 +60,16 @@ type ToolDefinition = {
   inputSchema: unknown;
   effect: 'read_only' | 'write' | 'external_side_effect';
   allowedScopes: Array<'lead' | 'worker'>;
-  timeoutMs: number;
+  executionPolicy: {
+    timeoutMs: number;
+  };
   maxConcurrency: number;
 };
 ```
 
 R1 `web_search` 和 `web_fetch` 的 effect 都是 `read_only`，但它们仍会向外部服务发送 query 或 URL，必须在 trace 中表达 external data transfer。配置对应 provider API Key 即构成部署级发送授权，任务调用不再逐次询问；调用内容仍限于当前任务所需数据，credential 永不进入请求 payload、模型上下文、State 或日志。
+
+`executionPolicy.timeoutMs` 是 Tool 声明、模型不可覆盖的整个调用外层超时。Runtime 将它与用户取消信号组合并强制执行；Tool 内部仍可以为连接、单 URL、Provider 请求和响应读取设置更细的 transport timeout。
 
 ## 4. web_search Input
 
@@ -171,7 +171,7 @@ type WebFetchInput = {
 };
 ```
 
-`urls` 固定为 1-5 个公开地址，`query` 为整批来源共用的证据需求。V1 使用 Crawlee `HttpCrawler` 获取原始响应，JSDOM + Mozilla Readability 提取主要正文，Turndown 生成 Markdown；`WebResearchRunState` 只允许 Fetch 用户当前消息中的 HTTP/HTTPS 直链或本轮 Search 登记的 clue URL。完整契约见 `23-web-fetch-tool.md`。
+`urls` 固定为 1-5 个公开地址，`query` 为整批来源共用的证据需求。V1 使用 Crawlee `HttpCrawler` 获取原始响应，JSDOM + Mozilla Readability 提取主要正文，Turndown 生成 Markdown。模型可以 Fetch 任意通过 URL/DNS/redirect guard 的公开 HTTP/HTTPS URL；provenance 只由 Projection 根据已发生事件派生，不是执行权限。完整契约见 `23-web-fetch-tool.md`。
 
 ## 9. Untrusted Content
 
@@ -180,7 +180,7 @@ Provider content 必须：
 - 标记 source/provider/resultId。
 - 进入 untrusted evidence payload。
 - 与 system/user instructions 分离。
-- 按字符/token/结果数量裁剪。
+- 在 Tool 自身合法输出契约和单次容量边界内规范化。
 - 移除不可见控制字符和危险 metadata。
 
 Tooling 不把网页文本解释为命令。
@@ -193,10 +193,6 @@ type ToolCallBase = {
   runId: string;
   stepId: string;
   toolVersion: string;
-  budget: {
-    timeoutMs: number;
-    remainingProviderCalls: number;
-  };
 };
 
 type ToolCallRequest =
@@ -212,14 +208,14 @@ type ToolCallRequest =
 
 ## 11. ToolExecutionResult
 
+以下是当前生产契约：
+
 ```ts
 type ToolExecutionResult<TOutput> =
   | {
       status: 'succeeded';
       output: TOutput;
-      modelContent: string;
       logFields?: Readonly<Record<string, string | number | boolean>>;
-      control?: { disableTools?: string[]; forceFinalAnswer?: boolean };
     }
   | {
       status: 'failed' | 'timeout' | 'cancelled';
@@ -229,60 +225,49 @@ type ToolExecutionResult<TOutput> =
         retryable: boolean;
         cause?: unknown;
       };
-      modelContent: string;
       logFields?: Readonly<Record<string, string | number | boolean>>;
-      control?: { disableTools?: string[]; forceFinalAnswer?: boolean };
     };
 ```
 
-`web_search` 和 `web_fetch` 使用同一 execution envelope，但分别返回自己的 canonical output。`modelContent` 是回传给下一模型轮次的有界工具观察；错误 `cause` 只用于脱敏服务端诊断，不进入模型上下文、SSE 或数据库。工具通过通用 `logFields` 声明领域指标，Runtime 只按声明顺序输出 `key=value`，不解释搜索或读取专用字段。
+`web_search` 和 `web_fetch` 使用同一 execution envelope，但分别返回自己的 canonical output。Runtime 统一把成功结果序列化为 `{ ok: true, untrustedToolData: true, output }`，把失败序列化为 `{ ok: false, error }`。诊断专用 `cause` 和 `logFields` 只进入脱敏日志，不进入模型上下文、SSE 或数据库；是否继续、重试、换来源或回答由模型决定。Runtime 只在用户取消、Tool 外层超时、协议错误和 20 次 Tool Call 上限等通用边界下确定性改变流程。
 
-`forceFinalAnswer` 只请求 Runtime 结束工具阶段。最终回答轮完全省略工具定义，并在服务端缓冲校验后交付；工具本身不生成最终研究结论。`disableTools` 作为通用能力保留，Web Research 的资源停止当前只使用 `forceFinalAnswer`。
-
-## 12. Tool Result / Observation
+## 12. Tool Result 交付
 
 ```text
 ToolExecutionResult
--> raw/large content externalization
--> tool_result StateRecord
--> deterministic ToolObservationBuilder
--> tool_observation StateRecord
--> next CompiledStepContext
+-> canonical output 进入生命周期事件与 Projection
+-> Runtime 序列化 output/error
+-> Tool Message 进入下一模型轮次
 ```
 
-Observation 可以说明查询、provider/fallback、clue/candidate 数量和 refs，但不能声称研究问题已经解决。
+当前阶段不建立独立 observation 对象、字符预算或注入状态；成功和结构化失败结果都交给模型继续决策。Tool 的合法输出契约仍排除 Raw HTML、敏感 Header、credential、内部 DNS/IP 和不可序列化对象。
 
 ## 13. Storage
 
-- Tool call metadata 存 PostgreSQL。
-- Normalized search result metadata 存 PostgreSQL。
-- 未引用大 content 使用 short-lived Artifact。
-- 实际引用 passage 由 Evidence Layer 复制为 durable EvidenceSource。
+- 当前 assistant Message metadata 保存有界 execution/source snapshot，用于刷新恢复 Conversation 与 Workbench。
+- 完整 Raw HTML、canonical Markdown、DNS/IP 和 Provider 原始响应不进入 PostgreSQL。
+- 当前不创建 durable EvidenceSource 或 Tool observation StateRecord。
 - API Key 不落库、不进 State、不进 trace。
 
-## 14. Budget
+## 14. 执行边界
 
-Tooling 强制执行：
+当前实现只保留：
 
-- max search queries
-- max provider calls
-- max results/query
-- provider timeout
-- max normalized payload bytes
-- max parallel tool calls
+- Runtime 每个 assistant run 最多 20 次模型声明的 Tool Call。
+- 模型单轮超时、Tool 声明的外层执行超时和用户取消。
+- Tool 单次输入数量、Provider 单请求、有限 transport retry、响应大小和并发等能力内部边界。
+- Web Fetch 的 SSRF、DNS、重定向、MIME、正文大小和缓存容量等安全与工程边界。
 
-模型不能扩大预算。Fallback 计入 provider calls。
-
-当前生产实现按所有权分层：Runtime 只维护最多 20 次通用工具调用；Web Research 维护每轮 25 个唯一 URL、60,000 个外部 Passage 字符和连续两次无新增内容早停；Search 和 Fetch 分别维护 10 秒、20 秒单操作超时。Agent run 不设置 wall-clock 总截止时间，用户取消独立传播到模型和在途工具。
+生产实现已经删除每轮 25 个唯一 URL、60,000 Passage 字符和连续无新增内容早停等跨调用领域控制。当前不使用字符数决定 Tool Result 是否注入，完整上下文的 Token 计量、选择、压缩和淘汰留给后续 Context Engineering。
 
 ## 15. Retry
 
-Provider adapter 只按配置执行有限 transport retry。Logical tool retry 必须由 Runtime/Agent next action 决定，并受去重和总预算限制。
+Provider adapter 只按配置执行有限 transport retry。Logical Tool 是否再次调用由模型下一轮决定，并受 Runtime 通用 Tool Call 上限和工具单次安全限制约束。
 
 禁止：
 
 - 无限重试
-- 用 fallback 绕过预算
+- 用内部 retry 绕过单次调用边界
 - 对 validation error 重试 provider
 - 模型直接指定 retry count
 

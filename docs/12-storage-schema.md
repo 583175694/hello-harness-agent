@@ -1,6 +1,6 @@
 # PostgreSQL / Prisma Storage Schema
 
-> 文档状态：R1 存储语义。P1 migration `20260803102537_init` 已创建最小 `users` 表；sessions、runs、State、Evidence 和 Artifact metadata 表仍按 P4-P7 实现。
+> 文档状态：后续 durable Run/State 探索草案。当前生产数据库事实以 Prisma Schema 和 `implementation-status.md` 为准；未实现的 Evidence/Artifact 表不代表已承诺能力。
 
 ## 1. 存储选择
 
@@ -421,7 +421,6 @@ tool_call running
 -> provider response normalized
 -> search_results / short-lived Artifact
 -> tool_result StateRecord
--> tool_observation StateRecord
 -> tool_call terminal
 -> next step
 ```

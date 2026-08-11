@@ -1,6 +1,6 @@
 # Lead Harness Runtime
 
-> 文档状态：Greenfield R1 Runtime 契约。
+> 文档状态：后续 durable Runtime 探索草案；当前执行边界以 `25-model-led-tool-boundary.md` 为准。
 
 ## 1. 定义
 
@@ -63,7 +63,7 @@ load run
 -> validate canonical action
 -> durable model_action
 -> dispatch
--> durable outcome/observation
+-> durable result/fact
 -> next step or phase pipeline
 -> deterministic finalization
 ```
@@ -194,7 +194,7 @@ Fallback provider attempt 计数。Waiting 时间不计入 active search duratio
 downstream result
 -> Artifact/content durable if required
 -> StateRecord/refs durable
--> observation durable
+-> result/fact durable
 -> events durable/projectable
 -> current step completed
 -> next step

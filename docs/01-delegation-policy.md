@@ -1,6 +1,6 @@
 # Delegation Policy
 
-> 文档状态：Greenfield P11 capability。Delegation 不属于 R1。
+> 文档状态：未进入当前路线图的探索草案，不代表已承诺 capability 或冻结协议。
 
 ## 1. 定义
 
@@ -111,7 +111,7 @@ Delegation merge 后：
 
 ```text
 worker results
--> merged_observation
+-> merged_result
 -> Lead selects/normalizes durable EvidenceSource
 -> Lead report draft/review/revise
 -> CitationValidator
@@ -125,7 +125,7 @@ Policy 不生成结果。Executor 产出：
 ```text
 worker_result[]
 delegation_result
-merged_observation
+merged_result
 ```
 
 下一 Lead step 决定是否继续搜索、补证据或进入 report pipeline。

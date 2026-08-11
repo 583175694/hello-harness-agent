@@ -2,6 +2,8 @@
 
 > 文档状态：权威实施目标与顺序。实际完成状态以 `docs/implementation-status.md` 为准；阶段完成必须有代码、测试和验收记录。
 
+> P0-P7 中未落地的接口和能力只保留历史规划价值，不会自动成为当前承诺。当前实施目标从 P8 及其引用的权威边界文档读取；Evidence、Citation Validator、权限策略和 Artifact Finalizer 等未确定能力需重新立项后才进入计划。
+
 ## 1. 实施原则
 
 ### 1.1 纵向切片
@@ -79,10 +81,7 @@ EventSink
 ContextCompiler
 ModelAdapter
 ActionDispatcher
-SearchProvider
-EvidenceStore
-CitationValidator
-ResponseFinalizer
+  SearchProvider
 Clock
 IdGenerator
 ```
@@ -216,7 +215,7 @@ P8  replay/fallback、mobile top-level views、keyboard/focus/E2E hardening、De
 - LeadRuntime skeleton
 - ActionDispatcher
 - scripted FinalAnswerAction
-- deterministic Finalizer
+- deterministic assistant delivery
 - create/get session and run API
 - Web projection
 
@@ -227,12 +226,12 @@ create session
 -> submit message
 -> create run/step
 -> scripted final_answer
--> Finalizer
+-> assistant delivery commit
 -> completed facts
 -> Web final message
 ```
 
-测试：Runtime lifecycle、canonical validation、Finalizer snapshot、API integration、Web completed-run。
+测试：Runtime lifecycle、canonical validation、assistant delivery snapshot、API integration、Web completed-run。
 
 ## 6. P3: Live Event Projection + Control Fixtures
 
@@ -378,6 +377,8 @@ tool_call / ask_clarification / finish_research / fail
 
 目标：把现有 `web_search -> web_fetch -> Passage -> 普通回答` 完善为通用 Agent 好用、透明、受控的联网调查闭环，不提前实现学术级 Evidence/Report pipeline。
 
+> 本节记录 P7 当时已经落地的历史方案，其中 URL/Passage 跨调用预算、allowlist、连续无新增内容早停和 Tool 控制意图已在 P8 架构复核中决定移除；当前目标以第 11 节和 `25-model-led-tool-boundary.md` 为准。
+
 新增：
 
 - 代码常量定义的 25 个唯一 URL 运行级硬安全上限；模型信息充分时提前停止，不实现软预算申请状态机
@@ -422,11 +423,27 @@ user task or direct URL
 - Workbench 与刷新恢复能区分 Search、Fetch、成功、失败、重复和最终采用来源。
 - 本阶段不创建 `EvidenceSource`、`[Sx]`、Report Artifact、ReportReview 或 CitationValidator。
 
-正式 Evidence/Citation、报告复核和可验证 Markdown Report 保留为后续 Deep Research 或严谨垂直场景能力。Evidence Card、语义重排、旧材料压缩与淘汰、动态加载和精确 Token 编译等待 Context Engineering；后台执行、断线恢复和 Worker 独立上下文等待 Durable Run 与 Delegation。
+正式 Evidence/Citation、报告复核和可验证 Markdown Report 不属于当前阶段，未来是否实现根据产品需求再决定。完整上下文的 Token 计量、选择、压缩、淘汰、动态加载和最终回答预留等待 Context Engineering；后台执行、断线恢复和 Worker 独立上下文等待 Durable Run 与 Delegation。
 
 ## 11. P8: Recovery + Evaluation + Release Hardening
 
 目标：让 P1-P7 达到真实用户可用门槛。
+
+P8 首个架构收敛项 [Model-led Tool Boundary](./25-model-led-tool-boundary.md) 已于 2026-08-11 完成：
+
+- 删除 `ToolExecutionResult.control`、Tool `modelContent`、`forceFinalAnswer` 和 `disableTools`；Runtime 统一序列化 canonical `output/error` 为 Tool Message。
+- 删除领域共享用的 `ToolRunState`、`WebResearchRunState`、`latestUserContent` 和 `runState`。
+- Search 与 Fetch 只返回结构化结果，不登记来源、不维护跨调用预算，也不请求结束工具阶段。
+- 删除 Web 运行级 URL/contentHash/Passage 去重、URL provenance allowlist 和连续无新增内容强制早停。
+- 允许模型 Fetch 任意通过 URL/DNS/redirect 安全 Guard 的公开 URL；由 Projection 派生 provenance 并归并 canonical source。
+- 保留 Runtime 每个 assistant run 最多 20 次 Tool Call、模型单轮超时、取消和最终回答协议校验。
+- Tool 声明不可由模型覆盖的外层 `executionPolicy.timeoutMs`，Runtime 统一组合并执行；Tool 内部保留更细的 transport timeout。
+- 保留 Fetch 单次调用的 URL 数量、网络安全、响应大小、提取、Passage、Locator 与 LRU。
+- 删除 Tool Result 字符硬上限、独立 observation/delivery 和注入状态；当前 Tool Result 始终进入下一模型轮次。
+- 将 `WebFetchResult.budget` 改为只描述本次调用事实、不带控制语义的 `stats`。
+- 同步简化共享协议、SSE/metadata、Workbench、评测规则和回归测试。
+
+验收时 Tool 在类型层无法返回控制命令，Runtime 不含 Web 领域状态或停止条件；未达到 20 次 Tool Call 且未取消时，继续调用工具或回答完全由模型下一轮决定。完成该迁移后再基于真实 Eval 判断是否存在重复调用、上下文过大或效率问题，不预先增加第二套 Runtime/Research Decision Policy，也不为未来 Context Engineering 冻结局部字符预算协议。
 
 范围：
 
@@ -438,14 +455,14 @@ user task or direct URL
 - provider/tool result short retention cleanup
 - context/tool/event payload limits
 - fixed Chinese general-agent evaluation set
-- Search/Fetch degradation and repeated-call hard-failure checks
+- Search/Fetch degradation checks and repeated-call efficiency signals
 - manual answer/source quality rubric
 - Playwright desktop/mobile E2E
 
 R1 发布门槛：
 
 - contract/integration/UI tests 全部通过
-- 固定题集无重复预算失败或无界 Search/Fetch
+- 固定题集不突破通用 Tool Call 硬边界，重复 Search/Fetch 进入效率评审
 - 无 search-snippet-as-fetched-source
 - 无 invalid-page-as-successful-document
 - steer/cancel/fallback/partial-source-failure 场景通过

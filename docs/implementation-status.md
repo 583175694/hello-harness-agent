@@ -2,13 +2,15 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-11
+> 最后更新：2026-08-11（Model-led Tool Boundary 已实现）
 
 ## 1. 当前结论
 
-项目已经完成工程基线、持久化普通对话和 General Web Research V1。模型可以通过 Bocha 或 Serper 发现网页线索，再批量读取 1-5 个公开静态网页的可定位相关原文；当前每轮受 25 个唯一 URL、60,000 字符 Fetch Passage 和最多 20 次工具调用等结构性边界约束，不再设置整个 Agent run 的 wall-clock 总截止时间。
+项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 20 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P7 已完成，进入 P8 Evaluation / Release Hardening”：有界联网调查闭环已具备独立真实黑盒评测工具，可以用固定题集检查生产 Session、Chat SSE、Search/Fetch、最终回答和持久化快照。正式 Evidence、`[Sx]`、报告 Artifact 和引用校验保留给后续 Deep Research；Run/Event Store、Context Compiler、steer/cancel 和搜索 fallback 仍未实现。
+当前状态可以描述为“P7 已完成，进入 P8 Evaluation / Release Hardening”：联网调查闭环已具备独立真实黑盒评测工具，可以用固定题集检查生产 Session、Chat SSE、Search/Fetch、最终回答和持久化快照。正式 Evidence、`[Sx]`、报告 Artifact 和引用校验不属于当前阶段，未来是否实现根据产品需求决定；Run/Event Store、Context Engineering、steer/cancel 和搜索 fallback 仍未实现。
+
+Model-led Tool Boundary 已落地为协议 `0.8.0`：模型负责语义规划，Runtime 只执行模型决策和通用执行边界，Tool 只执行能力并返回 canonical 结构化结果，Runtime 统一序列化 Tool Message，Projection 派生 provenance 并按 URL/contentHash 归并 canonical source。`ToolRunState`、`WebResearchRunState`、Tool `modelContent/control` 和跨调用 URL allowlist 已删除；没有新增 Runtime Decision Policy、Web Research Policy 或 Tool observation 预算协议。详见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md)。
 
 ## 2. 从空项目到当前 Agent 的阶段演进
 
@@ -48,9 +50,9 @@
 
 **当时的问题**：模型返回的 Function Calling 参数可能跨 chunk、JSON 不完整、工具不存在或参数无效；同一响应还可能声明多个调用。只有 `tools` 参数而没有应用侧循环、权限、预算和生命周期，就不是可控 Agent。
 
-**解决方式**：实现 `AgentRuntimeService`、Tool Catalog、通用 Registry 和 `AgentTool` 契约。Runtime 聚合 tool-call chunk、解析并校验参数、串行执行工具、把 assistant tool-call message 与 tool result 放回上下文，再让模型继续决策。加入 20 次通用工具调用上限、取消传播、工具生命周期事件和 Workbench Activity/Sources 投影；首个真实工具是统一 Provider 边界后的 `web_search`。后续重构进一步引入通用 `ToolRunState`、`logFields` 和控制意图，移除 Runtime 对具体工具名称、输入输出、领域预算和指标的理解；工具领域自行维护运行状态，Registry 和 Runtime 只负责通用发现、校验、执行与编排。
+**解决方式**：实现 `AgentRuntimeService`、Tool Catalog、通用 Registry 和 `AgentTool` 契约。Runtime 聚合 tool-call chunk、解析并校验参数、串行执行工具、把 assistant tool-call message 与 canonical tool result 放回上下文，再让模型继续决策。加入 20 次通用工具调用上限、取消传播、工具生命周期事件和 Workbench Activity/Sources 投影；首个真实工具是统一 Provider 边界后的 `web_search`。历史中曾短暂引入通用领域状态和 Tool 控制意图，Model-led 迁移已经删除这些间接决策入口。
 
-**阶段结果**：系统从“模型生成文本”升级为“模型决定下一步、应用确定性执行并继续循环”的基础 Agent，用户可以看到真实工具进度和搜索 clue。Runtime 最终收敛为工具中立编排器，新增工具原则上只需要实现 `AgentTool`、自己的领域状态并加入 Catalog，不需要修改核心循环。
+**阶段结果**：系统从“模型生成文本”升级为“模型决定下一步、应用确定性执行并继续循环”的基础 Agent，用户可以看到真实工具进度和搜索 clue。该阶段先完成 Runtime 的工具名称中立化，后续 Model-led 迁移又删除了领域状态与控制意图构成的间接反向依赖。
 
 **仍未解决**：搜索摘要只是线索，模型没有真正读取网页正文；重复 URL、模型自造 URL、低质量页面和上下文膨胀仍可能损害回答。下一阶段需要建设有界 Web Fetch 和来源语义。
 
@@ -58,22 +60,22 @@
 
 **当时的问题**：直接把网页 HTML 注入模型会带来脚本/导航噪声、Prompt Injection、上下文浪费和无法定位原文；多轮 Fetch 还会绕过单次限制，重复读取 URL 或正文，并在无新信息时继续消耗资源。
 
-**解决方式**：实现 `web_fetch` 的 URL/DNS/redirect guard、Crawlee 有界获取、Readability 正文提取、canonical Markdown、Document Quality Gate、字符 n-gram 相关性筛选和可定位 Passage。通过 run-scoped `WebResearchRunState` 限制 URL 来源，只允许用户直链或 Search clue，并累计 25 个 URL、60,000 Passage 字符、URL/contentHash 去重和连续两次无新增内容早停。Workbench 区分 clue、fetched 和轻量 used 来源。
+**解决方式**：实现 `web_fetch` 的 URL/DNS/redirect guard、Crawlee 有界获取、Readability 正文提取、canonical Markdown、Document Quality Gate、字符 n-gram 相关性筛选和可定位 Passage。单次调用内去重等价 URL，并用固定 24,000 code-point 输出上限控制返回材料；跨调用是否重试、换源或停止由模型决定。Workbench 区分 clue、fetched 和轻量 used 来源，Projection 记录 provenance 并归并 canonical source。
 
-**后续加固**：在能力闭环完成后，本阶段继续删除会误伤健康长任务的 Agent run 总截止时间，保留普通模型单轮 120 秒、最终回答单轮 30 秒、Search 10 秒、Fetch 20 秒和用户取消；用 20 次通用工具调用及 Web Research 自己的 URL/Passage/无新增内容边界保证结构性收敛。最终回答完全省略工具定义，服务端整轮缓冲并校验空响应、长度截断、结构化工具调用和 DSML，污染时整轮丢弃并最多重试一次；上游失败日志保留脱敏后的真实原因、HTTP 状态、请求 ID、上游地址和响应摘要。
+**后续加固**：在能力闭环完成后，本阶段删除会误伤健康长任务的 Agent run 总截止时间，并完成 Model-led 边界迁移。当前保留普通模型单轮 120 秒、最终回答单轮 30 秒、Search 外层 10 秒、Fetch 整批外层 45 秒、Fetch 单 URL transport 20 秒和用户取消；用 20 次通用工具调用保证循环结构性收敛。达到调用上限后的最终回答完全省略工具定义，服务端整轮缓冲并校验空响应、长度截断、结构化工具调用和 DSML；上游失败日志保留脱敏后的真实原因。
 
-**阶段结果**：形成了 `search -> fetch -> relevant passages -> answer` 的完整联网调查闭环。Agent 不只“搜到链接”，而是基于真正读取过的公开静态网页完成普通回答，并能在部分来源失败时继续交付。健康长任务不再被总时钟误杀，单操作故障仍能隔离；异常工具循环有确定上限；协议污染不会进入 SSE、数据库或后续上下文；Search 和 Fetch 在同一次 run 内共享 Web Research 状态但不污染并发会话。
+**阶段结果**：形成了 `search -> fetch -> relevant passages -> answer` 的完整联网调查闭环。Agent 不只“搜到链接”，而是基于真正读取过的公开静态网页完成普通回答，并能在 Tool 失败后由模型决定重试、换源或受限交付。健康长任务不再被总时钟误杀，单操作故障仍能隔离；异常工具循环有确定上限；Tool 不共享或维护跨调用规划状态。
 
 **当前仍未解决**：
 
 - 首次真实 Smoke 只有 2/6 题通过硬规则；直链题工具选择、execution/source 快照一致性、题目工具调用上限、模型流中断和 Judge 超时仍需分类和校准。
 - Runtime 仍属于一次 Chat 请求内的内存循环，没有持久化 Run/Step/Event、断线 replay、后台继续执行、真正的 steer 和可恢复 cancel。
-- 上下文仍主要使用最近消息和本轮工具历史，没有独立 Context Compiler、精确 Token 预算、旧观察压缩和相关材料动态进出。
+- 上下文仍主要使用最近消息和本轮完整 Tool Result，没有全局 Context Engineering、精确 Token 预算、材料选择/压缩/淘汰和最终回答空间预留；连续大结果可能触发模型上下文限制。
 - Search 仍是单 Provider，没有 fallback、运行内熔断或失败查询抑制；重复上游失败会安全地消耗 20 次额度，但不够高效。
 - `used` 只表示最终回答出现了来源 URL，不是逐句 Evidence/Citation；没有 Report Artifact、引用校验或独立复核。
 - Fetch 只覆盖公开静态网页；JavaScript 页面、PDF、登录态内容、浏览器操作和完整公网 SSRF/DNS rebinding 防护尚未实现。
 
-**下一阶段结论**：进入 P8 Evaluation / Release Hardening，不继续横向增加工具。先用真实评测把协议一致性、工具选择和失败分类修准，再补最小 durable Run/Event 恢复能力；只有评测证明主要瓶颈是上下文质量时，才进入 Context Compiler。这个顺序先解决“现有能力是否稳定可信”，再解决“任务能否跨连接恢复”，最后才解决“更长任务如何管理上下文”。
+**下一阶段结论**：继续 P8 Evaluation / Release Hardening，不横向增加工具。Model-led Tool Boundary 已完成，接下来用真实评测把协议一致性、工具选择、执行效率和失败分类修准，再根据实际需求决定 durable Run/Event、Search fallback 或 Context Engineering 的优先级。
 
 ## 3. 已完成
 
@@ -88,16 +90,16 @@
 - 配置校验、请求 ID 和敏感字段脱敏已接入；生产环境保留结构化 JSON 日志。
 - 开发环境日志已切换为彩色中文单行格式，关闭常规 HTTP 请求/响应明细和 Nest 启动路由噪声；模型链路只记录生成开始、首字响应、完成或失败，并提供会话短 ID、模型、上下文条数、首字耗时、总耗时和输出字数。
 - OpenAI 官方 SDK 和 OpenAI-compatible Chat Completions 已接入；`OPENAI_BASE_URL`、`OPENAI_API_KEY`、`OPENAI_MODEL` 从环境变量读取。
-- 已实现最多 20 次通用工具调用的模型-工具循环，支持分片 arguments 聚合、参数校验、串行执行、错误回传和预算终止。
+- 已实现每个 assistant run 最多 20 次 Tool Call 的模型-工具循环，支持分片 arguments 聚合、参数校验、串行执行、错误回传和达到调用上限后的无工具最终回答。
 - 模型调用已通过 `ModelAdapter` 与 OpenAI SDK 隔离；`AgentRuntimeService` 只依赖 canonical message、模型事件和工具契约。
 - 工具层已拆为 `AgentTool`、集中式 Tool Catalog 和通用 Registry；新增工具不再需要把业务逻辑写入 Registry。
 - Chat 链路已拆出 Runtime、搜索投影、assistant 交付仓库、标题服务和 SSE Writer，`ChatService` 只保留会话准备与兼容事件编排。
 - 模型流、Runtime 事件流和 Chat SSE 继续使用 `AsyncGenerator` 表达逐步产出；单次数据库操作、工具执行和标题生成使用普通 `async/await`。
 - 模型只看到统一 `web_search({query})`；后端通过 `SEARCH_PROVIDER=bocha|serp` 启用一个 Provider，每次返回最多 10 条标准化结果。
-- 模型同时可以调用 `web_fetch({urls, query?})`，每次读取 1-5 个公开静态网页，每轮默认最多接受 25 个唯一 URL；批量结果支持逐项 `succeeded/failed/skipped` 的部分成功语义。
-- 每轮 Runtime 只创建通用、run-scoped 的 `ToolRunState`；Web Research 领域通过类型化 key 自行创建和维护 `WebResearchRunState`，跟踪 URL、final/normalized URL alias、contentHash、网络尝试、成功唯一文档、Passage 字符和连续无新增 Fetch。
-- Search 与 Fetch 在可用时同时暴露，并通过同一个 `WebResearchRunState` 登记用户当前消息直链和本轮 Search clue；模型自行拼出的 URL 不会发起网络请求，Runtime 不解析 URL 或理解具体工具结果。
-- URL、上下文或无新增信息边界由 Web Research 请求 `forceFinalAnswer`，20 次通用工具调用边界由 Runtime 触发；两者都只进入一次最多 30 秒的无工具最终回答。普通模型单轮请求最多 120 秒，Search 与 Fetch 分别保留 10 秒和 20 秒的单操作超时；这些都不是 Agent 总运行时限。
+- 模型同时可以调用 `web_fetch({urls, query?})`，每次读取 1-5 个公开静态网页；批量结果支持逐项 `succeeded/failed/skipped` 的部分成功语义和无控制含义的单次 `stats`。
+- Runtime 不创建或传递领域 run state；Tool 上下文只包含 session/message/tool-call 标识和组合取消信号。
+- Search 与 Fetch 在可用时同时暴露；模型可以 Fetch 任意通过安全 Guard 的公开 URL，Projection 将来源派生为 `user_provided/search_clue/model_proposed/unknown`。
+- 每个 assistant run 最多执行 20 次 Tool Call。普通模型单轮最多 120 秒，最终回答单轮最多 30 秒，Search 外层 Tool timeout 为 10 秒，Fetch 整批外层 Tool timeout 为 45 秒，Fetch 单 URL transport timeout 为 20 秒。
 - `DocumentQualityGate` 在写入 LRU 和 Passage Ranking 前拒绝过短正文、登录/付费墙/验证码、JavaScript 空壳和高度重复模板；query 无相关 Passage 返回稳定错误。
 - Web Fetch 使用无持久化 Crawlee `HttpCrawler`、最小 URL/DNS/逐跳重定向安全校验、5 MiB 流式响应上限、20 秒超时和一次有限重试；不携带 Cookie、Authorization、代理或用户 Header。
 - HTML 通过 JSDOM、Mozilla Readability、Turndown + GFM 转换为 canonical Markdown；字符 n-gram Ranker 只返回连续抽取式原文，Locator 同时保存 quote、Unicode code-point position 和 sectionPath。
@@ -218,6 +220,8 @@ git diff --check
 
 同次重构将 URL provenance、URL/正文去重、Web 资源预算和无新增内容状态从 Runtime 下沉到 `WebResearchRunState`，Runtime 只创建通用 `ToolRunState`，按统一契约执行任意命名工具并处理 `logFields`、`disableTools` 和 `forceFinalAnswer`。上游调用失败日志继续保留脱敏后的真实原因、HTTP 状态、请求 ID、上游地址和响应摘要。执行 `pnpm check` 与 `git diff --check` 全部通过：Protocol 12 项、API 56 项、Web 18 项、Evals 26 项、Testkit 1 项 unit test 通过，workspace lint、typecheck 和 production build 全部通过。本轮没有重复执行依赖数据库或浏览器环境的 integration/E2E。
 
+2026-08-11 随后完成 Model-led Tool Boundary 代码迁移，协议升级到 `0.8.0`。删除 `ToolRunState`、`WebResearchRunState`、Tool `modelContent/control`、跨调用 URL/Passage 预算、URL allowlist 和领域早停；Runtime 统一序列化 canonical `output/error`，Tool 失败可由模型下一轮继续处理。Search/Fetch 外层 timeout 分别为 10/45 秒，Fetch transport timeout 保持 20 秒；Projection 派生 provenance，Execution 完整保留，Source 按 URL/contentHash 归并。后续验收补齐混合 Tool Call 计数、实时/恢复 canonical merge、Fetch stats 全分支与真实 retry 计数、Eval provenance/canonical/toolCallCount 反向规则；评测使用 `modelProposedSourceCount` 表示最终保留的模型直提 canonical 来源数量，避免与 Fetch 调用次数混淆。最终执行 `pnpm check`、API integration、Playwright E2E 和 `git diff --check`：Protocol 12 项、API 52 项、Web 19 项、Evals 28 项、Testkit 1 项，共 112 项 unit test，API integration 9 项和 Playwright desktop/mobile 16 项全部通过。真实外部 `pnpm eval:research` 未执行，避免在未明确要求时产生模型和搜索 Provider 调用费用。
+
 覆盖范围包括：
 
 - Web lint、TypeScript typecheck、unit tests、production build。
@@ -238,7 +242,7 @@ git diff --check
 
 - Run、State、Artifact 的持久化和恢复；Session/Message 普通对话持久化已经完成。
 - durable Agent Run、Run/Step/Event、断线 replay 和运行级恢复；当前 `AgentRuntimeService` 仍是一次 Chat 请求内的非持久化 Runtime，不具备运行恢复能力。
-- 搜索 fallback；正式 Evidence 持久化、正式引用校验和 Markdown Report Artifact 已调整为后续 Deep Research 范围。
+- 搜索 fallback；正式 Evidence、引用校验和 Markdown Report Artifact 不属于当前范围，是否进入后续 Deep Research 由未来产品需求决定。
 - 面向 Agent Run 的 SSE/事件投影、真实 steer/cancel 控制链路；普通对话 Chat SSE 已完成。
 - user Memory、Delegation、Worker 和多用户认证。
 
@@ -246,39 +250,44 @@ git diff --check
 
 当前 `web_search -> web_fetch -> 相关原文 Passage -> 普通回答` 已按本阶段边界完成：
 
-- [x] 25 个唯一 URL 代码常量硬限制、预算快照和 partial-success skipped；资源停止由 Web Research 请求统一进入无工具最终回答。
-- [x] Search/Fetch 保持稳定工具集；Fetch 执行层只接受用户当前直链或本轮 Search clue，模型自造 URL 不发起网络请求。
-- [x] 网络尝试/成功唯一文档分开计数，以及 input/final/normalized URL 与 contentHash 去重。
-- [x] Document Quality Gate、query 无关正文错误、动态单批/累计 Passage 预算。
-- [x] 两次连续 Fetch 无新增唯一文档早停，Prompt 约束相同 URL 不重复、普通批次每域名最多两个。
+以下勾选项描述当前代码已经实现的 V1 与 Model-led 行为：
+
+- [x] 单次 Fetch 的等价 URL 去重、`succeeded/failed/skipped` 部分成功和无控制语义的 `stats`。
+- [x] Search/Fetch 保持稳定工具集；Fetch 接受任意通过 Guard 的公开 URL，provenance 不参与权限判断。
+- [x] Execution 完整保留；Projection 按 input/final/normalized URL 或 contentHash 归并 canonical source，并聚合 toolCallIds。
+- [x] Document Quality Gate、query 无关正文错误和单批 24,000 code-point Passage 输出上限。
+- [x] 跨调用重试、换源和停止由模型决定；Runtime 和 Tool 不维护 Web Research 规划状态。
 - [x] `clue/fetched + used` 来源协议、确定性 URL 匹配、已读来源优先 fallback 和 Workbench 恢复。
 - [x] 用户直链 Fetch Prompt、普通模型单轮 120 秒超时、最终回答单轮 30 秒超时和用户 Abort 分离；Agent run 无总截止时间。
-- [x] Workbench 展示成功/失败/跳过、网络请求、相关 Passage、URL 预算和采用/已读/线索数量。
+- [x] Workbench 展示本次成功/失败/跳过、网络请求、相关 Passage 和采用/已读/线索数量。
 - [x] 通用 Agent 固定题集、真实 API 黑盒 Runner、指标聚合、模型 Judge 和人工抽检文件已实现；真实基线运行与两轮人工阈值校准仍待执行。
 - [ ] 公网/多用户部署前的连接 IP pinning、网络出口隔离和完整 DNS rebinding 防护仍属后续安全加固。
+- [x] Model-led Tool Boundary：已删除 Tool 控制意图、`modelContent`、Web 跨调用规划状态和 URL allowlist；Runtime 统一序列化 `output/error`，保留 20 次 Tool Call、Tool 外层超时及 Fetch 能力安全，由 Projection 派生 provenance 和 canonical source。
 
-当前阶段的完成标准是：对需要联网的普通用户问题，Agent 能在合理时间和有限资源内自主找到并读取足够的公开静态网页，过滤无效与重复内容，只注入相关原文，在信息充分或触及资源边界时停止，并基于真正读取过的来源完成普通回答；部分网页失败不能导致重复调用或整体任务失败。
+Model-led 迁移的完成标准已经满足：对需要联网的普通用户问题，Agent 能自主找到并读取公开静态网页，由模型根据 Tool Result 决定继续、换源或回答；Tool 失败不会自动终止 Runtime，达到 20 次 Tool Call 后能够基于已有材料平稳收尾。Fetch 继续过滤非法、无效和低质量内容，Execution 完整保留，Workbench 的重复来源由 Projection 归并。
 
-### Runtime 工具中立化（已实现）
+### Runtime 工具名称中立化（历史步骤，Model-led 迁移已完成）
 
-`AgentRuntimeService` 已移除对 Search/Fetch 名称、Web URL 解析、领域资源账本和专属指标字段的依赖。Runtime 只创建通用 `ToolRunState` 并传递 `latestUserContent`、标识和取消信号；Web Research 领域自行维护 `WebResearchRunState`、URL provenance、URL/Passage 预算、去重和无新增内容状态，通过统一 `logFields` 与 `forceFinalAnswer` 控制意图和 Runtime 协作。未使用且与领域预算重复的 per-tool units 接口已删除。
+`AgentRuntimeService` 已移除对 Search/Fetch 名称、Web URL 解析、领域资源账本和专属指标字段的依赖。Runtime 不再创建 `ToolRunState`，只传递关联标识和取消信号；Tool 不能通过控制字段改变主循环。
+
+历史架构复核确认“工具名称中立”不等于“决策权中立”。本次迁移已经删除 `forceFinalAnswer`、`WebResearchRunState` 等契约和状态，让模型负责语义决策，Runtime 只维护通用执行状态与边界，Tool 只返回结构化结果，Projection 派生来源事实。
 
 ### 后续阶段边界
 
-- 完整 Context Engineering 再实现 Evidence Card、语义重排、旧工具结果压缩与淘汰、按任务动态加载和精确 Token 编译。
+- 完整 Context Engineering 面向 System Prompt、历史消息、用户输入、Assistant Tool Calls、Tool Results 和最终回答预留统一实现 Token 计量、选择、压缩、淘汰和编译；当前不预先冻结具体 schema。
 - Durable Run / Event Store 与 Delegation 再实现后台执行、断线恢复、Worker 独立上下文和大规模 Wide Research；这些能力不属于当前 Web Fetch 模块本身。
-- 正式 `EvidenceSource`、report-scoped `[Sx]`、Report Artifact、同模型复核和 Citation Validator 保留为后续 Deep Research 或严谨垂直场景能力，不阻塞通用 Agent 当前阶段。
+- 正式 `EvidenceSource`、report-scoped `[Sx]`、Report Artifact、同模型复核和 Citation Validator 不阻塞当前阶段，也不在本次架构中承诺实现。
 - JavaScript Browser Fetch、PDF、登录态网页、页面操作和其他来源格式属于独立的工具能力扩展，不并入当前阶段。
 
 ## 7. 下一阶段建议
 
 当前进入 P8 Evaluation / Release Hardening。下一阶段按以下顺序推进：
 
-1. **先修评测事实源**：统一 SSE、tool execution 和 assistant metadata snapshot 的投影结果；把 Agent 流中断、Provider 失败、Judge 超时、规则不匹配和真实行为缺陷拆成可聚合分类。
-2. **再校准真实行为**：修复直链任务仍优先 Search、无效重复调用和题目工具上限偏差；连续运行至少两轮 Smoke 并人工检查全部 6 题，冻结可信硬规则后再运行 Full 24 题。
-3. **补最小恢复闭环**：设计并实现 durable Run/Step/Event、事件序号、断线 replay、后台继续执行和真实 cancel；steer 只在明确 safe step 生效。不要把当前 Chat SSE 直接扩写成不可恢复的伪 Run 协议。
-4. **用评测决定 Context Compiler**：如果失败主要来自长工具历史、相关材料不能动态进出或最终回答空间不足，再实现纯函数 Context Compiler、精确 Token 预算、工具观察压缩和选择；如果主要是 Provider 可用性，则优先实现 Search fallback 和有限熔断。
-5. **保持能力边界**：正式 Evidence/Citation、Report Artifact、Browser/PDF Fetch、Memory 和 Delegation 继续独立排期，不与 P8 稳定性修复混成一次大重构。
+1. **继续修评测事实源**：Model-led Tool Boundary 已完成；下一步统一 SSE、tool execution 和 assistant metadata snapshot 的投影结果，把 Agent 流中断、Provider 失败、Judge 超时、规则不匹配和真实行为缺陷拆成可聚合分类。
+2. **校准真实行为**：修复直链任务工具选择和题目工具上限偏差；将重复调用作为效率信号而非领域协议错误，连续运行至少两轮 Smoke 并人工检查全部 6 题，冻结可信硬规则后再运行 Full 24 题。
+3. **按需求补最小恢复闭环**：如评测证明断线与后台执行是主要问题，再设计 durable Run/Step/Event、事件序号、断线 replay、后台继续执行和真实 cancel。
+4. **用评测决定 Context Engineering**：如果失败主要来自长工具历史、相关材料不能动态进出或最终回答空间不足，再面向完整上下文实现精确 Token 预算、选择、压缩和淘汰；如果主要是 Provider 可用性，则优先实现 Search fallback 和有限熔断。
+5. **保持能力边界**：Evidence/Citation、Report Artifact、Browser/PDF Fetch、Memory 和 Delegation 都不与 P8 稳定性修复混成一次大重构；尚未确定的能力不提前承诺或冻结抽象。
 
 P8 的完成标准不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Search/Fetch -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败、可重复评测和最小恢复能力。
 
@@ -291,7 +300,7 @@ P8 的完成标准不是“再增加一个工具”，而是现有 `Chat -> Agen
 - [ ] 为直链题、搜索题和 Fetch 题分别校准硬规则，避免单一规则把行为问题和协议投影问题混在一起。
 - [ ] 根据至少两轮真实 Smoke 结果冻结语义质量阈值，再决定 Full suite 是否进入发布门槛。
 
-Context Engineering、durable Run/Step/Event、断线 replay、Worker 独立上下文、正式 Evidence/Report、动态 Browser Fetch 和 PDF 仍按上述后续边界独立推进。
+Context Engineering、durable Run/Step/Event、断线 replay、Worker 独立上下文、动态 Browser Fetch 和 PDF 按真实需求独立推进；正式 Evidence/Report 等未确定能力不属于当前承诺。
 
 ## 8. 关联文档
 

@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { App, AppShell } from './app';
+import { App, AppShell, applyToolEvent, workbenchFromPersistedMessage } from './app';
+import type { PersistedMessage, WebFetchResult } from '@harness/agent-protocol';
+import type { ToolStreamEvent } from './api/client';
 import { Composer } from './features/agent/components/conversation';
 
 function mockReady() {
@@ -99,6 +101,145 @@ describe('R1 workbench shell', () => {
     expect(screen.getByRole('complementary', { name: '工作区' })).toBeInTheDocument();
     expect(screen.getByText('来源标题')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Sources' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('produces the same canonical sources during streaming and persisted recovery', () => {
+    const completedAt = '2026-08-11T10:00:01.000Z';
+    const sourceUrl = 'https://example.com/article';
+    const mirrorUrl = 'https://mirror.example/article';
+    const exact = 'Canonical source passage.';
+    const stats = {
+      requestedCount: 1,
+      networkAttemptCount: 1,
+      succeededCount: 1,
+      failedCount: 0,
+      skippedCount: 0,
+      passageCount: 1,
+      passageCharacterCount: exact.length,
+      cacheHitCount: 0,
+    };
+    const fetchedItem = (url: string) => ({
+      status: 'succeeded' as const,
+      requestedUrl: url,
+      finalUrl: url,
+      normalizedUrl: url,
+      title: 'Canonical article',
+      contentType: 'text/html',
+      retrievedAt: completedAt,
+      contentHash: 'shared-hash',
+      cacheStatus: 'miss' as const,
+      truncated: false,
+      passages: [
+        {
+          passageId: `passage-${new URL(url).hostname}`,
+          text: exact,
+          locator: {
+            kind: 'web_text' as const,
+            quote: { exact },
+            position: { start: 0, end: exact.length },
+          },
+        },
+      ],
+    });
+    const searchEvent: ToolStreamEvent = {
+      type: 'tool.completed',
+      messageId: 'assistant-1',
+      blockId: 'search-block',
+      toolCallId: 'search-1',
+      toolName: 'web_search',
+      completedAt,
+      durationMs: 10,
+      result: {
+        query: 'canonical source',
+        provider: 'serp',
+        results: [
+          {
+            id: 'search-source',
+            title: 'Search clue',
+            url: sourceUrl,
+            domain: 'example.com',
+            snippet: 'Search clue snippet.',
+          },
+        ],
+      },
+    };
+    const fetchEvent = (
+      toolCallId: string,
+      url: string,
+    ): ToolStreamEvent => ({
+      type: 'tool.completed',
+      messageId: 'assistant-1',
+      blockId: `${toolCallId}-block`,
+      toolCallId,
+      toolName: 'web_fetch',
+      completedAt,
+      durationMs: 20,
+      result: { results: [fetchedItem(url)], stats } satisfies WebFetchResult,
+    });
+    let streamed = applyToolEvent(undefined, searchEvent, true);
+    streamed = applyToolEvent(streamed, fetchEvent('fetch-1', sourceUrl), true);
+    streamed = applyToolEvent(streamed, fetchEvent('fetch-2', mirrorUrl), true);
+
+    const persisted: PersistedMessage = {
+      id: 'assistant-1',
+      sessionId: 'session-1',
+      role: 'assistant',
+      kind: 'assistant_delivery',
+      content: 'Answer.',
+      createdAt: completedAt,
+      metadata: {
+        model: 'test-model',
+        agent: {
+          toolCallCount: 3,
+          executions: [
+            {
+              toolCallId: 'search-1',
+              toolName: 'web_search',
+              input: { query: 'canonical source' },
+              status: 'completed',
+              startedAt: completedAt,
+              completedAt,
+              durationMs: 10,
+              resultCount: 1,
+            },
+            ...['fetch-1', 'fetch-2'].map((toolCallId, index) => ({
+              toolCallId,
+              toolName: 'web_fetch' as const,
+              input: { urls: [index === 0 ? sourceUrl : mirrorUrl] },
+              status: 'completed' as const,
+              startedAt: completedAt,
+              completedAt,
+              durationMs: 20,
+              resultCount: 1,
+              stats,
+            })),
+          ],
+          sources: [
+            {
+              ...fetchedItem(sourceUrl),
+              kind: 'fetched',
+              status: undefined,
+              id: 'search-source',
+              used: false,
+              provenance: 'search_clue',
+              toolCallIds: ['search-1', 'fetch-1', 'fetch-2'],
+            },
+          ],
+        },
+      },
+    };
+    const restored = workbenchFromPersistedMessage(persisted);
+
+    expect(streamed.sources).toHaveLength(1);
+    expect(restored?.sources).toHaveLength(1);
+    expect(streamed.sources[0]).toEqual(restored?.sources[0]);
+    expect(streamed.sources[0]).toMatchObject({
+      id: 'F1',
+      provenance: 'search_clue',
+      requestedUrl: sourceUrl,
+      contentHash: 'shared-hash',
+      toolCallIds: ['search-1', 'fetch-1', 'fetch-2'],
+    });
   });
 
   it('exposes a mock state switcher on the preview route', () => {

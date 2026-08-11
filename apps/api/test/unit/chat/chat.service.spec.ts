@@ -54,9 +54,13 @@ function makeService(
   (modelAdapter as unknown as { client: OpenAI }).client = {
     chat: { completions: { create: providerCreate } },
   } as unknown as OpenAI;
+  const runtimeRegistry = {
+    executionPolicy: vi.fn(() => ({ timeoutMs: 30_000 })),
+    ...toolRegistry,
+  } as ToolRegistryService;
   const runtime = new AgentRuntimeService(
     modelAdapter,
-    toolRegistry as ToolRegistryService,
+    runtimeRegistry,
     logger,
   );
   const service = new ChatService(
@@ -214,7 +218,6 @@ describe('ChatService session persistence', () => {
       execute: vi.fn().mockResolvedValue({
         status: 'succeeded',
         output: toolResult,
-        modelContent: JSON.stringify(toolResult),
         logFields: { durationMs: 10, resultCount: 1 },
       }),
     };
@@ -296,7 +299,6 @@ describe('ChatService session persistence', () => {
       execute: vi.fn().mockResolvedValue({
         status: 'timeout',
         error: { code: 'SEARCH_TIMEOUT', detail: '搜索服务响应超时。', retryable: true },
-        modelContent: JSON.stringify({ ok: false, code: 'SEARCH_TIMEOUT' }),
         logFields: { durationMs: 10 },
       }),
     };
@@ -424,16 +426,15 @@ describe('ChatService session persistence', () => {
           ],
         },
       ],
-      budget: {
-        urls: { used: 1, limit: 25, remaining: 24 },
-        passages: {
-          usedCharacters: Array.from(exact).length,
-          limitCharacters: 60_000,
-          remainingCharacters: 60_000 - Array.from(exact).length,
-        },
-        successfulUniqueDocuments: 1,
-        networkAttempts: 1,
-        canFetch: true,
+      stats: {
+        requestedCount: 1,
+        networkAttemptCount: 1,
+        succeededCount: 1,
+        failedCount: 0,
+        skippedCount: 0,
+        passageCount: 1,
+        passageCharacterCount: Array.from(exact).length,
+        cacheHitCount: 0,
       },
     };
     const registry = {
@@ -452,11 +453,6 @@ describe('ChatService session persistence', () => {
             ? {
                 status: 'succeeded' as const,
                 output: fetchResult,
-                modelContent: JSON.stringify({
-                  untrustedExternalData: true,
-                  evidenceQualification: 'evidence_candidate',
-                  ...fetchResult,
-                }),
                 logFields: {
                   durationMs: 10,
                   resultCount: 1,
@@ -465,7 +461,6 @@ describe('ChatService session persistence', () => {
             : {
                 status: 'succeeded' as const,
                 output: searchResult,
-                modelContent: JSON.stringify({ untrustedExternalData: true, ...searchResult }),
                 logFields: { durationMs: 10, resultCount: 1 },
               },
         ),
@@ -540,7 +535,6 @@ describe('ChatService session persistence', () => {
       execute: vi.fn().mockResolvedValue({
         status: 'cancelled',
         error: { code: 'SEARCH_CANCELLED', detail: '网页搜索已取消。', retryable: false },
-        modelContent: JSON.stringify({ ok: false, code: 'SEARCH_CANCELLED' }),
         logFields: { durationMs: 10 },
       }),
     };
@@ -692,7 +686,6 @@ describe('ChatService session persistence', () => {
         return Promise.resolve({
           status: 'succeeded' as const,
           output,
-          modelContent: JSON.stringify(output),
           logFields: { durationMs: 10, resultCount: 1 },
         });
       }),
@@ -724,7 +717,7 @@ describe('ChatService session persistence', () => {
     });
   });
 
-  it('persists only the validated retry after a forced answer leaks DSML', async () => {
+  it('does not infer a forced-final transition from tool-owned control fields', async () => {
     let modelRound = 0;
     const providerCreate = vi.fn().mockImplementation(() => {
       modelRound += 1;
@@ -763,9 +756,7 @@ describe('ChatService session persistence', () => {
       execute: vi.fn().mockResolvedValue({
         status: 'succeeded',
         output: { query: 'test', provider: 'serp', results: [] },
-        modelContent: '{"query":"test","provider":"serp","results":[]}',
         logFields: { durationMs: 1, resultCount: 0 },
-        control: { forceFinalAnswer: true },
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
@@ -775,20 +766,16 @@ describe('ChatService session persistence', () => {
 
     expect(events).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: 'message.delta', delta: '经过校验的最终回答' }),
+        expect.objectContaining({ type: 'message.delta', delta: '<｜DSML｜tool_calls>污染内容' }),
       ]),
     );
-    expect(events).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: 'message.delta', delta: expect.stringContaining('DSML') }),
-      ]),
-    );
+    expect(providerCreate).toHaveBeenCalledTimes(2);
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
-      data: { content: '经过校验的最终回答' },
+      data: { content: '<｜DSML｜tool_calls>污染内容' },
     });
   });
 
-  it('does not persist an assistant when both forced answers leak DSML', async () => {
+  it('keeps ordinary model text independent from removed tool force-final controls', async () => {
     let modelRound = 0;
     const providerCreate = vi.fn().mockImplementation(() => {
       modelRound += 1;
@@ -833,25 +820,27 @@ describe('ChatService session persistence', () => {
       execute: vi.fn().mockResolvedValue({
         status: 'succeeded',
         output: { query: 'test', provider: 'serp', results: [] },
-        modelContent: '{"query":"test","provider":"serp","results":[]}',
         logFields: { durationMs: 1, resultCount: 0 },
-        control: { forceFinalAnswer: true },
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'research');
 
-    await expect(collect(service.streamPrepared(prepared))).rejects.toMatchObject({
-      response: { code: 'MODEL_STREAM_FAILED' },
-    });
+    await expect(collect(service.streamPrepared(prepared))).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'message.delta', delta: '<|DSML|tool_calls>污染内容' }),
+      ]),
+    );
 
-    expect(providerCreate).toHaveBeenCalledTimes(3);
-    expect(messageCreate).toHaveBeenCalledTimes(1);
-    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({ data: { role: 'user' } });
+    expect(providerCreate).toHaveBeenCalledTimes(2);
+    expect(messageCreate).toHaveBeenCalledTimes(2);
+    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+      data: { role: 'assistant', content: '<|DSML|tool_calls>污染内容' },
+    });
   });
 
-  it('forces a tool-free final model round after the shared 20-call budget is exhausted', async () => {
-    // 模拟模型连续请求工具的轮次，用于验证跨轮共享的调用预算。
+  it('forces a tool-free final model round after the shared 20-call limit is reached', async () => {
+    // 模拟模型连续请求工具的轮次，用于验证跨轮共享的调用次数上限。
     let modelRound = 0;
     const providerCreate = vi.fn().mockImplementation(() => {
       modelRound += 1;
@@ -902,7 +891,6 @@ describe('ChatService session persistence', () => {
         return Promise.resolve({
           status: 'succeeded' as const,
           output,
-          modelContent: JSON.stringify(output),
           logFields: { durationMs: 10, resultCount: 0 },
         });
       }),

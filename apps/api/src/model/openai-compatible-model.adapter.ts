@@ -30,7 +30,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         model: input.model,
         stream: true,
         messages: this.toProviderMessages(input.messages),
-        ...(input.tools && !input.forceFinalAnswer
+        ...(input.tools
           ? { tools: this.toProviderTools(input.tools), tool_choice: 'auto' as const }
           : {}),
       },

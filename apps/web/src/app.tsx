@@ -29,12 +29,14 @@ import type {
   AssistantContentBlock,
   PersistedMessage,
   SessionSummary,
+  SourceProvenance,
 } from '@harness/agent-protocol';
 import type {
   AgentUiState,
   ConversationItem,
   PreviewState,
   ServiceState,
+  SourceView,
   ToolCallView,
   WorkbenchFocusTarget,
   WorkbenchState,
@@ -96,8 +98,36 @@ function sourceDomain(url: string): string {
   }
 }
 
+// 安全规范化来源 URL，损坏地址保留原值以避免实时投影中断。
+function canonicalUrl(url: string): string {
+  try {
+    return normalizeSourceUrl(url);
+  } catch {
+    return url;
+  }
+}
+
+// 返回来源可参与实时 canonical merge 的全部 URL。
+function sourceViewUrls(source: SourceView): string[] {
+  return [source.url, source.requestedUrl, source.normalizedUrl].filter(
+    (url): url is string => Boolean(url),
+  );
+}
+
+// 按固定优先级合并来源 provenance。
+function preferredProvenance(
+  left: SourceProvenance | undefined,
+  right: SourceProvenance,
+): SourceProvenance {
+  const priority = { user_provided: 3, search_clue: 2, model_proposed: 1, unknown: 0 };
+  return left && priority[left] >= priority[right] ? left : right;
+}
+
 // 将持久化 assistant metadata 投影为可恢复的轻量 Workbench。
-function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchState | undefined {
+// eslint-disable-next-line react-refresh/only-export-components -- 导出纯投影函数供实时/恢复一致性单测复用。
+export function workbenchFromPersistedMessage(
+  message: PersistedMessage,
+): WorkbenchState | undefined {
   if (message.role !== 'assistant') return undefined;
   const metadata = assistantAgentMetadataSchema.safeParse(message.metadata);
   if (!metadata.success || !metadata.data.agent?.executions.length) return undefined;
@@ -124,6 +154,11 @@ function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchStat
         cacheStatus: source.cacheStatus,
         truncated: source.truncated,
         passages: source.passages,
+        provenance: source.provenance,
+        requestedUrl: source.requestedUrl,
+        normalizedUrl: source.normalizedUrl,
+        contentHash: source.contentHash,
+        toolCallIds: source.toolCallIds,
       };
     }
     clueIndex += 1;
@@ -137,6 +172,8 @@ function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchStat
       provider: source.provider,
       kind: 'clue' as const,
       used: source.used,
+      provenance: source.provenance,
+      toolCallIds: source.toolCallIds,
     };
   });
   return {
@@ -190,10 +227,12 @@ function workbenchFromPersistedMessage(message: PersistedMessage): WorkbenchStat
 }
 
 // 将实时工具生命周期事件增量投影到当前 Workbench 状态。
-function applyToolEvent(
+// eslint-disable-next-line react-refresh/only-export-components -- 导出纯投影函数供实时/恢复一致性单测复用。
+export function applyToolEvent(
   current: WorkbenchState | undefined,
   event: ToolStreamEvent,
   open: boolean,
+  currentUserUrls: ReadonlySet<string> = new Set(),
 ): WorkbenchState {
   const base: WorkbenchState = current ?? {
     runId: event.messageId,
@@ -250,11 +289,6 @@ function applyToolEvent(
   const completedFetch = completedEvent?.toolName === 'web_fetch' ? completedEvent : undefined;
   const fetchSucceeded =
     completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
-  const fetchFailed =
-    completedFetch?.result.results.filter((item) => item.status === 'failed') ?? [];
-  const fetchSkipped =
-    completedFetch?.result.results.filter((item) => item.status === 'skipped') ?? [];
-  const fetchPassages = fetchSucceeded.reduce((total, item) => total + item.passages.length, 0);
   const executions = base.executions.map((tool) =>
     tool.toolCallId === event.toolCallId
       ? {
@@ -268,7 +302,7 @@ function applyToolEvent(
           elapsed: formatToolDuration(event.durationMs),
           outputSummary: completedEvent
             ? completedFetch
-              ? `成功 ${fetchSucceeded.length} 个，失败 ${fetchFailed.length} 个，跳过 ${fetchSkipped.length} 个，网络请求 ${completedFetch.result.budget.networkAttempts} 次，提取 ${fetchPassages} 段原文 · URL ${completedFetch.result.budget.urls.used}/${completedFetch.result.budget.urls.limit}`
+              ? `成功 ${completedFetch.result.stats.succeededCount} 个，失败 ${completedFetch.result.stats.failedCount} 个，跳过 ${completedFetch.result.stats.skippedCount} 个，网络请求 ${completedFetch.result.stats.networkAttemptCount} 次，提取 ${completedFetch.result.stats.passageCount} 段原文`
               : `返回 ${completedEvent.result.results.length} 条网页结果`
             : (cancelledEvent?.detail ?? failedEvent?.detail),
           resultCount: completedEvent?.result.results.length,
@@ -278,13 +312,20 @@ function applyToolEvent(
         }
       : tool,
   );
-  const sourceMap = new Map(base.sources.map((source) => [normalizeSourceUrl(source.url), source]));
+  const sources = [...base.sources];
   if (event.type === 'tool.completed' && event.toolName === 'web_search') {
     let clueNumber = nextSourceNumber(base.sources, 'R');
     for (const source of event.result.results) {
-      const sourceKey = normalizeSourceUrl(source.url);
-      if (!sourceMap.has(sourceKey)) {
-        sourceMap.set(sourceKey, {
+      const sourceKey = canonicalUrl(source.url);
+      const existing = sources.find((item) =>
+        sourceViewUrls(item).some((url) => canonicalUrl(url) === sourceKey),
+      );
+      if (existing) {
+        existing.toolCallIds = [...new Set([...(existing.toolCallIds ?? []), event.toolCallId])];
+        if (existing.kind === 'clue')
+          existing.provenance = preferredProvenance(existing.provenance, 'search_clue');
+      } else {
+        sources.push({
           id: `R${clueNumber}`,
           title: source.title,
           domain: source.domain,
@@ -293,6 +334,8 @@ function applyToolEvent(
           time: new Date(event.completedAt).toLocaleString('zh-CN'),
           provider: event.result.provider,
           kind: 'clue',
+          provenance: 'search_clue',
+          toolCallIds: [event.toolCallId],
         });
         clueNumber += 1;
       }
@@ -302,14 +345,56 @@ function applyToolEvent(
     let candidateNumber = nextSourceNumber(base.sources, 'F');
     for (const source of event.result.results) {
       if (source.status !== 'succeeded' || !source.passages.length) continue;
-      const matchedKey = [source.requestedUrl, source.finalUrl, source.normalizedUrl]
-        .map(normalizeSourceUrl)
-        .find((url) => sourceMap.has(url));
-      const matchedSource = matchedKey ? sourceMap.get(matchedKey) : undefined;
-      if (matchedKey) sourceMap.delete(matchedKey);
-      const candidateId =
-        matchedSource?.kind === 'fetched' ? matchedSource.id : `F${candidateNumber++}`;
-      sourceMap.set(normalizeSourceUrl(source.finalUrl), {
+      const resultUrls = new Set(
+        [source.requestedUrl, source.finalUrl, source.normalizedUrl].map(canonicalUrl),
+      );
+      const urlIndexes = sources.flatMap((item, index) =>
+        sourceViewUrls(item).some((url) => resultUrls.has(canonicalUrl(url))) ? [index] : [],
+      );
+      const hashIndexes = sources.flatMap((item, index) =>
+        item.contentHash === source.contentHash ? [index] : [],
+      );
+      const collisions = [...new Set([...urlIndexes, ...hashIndexes])].sort((a, b) => a - b);
+      const requestedKey = canonicalUrl(source.requestedUrl);
+      const provenance = currentUserUrls.has(requestedKey)
+        ? 'user_provided'
+        : urlIndexes.some((index) => sources[index]?.kind === 'clue')
+          ? 'search_clue'
+          : 'model_proposed';
+      // 仅 hash 相同但 URL 不同的来源保留首次卡片，只聚合执行身份。
+      if (!urlIndexes.length && hashIndexes.length) {
+        const target = sources[hashIndexes[0]!];
+        if (target) {
+          target.toolCallIds = [
+            ...new Set([
+              ...(target.toolCallIds ?? []),
+              ...hashIndexes.flatMap((index) => sources[index]?.toolCallIds ?? []),
+              event.toolCallId,
+            ]),
+          ];
+          target.provenance = hashIndexes.reduce(
+            (value, index) =>
+              preferredProvenance(value, sources[index]?.provenance ?? 'unknown'),
+            preferredProvenance(target.provenance, provenance),
+          );
+        }
+        for (const index of hashIndexes.slice(1).reverse()) sources.splice(index, 1);
+        continue;
+      }
+      const existing = collisions[0] === undefined ? undefined : sources[collisions[0]];
+      const candidateId = existing?.kind === 'fetched' ? existing.id : `F${candidateNumber++}`;
+      const mergedToolCallIds = [
+        ...new Set([
+          ...(existing?.toolCallIds ?? []),
+          ...collisions.flatMap((index) => sources[index]?.toolCallIds ?? []),
+          event.toolCallId,
+        ]),
+      ];
+      const mergedProvenance = collisions.reduce(
+        (value, index) => preferredProvenance(value, sources[index]?.provenance ?? 'unknown'),
+        provenance as SourceProvenance,
+      );
+      const candidate: SourceView = {
         id: candidateId,
         title: source.title,
         domain: sourceDomain(source.finalUrl),
@@ -324,10 +409,19 @@ function applyToolEvent(
         cacheStatus: source.cacheStatus,
         truncated: source.truncated,
         passages: source.passages,
-      });
+        provenance: mergedProvenance,
+        requestedUrl: source.requestedUrl,
+        normalizedUrl: source.normalizedUrl,
+        contentHash: source.contentHash,
+        toolCallIds: mergedToolCallIds,
+      };
+      if (collisions[0] === undefined) sources.push(candidate);
+      else {
+        sources[collisions[0]] = candidate;
+        for (const index of collisions.slice(1).reverse()) sources.splice(index, 1);
+      }
     }
   }
-  const sources = [...sourceMap.values()];
   return {
     ...base,
     open,
@@ -687,7 +781,12 @@ function PersistentAgentApp() {
                     (item) => item.status === 'succeeded' && item.passages.length > 0,
                   ));
             const open = existing?.open === true || (!suppressed && hasNewResource);
-            const workbench = applyToolEvent(existing, toolEvent, open);
+            const currentUserUrls = new Set(
+              [...task.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)].map((match) =>
+                canonicalUrl(match[0].replace(/[.,;:!?，。；：！？]+$/gu, '')),
+              ),
+            );
+            const workbench = applyToolEvent(existing, toolEvent, open, currentUserUrls);
             return {
               ...current,
               [targetId]: {

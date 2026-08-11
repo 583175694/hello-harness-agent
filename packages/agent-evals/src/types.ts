@@ -49,7 +49,8 @@ export type EvalCaseMetrics = {
   networkAttempts: number;
   uniqueDocuments: number;
   passageCharacters: number;
-  stopReason?: string;
+  duplicateFetchCount: number;
+  modelProposedSourceCount: number;
   clueSources: number;
   fetchedSources: number;
   usedSources: number;

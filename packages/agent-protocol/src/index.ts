@@ -7,14 +7,14 @@ export * from './common/source-url.js';
 export * from './sessions/contracts.js';
 export * from './web-fetch/contracts.js';
 import {
-  webFetchBudgetSchema,
   webFetchInputSchema,
   webFetchPassageSchema,
   webFetchResultSchema,
+  webFetchStatsSchema,
 } from './web-fetch/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.7.0';
+export const protocolVersion = '0.8.0';
 
 // 定义聊天和未来工具循环共用的消息基础字段。
 const messageBaseSchema = z.object({
@@ -116,8 +116,13 @@ const toolExecutionBaseSchema = z.object({
   skippedCount: z.number().int().nonnegative().optional(),
   passageCount: z.number().int().nonnegative().optional(),
   networkAttemptCount: z.number().int().nonnegative().optional(),
-  successfulUniqueDocumentCount: z.number().int().nonnegative().optional(),
-  error: z.object({ code: z.string().min(1), detail: z.string().min(1) }).optional(),
+  error: z
+    .object({
+      code: z.string().min(1),
+      detail: z.string().min(1),
+      retryable: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 // 根据工具名约束可持久化的执行输入，防止搜索和读取参数混淆。
@@ -129,8 +134,16 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
   toolExecutionBaseSchema.extend({
     toolName: z.literal('web_fetch'),
     input: webFetchInputSchema,
-    budget: webFetchBudgetSchema.optional(),
+    stats: webFetchStatsSchema.optional(),
   }),
+]);
+
+// 标识来源 URL 在当前 assistant run 中如何进入模型规划范围。
+export const sourceProvenanceSchema = z.enum([
+  'user_provided',
+  'search_clue',
+  'model_proposed',
+  'unknown',
 ]);
 
 // 定义去重后保存的来源线索及其关联工具调用。
@@ -138,6 +151,7 @@ export const searchSourceSnapshotSchema = searchResultSchema.extend({
   kind: z.literal('clue').default('clue'),
   used: z.boolean(),
   provider: searchProviderSchema,
+  provenance: sourceProvenanceSchema.default('search_clue'),
   retrievedAt: z.string().datetime(),
   toolCallIds: z.array(z.string().min(1)).min(1),
 });
@@ -146,6 +160,7 @@ export const searchSourceSnapshotSchema = searchResultSchema.extend({
 export const webFetchSourceSnapshotSchema = z.object({
   kind: z.literal('fetched'),
   used: z.boolean(),
+  provenance: sourceProvenanceSchema.default('unknown'),
   id: z.string().min(1),
   requestedUrl: z.string().url(),
   finalUrl: z.string().url(),
@@ -273,6 +288,7 @@ export const chatStreamEventSchema = z.union([
     durationMs: z.number().int().nonnegative(),
     code: z.string().min(1),
     detail: z.string().min(1),
+    retryable: z.boolean(),
   }),
   z.object({
     type: z.literal('tool.cancelled'),
@@ -313,6 +329,7 @@ export type SearchProvider = z.infer<typeof searchProviderSchema>;
 export type SearchResult = z.infer<typeof searchResultSchema>;
 export type SearchToolResult = z.infer<typeof searchToolResultSchema>;
 export type ToolExecutionSnapshot = z.infer<typeof toolExecutionSnapshotSchema>;
+export type SourceProvenance = z.infer<typeof sourceProvenanceSchema>;
 export type SearchSourceSnapshot = z.infer<typeof searchSourceSnapshotSchema>;
 export type WebFetchSourceSnapshot = z.infer<typeof webFetchSourceSnapshotSchema>;
 export type ResearchSourceSnapshot = z.infer<typeof researchSourceSnapshotSchema>;

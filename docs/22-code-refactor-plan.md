@@ -42,13 +42,15 @@ Runtime 只使用项目内的 canonical `ModelMessage` 和 `ModelRoundEvent`。O
 
 ### 3. Agent Runtime
 
-Runtime 负责模型轮次、工具调用循环、参数解析、工具预算、强制最终回答和标准事件输出。`MAX_TOOL_CALLS` 变为显式 Runtime Policy，后续可以按任务类型或配置替换，但当前仍保持单一默认策略。
+Runtime 负责模型轮次、工具调用循环、参数解析、每个 assistant run 最多 20 次 Tool Call、达到上限后的无工具最终回答和标准事件输出。该上限按模型声明的 Function Tool Call 计数，不理解具体 Tool 的领域资源。
 
-本次结构重构已经落实工具中立边界：Agent Runtime 只编排工具，不理解工具。Runtime 不导入具体工具类型，不按工具名称解释输入、输出、资源预算、日志或停止条件；新增工具不需要在 Runtime 增加 `if (toolName === ...)` 分支。
+本次结构重构已经完成第一阶段的工具名称中立化：Agent Runtime 不导入具体工具类型，也不按工具名称解释输入输出。这消除了显式的 `if (toolName === ...)` 业务分支，但还不是最终的 Tool 边界。
 
-现已引入类型化、run-scoped 的通用 `ToolRunState`。Runtime 只创建并传递该容器以及 `latestUserContent`、session/message/tool-call 标识和取消信号；具体工具领域负责创建、读取和维护自己的状态。Web Research 使用领域内的 `WebResearchRunState`，Search 与 Fetch 通过同一个 `ToolRunState` 共享 URL provenance、URL/Passage 预算、去重与无新增内容状态。
+历史第一阶段曾引入类型化、run-scoped 的通用 `ToolRunState`。当时 Runtime 只创建并传递该容器以及 `latestUserContent`、session/message/tool-call 标识和取消信号；Web Research 使用领域内的 `WebResearchRunState` 共享 URL provenance、URL/Passage 预算、去重与无新增内容状态。这些结构已在第二阶段删除。
 
-工具执行结果通过统一契约声明可观测字段和控制意图：`logFields` 供 Runtime 结构化记录，`forceFinalAnswer` 请求结束工具阶段。Runtime 不根据结果内容推断这些意图，也不按名称关闭某个工具；强制最终回答统一省略全部工具定义。`disableTools: string[]` 作为通用契约保留，但 Web Research 的资源停止不再返回具体工具名称。此前未实际用于生产工具且与领域预算重复的 per-tool units 接口已经删除。
+历史工具执行结果曾通过统一契约声明 `logFields` 和 `forceFinalAnswer` 等控制意图。架构复核发现，这仍然让 Tool 领域通过抽象协议反向控制 Runtime；`ToolRunState` 也使 Web Research 成为隐藏的领域编排器。
+
+第二阶段重构已经完成：没有增加新的 Runtime/Research Decision Policy，而是删除了 `ToolRunState`、`WebResearchRunState`、`control`、Tool `modelContent`、Tool `forceFinalAnswer` 和 `disableTools`。模型作为唯一语义规划者，Runtime 只执行模型决策和通用执行边界，Tool 只返回 canonical 结构化结果，Runtime 统一生成 Tool Message；来源 provenance 和归并由 Projection 派生。详见 [Model-led Tool Boundary](./25-model-led-tool-boundary.md)。
 
 ### 4. Projection 与 Persistence
 
@@ -78,7 +80,7 @@ Runtime 负责模型轮次、工具调用循环、参数解析、工具预算、
 
 ## 为什么不是一次性继续拆完
 
-拆分能够降低认知负担，但每增加一个抽象也会增加跳转成本、依赖配置和调试路径。当前 `ChatService` 仍保留搜索专用 SSE 投影，是因为协议层的 `tool.completed` 仍携带 Search-specific 结果；贸然把它泛化会同时改变 Web、协议和持久化契约，风险高于收益。
+拆分能够降低认知负担，但每增加一个抽象也会增加跳转成本、依赖配置和调试路径。当前 `ChatService` 通过 `ResearchProjectionCollector` 统一投影 Search/Fetch execution 与 source；协议层仍使用按 `toolName` 判别的具体结果类型，避免把工具业务结构泄露进 Runtime。
 
 前端仍有一部分会话编排逻辑集中在 `app.tsx`，这是有意保留的边界：它负责 session 选择、缓存、SSE 生命周期和跨会话后台生成。后续可以在协议进一步稳定后抽取 hooks 和 projection，但不应把同一状态机拆散到多个互相写状态的组件中。
 

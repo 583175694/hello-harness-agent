@@ -36,6 +36,7 @@ export type AgentRuntimeEvent =
       durationMs: number;
       code: string;
       detail: string;
+      retryable: boolean;
     }
   | {
       type: 'tool.cancelled';

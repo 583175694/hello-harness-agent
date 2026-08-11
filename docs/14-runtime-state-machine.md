@@ -1,6 +1,6 @@
 # Runtime State Machine
 
-> 文档状态：Greenfield R1 状态契约。
+> 文档状态：后续 durable Runtime 状态草案，不约束当前一次 Chat 请求内的 Agent Runtime。
 
 ## 1. 原则
 
@@ -115,7 +115,7 @@ type ToolCallStatus =
 
 Search fallback 仍属于同一个 logical tool call，但每次 provider attempt 都记录 trace/attempt fact。
 
-Tool succeeded 必须先 durable：normalized result、short-lived Artifact（如需要）、tool_result 和 tool_observation。
+未来 durable Tool succeeded 必须先保存 normalized result 和必要的 execution fact，再推进下一 step；当前不预设独立 `tool_observation` 记录，完整持久化顺序需在 durable Run 方案中重新冻结。
 
 ## 8. SearchResult Lifecycle
 
@@ -215,7 +215,7 @@ Timeout 来源：run、step、model call、tool call、provider attempt。
 
 ## 16. Failure
 
-可恢复 downstream failure 优先形成 observation 让 Lead 决定下一步；以下直接失败：
+可恢复 downstream failure 优先形成结构化结果让模型决定下一步；以下直接失败：
 
 - 零 eligible evidence 且预算耗尽
 - citation validation 有界修复失败

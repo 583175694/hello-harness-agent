@@ -1,11 +1,13 @@
 // 集中维护 Web Fetch V1 的确定性资源和安全边界。
 export const WEB_FETCH_POLICY = {
+  // 整批网页读取 Tool Call 允许占用的最长时间。
+  toolTimeoutMs: 45_000,
   // 单个 URL 允许的最大字符数。
   maxUrlLength: 2_048,
   // 同一批次允许并行进行的最大网络请求数。
   maxConcurrency: 3,
   // 单个 URL 从导航到内容处理的超时时间。
-  timeoutMs: 20_000,
+  transportTimeoutMs: 20_000,
   // 可恢复网络错误允许的最大重试次数。
   maxRequestRetries: 1,
   // 单个 URL 允许跟随的最大重定向次数。

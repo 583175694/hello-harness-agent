@@ -1,6 +1,6 @@
 # Agent Loop
 
-> 文档状态：Greenfield R1 model-decision 契约。
+> 文档状态：后续 durable Agent Loop 草案，不约束当前 Chat Runtime。当前 Model-led 边界以 `25-model-led-tool-boundary.md` 为准。
 
 ## 1. 定义
 
@@ -141,9 +141,9 @@ EvidenceSource       can be cited as [Sx]
 
 模型不能自行创造 `evidenceId/displayId`，不能引用未出现在 context 的 evidence。
 
-## 11. Tool Observation
+## 11. Tool Result
 
-Loop 默认消费 deterministic tool_observation，不直接消费无限 raw provider response。需要 passage 时由 ContextMaterialLoader 提供受限 EvidenceCard/refs。
+当前 Runtime 把 Tool 的 canonical `output/error` 序列化为 Tool Message 直接交给下一模型轮次，不建立独立 `tool_observation` 或字符注入预算。未来如实施 Context Engineering，应面向完整上下文统一选择和编译材料，本草案不预先冻结 EvidenceCard/refs 或 observation schema。
 
 ## 12. Stop Conditions
 
@@ -152,10 +152,10 @@ Loop 默认消费 deterministic tool_observation，不直接消费无限 raw pro
 - valid downstream action dispatched
 - waiting_for_user
 - runtime cancel/timeout
-- hard budget exceeded
+- 20 次 Tool Call 上限或其他通用执行边界触发
 - unrecoverable validation/model failure
 
-Research task 是否 completed 由 Runtime completion guard + ReportPipeline + Finalizer 共同确定，不由一句模型文本决定。
+当前普通 Agent 是否继续调查或回答由模型决定；Runtime 只在取消、单次超时、协议失败或 20 次 Tool Call 上限时确定性改变流程。未来 durable workflow 的完成协议尚未冻结。
 
 ## 13. Streaming
 

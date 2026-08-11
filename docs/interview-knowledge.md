@@ -277,7 +277,7 @@ model(tool_calls)
   -> model 继续决策或输出最终回答
 ```
 
-OpenAI-compatible 流中的函数名和 JSON arguments 都可能跨 chunk 返回，因此必须按 tool-call `index` 累加，等本轮结束后再解析，不能对单个 delta 直接 `JSON.parse`。同一模型响应含多个调用时按返回顺序串行执行，使用 20 次通用工具硬上限防止失控，但不要求模型用满预算。
+OpenAI-compatible 流中的函数名和 JSON arguments 都可能跨 chunk 返回，因此必须按 tool-call `index` 累加，等本轮结束后再解析，不能对单个 delta 直接 `JSON.parse`。同一模型响应含多个调用时按返回顺序串行执行，每个 assistant run 最多处理 20 次模型声明的 Tool Call，但不要求模型用满额度。
 
 工具层拆成稳定的通用边界：
 
@@ -285,11 +285,11 @@ OpenAI-compatible 流中的函数名和 JSON arguments 都可能跨 chunk 返回
 AgentTool             定义名称、Function Schema、可用性和 execute
 Tool Catalog          作为工具白名单与唯一注册入口
 Tool Registry         负责发现、JSON/Zod 校验和分派
-Agent Runtime         负责模型-工具循环、通用预算、超时和终止
+Agent Runtime         负责模型-工具循环、20 次调用上限、超时和终止
 Tool implementation   只负责具体能力和自己的业务不变量
 ```
 
-新增工具时，只需实现 `AgentTool` 并加入 Catalog，Registry 和 Runtime 不应出现 `if (toolName === ...)` 式的业务执行逻辑。Prompt 负责引导模型何时用工具，具体 Tool/Executor 负责强制权限、参数、来源和资源不变量；不能把安全性寄托在 Prompt 上。
+新增工具时，只需实现 `AgentTool` 并加入 Catalog，Registry 和 Runtime 不应出现 `if (toolName === ...)` 式的业务执行逻辑。Prompt 负责引导模型何时用工具，具体 Tool/Executor 负责强制输入、安全和能力内部资源边界；不能把安全性寄托在 Prompt 上。Tool 的外层执行超时由 Tool 声明、Runtime 统一组合用户取消并强制执行。
 
 通用 Runtime 把执行过程转换为 `tool.started/completed/failed/cancelled`，Conversation 和 Workbench 只消费这些 canonical lifecycle event，不解析 OpenAI 原始 chunk 或具体 Provider 响应。当前这仍是 Chat SSE 投影，不是 durable Run Event Store。
 
@@ -299,7 +299,7 @@ Tool implementation   只负责具体能力和自己的业务不变量
 
 搜索标题和摘要只是 `clue`，目的是帮助模型选择值得读正文的 URL，不是直接冒充事实依据。Search 成功后会把 clue URL 登记到本轮 Web Research 状态，成为 Fetch 可接受的候选；用户当前消息中的 HTTP/HTTPS 直链也可以直接登记。模型自行猜测的 URL 在网络请求前被拒绝。
 
-Search 和 Fetch 在可用时同时暴露，调用顺序由模型决定，不把 Agent Loop 写死成固定流程。Prompt 引导没有直链的联网任务先搜索，执行层则通过 URL provenance 确保只读取用户直链或真实 clue。
+Search 和 Fetch 在可用时同时暴露，调用顺序由模型决定，不把 Agent Loop 写死成固定流程。当前代码允许模型 Fetch 任意通过安全 Guard 的公开 URL，并由 Projection 把 provenance 保留为可观测事实，而不是执行权限。
 
 Workbench 实时消费 Search 的工具生命周期事件，并把去重后 clue 投影到 Sources。最终 assistant metadata 保存 execution/source 轻量快照，用于刷新恢复；它不是 Run/Event replay，也不将 clue 提升为正式 Evidence。
 
@@ -324,23 +324,25 @@ Quality Gate 在写入 LRU 和 Passage Ranking 前拒绝过短正文、登录/�
 
 Passage 必须是 canonical Markdown 的连续直接子串，不由模型改写或拼接。Locator 保存 quote、Unicode code-point position 和 sectionPath，并与 contentHash、retrievedAt 一起解释；这给 Workbench 提供可恢复的原文定位，但不等同于页面 DOM 字节位置。
 
-### 11.2 Run-scoped 资源台账与平稳早停
+### 11.2 从“领域状态控制”到 Model-led Tool Boundary
 
-单次 Fetch 的 `maxItems` 不能约束多轮 Agent Loop，因此每个 run 都需要独立的 Web Research 领域状态，累计唯一初始 URL、final/normalized URL alias、contentHash、网络尝试、成功文档和注入 Passage 字符。当前实现使用通用 `ToolRunState` 承载领域拥有的 `WebResearchRunState`；Runtime 只创建和传递容器，不读取领域数据。运行状态不放在 singleton Tool/Service 上，避免并发会话互相污染。
+第一版为了约束跨多轮 Fetch，引入了 `ToolRunState` 和 `WebResearchRunState`，累计 URL alias、contentHash、Passage 字符和连续无新增内容；Web Research 再通过 `forceFinalAnswer` 请求 Runtime 收尾。这个方案解决了并发隔离和显式 Web 分支问题，也证明“把状态移出 Runtime”可以降低核心循环对具体工具的认知。
 
-预算超限和网络失败不是同一语义。批次只有部分 URL 能被接受时，前缀继续执行，其余以 `skipped` 返回；重复 URL 或重复正文也是 `skipped`，不伪装成上游错误。连续两次 Fetch 没有新增唯一文档，或者触及 URL、Passage 或工具调用边界后，Web Research 通过统一契约请求 `forceFinalAnswer`，Runtime 只负责进入一次省略全部工具的最终回答。这使“安全停止”成为可交付状态，同时避免 Runtime 理解或按名称禁用 Search/Fetch。
+进一步复盘发现，这只是把决策依赖从 `if (toolName)` 移进了通用契约。Tool 仍能决定何时停止，`WebResearchRunState` 实际上成了隐藏的领域 planner；如果每个新工具都增加自己的 run state 和控制意图，Runtime 最终会被多个领域策略共同驱动。再增加 Runtime Decision Policy 或 Web Research Policy，只会形成模型之外的第二套大脑。
 
-单操作超时与用户 Abort 必须分开：普通模型单轮最多 120 秒，最终回答单轮最多 30 秒，Search 和 Fetch 分别使用 10 秒和 20 秒；Agent run 本身没有总截止时间。用户主动取消或 SSE 断开则立即中止，不生成和持久化一份用户不再需要的最终回答。
+因此最终边界调整并实现为：模型是唯一语义规划者，Runtime 执行模型决策并维护 20 次 Tool Call、单操作超时、取消和协议安全等通用边界，Tool 只返回 canonical output、结构化错误和日志字段。Runtime 统一把 `output/error` 序列化为 Tool Message；`ToolRunState`、`WebResearchRunState`、Tool `modelContent`、Tool `forceFinalAnswer` 和 `disableTools` 已删除。SSRF、DNS、重定向、响应大小、正文提取、Passage 排序和 LRU 等能力内部约束继续留在 Fetch，因为它们属于安全与工程正确性，不属于任务决策。
 
-这里的核心架构原则是：Agent Runtime 只编排工具，不理解工具；工具通过统一契约声明能力、结果、指标和控制意图，具体业务状态由工具领域自己维护。因此新增工具时，只应实现 `AgentTool`、领域状态和注册，不应在 Runtime 增加 `if (toolName === ...)` 式业务分支。
+当前不建立 Tool observation 字符预算或注入状态，Tool Result 始终进入下一模型轮次。未来 Context Engineering 如果实施，应面向完整模型上下文统一做 Token 计量、选择、压缩和淘汰，而不是让 Tool 决定模型能看到什么。
+
+这个案例的关键不是“所有状态都不好”，而是区分执行状态与规划状态：Runtime 可以记录 messages、rounds、tool-call count、cancel 和 execution history，但不能让某个 Tool 的领域状态成为主循环决策源。单操作超时与用户 Abort 同样继续保留；模型负责语义，不代表模型可以覆盖安全边界。
 
 ### 11.3 轻量 Source 语义不等于 Evidence
 
-搜索标题和 snippet 是 `clue`，成功读取并经质量门/相关性筛选的网页是 `fetched`。最终回答完成后，后端抽取回答中的 HTTP/HTTPS URL，执行去 fragment、tracking 参数和参数排序的同一规范化，再确定性设置 `used`。`used=true` 只表示回答采用了该链接，不能表述成“该来源逐句支撑了某个事实”。这个边界以很低的复杂度给通用 Agent 提供真实来源透明度，同时不冒充后续 Deep Research 的 Evidence/Citation Validator。
+搜索标题和 snippet 是 `clue`，成功读取并经质量门/相关性筛选的网页是 `fetched`。最终回答完成后，后端抽取回答中的 HTTP/HTTPS URL，执行去 fragment、tracking 参数和参数排序的同一规范化，再确定性设置 `used`。`used=true` 只表示回答采用了该链接，不能表述成“该来源逐句支撑了某个事实”。这个边界以很低的复杂度提供真实来源透明度，但不冒充正式逐句引用能力，也不承诺后续一定建设 Citation Validator。
 
 ### 11.4 网页内容是数据，不是指令
 
-Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独立 tool message 进入模型上下文。网页里的“忽略原有指令”、角色声明、工具调用要求或外链都只是不可信数据，不能改变 system prompt、工具集、预算、完成条件或 URL 来源规则。完整 Raw HTML、Cookie、Authorization、API Key 和内部 prompt 不进入模型或 Workbench。
+Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独立 Tool Message 进入模型上下文。网页里的“忽略原有指令”、角色声明、工具调用要求或外链都只是不可信数据，不能改变 system prompt、工具集、执行边界或完成条件。网页外链可以被模型提出给下一次 Fetch，但仍必须通过 URL/DNS/redirect 安全 Guard。完整 Raw HTML、Cookie、Authorization、API Key 和内部 prompt 不进入模型或 Workbench。
 
 这里需要区分两种不可信内容：前端的“不可信 Markdown”解决渲染与链接安全；Agent 上下文中的“不可信 Tool Result”解决 Prompt Injection 和能力边界。两者的信任边界不同，不能只做 HTML sanitization 就宣称解决了 Agent Prompt Injection。
 
@@ -366,9 +368,9 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 进一步梳理后得到两个结论：
 
 - 时间适合隔离单次故障，不适合衡量一个开放式研究任务是否应该结束。任务复杂度、来源数量和供应商延迟都会让总耗时产生很大波动。
-- Agent 的终止条件应该优先来自结构性边界和信息增益，例如工具调用次数、可读取 URL、可注入正文规模以及连续无新增内容，而不是只看墙上时钟。
+- 当时认为 Agent 的终止条件应该优先来自结构性边界和信息增益，例如工具调用次数、可读取 URL、可注入正文规模以及连续无新增内容，而不是只看墙上时钟。后续 Model-led 复盘进一步收敛为：当前阶段只保留通用 Tool Call 次数作为结构性收敛边界，不让 Web 领域状态替模型判断信息是否足够。
 
-### 12.3 解决方案
+### 12.3 当时的解决方案
 
 最终采用了四层互补、但保持简单的运行边界：
 
@@ -382,7 +384,7 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
   -> Search 10 秒 / Fetch 20 秒
 
 结构性运行边界
-  -> 每次 run 最多 20 个实际模型声明的工具调用
+  -> 每个 assistant run 最多 20 个实际模型声明的 Tool Call
   -> Web Research 最多 25 个 URL、60,000 个外部 Passage 字符
   -> 连续两次 Fetch 没有新增唯一文档时停止调查
 
@@ -395,29 +397,49 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 
 我们删除了 Agent run 的 120 秒总截止时间，但没有删除超时机制。新的语义是：只要多个单操作都健康，复杂任务就可以继续；任何单次模型、Search 或 Fetch 卡住，仍会被自己的超时隔离。失败、超时、取消、无效参数以及同一响应里的多个工具调用都会分别计入 20 次额度，避免通过失败调用绕开循环上限。
 
-资源预算由工具领域自己维护，而不是写进 Agent Runtime。Runtime 只理解通用工具调用额度、生命周期事件和 `disableTools` / `forceFinalAnswer` 控制意图；Web Research 自己理解 URL provenance、URL/正文去重、Passage 预算和信息增益早停。这样新增数据库查询、代码执行或文件处理工具时，不需要修改 Runtime 的业务分支。
+当时把资源预算下沉到工具领域，Runtime 只理解通用工具调用额度、生命周期事件和 `disableTools` / `forceFinalAnswer`。它成功删除了 Runtime 中的 Web-specific 分支，但后来确认控制意图仍允许 Tool 反向驱动主循环，因此这是一版中间方案，而不是最终架构。
 
-### 12.4 关键取舍
+### 12.4 后续架构复盘与修正
+
+复盘时采用了一个更严格的判断：Tool 是手脚，只应执行能力并返回结构化结果；模型是任务语义上的大脑；Runtime 是执行模型决策、传播事件并守住通用边界的编排器。若 Web Fetch 可以通过 `forceFinalAnswer` 结束工具阶段，或者通过 `WebResearchRunState` 决定“信息已无增益”，它就不再是纯 Tool，而拥有了一部分 planner 权力。
+
+最终批准的修正不是再增加一层 `RuntimeDecisionPolicy` 或 `WebResearchRuntimePolicy`，而是删除 `control`、`ToolRunState` 和 Web 跨调用规划状态。达到 20 次 Tool Call、单轮超时、取消或协议失败时，由 Runtime 确定性收敛；在这些边界之内，是否 Search、Fetch、重试、更换来源或回答，由模型下一轮输出决定。Web Fetch 继续确定性拒绝 SSRF、私网、非法重定向、超大响应和不支持内容，因为安全与资源隔离不能交给概率模型。URL provenance 改由 Projection 派生，只用于观测和来源归并，不再决定 Fetch 权限。
+
+这一修正接受模型可能重复读取来源或执行效率下降的代价。此类问题先由 Eval 的效率评分和人工复核观测，不再预置隐藏 planner；只有真实数据表明存在安全、成本或平台稳定性风险时，才增加工具无关、不可由模型覆盖的硬边界。
+
+### 12.5 关键取舍
 
 这个方案没有追求一次性解决所有极端情况。当前阶段没有加入总 Token/成本预算、相似查询检测、供应商熔断、证据评分、持久化 Run State 或分布式任务恢复。原因是这些机制需要更多运行数据才能确定正确策略，过早引入会增加状态组合、误判和排障成本。
 
 目前接受一个明确限制：如果搜索供应商持续失败，模型仍可能重复搜索，直到消耗完 20 次通用工具额度。它不够高效，但运行一定会收敛，并且完整上游错误原因会进入服务端日志。等 Harness Agent、评测集和运行观测完善后，再根据真实失败分布决定是否增加熔断或成本预算。
 
-这里的设计取舍可以概括为：去掉会误伤正常复杂任务的全局时间限制，用单操作超时保证故障隔离，用结构性预算保证最终收敛，用无工具缓冲校验保证输出安全。
+这里的设计取舍可以概括为：去掉会误伤正常复杂任务的全局时间限制，用单操作超时保证故障隔离，用 20 次 Tool Call 上限保证最终收敛，用无工具缓冲校验保证输出安全。
 
-### 12.5 结果与验证
+### 12.6 历史结果与验证
 
-改造后，全球股票分析这类需要多轮 Search/Fetch 的任务可以在超过原总截止时间后继续正常执行，并在已有材料足够或资源边界触发时生成完整回答。Runtime 不再包含 Web Search/Web Fetch 名称、URL 解析或 Web 指标分支，Web Research 的状态也按单次 run 隔离，不会污染并发会话。
+改造后，全球股票分析这类需要多轮 Search/Fetch 的任务可以在超过原总截止时间后继续正常执行，并由模型根据已经取得的材料决定继续调查或生成回答。当前 Runtime 不包含 Web Search/Web Fetch 名称、URL 解析、Web 指标分支或领域 run state；每个 Tool Call 只接收本次执行上下文，不存在跨会话共享的 Web 规划状态。
 
-自动化测试覆盖了单轮超时、20 次调用计数、同轮多调用、用户取消、URL/Passage 预算、连续无新增内容、无工具最终回答、DSML 污染重试、失败不持久化以及任意命名工具的通用编排。这个结果不仅修复了一个超时问题，也把 Agent 的时间边界、资源边界、架构边界和协议边界拆成了可以独立验证的责任。
+历史版本曾用自动化测试覆盖 URL/Passage 预算和连续无新增内容；Model-led 迁移删除这些领域控制机制后，验收重点替换为混合 Tool Call 计数、canonical Tool Message、来源 provenance、canonical source 归并、实时/刷新恢复一致性和 Web Fetch `stats` 事实统计。单轮超时、同轮多调用、用户取消、无工具最终回答、DSML 污染重试、失败不持久化以及任意命名工具的通用编排仍然保留验证。这个结果不仅修复了一个超时问题，也证明时间边界、收敛边界、能力边界和投影边界可以各自独立验证。
 
-### 12.6 面试口述版
+### 12.7 面试口述版
 
 > 我们做深度联网 Agent 时，最初给整个研究阶段设置了 120 秒硬超时，目的是防止模型无限调用工具。但实际运行复杂任务后发现，多轮搜索和网页读取即使每一步都正常，累计也会超过 120 秒，全局计时器反而会误杀健康任务。直接删除超时也不行，因为还存在重复调用、资源耗尽和工具协议污染。
 >
-> 我先通过轮次和工具日志确认瓶颈不是某个请求卡死，而是正常操作累计耗时，然后把一个总时间限制拆成三类边界：第一，模型、搜索和抓取各自保留单操作超时，负责故障隔离；第二，用 20 次工具调用、25 个 URL、60,000 字符和连续两次无新增内容保证结构性收敛；第三，结束工具阶段后完全移除工具定义，缓冲并校验最终回答，发现 DSML 或结构化工具调用就丢弃并只重试一次。
+> 我先通过轮次和工具日志确认瓶颈不是某个请求卡死，而是正常操作累计耗时，因此删除了 Agent 总截止时间，保留模型、搜索和抓取各自的单操作超时，并用 20 次通用工具调用保证循环一定有硬上限。结束工具阶段后完全移除工具定义，缓冲并校验最终回答，发现 DSML 或结构化工具调用就丢弃并只重试一次。
 >
-> 同时我把 URL、正文预算和去重状态下沉到 Web Research 工具领域，Agent Runtime 只处理通用编排和控制意图，避免以后增加新工具还要修改 Runtime。最终复杂任务可以合法运行超过 120 秒，但单个故障仍能及时隔离，整个 run 也一定受结构性边界约束。当前没有过度引入熔断、成本预算和持久化任务框架，后续会根据真实观测数据再补极端场景。
+> 第一版还把 URL、正文预算和早停状态下沉到 Web Research，并用 `forceFinalAnswer` 通知 Runtime。后续我意识到这只是隐藏了依赖：Tool 仍在替模型决定何时停止。于是目标架构进一步删除领域 run state 和控制意图，明确模型是唯一语义 planner，Runtime 只守通用执行边界，Tool 只返回结构化结果，来源事实由 Projection 派生。这个演进比单纯强调“Runtime 没有工具名称分支”更彻底，也避免每增加一个工具就增加一套隐形决策系统。
+
+### 12.8 如何验证 Model-led 边界不是“只改了类型”
+
+架构迁移不能只证明 happy path 仍然能跑。删除接口字段以后，旧职责仍可能以其他形式残留：Registry 可能继续提供按名称排除工具的入口，Runtime 可能仍根据某种 Tool 返回值提前结束，前后端也可能各自实现一套不同的来源归并。因此验收要围绕真实事实源和反向用例，而不只是检查类型是否编译通过。
+
+第一组验收验证 Tool Call 的计数与消息闭合。Runtime 计数的是模型声明的 Tool Call，而不是成功执行数或 `tool.started` 事件数；成功、结构化失败、非法参数、未知 Tool 和同一 assistant 响应中的多个调用都要占用额度。第 21 次调用不执行，但仍要补齐 `TOOL_CALL_LIMIT_EXCEEDED` Tool Message，确保模型声明的每个 Tool Call 都有对应结果，随后再进入无工具最终回答。持久化的 `agent.toolCallCount` 是 Eval 的调用次数事实源，不能用只覆盖真实启动执行的 `tool.started` 数量代替。
+
+第二组验收验证双层投影。Execution 保存每次真实发生的 Search/Fetch，不做跨调用去重；Source snapshot 则按 requested/final/normalized URL 或 `contentHash` 归并为一条 canonical source，并聚合 `toolCallIds` 与更高优先级 provenance。测试使用同一事件序列分别驱动 Web 实时状态和 assistant metadata 刷新恢复，再比较二者得到的 SourceView，防止“流式时两张卡片、刷新后只剩一张”之类的语义分叉。
+
+第三组验收验证统计和命名都表达事实而非控制意图。Web Fetch `stats` 只描述本次调用的请求、网络尝试、成功、失败、跳过、Passage 和缓存命中，不决定 Runtime 是否继续。评测指标原名 `modelProposedFetchCount` 容易被误解为 Fetch 调用次数，实际统计的是最终 source snapshot 中 provenance 为 `model_proposed` 的 canonical fetched source 数量，因此改为 `modelProposedSourceCount`。
+
+这套验收可以概括为：用混合失败证明通用调用边界，用 Tool Message 配对证明协议闭合，用实时与恢复对照证明投影一致，用反向硬规则证明 Eval 读取了正确事实源。这样才能说明 Model-led 不只是接口换名，而是决策权、执行权和观测投影真正完成了职责迁移。
 
 ## 13. 面试表达模板
 
@@ -439,7 +461,7 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 
 ### 问：Function Calling 是模型自己的 Agent Loop 吗？
 
-答：模型只决定“返回最终文本”还是“返回工具名称和参数”，真正的 Loop 由应用实现。后端聚合分片参数、校验、执行工具、把结果放回上下文，再请求下一轮模型。工具预算、超时、取消和安全校验都必须由应用强制。
+答：模型只决定“返回最终文本”还是“返回工具名称和参数”，真正的 Loop 由应用实现。后端聚合分片参数、校验、执行工具、把结果放回上下文，再请求下一轮模型。20 次 Tool Call 上限、超时、取消和安全校验都必须由应用强制。
 
 ### 问：为什么 Web Fetch 不直接把整个网页放进上下文？
 
@@ -447,7 +469,7 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 
 ### 问：为什么取消 Agent 总超时，不会导致工具无限调用？
 
-答：取消的是整个 run 的墙上时钟，不是取消所有边界。单次模型、Search 和 Fetch 仍有独立超时，用户取消会立即传播；整个 run 还有 20 次工具调用硬上限，Web Research 另有 URL、Passage 和连续无新增内容边界。结束工具阶段后，最终回答请求完全不发送工具定义，并在服务端缓冲校验。因此正常复杂任务不会被累计耗时误杀，异常循环也仍然确定收敛。
+答：取消的是整个 run 的墙上时钟，不是取消所有边界。单次模型和 Tool 仍有独立超时，用户取消会立即传播；每个 assistant run 还有 20 次 Tool Call 上限。达到上限后，最终回答请求完全不发送工具定义，并在服务端缓冲校验。因此正常复杂任务不会被累计耗时误杀，异常循环也仍然确定收敛。历史版本中的 Web URL/Passage/无新增内容边界已经删除，不应再作为当前目标架构讲解。
 
 ## 14. 后续追加规则
 

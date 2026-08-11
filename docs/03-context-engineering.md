@@ -1,251 +1,90 @@
 # Context Engineering
 
-> 文档状态：Greenfield R1 模型输入契约。
+> 文档状态：后续方向，尚未进入实施与协议冻结。本文只定义职责边界，不承诺具体组件、Schema、预算算法或交付时间。
 
-## 1. 定义
+## 1. 当前状态
 
-Context Engineering 是模型输入的唯一编译路径：
+当前生产 Runtime 使用数据库最近消息和当前 assistant run 内的完整 Tool Message 组成模型上下文。Tool Result 完成后始终注入下一模型轮次，尚未实现全局 Token 预算、材料选择、压缩、淘汰、摘要或最终回答空间预留。
 
-```text
-frozen structured materials -> pure compile -> CompiledStepContext
-```
+因此，以下内容都不是当前能力：
 
-它不是 prompt 字符串拼接器，也不决定下一 action。
+- 独立 `ContextCompiler` 或 `ContextMaterialLoader`。
+- `ObservationCard`、`ToolObservationDelivery` 或 observation 注入状态。
+- 单次 Tool Result 或运行级 Tool Result 字符预算。
+- 完整上下文 Token 计量和动态材料装载。
+- 上下文编译 trace、context hash 或 tokenizer version 管理。
 
-## 2. 两阶段
+这些缺失不会由 Tool 或 Web Research 领域的临时预算协议代替。
 
-```text
-ContextMaterialLoader
-  I/O, authorization, retrieval, freezing
+## 2. 未来职责边界
 
-ContextCompiler
-  pure selection, ordering, truncation, rendering
-```
-
-数据库、Artifact、Memory 和 provider I/O 禁止进入 Compiler。
-
-## 3. R1 输入
-
-```ts
-type ContextCompileInput = {
-  userId: string;
-  sessionId: string;
-  runId: string;
-  stepId: string;
-  phase: ResearchPhase;
-  currentUserInstruction: UserInstruction;
-  conversationSummary?: ConversationSummary;
-  taskFrame: TaskFrame;
-  openGaps: GapCard[];
-  observations: ObservationCard[];
-  clues: ClueCard[];
-  evidence: EvidenceCard[];
-  artifactCards: ArtifactCard[];
-  pendingSteer: SteerCard[];
-  toolCards: ToolCard[];
-  reportDraft?: ReportDraftCard;
-  reportReview?: ReportReview;
-};
-```
-
-P9 才增加 `memoryCards`。P11 才增加 WorkerTaskFrame scope。
-
-## 4. Instruction Hierarchy
+如果后续评测证明长会话、连续 Tool Result 或材料相关性已经成为主要问题，Context Engineering 应成为模型输入的统一编译边界：
 
 ```text
-System / product policy
-Current user instruction
-Current accepted steer
-Task frame / current phase
-Current session facts
-User MemoryCard (post-R1)
-Untrusted external evidence
+System Prompt
++ 历史会话消息
++ 当前用户输入
++ Assistant Tool Calls
++ Tool Results
++ 其他未来 Context
++ 最终回答 Token 预留
+-> 全局计量、选择、排序、压缩、淘汰
+-> 模型请求
 ```
 
-外部 evidence 永远不能覆盖上层 instruction。
+它面向完整上下文，而不是只处理 Web Research、Passage 或 Tool Result。
 
-## 5. Untrusted Evidence Block
+Context Engineering 负责“模型在有限窗口中看到什么”，但不负责：
 
-```ts
-type EvidenceCard = {
-  evidenceId?: string;
-  displayId?: string;
-  resultId: string;
-  kind: 'clue' | 'evidence_candidate' | 'evidence';
-  title: string;
-  url: string;
-  provider: string;
-  retrievedAt: string;
-  snippet?: string;
-  passage?: string;
-  locator?: EvidenceLocator;
-};
-```
+- 决定下一步调用哪个 Tool。
+- 判断任务是否已经完成。
+- 执行 Tool 或 Provider。
+- 修改 Tool 的安全与传输边界。
+- 派生 Workbench source provenance。
+- 替代 Runtime 的 Tool Call 上限、取消和单次超时。
 
-编译输出必须显式标记：
+## 3. 与当前模块的关系
 
 ```text
-BEGIN UNTRUSTED EVIDENCE
-... source-delimited data ...
-END UNTRUSTED EVIDENCE
+Model
+  负责语义规划
+
+Runtime
+  负责模型/Tool 循环和通用执行边界
+
+Tool
+  负责能力执行并返回结构化结果
+
+Projection
+  负责执行与来源的持久化读模型
+
+Context Engineering（后续）
+  负责完整模型输入的统一编译
 ```
 
-不得把网页中的 instruction-like text 提升到 guidance section。
+Tool 不选择结果中的哪些字段进入模型，也不自行报告字符预算或注入状态。当前阶段 Runtime 将 Tool 的 canonical `output/error` 完整序列化为 Tool Message；未来如引入 Context Engineering，选择与压缩决策应由统一上下文编译过程完成。
 
-## 6. Clue 与 Evidence
+## 4. 尚未冻结的设计
 
-- Clue 用于规划查询，不允许被描述为正式证据。
-- Evidence candidate 可用于选择 passage。
-- Durable EvidenceSource 才能分配 `[Sx]` 并进入正式报告引用上下文。
+以下问题必须基于真实评测、模型上下文窗口、成本和延迟数据再决定：
 
-ContextCompiler 保留这些类型标签，不能为了节省 token 抹去资格差异。
+- 使用供应商 tokenizer、近似 Token 还是其他计量方式。
+- System、历史消息、Tool Result 和最终回答之间如何分配预算。
+- Tool Result 是整体保留、结构化裁剪、摘要还是按需重载。
+- 历史消息如何压缩，以及哪些用户纠正必须永久保留。
+- 是否需要 context trace、included/omitted refs 和可解释淘汰原因。
+- Context 编译是纯函数、带 I/O 的加载器加纯编译器，还是其他组合。
 
-## 7. Phase Context
+在这些决策完成前，不在共享协议、SSE、Message metadata 或 Tool 契约中预留临时 observation/delivery 字段。
 
-### Clarifying
+## 5. 进入实施的触发条件
 
-只提供用户目标、关键歧义和已知 session context，不暴露搜索工具。
+满足以下至少一项并有真实数据支持时，再制定独立方案：
 
-### Planning / Searching
+- 模型请求稳定触发上下文长度错误。
+- 连续 Tool Result 明显推高延迟或成本。
+- 旧材料挤占当前任务相关信息，显著降低回答质量。
+- 最终回答缺少稳定的输出 Token 空间。
+- 评测显示需要动态选择、压缩或重新加载上下文材料。
 
-提供 ResearchBudget、已执行 query、open gaps、clues/evidence summaries 和当前 step 可用的 `web_search` / `web_fetch` ToolCard。
-
-### Drafting
-
-提供用户目标、durable EvidenceCards、报告结构和限制；不提供 clue-only content 作为可引用来源。
-
-### Reviewing
-
-提供 draft、EvidenceCards 和 review checklist；默认不暴露工具。
-
-### Revising
-
-提供 draft、structured review、EvidenceCards 和 required revisions。
-
-### Validating / Finalizing
-
-模型不参与 deterministic validation/finalization；无需编译模型上下文。
-
-## 8. Token Budget
-
-建议层级：
-
-```text
-stable instructions
-current user/steer
-task frame/open gaps
-durable evidence passages
-recent observations
-clues
-conversation summary
-artifact cards
-```
-
-不能截断掉：
-
-- 当前用户目标
-- phase constraints
-- evidence source boundary
-- `displayId`、`evidenceId` 和 passage 映射
-- pending steer
-- ResearchBudget hard limits
-
-## 9. Progressive Disclosure
-
-R1 支持：
-
-- full provider response -> short-lived Artifact ref
-- EvidenceCard -> durable cited passage
-- Report Artifact -> ReportDraftCard
-
-P9 支持：
-
-- MemoryCard -> explicit prior-session sourceRef expansion
-
-模型不能提交任意 user/session ID 来读取历史数据。
-
-## 10. Determinism
-
-```text
-compile(snapshot, input, config, templateVersion, tokenizerVersion)
-```
-
-相同值必须产生相同：
-
-- ordered sections
-- included/omitted refs
-- truncation decisions
-- rendered model messages
-- context hash
-
-时间、随机数、数据库排序和模型 rerank 不得隐藏在 compiler 中。
-
-## 11. CompiledStepContext
-
-```ts
-type CompiledStepContext = {
-  version: string;
-  runId: string;
-  stepId: string;
-  phase: ResearchPhase;
-  messages: ModelMessage[];
-  tools: ToolCard[];
-  includedRefs: StateRef[];
-  omitted: Array<{
-    ref?: StateRef;
-    reason: 'irrelevant' | 'budget' | 'unauthorized' | 'stale' | 'phase';
-  }>;
-  tokenEstimate: number;
-  contextHash: string;
-};
-```
-
-## 12. Context Trace
-
-```ts
-type ContextTrace = {
-  runId: string;
-  stepId: string;
-  phase: ResearchPhase;
-  includedRefs: StateRef[];
-  omittedCounts: Record<string, number>;
-  truncations: Array<{ section: string; original: number; included: number }>;
-  tokenEstimate: number;
-  contextHash: string;
-};
-```
-
-Trace 进入 Observe，不默认进入模型或用户 UI。
-
-## 13. Conversation Compaction
-
-Session 可包含多次 run。Loader 可以生成 session conversation summary，但必须保留：
-
-- 当前用户消息
-- unresolved clarification
-- accepted steer
-- prior final deliverable refs
-- explicit corrections
-
-Compaction summary 是当前 session context，不是 User Memory。
-
-## 14. User Memory (P9)
-
-Memory Retriever 在 Compiler 外按 userId 取 MemoryCard。Compiler 只把选中的 card 放在 current facts 之后。
-
-Prior-session evidence expansion 必须先通过 user ownership 和 selected Memory sourceRefs authorization。
-
-## 15. Worker Context (P11)
-
-Worker 只看到 WorkerTaskFrame-scoped context、授权 Evidence/refs 和 scoped toolset。它不能读取完整 session 或全量 User Memory。
-
-## 16. R1 验收
-
-1. Compiler 无 I/O。
-2. snapshot tests 确定性。
-3. clue/evidence 类型不会丢失。
-4. external content 保持 untrusted section。
-5. pending steer 在下一 safe step 出现。
-6. waiting_for_user 不暴露搜索工具。
-7. review step 不混入无关 clue。
-8. API Key/provider secret 永不进入 context。
+届时重新定义协议、测试和迁移策略；当前不把 Evidence Validator、Citation Validator、权限策略或 Artifact Finalizer 纳入 Context Engineering 的前置设计。

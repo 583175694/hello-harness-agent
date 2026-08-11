@@ -2,6 +2,8 @@ import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
 
 // 集中维护搜索供应商和文本归一化的稳定限制。
 export const SEARCH_LIMITS = {
+  // 整次网页搜索 Tool Call 允许占用的最长时间。
+  toolTimeoutMs: 10_000,
   // 搜索工具允许提交的查询字符串最大长度。
   queryMaxLength: AGENT_PROTOCOL_LIMITS.searchQueryMaxLength,
   // Provider 请求和协议返回的最大结果数。

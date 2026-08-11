@@ -1,6 +1,6 @@
 # Harness Agent Architecture
 
-> 文档状态：Greenfield 顶层架构。R1 产品范围以 `00-agent-core-roadmap.md` 和 `13-research-workflow.md` 为准。
+> 文档状态：长期架构草案。当前产品范围以 `00-agent-core-roadmap.md` 为准，Model/Runtime/Tool/Projection 边界以 `25-model-led-tool-boundary.md` 为准；本文中的 Evidence/Report/Finalizer 链路不代表已承诺能力。
 
 ## 1. 架构目标
 
@@ -37,6 +37,7 @@ R1 只实现单 Lead 网络调研。Memory 和 Delegation 是后续 capability�
 - [Project Structure](./18-project-structure.md)
 - [Frontend](./19-agent-frontend.md)
 - [Workbench](./20-agent-workbench.md)
+- [Model-led Tool Boundary](./25-model-led-tool-boundary.md)
 - [Memory, post-R1](./06-memory.md)
 - [Delegation Policy, post-R1](./01-delegation-policy.md)
 - [Delegation Executor, post-R1](./07-delegation-executor.md)
@@ -87,7 +88,7 @@ User message
   -> next Step
 ```
 
-报告链路：
+以下报告链路只是未来可能的扩展草案，不属于当前架构承诺：
 
 ```text
 SearchResult
@@ -151,7 +152,7 @@ Runtime 负责：
 - run/step lifecycle
 - safe-step scheduling
 - canonical action dispatch
-- 通用工具调用预算和模型单轮超时
+- 每个 assistant run 最多 20 次 Tool Call 和模型单轮超时
 - steer inbox
 - cancel propagation
 - terminal handling
@@ -168,9 +169,9 @@ Runtime 不负责：
 - Memory extraction
 - worker result merge
 
-能力通过 `ActionHandler` 或显式 pipeline service 接入。Runtime 必须保持工具中立：它只依据统一契约编排定义、调用、结果、指标和控制意图，不能通过 `if (toolName === ...)` 理解具体工具。新增工具原则上只修改工具领域实现和注册入口，不要求修改 Runtime。
+能力通过 `ActionHandler` 或显式 pipeline service 接入。Runtime 必须保持工具中立：它只依据统一契约编排模型决策、工具调用、结果和通用硬边界，不能通过 `if (toolName === ...)` 理解具体工具。新增工具原则上只修改工具实现和注册入口，不要求修改 Runtime。
 
-运行级共享状态通过通用、run-scoped 的 `ToolRunState` 容器传递。Runtime 只负责为本次 run 创建和转交容器，不读取其中的领域状态；Search、Fetch 等同一领域的工具可以从中取得自己拥有的 `WebResearchRunState`。URL provenance、URL/Passage 预算、去重和无新增内容计数均属于 Web Research 领域，而不是 Runtime Policy。工具通过统一执行结果声明 `logFields` 和 `forceFinalAnswer` 等通用控制意图，Runtime 只执行这些意图，不推断其业务原因。
+模型是唯一的任务语义规划者；Tool 只执行能力并返回结构化结果，不能通过控制字段、领域运行状态或隐藏策略改变 Agent 主循环。Runtime 可以维护消息、轮次、工具调用计数、取消和执行历史等通用运行状态，但不承载 URL provenance、证据充分性、跨调用去重或领域早停等规划状态。Projection 根据已发生事件派生 provenance 和 canonical source。该边界已在协议 `0.8.0` 中落地，详见 [Model-led Tool Boundary](./25-model-led-tool-boundary.md)。
 
 ## 8. Search Tooling
 
@@ -188,9 +189,9 @@ SearchProvider registry
 
 Tool 不生成业务结论，不决定报告完成，也不分配 `evidenceId/displayId`。
 
-## 9. Evidence and Citation
+## 9. 来源与可选 Evidence 扩展
 
-Evidence Layer 是 R1 的核心边界：
+当前生产只冻结 `clue / fetched / used` 轻量来源语义。以下正式 Evidence/Citation 链路只是可能的扩展草案，不属于 R1 或当前承诺：
 
 ```text
 snippet-only          clue
@@ -199,7 +200,7 @@ selected passage      durable EvidenceSource
 [Sx]                  presentation alias to EvidenceSource
 ```
 
-CitationValidator 确定性检查引用存在性、资格、来源列表映射和 Artifact hash。语义支持度由 report review 和 evaluation suite 检查。
+如果未来有明确严谨引用需求，再决定是否建设 CitationValidator、report review 和 Artifact hash 校验；当前 Workbench 不把 `used` 冒充逐句引用。
 
 ## 10. State / Artifact
 

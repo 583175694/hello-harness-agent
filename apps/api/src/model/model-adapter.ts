@@ -12,7 +12,6 @@ export type ModelRoundInput = {
   model: string;
   messages: ModelMessage[];
   tools?: AgentToolDefinition[];
-  forceFinalAnswer?: boolean;
   signal?: AbortSignal;
 };
 

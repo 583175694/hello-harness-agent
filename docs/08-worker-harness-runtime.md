@@ -1,6 +1,6 @@
 # Worker Harness Runtime
 
-> 文档状态：Greenfield P11 capability。Worker 不属于 R1。
+> 文档状态：未进入当前路线图的探索草案，不代表已承诺 capability 或冻结协议。
 
 ## 1. 定义
 
@@ -62,7 +62,7 @@ Worker 只看到：
 - objective/constraints/output contract
 - granted current-session refs
 - explicitly authorized prior-session Memory evidence refs
-- worker-specific observations
+- worker-specific results
 - remaining worker budget
 - narrow toolset
 
@@ -81,7 +81,7 @@ compile worker context
 -> decide one worker action
 -> validate authority/budget
 -> dispatch
--> durable worker fact/observation
+-> durable worker result/fact
 -> next worker step or WorkerResult
 ```
 

@@ -23,7 +23,9 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     super();
   }
 
-  // 调用 OpenAI-compatible 流接口，并聚合跨 chunk 返回的工具参数。
+  // 调用 OpenAI-compatible 流接口，并把供应商 chunk 归一化为一个 Model Round。
+  // Chat Completions 没有 Content/Tool Call 共用的全局 index，因此按 Block 首次出现顺序
+  // 分配 blockSequence；Tool Call 自身仍按 provider index 聚合和恢复声明顺序。
   async *streamRound(input: ModelRoundInput): AsyncIterable<ModelRoundEvent> {
     const response = await this.getClient().chat.completions.create(
       {
@@ -38,15 +40,32 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     );
     const pendingCalls = new Map<number, ModelToolCall>();
     let finishReason: string | null = null;
+    let nextBlockSequence = 0;
+    let contentBlockSequence: number | undefined;
 
     // 一个工具调用的名称和 JSON 参数可能跨多个 chunk，必须按 index 分组累积。
     for await (const chunk of response) {
       const choice = chunk.choices[0];
       if (!choice) continue;
       finishReason = choice.finish_reason ?? finishReason;
-      if (choice.delta.content) yield { type: 'text.delta', delta: choice.delta.content };
+      if (choice.delta.content) {
+        // 同一 Round 的连续 Content Delta 永远更新同一个稳定文本 Block。
+        contentBlockSequence ??= nextBlockSequence++;
+        yield {
+          type: 'text.delta',
+          delta: choice.delta.content,
+          blockSequence: contentBlockSequence,
+        };
+      }
       for (const fragment of choice.delta.tool_calls ?? []) {
-        const current = pendingCalls.get(fragment.index) ?? { id: '', name: '', arguments: '' };
+        // 第一次见到某个 Tool Call 时固定其业务位置，后续参数分片只原位聚合。
+        const current = pendingCalls.get(fragment.index) ?? {
+          id: '',
+          name: '',
+          arguments: '',
+          blockSequence: nextBlockSequence++,
+          providerIndex: fragment.index,
+        };
         if (fragment.id) current.id = fragment.id;
         if (fragment.function?.name) current.name += fragment.function.name;
         if (fragment.function?.arguments) current.arguments += fragment.function.arguments;

@@ -185,9 +185,13 @@ export const researchSourceSnapshotSchema = z.union([
 ]);
 
 // 定义 assistant turn 中连续流式 Markdown 文本块。
+// roundSequence + blockSequence 是业务展示顺序，不等同于 SSE event seq。
 export const assistantTextBlockSchema = z.object({
   id: z.string().min(1),
   type: z.literal('text'),
+  roundId: z.string().min(1).optional(),
+  roundSequence: z.number().int().positive().optional(),
+  blockSequence: z.number().int().nonnegative().optional(),
   content: z.string().min(1),
 });
 
@@ -195,6 +199,9 @@ export const assistantTextBlockSchema = z.object({
 export const assistantToolActivityBlockSchema = z.object({
   id: z.string().min(1),
   type: z.literal('tool_activity'),
+  roundId: z.string().min(1).optional(),
+  roundSequence: z.number().int().positive().optional(),
+  blockSequence: z.number().int().nonnegative().optional(),
   toolCallId: z.string().min(1),
   toolName: z.string().min(1),
   status: z.enum(['running', 'completed', 'failed', 'cancelled']),
@@ -231,12 +238,15 @@ export const assistantAgentMetadataSchema = z.object({
     .optional(),
 });
 
-// 定义 Web SSE 客户端消费的标准增量事件。
+// 定义 Web SSE 客户端消费的标准增量事件；Round/Block 字段让实时、重放和历史恢复同序。
 const toolStartedEventSchema = z.discriminatedUnion('toolName', [
   z.object({
     type: z.literal('tool.started'),
     messageId: z.string().min(1),
     blockId: z.string().min(1),
+    roundId: z.string().min(1).optional(),
+    roundSequence: z.number().int().positive().optional(),
+    blockSequence: z.number().int().nonnegative().optional(),
     toolCallId: z.string().min(1),
     toolName: z.literal('web_search'),
     title: z.string().min(1),
@@ -247,6 +257,9 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     type: z.literal('tool.started'),
     messageId: z.string().min(1),
     blockId: z.string().min(1),
+    roundId: z.string().min(1).optional(),
+    roundSequence: z.number().int().positive().optional(),
+    blockSequence: z.number().int().nonnegative().optional(),
     toolCallId: z.string().min(1),
     toolName: z.literal('web_fetch'),
     title: z.string().min(1),
@@ -260,6 +273,9 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     type: z.literal('tool.completed'),
     messageId: z.string().min(1),
     blockId: z.string().min(1),
+    roundId: z.string().min(1).optional(),
+    roundSequence: z.number().int().positive().optional(),
+    blockSequence: z.number().int().nonnegative().optional(),
     toolCallId: z.string().min(1),
     toolName: z.literal('web_search'),
     completedAt: z.string().datetime(),
@@ -270,6 +286,9 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     type: z.literal('tool.completed'),
     messageId: z.string().min(1),
     blockId: z.string().min(1),
+    roundId: z.string().min(1).optional(),
+    roundSequence: z.number().int().positive().optional(),
+    blockSequence: z.number().int().nonnegative().optional(),
     toolCallId: z.string().min(1),
     toolName: z.literal('web_fetch'),
     completedAt: z.string().datetime(),
@@ -286,6 +305,9 @@ export const chatStreamEventSchema = z.union([
     type: z.literal('tool.failed'),
     messageId: z.string().min(1),
     blockId: z.string().min(1),
+    roundId: z.string().min(1).optional(),
+    roundSequence: z.number().int().positive().optional(),
+    blockSequence: z.number().int().nonnegative().optional(),
     toolCallId: z.string().min(1),
     toolName: z.string().min(1),
     completedAt: z.string().datetime(),
@@ -298,6 +320,9 @@ export const chatStreamEventSchema = z.union([
     type: z.literal('tool.cancelled'),
     messageId: z.string().min(1),
     blockId: z.string().min(1),
+    roundId: z.string().min(1).optional(),
+    roundSequence: z.number().int().positive().optional(),
+    blockSequence: z.number().int().nonnegative().optional(),
     toolCallId: z.string().min(1),
     toolName: z.string().min(1),
     completedAt: z.string().datetime(),
@@ -309,6 +334,9 @@ export const chatStreamEventSchema = z.union([
     type: z.literal('message.delta'),
     messageId: z.string().min(1),
     blockId: z.string().min(1),
+    roundId: z.string().min(1).optional(),
+    roundSequence: z.number().int().positive().optional(),
+    blockSequence: z.number().int().nonnegative().optional(),
     delta: z.string().min(1),
   }),
   z.object({
@@ -371,6 +399,8 @@ export const runEventPayloadSchema = z.union([
   z.object({ status: agentRunStatusSchema }),
   z.object({ code: z.string().min(1), detail: z.string().min(1) }),
 ]);
+// RunStreamEvent.seq 只负责传输去重、gap detection 与 Checkpoint 水位；
+// Snapshot Event 使用所携 Snapshot 的水位，不代表又发生了一次新的业务变化。
 export const runStreamEventSchema = z.object({
   version: z.literal(protocolVersion),
   eventId: z.string().min(1),

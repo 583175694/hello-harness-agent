@@ -429,7 +429,7 @@ user task or direct URL
 
 目标：让 P1-P7 达到真实用户可用门槛。
 
-P8 当前实施主线是 [Connection-Durable Agent Loop](./26-connection-durable-agent-loop.md)：将 Run 与 Chat HTTP/SSE 连接解耦，使用 PostgreSQL Run/Step/assistant draft snapshot、进程内 Event Hub/Ring Buffer、标准 SSE cursor 和独立 Cancel 实现客户端断线恢复。当前不引入 Redis，也不实现服务端重启后的自动续跑；重启遗留 Run 收敛为 `RUN_INTERRUPTED`。实施按文档中的 Run identity、Event Hub、Draft/Snapshot、Web reconnect 和 interruption hardening 五个 Slice 推进。
+P8 的 [Connection-Durable Agent Loop](./26-connection-durable-agent-loop.md) 已完成时序加固：Run 与 Chat HTTP/SSE 连接解耦，使用 PostgreSQL Run/Step/assistant draft checkpoint、进程内 Event Hub、标准 SSE cursor 和独立 Cancel 实现客户端断线恢复；Ordered Model Rounds、Canonical Live Projection、版本化 Checkpoint、Checkpoint 水位后的 Event Tail、Latest Live Snapshot fallback、严格客户端 cursor 和最小状态 CAS 均已落地。当前不引入数据库 Event Log、Redis，也不实现服务端重启后的自动续跑；重启遗留 Run 收敛为 `RUN_INTERRUPTED`。
 
 P8 首个架构收敛项 [Model-led Tool Boundary](./25-model-led-tool-boundary.md) 已于 2026-08-11 完成：
 
@@ -452,7 +452,11 @@ P8 首个架构收敛项 [Model-led Tool Boundary](./25-model-led-tool-boundary.
 - SSE replay / Last-Event-ID
 - create-run 与 subscribe 分离、后台 Run 执行和独立 cancel
 - PostgreSQL Run/Step/assistant draft snapshot
-- 进程内 replay window、snapshot fallback 和前端自动重连
+- Ordered Model Rounds：`roundSequence + blockSequence` 稳定排序，Content 首字即时交付，Round 结束后确认工具前言或最终正文语义
+- Canonical Live Projection、版本化 Checkpoint 和 Checkpoint 水位后的 Event Tail
+- cursor 连续时 replay，断档时 Latest Live Snapshot fallback
+- 前端成功 apply 后推进 cursor、sequence gap 检测和旧 Snapshot 保护
+- queued cancel、terminal compare-and-set 和终态不可反转
 - bounded retry and timeout
 - provider overload/backoff
 - API restart interruption reconciliation；不自动恢复执行

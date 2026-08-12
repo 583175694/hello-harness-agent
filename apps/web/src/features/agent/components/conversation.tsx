@@ -8,6 +8,7 @@ import {
   Send,
   SlidersHorizontal,
   Sparkles,
+  Square,
   X,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
@@ -150,7 +151,10 @@ export function Conversation({
                     ) : item.deliveryStatus === 'failed' ? (
                       <div className="assistant-delivery-status">本次回答未完成</div>
                     ) : null}
-                    {item.pending && item.blocks.length === 0 ? (
+                    {item.pending &&
+                    !item.blocks.some(
+                      (block) => block.type === 'text' && block.content.trim().length > 0,
+                    ) ? (
                       <p className="assistant-thinking" role="status" aria-live="polite">
                         正在思考中…
                       </p>
@@ -191,11 +195,7 @@ export function Conversation({
             <CircleAlert size={17} />
             <span>{error}</span>
             {onReconnect ? (
-              <button
-                className="text-button"
-                type="button"
-                onClick={onReconnect}
-              >
+              <button className="text-button" type="button" onClick={onReconnect}>
                 重新连接
               </button>
             ) : null}
@@ -313,6 +313,16 @@ export function Composer({
           : AGENT_UI_COPY.composerPlaceholders.newRun;
   return (
     <form className="composer" onSubmit={onSubmit}>
+      {submitting ? (
+        <div className="composer-running-status" role="status" aria-live="polite">
+          <span className="activity-bars" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+          <span>AI 正在回复</span>
+        </div>
+      ) : null}
       <textarea
         aria-label="任务输入"
         placeholder={placeholder}
@@ -366,7 +376,7 @@ export function Composer({
           }
           onClick={submitting ? onCancel : undefined}
         >
-          {submitting ? <X size={18} /> : <Send size={18} />}
+          {submitting ? <Square size={14} fill="currentColor" /> : <Send size={18} />}
         </button>
       </div>
     </form>

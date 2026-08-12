@@ -1,6 +1,6 @@
 # Stream / Observe / Agent Gateway
 
-> 文档状态：远期持久化 Event Log / Observe 目标契约。当前 Connection-Durable Agent Loop 不实现 durable replay log；它使用 PostgreSQL snapshot、进程内 Ring Buffer 和 snapshot fallback，具体以 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 为准。
+> 文档状态：远期持久化 Event Log / Observe 目标契约。当前 Connection-Durable Agent Loop 不实现 durable replay log；它使用 PostgreSQL Durable Checkpoint、Checkpoint 水位后的进程内 Event Tail 和 Latest Live Snapshot fallback，具体以 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 为准。
 
 ## 1. 三层边界
 
@@ -299,4 +299,5 @@ Memory、Worker、Browser、Terminal events 不在 R1 protocol/capability 中。
 5. limited report 明确展示。
 6. report/source 可由 snapshot 恢复。
 7. provider content/secret 不进入 SSE。
+
 8. 慢客户端不阻塞 Runtime。

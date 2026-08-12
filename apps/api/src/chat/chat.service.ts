@@ -105,7 +105,9 @@ export class ChatService {
     }
   }
 
-  // 调用 Agent Runtime，并将当前搜索事件投影为兼容现有客户端的 Chat SSE。
+  // 调用 Agent Runtime，并把每个语义事件同时映射为：
+  // 1. 可持久化的完整 Projection；2. 携带稳定 Round/Block 位置的 Chat SSE。
+  // RunExecutor 会在 Event 获得 seq 后，把这里生成的 Projection 更新到同一 Live Snapshot。
   async *streamPrepared(
     prepared: PreparedSessionStream,
     signal?: AbortSignal,
@@ -132,6 +134,8 @@ export class ChatService {
     let toolCallCount = 0;
     let firstDeltaAt: number | undefined;
     const notifyProjection = async (): Promise<void> => {
+      // 每次用户可见变化都先生成不可共享引用的完整快照，避免后续 Collector 原位更新
+      // 反向修改已经被 Checkpoint 捕获的旧版本。
       const snapshot = projection.snapshot();
       await options.onProjection?.({
         model,
@@ -159,13 +163,16 @@ export class ChatService {
             ChatService.name,
           );
         }
-        const blockId = conversation.appendText(event.delta);
+        const blockId = conversation.appendText(event);
         await notifyProjection();
         yield {
           type: 'message.delta',
           messageId: prepared.assistantMessageId,
           blockId,
           delta: event.delta,
+          roundId: event.roundId,
+          roundSequence: event.roundSequence,
+          blockSequence: event.blockSequence,
         };
         continue;
       }
@@ -180,6 +187,9 @@ export class ChatService {
             ? `读取 ${fetchInput.urls.length} 个网页`
             : (searchInput?.query ?? ''),
           startedAt: event.startedAt,
+          roundId: event.roundId,
+          roundSequence: event.roundSequence,
+          blockSequence: event.blockSequence,
         });
         await notifyProjection();
         if (fetchInput) {
@@ -192,6 +202,9 @@ export class ChatService {
             title: block.title,
             input: fetchInput,
             startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
           };
         } else {
           yield {
@@ -203,6 +216,9 @@ export class ChatService {
             title: block.title,
             input: searchInput ?? { query: '' },
             startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
           };
         }
         continue;
@@ -249,6 +265,9 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: fetchResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
           };
         } else if (searchResult) {
           yield {
@@ -260,6 +279,9 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: searchResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
           };
         }
         continue;
@@ -293,6 +315,9 @@ export class ChatService {
           durationMs: event.durationMs,
           code: event.code,
           detail: event.detail,
+          roundId: event.roundId,
+          roundSequence: event.roundSequence,
+          blockSequence: event.blockSequence,
           retryable: event.retryable,
         };
         continue;
@@ -344,13 +369,25 @@ export class ChatService {
     // 当前搜索协议要求结果至少带可访问链接；模型未主动输出时补充去重后的来源列表。
     if (linkedContent.length > content.length) {
       const delta = linkedContent.slice(content.length);
-      const blockId = conversation.appendText(delta);
+      const finalText = [...conversation.snapshot()]
+        .reverse()
+        .find((block) => block.type === 'text');
+      const linkedBlock = {
+        delta,
+        roundId: finalText?.roundId ?? crypto.randomUUID(),
+        roundSequence: finalText?.roundSequence ?? 1,
+        blockSequence: finalText?.blockSequence ?? 0,
+      };
+      const blockId = conversation.appendText(linkedBlock);
       await notifyProjection();
       yield {
         type: 'message.delta',
         messageId: prepared.assistantMessageId,
         blockId,
         delta,
+        roundId: linkedBlock.roundId,
+        roundSequence: linkedBlock.roundSequence,
+        blockSequence: linkedBlock.blockSequence,
       };
       content = linkedContent;
     }

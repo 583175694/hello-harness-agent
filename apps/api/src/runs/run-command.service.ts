@@ -21,6 +21,8 @@ export class RunCommandService {
     @Inject(RunExecutor) private readonly executor: RunExecutor,
   ) {}
 
+  // 在数据库事务中创建 Run、User Message 和空 Assistant Draft，再异步启动 Executor。
+  // HTTP 请求只负责“可靠接单”，不会持有到模型生成结束。
   async create(
     sessionId: string,
     input: { content: string; idempotencyKey: string },
@@ -28,6 +30,7 @@ export class RunCommandService {
     const runId = crypto.randomUUID();
     const userMessageId = crypto.randomUUID();
     const assistantMessageId = crypto.randomUUID();
+    // idempotencyKey 只能重放同一 payload；相同键搭配不同正文必须明确冲突。
     const payloadHash = createHash('sha256').update(input.content).digest('hex');
     let result;
     try {
@@ -71,6 +74,7 @@ export class RunCommandService {
     const snapshot = await this.repository.snapshot(run.id);
     if (!snapshot) throw new Error('CreatedRunSnapshotMissing');
     if (result.kind === 'created') {
+      // 先注册初始 Durable Snapshot，再让后台 Executor 发布第一个事件，避免首订阅找不到 Run。
       this.registry.register(snapshot);
       setImmediate(() => this.executor.start(run.id));
     }
@@ -87,7 +91,8 @@ export class RunCommandService {
   async snapshot(runId: string) {
     const snapshot = await this.repository.snapshot(runId);
     if (!snapshot) this.notFound();
-    const live = this.registry.get(runId)?.snapshot;
+    // Active Run 优先返回进程内 Latest Snapshot；Registry 不存在时退回 PostgreSQL Checkpoint。
+    const live = this.registry.get(runId)?.liveSnapshot;
     return live ?? snapshot;
   }
 
@@ -97,13 +102,27 @@ export class RunCommandService {
     if (snapshot.status === 'completed' || snapshot.status === 'failed' || snapshot.status === 'cancelled')
       return { runId, status: snapshot.status };
     const requestedStatus = await this.repository.requestCancel(runId);
+    if (requestedStatus === 'cancelled') {
+      // queued Run 尚未进入 Runtime，Repository 已直接持久化 cancelled；内存中只补交终态观察事件。
+      const active = this.registry.get(runId);
+      if (active) {
+        const cancelled = this.events.commit(runId, 'run.cancelled', {
+          code: 'RUN_CANCELLED',
+          detail: '用户已取消本次运行。',
+        });
+        if (cancelled) this.events.broadcast(runId, cancelled);
+      }
+      return { runId, status: requestedStatus };
+    }
     if (requestedStatus !== 'cancel_requested') return { runId, status: requestedStatus };
     const active = this.registry.get(runId);
     if (active) {
+      // running Run 先公开 cancel_requested，再 abort 本地 Runtime，由 Executor 持久化最终 cancelled。
       this.events.publish(runId, 'run.cancel_requested', { status: 'cancel_requested' });
       active.abortController.abort();
       return { runId, status: 'cancel_requested' as const };
     }
+    // 本实例没有 Executor 时无法等待本地 catch 收尾，直接用 Durable Snapshot 收敛取消状态。
     const projection: ChatProjectionSnapshot = {
       model: 'unknown',
       blocks: snapshot.blocks,

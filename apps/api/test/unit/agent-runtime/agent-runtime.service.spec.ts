@@ -107,7 +107,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: 'tool.completed', toolCallId: 'call-1' }),
-        { type: 'text.delta', delta: '完成回答' },
+        expect.objectContaining({ type: 'text.delta', delta: '完成回答', roundSequence: 2 }),
       ]),
     );
   });
@@ -167,7 +167,11 @@ describe('AgentRuntimeService model-led tool boundary', () => {
           code: AGENT_ERROR_CODES.searchProviderFailed,
           retryable: true,
         }),
-        { type: 'text.delta', delta: '当前无法联网，我先受限回答。' },
+        expect.objectContaining({
+          type: 'text.delta',
+          delta: '当前无法联网，我先受限回答。',
+          roundSequence: 2,
+        }),
       ]),
     );
   });

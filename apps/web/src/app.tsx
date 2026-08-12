@@ -113,8 +113,8 @@ function canonicalUrl(url: string): string {
 
 // 返回来源可参与实时 canonical merge 的全部 URL。
 function sourceViewUrls(source: SourceView): string[] {
-  return [source.url, source.requestedUrl, source.normalizedUrl].filter(
-    (url): url is string => Boolean(url),
+  return [source.url, source.requestedUrl, source.normalizedUrl].filter((url): url is string =>
+    Boolean(url),
   );
 }
 
@@ -377,8 +377,7 @@ export function applyToolEvent(
             ]),
           ];
           target.provenance = hashIndexes.reduce(
-            (value, index) =>
-              preferredProvenance(value, sources[index]?.provenance ?? 'unknown'),
+            (value, index) => preferredProvenance(value, sources[index]?.provenance ?? 'unknown'),
             preferredProvenance(target.provenance, provenance),
           );
         }
@@ -486,7 +485,7 @@ function PersistentAgentApp() {
   const [serviceState, setServiceState] = useState<ServiceState>('checking');
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [sessionStates, setSessionStates] = useState<Record<string, AgentUiState>>({});
+  const [sessionStates, setSessionStatesState] = useState<Record<string, AgentUiState>>({});
   // pendingSessions 允许不同会话并行生成，同时限制同一会话重复提交。
   const [pendingSessions, setPendingSessions] = useState<Record<string, boolean>>({});
   const [draftPending, setDraftPending] = useState(false);
@@ -500,14 +499,30 @@ function PersistentAgentApp() {
   const pendingSessionsRef = useRef<Record<string, boolean>>({});
   const runControllersRef = useRef<Record<string, AbortController>>({});
   const runSequencesRef = useRef<Record<string, number>>({});
-
-  useEffect(() => {
-    selectedSessionIdRef.current = selectedSessionId;
-  }, [selectedSessionId]);
+  const sessionStatesRef = useRef<Record<string, AgentUiState>>({});
 
   useEffect(() => {
     pendingSessionsRef.current = pendingSessions;
   }, [pendingSessions]);
+
+  useEffect(() => {
+    sessionStatesRef.current = sessionStates;
+  }, [sessionStates]);
+
+  function setSessionStates(
+    update: (current: Record<string, AgentUiState>) => Record<string, AgentUiState>,
+  ): void {
+    const next = update(sessionStatesRef.current);
+    sessionStatesRef.current = next;
+    setSessionStatesState(next);
+  }
+
+  // React state 决定渲染，Ref 为同一事件循环内的提交/SSE 回调提供即时值；必须同步写入，
+  // 否则旧 render 的 Effect 可能在“新建后立即提交”时把请求错误路由到上一会话。
+  function setSelectedSession(sessionId: string | null): void {
+    selectedSessionIdRef.current = sessionId;
+    setSelectedSessionId(sessionId);
+  }
 
   // 同步更新 pending ref 和 React 状态，避免异步详情请求读到旧值。
   function setSessionPending(sessionId: string, pending: boolean): void {
@@ -517,6 +532,8 @@ function PersistentAgentApp() {
   }
 
   function applyRunSnapshot(sessionId: string, snapshot: RunSnapshot): void {
+    // Snapshot 是完整替换，但旧 HTTP/SSE 响应不能覆盖已经应用到更高 cursor 的 Live 状态。
+    if (snapshot.lastEventSequence < (runSequencesRef.current[snapshot.runId] ?? 0)) return;
     runSequencesRef.current[snapshot.runId] = snapshot.lastEventSequence;
     const active = ['queued', 'running', 'cancel_requested'].includes(snapshot.status);
     setSessionPending(sessionId, active);
@@ -574,6 +591,7 @@ function PersistentAgentApp() {
           })),
         }
       : undefined;
+    // 只替换目标 Run 对应的 Assistant Message；其他历史轮次和其他 Session 缓存保持不变。
     setSessionStates((current) => {
       const target = current[sessionId];
       if (!target) return current;
@@ -602,14 +620,25 @@ function PersistentAgentApp() {
   }
 
   function applyRunEvent(sessionId: string, event: RunStreamEvent, task = ''): void {
-    if (event.seq <= (runSequencesRef.current[event.runId] ?? 0)) return;
-    runSequencesRef.current[event.runId] = event.seq;
+    const cursor = runSequencesRef.current[event.runId] ?? 0;
+    // 重放重复事件幂等忽略；非连续 Event 绝不能猜测应用，交给 observeRun 重新拉 Snapshot。
+    if (event.seq <= cursor) return;
     if (event.type === 'run.snapshot') {
       applyRunSnapshot(sessionId, event.payload as RunSnapshot);
       return;
     }
+    if (event.seq !== cursor + 1) throw new Error('RUN_EVENT_SEQUENCE_GAP');
+    // 只有确认目标 Session/Message 存在且成功归约后，下面各分支才推进 cursor。
+    const target = sessionStatesRef.current[sessionId];
+    if (!target) throw new Error('RUN_EVENT_TARGET_MISSING');
     if (event.type === 'message.delta') {
       const delta = event.payload as MessageDeltaEvent;
+      if (
+        !target.conversation.some(
+          (item) => item.kind === 'assistant' && item.id === delta.messageId,
+        )
+      )
+        throw new Error('RUN_EVENT_TARGET_MISSING');
       setSessionStates((current) => {
         const target = current[sessionId];
         if (!target) return current;
@@ -625,6 +654,7 @@ function PersistentAgentApp() {
           },
         };
       });
+      runSequencesRef.current[event.runId] = event.seq;
       return;
     }
     if (
@@ -634,6 +664,12 @@ function PersistentAgentApp() {
       event.type === 'tool.cancelled'
     ) {
       const toolEvent = event.payload as ToolStreamEvent;
+      if (
+        !target.conversation.some(
+          (item) => item.kind === 'assistant' && item.id === toolEvent.messageId,
+        )
+      )
+        throw new Error('RUN_EVENT_TARGET_MISSING');
       setSessionStates((current) => {
         const target = current[sessionId];
         if (!target) return current;
@@ -658,7 +694,10 @@ function PersistentAgentApp() {
           currentUserUrls,
         );
         workbench.runId = event.runId;
-        workbench.executions = workbench.executions.map((item) => ({ ...item, runId: event.runId }));
+        workbench.executions = workbench.executions.map((item) => ({
+          ...item,
+          runId: event.runId,
+        }));
         return {
           ...current,
           [sessionId]: {
@@ -672,6 +711,7 @@ function PersistentAgentApp() {
           },
         };
       });
+      runSequencesRef.current[event.runId] = event.seq;
       return;
     }
     if (
@@ -707,7 +747,10 @@ function PersistentAgentApp() {
         };
       });
       if (event.type === 'run.failed' && 'detail' in event.payload) setError(event.payload.detail);
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
     }
+    runSequencesRef.current[event.runId] = event.seq;
   }
 
   async function observeRun(
@@ -716,15 +759,18 @@ function PersistentAgentApp() {
     task = '',
     skipInitialSnapshot = false,
   ): Promise<void> {
+    // Observer 以 runId 独立存在，不绑定当前选中会话；切换视图不会中止后台生成。
     if (runControllersRef.current[runId]) return;
     const controller = new AbortController();
     runControllersRef.current[runId] = controller;
     setReconnectRunId((current) => (current === runId ? null : current));
     let terminalObserved = false;
     try {
+      // 每轮恢复先读取 Latest Snapshot，再携带当前 cursor 订阅 SSE；指数退避期间 Run 继续在服务端执行。
       for (const [attempt, delay] of [0, 1_000, 2_000, 4_000, 8_000].entries()) {
         if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay));
         if (controller.signal.aborted) return;
+        // 新建 Run 已有乐观消息，首连可跳过额外 Snapshot；重连必须先校准 Durable/Live 状态。
         if (!(skipInitialSnapshot && attempt === 0)) {
           const snapshot = await getRun(runId, controller.signal);
           applyRunSnapshot(sessionId, snapshot);
@@ -734,6 +780,7 @@ function PersistentAgentApp() {
           }
         }
         try {
+          // Last-Event-ID 使用“最后成功应用”的 cursor，而不是最后收到或最后解析的事件。
           await subscribeRun(
             runId,
             runSequencesRef.current[runId],
@@ -763,11 +810,11 @@ function PersistentAgentApp() {
       delete runControllersRef.current[runId];
       if (!controller.signal.aborted) {
         try {
+          // Terminal 后数据库是最终事实；非 Terminal 断流则用 Snapshot 补齐当前可见草稿。
           if (terminalObserved) {
             setReconnectRunId(null);
             await loadSessionDetail(sessionId);
-          }
-          else {
+          } else {
             const snapshot = await getRun(runId);
             applyRunSnapshot(sessionId, snapshot);
           }
@@ -790,7 +837,7 @@ function PersistentAgentApp() {
         const target =
           loadedSessions.find((session) => session.id === requestedId) ?? loadedSessions[0];
         if (target) {
-          setSelectedSessionId(target.id);
+          setSelectedSession(target.id);
           updateSessionUrl(target.id, true);
           void loadSessionDetail(target.id);
         } else {
@@ -808,6 +855,7 @@ function PersistentAgentApp() {
   }, []);
 
   // 从 API 覆盖指定会话缓存，以数据库结果作为最终事实。
+  // Active Run 期间禁止旧详情覆盖本地 Live Projection，改由独立 Run Observer 负责增量恢复。
   async function loadSessionDetail(sessionId: string): Promise<void> {
     if (pendingSessionsRef.current[sessionId]) return;
     try {
@@ -817,11 +865,12 @@ function PersistentAgentApp() {
         const conversation = session.messages.map(toConversationItem);
         const activeWorkbench = current[sessionId]?.workbench;
         const restoredItem = activeWorkbench
-          ? conversation.find(
+          ? (conversation.find(
               (item) =>
                 item.kind === 'assistant' &&
-                (item.workbench?.runId === activeWorkbench.runId || item.id === activeWorkbench.runId),
-            ) ?? [...conversation].reverse().find((item) => item.kind === 'assistant')
+                (item.workbench?.runId === activeWorkbench.runId ||
+                  item.id === activeWorkbench.runId),
+            ) ?? [...conversation].reverse().find((item) => item.kind === 'assistant'))
           : undefined;
         const restoredWorkbench =
           restoredItem?.kind === 'assistant' ? restoredItem.workbench : undefined;
@@ -854,10 +903,9 @@ function PersistentAgentApp() {
     return loaded;
   }
 
-  // 切换会话时先展示缓存，再异步以服务端详情覆盖。
+  // 切换会话只改变当前视图：先展示目标缓存，再异步刷新详情；不会 abort 任何 Run Observer。
   function selectSession(sessionId: string): void {
-    selectedSessionIdRef.current = sessionId;
-    setSelectedSessionId(sessionId);
+    setSelectedSession(sessionId);
     setPrompt('');
     setError(null);
     updateSessionUrl(sessionId);
@@ -867,8 +915,7 @@ function PersistentAgentApp() {
 
   // 新建按钮只进入本地空白草稿，不提前写数据库。
   function startDraft(): void {
-    selectedSessionIdRef.current = null;
-    setSelectedSessionId(null);
+    setSelectedSession(null);
     setDraftState(makeFixture('empty'));
     setPrompt('');
     setError(null);
@@ -955,7 +1002,8 @@ function PersistentAgentApp() {
     }
   }
 
-  // 提交消息；空白草稿先建会话，之后所有流只更新目标 sessionId。
+  // 提交消息；空白草稿先建会话，之后捕获稳定 targetId，异步流只更新该 Session。
+  // 用户在生成期间切换到其他会话也不会让 Event 写入当前选中的错误目标。
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const task = prompt.trim();
@@ -997,8 +1045,7 @@ function PersistentAgentApp() {
         const created = await createSession(makeProvisionalTitle(task));
         sessionId = created.id;
         setSessions((current) => [created, ...current.filter((item) => item.id !== created.id)]);
-        setSelectedSessionId(created.id);
-        selectedSessionIdRef.current = created.id;
+        setSelectedSession(created.id);
         updateSessionUrl(created.id, true);
       }
 
@@ -1609,6 +1656,13 @@ function Sidebar({
                     pendingSessions?.[session.id] ? `${session.title}，正在生成回复` : session.title
                   }
                 >
+                  {pendingSessions?.[session.id] ? (
+                    <span className="activity-bars session-activity" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  ) : null}
                   <strong>{session.title}</strong>
                 </button>
                 <div className="session-actions">

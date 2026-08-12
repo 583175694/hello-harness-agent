@@ -13,6 +13,7 @@ import { RunRepository } from './run.repository';
 
 @Injectable()
 export class RunExecutor implements OnModuleDestroy {
+  // execution Promise 独立于 SSE 连接；没有浏览器观察者时后台 Run 仍继续执行。
   private readonly executions = new Map<string, Promise<void>>();
   private shuttingDown = false;
 
@@ -26,6 +27,7 @@ export class RunExecutor implements OnModuleDestroy {
     @Inject(SessionTitleService) private readonly titles: SessionTitleService,
   ) {}
 
+  // 同一 API 实例内保证一个 Run 只有一个 Executor，数据库 start CAS 负责最终所有权确认。
   start(runId: string): void {
     if (this.executions.has(runId)) return;
     const execution = this.execute(runId).finally(() => this.executions.delete(runId));
@@ -33,6 +35,7 @@ export class RunExecutor implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    // 当前不支持 Runtime resume，进程关闭时主动 abort，并让 catch 路径收敛为 RUN_INTERRUPTED。
     this.shuttingDown = true;
     for (const run of this.registry.values()) run.abortController.abort();
     await Promise.allSettled(this.executions.values());
@@ -43,6 +46,7 @@ export class RunExecutor implements OnModuleDestroy {
     const stored = await this.repository.findOwned(runId);
     if (!active || !stored) return;
     const model = this.config.get<string>(ENV_KEYS.openAiModel) ?? 'unknown';
+    // projection 是 Chat 业务状态；active.liveSnapshot 是加上 Run status/sequence 的传输快照。
     let projection: ChatProjectionSnapshot = {
       model,
       blocks: [],
@@ -58,6 +62,7 @@ export class RunExecutor implements OnModuleDestroy {
     const modelStepId = crypto.randomUUID();
     const heartbeat = setInterval(() => void this.repository.heartbeat(runId), 5_000);
     try {
+      // queued -> running 使用数据库 CAS；失败说明取消或其他执行者已经抢先改变状态。
       const started = await this.repository.start(runId);
       if (!started) {
         const latest = await this.repository.snapshot(runId);
@@ -71,7 +76,13 @@ export class RunExecutor implements OnModuleDestroy {
         kind: 'model',
       });
       const startedEvent = this.events.publish(runId, 'run.started', { status: 'running' });
-      if (startedEvent) active.snapshot = { ...active.snapshot, status: 'running', startedAt: new Date().toISOString(), lastEventSequence: startedEvent.seq };
+      if (startedEvent)
+        active.liveSnapshot = {
+          ...active.liveSnapshot,
+          status: 'running',
+          startedAt: new Date().toISOString(),
+          lastEventSequence: startedEvent.seq,
+        };
       const messages = await this.loadContext(stored.sessionId, stored.inputMessageId);
       for await (const event of this.chat.streamPrepared(
         {
@@ -83,56 +94,70 @@ export class RunExecutor implements OnModuleDestroy {
         active.abortController.signal,
         {
           persistFinal: false,
+          // ChatService 在 yield Event 前交付对应完整 Projection，保证下方 commit 后能写入同版本状态。
           onProjection: async (next) => {
             projection = next;
-            this.updateLiveSnapshot(active.snapshot, projection);
-            const length = this.contentLength(projection);
-            if (Date.now() - lastFlushAt >= 1_000 || length - lastFlushLength >= 1_024) {
-              draftVersion += 1;
-              await this.repository.flush(
-                runId,
-                stored.assistantMessageId,
-                projection,
-                active.nextSequence - 1,
-                draftVersion,
-              );
-              lastFlushAt = Date.now();
-              lastFlushLength = length;
-            }
           },
         },
       )) {
         if (event.type === 'message.completed') continue;
         if (event.type === 'stream.failed') throw new Error(event.detail);
-        const published = this.events.publish(runId, event.type, event);
-        if (published) this.updateLiveSnapshot(active.snapshot, projection, published.seq);
+        // 用户可见变化统一遵循：分配 seq -> 更新 Live Snapshot -> 写 Tail -> 广播。
+        // Projection 已由 onProjection 准备好，因此 Event 与 Snapshot 不会跨版本。
+        const published = this.events.commit(runId, event.type, event);
+        if (published) {
+          this.updateLiveSnapshot(active.liveSnapshot, projection, published.seq);
+          this.events.broadcast(runId, published);
+        }
         await this.persistSemanticBoundary(runId, event, toolSteps, () => stepSequence++);
-        if (event.type !== 'message.delta') {
+        const length = this.contentLength(projection);
+        // Tool 生命周期等语义边界立即 Checkpoint；纯文本按时间或增量大小批量落库，
+        // 在首字速度、数据库写放大和刷新恢复粒度之间取平衡。
+        if (
+          event.type !== 'message.delta' ||
+          Date.now() - lastFlushAt >= 1_000 ||
+          length - lastFlushLength >= 1_024
+        ) {
           draftVersion += 1;
-          await this.repository.flush(
+          // 写库前捕获不可变版本；异步事务期间产生的新 Event 只进入后续 Tail，不能混入本次水位。
+          const checkpoint = structuredClone(active.liveSnapshot);
+          const committed = await this.repository.flush(
             runId,
             stored.assistantMessageId,
             projection,
-            active.nextSequence - 1,
+            checkpoint.lastEventSequence,
             draftVersion,
           );
+          if (committed) this.events.checkpointCommitted(runId, checkpoint, draftVersion);
+          lastFlushAt = Date.now();
+          lastFlushLength = length;
         }
       }
       await this.repository.finishStep(runId, modelStepId, 'completed');
-      const terminalSequence = active.nextSequence;
+      // Terminal Event 特殊处理：先在内存分配精确 seq，但在数据库 CAS 成功前绝不广播成功。
+      const previousSnapshot = structuredClone(active.liveSnapshot);
+      const terminal = this.events.commit(runId, 'run.completed', { status: 'completed' });
+      if (!terminal) return;
+      this.updateLiveSnapshot(active.liveSnapshot, projection, terminal.seq, 'completed');
       draftVersion += 1;
-      await this.repository.terminal({
+      const terminalCommitted = await this.repository.terminal({
         runId,
         assistantMessageId: stored.assistantMessageId,
         status: 'completed',
         projection,
-        lastEventSequence: terminalSequence,
+        lastEventSequence: terminal.seq,
         draftVersion,
       });
-      const terminal = this.events.publish(runId, 'run.completed', { status: 'completed' });
-      this.updateLiveSnapshot(active.snapshot, projection, terminal?.seq, 'completed');
+      if (!terminalCommitted) {
+        // CAS 冲突说明合法终态已被其他竞争路径占用；撤销尚未广播的内存终态。
+        this.events.rollback(runId, terminal, previousSnapshot);
+        throw new Error('TERMINAL_CHECKPOINT_CONFLICT');
+      }
+      this.events.checkpointCommitted(runId, active.liveSnapshot, draftVersion);
+      this.events.broadcast(runId, terminal);
       void this.generateFirstTitle(stored.sessionId);
     } catch (error) {
+      // 用户取消与进程关闭使用同一个 AbortSignal，但必须映射为不同、不可混淆的终态原因。
       const cancelled = active.abortController.signal.aborted && !this.shuttingDown;
       const status = cancelled ? 'cancelled' : 'failed';
       const failure = cancelled
@@ -141,27 +166,41 @@ export class RunExecutor implements OnModuleDestroy {
           ? { code: 'RUN_INTERRUPTED', detail: '服务已停止，本次运行未自动恢复。' }
           : this.describeError(error);
       await this.repository.finishStep(runId, modelStepId, status, undefined, failure).catch(() => undefined);
-      const terminalSequence = active.nextSequence;
+      const previousSnapshot = structuredClone(active.liveSnapshot);
+      const terminal = this.events.commit(
+        runId,
+        cancelled ? 'run.cancelled' : 'run.failed',
+        failure,
+      );
+      if (!terminal) return;
+      this.updateLiveSnapshot(active.liveSnapshot, projection, terminal.seq, status, failure);
       draftVersion += 1;
-      await this.repository.terminal({
+      const terminalCommitted = await this.repository.terminal({
         runId,
         assistantMessageId: stored.assistantMessageId,
         status,
         projection,
-        lastEventSequence: terminalSequence,
+        lastEventSequence: terminal.seq,
         draftVersion,
         error: failure,
       });
-      const terminal = this.events.publish(runId, cancelled ? 'run.cancelled' : 'run.failed', failure);
-      this.updateLiveSnapshot(active.snapshot, projection, terminal?.seq, status, failure);
+      if (terminalCommitted) {
+        this.events.checkpointCommitted(runId, active.liveSnapshot, draftVersion);
+        this.events.broadcast(runId, terminal);
+      } else {
+        this.events.rollback(runId, terminal, previousSnapshot);
+        throw new Error('TERMINAL_CHECKPOINT_CONFLICT');
+      }
     } finally {
       clearInterval(heartbeat);
+      // 先关闭 SSE，再短暂保留 Active Run，允许刚错过 terminal 的客户端读取最终 Live Snapshot。
       this.events.close(runId);
       setTimeout(() => this.registry.remove(runId), 60_000).unref();
     }
   }
 
   private async loadContext(sessionId: string, inputMessageId: string): Promise<ChatMessage[]> {
+    // 多轮上下文只包含用户消息和已完成 Assistant 消息；失败/取消/流式草稿不能污染下一 Run。
     const messages = await this.prisma.message.findMany({
       where: {
         sessionId,
@@ -194,6 +233,7 @@ export class RunExecutor implements OnModuleDestroy {
     toolSteps: Map<string, string>,
     nextSequence: () => number,
   ): Promise<void> {
+    // Step 是诊断/观测记录，不是 Runtime 恢复点；真正可恢复的是 Run UI Checkpoint。
     if (event.type === 'tool.started') {
       const stepId = crypto.randomUUID();
       toolSteps.set(event.toolCallId, stepId);
@@ -236,6 +276,7 @@ export class RunExecutor implements OnModuleDestroy {
     status = snapshot.status,
     error?: { code: string; detail: string },
   ): void {
+    // 保持原对象引用，ActiveRunRegistry 与 EventHub 始终观察同一 Live Snapshot 实例。
     Object.assign(snapshot, {
       status,
       assistantContent: projection.blocks

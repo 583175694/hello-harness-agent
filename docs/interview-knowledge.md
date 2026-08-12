@@ -188,7 +188,7 @@ Agent Runtime / Event Stream
 - Activity、Sources、Report 是同一运行上下文的不同视图，不应由各组件分别维护一份运行状态。
 - 用户手动收起 Workbench 后，本次 run 内由 `pinned/auto-follow` 语义阻止自动重新打开；这类交互状态必须与运行事实分开保存。
 
-当前恢复同时使用 assistant draft metadata、Run snapshot 和进程内 replay window。Workbench 的 open/tab/focus/pinned 属于本地选择，不被 server snapshot 覆盖；blocks、execution、source 和 Run 状态属于服务端投影。系统实现了真实 cancel，但 steer、pause 和跨进程 Event Store 仍不在当前范围。
+当前恢复同时使用 assistant draft metadata、Run snapshot 和 Checkpoint 水位后的进程内 Event Tail。Workbench 的 open/tab/focus/pinned 属于本地选择，不被 server snapshot 覆盖；blocks、execution、source 和 Run 状态属于服务端投影。系统实现了真实 cancel，但 steer、pause 和跨进程 Event Store 仍不在当前范围。
 
 ## 6. 阶段五：会话持久化与并发隔离
 
@@ -441,7 +441,23 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 
 ## 13. Connection-Durable Agent Loop
 
-### 13.1 为什么不能让 Run 依附 SSE
+### 13.1 先把表象还原成一致性问题
+
+真实问题最初表现为：用户切换 Session 再切回来后，Tool Activity 与最终正文的展示顺序错了。不能只在前端增加一次排序，因为这个表象同时暴露了多套彼此不一致的“顺序”和“版本”：
+
+1. Event 到达顺序被误当成业务展示顺序；但同一模型响应可能混合 Content 与一个或多个 Tool Call。
+2. Snapshot 中的 Projection 与对外 Event sequence 可能不属于同一个逻辑版本。
+3. 内存恢复只是最近事件窗口，并不表达“数据库已持久化到哪里、内存从哪里继续”。
+4. 客户端可能在 Event 没有成功应用到目标 Session/Message 时就推进 cursor。
+5. 旧 Session Detail 或旧 Snapshot 的异步响应可能覆盖更新的 Live Projection。
+6. terminal Event 可能先展示，再发现数据库 terminal transaction 失败。
+7. cancel、complete、reconciliation 与本地 Executor 之间存在终态竞争。
+8. SSE 初始化若先 replay 后注册 subscriber，replay 与 live 之间可能出现丢事件空窗。
+9. 前端“新建 Session 后立即提交”还存在 React state 与同步 ref 短暂分叉的独立竞争。
+
+因此根因不是某一个数组 `push` 错了，而是系统没有统一回答三个问题：某个 Event 的传输位置是什么、某个 Block 的业务位置是什么、某个 Snapshot 到底覆盖到哪个版本。
+
+### 13.2 为什么不能让 Run 依附 SSE
 
 早期链路把“执行命令”和“观察结果”合并在一个 `POST chat/stream` 请求里。刷新、路由切换或网络断开会关闭 response，后端很容易把 transport close 误认为用户取消；未完成正文也只存在请求内存，刷新后无法回答这轮任务是否仍在执行。
 
@@ -453,28 +469,105 @@ subscriber count == 0 != Run stop
 只有 Cancel API 可以触发用户主动取消
 ```
 
-### 13.2 为什么 PostgreSQL 和内存 Event Hub 同时存在
+这解决的是 Connection Durable：浏览器断线可恢复、切换会话不影响后台生成、刷新能恢复当前结果，并假设 API 进程仍然存活。它不等于服务端进程重启后恢复 Runtime 执行。
 
-逐 token 写 PostgreSQL 会产生高频小事务、写放大和大量低价值事件，因此 PostgreSQL 只保存 Run/Step、完整 assistant draft、blocks、execution/source projection 和 terminal 状态。正文约每 1 秒或新增约 1 KiB flush，Tool/Run 语义边界立即持久化。
+### 13.3 方案协商：为什么没有直接上 Event Store 或 Worker
 
-进程内 Event Hub 负责低延迟广播、run-scoped sequence、最多 500 条且约 2 MiB 的 Ring Buffer、多 subscriber 和有界队列。cursor 仍在窗口时 replay `seq > cursor`；过期时发送完整 `run.snapshot`，客户端替换服务端投影后再接 live tail。这里的 snapshot 用于恢复 UI，不是恢复模型执行的 checkpoint。
+分析初期可以设计成数据库 Event Log、Redis Stream、Worker lease/fencing、Runtime checkpoint resume 和 Tool exactly-once，但用户当前目标只有 Connection Durable。过早引入这些能力会把连接恢复、执行恢复和分布式接管混成一次大重构，增加写放大、运维组件和副作用一致性成本。
 
-### 13.3 一致性、幂等和取消
+最终选择最小充分方案：
 
-- Create Run 在一个事务中创建 user message、空 assistant draft 和 queued Run；`(sessionId, idempotencyKey)` 唯一，同 key 同 payload 返回原 Run，不同 payload 返回 `IDEMPOTENCY_CONFLICT`。
+```text
+PostgreSQL Durable Checkpoint
++ Checkpoint 水位之后的进程内 Event Tail
++ Live SSE
+```
+
+数据库不逐 token 保存 Event Log，而是保存完整 Projection、`lastEventSequence` 和 `draftVersion`。内存只保留 `event.seq > checkpointSequence` 的未覆盖尾部；Checkpoint 成功后清理 `event.seq <= committedSequence`，写库期间新产生的 Event 因 sequence 更大而继续留在 Tail。Tail 达软上限时强制 Checkpoint，不能静默淘汰尚未持久化的事件；Checkpoint 持续失败并触及绝对上限时明确使 Run 失败。
+
+因此恢复不是“任意数据库快照 + 最近 500 条事件”，而是具备明确水位关系的：
+
+```text
+Checkpoint Projection@N + Event Tail(N, liveSequence] + Live SSE
+```
+
+### 13.4 两种顺序：传输顺序不等于业务顺序
+
+实现将顺序拆成两个正交坐标：
+
+```text
+eventSequence
+  用于传输顺序、SSE cursor、连续性检查、replay 和 Checkpoint 水位
+
+roundSequence + blockSequence
+  用于模型轮次和 Content/Tool Call 的稳定业务展示顺序
+```
+
+`roundId` 只提供稳定身份，不承担排序。Model Adapter 每次请求创建 Round；Provider 有统一 index 时沿用其顺序，没有统一 index 时按 Block 首次出现分配 `blockSequence`。Conversation Collector 按稳定位置创建或原位更新 Block，禁止按 Event 到达时间直接追加。服务端内部维护 Ordered Rounds，当前 UI 继续消费按 `roundSequence + blockSequence` 确定性展平的 `blocks[]`，因此不用一次性重写前端展示结构。
+
+同一 Round 可以同时包含 Content 与 Tool Call。普通 Tool Round 的 Content 首字立即交付，不为了排序整轮缓冲；Round 结束后才确认语义：存在 Tool Call 时 Content 是工具前言，不存在 Tool Call 时 Content 是最终正文。多个 Tool Call 按 Provider 顺序稳定声明，并继续串行执行。只有强制无工具最终回答阶段仍整轮缓冲并检查协议污染。
+
+### 13.5 Event、Projection 与 Checkpoint 的版本不变量
+
+所有用户可见变化必须经过统一 Event commit：先分配 `eventSequence`，再构造 Event、应用同版本 Projection frame、更新 Live sequence、写入 Tail并广播。禁止先用独立 `onProjection` 修改 Snapshot、之后再发布 Event，因为那会制造“Snapshot 已经包含变化，但 sequence 还没前进”或相反的撕裂版本。
+
+Active Run 同时维护：
+
+```text
+liveProjection / liveSequence
+durableCheckpoint { projection, sequence, draftVersion }
+tailEvents / tailBytes
+serialized checkpoint promise / checkpointRequested
+```
+
+Checkpoint 捕获不可变 Projection 和精确 sequence，同一 Run 串行写库。Repository 只接受 `sequence/draftVersion` 单调前进的版本，旧写入不能覆盖新状态。这样实时流、`Checkpoint + Tail replay` 与 Latest Live Snapshot 对同一 sequence 都会得到相同的 `blocks[]`。
+
+terminal 的要求更严格：先在内存提交 terminal Event 与 Projection，再用该精确 sequence 执行数据库 terminal CAS/checkpoint，成功后才广播 terminal Event 并关闭订阅；若数据库失败，则回滚尚未广播的 terminal Event 和 Live Snapshot，客户端不能先看到一个无法持久化的成功状态。
+
+### 13.6 Replay、cursor 与客户端防旧写
+
+订阅初始化必须在同一同步临界区内注册 subscriber、捕获 Live sequence 并准备恢复数据，避免 replay 和 live Event 之间的空窗。cursor 被 Tail 连续覆盖时精确 replay `seq > cursor`；cursor 缺失、过旧或存在 gap 时发送 Latest Live Snapshot，再继续 Live SSE。Active Run 已不在内存时只返回 PostgreSQL Durable Snapshot 并结束，不假装恢复执行。
+
+客户端遵守四条规则：
+
+- Snapshot 完整替换对应 Run Projection，但低于当前 cursor 的 Snapshot、Session Detail 和异步 HTTP 返回不得覆盖新状态。
+- Event 只有满足 `seq === cursor + 1` 才能应用；重复 Event 忽略，gap 触发 Snapshot 恢复。
+- 只有找到目标 Session/Message 且 Event 成功应用后才推进 cursor。
+- Session 切换只改变选中视图，不取消后台 observer；Block 按稳定业务坐标插入或原位更新。
+
+前端真实测试还发现了另一个竞争：点击“新建 Session”后立即发送时，旧 render Effect 可能把旧 sessionId 写回 `selectedSessionIdRef`。修复方式不是延迟提交，而是用一个同步 setter 同时更新 React state 和 ref，使命令目标在同一个浏览器任务内保持一致。
+
+### 13.7 幂等、取消和终态 CAS
+
+- Create Run 在事务中创建 user message、空 assistant draft 和 queued Run；`(sessionId, idempotencyKey)` 唯一，同 key 同 payload返回原 Run，不同 payload 返回 `IDEMPOTENCY_CONFLICT`。
 - PostgreSQL partial unique index 保证每个 Session 最多一个 `queued/running/cancel_requested` Run；删除 active Session 返回 `SESSION_BUSY`。
-- completed/failed/cancelled 使用 terminal transaction 同时更新 Run 和 assistant delivery，失败或取消草稿保留展示，但不会进入后续模型历史。
-- Cancel 先持久化 `cancel_requested`，再 Abort 本进程执行句柄；Cancel 与 Executor 启动都使用条件状态更新，避免已取消 Run 被重新改回 running。
+- 状态仅允许 `queued -> cancelled`、`running -> cancel_requested`、`running -> completed/failed`、`cancel_requested -> cancelled/failed`，任何 terminal 状态都不能被覆盖。
+- queued Run 取消直接进入 `cancelled`；running Run 先持久化 `cancel_requested` 再 Abort 本地句柄。
+- reconciliation 通过 owner/status 条件隔离，不终止当前实例仍持有的执行；cancel 与 complete 竞争最终只能有一个合法 terminal 状态。
 
-### 13.4 服务重启为什么不自动续跑
+### 13.8 服务重启为什么不自动续跑
 
 当前是单 API executor 实例，没有 Worker lease、Provider cursor、Tool 副作用幂等和 checkpoint-compatible Runtime。贸然自动重放可能重复调用工具或产生重复副作用。因此每个实例保存 `ownerInstanceId/heartbeat/version`，启动和定时 reconciliation 把遗留 active Run 收敛为 `failed + RUN_INTERRUPTED`，保留已有 draft、Activity 和 Sources，但不伪装成可继续执行。
 
-### 13.5 面试口述版
+等进入 Worker 阶段，再独立设计 lease/fencing、Runtime checkpoint、Tool exactly-once 或幂等键以及进程接管。本阶段不引入数据库 Event Log、Redis、Kafka 或 Temporal，是范围控制而不是能力遗漏。
 
-> 我把原来依附一次 Chat SSE 请求的 Tool Loop 改成了独立 Durable Run。Create API 在事务里创建用户消息、assistant draft 和 queued Run 后立即返回，后台 Executor 只按 runId 驱动 Runtime，SSE 只是可随时断开重建的观察通道。PostgreSQL 保存 Run、语义 Step 和阶段性完整 draft，内存 Event Hub 保存 sequence、snapshot 和有限 replay window，所以刷新后可以先恢复 snapshot，再用 Last-Event-ID 接续事件。
+### 13.9 如何验证时序问题真的解决了
+
+验证分三层：
+
+1. Unit 覆盖 Adapter/Runtime 的混合 Content + Tool Call、多 Tool Call、首字即时交付和多 Round 顺序；覆盖 Projection 原位更新、EventHub replay、Checkpoint 并发清理与 Web reducer cursor 规则。
+2. Integration 覆盖 Repository 单调写、状态 CAS、terminal transaction、Create/Cancel API 和数据库恢复。
+3. 真实浏览器黑盒覆盖真实模型与工具调用、Session 切换、离线重连、刷新、并行 Session、取消、双击提交、移动端和三轮上下文恢复。
+
+只验证静态 Playwright Preview 不能证明真实 Agent Loop 的时序。真实 `agent-browser` 测试不仅确认了 `Round 前言 -> tools -> 下一轮正文 -> final` 的 DOM 顺序，还发现了“新建 Session 后立即发送”的 state/ref 竞争。这个结果说明确定性 reducer 测试负责穷举协议边界，真实黑盒测试负责发现跨网络、React 调度和实际 Provider 行为组合出来的问题，两者不能互相替代。
+
+### 13.10 面试口述版
+
+> 我最初看到的是切换会话后 Tool Activity 和最终回答错位，但没有把它当成单纯前端排序 bug。我先区分传输顺序和业务顺序：`eventSequence` 负责 cursor、replay 和 checkpoint 水位，`roundSequence + blockSequence` 负责模型轮次内 Content 与 Tool Call 的稳定位置；同时建立 Event、Projection 和 Checkpoint 必须属于同一版本的不变量。
 >
-> 我没有把每个 token 持久化，也没有引入 Redis。token delta 只走内存广播，正文按时间、大小和 Tool/terminal 边界合并写库。Cancel 是独立持久化命令，SSE close 不会传播 Abort。服务重启后当前也不自动重放，因为缺少 lease、checkpoint 和副作用幂等；遗留 Run 会明确标成 RUN_INTERRUPTED。这让连接恢复、执行恢复和分布式接管三个问题保持清晰边界。
+> 方案讨论时我刻意收窄目标。当前只需要浏览器断线、切会话和刷新恢复，并假设 API 进程存活，所以没有引入 Redis、数据库 Event Store 或进程续跑，而是使用 PostgreSQL Checkpoint + checkpoint 后内存 Event Tail + Live SSE。普通 Tool Round 的 Content 仍即时流式输出，Round 完成后再判断它是工具前言还是最终正文，不牺牲首字速度。
+>
+> 最后我用 Unit、Integration 和真实浏览器三层验证。真实浏览器在时序主链之外又发现 React state/ref 的立即提交竞争，进一步证明可恢复系统不能只测 reducer，也必须用真实连接、真实会话切换和真实模型工具循环做黑盒验证。
 
 ## 14. 面试表达模板
 
@@ -484,7 +577,7 @@ subscriber count == 0 != Run stop
 
 ### 问：SSE 为什么没有直接使用 WebSocket？
 
-答：事件主体仍是服务端单向推送，SSE 的部署和消费模型更简单；Create、Cancel 等客户端动作使用独立 HTTP command，不需要为了少量双向动作升级整条连接。恢复依赖 run-scoped sequence、Last-Event-ID、Ring Buffer 和 snapshot，而不是恢复原 TCP 连接。未来若高频 steer 或多端协作成为主要需求，再评估 WebSocket。
+答：事件主体仍是服务端单向推送，SSE 的部署和消费模型更简单；Create、Cancel 等客户端动作使用独立 HTTP command，不需要为了少量双向动作升级整条连接。恢复依赖 run-scoped sequence、Last-Event-ID、Checkpoint 水位后的 Event Tail 和 snapshot fallback，而不是恢复原 TCP 连接。未来若高频 steer 或多端协作成为主要需求，再评估 WebSocket。
 
 ### 问：为什么上下文由后端从 PostgreSQL 读取？
 

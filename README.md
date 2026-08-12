@@ -2,7 +2,7 @@
 
 面向终端用户的本地任务工作台。当前优先完成通用型 Agent 的端到端任务体验，其中联网调查能够搜索线索、读取公开网页、筛选相关原文，并由模型决定继续调查或作答。
 
-当前已完成工程基线、持久化聊天、General Web Research V1、Model-led Tool Boundary 和 Connection-Durable Agent Loop：Run 与 Chat/SSE 解耦，客户端断线、刷新和切换会话可通过 PostgreSQL snapshot 与进程内事件窗口恢复，取消和服务重启中断均有明确终态。Context Compiler、Memory 和 Delegation 尚未实现；Deep Research 引用/报告是否建设由后续产品需求决定。
+当前已完成工程基线、持久化聊天、General Web Research V1、Model-led Tool Boundary 和 Connection-Durable Agent Loop 时序加固：Run 已与 Chat/SSE 解耦，Ordered Model Rounds、Canonical Live Projection、版本化 PostgreSQL Checkpoint、Checkpoint 水位后的 Event Tail、严格 SSE cursor 和终态 CAS 已落地。客户端断线、刷新和切换会话可以恢复，且不牺牲普通 Tool Round 的 Content 首字速度。服务端重启后的自动续跑不属于本阶段；Context Compiler、Memory 和 Delegation 尚未实现，Deep Research 引用/报告是否建设由后续产品需求决定。
 
 独立的 `@harness/agent-evals` 已提供 6 题 Smoke 和 24 题 Full 真实黑盒评测，覆盖生产 Session、Chat SSE、工具执行、持久化快照、确定性硬规则、模型 Judge 和人工抽检文件。
 
@@ -27,12 +27,12 @@
   unit / integration / desktop+mobile E2E
 
 下一阶段
-  Connection-Durable Agent Loop：Run 与 Chat HTTP/SSE 解耦
-  PostgreSQL Run/Step/assistant draft 快照
-  SSE 重连、内存事件窗口、独立 cancel 和 RUN_INTERRUPTED 收敛
+  全局 Context Engineering
+  真实评测事实源与行为阈值校准
+  Release Hardening
 
 后续能力
-  全局 Context Engineering 与搜索 fallback
+  搜索 fallback
   Markdown Report Artifact
   steer 和更完整的运行控制
   user Memory 与 Delegation
@@ -74,7 +74,7 @@ pnpm dev
 
 Model-led Tool Boundary 已实现：模型负责是否继续调查，Runtime 只维护通用执行边界，Tool 只返回 canonical output/error，不再通过领域运行状态或控制意图改变主循环。Tool Result 当前始终注入模型上下文；全局上下文计量、选择、压缩和淘汰留给后续 Context Engineering。设计与落地边界见 [`docs/25-model-led-tool-boundary.md`](./docs/25-model-led-tool-boundary.md)。
 
-当前 Agent Loop 已升级为 Connection-Durable Agent Loop：客户端断线或刷新不取消 Run，前端通过 PostgreSQL snapshot、进程内 replay window 和新的 SSE 订阅恢复运行视图；服务端重启后的自动续跑暂不实现，遗留 Run 明确收敛为 `RUN_INTERRUPTED`。方案与边界见 [`docs/26-connection-durable-agent-loop.md`](./docs/26-connection-durable-agent-loop.md)。
+当前 Agent Loop 已完成 Connection-Durable 时序加固：客户端断线或刷新不取消 Run，前端通过 PostgreSQL Durable Checkpoint、Checkpoint 水位后的进程内 Event Tail 和 Live SSE 恢复运行视图；Ordered Model Rounds 在保留 Content 首字流式速度的同时稳定混合 Content/Tool Call 顺序。Latest Live Snapshot fallback、严格 cursor、版本单调 Checkpoint 和终态 CAS 均已实现。服务端重启后的自动续跑暂不实现，遗留 Run 明确收敛为 `RUN_INTERRUPTED`。方案与边界见 [`docs/26-connection-durable-agent-loop.md`](./docs/26-connection-durable-agent-loop.md)。
 
 完成首次初始化和迁移后，日常开发只需运行 `pnpm dev`；本机 PostgreSQL 由操作系统/Homebrew 服务持续运行。
 

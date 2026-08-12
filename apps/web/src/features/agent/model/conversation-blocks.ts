@@ -9,14 +9,37 @@ import type { ToolStreamEvent } from '../../../api/client';
 
 type MessageDeltaEvent = Extract<ChatStreamEvent, { type: 'message.delta' }>;
 
-// 将同一文本块的增量追加到原位置，不存在时按当前时序插入新块。
+function insertOrdered(
+  blocks: AssistantContentBlock[],
+  block: AssistantContentBlock,
+): AssistantContentBlock[] {
+  // 与服务端 Collector 使用相同排序规则，保证 Live SSE、Tail replay 和历史 Snapshot 同构。
+  const roundSequence = block.roundSequence ?? Number.MAX_SAFE_INTEGER;
+  const blockSequence = block.blockSequence ?? Number.MAX_SAFE_INTEGER;
+  const index = blocks.findIndex((current) => {
+    const currentRound = current.roundSequence ?? Number.MAX_SAFE_INTEGER;
+    const currentBlock = current.blockSequence ?? Number.MAX_SAFE_INTEGER;
+    return currentRound > roundSequence || (currentRound === roundSequence && currentBlock > blockSequence);
+  });
+  if (index < 0) return [...blocks, block];
+  return [...blocks.slice(0, index), block, ...blocks.slice(index)];
+}
+
+// 将同一文本块的增量追加到原位置，不存在时按稳定业务顺序插入；禁止按 SSE 到达顺序追加。
 export function appendTextDelta(
   blocks: AssistantContentBlock[],
   event: MessageDeltaEvent,
 ): AssistantContentBlock[] {
   const index = blocks.findIndex((block) => block.id === event.blockId && block.type === 'text');
   if (index < 0) {
-    return [...blocks, { id: event.blockId, type: 'text', content: event.delta }];
+    return insertOrdered(blocks, {
+      id: event.blockId,
+      type: 'text',
+      content: event.delta,
+      ...(event.roundId ? { roundId: event.roundId } : {}),
+      ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
+      ...(event.blockSequence !== undefined ? { blockSequence: event.blockSequence } : {}),
+    });
   }
   return blocks.map((block, blockIndex) =>
     blockIndex === index
@@ -26,6 +49,7 @@ export function appendTextDelta(
 }
 
 // 将工具生命周期事件投影为一个稳定 Activity 块，完成或失败时只原位更新。
+// replay 的重复 started 不创建副本，缺少 started 的终态也不猜测插入位置。
 export function applyToolActivityEvent(
   blocks: AssistantContentBlock[],
   event: ToolStreamEvent,
@@ -35,11 +59,12 @@ export function applyToolActivityEvent(
   );
   if (event.type === 'tool.started') {
     if (index >= 0) return blocks;
-    return [
-      ...blocks,
-      {
+    return insertOrdered(blocks, {
         id: event.blockId,
         type: 'tool_activity',
+        ...(event.roundId ? { roundId: event.roundId } : {}),
+        ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
+        ...(event.blockSequence !== undefined ? { blockSequence: event.blockSequence } : {}),
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         status: 'running',
@@ -49,8 +74,7 @@ export function applyToolActivityEvent(
             ? `读取 ${event.input.urls.length} 个网页`
             : event.input.query,
         startedAt: event.startedAt,
-      },
-    ];
+      });
   }
   if (index < 0) return blocks;
   return blocks.map((block, blockIndex) => {

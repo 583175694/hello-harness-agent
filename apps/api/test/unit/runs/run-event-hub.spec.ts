@@ -57,7 +57,7 @@ describe('RunEventHub', () => {
     await replayIterator?.return?.();
   });
 
-  it('falls back to a snapshot after cursor eviction', async () => {
+  it('retains uncheckpointed events until a checkpoint commits', async () => {
     const registry = new ActiveRunRegistry();
     const hub = new RunEventHub(registry);
     registry.register(snapshot());
@@ -65,8 +65,22 @@ describe('RunEventHub', () => {
       hub.publish('run-1', 'run.started', { status: 'running' });
 
     const iterator = hub.subscribe('run-1', 0)?.[Symbol.asyncIterator]();
-    expect((await iterator?.next())?.value).toMatchObject({ type: 'run.snapshot', seq: 501 });
+    expect((await iterator?.next())?.value).toMatchObject({ type: 'run.started', seq: 1 });
     await iterator?.return?.();
+  });
+
+  it('compacts only events covered by the committed checkpoint', async () => {
+    const registry = new ActiveRunRegistry();
+    const hub = new RunEventHub(registry);
+    const active = registry.register(snapshot());
+    hub.publish('run-1', 'run.started', { status: 'running' });
+    hub.publish('run-1', 'run.started', { status: 'running' });
+    hub.checkpointCommitted(
+      'run-1',
+      { ...active.liveSnapshot, lastEventSequence: 1 },
+      1,
+    );
+    expect(active.tailEvents.map((event) => event.seq)).toEqual([2]);
   });
 
   it('closes a terminal subscription after its final snapshot', async () => {

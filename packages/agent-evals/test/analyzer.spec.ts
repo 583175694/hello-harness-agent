@@ -10,6 +10,7 @@ const session = (content: string, metadata: Record<string, unknown> = {}): Sessi
   isPinned: false,
   createdAt: '2026-08-10T00:00:00.000Z',
   updatedAt: '2026-08-10T00:01:00.000Z',
+  activeRun: null,
   messages: [
     {
       id: 'assistant-1',

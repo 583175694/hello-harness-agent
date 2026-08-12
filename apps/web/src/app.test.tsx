@@ -598,6 +598,94 @@ describe('R1 workbench shell', () => {
     expect(window.location.search).toBe('?session=new-session');
   });
 
+  it('keeps draft selection when submit follows the new-session click immediately', async () => {
+    const oldSession = {
+      id: 'old-session',
+      title: '旧会话',
+      status: 'active',
+      isPinned: false,
+      createdAt: '2026-08-05T04:00:00.000Z',
+      updatedAt: '2026-08-05T04:00:00.000Z',
+    };
+    const newSession = {
+      ...oldSession,
+      id: 'new-session',
+      title: '立即提交',
+      updatedAt: '2026-08-05T04:10:00.000Z',
+    };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/readyz')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' })),
+        );
+      }
+      if (url.endsWith('/api/agent/sessions') && init?.method === 'POST') {
+        return Promise.resolve(
+          new Response(JSON.stringify({ session: newSession }), { status: 201 }),
+        );
+      }
+      if (url.endsWith('/api/agent/sessions') && !init?.method) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ sessions: [oldSession] }), { status: 200 }),
+        );
+      }
+      if (url.endsWith('/old-session')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ session: { ...oldSession, messages: [] } })),
+        );
+      }
+      if (url.endsWith('/new-session/runs') && init?.method === 'POST') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              sessionId: 'new-session',
+              runId: 'new-run',
+              userMessageId: 'new-user',
+              assistantMessageId: 'new-message',
+              status: 'queued',
+              eventsUrl: '/api/agent/runs/new-run/events',
+            }),
+            { status: 201 },
+          ),
+        );
+      }
+      if (url.endsWith('/runs/new-run/events')) {
+        return Promise.resolve(
+          new Response(
+            runFrame('run.completed', { status: 'completed' }, 1, 'new-run', 'new-session'),
+            { headers: { 'content-type': 'text/event-stream' } },
+          ),
+        );
+      }
+      if (url.endsWith('/new-session')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ session: { ...newSession, messages: [] } })),
+        );
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: '旧会话' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), {
+      target: { value: '立即提交' },
+    });
+    fireEvent.submit(screen.getByRole('textbox', { name: '任务输入' }).closest('form')!);
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/agent/sessions/new-session/runs',
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    );
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).endsWith('/old-session/runs')),
+    ).toBe(false);
+  });
+
   it('restores the URL-selected session and its persisted Markdown messages', async () => {
     const restored = {
       id: 'restored-session',

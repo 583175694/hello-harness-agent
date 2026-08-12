@@ -4,6 +4,48 @@ import { describe, expect, it, vi } from 'vitest';
 import { Conversation } from './conversation';
 
 describe('Conversation tool activity navigation', () => {
+  it('keeps the thinking status visible while tools run before answer text arrives', () => {
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [
+            {
+              id: 'assistant-1',
+              kind: 'assistant',
+              pending: true,
+              blocks: [
+                {
+                  id: 'tool-1',
+                  type: 'tool_activity',
+                  toolCallId: 'call-1',
+                  toolName: 'web_search',
+                  status: 'running',
+                  title: '搜索网页',
+                  startedAt: '2026-08-12T09:00:00.000Z',
+                },
+              ],
+            },
+          ],
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText('正在思考中…')).toBeInTheDocument();
+    expect(screen.getByText('AI 正在回复')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '停止任务' })).toBeInTheDocument();
+  });
+
   it('uses the server message identity while the assistant still has an optimistic id', () => {
     const onFocusWorkbench = vi.fn();
     render(

@@ -98,18 +98,22 @@ describe('ChatService session persistence', () => {
     service.releaseSession('session-1');
 
     expect(events).toEqual([
-      {
+      expect.objectContaining({
         type: 'message.delta',
         messageId: prepared.assistantMessageId,
         blockId: `${prepared.assistantMessageId}-text-1`,
         delta: '完整',
-      },
-      {
+        roundSequence: 1,
+        blockSequence: 0,
+      }),
+      expect.objectContaining({
         type: 'message.delta',
         messageId: prepared.assistantMessageId,
         blockId: `${prepared.assistantMessageId}-text-1`,
         delta: '回答',
-      },
+        roundSequence: 1,
+        blockSequence: 0,
+      }),
       { type: 'message.completed', messageId: prepared.assistantMessageId, model: 'test-model' },
     ]);
     expect(messageCreate).toHaveBeenCalledTimes(2);

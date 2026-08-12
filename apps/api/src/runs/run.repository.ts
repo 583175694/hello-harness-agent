@@ -13,12 +13,14 @@ const ACTIVE_STATUSES = ['queued', 'running', 'cancel_requested'] as const;
 
 @Injectable()
 export class RunRepository implements OnModuleInit, OnModuleDestroy {
+  // ownerInstanceId 只用于当前单进程执行隔离和重启清理，不等同于分布式 Worker fencing token。
   readonly instanceId = crypto.randomUUID();
   private reconciliationTimer?: NodeJS.Timeout;
 
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async onModuleInit(): Promise<void> {
+    // 当前范围不恢复 Runtime：启动时把其他实例遗留的 Active Run 明确收敛为 failed。
     await this.interruptRuns({ status: { in: [...ACTIVE_STATUSES] } });
     this.reconciliationTimer = setInterval(() => {
       const staleBefore = new Date(Date.now() - 30_000);
@@ -38,8 +40,9 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
   }
 
   private async interruptRuns(where: Prisma.AgentRunWhereInput): Promise<void> {
+    // 排除当前实例仍持有并持续 heartbeat 的 Run，避免 reconciliation 杀死本地正常执行。
     const interrupted = await this.prisma.agentRun.findMany({
-      where,
+      where: { AND: [where, { NOT: { ownerInstanceId: this.instanceId } }] },
       include: { messages: { where: { role: 'assistant' } } },
     });
     for (const run of interrupted) {
@@ -83,6 +86,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     userMessageId: string;
     assistantMessageId: string;
   }) {
+    // Session 校验、幂等判定、单 Session Active Run 限制和两条初始消息必须同事务完成。
     return this.prisma.$transaction(async (tx) => {
       const session = await tx.session.findFirst({
         where: { id: input.sessionId, userId: LOCAL_USER_ID },
@@ -160,6 +164,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
   }
 
   async snapshot(runId: string): Promise<RunSnapshot | undefined> {
+    // PostgreSQL 保存完整 UI Snapshot，不保存可重放 Runtime Event Log。
     const run = await this.findOwned(runId);
     if (!run) return undefined;
     const message = run.messages.find((item) => item.id === run.assistantMessageId);
@@ -186,6 +191,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
   }
 
   async start(runId: string): Promise<boolean> {
+    // 只有 queued 能获得执行权；queued cancel 与 start 竞争时最多一个 updateMany 成功。
     const now = new Date();
     const result = await this.prisma.agentRun.updateMany({
       where: { id: runId, status: 'queued' },
@@ -265,13 +271,34 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     projection: ChatProjectionSnapshot,
     lastEventSequence: number,
     draftVersion: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const content = projection.blocks
       .filter((block) => block.type === 'text')
       .map((block) => block.content)
       .join('');
-    await this.prisma.$transaction([
-      this.prisma.message.update({
+    // Run 水位和 Assistant Draft 在同一事务更新，禁止出现 seq 已前进但 Blocks 仍是旧版本。
+    return this.prisma.$transaction(async (tx) => {
+      const message = await tx.message.findUnique({ where: { id: assistantMessageId } });
+      const currentMetadata = this.metadata(message?.metadata);
+      const currentDraftVersion =
+        typeof currentMetadata.draftVersion === 'number' ? currentMetadata.draftVersion : 0;
+      // 较晚完成的旧写请求不能覆盖更新的 Draft；sequence 也只允许单调前进。
+      if (currentDraftVersion > draftVersion) return false;
+      const updated = await tx.agentRun.updateMany({
+        where: {
+          id: runId,
+          status: { in: [...ACTIVE_STATUSES] },
+          lastEventSequence: { lte: BigInt(lastEventSequence) },
+        },
+        data: {
+          toolCallCount: projection.toolCallCount,
+          lastEventSequence: BigInt(lastEventSequence),
+          heartbeatAt: new Date(),
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count !== 1) return false;
+      await tx.message.update({
         where: { id: assistantMessageId },
         data: {
           content,
@@ -289,22 +316,45 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
             },
           } as Prisma.InputJsonValue,
         },
-      }),
-      this.prisma.agentRun.update({
-        where: { id: runId },
-        data: {
-          toolCallCount: projection.toolCallCount,
-          lastEventSequence,
-          heartbeatAt: new Date(),
-          version: { increment: 1 },
-        },
-      }),
-    ]);
+      });
+      return true;
+    });
   }
 
   async requestCancel(runId: string): Promise<AgentRunStatus> {
+    // queued 尚未执行，可在事务内直接终止并更新 Draft；running 只能请求取消，由 Executor 收尾。
+    const queued = await this.prisma.$transaction(async (tx) => {
+      const run = await tx.agentRun.findFirst({ where: { id: runId, status: 'queued' } });
+      if (!run) return false;
+      const updated = await tx.agentRun.updateMany({
+        where: { id: runId, status: 'queued' },
+        data: {
+          status: 'cancelled',
+          errorCode: 'RUN_CANCELLED',
+          errorDetail: '用户已取消本次运行。',
+          endedAt: new Date(),
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count !== 1) return false;
+      const message = await tx.message.findUnique({ where: { id: run.assistantMessageId } });
+      if (message) {
+        await tx.message.update({
+          where: { id: message.id },
+          data: {
+            metadata: {
+              ...this.metadata(message.metadata),
+              deliveryStatus: 'cancelled',
+              runId,
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+      return true;
+    });
+    if (queued) return 'cancelled';
     const result = await this.prisma.agentRun.updateMany({
-      where: { id: runId, status: { in: [...ACTIVE_STATUSES] } },
+      where: { id: runId, status: 'running' },
       data: { status: 'cancel_requested', version: { increment: 1 } },
     });
     if (result.count === 1) return 'cancel_requested';
@@ -320,13 +370,36 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     lastEventSequence: number;
     draftVersion: number;
     error?: { code: string; detail: string };
-  }): Promise<void> {
+  }): Promise<boolean> {
     const content = input.projection.blocks
       .filter((block) => block.type === 'text')
       .map((block) => block.content)
       .join('');
-    await this.prisma.$transaction([
-      this.prisma.message.update({
+    // 完成只能来自 running；一旦进入 cancel_requested，成功终态必须让位于 cancelled/failed。
+    const allowedFrom =
+      input.status === 'completed' ? ['running'] : input.status === 'cancelled' ? ['cancel_requested'] : ['running', 'cancel_requested'];
+    // Terminal Run 状态和最终 Assistant Snapshot 原子提交，成功返回后才允许广播 terminal SSE。
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.agentRun.updateMany({
+        where: {
+          id: input.runId,
+          status: { in: allowedFrom as AgentRunStatus[] },
+          lastEventSequence: { lte: BigInt(input.lastEventSequence) },
+        },
+        data: {
+          status: input.status,
+          toolCallCount: input.projection.toolCallCount,
+          lastEventSequence: BigInt(input.lastEventSequence),
+          errorCode: input.error?.code,
+          errorDetail: input.error?.detail,
+          activeStepId: null,
+          endedAt: new Date(),
+          heartbeatAt: new Date(),
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count !== 1) return false;
+      await tx.message.update({
         where: { id: input.assistantMessageId },
         data: {
           content,
@@ -344,22 +417,9 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
             },
           } as Prisma.InputJsonValue,
         },
-      }),
-      this.prisma.agentRun.update({
-        where: { id: input.runId },
-        data: {
-          status: input.status,
-          toolCallCount: input.projection.toolCallCount,
-          lastEventSequence: input.lastEventSequence,
-          errorCode: input.error?.code,
-          errorDetail: input.error?.detail,
-          activeStepId: null,
-          endedAt: new Date(),
-          heartbeatAt: new Date(),
-          version: { increment: 1 },
-        },
-      }),
-    ]);
+      });
+      return true;
+    });
   }
 
   private metadata(value: Prisma.JsonValue | undefined): Record<string, unknown> {

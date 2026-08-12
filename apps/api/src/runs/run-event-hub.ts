@@ -4,15 +4,22 @@ import type { RunSnapshot, RunStreamEvent } from '@harness/agent-protocol';
 import { ActiveRunRegistry } from './active-run.registry';
 import type { RunSubscriber } from './run.types';
 
-const MAX_EVENTS = 500;
-const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_SUBSCRIBER_QUEUE = 256;
 
 @Injectable()
 export class RunEventHub {
   constructor(@Inject(ActiveRunRegistry) private readonly registry: ActiveRunRegistry) {}
 
+  // 普通事件可以提交后立即广播；Terminal Event 必须由 Executor 显式拆分 commit/broadcast。
   publish(runId: string, type: RunStreamEvent['type'], payload: RunStreamEvent['payload']) {
+    const event = this.commit(runId, type, payload);
+    if (event) this.broadcast(runId, event);
+    return event;
+  }
+
+  // 原子推进 Event、Live Sequence、Live Snapshot 和 Tail，但不向客户端交付。
+  // 这个边界让 Terminal 流程能够先持久化精确版本，成功后再广播。
+  commit(runId: string, type: RunStreamEvent['type'], payload: RunStreamEvent['payload']) {
     const run = this.registry.get(runId);
     if (!run) return undefined;
     const event: RunStreamEvent = {
@@ -25,39 +32,84 @@ export class RunEventHub {
       occurredAt: new Date().toISOString(),
       payload,
     };
-    if (type === 'run.snapshot') run.snapshot = payload as RunSnapshot;
-    else run.snapshot = this.reduceSnapshot(run.snapshot, event);
+    if (type === 'run.snapshot') run.liveSnapshot = structuredClone(payload as RunSnapshot);
+    else run.liveSnapshot = this.reduceSnapshot(run.liveSnapshot, event);
+    run.liveSequence = event.seq;
     const bytes = Buffer.byteLength(JSON.stringify(event));
-    run.recentEvents.push(event);
-    run.recentBytes += bytes;
-    while (run.recentEvents.length > MAX_EVENTS || run.recentBytes > MAX_BYTES) {
-      const removed = run.recentEvents.shift();
-      if (removed) run.recentBytes -= Buffer.byteLength(JSON.stringify(removed));
-    }
-    for (const subscriber of run.subscribers) this.enqueue(subscriber, event);
+    run.tailEvents.push(event);
+    run.tailBytes += bytes;
     return event;
   }
 
-  updateSnapshot(runId: string, snapshot: RunSnapshot): void {
+  // 将已经提交的事件分发给当前观察者，不再修改任何 Run 状态。
+  broadcast(runId: string, event: RunStreamEvent): void {
     const run = this.registry.get(runId);
-    if (run) run.snapshot = snapshot;
+    if (!run) return;
+    for (const subscriber of run.subscribers) this.enqueue(subscriber, event);
   }
 
+  // 仅用于尚未广播的最新 Terminal Event。CAS 失败时恢复前一 Live Snapshot 和序号分配器。
+  rollback(runId: string, event: RunStreamEvent, snapshot: RunSnapshot): void {
+    const run = this.registry.get(runId);
+    if (!run || run.liveSequence !== event.seq) return;
+    run.liveSnapshot = structuredClone(snapshot);
+    run.liveSequence = snapshot.lastEventSequence;
+    run.nextSequence = event.seq;
+    const index = run.tailEvents.findIndex((candidate) => candidate.eventId === event.eventId);
+    if (index >= 0) {
+      const [removed] = run.tailEvents.splice(index, 1);
+      if (removed) run.tailBytes -= Buffer.byteLength(JSON.stringify(removed));
+    }
+  }
+
+  // 当 Executor 无法取得 queued -> running 所有权时，用数据库事实覆盖内存初始状态。
+  updateSnapshot(runId: string, snapshot: RunSnapshot): void {
+    const run = this.registry.get(runId);
+    if (run) {
+      run.liveSnapshot = structuredClone(snapshot);
+      run.liveSequence = snapshot.lastEventSequence;
+    }
+  }
+
+  // 数据库确认同版本 Snapshot 后推进 Durable 水位，并只压缩已被该版本覆盖的 Tail。
+  // 写库期间产生的更高序号事件必须继续保留，不能按“最近 N 条”静默淘汰。
+  checkpointCommitted(runId: string, snapshot: RunSnapshot, draftVersion: number): void {
+    const run = this.registry.get(runId);
+    if (!run || snapshot.lastEventSequence < run.durableCheckpoint.sequence) return;
+    run.durableCheckpoint = {
+      sequence: snapshot.lastEventSequence,
+      draftVersion,
+      snapshot: structuredClone(snapshot),
+    };
+    const retained = run.tailEvents.filter((event) => event.seq > snapshot.lastEventSequence);
+    run.tailEvents = retained;
+    run.tailBytes = retained.reduce(
+      (total, event) => total + Buffer.byteLength(JSON.stringify(event)),
+      0,
+    );
+  }
+
+  // 注册 Subscriber 与准备首批恢复数据在同一个同步调用栈完成，避免 replay/live 空窗。
+  // cursor 连续时精确 replay Tail；缺失、过旧或越过 Live 时发送完整 Live Snapshot。
   subscribe(runId: string, cursor?: number): AsyncIterable<RunStreamEvent> | undefined {
     const run = this.registry.get(runId);
     if (!run) return undefined;
     const subscriber: RunSubscriber = { queue: [], closed: false };
     run.subscribers.add(subscriber);
-    const firstBuffered = run.recentEvents[0]?.seq;
-    const terminal = ['completed', 'failed', 'cancelled'].includes(run.snapshot.status);
+    const firstBuffered = run.tailEvents[0]?.seq;
+    const terminal = ['completed', 'failed', 'cancelled'].includes(run.liveSnapshot.status);
     if (terminal) {
-      this.enqueue(subscriber, this.snapshotEvent(runId, run.sessionId, run.snapshot));
+      this.enqueue(subscriber, this.snapshotEvent(runId, run.sessionId, run.liveSnapshot));
       subscriber.closed = true;
       run.subscribers.delete(subscriber);
-    } else if (cursor !== undefined && (firstBuffered === undefined || cursor >= firstBuffered - 1)) {
-      for (const event of run.recentEvents) if (event.seq > cursor) this.enqueue(subscriber, event);
+    } else if (
+      cursor !== undefined &&
+      cursor <= run.liveSequence &&
+      (firstBuffered === undefined || cursor >= firstBuffered - 1)
+    ) {
+      for (const event of run.tailEvents) if (event.seq > cursor) this.enqueue(subscriber, event);
     } else {
-      this.enqueue(subscriber, this.snapshotEvent(runId, run.sessionId, run.snapshot));
+      this.enqueue(subscriber, this.snapshotEvent(runId, run.sessionId, run.liveSnapshot));
     }
     return {
       [Symbol.asyncIterator]: () => ({
@@ -72,6 +124,7 @@ export class RunEventHub {
     };
   }
 
+  // Snapshot Event 的 seq 等于 Snapshot 水位；它表示完整替换，而不是新的业务变化。
   private snapshotEvent(runId: string, sessionId: string, snapshot: RunSnapshot): RunStreamEvent {
     return {
       version: protocolVersion,
@@ -85,6 +138,7 @@ export class RunEventHub {
     };
   }
 
+  // Terminal 已交付或 Executor 结束时关闭所有观察连接，但不在这里删除 Active Run。
   close(runId: string): void {
     const run = this.registry.get(runId);
     if (!run) return;
@@ -95,6 +149,7 @@ export class RunEventHub {
     run.subscribers.clear();
   }
 
+  // 慢 Subscriber 超过独立队列上限时断开，让客户端下次通过 cursor/Snapshot 自愈。
   private enqueue(subscriber: RunSubscriber, event: RunStreamEvent): void {
     if (subscriber.closed) return;
     if (subscriber.waiting) {
@@ -105,6 +160,7 @@ export class RunEventHub {
     }
     if (subscriber.queue.length >= MAX_SUBSCRIBER_QUEUE) {
       subscriber.closed = true;
+      subscriber.overflowed = true;
       return;
     }
     subscriber.queue.push(event);
@@ -117,6 +173,7 @@ export class RunEventHub {
     return new Promise((resolve) => (subscriber.waiting = resolve));
   }
 
+  // EventHub 只归约 Run 外壳状态；正文、Blocks 和工具投影由同版本 Projection 覆盖。
   private reduceSnapshot(snapshot: RunSnapshot, event: RunStreamEvent): RunSnapshot {
     const payload = event.payload;
     const status =

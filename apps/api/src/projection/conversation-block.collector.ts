@@ -5,41 +5,61 @@ import type {
 } from '@harness/agent-protocol';
 
 // 将实时文本和工具生命周期折叠为可持久化的 assistant 有序内容块。
+// 事实顺序由 roundSequence + blockSequence 决定，禁止按事件到达顺序直接 push。
 export class ConversationBlockCollector {
   private readonly blocks: AssistantContentBlock[] = [];
   private textBlockCount = 0;
 
   constructor(private readonly messageId: string) {}
 
-  // 合并连续文本增量；被工具活动打断后创建新的文本块。
-  appendText(delta: string): string {
-    const last = this.blocks.at(-1);
-    if (last?.type === 'text') {
-      last.content += delta;
-      return last.id;
+  // 按 Round 内稳定位置合并文本增量；重放同一位置时只更新原 Block。
+  appendText(input: {
+    delta: string;
+    roundId: string;
+    roundSequence: number;
+    blockSequence: number;
+  }): string {
+    const existing = this.blocks.find(
+      (block) =>
+        block.type === 'text' &&
+        block.roundId === input.roundId &&
+        block.blockSequence === input.blockSequence,
+    );
+    if (existing?.type === 'text') {
+      existing.content += input.delta;
+      return existing.id;
     }
     this.textBlockCount += 1;
     const block: AssistantTextBlock = {
       id: `${this.messageId}-text-${this.textBlockCount}`,
       type: 'text',
-      content: delta,
+      roundId: input.roundId,
+      roundSequence: input.roundSequence,
+      blockSequence: input.blockSequence,
+      content: input.delta,
     };
-    this.blocks.push(block);
+    this.insert(block);
     return block.id;
   }
 
-  // 在当前时间位置插入一个稳定的运行中工具活动块。
+  // 在模型声明的位置插入稳定的运行中工具活动块；重复 started 不会创建副本。
   startTool(input: {
     toolCallId: string;
     toolName: string;
     summary: string;
     startedAt: string;
+    roundId: string;
+    roundSequence: number;
+    blockSequence: number;
   }): AssistantToolActivityBlock {
     const existing = this.findTool(input.toolCallId);
     if (existing) return { ...existing };
     const block: AssistantToolActivityBlock = {
       id: `${this.messageId}-tool-${input.toolCallId}`,
       type: 'tool_activity',
+      roundId: input.roundId,
+      roundSequence: input.roundSequence,
+      blockSequence: input.blockSequence,
       toolCallId: input.toolCallId,
       toolName: input.toolName,
       status: 'running',
@@ -47,7 +67,7 @@ export class ConversationBlockCollector {
       summary: input.summary || undefined,
       startedAt: input.startedAt,
     };
-    this.blocks.push(block);
+    this.insert(block);
     return { ...block };
   }
 
@@ -129,5 +149,18 @@ export class ConversationBlockCollector {
     if (toolName === 'web_search') return '搜索网页';
     if (toolName === 'web_fetch') return '读取网页';
     return `运行工具 ${toolName}`;
+  }
+
+  private insert(block: AssistantContentBlock): void {
+    // 旧历史消息可能没有 Round 字段，统一放在有序 Round 之后并保持原数组相对顺序。
+    const roundSequence = block.roundSequence ?? Number.MAX_SAFE_INTEGER;
+    const blockSequence = block.blockSequence ?? Number.MAX_SAFE_INTEGER;
+    const index = this.blocks.findIndex((current) => {
+      const currentRound = current.roundSequence ?? Number.MAX_SAFE_INTEGER;
+      const currentBlock = current.blockSequence ?? Number.MAX_SAFE_INTEGER;
+      return currentRound > roundSequence || (currentRound === roundSequence && currentBlock > blockSequence);
+    });
+    if (index < 0) this.blocks.push(block);
+    else this.blocks.splice(index, 0, block);
   }
 }

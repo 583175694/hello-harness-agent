@@ -23,6 +23,7 @@ export class RunsController {
     @Inject(RunEventHub) private readonly events: RunEventHub,
   ) {}
 
+  // 创建接口返回 Run 标识和 SSE 地址；模型生成由后台 Executor 继续执行。
   @Post('sessions/:sessionId/runs')
   create(@Param('sessionId') sessionId: string, @Body() body: unknown) {
     const result = createRunRequestSchema.safeParse(body);
@@ -34,17 +35,20 @@ export class RunsController {
     return this.commands.create(sessionId, result.data);
   }
 
+  // 返回 Latest Live Snapshot；Active Run 不在内存时由命令层退回 PostgreSQL Checkpoint。
   @Get('runs/:runId')
   snapshot(@Param('runId') runId: string) {
     return this.commands.snapshot(runId);
   }
 
+  // 取消是幂等状态命令，terminal Run 重复取消直接返回已有终态。
   @Post('runs/:runId/cancel')
   @HttpCode(200)
   cancel(@Param('runId') runId: string) {
     return this.commands.cancel(runId);
   }
 
+  // SSE 恢复入口：Last-Event-ID 是客户端最后成功应用的 run-scoped sequence。
   @Get('runs/:runId/events')
   async subscribe(
     @Param('runId') runId: string,
@@ -57,6 +61,7 @@ export class RunsController {
     const cursor = lastEventId && /^\d+$/.test(lastEventId) ? Number(lastEventId) : undefined;
     const iterable = this.events.subscribe(runId, cursor);
     if (!iterable) {
+      // API 进程没有该 Active Run 时只能交付 PostgreSQL Durable Snapshot；当前不恢复 Runtime。
       const event: RunStreamEvent = {
         version: protocolVersion,
         eventId: crypto.randomUUID(),
@@ -72,13 +77,16 @@ export class RunsController {
       return;
     }
     const iterator = iterable[Symbol.asyncIterator]();
+    // heartbeat 只防代理层关闭空闲 HTTP 连接，不推进业务 cursor。
     const heartbeat = setInterval(() => writer.comment('heartbeat'), 15_000);
+    // 浏览器断开只释放 Subscriber，绝不调用 Run cancel。
     response.on('close', () => void iterator.return?.());
     try {
       while (!response.writableEnded) {
         const result = await iterator.next();
         if (result.done) break;
         writer.writeEvent(result.value);
+        // Terminal Event 或 terminal Snapshot 已完整表达最终状态，写出后主动结束本次 SSE。
         if (
           result.value.type === 'run.completed' ||
           result.value.type === 'run.failed' ||

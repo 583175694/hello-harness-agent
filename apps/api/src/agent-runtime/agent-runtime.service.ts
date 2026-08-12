@@ -9,7 +9,7 @@ import { Logger } from 'nestjs-pino';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import type { ChatMessage } from '@harness/agent-protocol';
 import { ModelAdapter } from '../model/model-adapter';
-import type { ModelMessage } from '../model/model-adapter';
+import type { ModelMessage, ModelToolCall } from '../model/model-adapter';
 import type { ToolExecutionContext, ToolExecutionResult } from '../tools/agent-tool.types';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
@@ -53,21 +53,26 @@ export class AgentRuntimeService {
       finalResponseOnly = true;
     };
 
-    // 每一轮要么直接得到最终文本，要么执行工具并把结果追加到下一轮上下文。
+    // 每次外层循环对应一次独立模型请求，也就是一个稳定的 Model Round。
+    // 每一轮要么得到最终文本，要么执行工具并把结果追加到下一轮上下文。
     while (modelRounds <= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
       modelRounds += 1;
       // 最终回答阶段从请求参数层面移除工具，不能只依赖 Prompt 约束模型。
       const definitions = finalResponseOnly ? undefined : this.tools.definitions();
       // 每次模型尝试都重新收集文本、工具调用和结束原因，污染重试不得混入上一轮内容。
       let textDeltas: string[] = [];
-      let calls: Array<{ id: string; name: string; arguments: string }> = [];
+      let calls: ModelToolCall[] = [];
       let finishReason: string | null = null;
+      // roundId 是稳定关联标识，roundSequence 才承担跨 Round 的排序职责。
+      let roundId = crypto.randomUUID();
+      let textBlockSequence = 0;
       // 普通调查轮只调用一次；最终回答遇到协议污染时允许有限重试。
       const maxAttempts = finalResponseOnly
         ? DEFAULT_RUNTIME_POLICY.finalAnswerProtocolRetries + 1
         : 1;
       // 内层循环只负责一次模型轮次及最终回答协议校验，不执行任何工具。
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        roundId = crypto.randomUUID();
         const attemptStartedAt = Date.now();
         // 普通轮和最终回答使用不同超时，但都必须响应用户取消信号。
         const roundSignal = this.roundSignal(
@@ -92,13 +97,21 @@ export class AgentRuntimeService {
             tools: definitions,
             signal: roundSignal,
           })) {
-            // 文本增量始终先缓存；普通调查轮可以立即透明展示。
+            // 普通 Tool Round 的 Content 首字立即交付，不为排序牺牲首字速度；
+            // Round 完成且存在 Tool Call 时，它自然被解释为工具前言而非最终正文。
             if (event.type === 'text.delta') {
               textDeltas.push(event.delta);
+              textBlockSequence = event.blockSequence;
               // 最终回答必须完整通过长度、空响应和协议污染校验后才能交付。
               if (!finalResponseOnly) {
                 visibleContent += event.delta;
-                yield { type: 'text.delta', delta: event.delta };
+                yield {
+                  type: 'text.delta',
+                  delta: event.delta,
+                  roundId,
+                  roundSequence: modelRounds,
+                  blockSequence: event.blockSequence,
+                };
               }
             } else if (event.type === 'tool_calls.completed') {
               // Adapter 已聚合供应商的分片参数，Runtime 只消费完整 Tool Call。
@@ -174,7 +187,13 @@ export class AgentRuntimeService {
         if (finalResponseOnly) {
           for (const delta of textDeltas) {
             visibleContent += delta;
-            yield { type: 'text.delta', delta };
+            yield {
+              type: 'text.delta',
+              delta,
+              roundId,
+              roundSequence: modelRounds,
+              blockSequence: textBlockSequence,
+            };
           }
         }
         // 当前尝试已经成功完成，退出协议重试循环并进入本轮结果处理。
@@ -188,7 +207,7 @@ export class AgentRuntimeService {
           detail: '模型输出达到长度上限，本次回答未保存。',
         });
       }
-      // 没有 Tool Call 说明模型已经完成最终自然语言回答，结束外层 Agent 循环。
+      // Round outcome 只在完整消费供应商流后确认：无 Tool Call 才是最终正文。
       if (!calls.length) {
         const roundContent = textDeltas.join('');
         // 普通调查轮同样不能把纯空白结果当作成功交付。
@@ -210,9 +229,12 @@ export class AgentRuntimeService {
       }
 
       // 某些兼容供应商可能缺失 Tool Call ID，为每个调用补齐稳定关联标识。
-      const normalizedCalls = calls.map((call) => ({
+      const normalizedCalls = calls.map((call, callIndex) => ({
         ...call,
         id: call.id || crypto.randomUUID(),
+        blockSequence:
+          call.blockSequence ?? (textDeltas.length > 0 ? textBlockSequence + callIndex + 1 : callIndex),
+        providerIndex: call.providerIndex ?? callIndex,
       }));
       // 先追加包含完整 Tool Calls 的 assistant message，后续必须为每个调用补齐 tool message。
       messages.push({
@@ -221,7 +243,8 @@ export class AgentRuntimeService {
         toolCalls: normalizedCalls,
       });
 
-      // 同一模型响应可能包含多个工具调用，按声明顺序串行执行并完整配对 Tool Message。
+      // 同一 Round 可能包含多个 Tool Call。当前保持模型声明顺序串行执行，
+      // 并为每个调用补齐 Tool Message，避免下一轮模型上下文违反供应商协议。
       for (const call of normalizedCalls) {
         // 调用额度耗尽后的同批调用不再计数或执行，只补齐对应的 tool message。
         if (toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
@@ -279,6 +302,9 @@ export class AgentRuntimeService {
           toolName: call.name,
           input: toolInput,
           startedAt: startedAt.toISOString(),
+          roundId,
+          roundSequence: modelRounds,
+          blockSequence: call.blockSequence,
         };
         let result: ToolExecutionResult<unknown>;
         try {
@@ -301,6 +327,9 @@ export class AgentRuntimeService {
               durationMs,
               code: AGENT_ERROR_CODES.toolCancelled,
               detail: '工具调用已取消。',
+              roundId,
+              roundSequence: modelRounds,
+              blockSequence: call.blockSequence,
             };
             throw error;
           }
@@ -331,6 +360,9 @@ export class AgentRuntimeService {
             output: result.output,
             completedAt: completedAt.toISOString(),
             durationMs,
+            roundId,
+            roundSequence: modelRounds,
+            blockSequence: call.blockSequence,
           };
         } else if (result.status === 'cancelled') {
           // 工具主动返回 cancelled 时保留稳定业务错误码，上游 cause 只进入服务端日志。
@@ -351,6 +383,9 @@ export class AgentRuntimeService {
             durationMs,
             code: result.error.code,
             detail: result.error.detail,
+            roundId,
+            roundSequence: modelRounds,
+            blockSequence: call.blockSequence,
           };
         } else {
           // 所有结构化失败都投影为 failed，前端不会接触敏感的上游 cause。
@@ -372,6 +407,9 @@ export class AgentRuntimeService {
             code: result.error.code,
             detail: result.error.detail,
             retryable: result.error.retryable,
+            roundId,
+            roundSequence: modelRounds,
+            blockSequence: call.blockSequence,
           };
         }
         if (input.signal?.aborted) throw this.abortError();
@@ -503,6 +541,8 @@ export class AgentRuntimeService {
             id: call.id,
             name: call.name,
             arguments: JSON.stringify(call.arguments),
+            blockSequence: 0,
+            providerIndex: 0,
           })),
         };
       }

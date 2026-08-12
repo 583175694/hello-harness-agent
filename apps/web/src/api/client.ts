@@ -133,6 +133,7 @@ export async function cancelRun(runId: string): Promise<CancelRunResponse> {
 }
 
 // 独立订阅 Run；连接关闭只结束观察，不向后端发送取消命令。
+// lastEventId 是最后成功归约的 cursor，服务端据此选择 Tail replay 或完整 Snapshot fallback。
 export async function subscribeRun(
   runId: string,
   lastEventId: number | undefined,
@@ -157,6 +158,7 @@ export async function subscribeRun(
     const frames = buffer.split('\n\n');
     buffer = frames.pop() ?? '';
     for (const frame of frames) {
+      // 这里只负责协议解析；Event 是否连续、目标是否存在以及何时推进 cursor 由 app reducer 决定。
       const data = frame
         .split('\n')
         .filter((line) => line.startsWith('data:'))

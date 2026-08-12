@@ -24,7 +24,7 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 
 ## 2. 当前基线
 
-当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、真实 Workbench 投影和独立真实评测工具。P7 General Web Research Hardening 与 P8 Model-led Tool Boundary 已完成；当前 P8 主线是实现 Connection-Durable Agent Loop，再以真实评测持续校准行为。Run 仍未与 Chat HTTP/SSE 解耦，Context Engineering、Memory 和 Delegation 尚未完成。
+当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、真实 Workbench 投影和独立真实评测工具。P7 General Web Research Hardening、P8 Model-led Tool Boundary 与 Connection-Durable Agent Loop 时序加固均已完成；Ordered Model Rounds、Canonical Live Projection、版本化 Checkpoint、Event Tail、严格 SSE cursor 和 Run 状态 CAS 已落地。当前进入 Context Engineering、真实评测校准与 Release Hardening；Memory 和 Delegation 尚未完成。
 
 详细代码状态、验证记录和已知限制统一维护在 [implementation-status.md](./implementation-status.md)。只有代码、测试和验收记录同时存在时，能力才算完成。
 
@@ -195,7 +195,7 @@ P11 Bounded Delegation + Worker
 P12 Multi-user Authentication + Remote Storage
 ```
 
-P8 当前 Recovery 切片采用 [Connection-Durable Agent Loop](./26-connection-durable-agent-loop.md)：先让 Run 独立于客户端连接，不实现服务端重启后的自动恢复。`R1` 是第一次真实用户发布。Memory、Delegation 和 process-durable recovery 不阻塞 R1。
+P8 Recovery 切片采用 [Connection-Durable Agent Loop](./26-connection-durable-agent-loop.md)：Run 已独立于客户端连接，Snapshot/sequence、Tail replay、客户端 cursor 和取消终态的时序加固已经完成；不实现服务端重启后的自动恢复。`R1` 是第一次真实用户发布。Memory、Delegation 和 process-durable recovery 不阻塞 R1。
 
 详细交付和验收见 [17-implementation-plan.md](./17-implementation-plan.md)。
 

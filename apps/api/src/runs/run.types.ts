@@ -54,10 +54,6 @@ export type RunSubscriber = {
   overflowed?: boolean;
 };
 
-export const ACTIVE_RUN_STATUSES: AgentRunStatus[] = [
-  'queued',
-  'running',
-  'cancel_requested',
-];
+export const ACTIVE_RUN_STATUSES: AgentRunStatus[] = ['queued', 'running', 'cancel_requested'];
 
 export const TERMINAL_RUN_STATUSES: AgentRunStatus[] = ['completed', 'failed', 'cancelled'];

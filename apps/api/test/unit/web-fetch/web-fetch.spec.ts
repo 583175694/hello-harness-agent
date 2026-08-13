@@ -90,7 +90,10 @@ describe('CrawleeWebContentFetcher', () => {
       url: new URL(`${baseUrl}${path}`),
     }));
     const result = await fetcher.fetchAll(targets);
-    expect(result.results[0]).toMatchObject({ status: 'succeeded', content: { body: '公开网页正文' } });
+    expect(result.results[0]).toMatchObject({
+      status: 'succeeded',
+      content: { body: '公开网页正文' },
+    });
     expect(result.results[1]).toMatchObject({
       status: 'failed',
       code: AGENT_ERROR_CODES.fetchUnsupportedContentType,
@@ -313,7 +316,9 @@ describe('WebFetchService', () => {
           requestedUrl: target.requestedUrl,
           finalUrl: target.normalizedUrl,
           contentType: 'text/plain',
-          body: 'This public article contains enough useful original text for passage extraction.'.repeat(8),
+          body: 'This public article contains enough useful original text for passage extraction.'.repeat(
+            8,
+          ),
           retrievedAt: '2026-08-08T02:00:00.000Z',
         },
       })),

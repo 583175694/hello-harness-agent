@@ -11,7 +11,11 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { createRunRequestSchema, protocolVersion, type RunStreamEvent } from '@harness/agent-protocol';
+import {
+  createRunRequestSchema,
+  protocolVersion,
+  type RunStreamEvent,
+} from '@harness/agent-protocol';
 import { SseEventWriter } from '../stream/sse-event-writer';
 import { RunCommandService } from './run-command.service';
 import { RunEventHub } from './run-event-hub';
@@ -23,6 +27,7 @@ export class RunsController {
     @Inject(RunEventHub) private readonly events: RunEventHub,
   ) {}
 
+  // 校验创建请求，并把合法请求交给命令服务。
   // 创建接口返回 Run 标识和 SSE 地址；模型生成由后台 Executor 继续执行。
   @Post('sessions/:sessionId/runs')
   create(@Param('sessionId') sessionId: string, @Body() body: unknown) {
@@ -35,12 +40,14 @@ export class RunsController {
     return this.commands.create(sessionId, result.data);
   }
 
+  // 查询 Run 的完整当前 Snapshot。
   // 返回 Latest Live Snapshot；Active Run 不在内存时由命令层退回 PostgreSQL Checkpoint。
   @Get('runs/:runId')
   snapshot(@Param('runId') runId: string) {
     return this.commands.snapshot(runId);
   }
 
+  // 接收取消命令，并返回 Run 的最新取消状态。
   // 取消是幂等状态命令，terminal Run 重复取消直接返回已有终态。
   @Post('runs/:runId/cancel')
   @HttpCode(200)
@@ -48,6 +55,7 @@ export class RunsController {
     return this.commands.cancel(runId);
   }
 
+  // 建立 Run 的 SSE 观察连接，并按 cursor 重放事件或发送 Snapshot。
   // SSE 恢复入口：Last-Event-ID 是客户端最后成功应用的 run-scoped sequence。
   @Get('runs/:runId/events')
   async subscribe(

@@ -74,7 +74,11 @@ export function WorkbenchShell({
           <PanelRight size={17} />
         </button>
       </header>
-      <div className="workspace-tabs flex border-b border-border-subtle bg-surface" role="tablist" aria-label="工作区视图">
+      <div
+        className="workspace-tabs flex border-b border-border-subtle bg-surface"
+        role="tablist"
+        aria-label="工作区视图"
+      >
         {views.map(({ id, label, icon: TabIcon }) => (
           <button
             className={`workspace-tab inline-flex items-center gap-2 border-0 border-b-2 border-transparent px-2.5 text-text-secondary ${state.activeView === id ? 'is-active' : ''}`}

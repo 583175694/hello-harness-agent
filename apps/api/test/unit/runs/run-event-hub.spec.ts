@@ -78,11 +78,7 @@ describe('RunEventHub', () => {
     const active = registry.register(snapshot());
     hub.publish('run-1', 'run.started', { status: 'running' });
     hub.publish('run-1', 'run.started', { status: 'running' });
-    hub.checkpointCommitted(
-      'run-1',
-      { ...active.liveSnapshot, lastEventSequence: 1 },
-      1,
-    );
+    hub.checkpointCommitted('run-1', { ...active.liveSnapshot, lastEventSequence: 1 }, 1);
     expect(active.tailEvents.map((event) => event.seq)).toEqual([2]);
   });
 

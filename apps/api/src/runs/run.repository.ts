@@ -19,6 +19,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
 
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
+  // 启动时收敛遗留 Active Run，并启动过期 heartbeat 检查。
   async onModuleInit(): Promise<void> {
     // 当前范围不恢复 Runtime：启动时把其他实例遗留的 Active Run 明确收敛为 failed。
     await this.interruptRuns({ status: { in: [...ACTIVE_STATUSES] } });
@@ -35,10 +36,12 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     this.reconciliationTimer.unref();
   }
 
+  // 停止后台 reconciliation 定时器。
   onModuleDestroy(): void {
     if (this.reconciliationTimer) clearInterval(this.reconciliationTimer);
   }
 
+  // 将不属于当前实例或已失联的 Active Run 标记为中断失败。
   private async interruptRuns(where: Prisma.AgentRunWhereInput): Promise<void> {
     // 排除当前实例仍持有并持续 heartbeat 的 Run，避免 reconciliation 杀死本地正常执行。
     const interrupted = await this.prisma.agentRun.findMany({
@@ -77,6 +80,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // 在一个事务中完成 Session 校验、幂等检查、并发检查和 Run 初始化。
   async create(input: {
     sessionId: string;
     content: string;
@@ -150,6 +154,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  // 查询当前用户拥有的 Run，并带出 Assistant 消息。
   async findOwned(runId: string) {
     return this.prisma.agentRun.findFirst({
       where: { id: runId, session: { userId: LOCAL_USER_ID } },
@@ -157,12 +162,14 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  // 根据幂等键查询当前用户在指定 Session 下的历史 Run。
   async findByIdempotency(sessionId: string, idempotencyKey: string) {
     return this.prisma.agentRun.findFirst({
       where: { sessionId, idempotencyKey, session: { userId: LOCAL_USER_ID } },
     });
   }
 
+  // 从数据库中的 Run 和 Assistant Draft 组装可返回给客户端的 Snapshot。
   async snapshot(runId: string): Promise<RunSnapshot | undefined> {
     // PostgreSQL 保存完整 UI Snapshot，不保存可重放 Runtime Event Log。
     const run = await this.findOwned(runId);
@@ -190,6 +197,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  // 使用数据库 CAS 抢占 queued Run 的执行权。
   async start(runId: string): Promise<boolean> {
     // 只有 queued 能获得执行权；queued cancel 与 start 竞争时最多一个 updateMany 成功。
     const now = new Date();
@@ -206,6 +214,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     return result.count === 1;
   }
 
+  // 更新 Active Run 的 heartbeat，供失联检测判断执行是否仍存活。
   async heartbeat(runId: string): Promise<void> {
     await this.prisma.agentRun.updateMany({
       where: { id: runId, status: { in: [...ACTIVE_STATUSES] } },
@@ -213,6 +222,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  // 创建一个 Model 或 Tool Step，并把它设为当前 Active Step。
   async createStep(input: {
     id: string;
     runId: string;
@@ -231,7 +241,8 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         status: 'running',
         toolCallId: input.toolCallId,
         toolName: input.toolName,
-        input: input.toolInput === undefined ? undefined : (input.toolInput as Prisma.InputJsonValue),
+        input:
+          input.toolInput === undefined ? undefined : (input.toolInput as Prisma.InputJsonValue),
       },
     });
     await this.prisma.agentRun.update({
@@ -240,6 +251,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  // 完成 Step，保存结果或错误，并清除 Run 的当前 Active Step。
   async finishStep(
     runId: string,
     stepId: string,
@@ -265,6 +277,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     ]);
   }
 
+  // 将当前 Projection 和事件水位批量写入 Assistant Draft Checkpoint。
   async flush(
     runId: string,
     assistantMessageId: string,
@@ -321,6 +334,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  // 请求取消 Run；queued 直接终止，running 先进入 cancel_requested。
   async requestCancel(runId: string): Promise<AgentRunStatus> {
     // queued 尚未执行，可在事务内直接终止并更新 Draft；running 只能请求取消，由 Executor 收尾。
     const queued = await this.prisma.$transaction(async (tx) => {
@@ -362,6 +376,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     return run?.status ?? 'failed';
   }
 
+  // 使用状态 CAS 原子提交 Run 终态和最终 Assistant Snapshot。
   async terminal(input: {
     runId: string;
     assistantMessageId: string;
@@ -377,7 +392,11 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       .join('');
     // 完成只能来自 running；一旦进入 cancel_requested，成功终态必须让位于 cancelled/failed。
     const allowedFrom =
-      input.status === 'completed' ? ['running'] : input.status === 'cancelled' ? ['cancel_requested'] : ['running', 'cancel_requested'];
+      input.status === 'completed'
+        ? ['running']
+        : input.status === 'cancelled'
+          ? ['cancel_requested']
+          : ['running', 'cancel_requested'];
     // Terminal Run 状态和最终 Assistant Snapshot 原子提交，成功返回后才允许广播 terminal SSE。
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.agentRun.updateMany({
@@ -422,6 +441,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  // 将 Prisma JSON 值安全转换为普通对象，供 metadata 合并使用。
   private metadata(value: Prisma.JsonValue | undefined): Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
       ? (value as Record<string, unknown>)

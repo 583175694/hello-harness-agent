@@ -7,6 +7,7 @@ export class ActiveRunRegistry {
   // Registry 只保存当前 API 实例正在执行或刚结束、仍可供重连的 Run。
   private readonly runs = new Map<string, ActiveRun>();
 
+  // 注册一个 Run 的进程内运行句柄，并以数据库 Snapshot 作为初始状态。
   // 从数据库初始 Snapshot 建立内存基线；此时 Tail 为空，Live 与 Durable 完全一致。
   register(snapshot: RunSnapshot): ActiveRun {
     const existing = this.runs.get(snapshot.runId);
@@ -32,14 +33,17 @@ export class ActiveRunRegistry {
     return active;
   }
 
+  // 按 Run ID 读取当前进程内的运行句柄。
   get(runId: string): ActiveRun | undefined {
     return this.runs.get(runId);
   }
 
+  // 返回当前进程内所有仍被保留的 Run，供停机和清理流程使用。
   values(): ActiveRun[] {
     return [...this.runs.values()];
   }
 
+  // 删除进程内句柄；数据库中的 Durable Snapshot 不受影响。
   // 移除只影响进程内精确 replay；之后客户端仍可从 PostgreSQL 读取 Durable Snapshot。
   remove(runId: string): void {
     this.runs.delete(runId);

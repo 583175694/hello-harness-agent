@@ -240,7 +240,8 @@ export class AgentRuntimeService {
         ...call,
         id: call.id || crypto.randomUUID(),
         blockSequence:
-          call.blockSequence ?? (textDeltas.length > 0 ? textBlockSequence + callIndex + 1 : callIndex),
+          call.blockSequence ??
+          (textDeltas.length > 0 ? textBlockSequence + callIndex + 1 : callIndex),
         providerIndex: call.providerIndex ?? callIndex,
       }));
       // 先追加包含完整 Tool Calls 的 assistant message，后续必须为每个调用补齐 tool message。
@@ -316,11 +317,16 @@ export class AgentRuntimeService {
         let result: ToolExecutionResult<unknown>;
         try {
           // Runtime 统一组合用户取消和 Tool 声明的外层超时，Tool 只处理本次能力调用。
-          result = await this.executeTool(call.name, toolInput, {
-            sessionId: input.sessionId,
-            messageId: input.messageId,
-            toolCallId: call.id,
-          }, input.signal);
+          result = await this.executeTool(
+            call.name,
+            toolInput,
+            {
+              sessionId: input.sessionId,
+              messageId: input.messageId,
+              toolCallId: call.id,
+            },
+            input.signal,
+          );
         } catch (error) {
           if (input.signal?.aborted) {
             const completedAt = new Date();
@@ -514,11 +520,7 @@ export class AgentRuntimeService {
   }
 
   // 将安全错误字段序列化给模型，排除 cause 和服务端日志字段。
-  private serializeToolError(error: {
-    code: string;
-    detail: string;
-    retryable: boolean;
-  }): string {
+  private serializeToolError(error: { code: string; detail: string; retryable: boolean }): string {
     return JSON.stringify({
       ok: false,
       error: { code: error.code, detail: error.detail, retryable: error.retryable },

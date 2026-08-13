@@ -23,9 +23,7 @@ import { SessionsService } from './sessions.service';
 
 @Controller('api/agent/sessions')
 export class SessionsController {
-  constructor(
-    @Inject(SessionsService) private readonly sessions: SessionsService,
-  ) {}
+  constructor(@Inject(SessionsService) private readonly sessions: SessionsService) {}
 
   // 创建首次发送所需的持久化会话。
   @Post()

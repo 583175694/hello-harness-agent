@@ -158,7 +158,10 @@ export class ConversationBlockCollector {
     const index = this.blocks.findIndex((current) => {
       const currentRound = current.roundSequence ?? Number.MAX_SAFE_INTEGER;
       const currentBlock = current.blockSequence ?? Number.MAX_SAFE_INTEGER;
-      return currentRound > roundSequence || (currentRound === roundSequence && currentBlock > blockSequence);
+      return (
+        currentRound > roundSequence ||
+        (currentRound === roundSequence && currentBlock > blockSequence)
+      );
     });
     if (index < 0) this.blocks.push(block);
     else this.blocks.splice(index, 0, block);

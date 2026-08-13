@@ -59,7 +59,12 @@ describe('WebFetchTool', () => {
       passageCharacterCount: Array.from(text).length,
       cacheHitCount: 0,
     });
-    expect(result.logFields).toMatchObject({ 成功: 1, 跳过: 1, 网络请求: 1, Passage: `${Array.from(text).length} 字` });
+    expect(result.logFields).toMatchObject({
+      成功: 1,
+      跳过: 1,
+      网络请求: 1,
+      Passage: `${Array.from(text).length} 字`,
+    });
   });
 
   it('passes a model-proposed public URL directly to the capability service', async () => {
@@ -164,8 +169,7 @@ describe('WebFetchTool', () => {
       failedCount: 2,
       skippedCount: 1,
       passageCount: 2,
-      passageCharacterCount:
-        Array.from(cachedText).length + Array.from(networkText).length,
+      passageCharacterCount: Array.from(cachedText).length + Array.from(networkText).length,
       cacheHitCount: 1,
     });
   });

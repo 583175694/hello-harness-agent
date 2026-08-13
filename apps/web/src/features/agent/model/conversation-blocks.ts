@@ -34,7 +34,10 @@ function insertOrdered(
   const index = blocks.findIndex((current) => {
     const currentRound = current.roundSequence ?? Number.MAX_SAFE_INTEGER;
     const currentBlock = current.blockSequence ?? Number.MAX_SAFE_INTEGER;
-    return currentRound > roundSequence || (currentRound === roundSequence && currentBlock > blockSequence);
+    return (
+      currentRound > roundSequence ||
+      (currentRound === roundSequence && currentBlock > blockSequence)
+    );
   });
   if (index < 0) return [...blocks, block];
   return [...blocks.slice(0, index), block, ...blocks.slice(index)];
@@ -97,21 +100,21 @@ export function applyToolActivityEvent(
         ),
       );
     return insertOrdered(blocks, {
-        id: event.blockId,
-        type: 'tool_activity',
-        ...(event.roundId ? { roundId: event.roundId } : {}),
-        ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
-        ...(event.blockSequence !== undefined ? { blockSequence: event.blockSequence } : {}),
-        toolCallId: event.toolCallId,
-        toolName: event.toolName,
-        status: 'running',
-        title: event.title,
-        summary:
-          event.toolName === 'web_fetch'
-            ? `读取 ${event.input.urls.length} 个网页`
-            : event.input.query,
-        startedAt: event.startedAt,
-      });
+      id: event.blockId,
+      type: 'tool_activity',
+      ...(event.roundId ? { roundId: event.roundId } : {}),
+      ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
+      ...(event.blockSequence !== undefined ? { blockSequence: event.blockSequence } : {}),
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      status: 'running',
+      title: event.title,
+      summary:
+        event.toolName === 'web_fetch'
+          ? `读取 ${event.input.urls.length} 个网页`
+          : event.input.query,
+      startedAt: event.startedAt,
+    });
   }
   if (index < 0) return blocks;
   return blocks.map((block, blockIndex) => {

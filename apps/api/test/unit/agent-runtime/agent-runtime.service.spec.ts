@@ -181,9 +181,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       [
         {
           type: 'tool_calls.completed',
-          calls: [
-            { id: 'call-error', name: 'custom_tool', arguments: '{}' },
-          ],
+          calls: [{ id: 'call-error', name: 'custom_tool', arguments: '{}' }],
         },
         { type: 'round.completed', finishReason: 'tool_calls' },
       ],
@@ -251,12 +249,13 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     ]);
     const controller = new AbortController();
     const tools = registry({
-      execute: vi.fn((_name, _input, context) =>
-        new Promise((_resolve, reject) => {
-          context.signal?.addEventListener('abort', () => reject(new Error('cancelled')), {
-            once: true,
-          });
-        }),
+      execute: vi.fn(
+        (_name, _input, context) =>
+          new Promise((_resolve, reject) => {
+            context.signal?.addEventListener('abort', () => reject(new Error('cancelled')), {
+              once: true,
+            });
+          }),
       ) as ToolRegistryService['execute'],
     });
     setTimeout(() => controller.abort(), 1);
@@ -285,7 +284,11 @@ describe('AgentRuntimeService model-led tool boundary', () => {
   it('executes multiple calls from one assistant response in model order', async () => {
     const calls = [
       { id: 'call-1', name: AGENT_TOOL_NAMES.webSearch, arguments: '{"query":"x"}' },
-      { id: 'call-2', name: AGENT_TOOL_NAMES.webFetch, arguments: '{"urls":["https://example.com"]}' },
+      {
+        id: 'call-2',
+        name: AGENT_TOOL_NAMES.webFetch,
+        arguments: '{"urls":["https://example.com"]}',
+      },
     ];
     const model = modelFromRounds([
       [

@@ -82,7 +82,9 @@ describe('analyzeCase', () => {
     ];
     const result = analyzeCase(testCase, events, session('受限回答'), 1000);
     expect(result.rules.some((rule) => rule.id === 'fetch_provenance')).toBe(false);
-    expect(result.rules.find((rule) => rule.id === 'tool_terminal')).toMatchObject({ passed: true });
+    expect(result.rules.find((rule) => rule.id === 'tool_terminal')).toMatchObject({
+      passed: true,
+    });
   });
 
   it('treats repeated fetches as efficiency metrics and still rejects unknown answer links', () => {

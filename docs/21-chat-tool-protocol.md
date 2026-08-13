@@ -103,7 +103,6 @@ type ChatStreamEvent =
 
 `messageId` 把本轮所有事件绑定到同一条 assistant 消息；`blockId` 标识其中一个稳定内容块。文本增量到达 API 后立即向 SSE 写出，不等待当前模型轮次结束。连续文本 delta 共用一个 text block；工具事件插入一个 tool activity block，完成、失败或取消事件通过 `toolCallId/blockId` 原位更新，不追加重复活动。`tool.started.title` 是后端确定的用户可见名称，保证实时展示和刷新恢复一致。完成事件中的 Message ID 是最终持久化 ID。
 
-
 ### 2.4 Assistant 有序内容块
 
 Conversation 的展示与恢复事实是按真实发生顺序保存的内容块：
@@ -126,7 +125,6 @@ type AssistantContentBlock =
 ```
 
 成功完成的 assistant turn 将 `blocks` 保存到 Message metadata，顺序可以是 `text → tool_activity → text`。兼容字段 `Message.content` 只由所有 text blocks 顺序拼接生成；API 构造下一轮模型上下文时也只读取这份纯文本，不把工具 UI 标题、状态或摘要注入模型。失败或取消的未完成时间线本阶段只保留在当前页面内存，不落库。
-
 
 客户端只提交本轮 content，API 从数据库读取最近 20 条 user/assistant 消息。当前仍没有 replay、sequence、断线重连和 cancel，这些属于阶段三 Agent Run 协议。
 

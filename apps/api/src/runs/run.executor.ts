@@ -30,6 +30,7 @@ export class RunExecutor implements OnModuleDestroy {
     @Inject(Logger) private readonly logger: Logger,
   ) {}
 
+  // 启动一个 Run 的后台执行，并防止同一进程重复启动。
   // 同一 API 实例内保证一个 Run 只有一个 Executor，数据库 start CAS 负责最终所有权确认。
   start(runId: string): void {
     if (this.executions.has(runId)) return;
@@ -37,6 +38,7 @@ export class RunExecutor implements OnModuleDestroy {
     this.executions.set(runId, execution);
   }
 
+  // 停止时中止所有本地 Run，并等待执行 Promise 收尾。
   async onModuleDestroy(): Promise<void> {
     // 当前不支持 Runtime resume，进程关闭时主动 abort，并让 catch 路径收敛为 RUN_INTERRUPTED。
     this.shuttingDown = true;
@@ -44,6 +46,7 @@ export class RunExecutor implements OnModuleDestroy {
     await Promise.allSettled(this.executions.values());
   }
 
+  // 执行完整 Run 生命周期：加载上下文、运行模型循环、持久化投影并提交终态。
   private async execute(runId: string): Promise<void> {
     const active = this.registry.get(runId);
     const stored = await this.repository.findOwned(runId);
@@ -169,7 +172,9 @@ export class RunExecutor implements OnModuleDestroy {
         : this.shuttingDown
           ? { code: 'RUN_INTERRUPTED', detail: '服务已停止，本次运行未自动恢复。' }
           : this.describeError(error);
-      await this.repository.finishStep(runId, modelStepId, status, undefined, failure).catch(() => undefined);
+      await this.repository
+        .finishStep(runId, modelStepId, status, undefined, failure)
+        .catch(() => undefined);
       const previousSnapshot = structuredClone(active.liveSnapshot);
       const terminal = this.events.commit(
         runId,
@@ -203,6 +208,7 @@ export class RunExecutor implements OnModuleDestroy {
     }
   }
 
+  // 读取模型上下文，只纳入用户消息和已完成的 Assistant 消息。
   private async loadContext(sessionId: string, inputMessageId: string): Promise<ChatMessage[]> {
     // 多轮上下文只包含用户消息和已完成 Assistant 消息；失败/取消/流式草稿不能污染下一 Run。
     const messages = await this.prisma.message.findMany({
@@ -231,6 +237,7 @@ export class RunExecutor implements OnModuleDestroy {
     }));
   }
 
+  // 在工具开始或结束等语义边界写入诊断 Step。
   private async persistSemanticBoundary(
     runId: string,
     event: ChatStreamEvent,
@@ -273,6 +280,7 @@ export class RunExecutor implements OnModuleDestroy {
     }
   }
 
+  // 用最新业务 Projection 更新进程内 Live Snapshot。
   private updateLiveSnapshot(
     snapshot: RunSnapshot,
     projection: ChatProjectionSnapshot,
@@ -296,12 +304,14 @@ export class RunExecutor implements OnModuleDestroy {
     });
   }
 
+  // 计算当前文本 Projection 的总长度，用于控制 Draft 刷新频率。
   private contentLength(projection: ChatProjectionSnapshot): number {
     return projection.blocks
       .filter((block) => block.type === 'text')
       .reduce((total, block) => total + block.content.length, 0);
   }
 
+  // 记录 Projection 内 Block 的稳定顺序，辅助排查模型轮次排序问题。
   // 记录事件序号与业务 Block 坐标，排查“服务端顺序正确但浏览器展示错位”时可直接对照。
   private logProjectionOrder(
     runId: string,
@@ -318,6 +328,7 @@ export class RunExecutor implements OnModuleDestroy {
     );
   }
 
+  // 将未知异常转换为稳定的客户端错误结构。
   private describeError(error: unknown): { code: string; detail: string } {
     if (typeof error === 'object' && error !== null && 'response' in error) {
       const response = (error as { response?: unknown }).response;
@@ -330,6 +341,7 @@ export class RunExecutor implements OnModuleDestroy {
     return { code: 'MODEL_STREAM_FAILED', detail: '模型流式输出失败，请稍后重试。' };
   }
 
+  // 在首轮回答完成后，异步生成并保存 Session 标题。
   private async generateFirstTitle(sessionId: string): Promise<void> {
     const messages = await this.prisma.message.findMany({
       where: { sessionId, role: { in: ['user', 'assistant'] } },

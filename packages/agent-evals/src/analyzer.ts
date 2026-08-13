@@ -100,8 +100,7 @@ export function analyzeCase(
   );
   add(
     'tool_call_limit',
-    (agent?.toolCallCount ?? started.length) <=
-      Math.min(testCase.expectations.maxToolCalls, 20),
+    (agent?.toolCallCount ?? started.length) <= Math.min(testCase.expectations.maxToolCalls, 20),
     `工具调用 ${agent?.toolCallCount ?? started.length} 次，题目上限 ${Math.min(testCase.expectations.maxToolCalls, 20)} 次。`,
   );
   checkToolExpectation(add, 'tool_use', testCase.expectations.toolUse, started.length, '工具');

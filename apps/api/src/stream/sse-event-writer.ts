@@ -21,7 +21,9 @@ export class SseEventWriter {
 
   writeEvent(event: { seq: number; type: string }): void {
     if (this.response.writableEnded) return;
-    this.response.write(`id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    this.response.write(
+      `id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
+    );
   }
 
   comment(value: string): void {

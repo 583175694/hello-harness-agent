@@ -58,11 +58,7 @@ function makeService(
     executionPolicy: vi.fn(() => ({ timeoutMs: 30_000 })),
     ...toolRegistry,
   } as ToolRegistryService;
-  const runtime = new AgentRuntimeService(
-    modelAdapter,
-    runtimeRegistry,
-    logger,
-  );
+  const runtime = new AgentRuntimeService(modelAdapter, runtimeRegistry, logger);
   const service = new ChatService(
     config as unknown as ConfigService,
     prisma as unknown as PrismaService,

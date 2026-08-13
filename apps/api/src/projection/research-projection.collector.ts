@@ -31,9 +31,7 @@ export class ResearchProjectionCollector {
   private readonly userProvidedUrls: ReadonlySet<string>;
 
   constructor(userProvidedUrls: Iterable<string> = []) {
-    this.userProvidedUrls = new Set(
-      [...userProvidedUrls].map((url) => this.normalizeUrl(url)),
-    );
+    this.userProvidedUrls = new Set([...userProvidedUrls].map((url) => this.normalizeUrl(url)));
   }
 
   // 记录一次成功搜索，并把 URL 相同的线索合并到既有 canonical source。
@@ -116,7 +114,8 @@ export class ResearchProjectionCollector {
       // 仅正文 hash 命中时保留首次来源卡片，只补充调用关系和来源优先级。
       if (!urlIndexes.length && hashIndexes.length) {
         this.mergeIdentity(this.sources[hashIndexes[0]!]!, input.toolCallId, provenance);
-        for (const index of hashIndexes.slice(1).reverse()) this.mergeAndRemove(hashIndexes[0]!, index);
+        for (const index of hashIndexes.slice(1).reverse())
+          this.mergeAndRemove(hashIndexes[0]!, index);
         continue;
       }
 
@@ -280,16 +279,14 @@ export class ResearchProjectionCollector {
     const target = this.sources[targetIndex];
     const removed = this.sources[removedIndex];
     if (!target || !removed || targetIndex === removedIndex) return;
-    for (const toolCallId of removed.toolCallIds) this.mergeIdentity(target, toolCallId, removed.provenance);
+    for (const toolCallId of removed.toolCallIds)
+      this.mergeIdentity(target, toolCallId, removed.provenance);
     target.used ||= removed.used;
     this.sources.splice(removedIndex, 1);
   }
 
   // 按固定优先级返回更可信的 provenance。
-  private preferredProvenance(
-    left: SourceProvenance,
-    right: SourceProvenance,
-  ): SourceProvenance {
+  private preferredProvenance(left: SourceProvenance, right: SourceProvenance): SourceProvenance {
     return PROVENANCE_PRIORITY[left] >= PROVENANCE_PRIORITY[right] ? left : right;
   }
 

@@ -8,11 +8,7 @@ type MarkdownContentProps = {
 };
 
 // 使用共享的消息和报告展示方式渲染不可信 Markdown。
-export function MarkdownContent({
-  children,
-  className,
-  variant = 'chat',
-}: MarkdownContentProps) {
+export function MarkdownContent({ children, className, variant = 'chat' }: MarkdownContentProps) {
   const rootClassName = ['markdown-content', `markdown-content--${variant}`, className]
     .filter(Boolean)
     .join(' ');

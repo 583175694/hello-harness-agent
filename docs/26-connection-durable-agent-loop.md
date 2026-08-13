@@ -2,7 +2,6 @@
 
 > 决策状态：当前 Connection Durable 的权威实现。Run/Step、Ordered Model Rounds、后台 Executor、版本化 Checkpoint、Event Tail、SSE 重连和 assistant draft 均已落地。当前只保证 API 进程存活期间的连接恢复，不实现服务端重启后的自动续跑。与其他 durable 草案冲突时，以本文为准。
 
-
 ## 1. 当前目标
 
 当前阶段只解决 Connection Durable：

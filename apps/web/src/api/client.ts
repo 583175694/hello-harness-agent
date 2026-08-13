@@ -27,16 +27,19 @@ import type {
 } from '@harness/agent-protocol';
 
 type RunPayload = RunStreamEvent['payload'];
+// 从统一 Run Event payload 中提取前端 Reducer 直接消费的工具生命周期事件。
 export type ToolStreamEvent = Extract<
   RunPayload,
   { type: 'tool.started' | 'tool.completed' | 'tool.failed' | 'tool.cancelled' }
 >;
+// 文本增量单独导出，保证 Conversation Block 更新时保留稳定的 Round/Block 位置信息。
 export type MessageDeltaEvent = Extract<RunPayload, { type: 'message.delta' }>;
 
 // 为空时通过 Vite 反向代理访问同源 API，部署时可覆盖为独立服务地址。
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 
 export class ApiProblem extends Error {
+  // 保留后端标准 Problem Details，供界面按稳定错误码和用户可读 detail 分别处理。
   constructor(readonly problem: ProblemDetails) {
     super(problem.detail);
     this.name = 'ApiProblem';
@@ -113,6 +116,7 @@ export async function generateSessionTitle(
   return generateSessionTitleResponseSchema.parse(await parseResponse(response));
 }
 
+// 可靠创建一次 Durable Run；幂等键限定本次提交，模型执行会在 HTTP 返回后继续进行。
 export async function createRun(sessionId: string, content: string): Promise<CreateRunResponse> {
   const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/runs`, {
     method: 'POST',
@@ -122,11 +126,13 @@ export async function createRun(sessionId: string, content: string): Promise<Cre
   return createRunResponseSchema.parse(await parseResponse(response));
 }
 
+// 获取 Run 的完整恢复快照；服务端优先返回 Live Snapshot，否则退回 PostgreSQL Checkpoint。
 export async function getRun(runId: string, signal?: AbortSignal): Promise<RunSnapshot> {
   const response = await fetch(`${apiBaseUrl}/api/agent/runs/${runId}`, { signal });
   return runSnapshotSchema.parse(await parseResponse(response));
 }
 
+// 发送独立、幂等的取消命令；取消不依赖当前 SSE 连接是否仍然存在。
 export async function cancelRun(runId: string): Promise<CancelRunResponse> {
   const response = await fetch(`${apiBaseUrl}/api/agent/runs/${runId}/cancel`, { method: 'POST' });
   return cancelRunResponseSchema.parse(await parseResponse(response));
@@ -149,6 +155,7 @@ export async function subscribeRun(
   });
   if (!response.ok) await parseResponse(response);
   if (!response.body) throw new Error('Run 事件流不可用。');
+  // fetch 暴露的是字节流；这里跨网络分片累计文本，直到拼出完整的 SSE frame。
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';

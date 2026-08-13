@@ -1,9 +1,4 @@
-import {
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { AGENT_ERROR_CODES, type CreateRunResponse } from '@harness/agent-protocol';
 import type { ChatProjectionSnapshot } from '../chat/chat.service';
@@ -21,6 +16,7 @@ export class RunCommandService {
     @Inject(RunExecutor) private readonly executor: RunExecutor,
   ) {}
 
+  // 校验请求并创建 Run；成功后注册初始 Snapshot，异步交给 Executor 执行。
   // 在数据库事务中创建 Run、User Message 和空 Assistant Draft，再异步启动 Executor。
   // HTTP 请求只负责“可靠接单”，不会持有到模型生成结束。
   async create(
@@ -44,11 +40,13 @@ export class RunCommandService {
         assistantMessageId,
       });
     } catch (error) {
-      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002') {
-        const existing = await this.repository.findByIdempotency(
-          sessionId,
-          input.idempotencyKey,
-        );
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'P2002'
+      ) {
+        const existing = await this.repository.findByIdempotency(sessionId, input.idempotencyKey);
         if (existing) {
           if (existing.payloadHash !== payloadHash)
             throw new ConflictException({
@@ -88,6 +86,7 @@ export class RunCommandService {
     };
   }
 
+  // 返回当前进程最新 Snapshot；没有内存 Run 时退回数据库 Snapshot。
   async snapshot(runId: string) {
     const snapshot = await this.repository.snapshot(runId);
     if (!snapshot) this.notFound();
@@ -96,10 +95,15 @@ export class RunCommandService {
     return live ?? snapshot;
   }
 
+  // 请求取消 Run，并根据当前执行位置选择立即终止或交给 Executor 收尾。
   async cancel(runId: string) {
     const snapshot = await this.repository.snapshot(runId);
     if (!snapshot) this.notFound();
-    if (snapshot.status === 'completed' || snapshot.status === 'failed' || snapshot.status === 'cancelled')
+    if (
+      snapshot.status === 'completed' ||
+      snapshot.status === 'failed' ||
+      snapshot.status === 'cancelled'
+    )
       return { runId, status: snapshot.status };
     const requestedStatus = await this.repository.requestCancel(runId);
     if (requestedStatus === 'cancelled') {
@@ -142,6 +146,7 @@ export class RunCommandService {
     return { runId, status: 'cancelled' as const };
   }
 
+  // 创建 Session 忙碌错误，供多个入口复用。
   private busy(): ConflictException {
     return new ConflictException({
       code: AGENT_ERROR_CODES.sessionBusy,
@@ -149,6 +154,7 @@ export class RunCommandService {
     });
   }
 
+  // 创建 Run 不存在错误。
   private notFound(): never {
     throw new NotFoundException({
       code: AGENT_ERROR_CODES.runNotFound,

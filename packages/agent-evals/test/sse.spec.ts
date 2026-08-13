@@ -27,9 +27,7 @@ describe('parseSseResponse', () => {
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(
-          encoder.encode(
-            `data: ${envelope(1, 'message.delta', delta('你')).slice(0, 120)}`,
-          ),
+          encoder.encode(`data: ${envelope(1, 'message.delta', delta('你')).slice(0, 120)}`),
         );
         controller.enqueue(
           encoder.encode(
@@ -49,7 +47,9 @@ describe('parseSseResponse', () => {
   });
 
   it('rejects complete frames that do not match the shared protocol', async () => {
-    const response = new Response('data: {"version":"0.9.0","eventId":"x","seq":1,"sessionId":"s","runId":"r","type":"unknown.event","occurredAt":"2026-08-10T00:01:00.000Z","payload":{}}\n\n');
+    const response = new Response(
+      'data: {"version":"0.9.0","eventId":"x","seq":1,"sessionId":"s","runId":"r","type":"unknown.event","occurredAt":"2026-08-10T00:01:00.000Z","payload":{}}\n\n',
+    );
     await expect(parseSseResponse(response)).rejects.toThrow();
   });
 });

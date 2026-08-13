@@ -72,7 +72,9 @@ export class SessionsService {
     return {
       session: {
         ...this.toSummary(session),
-        messages: [...session.messages].sort(compareMessageOrder).map((message) => this.toMessage(message)),
+        messages: [...session.messages]
+          .sort(compareMessageOrder)
+          .map((message) => this.toMessage(message)),
         activeRun: session.runs[0]
           ? {
               runId: session.runs[0].id,

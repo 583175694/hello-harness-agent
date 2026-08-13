@@ -50,12 +50,12 @@ export function WorkbenchShell({
 
   return (
     <aside
-      className={`resource-workspace ${state.open ? 'is-open' : ''}`}
+      className={`resource-workspace flex min-h-0 min-w-0 flex-col border-l border-border bg-surface text-text-primary ${state.open ? 'is-open' : ''}`}
       aria-label="工作区"
       aria-hidden={!state.open}
       inert={!state.open}
     >
-      <header className="workspace-header">
+      <header className="workspace-header border-b border-border-subtle bg-surface">
         <div>
           <div className="workspace-kicker">
             <PanelRight size={14} />
@@ -74,10 +74,10 @@ export function WorkbenchShell({
           <PanelRight size={17} />
         </button>
       </header>
-      <div className="workspace-tabs" role="tablist" aria-label="工作区视图">
+      <div className="workspace-tabs flex border-b border-border-subtle bg-surface" role="tablist" aria-label="工作区视图">
         {views.map(({ id, label, icon: TabIcon }) => (
           <button
-            className={`workspace-tab ${state.activeView === id ? 'is-active' : ''}`}
+            className={`workspace-tab inline-flex items-center gap-2 border-0 border-b-2 border-transparent px-2.5 text-text-secondary ${state.activeView === id ? 'is-active' : ''}`}
             key={id}
             type="button"
             role="tab"
@@ -98,7 +98,7 @@ export function WorkbenchShell({
           </button>
         ))}
       </div>
-      <div className="workspace-content">
+      <div className="workspace-content min-h-0 flex-1 overflow-y-auto bg-surface">
         {state.activeView === 'activity' ? (
           <ActivityView
             executions={state.executions}

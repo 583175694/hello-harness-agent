@@ -65,9 +65,9 @@ const UserMessage = memo(function UserMessage({
   item: Extract<ConversationItem, { kind: 'user' }>;
 }) {
   return (
-    <div className="message message--user">
+    <div className="message message--user flex justify-end gap-3 text-text-primary">
       <div>
-        <div className="user-bubble">
+        <div className="user-bubble max-w-[min(820px,calc(100vw-72px))] rounded-[8px_8px_3px_8px] bg-surface-subtle text-text-primary">
           <MarkdownContent>{item.content}</MarkdownContent>
         </div>
         <div className="message-actions">
@@ -92,11 +92,11 @@ const AssistantMessage = memo(
   }) {
     const text = flattenAssistantText(item.blocks);
     return (
-      <div className="message message--assistant">
+      <div className="message message--assistant flex gap-3 text-text-primary">
         <div className="message-avatar assistant-avatar">
           <Sparkles size={15} />
         </div>
-        <div className="assistant-content">
+        <div className="assistant-content min-w-0 max-w-[680px] text-text-primary">
           <div className="message-meta">Harness</div>
           {item.deliveryStatus === 'cancelled' ? (
             <div className="assistant-delivery-status">本次回答已取消</div>
@@ -189,8 +189,8 @@ export function Conversation({
   }, [state.conversation]);
 
   return (
-    <section className="conversation" aria-label="对话">
-      <div className="conversation-scroll" ref={scrollRef} onScroll={handleConversationScroll}>
+    <section className="conversation flex min-h-0 min-w-0 flex-col bg-surface text-text-primary" aria-label="对话">
+      <div className="conversation-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto" ref={scrollRef} onScroll={handleConversationScroll}>
         {state.conversation.length === 0 ? (
           <div className="conversation-empty">
             <div className="empty-icon">
@@ -210,7 +210,7 @@ export function Conversation({
           </div>
         )}
       </div>
-      <div className="composer-area">
+      <div className="composer-area border-border bg-surface">
         {error ? (
           <div className="error-notice" role="alert">
             <CircleAlert size={17} />
@@ -333,7 +333,7 @@ export function Composer({
           ? AGENT_UI_COPY.composerPlaceholders.disabled
           : AGENT_UI_COPY.composerPlaceholders.newRun;
   return (
-    <form className="composer" onSubmit={onSubmit}>
+    <form className="composer overflow-hidden rounded-[10px] border border-border bg-surface shadow-[0_5px_18px_rgb(0_0_0_/_5%)]" onSubmit={onSubmit}>
       {submitting ? (
         <div className="composer-running-status" role="status" aria-live="polite">
           <span className="activity-bars" aria-hidden="true">
@@ -372,7 +372,7 @@ export function Composer({
           }
         }}
       />
-      <div className="composer-actions">
+      <div className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
         {mode === 'steer' || mode === 'clarification' ? (
           <div className="composer-hints">
             <SlidersHorizontal size={14} />

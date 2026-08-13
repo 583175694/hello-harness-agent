@@ -1,4 +1,4 @@
-import { Ellipsis, Menu, Pencil, Pin, PinOff, Plus, Trash2, X } from 'lucide-react';
+import { Ellipsis, Menu, Moon, Pencil, Pin, PinOff, Plus, Sun, Trash2, X } from 'lucide-react';
 import {
   useEffect,
   useRef,
@@ -56,6 +56,7 @@ import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
 import { AGENT_UI_COPY, SERVICE_STATE_LABELS } from './features/agent/config/ui.constants';
+import { useTheme, type Theme } from './theme';
 
 // 将传输和供应商异常转换为用户可读的提示文案。
 function getErrorMessage(error: unknown): string {
@@ -75,13 +76,14 @@ function getPreviewState(): PreviewState | null {
 
 // 根据当前地址选择生产状态或开发预览状态。
 export function App() {
+  const [theme, toggleTheme] = useTheme();
   const preview = getPreviewState();
   return (
     <>
       {preview ? (
-        <AppShell key={preview} previewState={makeFixture(preview)} />
+        <AppShell key={preview} previewState={makeFixture(preview)} theme={theme} onToggleTheme={toggleTheme} />
       ) : (
-        <PersistentAgentApp />
+        <PersistentAgentApp theme={theme} onToggleTheme={toggleTheme} />
       )}
       {preview ? <PreviewSwitcher active={preview} /> : null}
     </>
@@ -479,8 +481,28 @@ function sortSessionSummaries(items: SessionSummary[]): SessionSummary[] {
   });
 }
 
+function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }) {
+  return (
+    <button
+      className="icon-button ml-auto border border-transparent text-text-secondary hover:border-border hover:bg-surface-hover"
+      type="button"
+      aria-label={theme === 'dark' ? '切换浅色主题' : '切换暗色主题'}
+      title={theme === 'dark' ? '切换浅色主题' : '切换暗色主题'}
+      onClick={onToggle}
+    >
+      {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+    </button>
+  );
+}
+
 // 管理生产页面的持久化会话、独立缓存和后台流。
-function PersistentAgentApp() {
+function PersistentAgentApp({
+  theme,
+  onToggleTheme,
+}: {
+  theme: Theme;
+  onToggleTheme: () => void;
+}) {
   // 会话列表与 sessionStates 分离：前者驱动 Sidebar，后者缓存各会话独立 UI 投影。
   const [serviceState, setServiceState] = useState<ServiceState>('checking');
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -1174,7 +1196,7 @@ function PersistentAgentApp() {
   const hasWorkbench = Boolean(uiState.workbench?.open);
 
   return (
-    <div className="app-shell">
+    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-canvas text-text-primary">
       <Sidebar
         serviceState={serviceState}
         serviceLabel=""
@@ -1197,8 +1219,8 @@ function PersistentAgentApp() {
           onClick={() => setMobileNavOpen(false)}
         />
       ) : null}
-      <main className="main-shell">
-        <header className="topbar">
+      <main className="main-shell flex h-screen min-h-0 min-w-0 flex-col overflow-hidden bg-surface">
+        <header className="topbar flex items-center bg-surface text-text-primary">
           <button
             className="icon-button open-mobile-nav"
             type="button"
@@ -1211,8 +1233,9 @@ function PersistentAgentApp() {
           <div className="task-title">
             <span className="task-title__label">{uiState.label}</span>
           </div>
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         </header>
-        <div className={`workbench-grid ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}>
+        <div className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}>
           <Conversation
             state={uiState}
             error={error}
@@ -1325,7 +1348,17 @@ function PreviewSwitcher({ active }: { active: PreviewState }) {
 }
 
 // 管理开发预览中的对话与 Workbench 状态转换。
-export function AppShell({ previewState }: { previewState?: AgentUiState }) {
+export function AppShell({
+  previewState,
+  theme,
+  onToggleTheme,
+}: {
+  previewState?: AgentUiState;
+  theme?: Theme;
+  onToggleTheme?: () => void;
+}) {
+  const activeTheme = theme ?? 'light';
+  const toggleTheme = onToggleTheme ?? (() => undefined);
   const [serviceState, setServiceState] = useState<ServiceState>(
     previewState ? 'ready' : 'checking',
   );
@@ -1401,7 +1434,7 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
   const serviceLabel = SERVICE_STATE_LABELS[serviceState];
   const hasWorkbench = Boolean(uiState.workbench?.open);
   return (
-    <div className="app-shell">
+    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-canvas text-text-primary">
       <Sidebar
         serviceState={serviceState}
         serviceLabel={serviceLabel}
@@ -1416,8 +1449,8 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
           onClick={() => setMobileNavOpen(false)}
         />
       ) : null}
-      <main className="main-shell">
-        <header className="topbar">
+      <main className="main-shell flex h-screen min-h-0 min-w-0 flex-col overflow-hidden bg-surface">
+        <header className="topbar flex items-center bg-surface text-text-primary">
           <button
             className="icon-button open-mobile-nav"
             type="button"
@@ -1431,8 +1464,9 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
             <span className="task-title__label">{uiState.label}</span>
             {uiState.subtitle ? <span className="task-title__meta">{uiState.subtitle}</span> : null}
           </div>
+          <ThemeToggle theme={activeTheme} onToggle={toggleTheme} />
         </header>
-        <div className={`workbench-grid ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}>
+        <div className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}>
           <Conversation
             state={uiState}
             error={error}
@@ -1606,14 +1640,14 @@ function Sidebar({
 
   return (
     <>
-      <aside className={`session-sidebar ${mobileNavOpen ? 'session-sidebar--open' : ''}`}>
-        <div className="brand-row">
-          <div className="brand-mark" aria-hidden="true">
+      <aside className={`session-sidebar flex h-screen min-h-screen min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar ${mobileNavOpen ? 'session-sidebar--open' : ''}`}>
+        <div className="brand-row flex items-center gap-2.5 px-2 pb-7 pr-[22px]">
+          <div className="brand-mark grid h-8 w-8 place-items-center rounded-[9px] border border-accent bg-accent text-white" aria-hidden="true">
             H
           </div>
-          <div>
-            <strong>Harness</strong>
-            <span>Agent Workbench</span>
+          <div className="min-w-0">
+            <strong className="block text-base">Harness</strong>
+            <span className="mt-0.5 block text-xs text-text-muted">Agent Workbench</span>
           </div>
           <button
             className="icon-button close-mobile-nav"
@@ -1625,7 +1659,7 @@ function Sidebar({
             <X size={18} />
           </button>
         </div>
-        <div className="sidebar-heading">
+        <div className="sidebar-heading flex items-center justify-between px-2 pb-2 pr-[22px] text-xs font-bold uppercase tracking-[0.08em] text-text-muted">
           <span>会话</span>
           <button
             className="icon-button"
@@ -1637,11 +1671,11 @@ function Sidebar({
             <Plus size={18} />
           </button>
         </div>
-        <div className="session-list">
+        <div className="session-list min-h-0 flex-1 overflow-y-auto pr-1.5 pb-[140px]">
           {sessions && selectedSessionId === null ? (
             <div className="session-row">
-              <button className="session-item is-active" type="button">
-                <strong>{AGENT_UI_COPY.defaultSessionTitle}</strong>
+                <button className="session-item is-active flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 py-2 text-left text-text-primary">
+                <span className="session-item__title">{AGENT_UI_COPY.defaultSessionTitle}</span>
               </button>
             </div>
           ) : null}
@@ -1649,7 +1683,7 @@ function Sidebar({
             sessions.map((session) => (
               <div className="session-row" key={session.id}>
                 <button
-                  className={`session-item ${selectedSessionId === session.id ? 'is-active' : ''}`}
+                  className={`session-item flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-transparent px-2.5 py-2 text-left text-text-primary ${selectedSessionId === session.id ? 'is-active' : ''}`}
                   type="button"
                   onClick={() => onSelect?.(session.id)}
                   aria-label={
@@ -1663,7 +1697,7 @@ function Sidebar({
                       <i />
                     </span>
                   ) : null}
-                  <strong>{session.title}</strong>
+                  <span className="session-item__title">{session.title}</span>
                 </button>
                 <div className="session-actions">
                   <button
@@ -1682,10 +1716,10 @@ function Sidebar({
             ))
           ) : (
             <>
-              <button className="session-item is-active" type="button">
-                <strong>{AGENT_UI_COPY.defaultSessionTitle}</strong>
+              <button className="session-item is-active flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 py-2 text-left text-text-primary" type="button">
+                <span className="session-item__title">{AGENT_UI_COPY.defaultSessionTitle}</span>
               </button>
-              <div className="sidebar-section">
+              <div className="sidebar-section mt-6 flex items-center justify-between px-2 pb-2 pr-[22px] text-xs font-bold uppercase tracking-[0.08em] text-text-muted">
                 <span>最近使用</span>
               </div>
               <div className="sessions-empty">
@@ -1700,7 +1734,7 @@ function Sidebar({
           ) : null}
         </div>
         {serviceLabel ? (
-          <div className="sidebar-footer">
+          <div className="sidebar-footer mt-auto flex items-center gap-2 px-2 pt-3 text-xs text-text-muted">
             <span className={`status-dot status-dot--${serviceState}`} aria-hidden="true" />
             <span>{serviceLabel}</span>
             <span className="local-badge">本地</span>

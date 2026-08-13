@@ -11,7 +11,7 @@ import {
   Square,
   X,
 } from 'lucide-react';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { memo, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 
 import { MarkdownContent } from '../../../components/markdown-content';
 import type { AgentUiState, ServiceState, WorkbenchFocusTarget } from '../model/types';
@@ -54,6 +54,89 @@ export function CopyButton({ text }: { text: string }) {
     </button>
   );
 }
+
+type ConversationItem = AgentUiState['conversation'][number];
+type AssistantItem = Extract<ConversationItem, { kind: 'assistant' }>;
+
+// 流式事件只会改变当前 Assistant Item；隔离消息行可以避免每个 token 重建整条历史消息树。
+const UserMessage = memo(function UserMessage({
+  item,
+}: {
+  item: Extract<ConversationItem, { kind: 'user' }>;
+}) {
+  return (
+    <div className="message message--user">
+      <div>
+        <div className="user-bubble">
+          <MarkdownContent>{item.content}</MarkdownContent>
+        </div>
+        <div className="message-actions">
+          <span>{formatMessageTime(item.createdAt, item.time)}</span>
+          <CopyButton text={item.content} />
+        </div>
+      </div>
+      <div className="message-avatar user-avatar" aria-hidden="true">
+        <CircleUserRound size={17} />
+      </div>
+    </div>
+  );
+});
+
+const AssistantMessage = memo(
+  function AssistantMessage({
+    item,
+    onFocusWorkbench,
+  }: {
+    item: AssistantItem;
+    onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
+  }) {
+    const text = flattenAssistantText(item.blocks);
+    return (
+      <div className="message message--assistant">
+        <div className="message-avatar assistant-avatar">
+          <Sparkles size={15} />
+        </div>
+        <div className="assistant-content">
+          <div className="message-meta">Harness</div>
+          {item.deliveryStatus === 'cancelled' ? (
+            <div className="assistant-delivery-status">本次回答已取消</div>
+          ) : item.deliveryStatus === 'failed' ? (
+            <div className="assistant-delivery-status">本次回答未完成</div>
+          ) : null}
+          {item.pending &&
+          !item.blocks.some((block) => block.type === 'text' && block.content.trim()) ? (
+            <p className="assistant-thinking" role="status" aria-live="polite">
+              正在思考中…
+            </p>
+          ) : null}
+          <div className="assistant-blocks">
+            {item.blocks.map((block) =>
+              block.type === 'text' ? (
+                <div className="assistant-text-block" key={block.id}>
+                  <MarkdownContent>{block.content}</MarkdownContent>
+                </div>
+              ) : (
+                <ToolActivity
+                  key={block.id}
+                  block={block}
+                  messageId={item.workbench?.runId ?? item.id}
+                  canOpenWorkbench={Boolean(item.workbench)}
+                  onFocusWorkbench={onFocusWorkbench}
+                />
+              ),
+            )}
+          </div>
+          <div className="message-actions">
+            <span>{formatMessageTime(item.createdAt, item.time)}</span>
+            {text ? <CopyButton text={text} /> : null}
+          </div>
+        </div>
+      </div>
+    );
+  },
+  // 回调由上层渲染时重新创建，但它只通过 ref 定位当前会话，不影响消息内容。
+  (previous, next) => previous.item === next.item,
+);
 
 // 渲染消息时间线、内联工具活动、错误提示和 Composer。
 export function Conversation({
@@ -99,16 +182,10 @@ export function Conversation({
       node.scrollHeight - node.scrollTop - node.clientHeight <
       AGENT_UI_BEHAVIOR.stickToBottomThresholdPx;
   }
-  useEffect(() => {
+  // 在浏览器绘制前同步到底部，避免新 token 先以旧 scrollTop 绘制一帧后再跳动。
+  useLayoutEffect(() => {
     if (!stickToBottomRef.current || !scrollRef.current) return;
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      scrollFrameRef.current = null;
-      if (stickToBottomRef.current && scrollRef.current)
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    });
-    return () => {
-      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
-    };
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [state.conversation]);
 
   return (
@@ -125,65 +202,9 @@ export function Conversation({
           <div className="message-list">
             {state.conversation.map((item) =>
               item.kind === 'user' ? (
-                <div className="message message--user" key={item.id}>
-                  <div>
-                    <div className="user-bubble">
-                      <MarkdownContent>{item.content}</MarkdownContent>
-                    </div>
-                    <div className="message-actions">
-                      <span>{formatMessageTime(item.createdAt, item.time)}</span>
-                      <CopyButton text={item.content} />
-                    </div>
-                  </div>
-                  <div className="message-avatar user-avatar" aria-hidden="true">
-                    <CircleUserRound size={17} />
-                  </div>
-                </div>
+                <UserMessage key={item.id} item={item} />
               ) : (
-                <div className="message message--assistant" key={item.id}>
-                  <div className="message-avatar assistant-avatar">
-                    <Sparkles size={15} />
-                  </div>
-                  <div className="assistant-content">
-                    <div className="message-meta">Harness</div>
-                    {item.deliveryStatus === 'cancelled' ? (
-                      <div className="assistant-delivery-status">本次回答已取消</div>
-                    ) : item.deliveryStatus === 'failed' ? (
-                      <div className="assistant-delivery-status">本次回答未完成</div>
-                    ) : null}
-                    {item.pending &&
-                    !item.blocks.some(
-                      (block) => block.type === 'text' && block.content.trim().length > 0,
-                    ) ? (
-                      <p className="assistant-thinking" role="status" aria-live="polite">
-                        正在思考中…
-                      </p>
-                    ) : null}
-                    <div className="assistant-blocks">
-                      {item.blocks.map((block) =>
-                        block.type === 'text' ? (
-                          <div className="assistant-text-block" key={block.id}>
-                            <MarkdownContent>{block.content}</MarkdownContent>
-                          </div>
-                        ) : (
-                          <ToolActivity
-                            key={block.id}
-                            block={block}
-                            messageId={item.workbench?.runId ?? item.id}
-                            canOpenWorkbench={Boolean(item.workbench)}
-                            onFocusWorkbench={onFocusWorkbench}
-                          />
-                        ),
-                      )}
-                    </div>
-                    <div className="message-actions">
-                      <span>{formatMessageTime(item.createdAt, item.time)}</span>
-                      {flattenAssistantText(item.blocks) ? (
-                        <CopyButton text={flattenAssistantText(item.blocks)} />
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
+                <AssistantMessage key={item.id} item={item} onFocusWorkbench={onFocusWorkbench} />
               ),
             )}
           </div>

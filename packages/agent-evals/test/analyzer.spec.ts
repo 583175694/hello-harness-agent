@@ -27,7 +27,15 @@ const session = (content: string, metadata: Record<string, unknown> = {}): Sessi
 describe('analyzeCase', () => {
   it('passes a persisted direct answer without tool calls', () => {
     const events: ChatStreamEvent[] = [
-      { type: 'message.delta', messageId: 'assistant-1', blockId: 'text-1', delta: '回答' },
+      {
+        type: 'message.delta',
+        messageId: 'assistant-1',
+        blockId: 'text-1',
+        delta: '回答',
+        roundId: 'round-1',
+        roundSequence: 1,
+        blockSequence: 0,
+      },
       { type: 'message.completed', messageId: 'assistant-1', model: 'test' },
     ];
     const result = analyzeCase(
@@ -49,6 +57,9 @@ describe('analyzeCase', () => {
         toolCallId: 'call-1',
         toolName: 'web_fetch',
         title: '读取网页',
+        roundId: 'round-1',
+        roundSequence: 1,
+        blockSequence: 0,
         input: { urls: ['https://invented.example/a'] },
         startedAt: '2026-08-10T00:00:00.000Z',
       },
@@ -63,6 +74,9 @@ describe('analyzeCase', () => {
         code: 'FETCH_URL_NOT_ALLOWED',
         detail: 'not allowed',
         retryable: false,
+        roundId: 'round-1',
+        roundSequence: 1,
+        blockSequence: 0,
       },
       { type: 'message.completed', messageId: 'assistant-1', model: 'test' },
     ];
@@ -184,6 +198,9 @@ function fetchStarted(toolCallId: string, url: string): ChatStreamEvent {
     toolCallId,
     toolName: 'web_fetch',
     title: '读取网页',
+    roundId: 'round-1',
+    roundSequence: 1,
+    blockSequence: 0,
     input: { urls: [url] },
     startedAt: '2026-08-10T00:00:00.000Z',
   };
@@ -199,6 +216,9 @@ function execution(toolCallId: string, url: string) {
     startedAt: '2026-08-10T00:00:00.000Z',
     completedAt: '2026-08-10T00:00:01.000Z',
     durationMs: 1000,
+    roundId: 'round-1',
+    roundSequence: 1,
+    blockSequence: 0,
   } as const;
 }
 
@@ -212,6 +232,9 @@ function fetchCompleted(toolCallId: string, url: string): ChatStreamEvent {
     toolName: 'web_fetch',
     completedAt: '2026-08-10T00:00:01.000Z',
     durationMs: 1000,
+    roundId: 'round-1',
+    roundSequence: 1,
+    blockSequence: 0,
     result: {
       results: [
         { status: 'failed', requestedUrl: url, code: 'FETCH_UPSTREAM_FAILED', detail: 'failed' },

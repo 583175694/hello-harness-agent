@@ -142,8 +142,15 @@ export class AgentRuntimeService {
         }
 
         const roundContent = textDeltas.join('');
+        const blockOrder = [
+          ...(textDeltas.length > 0 ? [`text:${textBlockSequence}`] : []),
+          ...calls.map(
+            (call, callIndex) =>
+              `tool:${call.blockSequence ?? callIndex}:${shortLogId(call.id || `missing-${callIndex}`)}`,
+          ),
+        ].join(',');
         this.logger.log(
-          `模型轮次完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 尝试=${attempt}/${maxAttempts} | 原因=${finishReason ?? 'unknown'} | 文本=${roundContent.length} 字 | 工具调用=${calls.length} 个 | 耗时=${formatLogDuration(Date.now() - attemptStartedAt)}`,
+          `模型轮次完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 尝试=${attempt}/${maxAttempts} | 原因=${finishReason ?? 'unknown'} | 文本=${roundContent.length} 字 | 工具调用=${calls.length} 个 | Block顺序=${blockOrder || '空'} | 耗时=${formatLogDuration(Date.now() - attemptStartedAt)}`,
           AgentRuntimeService.name,
         );
 

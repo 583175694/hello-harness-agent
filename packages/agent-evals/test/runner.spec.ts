@@ -34,7 +34,15 @@ async function options(overrides: Partial<Parameters<typeof runEvaluation>[0]> =
 // 构造可通过直接回答硬规则的标准 SSE 事件。
 function completedEvents(): ChatStreamEvent[] {
   return [
-    { type: 'message.delta', messageId: 'assistant-1', blockId: 'text-1', delta: '回答' },
+    {
+      type: 'message.delta',
+      messageId: 'assistant-1',
+      blockId: 'text-1',
+      delta: '回答',
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 0,
+    },
     { type: 'message.completed', messageId: 'assistant-1', model: 'test-model' },
   ];
 }

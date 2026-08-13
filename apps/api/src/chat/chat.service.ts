@@ -159,7 +159,7 @@ export class ChatService {
         if (firstDeltaAt === undefined) {
           firstDeltaAt = Date.now();
           this.logger.log(
-            `模型开始响应 | 会话=${shortLogId(prepared.sessionId)} | 首字耗时=${formatLogDuration(firstDeltaAt - startedAt)}`,
+            `模型开始响应 | 会话=${shortLogId(prepared.sessionId)} | Round=${event.roundSequence} | Block=${event.blockSequence} | 首字耗时=${formatLogDuration(firstDeltaAt - startedAt)}`,
             ChatService.name,
           );
         }
@@ -350,6 +350,9 @@ export class ChatService {
           durationMs: event.durationMs,
           code: event.code,
           detail: event.detail,
+          roundId: event.roundId,
+          roundSequence: event.roundSequence,
+          blockSequence: event.blockSequence,
         };
         continue;
       }

@@ -31,6 +31,9 @@ describe('RunEventHub', () => {
         messageId: 'assistant-1',
         blockId: 'text-1',
         delta: 'hello',
+        roundId: 'round-1',
+        roundSequence: 1,
+        blockSequence: 0,
       })?.seq,
     ).toBe(2);
     const iterator = hub.subscribe('run-1', 1)?.[Symbol.asyncIterator]();

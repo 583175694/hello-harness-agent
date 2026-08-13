@@ -15,16 +15,25 @@ describe('parseSseResponse', () => {
         occurredAt: '2026-08-10T00:01:00.000Z',
         payload,
       });
+    const delta = (text: string) => ({
+      type: 'message.delta',
+      messageId: 'm1',
+      blockId: 'b1',
+      delta: text,
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 0,
+    });
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(
           encoder.encode(
-            `data: ${envelope(1, 'message.delta', { type: 'message.delta', messageId: 'm1', blockId: 'b1', delta: '你' }).slice(0, 120)}`,
+            `data: ${envelope(1, 'message.delta', delta('你')).slice(0, 120)}`,
           ),
         );
         controller.enqueue(
           encoder.encode(
-            `${envelope(1, 'message.delta', { type: 'message.delta', messageId: 'm1', blockId: 'b1', delta: '你' }).slice(120)}\n\ndata: ${envelope(2, 'message.delta', { type: 'message.delta', messageId: 'm1', blockId: 'b1', delta: '好' })}\n\n`,
+            `${envelope(1, 'message.delta', delta('你')).slice(120)}\n\ndata: ${envelope(2, 'message.delta', delta('好'))}\n\n`,
           ),
         );
         controller.close();

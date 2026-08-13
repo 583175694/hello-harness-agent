@@ -13,6 +13,16 @@ function runFrame(
   runId = 'run-test',
   sessionId = 'session-test',
 ): string {
+  const eventPayload =
+    payload && typeof payload === 'object' &&
+    ['message.delta', 'tool.started', 'tool.completed', 'tool.failed', 'tool.cancelled'].includes(type)
+      ? {
+          ...(payload as Record<string, unknown>),
+          roundId: (payload as Record<string, unknown>).roundId ?? 'round-1',
+          roundSequence: (payload as Record<string, unknown>).roundSequence ?? 1,
+          blockSequence: (payload as Record<string, unknown>).blockSequence ?? 0,
+        }
+      : payload;
   return `id: ${seq}\nevent: ${type}\ndata: ${JSON.stringify({
     version: '0.9.0',
     eventId: `event-${seq}`,
@@ -21,7 +31,7 @@ function runFrame(
     runId,
     type,
     occurredAt: '2026-08-05T04:00:01.000Z',
-    payload,
+    payload: eventPayload,
   })}\n\n`;
 }
 
@@ -166,6 +176,9 @@ describe('R1 workbench shell', () => {
       blockId: 'search-block',
       toolCallId: 'search-1',
       toolName: 'web_search',
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 0,
       completedAt,
       durationMs: 10,
       result: {
@@ -191,6 +204,9 @@ describe('R1 workbench shell', () => {
       blockId: `${toolCallId}-block`,
       toolCallId,
       toolName: 'web_fetch',
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 0,
       completedAt,
       durationMs: 20,
       result: { results: [fetchedItem(url)], stats } satisfies WebFetchResult,

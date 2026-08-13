@@ -58,8 +58,17 @@ async function startMockApi(): Promise<{
           occurredAt: '2026-08-10T00:01:00.000Z',
           payload,
         });
+        const delta = {
+          type: 'message.delta',
+          messageId: 'assistant-1',
+          blockId: 'text-1',
+          delta: '回答',
+          roundId: 'round-1',
+          roundSequence: 1,
+          blockSequence: 0,
+        };
         response.write(
-          `id: 1\nevent: message.delta\ndata: ${JSON.stringify(envelope(1, { type: 'message.delta', messageId: 'assistant-1', blockId: 'text-1', delta: '回答' }))}\n\n`,
+          `id: 1\nevent: message.delta\ndata: ${JSON.stringify(envelope(1, delta))}\n\n`,
         );
         response.end(
           `id: 2\nevent: run.completed\ndata: ${JSON.stringify({ ...envelope(2, { status: 'completed' }), type: 'run.completed' })}\n\n`,

@@ -1,5 +1,6 @@
 import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Logger } from 'nestjs-pino';
 import type { ChatMessage, ChatStreamEvent, RunSnapshot } from '@harness/agent-protocol';
 import { ENV_KEYS } from '../bootstrap/env.constants';
 import { PrismaService } from '../database/prisma.service';
@@ -10,6 +11,7 @@ import { SessionTitleService } from '../sessions/session-title.service';
 import { ActiveRunRegistry } from './active-run.registry';
 import { RunEventHub } from './run-event-hub';
 import { RunRepository } from './run.repository';
+import { shortLogId } from '../shared/logging.utils';
 
 @Injectable()
 export class RunExecutor implements OnModuleDestroy {
@@ -25,6 +27,7 @@ export class RunExecutor implements OnModuleDestroy {
     @Inject(RunEventHub) private readonly events: RunEventHub,
     @Inject(RunRepository) private readonly repository: RunRepository,
     @Inject(SessionTitleService) private readonly titles: SessionTitleService,
+    @Inject(Logger) private readonly logger: Logger,
   ) {}
 
   // 同一 API 实例内保证一个 Run 只有一个 Executor，数据库 start CAS 负责最终所有权确认。
@@ -107,6 +110,7 @@ export class RunExecutor implements OnModuleDestroy {
         const published = this.events.commit(runId, event.type, event);
         if (published) {
           this.updateLiveSnapshot(active.liveSnapshot, projection, published.seq);
+          this.logProjectionOrder(runId, published.seq, event.type, projection);
           this.events.broadcast(runId, published);
         }
         await this.persistSemanticBoundary(runId, event, toolSteps, () => stepSequence++);
@@ -296,6 +300,22 @@ export class RunExecutor implements OnModuleDestroy {
     return projection.blocks
       .filter((block) => block.type === 'text')
       .reduce((total, block) => total + block.content.length, 0);
+  }
+
+  // 记录事件序号与业务 Block 坐标，排查“服务端顺序正确但浏览器展示错位”时可直接对照。
+  private logProjectionOrder(
+    runId: string,
+    eventSequence: number,
+    eventType: ChatStreamEvent['type'],
+    projection: ChatProjectionSnapshot,
+  ): void {
+    const order = projection.blocks
+      .map((block) => `${block.type}:${block.roundSequence ?? '?'}:${block.blockSequence ?? '?'}`)
+      .join(' > ');
+    this.logger.debug(
+      `Run投影顺序 | Run=${shortLogId(runId)} | Event=${eventSequence} | 类型=${eventType} | Blocks=${order || '空'}`,
+      RunExecutor.name,
+    );
   }
 
   private describeError(error: unknown): { code: string; detail: string } {

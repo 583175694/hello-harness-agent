@@ -9,6 +9,21 @@ import type { ToolStreamEvent } from '../../../api/client';
 
 type MessageDeltaEvent = Extract<ChatStreamEvent, { type: 'message.delta' }>;
 
+function compareBlockOrder(left: AssistantContentBlock, right: AssistantContentBlock): number {
+  const leftRound = left.roundSequence ?? Number.MAX_SAFE_INTEGER;
+  const rightRound = right.roundSequence ?? Number.MAX_SAFE_INTEGER;
+  if (leftRound !== rightRound) return leftRound - rightRound;
+  const leftBlock = left.blockSequence ?? Number.MAX_SAFE_INTEGER;
+  const rightBlock = right.blockSequence ?? Number.MAX_SAFE_INTEGER;
+  return leftBlock - rightBlock;
+}
+
+// Snapshot、历史消息与 Live Event 最终都经过同一个稳定排序入口。
+// JavaScript 的稳定排序保证旧消息缺少 Round 字段时仍保持原数组相对顺序。
+export function orderAssistantBlocks(blocks: AssistantContentBlock[]): AssistantContentBlock[] {
+  return [...blocks].sort(compareBlockOrder);
+}
+
 function insertOrdered(
   blocks: AssistantContentBlock[],
   block: AssistantContentBlock,
@@ -41,10 +56,18 @@ export function appendTextDelta(
       ...(event.blockSequence !== undefined ? { blockSequence: event.blockSequence } : {}),
     });
   }
-  return blocks.map((block, blockIndex) =>
-    blockIndex === index
-      ? { ...block, content: `${(block as AssistantTextBlock).content}${event.delta}` }
-      : block,
+  return orderAssistantBlocks(
+    blocks.map((block, blockIndex) =>
+      blockIndex === index
+        ? {
+            ...block,
+            content: `${(block as AssistantTextBlock).content}${event.delta}`,
+            ...(event.roundId ? { roundId: event.roundId } : {}),
+            ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
+            ...(event.blockSequence !== undefined ? { blockSequence: event.blockSequence } : {}),
+          }
+        : block,
+    ),
   );
 }
 
@@ -58,7 +81,21 @@ export function applyToolActivityEvent(
     (block) => block.type === 'tool_activity' && block.toolCallId === event.toolCallId,
   );
   if (event.type === 'tool.started') {
-    if (index >= 0) return blocks;
+    if (index >= 0)
+      return orderAssistantBlocks(
+        blocks.map((block, blockIndex) =>
+          blockIndex === index
+            ? {
+                ...block,
+                ...(event.roundId ? { roundId: event.roundId } : {}),
+                ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
+                ...(event.blockSequence !== undefined
+                  ? { blockSequence: event.blockSequence }
+                  : {}),
+              }
+            : block,
+        ),
+      );
     return insertOrdered(blocks, {
         id: event.blockId,
         type: 'tool_activity',
@@ -124,5 +161,7 @@ export function flattenAssistantText(blocks: AssistantContentBlock[]): string {
 
 // 将持久化块复制为前端可安全更新的独立对象。
 export function cloneAssistantBlocks(blocks: AssistantContentBlock[]): AssistantContentBlock[] {
-  return blocks.map((block) => ({ ...block }) as AssistantTextBlock | AssistantToolActivityBlock);
+  return orderAssistantBlocks(
+    blocks.map((block) => ({ ...block }) as AssistantTextBlock | AssistantToolActivityBlock),
+  );
 }

@@ -1,10 +1,10 @@
 # Context Engineering
 
-> 文档状态：后续方向，尚未进入实施与协议冻结。本文只定义职责边界，不承诺具体组件、Schema、预算算法或交付时间。
+> 文档状态：后续方向，尚未进入实施与协议冻结。Reasoning 与完整模型 transcript 的事实边界先按 `27-reasoning-context-transcript.md` 实施；本文只定义其后的选择、预算与压缩职责，不承诺具体算法或交付时间。
 
 ## 1. 当前状态
 
-当前生产 Runtime 使用数据库最近消息和当前 assistant run 内的完整 Tool Message 组成模型上下文。Tool Result 完成后始终注入下一模型轮次，尚未实现全局 Token 预算、材料选择、压缩、淘汰、摘要或最终回答空间预留。
+当前生产 Runtime 使用数据库最近 user/assistant 最终正文和当前 assistant run 内的 Tool Message 组成模型上下文；它尚未持久化和跨用户轮次回放 reasoning、Tool Call 与 Tool Result 的完整 transcript。该缺口由 Reasoning Context Transcript 前置阶段修复。完成后，Context Engineering 以完整 canonical transcript 为输入，再实现全局 Token 预算、材料选择、压缩、淘汰、摘要和最终回答空间预留。
 
 因此，以下内容都不是当前能力：
 
@@ -22,8 +22,9 @@
 
 ```text
 System Prompt
-+ 历史会话消息
++ 历史 Canonical Transcript
 + 当前用户输入
++ Assistant Reasoning
 + Assistant Tool Calls
 + Tool Results
 + 其他未来 Context
@@ -42,6 +43,8 @@ Context Engineering 负责“模型在有限窗口中看到什么”，但不负
 - 修改 Tool 的安全与传输边界。
 - 派生 Workbench source provenance。
 - 替代 Runtime 的 Tool Call 上限、取消和单次超时。
+- 解析或编码供应商私有 reasoning 字段。
+- 充当 reasoning/tool transcript 的唯一事实源。
 
 ## 3. 与当前模块的关系
 
@@ -59,10 +62,11 @@ Projection
   负责执行与来源的持久化读模型
 
 Context Engineering（后续）
-  负责完整模型输入的统一编译
+  负责从完整 canonical transcript 统一编译有限模型输入
 ```
 
 Tool 不选择结果中的哪些字段进入模型，也不自行报告字符预算或注入状态。当前阶段 Runtime 将 Tool 的 canonical `output/error` 完整序列化为 Tool Message；未来如引入 Context Engineering，选择与压缩决策应由统一上下文编译过程完成。
+Reasoning 的供应商解码和编码属于 Model Adapter；reasoning、Tool Call 与 Tool Result 的顺序、关联和持久化属于 Runtime/Transcript。Context Engineering 只能选择、转换或淘汰已经存在的 canonical items，不能从 UI Projection 重建模型历史，也不能将摘要后的文本继续冒充 native reasoning。
 
 ## 4. 尚未冻结的设计
 
@@ -72,10 +76,12 @@ Tool 不选择结果中的哪些字段进入模型，也不自行报告字符预
 - System、历史消息、Tool Result 和最终回答之间如何分配预算。
 - Tool Result 是整体保留、结构化裁剪、摘要还是按需重载。
 - 历史消息如何压缩，以及哪些用户纠正必须永久保留。
+- reasoning + Tool Call + Tool Result 关联单元如何整体保留、转换或淘汰。
+- 模型切换时哪些 reasoning 可以 native replay，哪些只能转成新的摘要 context item。
 - 是否需要 context trace、included/omitted refs 和可解释淘汰原因。
 - Context 编译是纯函数、带 I/O 的加载器加纯编译器，还是其他组合。
 
-在这些决策完成前，不在共享协议、SSE、Message metadata 或 Tool 契约中预留临时 observation/delivery 字段。
+在这些决策完成前，不增加临时 observation/delivery 字段；Reasoning Context Transcript 所需的 canonical reasoning、SSE block 和 durable transcript 字段不属于临时 Context Engineering 占位，而是当前模型协议正确性所需事实。
 
 ## 5. 进入实施的触发条件
 

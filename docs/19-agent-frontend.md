@@ -41,7 +41,7 @@ Playwright
 |----------|---------------------------------------|---------------------------------------|
 | New      | User goal                             | [Activity] [Sources] [Report] [Debug] |
 | session  | Clarification / steer                 | Selected/current execution            |
-| history  | Ordered text / tool activity blocks   | Evidence/source list                  |
+| history  | Ordered reasoning / text / tool blocks| Evidence/source list                  |
 |          | Final delivery message                | Markdown report preview               |
 |          | Composer                              |                                       |
 +--------------------------------------------------------------------------------+
@@ -98,7 +98,27 @@ terminal
 - running：输入作为 steer，UI 明确标注“下一步骤生效”。
 - running/cancelling：提供 cancel command。
 
-Composer 不让用户选择 provider、API Key、toolset 或 runtime hard budget。
+发送按钮旁提供“推理强度”菜单，使用四档固定文案：
+
+```text
+无思考
+轻度
+中度（默认）
+高度
+```
+
+菜单使用 canonical `off | low | high | max`，不显示 DeepSeek 的 `thinking`、`reasoning_effort` 等供应商字段。当前选择在 Composer 上以紧凑文本显示，例如“中度”，点击后打开选项菜单；发送按钮仍保持独立、稳定的主命令位置。
+
+- 每次提交创建 run 时冻结当前档位，运行中不能修改本次 run。
+- 新一轮用户消息可以重新选择档位。
+- 模型只支持开关而不支持强度时，UI 禁用不可表达的档位并给出简短 tooltip。
+- 模型不支持 reasoning 控制时隐藏或禁用菜单，不伪造支持。
+- 档位和默认值只从 Public Config capability 获取，不根据模型名称硬编码。
+- `off` 不展示空的 reasoning 区域。
+- 键盘、移动端和窄屏下菜单不能遮挡输入框或发送按钮。
+- 打开旧 Session 时若当前模型无法兼容历史 reasoning，Composer 禁止发送并显示“当前模型无法继续此会话”，提供新建 Session 的明确入口。
+
+Composer 不让用户选择 provider、API Key、toolset 或 runtime hard budget；推理强度是允许的模型运行配置，不等同于 provider 选择或 Runtime budget。
 
 R1 不显示逐任务外部发送确认：部署者配置相应 API Key 后，任务会按 provider routing 自动发送所需数据。未配置或不可用时显示明确配置错误，不伪装为用户拒绝授权。
 
@@ -121,7 +141,7 @@ R1 不显示逐任务外部发送确认：部署者配置相应 API Key 后，�
 
 ### Inline Tool Activity
 
-Conversation 不展示独立 RunCard。一个 assistant turn 由有序 `text` 和 `tool_activity` 内容块组成，工具调用按真实时间位置穿插在 Markdown 输出中，不得展示 raw event/provider payload。
+Conversation 不展示独立 RunCard。一个 assistant turn 由有序 `reasoning`、`text` 和 `tool_activity` 内容块组成，思考与工具调用按真实时间位置穿插，不得展示 raw event/provider payload。
 
 交互边界：
 
@@ -129,8 +149,10 @@ Conversation 不展示独立 RunCard。一个 assistant turn 由有序 `text` �
 - 点击 Activity 按 `runId/stepId/toolCallId` 打开并定位 Workbench。
 - running、completed、failed、cancelled 均同时显示图标和文字，不只依赖颜色。
 - 连续文本 delta 合并为一个 text block；被 Activity 打断后的文本创建新 block。
+- 连续 reasoning delta 合并为独立 reasoning block；reasoning 默认可折叠，展开后展示已交付的完整 canonical 内容。
+- “正在思考”loading 状态不得伪装成真实 reasoning；只有收到 reasoning delta 后才创建 reasoning block。
 - 成功完成后刷新仍恢复完全相同的穿插顺序；未完成时间线当前不承诺跨刷新恢复。
-- 下一轮模型上下文只拼接 text blocks，Tool Activity 的 UI 文案不进入模型消息。
+- 下一轮模型上下文从 durable canonical transcript 恢复，不从 Conversation blocks 反向拼装；Tool Activity 的 UI 文案仍不进入模型消息。
 
 ## 8. Clarification
 

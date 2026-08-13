@@ -7,7 +7,6 @@ import {
 import { Logger } from 'nestjs-pino';
 
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
-import type { ChatMessage } from '@harness/agent-protocol';
 import { ModelAdapter } from '../model/model-adapter';
 import type { ModelMessage, ModelToolCall } from '../model/model-adapter';
 import type { ToolExecutionContext, ToolExecutionResult } from '../tools/agent-tool.types';
@@ -37,7 +36,7 @@ export class AgentRuntimeService {
     // System Prompt 与历史消息共同组成第一轮模型上下文，后续轮次只在该数组末尾追加。
     const messages: ModelMessage[] = [
       { role: 'system', content: input.systemPrompt },
-      ...this.toModelMessages(input.messages),
+      ...input.messages,
     ];
     // 分别记录工具调用次数、交付模式、最终正文和已向客户端展示的文本。
     let toolCallCount = 0;
@@ -61,6 +60,7 @@ export class AgentRuntimeService {
       const definitions = finalResponseOnly ? undefined : this.tools.definitions();
       // 每次模型尝试都重新收集文本、工具调用和结束原因，污染重试不得混入上一轮内容。
       let textDeltas: string[] = [];
+      let reasoningDeltas: string[] = [];
       let calls: ModelToolCall[] = [];
       let finishReason: string | null = null;
       // roundId 是稳定关联标识，roundSequence 才承担跨 Round 的排序职责。
@@ -82,6 +82,7 @@ export class AgentRuntimeService {
             : DEFAULT_RUNTIME_POLICY.modelRoundTimeoutMs,
         );
         textDeltas = [];
+        reasoningDeltas = [];
         calls = [];
         finishReason = null;
         this.logger.log(
@@ -95,11 +96,21 @@ export class AgentRuntimeService {
             model: input.model,
             messages,
             tools: definitions,
+            reasoningEffort: input.reasoningEffort ?? 'off',
             signal: roundSignal,
           })) {
             // 普通 Tool Round 的 Content 首字立即交付，不为排序牺牲首字速度；
             // Round 完成且存在 Tool Call 时，它自然被解释为工具前言而非最终正文。
-            if (event.type === 'text.delta') {
+            if (event.type === 'reasoning.delta') {
+              reasoningDeltas.push(event.delta);
+              yield {
+                type: 'reasoning.delta',
+                delta: event.delta,
+                roundId,
+                roundSequence: modelRounds,
+                blockSequence: event.blockSequence,
+              };
+            } else if (event.type === 'text.delta') {
               textDeltas.push(event.delta);
               textBlockSequence = event.blockSequence;
               // 最终回答必须完整通过长度、空响应和协议污染校验后才能交付。
@@ -225,6 +236,13 @@ export class AgentRuntimeService {
           });
         }
         finalContent = visibleContent;
+        const finalMessage: ModelMessage = {
+          role: 'assistant',
+          content: roundContent,
+          ...(reasoningDeltas.length ? { reasoning: reasoningDeltas.join('') } : {}),
+        };
+        messages.push(finalMessage);
+        yield { type: 'transcript.item', message: finalMessage };
         break;
       }
       // 正常情况下最终回答阶段不会收到 Tool Call；该分支是最后一道防御性保护。
@@ -248,8 +266,10 @@ export class AgentRuntimeService {
       messages.push({
         role: 'assistant',
         content: textDeltas.join('') || null,
+        ...(reasoningDeltas.length ? { reasoning: reasoningDeltas.join('') } : {}),
         toolCalls: normalizedCalls,
       });
+      yield { type: 'transcript.item', message: messages.at(-1)! };
 
       // 同一 Round 可能包含多个 Tool Call。当前保持模型声明顺序串行执行，
       // 并为每个调用补齐 Tool Message，避免下一轮模型上下文违反供应商协议。
@@ -265,6 +285,7 @@ export class AgentRuntimeService {
               retryable: false,
             }),
           });
+          yield { type: 'transcript.item', message: messages.at(-1)! };
           enterFinalAnswer();
           this.logger.warn(
             `工具调用已达到上限 | 会话=${shortLogId(input.sessionId)} | 上限=${DEFAULT_RUNTIME_POLICY.maxToolCalls} 次`,
@@ -290,6 +311,7 @@ export class AgentRuntimeService {
               retryable: false,
             }),
           });
+          yield { type: 'transcript.item', message: messages.at(-1)! };
           this.logger.warn(
             `工具参数无效 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 错误码=${code}`,
             AgentRuntimeService.name,
@@ -435,6 +457,7 @@ export class AgentRuntimeService {
               ? this.serializeToolSuccess(result.output)
               : this.serializeToolError(result.error),
         });
+        yield { type: 'transcript.item', message: messages.at(-1)! };
         // 全局工具调用上限优先保证循环收敛，不受具体工具类型影响。
         if (toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls) enterFinalAnswer();
       }
@@ -534,29 +557,4 @@ export class AgentRuntimeService {
     return error;
   }
 
-  // 将共享聊天消息转换为 Runtime 使用的 canonical model message。
-  private toModelMessages(messages: ChatMessage[]): ModelMessage[] {
-    return messages.map((message): ModelMessage => {
-      // Tool Message 必须保留 toolCallId，供模型关联上一条 assistant Tool Call。
-      if (message.role === 'tool') {
-        return { role: 'tool', content: message.content, toolCallId: message.toolCallId };
-      }
-      // Assistant 历史可能包含工具调用，需要恢复为 Adapter 使用的 canonical 结构。
-      if (message.role === 'assistant') {
-        return {
-          role: 'assistant',
-          content: message.content ?? null,
-          toolCalls: message.toolCalls?.map((call) => ({
-            id: call.id,
-            name: call.name,
-            arguments: JSON.stringify(call.arguments),
-            blockSequence: 0,
-            providerIndex: 0,
-          })),
-        };
-      }
-      // System 与 User Message 无需额外转换，直接保留角色和正文。
-      return { role: message.role, content: message.content };
-    });
-  }
 }

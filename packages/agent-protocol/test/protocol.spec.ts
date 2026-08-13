@@ -21,7 +21,7 @@ import {
 
 describe('foundation protocol', () => {
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.9.0');
+    expect(protocolVersion).toBe('0.10.0');
   });
 
   it('normalizes source URLs deterministically without deleting business parameters', () => {
@@ -133,11 +133,11 @@ describe('foundation protocol', () => {
   it('requires a short title and non-empty session chat content', () => {
     expect(createSessionRequestSchema.parse({ title: '新的会话' }).title).toBe('新的会话');
     expect(
-      createRunRequestSchema.parse({ content: '  hello  ', idempotencyKey: 'request-1' }).content,
+      createRunRequestSchema.parse({ content: '  hello  ', model: 'deepseek-v4-flash', idempotencyKey: 'request-1' }).content,
     ).toBe('hello');
     expect(() => createSessionRequestSchema.parse({ title: 'x'.repeat(29) })).toThrow();
     expect(() =>
-      createRunRequestSchema.parse({ content: '   ', idempotencyKey: 'request-1' }),
+      createRunRequestSchema.parse({ content: '   ', model: 'deepseek-v4-flash', idempotencyKey: 'request-1' }),
     ).toThrow();
   });
 
@@ -146,6 +146,12 @@ describe('foundation protocol', () => {
       runId: 'run-1',
       sessionId: 'session-1',
       status: 'running',
+      profile: {
+        provider: 'deepseek',
+        model: 'DeepSeek-V4-Pro',
+        reasoningEffort: 'high',
+        reasoningFormat: 'deepseek.reasoning_content.v1',
+      },
       assistantMessageId: 'assistant-1',
       assistantContent: '',
       blocks: [],
@@ -157,7 +163,7 @@ describe('foundation protocol', () => {
     });
     expect(
       runStreamEventSchema.parse({
-        version: '0.9.0',
+        version: '0.10.0',
         eventId: 'event-1',
         seq: 0,
         sessionId: 'session-1',

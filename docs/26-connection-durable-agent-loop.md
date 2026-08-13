@@ -1,6 +1,6 @@
 # Connection-Durable Agent Loop
 
-> 决策状态：当前 Connection Durable 的权威实现。Run/Step、Ordered Model Rounds、后台 Executor、版本化 Checkpoint、Event Tail、SSE 重连和 assistant draft 均已落地。当前只保证 API 进程存活期间的连接恢复，不实现服务端重启后的自动续跑。与其他 durable 草案冲突时，以本文为准。
+> 决策状态：当前 Connection Durable 的权威实现。Run/Step、Ordered Model Rounds、后台 Executor、版本化 Checkpoint、Event Tail、SSE 重连和 assistant draft 均已落地。Reasoning 与完整模型 transcript 的后续扩展以 `27-reasoning-context-transcript.md` 为准。当前只保证 API 进程存活期间的连接恢复，不实现服务端重启后的自动续跑。
 
 ## 1. 当前目标
 
@@ -50,6 +50,10 @@ PostgreSQL Checkpoint
   保存最近一次已确认的完整 Run/UI Snapshot
   支持页面刷新和 ActiveRun 不存在时恢复
 
+Canonical Transcript（待 Reasoning 阶段补齐）
+  保存模型下一轮请求所需的 reasoning / tool call / tool result 历史
+  不由 UI Snapshot 或 Conversation Projection 反向重建
+
 Live Projection
   保存当前进程中最新完整状态
   支持首次订阅和 cursor 断档时快速恢复
@@ -63,6 +67,118 @@ Live SSE
 ```
 
 数据库当前保存的是 Snapshot/Checkpoint，不是完整 Event Log。Stream Event 只用于当前进程内的增量观察，不承担服务端重启后的 Runtime replay。
+
+### 2.1 Run 执行主流程与代码导航
+
+```text
+用户提交消息
+    │
+    │  Web: app.tsx -> handleSubmit()
+    ↓
+创建 Run + user/assistant 两条 Message
+    │
+    │  HTTP: runs.controller.ts -> create()
+    │  Command: run-command.service.ts -> create()
+    │  DB Transaction: run.repository.ts -> create()
+    ↓
+后台 Executor 启动
+    │
+    │  run.executor.ts -> start() / execute()
+    ↓
+Agent Runtime 驱动 Model / Tool Loop
+    │
+    │  chat.service.ts -> streamPrepared()
+    │  agent-runtime.service.ts -> run()
+    │  openai-compatible-model.adapter.ts -> streamRound()
+    ↓
+Runtime Event 转成 Chat Projection
+    │
+    │  chat.service.ts -> streamPrepared()
+    │  conversation-block.collector.ts
+    ↓
+Canonical Transcript 追加与持久化（待实施）
+    │
+    │  reasoning / assistant tool calls / tool results / final text
+    ↓
+RunEventHub 分配事件序号
+    │
+    │  run-event-hub.ts -> commit()
+    ├── broadcast()            -> 实时广播给 SSE
+    ├── active.liveSnapshot    -> 更新内存最新快照
+    └── active.tailEvents      -> 放入 Event Tail
+    ↓
+阶段性写入 PostgreSQL Checkpoint
+    │
+    │  run.executor.ts         -> 判断 flush 时机
+    │  run.repository.ts       -> flush()
+    │  run-event-hub.ts        -> checkpointCommitted()
+    ↓
+完成 / 失败 / 取消
+    │
+    │  run.repository.ts       -> terminal()
+    │  run-event-hub.ts        -> broadcast() / close()
+```
+
+建议按“接单 -> 执行 -> 事件与恢复 -> 前端观察”的顺序阅读：
+
+1. [`RunCommandService`](../apps/api/src/runs/run-command.service.ts)
+2. [`RunExecutor`](../apps/api/src/runs/run.executor.ts)
+3. [`RunEventHub`](../apps/api/src/runs/run-event-hub.ts)
+4. [`observeRun()`](../apps/web/src/app.tsx)
+
+其他对应入口：
+
+- [`RunsController`](../apps/api/src/runs/runs.controller.ts)
+- [`RunRepository`](../apps/api/src/runs/run.repository.ts)
+- [`ChatService`](../apps/api/src/chat/chat.service.ts)
+- [`AgentRuntimeService`](../apps/api/src/agent-runtime/agent-runtime.service.ts)
+- [`OpenAICompatibleModelAdapter`](../apps/api/src/model/openai-compatible-model.adapter.ts)
+- [`ConversationBlockCollector`](../apps/api/src/projection/conversation-block.collector.ts)
+
+### 2.2 断线恢复流程与代码导航
+
+```text
+前端保存 cursor
+    │
+    │  app.tsx -> runSequencesRef / applyRunEvent()
+    ↓
+重新读取 Run Snapshot
+    │
+    │  Web: getRun()
+    │  HTTP: runs.controller.ts -> snapshot()
+    │  Command: run-command.service.ts -> snapshot()
+    ↓
+携带 Last-Event-ID 订阅 SSE
+    │
+    │  Web: observeRun() -> subscribeRun()
+    │  HTTP: runs.controller.ts -> subscribe()
+    ↓
+RunEventHub.subscribe(runId, cursor)
+    │
+    ├── cursor 能被 Tail 连续覆盖
+    │       ↓
+    │   replay event.seq > cursor
+    │
+    └── 无 cursor / cursor 过旧 / 出现断档
+            ↓
+        返回完整 Live Snapshot
+    ↓
+前端归约恢复数据
+    │
+    ├── app.tsx -> applyRunSnapshot()   完整替换 Run 投影
+    └── app.tsx -> applyRunEvent()      连续应用增量事件
+    ↓
+继续接收实时事件
+```
+
+对应代码：
+
+- [`observeRun()`、`applyRunSnapshot()`、`applyRunEvent()`](../apps/web/src/app.tsx)
+- [`getRun()`、`subscribeRun()`](../apps/web/src/api/client.ts)
+- [`RunsController.snapshot()`、`RunsController.subscribe()`](../apps/api/src/runs/runs.controller.ts)
+- [`RunCommandService.snapshot()`](../apps/api/src/runs/run-command.service.ts)
+- [`RunEventHub.subscribe()`](../apps/api/src/runs/run-event-hub.ts)
+- [`appendTextDelta()`、`applyToolActivityEvent()`](../apps/web/src/features/agent/model/conversation-blocks.ts)
 
 ## 3. 核心不变量
 

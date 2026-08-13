@@ -53,6 +53,16 @@ research_phase_changed
 progress_updated
 ```
 
+### Model Transcript Transparency
+
+```text
+reasoning_delta
+reasoning_completed
+answer_delta
+```
+
+当前 Connection-Durable 实施可以继续使用更贴近 Chat 协议的事件名，例如 `reasoning.delta`；无论命名如何，reasoning 必须是独立 canonical block，并携带稳定的 `roundId + roundSequence + blockSequence`。它不是普通 loading 状态，也不与最终 answer 文本共用同一 block。
+
 ### Search / Evidence
 
 ```text
@@ -93,7 +103,7 @@ Raw event 不直接等于 UI 文本。Projection 生成：
 报告已完成 / 报告受证据限制
 ```
 
-普通 UI 不显示 `model_action_ready`、context hash 或 provider raw error body。
+普通 UI 不显示 `model_action_ready`、context hash 或 provider raw error body。模型已交付的 canonical reasoning 属于用户可见透明化内容，可以折叠展示；供应商原始 payload、隐藏字段名和内部转换诊断仍不直接展示。
 
 ## 5. Source Projection
 
@@ -180,7 +190,7 @@ Stream 只传 metadata/preview/ref：
 
 - source preview 数量/字符受限
 - report content 通过 Artifact API
-- provider content 不进入 SSE
+- provider raw payload 不进入 SSE；经过 Adapter 规范化的 reasoning/text delta 可以进入 SSE
 - Observe payload 不进入普通 channel
 - error message 脱敏
 
@@ -260,6 +270,8 @@ Clarification：Conversation 展示单个问题，run 状态 waiting；用户回
 - manual review reference
 
 Observe 不反向控制当前 run。
+
+完整 reasoning 不能只存在 Observe trace。它的模型回放事实属于 canonical transcript，用户恢复事实属于 Conversation Projection；Observe 只记录 token、延迟和转换结果等诊断摘要。
 
 ## 14. Security Baseline
 

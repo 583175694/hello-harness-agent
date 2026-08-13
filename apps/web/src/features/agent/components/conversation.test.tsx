@@ -1,9 +1,114 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Conversation } from './conversation';
 
 describe('Conversation tool activity navigation', () => {
+  it('selects model and closes the settings popover when clicking outside', async () => {
+    const onModelChange = vi.fn();
+    render(
+      <Conversation
+        state={{ label: 'test', subtitle: '', conversation: [] }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        composerMode="new-run"
+        models={[
+          {
+            id: 'deepseek-v4-flash',
+            label: 'DeepSeek V4 Flash',
+            reasoning: {
+              supported: true,
+              levels: ['off', 'low', 'high', 'max'],
+              default: 'high',
+            },
+          },
+          {
+            id: 'deepseek-v4-pro',
+            label: 'DeepSeek V4 Pro',
+            reasoning: {
+              supported: true,
+              levels: ['off', 'low', 'high', 'max'],
+              default: 'high',
+            },
+          },
+        ]}
+        selectedModel="deepseek-v4-flash"
+        reasoningEffort="high"
+        onModelChange={onModelChange}
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    const trigger = screen.getByRole('button', { name: 'DeepSeek V4 Flash 中' });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'DeepSeek V4 Pro' }));
+    expect(onModelChange).toHaveBeenCalledWith('deepseek-v4-pro');
+
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    expect(await screen.findByRole('menu')).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+  });
+
+  it('keeps completed reasoning visible and expandable after the final answer arrives', () => {
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [
+            {
+              id: 'assistant-1',
+              kind: 'assistant',
+              pending: false,
+              deliveryStatus: 'completed',
+              blocks: [
+                {
+                  id: 'reasoning-1',
+                  type: 'reasoning',
+                  content: '这是已经完成的思考过程。',
+                  roundId: 'round-1',
+                  roundSequence: 1,
+                  blockSequence: 0,
+                },
+                {
+                  id: 'text-1',
+                  type: 'text',
+                  content: '这是最终回答。',
+                  roundId: 'round-1',
+                  roundSequence: 1,
+                  blockSequence: 1,
+                },
+              ],
+            },
+          ],
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText('思考过程')).toBeInTheDocument();
+    expect(screen.getByText('这是最终回答。')).toBeInTheDocument();
+    const details = screen.getByText('思考过程').closest('details');
+    expect(details).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('思考过程'));
+    expect(details).toHaveAttribute('open');
+    expect(screen.getByText('这是已经完成的思考过程。')).toBeInTheDocument();
+  });
+
   it('keeps the thinking status visible while tools run before answer text arrives', () => {
     render(
       <Conversation

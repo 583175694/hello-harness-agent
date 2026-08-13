@@ -35,7 +35,7 @@ export class RunsController {
     if (!result.success)
       throw new BadRequestException({
         code: 'INVALID_SESSION_REQUEST',
-        detail: 'content 和 idempotencyKey 必须符合协议约束。',
+        detail: 'content、model 和 idempotencyKey 必须符合协议约束。',
       });
     return this.commands.create(sessionId, result.data);
   }

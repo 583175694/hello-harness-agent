@@ -16,12 +16,13 @@ import {
   deleteSession,
   getRun,
   getReadiness,
+  getPublicAgentConfig,
   getSession,
   listSessions,
   subscribeRun,
   updateSession,
 } from './api/client';
-import type { MessageDeltaEvent, ToolStreamEvent } from './api/client';
+import type { MessageDeltaEvent, ReasoningDeltaEvent, ToolStreamEvent } from './api/client';
 import {
   AGENT_PROTOCOL_LIMITS,
   assistantAgentMetadataSchema,
@@ -34,6 +35,8 @@ import type {
   RunStreamEvent,
   SessionSummary,
   SourceProvenance,
+  ReasoningEffort,
+  PublicModelConfig,
 } from '@harness/agent-protocol';
 import type {
   AgentUiState,
@@ -48,6 +51,7 @@ import type {
 } from './features/agent/model/types';
 import {
   appendTextDelta,
+  appendReasoningDelta,
   applyToolActivityEvent,
   cloneAssistantBlocks,
 } from './features/agent/model/conversation-blocks';
@@ -515,6 +519,9 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   const [error, setError] = useState<string | null>(null);
   const [reconnectRunId, setReconnectRunId] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('high');
+  const [models, setModels] = useState<PublicModelConfig[]>([]);
+  const [selectedModel, setSelectedModel] = useState('');
   // ref 为异步 SSE 回调提供最新值，避免闭包读取过期 React state。
   const selectedSessionIdRef = useRef<string | null>(null);
   const pendingSessionsRef = useRef<Record<string, boolean>>({});
@@ -529,6 +536,21 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   useEffect(() => {
     sessionStatesRef.current = sessionStates;
   }, [sessionStates]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void getPublicAgentConfig(controller.signal)
+      .then((config) => {
+        const selected = config.models.find((model) => model.id === config.defaultModel) ?? config.models[0];
+        setModels(config.models);
+        if (selected) {
+          setSelectedModel(selected.id);
+          setReasoningEffort(selected.reasoning.default);
+        }
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   function setSessionStates(
     update: (current: Record<string, AgentUiState>) => Record<string, AgentUiState>,
@@ -670,6 +692,26 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
             conversation: target.conversation.map((item) =>
               item.kind === 'assistant' && item.id === delta.messageId
                 ? { ...item, blocks: appendTextDelta(item.blocks, delta) }
+                : item,
+            ),
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    if (event.type === 'reasoning.delta') {
+      const delta = event.payload as ReasoningDeltaEvent;
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' && item.id === delta.messageId
+                ? { ...item, blocks: appendReasoningDelta(item.blocks, delta) }
                 : item,
             ),
           },
@@ -1087,7 +1129,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       });
       setSessionPending(targetId, true);
 
-      const run = await createRun(targetId, task);
+      if (!selectedModel) throw new Error('模型配置尚未加载，请稍后重试。');
+      const run = await createRun(targetId, task, selectedModel, reasoningEffort);
       assistantMessageId = run.assistantMessageId;
       setSessionStates((current) => {
         const target = current[targetId];
@@ -1257,6 +1300,17 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
             submitting={submitting}
             serviceState={serviceState}
             composerMode="new-run"
+            reasoningEffort={reasoningEffort}
+            models={models}
+            selectedModel={selectedModel}
+            onModelChange={(modelId) => {
+              const model = models.find((candidate) => candidate.id === modelId);
+              if (!model) return;
+              setSelectedModel(model.id);
+              if (!model.reasoning.levels.includes(reasoningEffort))
+                setReasoningEffort(model.reasoning.default);
+            }}
+            onReasoningEffortChange={setReasoningEffort}
             onPromptChange={setPrompt}
             onSubmit={(event) => void handleSubmit(event)}
             onCancel={() => void handleCancel()}

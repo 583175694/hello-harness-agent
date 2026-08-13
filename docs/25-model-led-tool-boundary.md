@@ -1,6 +1,6 @@
 # Model-led Tool Boundary
 
-> 决策状态：已实现（协议 `0.8.0`）。本文是当前阶段 Model、Agent Runtime、Tool 与 Projection 决策权边界的权威说明；其他文档与本文冲突时以本文为准。
+> 决策状态：已实现（协议 `0.8.0`）。本文是当前阶段 Model、Agent Runtime、Tool 与 Projection 决策权边界的权威说明；Reasoning、Tool transcript 和跨轮回放由 `27-reasoning-context-transcript.md` 补充。
 
 ## 1. 背景
 
@@ -23,6 +23,9 @@ Model
 
 Agent Runtime
   回答：模型决策如何被完整、安全地执行？
+
+Model Adapter
+  回答：供应商的 reasoning/text/tool 协议如何转换为 canonical transcript，并如何编码回兼容目标？
 
 Tool
   回答：这个具体能力如何完成，并取得什么结果？
@@ -51,6 +54,7 @@ Context Engineer（后续）
 - 每个 assistant run 最多 20 次模型声明的 Function Tool Call。
 - 模型单轮超时、Tool 声明超时的统一执行，以及用户取消传播。
 - Tool Call 与 Tool Message 的完整配对。
+- reasoning、Tool Call、Tool Result 的顺序、关联和完整回放。
 - 工具生命周期事件、执行历史、日志和持久化交付。
 - 达到 20 次 Tool Call 后停止暴露工具，并发起一次无工具最终回答。
 - 最终回答的空内容、长度、DSML 和结构化 Tool Call 污染校验。
@@ -75,6 +79,8 @@ Tool 不返回控制命令，不决定下一步，不声明任务完成，不维
 - 为 Conversation、Workbench、持久化恢复和评测提供一致读模型。
 
 Projection 只解释事实，不反向控制 Runtime 或 Tool。
+
+Model Adapter 负责供应商协议转换，不负责上下文选择。DeepSeek `reasoning_content` 等字段必须先转成 canonical reasoning；目标模型不兼容时，Adapter 返回 capability/compatibility 结果，不静默丢弃或把 reasoning 拼进正文。
 
 ## 3. 目标 Tool 契约
 
@@ -177,6 +183,8 @@ Source snapshot / Workbench
 - `ToolObservationDelivery` 或 `observation` 终态字段。
 - `modelContextInjected` 或“已获取、未注入模型”状态。
 - Tool Result 的选择、压缩、截断和淘汰。
+
+在 Context Engineering 前，先按 `27-reasoning-context-transcript.md` 建立完整 reasoning/tool transcript 事实源和跨轮回放。该前置阶段解决协议正确性与透明化，不做 token 预算或压缩决策。
 
 当前 Tool Result 始终注入 Runtime。长会话或连续大结果可能扩大模型上下文，这是已知的阶段性限制。
 

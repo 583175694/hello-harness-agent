@@ -27,7 +27,7 @@ function runFrame(
         }
       : payload;
   return `id: ${seq}\nevent: ${type}\ndata: ${JSON.stringify({
-    version: '0.9.0',
+    version: '0.10.0',
     eventId: `event-${seq}`,
     seq,
     sessionId,
@@ -62,6 +62,22 @@ function mockReady() {
   );
 }
 
+const publicModelConfig = {
+  defaultModel: 'deepseek-v4-flash',
+  models: [
+    {
+      id: 'deepseek-v4-flash',
+      label: 'DeepSeek V4 Flash',
+      reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'], default: 'high' },
+    },
+    {
+      id: 'deepseek-v4-pro',
+      label: 'DeepSeek V4 Pro',
+      reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'], default: 'high' },
+    },
+  ],
+};
+
 describe('R1 workbench shell', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -74,7 +90,7 @@ describe('R1 workbench shell', () => {
     expect(screen.getByText('Harness')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '任务输入' })).toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
   });
 
   it('does not submit Enter while an input method is composing text', () => {
@@ -335,6 +351,10 @@ describe('R1 workbench shell', () => {
       'fetch',
       vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+        if (url.endsWith('/api/agent/config/public'))
+          return Promise.resolve(
+            new Response(JSON.stringify({ defaultModel: 'deepseek-v4-pro', models: [{ id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'], default: 'high' } }, { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'], default: 'high' } }] })),
+          );
         if (url.endsWith('/readyz')) {
           return Promise.resolve(
             new Response(
@@ -535,7 +555,7 @@ describe('R1 workbench shell', () => {
       }),
     );
     render(<App />);
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
     fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), {
       target: { value: 'Compare two markets.' },
     });
@@ -544,6 +564,7 @@ describe('R1 workbench shell', () => {
     await waitFor(() => expect(screen.getByText('你好，我已经接入模型了。')).toBeInTheDocument());
     expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
     expect(screen.getByText('市场数据来源')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('思考过程'));
     expect(screen.getByRole('button', { name: '搜索网页，已完成' })).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(
       '/api/agent/sessions/session-test/runs',
@@ -571,6 +592,8 @@ describe('R1 workbench shell', () => {
     let created = false;
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith('/api/agent/config/public'))
+        return Promise.resolve(new Response(JSON.stringify(publicModelConfig)));
       if (url.endsWith('/readyz')) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' })),
@@ -706,6 +729,8 @@ describe('R1 workbench shell', () => {
     };
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith('/api/agent/config/public'))
+        return Promise.resolve(new Response(JSON.stringify(publicModelConfig)));
       if (url.endsWith('/readyz')) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' })),
@@ -791,6 +816,15 @@ describe('R1 workbench shell', () => {
       'fetch',
       vi.fn().mockImplementation((input: RequestInfo | URL) => {
         const url = String(input);
+        if (url.endsWith('/api/agent/config/public'))
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                defaultModel: 'deepseek-v4-pro',
+                models: [{ id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'], default: 'high' } }],
+              }),
+            ),
+          );
         if (url.endsWith('/readyz')) {
           return Promise.resolve(
             new Response(
@@ -892,6 +926,7 @@ describe('R1 workbench shell', () => {
     await waitFor(() => expect(screen.getByText('这是刷新后恢复的回答。')).toBeInTheDocument());
     expect(screen.getByText('持久化问题').tagName).toBe('STRONG');
     expect(window.location.search).toBe('?session=restored-session');
+    fireEvent.click(screen.getByText('思考过程'));
     fireEvent.click(screen.getByRole('button', { name: '搜索网页，已完成' }));
     expect(screen.getByText('持久化检索')).toBeInTheDocument();
   });
@@ -985,6 +1020,15 @@ describe('R1 workbench shell', () => {
       'fetch',
       vi.fn().mockImplementation((input: RequestInfo | URL) => {
         const url = String(input);
+        if (url.endsWith('/api/agent/config/public'))
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                defaultModel: 'deepseek-v4-pro',
+                models: [{ id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'], default: 'high' } }],
+              }),
+            ),
+          );
         if (url.endsWith('/readyz')) {
           return Promise.resolve(
             new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' }), {

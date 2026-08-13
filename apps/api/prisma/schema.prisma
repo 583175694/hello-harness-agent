@@ -40,6 +40,7 @@ model Session {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages  Message[]
   runs      AgentRun[]
+  transcriptItems ModelTranscriptItem[]
 
   @@index([userId, isPinned(sort: Desc), updatedAt(sort: Desc)])
   @@map("sessions")
@@ -58,6 +59,7 @@ model Message {
   user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   session   Session     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   run       AgentRun?   @relation(fields: [runId], references: [id], onDelete: SetNull)
+  transcriptItems ModelTranscriptItem[]
 
   @@index([sessionId, createdAt])
   @@index([runId])
@@ -88,10 +90,56 @@ model AgentRun {
   session            Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   messages           Message[]
   steps              AgentRunStep[]
+  transcriptItems    ModelTranscriptItem[]
+  provider           String
+  model              String
+  reasoningEffort    String          @map("reasoning_effort")
+  reasoningFormat    String?         @map("reasoning_format")
 
   @@unique([sessionId, idempotencyKey])
   @@index([sessionId, status])
   @@map("agent_runs")
+}
+
+enum TranscriptItemKind {
+  user
+  assistant
+  tool_result
+}
+
+enum TranscriptItemState {
+  active
+  committed
+}
+
+model ModelTranscriptItem {
+  id              String              @id
+  sessionId       String              @map("session_id")
+  runId           String?             @map("run_id")
+  messageId       String?             @map("message_id")
+  sequence        Int
+  runSequence     Int                 @map("run_sequence")
+  kind            TranscriptItemKind
+  state           TranscriptItemState @default(active)
+  content         String?
+  reasoning       String?
+  toolCalls       Json?               @map("tool_calls")
+  toolCallId      String?             @map("tool_call_id")
+  provider        String
+  model           String
+  reasoningEffort String               @map("reasoning_effort")
+  reasoningFormat String?              @map("reasoning_format")
+  schemaVersion   Int                  @default(1) @map("schema_version")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  session         Session              @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  run             AgentRun?            @relation(fields: [runId], references: [id], onDelete: SetNull)
+  message         Message?             @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@unique([sessionId, sequence])
+  @@unique([runId, runSequence])
+  @@index([sessionId, state, sequence])
+  @@index([messageId])
+  @@map("model_transcript_items")
 }
 
 model AgentRunStep {

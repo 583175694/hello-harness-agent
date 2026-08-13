@@ -14,11 +14,6 @@ export const envSchema = z.object({
     (value) => (value === '' ? undefined : value),
     z.string().min(1).optional(),
   ),
-  OPENAI_BASE_URL: z.preprocess(
-    (value) => (value === '' ? undefined : value),
-    z.string().url().optional(),
-  ),
-  OPENAI_MODEL: z.string().min(1).default(ENV_DEFAULTS.openAiModel),
   SEARCH_PROVIDER: z.preprocess(
     (value) => (value === '' ? undefined : value),
     z.enum(['bocha', 'serp']).optional(),

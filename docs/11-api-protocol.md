@@ -101,7 +101,7 @@ Content-Type: application/json
 
 删除 session 是真实删除：数据库子记录在事务内清理，Artifact 文件异步/事务后可靠清理，相关 user Memory 在 P10 重新评估。
 
-普通对话请求只提交 `{ "content": "本轮消息" }`。API 持久化 user message 后读取最近 20 条历史，完成模型流后再持久化 assistant message；模型失败不写入空或部分 assistant message。活跃会话的并发发送和删除返回 `409 SESSION_BUSY`。
+普通对话请求只提交 `{ "content": "本轮消息" }`。当前代码在持久化 user message 后读取最近 20 条 user/assistant 最终正文；Reasoning Context Transcript 实施后，服务端改为加载 durable canonical transcript，并完整回放 reasoning、Tool Call 和 Tool Result。客户端始终不提交完整历史。活跃会话的并发发送和删除返回 `409 SESSION_BUSY`。
 
 ## 5. Create Run
 
@@ -110,6 +110,7 @@ type CreateRunRequest = {
   message: {
     content: string;
   };
+  reasoningEffort: 'off' | 'low' | 'high' | 'max';
   idempotencyKey: string;
 };
 
@@ -122,6 +123,8 @@ type CreateRunResponse = {
 };
 ```
 
+`reasoningEffort` 是供应商无关的用户选择：UI 的无思考/轻度/中度/高度分别对应 `off/low/high/max`。服务端根据当前 model profile 校验支持情况，并由 Model Adapter 映射为供应商参数。Run 创建后该值冻结。
+
 R1 不允许客户端提交 provider、API Key、toolset 或 runtime budget override。
 
 ## 6. Run Snapshot
@@ -132,6 +135,8 @@ type RunSnapshotResponse = {
     runId: string;
     sessionId: string;
     status: RunStatus;
+    requestedReasoningEffort: 'off' | 'low' | 'high' | 'max';
+    effectiveReasoningEffort: 'off' | 'low' | 'high' | 'max';
     phase?: ResearchPhase;
     reportQuality?: 'standard' | 'limited';
     createdAt: string;
@@ -330,6 +335,11 @@ type PublicConfig = {
     cancel: boolean;
     memory: boolean;
     delegation: boolean;
+    reasoning: {
+      supported: boolean;
+      levels: Array<'off' | 'low' | 'high' | 'max'>;
+      default: 'off' | 'low' | 'high' | 'max';
+    };
   };
   model: { profileId: string };
   search: { available: boolean };
@@ -340,7 +350,7 @@ type PublicConfig = {
 
 ## 15. Idempotency
 
-Create run、clarification、steer、cancel 和 session delete 都必须支持 idempotency。相同 key + 相同 payload 返回同一结果；相同 key + 不同 payload 返回 conflict。
+Create run、clarification、steer、cancel 和 session delete 都必须支持 idempotency。相同 key + 相同 payload 返回同一结果；相同 key + 不同 payload 返回 conflict。Create Run payload hash 必须覆盖 `content + reasoningEffort`，并为其他会改变模型执行语义的 run profile 预留 canonical serialization；不能只 hash正文。
 
 ## 16. Versioning
 

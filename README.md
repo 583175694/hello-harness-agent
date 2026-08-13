@@ -64,7 +64,7 @@ pnpm db:deploy
 pnpm dev
 ```
 
-普通对话需要在 `.env` 中配置 `OPENAI_API_KEY`；使用其他 OpenAI-compatible 厂商时，同时填写 `OPENAI_BASE_URL` 和对应的 `OPENAI_MODEL`。未配置 Key 时 API 仍可启动，但发送消息会返回 `MODEL_NOT_CONFIGURED`。
+普通对话只需在 `.env` 中配置 `OPENAI_API_KEY`。当前模型、Base URL、推理能力和请求参数统一维护在 `apps/api/src/model/model-catalog.ts`；未配置 Key 时 API 仍可启动，但发送消息会返回 `MODEL_NOT_CONFIGURED`。
 
 联网检索一次只启用一个 Provider，例如 `SEARCH_PROVIDER=bocha` 并填写 `BOCHA_SEARCH_API_KEY`，或使用 `SEARCH_PROVIDER=serp` 和 `SERPER_SEARCH_API_KEY`。未配置 Provider 或对应 Key 时不向模型暴露 `web_search`，普通聊天不受影响。当前不支持 `bocha,serp`、fallback 或并行 Provider。
 
@@ -97,8 +97,21 @@ pnpm eval:research      # 串行运行 6 题真实联网 Smoke 评测
 pnpm eval:research:full # 串行运行 24 题真实联网 Full 评测
 pnpm db:local:init     # 初始化本地 harness 用户和数据库
 pnpm db:migrate        # 开发期创建并应用 Prisma migration
+pnpm db:reset-reasoning-cutover # 临时：预览 Reasoning 断代升级将清理的数据
 pnpm db:studio         # 打开 Prisma Studio
 ```
+
+Reasoning Transcript 断代升级期间，家里和公司数据库分别先停止应用并执行：
+
+```bash
+pnpm db:reset-reasoning-cutover
+pnpm db:reset-reasoning-cutover -- --execute --confirm=harness
+pnpm db:migrate
+pnpm db:generate
+```
+
+第二条命令中的数据库名必须与脚本 dry-run 输出一致。脚本只允许本机数据库，并保留
+`users`；两个环境完成后删除临时脚本和对应 package 命令。
 
 PostgreSQL 使用本机服务，Web 和 API 通过 pnpm 在宿主机运行。首次初始化会创建或更新 `.env` 中配置的 PostgreSQL 用户和数据库；停止或重启数据库由本机 PostgreSQL 服务管理。API、数据库端口和连接字符串从 `.env` 读取；修改 Web 端口时还需同步 `apps/web/package.json`、Playwright 配置和 `WEB_ORIGIN`。
 

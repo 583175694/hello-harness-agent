@@ -1,6 +1,6 @@
 # Harness Agent Architecture
 
-> 文档状态：长期架构草案。当前产品范围以 `00-agent-core-roadmap.md` 为准，Model/Runtime/Tool/Projection 边界以 `25-model-led-tool-boundary.md` 为准；本文中的 Evidence/Report/Finalizer 链路不代表已承诺能力。
+> 文档状态：长期架构草案。当前产品范围以 `00-agent-core-roadmap.md` 为准，Model/Runtime/Tool/Projection 边界以 `25-model-led-tool-boundary.md` 为准，Reasoning 与完整模型上下文回放以 `27-reasoning-context-transcript.md` 为准；本文中的 Evidence/Report/Finalizer 链路不代表已承诺能力。
 
 ## 1. 架构目标
 
@@ -38,6 +38,7 @@ R1 只实现单 Lead 网络调研。Memory 和 Delegation 是后续 capability�
 - [Frontend](./19-agent-frontend.md)
 - [Workbench](./20-agent-workbench.md)
 - [Model-led Tool Boundary](./25-model-led-tool-boundary.md)
+- [Reasoning Context Transcript](./27-reasoning-context-transcript.md)
 - [Memory, post-R1](./06-memory.md)
 - [Delegation Policy, post-R1](./01-delegation-policy.md)
 - [Delegation Executor, post-R1](./07-delegation-executor.md)

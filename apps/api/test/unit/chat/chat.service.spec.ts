@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PrismaService } from '../../../src/database/prisma.service';
 import { OpenAICompatibleModelAdapter } from '../../../src/model/openai-compatible-model.adapter';
+import { DEFAULT_MODEL_ID } from '../../../src/model/model-catalog';
 import { AgentRuntimeService } from '../../../src/agent-runtime/agent-runtime.service';
 import { AssistantDeliveryRepository } from '../../../src/persistence/assistant-delivery.repository';
 import { SessionExecutionRegistry } from '../../../src/sessions/session-execution.registry';
@@ -88,6 +89,8 @@ describe('ChatService session persistence', () => {
     const { service, messageCreate, executions } = makeService(providerCreate);
 
     const prepared = await service.prepareSessionStream('session-1', 'new question');
+    prepared.model = 'deepseek-v4-pro';
+    prepared.reasoningEffort = 'max';
     expect(prepared.messages).toHaveLength(20);
     expect(prepared.messages[0]).toMatchObject({ id: 'message-5', content: 'content-5' });
     const events = await collect(service.streamPrepared(prepared));
@@ -110,8 +113,12 @@ describe('ChatService session persistence', () => {
         roundSequence: 1,
         blockSequence: 0,
       }),
-      { type: 'message.completed', messageId: prepared.assistantMessageId, model: 'test-model' },
+      { type: 'message.completed', messageId: prepared.assistantMessageId, model: 'deepseek-v4-pro' },
     ]);
+    expect(providerCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'deepseek-v4-pro', reasoning_effort: 'max' }),
+      expect.anything(),
+    );
     expect(messageCreate).toHaveBeenCalledTimes(2);
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
       data: {
@@ -237,7 +244,7 @@ describe('ChatService session persistence', () => {
       data: {
         content: '我先检索。检索完成：https://example.com/',
         metadata: {
-          model: 'test-model',
+          model: DEFAULT_MODEL_ID,
           blocks: [
             expect.objectContaining({ type: 'text', content: '我先检索。' }),
             expect.objectContaining({

@@ -95,7 +95,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     const events = await collect(new AgentRuntimeService(model, tools, logger()));
 
     const secondInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
-    expect(secondInput.messages.at(-1)).toEqual({
+    expect(secondInput.messages.findLast((message) => message.role === 'tool')).toEqual({
       role: 'tool',
       toolCallId: 'call-1',
       content: JSON.stringify({
@@ -147,7 +147,8 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     const events = await collect(new AgentRuntimeService(model, tools, logger()));
     const secondInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
 
-    expect(secondInput.messages.at(-1)).toMatchObject({
+    const toolMessage = secondInput.messages.findLast((message) => message.role === 'tool');
+    expect(toolMessage).toMatchObject({
       role: 'tool',
       toolCallId: 'call-failed',
       content: JSON.stringify({
@@ -159,7 +160,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         },
       }),
     });
-    expect(secondInput.messages.at(-1)?.content).not.toContain('secret upstream detail');
+    expect(toolMessage?.content).not.toContain('secret upstream detail');
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

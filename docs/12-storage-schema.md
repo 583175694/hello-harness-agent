@@ -18,6 +18,7 @@ Prisma           repository implementation and migrations
 users
   -> sessions
       -> messages
+      -> model_transcript_items
       -> runs
           -> steps
           -> state_records/state_refs
@@ -34,6 +35,7 @@ R1 自动创建唯一 local user，不实现认证。所有读取仍显式按 us
 users
 sessions
 messages
+model_transcript_items
 runs
 steps
 state_records
@@ -113,6 +115,40 @@ messages (
 
 Steer 同时保存为 control record；message 仅用于用户可见恢复。
 
+`messages` 是 Conversation 交付与会话列表事实，不再承担完整模型上下文的唯一存储职责。Reasoning、Assistant Tool Call 和 Tool Result 使用专用 transcript 结构保存，避免把供应商执行协议混入用户可见 `content`。
+
+## 6.1 model_transcript_items
+
+Reasoning Context Transcript 的目标持久化结构：
+
+```sql
+model_transcript_items (
+  id               text primary key,
+  user_id          text not null references users(id),
+  session_id       text not null references sessions(id) on delete cascade,
+  run_id           text null references runs(id) on delete set null,
+  message_id       text null references messages(id) on delete set null,
+  ordinal          bigint not null,
+  item_type        text not null, -- system_message / user_message / assistant_turn / tool_result
+  content          text null,
+  reasoning        text null,
+  tool_calls       jsonb null,
+  tool_call_id     text null,
+  provider         text null,
+  model            text null,
+  reasoning_format text null,
+  replay_mode      text null,     -- native / display_only
+  commit_state     text not null, -- active / committed
+  schema_version   text not null,
+  created_at       timestamptz not null,
+  unique(session_id, ordinal)
+)
+```
+
+本次实现冻结为逐项 `model_transcript_items` 表，不做 JSON-only checkpoint。断代升级前由临时脚本清空所有 Session；不提供旧 Session lazy migration 或 Message 回退。必须支持：稳定顺序、assistant reasoning/content/tool_calls 共存、Tool Result 配对、provider/model/thinking profile 恢复，以及 Session 删除时级联清理。`session_id` 是生命周期边界；Run/Message 删除只解除来源关联，不能删除已经 committed 的长期 transcript。
+
+完整 reasoning 默认不复制到 `observe_trace` 或普通日志。若未来需要 retention 或用户删除策略，应按用户会话数据处理，而不是按匿名诊断数据处理。
+
 ## 7. runs
 
 ```sql
@@ -121,6 +157,8 @@ runs (
   user_id           text not null references users(id),
   session_id        text not null references sessions(id) on delete cascade,
   input_message_id  text not null,
+  requested_reasoning_effort text not null, -- off / low / high / max
+  effective_reasoning_effort text not null, -- Adapter 校验映射后的实际档位
   status            text not null,
   phase             text null,
   report_quality    text null,       -- standard / limited

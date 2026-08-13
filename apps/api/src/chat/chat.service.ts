@@ -4,7 +4,6 @@ import { Logger } from 'nestjs-pino';
 
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import type {
-  ChatMessage,
   ChatStreamEvent,
   ResearchSourceSnapshot,
   SearchToolResult,
@@ -22,12 +21,18 @@ import { AssistantDeliveryRepository } from '../persistence/assistant-delivery.r
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import { CHAT_CONTEXT_MESSAGE_LIMIT, CHAT_SYSTEM_PROMPT } from './chat.constants';
 import { compareMessageOrder } from './message-order';
+import type { ModelMessage } from '../model/model-adapter';
+import type { ReasoningEffort } from '@harness/agent-protocol';
+import { getDefaultModel } from '../model/model-catalog';
 
 export type PreparedSessionStream = {
   sessionId: string;
   userMessageId: string;
   assistantMessageId: string;
-  messages: ChatMessage[];
+  messages: ModelMessage[];
+  model: string;
+  reasoningEffort: ReasoningEffort;
+  onTranscriptItem?: (message: ModelMessage) => void | Promise<void>;
 };
 
 export type ChatProjectionSnapshot = {
@@ -91,6 +96,8 @@ export class ChatService {
         sessionId,
         userMessageId,
         assistantMessageId,
+        model: getDefaultModel().id,
+        reasoningEffort: getDefaultModel().reasoning.default,
         // 数据库按倒序截取最近消息，交给模型前恢复为自然时间顺序。
         messages: stored.sort(compareMessageOrder).map((message) => ({
           id: message.id,
@@ -116,7 +123,7 @@ export class ChatService {
       onProjection?: (snapshot: ChatProjectionSnapshot) => void | Promise<void>;
     } = {},
   ): AsyncGenerator<ChatStreamEvent> {
-    const model = this.config.getOrThrow<string>(ENV_KEYS.openAiModel);
+    const model = prepared.model;
     const startedAt = Date.now();
     this.requireApiKey();
     this.logger.log(
@@ -133,6 +140,7 @@ export class ChatService {
     let content = '';
     let toolCallCount = 0;
     let firstDeltaAt: number | undefined;
+    let finalTranscriptMessage: Extract<ModelMessage, { role: 'assistant' }> | undefined;
     const notifyProjection = async (): Promise<void> => {
       // 每次用户可见变化都先生成不可共享引用的完整快照，避免后续 Collector 原位更新
       // 反向修改已经被 Checkpoint 捕获的旧版本。
@@ -152,8 +160,29 @@ export class ChatService {
       model,
       systemPrompt: CHAT_SYSTEM_PROMPT,
       messages: prepared.messages,
+      reasoningEffort: prepared.reasoningEffort,
       signal,
     })) {
+      if (event.type === 'transcript.item') {
+        if (event.message.role === 'assistant' && !event.message.toolCalls?.length)
+          finalTranscriptMessage = event.message;
+        else await prepared.onTranscriptItem?.(event.message);
+        continue;
+      }
+      if (event.type === 'reasoning.delta') {
+        const blockId = conversation.appendReasoning(event);
+        await notifyProjection();
+        yield {
+          type: 'reasoning.delta',
+          messageId: prepared.assistantMessageId,
+          blockId,
+          delta: event.delta,
+          roundId: event.roundId,
+          roundSequence: event.roundSequence,
+          blockSequence: event.blockSequence,
+        };
+        continue;
+      }
       if (event.type === 'text.delta') {
         // 只记录首个文本增量；逐片打印 SSE delta 会淹没真正有用的链路日志。
         if (firstDeltaAt === undefined) {
@@ -356,7 +385,7 @@ export class ChatService {
         };
         continue;
       }
-      // 除文本和工具生命周期事件外只剩 run.completed，它提供最终持久化所需的汇总状态。
+      if (event.type !== 'run.completed') continue;
       content = event.content;
       toolCallCount = event.toolCallCount;
       await notifyProjection();
@@ -396,6 +425,8 @@ export class ChatService {
     }
     projection.markUsed(content);
     snapshot = projection.snapshot();
+    if (finalTranscriptMessage)
+      await prepared.onTranscriptItem?.({ ...finalTranscriptMessage, content });
     await notifyProjection();
     if (options.persistFinal !== false)
       await this.delivery.save({

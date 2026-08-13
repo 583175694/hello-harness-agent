@@ -1,21 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
-import { ENV_KEYS } from '../bootstrap/env.constants';
 import { ModelAdapter } from '../model/model-adapter';
+import { getDefaultModel } from '../model/model-catalog';
 
 @Injectable()
 export class SessionTitleService {
   constructor(
-    private readonly config: ConfigService,
     private readonly model: ModelAdapter,
   ) {}
 
   // 使用主模型将首轮问答压缩为单行短标题。
   async generate(userContent: string, assistantContent: string): Promise<string> {
     const content = await this.model.generateText(
-      this.config.getOrThrow<string>(ENV_KEYS.openAiModel),
+      getDefaultModel().id,
       [
         {
           role: 'system',

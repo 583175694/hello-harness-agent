@@ -8,6 +8,7 @@ import {
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
 import type { ChatProjectionSnapshot } from '../chat/chat.service';
+import type { ModelMessage, ModelToolCall } from '../model/model-adapter';
 
 const ACTIVE_STATUSES = ['queued', 'running', 'cancel_requested'] as const;
 
@@ -89,6 +90,10 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     runId: string;
     userMessageId: string;
     assistantMessageId: string;
+    provider: string;
+    model: string;
+    reasoningEffort: string;
+    reasoningFormat?: string;
   }) {
     // Session 校验、幂等判定、单 Session Active Run 限制和两条初始消息必须同事务完成。
     return this.prisma.$transaction(async (tx) => {
@@ -112,6 +117,11 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         where: { sessionId: input.sessionId, status: { in: [...ACTIVE_STATUSES] } },
       });
       if (active) return { kind: 'busy' as const };
+      const lastTranscript = await tx.modelTranscriptItem.findFirst({
+        where: { sessionId: input.sessionId },
+        orderBy: { sequence: 'desc' },
+      });
+      const firstSequence = (lastTranscript?.sequence ?? 0) + 1;
       const run = await tx.agentRun.create({
         data: {
           id: input.runId,
@@ -120,6 +130,10 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           assistantMessageId: input.assistantMessageId,
           idempotencyKey: input.idempotencyKey,
           payloadHash: input.payloadHash,
+          provider: input.provider,
+          model: input.model,
+          reasoningEffort: input.reasoningEffort,
+          reasoningFormat: input.reasoningFormat,
           messages: {
             create: [
               {
@@ -147,6 +161,23 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
               },
             ],
           },
+        },
+      });
+      await tx.modelTranscriptItem.create({
+        data: {
+          id: crypto.randomUUID(),
+          sessionId: input.sessionId,
+          runId: input.runId,
+          messageId: input.userMessageId,
+          sequence: firstSequence,
+          runSequence: 1,
+          kind: 'user',
+          state: 'active',
+          content: input.content,
+          provider: input.provider,
+          model: input.model,
+          reasoningEffort: input.reasoningEffort,
+          reasoningFormat: input.reasoningFormat,
         },
       });
       await tx.session.update({ where: { id: input.sessionId }, data: { updatedAt: new Date() } });
@@ -181,6 +212,12 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       runId: run.id,
       sessionId: run.sessionId,
       status: run.status,
+      profile: {
+        provider: run.provider,
+        model: run.model,
+        reasoningEffort: run.reasoningEffort as NonNullable<RunSnapshot['profile']>['reasoningEffort'],
+        ...(run.reasoningFormat ? { reasoningFormat: run.reasoningFormat } : {}),
+      },
       assistantMessageId: run.assistantMessageId,
       assistantContent: message?.content ?? '',
       blocks: value?.blocks ?? [],
@@ -195,6 +232,101 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       ...(run.startedAt ? { startedAt: run.startedAt.toISOString() } : {}),
       ...(run.endedAt ? { endedAt: run.endedAt.toISOString() } : {}),
     };
+  }
+
+  async loadTranscript(runId: string): Promise<ModelMessage[]> {
+    const run = await this.prisma.agentRun.findUnique({ where: { id: runId } });
+    if (!run) throw new Error('RUN_NOT_FOUND');
+    const items = await this.prisma.modelTranscriptItem.findMany({
+      where: {
+        sessionId: run.sessionId,
+        OR: [{ state: 'committed' }, { runId, state: 'active' }],
+      },
+      orderBy: { sequence: 'asc' },
+    });
+    if (!items.some((item) => item.runId === runId && item.kind === 'user')) {
+      throw new Error('MODEL_TRANSCRIPT_INTEGRITY_ERROR');
+    }
+    const committed = items.filter((item) => item.state === 'committed');
+    if (
+      committed.some(
+        (item) =>
+          item.provider !== run.provider || item.reasoningFormat !== run.reasoningFormat,
+      )
+    ) {
+      throw new Error('MODEL_TRANSCRIPT_INCOMPATIBLE');
+    }
+    this.assertCommittedTranscriptClosed(committed);
+    return items.map((item): ModelMessage => {
+      if (item.kind === 'user') return { role: 'user', content: item.content ?? '' };
+      if (item.kind === 'tool_result')
+        return { role: 'tool', content: item.content ?? '', toolCallId: item.toolCallId ?? '' };
+      return {
+        role: 'assistant',
+        content: item.content,
+        ...(item.reasoning ? { reasoning: item.reasoning } : {}),
+        ...(Array.isArray(item.toolCalls)
+          ? { toolCalls: item.toolCalls as ModelToolCall[] }
+          : {}),
+      };
+    });
+  }
+
+  private assertCommittedTranscriptClosed(
+    items: Array<{ kind: string; toolCalls: Prisma.JsonValue | null; toolCallId: string | null }>,
+  ): void {
+    const calls = new Set<string>();
+    const results = new Set<string>();
+    for (const item of items) {
+      if (item.kind === 'assistant' && Array.isArray(item.toolCalls)) {
+        for (const call of item.toolCalls) {
+          if (typeof call === 'object' && call !== null && 'id' in call && typeof call.id === 'string')
+            calls.add(call.id);
+        }
+      }
+      if (item.kind === 'tool_result' && item.toolCallId) results.add(item.toolCallId);
+    }
+    if ([...results].some((id) => !calls.has(id)) || [...calls].some((id) => !results.has(id)))
+      throw new Error('MODEL_TRANSCRIPT_INTEGRITY_ERROR');
+  }
+
+  async appendTranscriptItem(runId: string, message: ModelMessage): Promise<void> {
+    if (message.role === 'system' || message.role === 'user') return;
+    await this.prisma.$transaction(async (tx) => {
+      const run = await tx.agentRun.findUnique({ where: { id: runId } });
+      if (!run || !ACTIVE_STATUSES.includes(run.status as (typeof ACTIVE_STATUSES)[number])) return;
+      const latest = await tx.modelTranscriptItem.findFirst({
+        where: { sessionId: run.sessionId },
+        orderBy: { sequence: 'desc' },
+      });
+      const runLatest = await tx.modelTranscriptItem.findFirst({
+        where: { runId },
+        orderBy: { runSequence: 'desc' },
+      });
+      await tx.modelTranscriptItem.create({
+        data: {
+          id: crypto.randomUUID(),
+          sessionId: run.sessionId,
+          runId,
+          messageId: message.role === 'assistant' ? run.assistantMessageId : null,
+          sequence: (latest?.sequence ?? 0) + 1,
+          runSequence: (runLatest?.runSequence ?? 0) + 1,
+          kind: message.role === 'assistant' ? 'assistant' : 'tool_result',
+          state: 'active',
+          content: message.content,
+          reasoning: message.role === 'assistant' ? message.reasoning : null,
+          toolCalls:
+            message.role === 'assistant' && message.toolCalls
+              ? (message.toolCalls as unknown as Prisma.InputJsonValue)
+              : undefined,
+          toolCallId: message.role === 'tool' ? message.toolCallId : null,
+          provider: run.provider,
+          model: run.model,
+          reasoningEffort: run.reasoningEffort,
+          reasoningFormat: run.reasoningFormat,
+        },
+      });
+    });
   }
 
   // 使用数据库 CAS 抢占 queued Run 的执行权。
@@ -418,6 +550,16 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (updated.count !== 1) return false;
+      if (input.status === 'completed') {
+        await tx.modelTranscriptItem.updateMany({
+          where: { runId: input.runId, state: 'active' },
+          data: { state: 'committed' },
+        });
+      } else {
+        await tx.modelTranscriptItem.deleteMany({
+          where: { runId: input.runId, state: 'active' },
+        });
+      }
       await tx.message.update({
         where: { id: input.assistantMessageId },
         data: {

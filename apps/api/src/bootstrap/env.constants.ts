@@ -8,10 +8,6 @@ export const ENV_KEYS = {
   webOrigin: 'WEB_ORIGIN',
   // OpenAI-compatible 供应商密钥对应的环境变量。
   openAiApiKey: 'OPENAI_API_KEY',
-  // OpenAI-compatible endpoint 对应的环境变量。
-  openAiBaseUrl: 'OPENAI_BASE_URL',
-  // 主模型 ID 对应的环境变量。
-  openAiModel: 'OPENAI_MODEL',
   // 当前搜索 Provider 名称对应的环境变量。
   searchProvider: 'SEARCH_PROVIDER',
   // Bocha 搜索 URL 对应的环境变量。
@@ -34,8 +30,6 @@ export const ENV_DEFAULTS = {
   webOrigin: 'http://127.0.0.1:4317',
   // Artifact 本地默认存储目录。
   artifactRoot: '../../artifacts',
-  // 未配置时使用的主模型 ID。
-  openAiModel: 'gpt-4o-mini',
   // Bocha 搜索 Provider 的默认 endpoint。
   bochaSearchUrl: 'https://api.bochaai.com/v1/web-search',
   // Serper 搜索 Provider 的默认 endpoint。

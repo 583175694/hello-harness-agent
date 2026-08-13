@@ -6,7 +6,7 @@ describe('parseSseResponse', () => {
     const encoder = new TextEncoder();
     const envelope = (seq: number, type: string, payload: object) =>
       JSON.stringify({
-        version: '0.9.0',
+        version: '0.10.0',
         eventId: `run-1:${seq}`,
         seq,
         sessionId: 'session-1',
@@ -48,7 +48,7 @@ describe('parseSseResponse', () => {
 
   it('rejects complete frames that do not match the shared protocol', async () => {
     const response = new Response(
-      'data: {"version":"0.9.0","eventId":"x","seq":1,"sessionId":"s","runId":"r","type":"unknown.event","occurredAt":"2026-08-10T00:01:00.000Z","payload":{}}\n\n',
+      'data: {"version":"0.10.0","eventId":"x","seq":1,"sessionId":"s","runId":"r","type":"unknown.event","occurredAt":"2026-08-10T00:01:00.000Z","payload":{}}\n\n',
     );
     await expect(parseSseResponse(response)).rejects.toThrow();
   });

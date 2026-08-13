@@ -9,6 +9,7 @@ import { HealthService } from './health/health.service';
 import { SessionsModule } from './sessions/sessions.module';
 import { ToolsModule } from './tools/tools.module';
 import { RunsModule } from './runs/runs.module';
+import { ModelModule } from './model/model.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { RunsModule } from './runs/runs.module';
     ToolsModule,
     ChatModule,
     RunsModule,
+    ModelModule,
     SessionsModule,
   ],
   controllers: [HealthController],

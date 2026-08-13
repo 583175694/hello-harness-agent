@@ -1,6 +1,6 @@
 # State Layer
 
-> 文档状态：后续 durable State 草案，不约束当前 Session/Message 与 assistant metadata 实现。
+> 文档状态：后续 durable State 草案，不约束当前 Session/Message 与 assistant metadata 实现。Reasoning 与 provider-compatible model transcript 是独立执行事实，边界以 `27-reasoning-context-transcript.md` 为准。
 
 ## 1. 定义
 
@@ -212,6 +212,8 @@ type RunSnapshot = {
 ```
 
 Snapshot 是 loader/recovery 输入，不直接等于 model context 或 UI model。
+
+同理，State Snapshot、Conversation Projection 和 Canonical Model Transcript 不能互相替代：State 保存执行事实，Projection 服务用户恢复，Transcript 保存模型协议顺序和回放所需内容。Context Compiler 后续可以同时读取它们，但必须显式选择和转换。
 
 ## 13. Write Ordering
 

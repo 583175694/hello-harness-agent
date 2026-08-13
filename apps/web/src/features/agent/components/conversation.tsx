@@ -14,7 +14,17 @@ import {
 import { memo, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 
 import { MarkdownContent } from '../../../components/markdown-content';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../../../components/ui/dropdown-menu';
 import type { AgentUiState, ServiceState, WorkbenchFocusTarget } from '../model/types';
+import type { PublicModelConfig, ReasoningEffort } from '@harness/agent-protocol';
 import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
 
@@ -91,6 +101,8 @@ const AssistantMessage = memo(
     onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
   }) {
     const text = flattenAssistantText(item.blocks);
+    const executionBlocks = item.blocks.filter((block) => block.type !== 'text');
+    const answerBlocks = item.blocks.filter((block) => block.type === 'text');
     return (
       <div className="message message--assistant flex gap-3 text-text-primary">
         <div className="message-avatar assistant-avatar">
@@ -110,20 +122,38 @@ const AssistantMessage = memo(
             </p>
           ) : null}
           <div className="assistant-blocks">
-            {item.blocks.map((block) =>
+            {executionBlocks.length ? (
+              <details className="execution-trace" open={item.pending || undefined}>
+                <summary>
+                  <Sparkles size={13} />
+                  <span>思考过程</span>
+                  <ChevronRight className="execution-trace__chevron" size={14} />
+                </summary>
+                <div className="execution-trace__content">
+                  {executionBlocks.map((block) =>
+                    block.type === 'reasoning' ? (
+                      <div className="reasoning-block" key={block.id}>
+                        <MarkdownContent>{block.content}</MarkdownContent>
+                      </div>
+                    ) : block.type === 'tool_activity' ? (
+                      <ToolActivity
+                        key={block.id}
+                        block={block}
+                        messageId={item.workbench?.runId ?? item.id}
+                        canOpenWorkbench={Boolean(item.workbench)}
+                        onFocusWorkbench={onFocusWorkbench}
+                      />
+                    ) : null,
+                  )}
+                </div>
+              </details>
+            ) : null}
+            {answerBlocks.map((block) =>
               block.type === 'text' ? (
                 <div className="assistant-text-block" key={block.id}>
                   <MarkdownContent>{block.content}</MarkdownContent>
                 </div>
-              ) : (
-                <ToolActivity
-                  key={block.id}
-                  block={block}
-                  messageId={item.workbench?.runId ?? item.id}
-                  canOpenWorkbench={Boolean(item.workbench)}
-                  onFocusWorkbench={onFocusWorkbench}
-                />
-              ),
+              ) : null,
             )}
           </div>
           <div className="message-actions">
@@ -152,6 +182,11 @@ export function Conversation({
   onSubmit,
   onCancel,
   onReconnect,
+  reasoningEffort = 'high',
+  models = [],
+  selectedModel = '',
+  onModelChange = () => undefined,
+  onReasoningEffortChange = () => undefined,
 }: {
   state: AgentUiState;
   error: string | null;
@@ -165,6 +200,11 @@ export function Conversation({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel?: () => void;
   onReconnect?: () => void;
+  reasoningEffort?: ReasoningEffort;
+  models?: PublicModelConfig[];
+  selectedModel?: string;
+  onModelChange?: (model: string) => void;
+  onReasoningEffortChange?: (value: ReasoningEffort) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -250,6 +290,11 @@ export function Conversation({
           onPromptChange={onPromptChange}
           onSubmit={handleComposerSubmit}
           onCancel={onCancel}
+          reasoningEffort={reasoningEffort}
+          models={models}
+          selectedModel={selectedModel}
+          onModelChange={onModelChange}
+          onReasoningEffortChange={onReasoningEffortChange}
         />
       </div>
     </section>
@@ -325,6 +370,11 @@ export function Composer({
   onPromptChange,
   onSubmit,
   onCancel,
+  reasoningEffort = 'high',
+  models = [],
+  selectedModel = '',
+  onModelChange = () => undefined,
+  onReasoningEffortChange = () => undefined,
 }: {
   prompt: string;
   submitting: boolean;
@@ -333,6 +383,11 @@ export function Composer({
   onPromptChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel?: () => void;
+  reasoningEffort?: ReasoningEffort;
+  models?: PublicModelConfig[];
+  selectedModel?: string;
+  onModelChange?: (model: string) => void;
+  onReasoningEffortChange?: (value: ReasoningEffort) => void;
 }) {
   const composingRef = useRef(false);
   const placeholder =
@@ -345,7 +400,7 @@ export function Composer({
           : AGENT_UI_COPY.composerPlaceholders.newRun;
   return (
     <form
-      className="composer overflow-hidden rounded-[14px] border border-[var(--theme-composer-border)] bg-surface shadow-[0_8px_24px_rgb(0_0_0_/_3%)]"
+      className="composer rounded-[14px] border border-[var(--theme-composer-border)] bg-surface shadow-[0_8px_24px_rgb(0_0_0_/_3%)]"
       onSubmit={onSubmit}
     >
       {submitting ? (
@@ -396,11 +451,20 @@ export function Composer({
                 : AGENT_UI_COPY.composerHints.clarification}
             </span>
           </div>
-        ) : (
-          <span />
-        )}
-        <button
-          className="send-button"
+        ) : <span />}
+        <div className="composer-submit-group">
+          {mode !== 'steer' && mode !== 'clarification' ? (
+            <ModelSettingsMenu
+              modelId={selectedModel}
+              models={models}
+              reasoningEffort={reasoningEffort}
+              disabled={submitting || mode === 'disabled'}
+              onModelChange={onModelChange}
+              onReasoningEffortChange={onReasoningEffortChange}
+            />
+          ) : null}
+          <button
+            className="send-button"
           type={submitting ? 'button' : 'submit'}
           aria-label={submitting ? '停止任务' : '发送任务'}
           title={submitting ? '停止任务' : '发送任务'}
@@ -410,10 +474,74 @@ export function Composer({
               : !prompt.trim() || serviceState !== 'ready' || mode === 'disabled'
           }
           onClick={submitting ? onCancel : undefined}
-        >
-          {submitting ? <Square size={14} fill="currentColor" /> : <Send size={18} />}
-        </button>
+          >
+            {submitting ? <Square size={14} fill="currentColor" /> : <Send size={18} />}
+          </button>
+        </div>
       </div>
     </form>
+  );
+}
+
+const reasoningLabels: Record<ReasoningEffort, string> = {
+  off: '无思考',
+  low: '轻度',
+  high: '中度',
+  max: '高度',
+};
+const compactReasoningLabels: Record<ReasoningEffort, string> = {
+  off: '无',
+  low: '轻',
+  high: '中',
+  max: '高',
+};
+
+function ModelSettingsMenu({
+  modelId,
+  models,
+  reasoningEffort,
+  disabled,
+  onModelChange,
+  onReasoningEffortChange,
+}: {
+  modelId: string;
+  models: PublicModelConfig[];
+  reasoningEffort: ReasoningEffort;
+  disabled: boolean;
+  onModelChange: (model: string) => void;
+  onReasoningEffortChange: (value: ReasoningEffort) => void;
+}) {
+  const selected = models.find((model) => model.id === modelId) ?? models[0];
+  if (!selected) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="model-settings-trigger" type="button" disabled={disabled}>
+          {selected.label} {compactReasoningLabels[reasoningEffort]}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="model-settings-menu" side="top" align="end">
+        <DropdownMenuLabel>模型</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={selected.id} onValueChange={onModelChange}>
+          {models.map((model) => (
+            <DropdownMenuRadioItem key={model.id} value={model.id}>
+              {model.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>推理强度</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={reasoningEffort}
+          onValueChange={(value) => onReasoningEffortChange(value as ReasoningEffort)}
+        >
+          {selected.reasoning.levels.map((level) => (
+            <DropdownMenuRadioItem key={level} value={level}>
+              {reasoningLabels[level]}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

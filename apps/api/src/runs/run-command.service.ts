@@ -6,6 +6,9 @@ import { ActiveRunRegistry } from './active-run.registry';
 import { RunEventHub } from './run-event-hub';
 import { RunExecutor } from './run.executor';
 import { RunRepository } from './run.repository';
+import { ModelAdapter } from '../model/model-adapter';
+import { getConfiguredModel } from '../model/model-catalog';
+import type { ReasoningEffort } from '@harness/agent-protocol';
 
 @Injectable()
 export class RunCommandService {
@@ -14,6 +17,7 @@ export class RunCommandService {
     @Inject(ActiveRunRegistry) private readonly registry: ActiveRunRegistry,
     @Inject(RunEventHub) private readonly events: RunEventHub,
     @Inject(RunExecutor) private readonly executor: RunExecutor,
+    @Inject(ModelAdapter) private readonly modelAdapter: ModelAdapter,
   ) {}
 
   // 校验请求并创建 Run；成功后注册初始 Snapshot，异步交给 Executor 执行。
@@ -21,13 +25,34 @@ export class RunCommandService {
   // HTTP 请求只负责“可靠接单”，不会持有到模型生成结束。
   async create(
     sessionId: string,
-    input: { content: string; idempotencyKey: string },
+    input: {
+      content: string;
+      idempotencyKey: string;
+      model: string;
+      reasoningEffort?: ReasoningEffort;
+    },
   ): Promise<CreateRunResponse> {
     const runId = crypto.randomUUID();
     const userMessageId = crypto.randomUUID();
     const assistantMessageId = crypto.randomUUID();
     // idempotencyKey 只能重放同一 payload；相同键搭配不同正文必须明确冲突。
-    const payloadHash = createHash('sha256').update(input.content).digest('hex');
+    const reasoningEffort = input.reasoningEffort ?? 'high';
+    const configuredModel = getConfiguredModel(input.model);
+    if (!configuredModel)
+      throw new ConflictException({
+        code: 'MODEL_UNSUPPORTED',
+        detail: '所选模型不可用，请刷新模型列表后重试。',
+      });
+    const model = configuredModel.id;
+    const capability = this.modelAdapter.profile(model);
+    if (!capability.reasoning.levels.includes(reasoningEffort))
+      throw new ConflictException({
+        code: 'REASONING_EFFORT_UNSUPPORTED',
+        detail: '当前模型不支持所选推理强度。',
+      });
+    const payloadHash = createHash('sha256')
+      .update(JSON.stringify({ content: input.content, model, reasoningEffort }))
+      .digest('hex');
     let result;
     try {
       result = await this.repository.create({
@@ -38,6 +63,10 @@ export class RunCommandService {
         runId,
         userMessageId,
         assistantMessageId,
+        provider: capability.provider,
+        model,
+        reasoningEffort,
+        reasoningFormat: capability.reasoningFormat,
       });
     } catch (error) {
       if (

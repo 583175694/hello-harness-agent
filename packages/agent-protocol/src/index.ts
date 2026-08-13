@@ -14,7 +14,29 @@ import {
 } from './web-fetch/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.9.0';
+export const protocolVersion = '0.10.0';
+
+export const reasoningEffortSchema = z.enum(['off', 'low', 'high', 'max']);
+export const reasoningCapabilitySchema = z.object({
+  supported: z.boolean(),
+  levels: z.array(reasoningEffortSchema),
+  default: reasoningEffortSchema,
+});
+export const modelRunProfileSchema = z.object({
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  reasoningEffort: reasoningEffortSchema,
+  reasoningFormat: z.string().min(1).optional(),
+});
+export const publicModelConfigSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  reasoning: reasoningCapabilitySchema,
+});
+export const publicAgentConfigSchema = z.object({
+  defaultModel: z.string().min(1),
+  models: z.array(publicModelConfigSchema).min(1),
+});
 
 // 定义聊天和未来工具循环共用的消息基础字段。
 const messageBaseSchema = z.object({
@@ -43,6 +65,7 @@ export const chatMessageSchema = z.discriminatedUnion('role', [
   messageBaseSchema.extend({
     role: z.literal('assistant'),
     content: z.string().optional(),
+    reasoning: z.string().optional(),
     toolCalls: z.array(toolCallSchema).optional(),
   }),
   messageBaseSchema.extend({
@@ -195,6 +218,15 @@ export const assistantTextBlockSchema = z.object({
   content: z.string().min(1),
 });
 
+export const assistantReasoningBlockSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal('reasoning'),
+  roundId: z.string().min(1),
+  roundSequence: z.number().int().positive(),
+  blockSequence: z.number().int().nonnegative(),
+  content: z.string().min(1),
+});
+
 // 定义 assistant turn 中可原位更新的透明工具活动块。
 export const assistantToolActivityBlockSchema = z.object({
   id: z.string().min(1),
@@ -215,6 +247,7 @@ export const assistantToolActivityBlockSchema = z.object({
 // 约束文本和工具活动按真实发生顺序组成 assistant 内容时间线。
 export const assistantContentBlockSchema = z.discriminatedUnion('type', [
   assistantTextBlockSchema,
+  assistantReasoningBlockSchema,
   assistantToolActivityBlockSchema,
 ]);
 
@@ -331,6 +364,15 @@ export const chatStreamEventSchema = z.union([
     detail: z.string().min(1),
   }),
   z.object({
+    type: z.literal('reasoning.delta'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    delta: z.string().min(1),
+  }),
+  z.object({
     type: z.literal('message.delta'),
     messageId: z.string().min(1),
     blockId: z.string().min(1),
@@ -368,6 +410,8 @@ export const assistantDeliveryStatusSchema = z.enum([
 export const createRunRequestSchema = z.object({
   content: z.string().trim().min(1).max(AGENT_PROTOCOL_LIMITS.sessionChatContentMaxLength),
   idempotencyKey: z.string().min(1).max(200),
+  model: z.string().min(1),
+  reasoningEffort: reasoningEffortSchema.optional().default('high'),
 });
 export const createRunResponseSchema = z.object({
   sessionId: z.string().min(1),
@@ -381,6 +425,7 @@ export const runSnapshotSchema = z.object({
   runId: z.string().min(1),
   sessionId: z.string().min(1),
   status: agentRunStatusSchema,
+  profile: modelRunProfileSchema,
   assistantMessageId: z.string().min(1),
   assistantContent: z.string(),
   blocks: z.array(assistantContentBlockSchema),
@@ -410,6 +455,7 @@ export const runStreamEventSchema = z.object({
   type: z.enum([
     'run.snapshot',
     'run.started',
+    'reasoning.delta',
     'message.delta',
     'tool.started',
     'tool.completed',
@@ -429,6 +475,11 @@ export const cancelRunResponseSchema = z.object({
 });
 
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
+export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
+export type ReasoningCapability = z.infer<typeof reasoningCapabilitySchema>;
+export type ModelRunProfile = z.infer<typeof modelRunProfileSchema>;
+export type PublicAgentConfig = z.infer<typeof publicAgentConfigSchema>;
+export type PublicModelConfig = z.infer<typeof publicModelConfigSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export type ChatResponse = z.infer<typeof chatResponseSchema>;
 export type ToolCall = z.infer<typeof toolCallSchema>;
@@ -444,6 +495,7 @@ export type WebFetchSourceSnapshot = z.infer<typeof webFetchSourceSnapshotSchema
 export type ResearchSourceSnapshot = z.infer<typeof researchSourceSnapshotSchema>;
 export type AssistantAgentMetadata = z.infer<typeof assistantAgentMetadataSchema>;
 export type AssistantTextBlock = z.infer<typeof assistantTextBlockSchema>;
+export type AssistantReasoningBlock = z.infer<typeof assistantReasoningBlockSchema>;
 export type AssistantToolActivityBlock = z.infer<typeof assistantToolActivityBlockSchema>;
 export type AssistantContentBlock = z.infer<typeof assistantContentBlockSchema>;
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;

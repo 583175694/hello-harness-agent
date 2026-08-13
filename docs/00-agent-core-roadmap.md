@@ -20,11 +20,11 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 
 首个真实用户版本不是 Agent Runtime SDK，也不是通用工具市场。Runtime、State、Context、Tooling 和 Workbench 都服务于通用 Agent 的端到端产品体验。当前阶段不把正式 Evidence、`[Sx]`、报告复核、Citation Validator 或 Artifact Finalizer 作为前置条件，也不承诺这些尚未确定的未来能力。
 
-当前联网调查实施边界见 [17-implementation-plan.md](./17-implementation-plan.md) 和 [23-web-fetch-tool.md](./23-web-fetch-tool.md)；[13-research-workflow.md](./13-research-workflow.md) 只是可能的后续 Deep Research 设计草案，不约束当前实现。Model、Runtime、Tool 与 Projection 的决策权以 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) 为准；当前 Run、SSE 重连、快照与取消方案以 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 为准。
+当前联网调查实施边界见 [17-implementation-plan.md](./17-implementation-plan.md) 和 [23-web-fetch-tool.md](./23-web-fetch-tool.md)；[13-research-workflow.md](./13-research-workflow.md) 只是可能的后续 Deep Research 设计草案，不约束当前实现。Model、Runtime、Tool 与 Projection 的决策权以 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) 为准；当前 Run、SSE 重连、快照与取消方案以 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 为准；Reasoning、Tool transcript、跨轮回放和模型兼容边界以 [27-reasoning-context-transcript.md](./27-reasoning-context-transcript.md) 为准。
 
 ## 2. 当前基线
 
-当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、真实 Workbench 投影和独立真实评测工具。P7 General Web Research Hardening、P8 Model-led Tool Boundary 与 Connection-Durable Agent Loop 时序加固均已完成；Ordered Model Rounds、Canonical Live Projection、版本化 Checkpoint、Event Tail、严格 SSE cursor 和 Run 状态 CAS 已落地。当前进入 Context Engineering、真实评测校准与 Release Hardening；Memory 和 Delegation 尚未完成。
+当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、真实 Workbench 投影和独立真实评测工具。P7 General Web Research Hardening、P8 Model-led Tool Boundary 与 Connection-Durable Agent Loop 时序加固均已完成；Ordered Model Rounds、Canonical Live Projection、版本化 Checkpoint、Event Tail、严格 SSE cursor 和 Run 状态 CAS 已落地。下一优先项是在 Context Engineering 前实现 Reasoning Context Transcript，补齐 reasoning 透明化、完整工具链持久化、跨用户轮次回放和模型兼容编码；Memory 和 Delegation 尚未完成。
 
 详细代码状态、验证记录和已知限制统一维护在 [implementation-status.md](./implementation-status.md)。只有代码、测试和验收记录同时存在时，能力才算完成。
 

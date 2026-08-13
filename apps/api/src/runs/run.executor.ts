@@ -1,12 +1,8 @@
 import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
-import type { ChatMessage, ChatStreamEvent, RunSnapshot } from '@harness/agent-protocol';
-import { ENV_KEYS } from '../bootstrap/env.constants';
+import type { ChatStreamEvent, RunSnapshot } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
 import { ChatService, type ChatProjectionSnapshot } from '../chat/chat.service';
-import { CHAT_CONTEXT_MESSAGE_LIMIT } from '../chat/chat.constants';
-import { compareMessageOrder } from '../chat/message-order';
 import { SessionTitleService } from '../sessions/session-title.service';
 import { ActiveRunRegistry } from './active-run.registry';
 import { RunEventHub } from './run-event-hub';
@@ -21,7 +17,6 @@ export class RunExecutor implements OnModuleDestroy {
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(ConfigService) private readonly config: ConfigService,
     @Inject(ChatService) private readonly chat: ChatService,
     @Inject(ActiveRunRegistry) private readonly registry: ActiveRunRegistry,
     @Inject(RunEventHub) private readonly events: RunEventHub,
@@ -51,7 +46,7 @@ export class RunExecutor implements OnModuleDestroy {
     const active = this.registry.get(runId);
     const stored = await this.repository.findOwned(runId);
     if (!active || !stored) return;
-    const model = this.config.get<string>(ENV_KEYS.openAiModel) ?? 'unknown';
+    const model = stored.model;
     // projection 是 Chat 业务状态；active.liveSnapshot 是加上 Run status/sequence 的传输快照。
     let projection: ChatProjectionSnapshot = {
       model,
@@ -89,13 +84,16 @@ export class RunExecutor implements OnModuleDestroy {
           startedAt: new Date().toISOString(),
           lastEventSequence: startedEvent.seq,
         };
-      const messages = await this.loadContext(stored.sessionId, stored.inputMessageId);
+      const messages = await this.repository.loadTranscript(runId);
       for await (const event of this.chat.streamPrepared(
         {
           sessionId: stored.sessionId,
           userMessageId: stored.inputMessageId,
           assistantMessageId: stored.assistantMessageId,
           messages,
+          model: stored.model,
+          reasoningEffort: stored.reasoningEffort as NonNullable<RunSnapshot['profile']>['reasoningEffort'],
+          onTranscriptItem: (message) => this.repository.appendTranscriptItem(runId, message),
         },
         active.abortController.signal,
         {
@@ -208,35 +206,6 @@ export class RunExecutor implements OnModuleDestroy {
     }
   }
 
-  // 读取模型上下文，只纳入用户消息和已完成的 Assistant 消息。
-  private async loadContext(sessionId: string, inputMessageId: string): Promise<ChatMessage[]> {
-    // 多轮上下文只包含用户消息和已完成 Assistant 消息；失败/取消/流式草稿不能污染下一 Run。
-    const messages = await this.prisma.message.findMany({
-      where: {
-        sessionId,
-        OR: [
-          { role: 'user' },
-          {
-            role: 'assistant',
-            metadata: { path: ['deliveryStatus'], equals: 'completed' },
-          },
-        ],
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: CHAT_CONTEXT_MESSAGE_LIMIT,
-    });
-    if (!messages.some((message) => message.id === inputMessageId)) {
-      const current = await this.prisma.message.findUnique({ where: { id: inputMessageId } });
-      if (current) messages.unshift(current);
-    }
-    return messages.sort(compareMessageOrder).map((message) => ({
-      id: message.id,
-      role: message.role,
-      content: message.content,
-      createdAt: message.createdAt.toISOString(),
-    }));
-  }
-
   // 在工具开始或结束等语义边界写入诊断 Step。
   private async persistSemanticBoundary(
     runId: string,
@@ -330,6 +299,16 @@ export class RunExecutor implements OnModuleDestroy {
 
   // 将未知异常转换为稳定的客户端错误结构。
   private describeError(error: unknown): { code: string; detail: string } {
+    if (error instanceof Error && error.message === 'MODEL_TRANSCRIPT_INCOMPATIBLE')
+      return {
+        code: 'MODEL_TRANSCRIPT_INCOMPATIBLE',
+        detail: '当前模型与该会话的推理上下文不兼容，请新建会话或恢复原模型。',
+      };
+    if (error instanceof Error && error.message === 'MODEL_TRANSCRIPT_INTEGRITY_ERROR')
+      return {
+        code: 'MODEL_TRANSCRIPT_INTEGRITY_ERROR',
+        detail: '会话模型上下文不完整，请删除该会话并新建会话。',
+      };
     if (typeof error === 'object' && error !== null && 'response' in error) {
       const response = (error as { response?: unknown }).response;
       if (typeof response === 'object' && response !== null) {

@@ -50,6 +50,9 @@ P6  Search Provider Tooling + Iterative Research
 P7  General Web Research Hardening
 P8  Recovery + Evaluation + Release Hardening
 R1  First User-Ready General Agent Release
+R-Reasoning  Reasoning Context Transcript
+Later Context Engineering
+Later Agent Loop Semantics（留档，未排期）
 P9  User Memory Read Path
 P10 User Memory Write/Review
 P11 Bounded Delegation + Worker
@@ -495,6 +498,44 @@ recovery and evaluation baseline
 ```
 
 Memory、Delegation、认证、远程存储和服务端重启自动续跑不是 R1 release blocker。
+
+## 12.1 R-Reasoning: Reasoning Context Transcript
+
+目标：在 Context Engineering 前补齐 Thinking 模型协议、透明化展示和完整跨轮模型上下文。
+
+实施范围：
+
+- Model Adapter 捕获并规范化 reasoning stream，按目标 provider/model capability 编码回请求。
+- Composer 提供无思考、轻度、中度、高度四档选择；canonical `off/low/high/max` 由 Adapter 映射到供应商参数。
+- Runtime 保持 reasoning、Tool Call、Tool Result 和 final answer 的稳定顺序与关联。
+- Shared Protocol/SSE/Conversation 增加独立 reasoning event/block，前端可折叠展示并支持刷新恢复。
+- 新增 durable canonical transcript，跨用户轮次完整回放，不再只读取最近 user/assistant 最终正文；本次断代不兼容旧 Session，旧数据由临时清库脚本删除。
+- 同一 run 冻结 provider、model 和 thinking profile；模型切换时执行显式兼容判断。
+- Run 持久化 requested/effective reasoning effort，重试、重连和恢复不得改变档位。
+- Public Config 暴露 canonical reasoning capability，前端不按模型名称硬编码。
+- Create Run 幂等 hash 覆盖 content、reasoning effort 和未来影响执行语义的 run profile。
+- completed transcript 原子提交到 Session；failed/cancelled 半成品不进入下一 Run 上下文。
+- 模型/Provider 变化时执行历史兼容检查，不兼容且无转换路径时阻止原 Session 继续发送。
+- 未实施 Context Engineering 前不主动摘要或静默截断；达到上下文限制时返回明确错误。
+
+不属于本阶段：token 预算、材料排名、压缩、摘要、淘汰和最终回答空间预留。这些仍由后续 Context Engineering 统一实现。
+
+详细方案与验收标准见 [27-reasoning-context-transcript.md](./27-reasoning-context-transcript.md)。
+
+### 后续候选：Agent Loop Semantics（当前只留档）
+
+当前 Runtime 仍以 Model-led Tool Loop 为主：模型声明 Tool Call 时继续执行并回填结果，没有 Tool Call 时交付文本并结束。后续迭代完整 Agent 能力时，需要重新评估以下语义是否应成为显式、可持久化的 Runtime 状态：
+
+- Goal / Task State
+- 显式 Plan / Todo
+- Plan 动态修订
+- 结构化 Observation
+- Progress 状态
+- Completion Policy
+- Ask User / Clarification
+- Reflect / Re-plan
+
+本节当前只用于防止后续遗漏，不代表已经立项或冻结设计。以上能力不进入当前 Context Engineering 实施范围，不预先创建协议、数据库表、Runtime 接口或占位模块。正式启动前应先结合真实评测决定哪些能力需要显式建模、哪些继续由模型隐式完成，并保证简单任务不被迫经过完整规划与反思流程。
 
 ## 13. P9: User Memory Read Path
 

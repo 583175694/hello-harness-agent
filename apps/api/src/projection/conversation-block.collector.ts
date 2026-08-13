@@ -1,6 +1,7 @@
 import type {
   AssistantContentBlock,
   AssistantTextBlock,
+  AssistantReasoningBlock,
   AssistantToolActivityBlock,
 } from '@harness/agent-protocol';
 
@@ -9,6 +10,7 @@ import type {
 export class ConversationBlockCollector {
   private readonly blocks: AssistantContentBlock[] = [];
   private textBlockCount = 0;
+  private reasoningBlockCount = 0;
 
   constructor(private readonly messageId: string) {}
 
@@ -33,6 +35,35 @@ export class ConversationBlockCollector {
     const block: AssistantTextBlock = {
       id: `${this.messageId}-text-${this.textBlockCount}`,
       type: 'text',
+      roundId: input.roundId,
+      roundSequence: input.roundSequence,
+      blockSequence: input.blockSequence,
+      content: input.delta,
+    };
+    this.insert(block);
+    return block.id;
+  }
+
+  appendReasoning(input: {
+    delta: string;
+    roundId: string;
+    roundSequence: number;
+    blockSequence: number;
+  }): string {
+    const existing = this.blocks.find(
+      (block) =>
+        block.type === 'reasoning' &&
+        block.roundId === input.roundId &&
+        block.blockSequence === input.blockSequence,
+    );
+    if (existing?.type === 'reasoning') {
+      existing.content += input.delta;
+      return existing.id;
+    }
+    this.reasoningBlockCount += 1;
+    const block: AssistantReasoningBlock = {
+      id: `${this.messageId}-reasoning-${this.reasoningBlockCount}`,
+      type: 'reasoning',
       roundId: input.roundId,
       roundSequence: input.roundSequence,
       blockSequence: input.blockSequence,

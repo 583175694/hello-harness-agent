@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-12（Connection-Durable 时序加固已实施）
+> 最后更新：2026-08-14（Reasoning Context Transcript 断代升级已实施，模型透传与 transcript 完整性已加固）
 
 ## 1. 当前结论
 
@@ -77,7 +77,25 @@ Connection-Durable 不引入 Redis，也不实现服务端重启后的自动续�
 - `used` 只表示最终回答出现了来源 URL，不是逐句 Evidence/Citation；没有 Report Artifact、引用校验或独立复核。
 - Fetch 只覆盖公开静态网页；JavaScript 页面、PDF、登录态内容、浏览器操作和完整公网 SSRF/DNS rebinding 防护尚未实现。
 
-**下一阶段结论**：Durable Agent Loop 已完成，不横向增加工具。真实评测继续作为伴随验证，用于校准工具选择、执行效率和失败分类；下一步优先进入 Context Engineering，Search fallback 的顺序再根据评测与 Provider 稳定性决定。
+**下一阶段结论**：Connection-Durable Agent Loop 已完成。Context Engineering 前先实施 Reasoning Context Transcript：补齐 reasoning 捕获/回传、透明化展示、durable transcript 和跨用户轮次完整回放；不横向增加工具。
+
+### 阶段六：从请求内 Tool Loop 到 Connection-Durable Agent Loop
+
+**当时的问题**：Agent 执行生命周期依附于一次 Chat HTTP/SSE 请求。浏览器刷新、会话切换或网络断开会结束 SSE，后台执行容易被错误地当成连接取消；未完成的 assistant 内容、工具活动和来源主要存在于请求内存，重新连接后无法可靠判断 Run 是否仍在执行、已经完成，或应该从哪里继续显示。实际切换会话场景还暴露了 Event 到达顺序、业务 Block 顺序、Snapshot 版本和客户端 cursor 之间不一致的问题。
+
+**解决方式**：将一次用户提交建模为独立 `AgentRun`，创建事务同时写入 user message、assistant draft 和 queued Run，提交后由后台 `RunExecutor` 独立驱动现有 Model-led Tool Loop；SSE 只作为观察通道，不再拥有执行生命周期。PostgreSQL 保存 Run/Step、assistant draft 和完整 UI Projection Checkpoint；进程内 `ActiveRunRegistry + RunEventHub` 维护 run-scoped sequence、Live Snapshot、Checkpoint 水位后的 Event Tail、replay/snapshot fallback 和有界 subscriber 队列。协议增加 `roundId + roundSequence + blockSequence`，把传输顺序和模型 Content/Tool Block 业务顺序分开；客户端只在成功应用连续事件后推进 cursor，旧 Snapshot 不能覆盖新状态。Create、Cancel、terminal transaction 和 reconciliation 使用幂等键、状态 CAS、heartbeat 与明确的终态规则；服务重启不自动续跑，遗留 Run 收敛为 `RUN_INTERRUPTED`。
+
+**阶段结果**：客户端断线、刷新和切换会话不会取消后台 Run；重连时可以先读取 Snapshot，再按 cursor 精确 replay Event Tail，无法连续 replay 时回退到完整 Snapshot。实时流、历史恢复和持久化消息统一使用稳定的文本/工具块顺序，终态只有在数据库提交成功后才向客户端广播。8 月 13 日又将 Round/Block 字段收紧为必填，统一服务端与前端的 Block canonical sort，并补充顺序诊断日志和流式消息局部渲染优化。阶段六把原本依附请求的 Tool Loop 变成了具备后台生命周期、连接恢复、阶段性持久化和可诊断时序不变量的 Durable Run。
+
+**当前仍未解决**：这仍然是 Model-led Tool Loop，不包含显式 Goal/Plan/Observation/Progress/Completion Policy 等完整 Agent Loop 语义；没有服务端重启后的 Runtime 自动恢复、多实例 Worker lease、数据库 Event Log、Redis、Tool exactly-once 或跨进程接管。Event Tail 的软/绝对上限和 checkpoint 失败后的强制收敛仍属于后续 Release Hardening。Context Engineering、真实评测校准、Memory 和 Delegation 按后续阶段独立推进。
+
+### Reasoning Context Transcript（断代升级已实施）
+
+OpenAI-compatible Adapter 已捕获并回放 DeepSeek `reasoning_content`，Runtime 使用 canonical reasoning、assistant Tool Call 和 Tool Result transcript；跨用户轮次不再从 Message 正文猜测模型上下文。前端通过独立 reasoning block 和统一可折叠执行区展示 reasoning 与 Tools，完成后仍可展开查看。
+
+实现已落地：Model Adapter 负责供应商 reasoning 编解码和能力校验，Runtime/Repository 持久化并恢复 canonical transcript，后续用户轮次按顺序回放 reasoning + Tool Call + Tool Result + final answer。Composer 通过 Public Config 提供 Flash/Pro 和 `off/low/high/max` 四档选择，模型与推理强度在 Run 创建时冻结并纳入幂等 hash。失败、取消和未闭合 Tool Call 不进入 committed history；Session 删除级联清理 transcript。Context Engineering 仍未实施，当前上下文超限返回明确错误。详细设计见 [27-reasoning-context-transcript.md](./27-reasoning-context-transcript.md)。
+
+本轮 review 加固了模型透传和完整性边界：ChatService 使用 Run 冻结模型，不再用默认模型覆盖用户选择；Snapshot profile 改为必填；未知模型直接拒绝；transcript 校验孤立 Tool Call 和缺失 Tool Result；前端不再兼容渲染最终回答之后的非法 reasoning/tool 顺序。旧的 `prepareSessionStream()` Message 上下文方法仍因现有历史单测保留，但实际 Run 执行链不再调用它，后续可单独删除并重写测试。
 
 ## 3. 已完成
 
@@ -91,7 +109,7 @@ Connection-Durable 不引入 Redis，也不实现服务端重启后的自动续�
 - canonical 协议包和 agent-testkit 已建立；Chat、Function Calling、搜索结果、工具生命周期 SSE 和可恢复快照均由共享 Zod schema 约束。
 - 配置校验、请求 ID 和敏感字段脱敏已接入；生产环境保留结构化 JSON 日志。
 - 开发环境日志已切换为彩色中文单行格式，关闭常规 HTTP 请求/响应明细和 Nest 启动路由噪声；模型链路只记录生成开始、首字响应、完成或失败，并提供会话短 ID、模型、上下文条数、首字耗时、总耗时和输出字数。
-- OpenAI 官方 SDK 和 OpenAI-compatible Chat Completions 已接入；`OPENAI_BASE_URL`、`OPENAI_API_KEY`、`OPENAI_MODEL` 从环境变量读取。
+- OpenAI 官方 SDK 和 OpenAI-compatible Chat Completions 已接入；模型 ID、Base URL、能力和请求参数由 `apps/api/src/model/model-catalog.ts` 管理，只有 `OPENAI_API_KEY` 从环境变量读取。
 - 已实现每个 assistant run 最多 20 次 Tool Call 的模型-工具循环，支持分片 arguments 聚合、参数校验、串行执行、错误回传和达到调用上限后的无工具最终回答。
 - 模型调用已通过 `ModelAdapter` 与 OpenAI SDK 隔离；`AgentRuntimeService` 只依赖 canonical message、模型事件和工具契约。
 - 工具层已拆为 `AgentTool`、集中式 Tool Catalog 和通用 Registry；新增工具不再需要把业务逻辑写入 Registry。
@@ -108,9 +126,9 @@ Connection-Durable 不引入 Redis，也不实现服务端重启后的自动续�
 - 完整 canonical Markdown 只存在于请求生命周期和 15 分钟、32 MiB 的进程内 LRU；模型、SSE 和 Message metadata 只消费或保存整批不超过 24,000 code points 的有界 Passage。
 - Bocha/Serper Adapter 已统一标题、URL、domain、摘要、发布日期和来源字段；搜索超时为 10 秒，不记录 Key 或原始响应。
 - 普通对话和启用 Tools 的模型轮次都支持真实 SSE 流式输出；当前实现即时交付 Content 首字，每次模型请求创建稳定的 `roundId/roundSequence`，Adapter 为 Content 与 Tool Call 统一生成 `blockSequence`。混合 Round Content 解释为 Tool Call 前言，无 Tool Call Round Content 解释为最终正文；Projection 和前端按稳定位置更新，不按 SSE 到达顺序简单追加。
-- assistant turn 使用有序 `text/tool_activity` 内容块；工具开始插入一次，完成、失败或取消按 `toolCallId` 原位更新，成功交付后将相同顺序保存到 Message metadata。
+- assistant turn 当前使用有序 `text/tool_activity` 内容块；Reasoning 阶段将扩展为 `reasoning/text/tool_activity`，工具开始插入一次，完成、失败或取消按 `toolCallId` 原位更新，成功交付后将相同顺序保存到 Message metadata。
 - `tool.started` 由 API 下发稳定用户可见标题；正常取消和 AbortError 都投影为独立 `tool.cancelled`，不会误标失败或遗留永久运行状态。
-- 下一轮模型上下文只使用持久化 Message 的纯文本正文，不注入 Tool Activity 的展示文案。
+- 当前下一轮模型上下文只使用持久化 Message 的纯文本正文，不注入 Tool Activity 的展示文案；这是 Reasoning Context Transcript 阶段需要替换的已知限制。
 - Prisma 已实现 `Session`、`Message` 及数据库级联删除；会话和消息固定归属 `local-user`。
 - 已实现会话创建、列表、详情、重命名、置顶、删除、session-scoped Chat SSE 和模型标题生成 API。
 - 普通对话上下文由 API 从 PostgreSQL 读取最近 20 条消息，Web 不再提交完整历史。
@@ -180,6 +198,22 @@ pnpm check
 pnpm test:integration
 pnpm --filter @harness/web test:e2e
 ```
+
+2026-08-14 完成 Reasoning Context Transcript 断代升级、模型配置控件和 review 加固后执行：
+
+```text
+pnpm --filter @harness/api test
+pnpm --filter @harness/web test
+pnpm --filter @harness/agent-protocol test
+pnpm --filter @harness/api typecheck
+pnpm --filter @harness/web typecheck
+pnpm --filter @harness/api lint
+pnpm --filter @harness/web lint
+pnpm test:integration
+git diff --check
+```
+
+结果为 API unit 62 项、Web unit 25 项、Protocol unit 13 项和 API integration 10 项通过；类型检查、lint 和 diff whitespace 检查通过。本轮按要求未重复执行 Playwright E2E；此前一次 E2E 为 15/16 通过，唯一失败是移动端 workbench 测试 teardown 超时，与本轮 reasoning/model 控件无关。
 
 2026-08-05 完成会话持久化、Sidebar 操作和日志治理后再次执行：
 
@@ -291,11 +325,13 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 
 当前已完成 P8 Connection-Durable Agent Loop。下一阶段按以下顺序推进：
 
-1. **进入 Context Engineering**：在 Run/Step 和完整事实边界稳定后，面向完整模型上下文实现 Token 计量、选择、压缩、淘汰和最终回答预留。
-2. **伴随修正评测事实源**：统一 Run snapshot、assistant metadata 和 Tool execution 指标，把 Provider 失败、Judge 超时、规则不匹配和真实行为缺陷拆成可聚合分类。
-3. **校准真实行为**：修复直链任务工具选择和题目工具上限偏差；将重复调用作为效率信号，连续运行至少两轮 Smoke 并人工检查全部 6 题，再决定 Full 24 题门槛。
-4. **根据数据决定 Search fallback**：优先读取真实 Provider 失败分布，不在 Context Engineering 前并行增加另一套复杂运行状态。
-5. **保持能力边界**：服务端重启自动续跑、Evidence/Citation、Report Artifact、Browser/PDF Fetch、Memory 和 Delegation 不与 Context Engineering 混成一次大重构。
+1. **先实施 Reasoning Context Transcript**：建立 reasoning/tool/final answer 的完整事实源、透明化事件、跨轮持久化和 Model Adapter 兼容编码。
+2. **再进入 Context Engineering**：基于完整 canonical transcript 实现 Token 计量、选择、压缩、淘汰和最终回答预留。
+3. **伴随修正评测事实源**：统一 Run snapshot、assistant metadata 和 Tool execution 指标，把 Provider 失败、Judge 超时、规则不匹配和真实行为缺陷拆成可聚合分类。
+4. **校准真实行为**：修复直链任务工具选择和题目工具上限偏差；将重复调用作为效率信号，连续运行至少两轮 Smoke 并人工检查全部 6 题，再决定 Full 24 题门槛。
+5. **保持能力边界**：服务端重启自动续跑、Evidence/Citation、Report Artifact、Browser/PDF Fetch、Memory 和 Delegation 不与 Reasoning/Context Engineering 混成一次大重构。
+
+后续还需独立讨论 Agent Loop Semantics，包括 Goal/Task State、可选 Plan/Todo、动态修订、结构化 Observation、Progress、Completion Policy、Ask User/Clarification 和 Reflect/Re-plan。当前仅在实施计划中留档，未立项、未冻结接口，也不进入本轮 Context Engineering，避免把当前 Model-led Tool Loop 误描述为已经具备完整任务规划与完成判定。
 
 P8 的完成标准不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Search/Fetch -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败、可重复评测和最小恢复能力。
 
@@ -308,12 +344,13 @@ P8 的完成标准不是“再增加一个工具”，而是现有 `Chat -> Agen
 - [ ] 为直链题、搜索题和 Fetch 题分别校准硬规则，避免单一规则把行为问题和协议投影问题混在一起。
 - [ ] 根据至少两轮真实 Smoke 结果冻结语义质量阈值，再决定 Full suite 是否进入发布门槛。
 
-Connection-Durable Agent Loop 时序加固已落地，当前进入 Context Engineering、真实评测校准与 Release Hardening。服务端重启自动续跑、Worker 独立上下文、动态 Browser Fetch、PDF 和正式 Evidence/Report 等能力按真实需求独立推进。
+Connection-Durable Agent Loop 时序加固已落地，当前先进入 Reasoning Context Transcript，再进入 Context Engineering、真实评测校准与 Release Hardening。服务端重启自动续跑、Worker 独立上下文、动态 Browser Fetch、PDF 和正式 Evidence/Report 等能力按真实需求独立推进。
 
 ## 8. 关联文档
 
 - 产品与范围：[docs/00-agent-core-roadmap.md](./00-agent-core-roadmap.md)
 - 实施阶段：[docs/17-implementation-plan.md](./17-implementation-plan.md)
+- Reasoning 与完整上下文：[docs/27-reasoning-context-transcript.md](./27-reasoning-context-transcript.md)
 - 前端契约：[docs/19-agent-frontend.md](./19-agent-frontend.md)
 - Workbench 契约：[docs/20-agent-workbench.md](./20-agent-workbench.md)
 - API 协议：[docs/11-api-protocol.md](./11-api-protocol.md)

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../../src/app.module';
 import { HttpExceptionFilter } from '../../src/shared/http-exception.filter';
 import { PrismaService } from '../../src/database/prisma.service';
+import { getDefaultModel } from '../../src/model/model-catalog';
 
 describe('foundation API', () => {
   let app: INestApplication;
@@ -164,12 +165,15 @@ describe('foundation API', () => {
         idempotencyKey: crypto.randomUUID(),
         payloadHash: 'test',
         status: 'running',
+        provider: getDefaultModel().provider,
+        model: getDefaultModel().id,
+        reasoningEffort: 'high',
       },
     });
     try {
       const chat = await request(app.getHttpServer())
         .post(`/api/agent/sessions/${sessionId}/runs`)
-        .send({ content: '第二条并发消息', idempotencyKey: crypto.randomUUID() })
+        .send({ content: '第二条并发消息', model: getDefaultModel().id, idempotencyKey: crypto.randomUUID() })
         .expect(409);
       expect(chat.body.code).toBe('SESSION_BUSY');
       const deletion = await request(app.getHttpServer())
@@ -205,16 +209,16 @@ describe('foundation API', () => {
     const path = `/api/agent/sessions/${created.body.session.id}/runs`;
     const first = await request(app.getHttpServer())
       .post(path)
-      .send({ content: '幂等问题', idempotencyKey: 'same-key' })
+      .send({ content: '幂等问题', model: getDefaultModel().id, idempotencyKey: 'same-key' })
       .expect(201);
     const second = await request(app.getHttpServer())
       .post(path)
-      .send({ content: '幂等问题', idempotencyKey: 'same-key' })
+      .send({ content: '幂等问题', model: getDefaultModel().id, idempotencyKey: 'same-key' })
       .expect(201);
     expect(second.body.runId).toBe(first.body.runId);
     const conflict = await request(app.getHttpServer())
       .post(path)
-      .send({ content: '另一条问题', idempotencyKey: 'same-key' })
+      .send({ content: '另一条问题', model: getDefaultModel().id, idempotencyKey: 'same-key' })
       .expect(409);
     expect(conflict.body.code).toBe('IDEMPOTENCY_CONFLICT');
   });

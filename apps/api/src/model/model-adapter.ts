@@ -1,4 +1,5 @@
 import type { AgentToolDefinition } from '../tools/agent-tool.types';
+import type { ReasoningCapability, ReasoningEffort } from '@harness/agent-protocol';
 
 export type ModelToolCall = {
   id: string;
@@ -11,19 +12,26 @@ export type ModelToolCall = {
 // Runtime 和模型适配器之间使用的供应商无关消息协议。
 export type ModelMessage =
   | { role: 'system' | 'user'; content: string }
-  | { role: 'assistant'; content: string | null; toolCalls?: ModelToolCall[] }
+  | {
+      role: 'assistant';
+      content: string | null;
+      reasoning?: string;
+      toolCalls?: ModelToolCall[];
+    }
   | { role: 'tool'; content: string; toolCallId: string };
 
 export type ModelRoundInput = {
   model: string;
   messages: ModelMessage[];
   tools?: AgentToolDefinition[];
+  reasoningEffort: ReasoningEffort;
   signal?: AbortSignal;
 };
 
 export type ModelRoundEvent =
   // blockSequence 是供应商无关的统一展示位置；Runtime 不使用 chunk 到达顺序排序。
   | { type: 'text.delta'; delta: string; blockSequence: number }
+  | { type: 'reasoning.delta'; delta: string; blockSequence: number }
   // Tool Call 参数在 Adapter 内聚合完整后一次性交给 Runtime，避免执行半截 JSON。
   | { type: 'tool_calls.completed'; calls: ModelToolCall[] }
   // Round 结束后 Runtime 才能根据是否存在 Tool Call 判断 Content 的最终语义。
@@ -31,6 +39,11 @@ export type ModelRoundEvent =
 
 // 隔离具体模型供应商协议，Runtime 只消费标准化轮次事件。
 export abstract class ModelAdapter {
+  abstract profile(model: string): {
+    provider: string;
+    reasoningFormat?: string;
+    reasoning: ReasoningCapability;
+  };
   abstract streamRound(input: ModelRoundInput): AsyncIterable<ModelRoundEvent>;
   abstract generateText(model: string, messages: ModelMessage[]): Promise<string>;
 }

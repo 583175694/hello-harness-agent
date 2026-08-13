@@ -24,7 +24,10 @@ import type {
   RunSnapshot,
   RunStreamEvent,
   UpdateSessionRequest,
+  ReasoningEffort,
+  PublicAgentConfig,
 } from '@harness/agent-protocol';
+import { publicAgentConfigSchema } from '@harness/agent-protocol';
 
 type RunPayload = RunStreamEvent['payload'];
 // 从统一 Run Event payload 中提取前端 Reducer 直接消费的工具生命周期事件。
@@ -34,6 +37,7 @@ export type ToolStreamEvent = Extract<
 >;
 // 文本增量单独导出，保证 Conversation Block 更新时保留稳定的 Round/Block 位置信息。
 export type MessageDeltaEvent = Extract<RunPayload, { type: 'message.delta' }>;
+export type ReasoningDeltaEvent = Extract<RunPayload, { type: 'reasoning.delta' }>;
 
 // 为空时通过 Vite 反向代理访问同源 API，部署时可覆盖为独立服务地址。
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -117,13 +121,23 @@ export async function generateSessionTitle(
 }
 
 // 可靠创建一次 Durable Run；幂等键限定本次提交，模型执行会在 HTTP 返回后继续进行。
-export async function createRun(sessionId: string, content: string): Promise<CreateRunResponse> {
+export async function createRun(
+  sessionId: string,
+  content: string,
+  model: string,
+  reasoningEffort: ReasoningEffort,
+): Promise<CreateRunResponse> {
   const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/runs`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ content, idempotencyKey: crypto.randomUUID() }),
+    body: JSON.stringify({ content, model, reasoningEffort, idempotencyKey: crypto.randomUUID() }),
   });
   return createRunResponseSchema.parse(await parseResponse(response));
+}
+
+export async function getPublicAgentConfig(signal?: AbortSignal): Promise<PublicAgentConfig> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/config/public`, { signal });
+  return publicAgentConfigSchema.parse(await parseResponse(response));
 }
 
 // 获取 Run 的完整恢复快照；服务端优先返回 Live Snapshot，否则退回 PostgreSQL Checkpoint。

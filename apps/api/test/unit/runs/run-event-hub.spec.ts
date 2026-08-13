@@ -8,6 +8,12 @@ function snapshot(): RunSnapshot {
     runId: 'run-1',
     sessionId: 'session-1',
     status: 'running',
+    profile: {
+      provider: 'deepseek',
+      model: 'DeepSeek-V4-Pro',
+      reasoningEffort: 'high',
+      reasoningFormat: 'deepseek.reasoning_content.v1',
+    },
     assistantMessageId: 'assistant-1',
     assistantContent: '',
     blocks: [],

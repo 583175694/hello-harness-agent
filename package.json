@@ -23,7 +23,8 @@
     "db:generate": "pnpm --filter @harness/api db:generate",
     "db:migrate": "pnpm --filter @harness/api db:migrate",
     "db:deploy": "pnpm --filter @harness/api db:deploy",
-    "db:studio": "pnpm --filter @harness/api db:studio"
+    "db:studio": "pnpm --filter @harness/api db:studio",
+    "db:reset-reasoning-cutover": "node scripts/reset-reasoning-cutover.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

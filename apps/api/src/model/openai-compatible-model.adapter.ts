@@ -5,9 +5,11 @@ import type {
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
+import type { ReasoningCapability } from '@harness/agent-protocol';
 
 import { ENV_KEYS } from '../bootstrap/env.constants';
 import { ModelAdapter } from './model-adapter';
+import { getConfiguredModel } from './model-catalog';
 import type {
   ModelMessage,
   ModelRoundEvent,
@@ -15,39 +17,84 @@ import type {
   ModelToolCall,
 } from './model-adapter';
 
+type DeepSeekDelta = { reasoning_content?: string };
+type DeepSeekAssistantMessage = ChatCompletionMessageParam & { reasoning_content?: string };
+
 @Injectable()
 export class OpenAICompatibleModelAdapter extends ModelAdapter {
   private client?: OpenAI;
+  private clientBaseUrl?: string;
 
   constructor(private readonly config: ConfigService) {
     super();
+  }
+
+  profile(model: string): {
+    provider: string;
+    reasoningFormat?: string;
+    reasoning: ReasoningCapability;
+  } {
+    const configured = getConfiguredModel(model);
+    if (!configured) throw new Error(`MODEL_UNSUPPORTED:${model}`);
+    return {
+      provider: configured.provider,
+      ...(configured.reasoningFormat ? { reasoningFormat: configured.reasoningFormat } : {}),
+      reasoning: configured.reasoning,
+    };
   }
 
   // 调用 OpenAI-compatible 流接口，并把供应商 chunk 归一化为一个 Model Round。
   // Chat Completions 没有 Content/Tool Call 共用的全局 index，因此按 Block 首次出现顺序
   // 分配 blockSequence；Tool Call 自身仍按 provider index 聚合和恢复声明顺序。
   async *streamRound(input: ModelRoundInput): AsyncIterable<ModelRoundEvent> {
-    const response = await this.getClient().chat.completions.create(
-      {
+    const profile = this.profile(input.model);
+    const configured = getConfiguredModel(input.model);
+    if (!profile.reasoning.levels.includes(input.reasoningEffort as never)) {
+      throw new Error(`REASONING_EFFORT_UNSUPPORTED:${input.model}:${input.reasoningEffort}`);
+    }
+    const request = {
         model: input.model,
         stream: true,
+        ...(configured?.request.temperature !== undefined
+          ? { temperature: configured.request.temperature }
+          : {}),
+        ...(configured?.request.maxTokens !== undefined
+          ? { max_tokens: configured.request.maxTokens }
+          : {}),
         messages: this.toProviderMessages(input.messages),
         ...(input.tools
           ? { tools: this.toProviderTools(input.tools), tool_choice: 'auto' as const }
           : {}),
-      },
+        ...(profile.provider === 'deepseek'
+          ? input.reasoningEffort === 'off'
+            ? { thinking: { type: 'disabled' } }
+            : {
+                thinking: { type: 'enabled' },
+                reasoning_effort: input.reasoningEffort,
+              }
+          : {}),
+      };
+    const response = await this.getClient(input.model).chat.completions.create(
+      request as Parameters<OpenAI['chat']['completions']['create']>[0],
       input.signal ? { signal: input.signal } : undefined,
-    );
+    ) as Awaited<ReturnType<OpenAI['chat']['completions']['create']>> & AsyncIterable<unknown>;
     const pendingCalls = new Map<number, ModelToolCall>();
     let finishReason: string | null = null;
     let nextBlockSequence = 0;
     let contentBlockSequence: number | undefined;
+    let reasoningBlockSequence: number | undefined;
 
     // 一个工具调用的名称和 JSON 参数可能跨多个 chunk，必须按 index 分组累积。
-    for await (const chunk of response) {
+    for await (const rawChunk of response) {
+      const chunk = rawChunk as import('openai/resources/chat/completions').ChatCompletionChunk;
       const choice = chunk.choices[0];
       if (!choice) continue;
       finishReason = choice.finish_reason ?? finishReason;
+      const reasoning = (choice.delta as DeepSeekDelta).reasoning_content;
+      if (reasoning) {
+        reasoningBlockSequence ??= nextBlockSequence++;
+        yield { type: 'reasoning.delta', delta: reasoning, blockSequence: reasoningBlockSequence };
+      }
       if (choice.delta.content) {
         // 同一 Round 的连续 Content Delta 永远更新同一个稳定文本 Block。
         contentBlockSequence ??= nextBlockSequence++;
@@ -83,9 +130,16 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
 
   // 执行一次非流式文本生成，供标题等轻量任务复用。
   async generateText(model: string, messages: ModelMessage[]): Promise<string> {
-    const response = await this.getClient().chat.completions.create({
+    const configured = getConfiguredModel(model);
+    const response = await this.getClient(model).chat.completions.create({
       model,
       messages: this.toProviderMessages(messages),
+      ...(configured?.request.temperature !== undefined
+        ? { temperature: configured.request.temperature }
+        : {}),
+      ...(configured?.request.maxTokens !== undefined
+        ? { max_tokens: configured.request.maxTokens }
+        : {}),
     });
     return response.choices[0]?.message.content ?? '';
   }
@@ -100,12 +154,13 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         return {
           role: 'assistant',
           content: message.content,
+          ...(message.reasoning ? { reasoning_content: message.reasoning } : {}),
           tool_calls: message.toolCalls?.map((call) => ({
             id: call.id,
             type: 'function' as const,
             function: { name: call.name, arguments: call.arguments },
           })),
-        };
+        } as DeepSeekAssistantMessage;
       }
       return { role: message.role, content: message.content };
     });
@@ -120,12 +175,15 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
   }
 
   // 延迟创建客户端，保证未配置模型时 API 仍可启动并返回明确错误。
-  private getClient(): OpenAI {
-    if (!this.client) {
+  private getClient(model?: string): OpenAI {
+    const configured = model ? getConfiguredModel(model) : undefined;
+    const baseUrl = configured?.baseUrl ?? 'https://api.openai.com/v1';
+    if (!this.client || (this.clientBaseUrl && this.clientBaseUrl !== baseUrl)) {
       this.client = new OpenAI({
         apiKey: this.config.getOrThrow<string>(ENV_KEYS.openAiApiKey),
-        baseURL: this.config.get<string>(ENV_KEYS.openAiBaseUrl) || undefined,
+        baseURL: baseUrl,
       });
+      this.clientBaseUrl = baseUrl;
     }
     return this.client;
   }

@@ -1196,7 +1196,7 @@ function PersistentAgentApp({
   const hasWorkbench = Boolean(uiState.workbench?.open);
 
   return (
-    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-canvas text-text-primary">
+    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-sidebar text-text-primary">
       <Sidebar
         serviceState={serviceState}
         serviceLabel=""
@@ -1219,7 +1219,7 @@ function PersistentAgentApp({
           onClick={() => setMobileNavOpen(false)}
         />
       ) : null}
-      <main className="main-shell flex h-screen min-h-0 min-w-0 flex-col overflow-hidden bg-surface">
+      <main className="main-shell flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface m-2 rounded-xl">
         <header className="topbar flex items-center bg-surface text-text-primary">
           <button
             className="icon-button open-mobile-nav"
@@ -1640,7 +1640,7 @@ function Sidebar({
 
   return (
     <>
-      <aside className={`session-sidebar flex h-screen min-h-screen min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar ${mobileNavOpen ? 'session-sidebar--open' : ''}`}>
+      <aside className={`session-sidebar flex h-screen min-h-screen min-w-0 flex-col overflow-hidden bg-sidebar ${mobileNavOpen ? 'session-sidebar--open' : ''}`}>
         <div className="brand-row flex items-center gap-2.5 px-2 pb-7 pr-[22px]">
           <div className="brand-mark grid h-8 w-8 place-items-center rounded-[9px] border border-accent bg-accent text-white" aria-hidden="true">
             H

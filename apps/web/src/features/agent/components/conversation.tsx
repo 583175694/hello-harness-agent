@@ -192,14 +192,14 @@ export function Conversation({
     <section className="conversation flex min-h-0 min-w-0 flex-col bg-surface text-text-primary" aria-label="对话">
       <div className="conversation-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto" ref={scrollRef} onScroll={handleConversationScroll}>
         {state.conversation.length === 0 ? (
-          <div className="conversation-empty">
-            <div className="empty-icon">
+          <div className="conversation-empty flex min-h-[500px] flex-col items-center justify-center gap-3 text-text-muted">
+            <div className="empty-icon grid h-[50px] w-[50px] place-items-center rounded-xl border border-border bg-surface-subtle text-text-secondary">
               <Sparkles size={22} />
             </div>
-            <h1>今天想完成什么任务？</h1>
+            <h1 className="m-0 text-[19px] font-semibold text-text-primary">今天想完成什么任务？</h1>
           </div>
         ) : (
-          <div className="message-list">
+          <div className="message-list mx-auto w-[min(820px,calc(100%-72px))] py-[34px] pb-[22px] max-[1180px]:w-[min(760px,calc(100%-48px))] max-[900px]:w-[min(720px,calc(100%-36px))] max-[720px]:w-[calc(100%-24px)]">
             {state.conversation.map((item) =>
               item.kind === 'user' ? (
                 <UserMessage key={item.id} item={item} />
@@ -210,7 +210,7 @@ export function Conversation({
           </div>
         )}
       </div>
-      <div className="composer-area border-border bg-surface">
+      <div className="composer-area mx-auto w-[min(820px,calc(100%-72px))] bg-surface pb-6 max-[1180px]:w-[min(760px,calc(100%-48px))] max-[900px]:w-[min(720px,calc(100%-36px))] max-[720px]:w-[calc(100%-24px)]">
         {error ? (
           <div className="error-notice" role="alert">
             <CircleAlert size={17} />
@@ -333,7 +333,7 @@ export function Composer({
           ? AGENT_UI_COPY.composerPlaceholders.disabled
           : AGENT_UI_COPY.composerPlaceholders.newRun;
   return (
-    <form className="composer overflow-hidden rounded-[10px] border border-border bg-surface shadow-[0_5px_18px_rgb(0_0_0_/_5%)]" onSubmit={onSubmit}>
+    <form className="composer overflow-hidden rounded-[14px] border border-[var(--theme-composer-border)] bg-surface shadow-[0_8px_24px_rgb(0_0_0_/_3%)]" onSubmit={onSubmit}>
       {submitting ? (
         <div className="composer-running-status" role="status" aria-live="polite">
           <span className="activity-bars" aria-hidden="true">

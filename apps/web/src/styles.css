@@ -68,30 +68,6 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
-.app-shell {
-  display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
-  height: 100vh;
-  min-height: 100vh;
-  min-width: 0;
-  overflow: hidden;
-}
-.session-sidebar {
-  display: flex;
-  height: 100vh;
-  min-height: 100vh;
-  min-width: 0;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 22px 0 16px 14px;
-  background: var(--theme-sidebar);
-}
-.brand-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 22px 27px 8px;
-}
 .brand-mark {
   display: grid;
   width: 32px;
@@ -151,23 +127,6 @@ textarea:focus-visible {
   width: 26px;
   height: 26px;
 }
-.session-item {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 8px 36px 8px 10px;
-  border: transparent;
-  border-radius: 12px;
-  color: var(--theme-text-primary);
-  text-align: left;
-  background: transparent;
-  transition:
-    border-color 120ms ease,
-    background-color 120ms ease;
-  margin-bottom: 2px;
-}
 .session-list {
   min-height: 0;
   flex: 1;
@@ -191,7 +150,7 @@ textarea:focus-visible {
 .session-actions {
   position: absolute;
   top: 50%;
-  right: 5px;
+  right: 9px;
   z-index: 4;
   transform: translateY(-50%);
 }
@@ -202,26 +161,17 @@ textarea:focus-visible {
     opacity 120ms ease,
     background-color 120ms ease;
 }
+.session-more:hover,
+.session-more:focus-visible,
+.session-more[aria-expanded='true'] {
+  border-color: transparent;
+  background: var(--theme-session-action-hover);
+}
 .session-row:hover .session-more,
 .session-row:focus-within .session-more,
 .session-item.is-active + .session-actions .session-more,
 .session-more[aria-expanded='true'] {
   opacity: 1;
-}
-.session-item:hover,
-.session-item.is-active {
-  border-color: transparent;
-  background: var(--theme-surface);
-}
-.session-item__title {
-  display: block;
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  font-weight: 400;
 }
 .session-activity {
   flex: 0 0 auto;
@@ -248,7 +198,7 @@ textarea:focus-visible {
   padding: 0 9px;
   border: 0;
   border-radius: 6px;
-  color: #333;
+  color: var(--theme-text-primary);
   background: transparent;
   text-align: left;
   font-size: 12px;
@@ -260,7 +210,7 @@ textarea:focus-visible {
 .session-menu__separator {
   height: 1px;
   margin: 4px 5px;
-  background: #e7e7e4;
+  background: var(--theme-border-subtle);
 }
 .session-menu .session-menu__danger {
   color: #984b41;
@@ -409,34 +359,6 @@ textarea:focus-visible {
   display: none;
 }
 
-.main-shell {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--theme-surface);
-}
-.topbar {
-  display: flex;
-  min-height: 66px;
-  align-items: center;
-  gap: 10px;
-  padding: 0 26px;
-  background: var(--theme-surface);
-}
-.task-title {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 10px;
-}
-.task-title__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 16px;
-}
 .task-title__meta {
   color: #898986;
   font-size: 13px;
@@ -458,49 +380,12 @@ textarea:focus-visible {
 .workbench-grid.without-workbench {
   grid-template-columns: minmax(0, 1fr) 0;
 }
-.conversation {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  flex-direction: column;
-  background: var(--theme-surface);
-}
 .conversation-scroll {
   min-height: 0;
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
   overflow-anchor: none;
-}
-.conversation-empty {
-  display: flex;
-  min-height: 500px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: #8b8b87;
-}
-.empty-icon {
-  display: grid;
-  width: 50px;
-  height: 50px;
-  place-items: center;
-  border: 1px solid var(--theme-border);
-  border-radius: 12px;
-  color: var(--theme-text-secondary);
-  background: var(--theme-surface-subtle);
-}
-.conversation-empty h1 {
-  margin: 0;
-  color: #333;
-  font-size: 19px;
-  font-weight: 650;
-}
-.conversation-empty p {
-  margin: 0;
-  color: #90908c;
-  font-size: 14px;
 }
 .message-list {
   width: min(820px, calc(100% - 72px));
@@ -955,11 +840,6 @@ textarea:focus-visible {
     opacity: 0.7;
   }
 }
-.composer-area {
-  width: min(820px, calc(100% - 72px));
-  margin: 0 auto;
-  padding: 0 0 24px;
-}
 .error-notice {
   display: flex;
   align-items: center;
@@ -974,13 +854,6 @@ textarea:focus-visible {
 }
 .error-notice span {
   flex: 1;
-}
-.composer {
-  overflow: hidden;
-  border: 1px solid #cfcfcb;
-  border-radius: 10px;
-  background: var(--theme-surface);
-  box-shadow: 0 5px 18px rgb(0 0 0 / 5%);
 }
 .composer-running-status {
   display: flex;
@@ -1777,24 +1650,13 @@ textarea:focus-visible {
 }
 
 @media (max-width: 1180px) {
-  .app-shell {
-    grid-template-columns: 224px minmax(0, 1fr);
-  }
   .workbench-grid {
     --workbench-width: clamp(480px, 43%, 640px);
-  }
-  .message-list,
-  .composer-area {
-    width: min(760px, calc(100% - 48px));
   }
 }
 @media (max-width: 900px) {
   .workbench-grid {
     --workbench-width: clamp(430px, 46%, 520px);
-  }
-  .message-list,
-  .composer-area {
-    width: min(720px, calc(100% - 36px));
   }
 }
 @media (max-width: 720px) {
@@ -1804,23 +1666,6 @@ textarea:focus-visible {
     height: auto;
     min-height: 100%;
     overflow: auto;
-  }
-  .app-shell {
-    display: block;
-    height: auto;
-    min-height: 100vh;
-    overflow: visible;
-  }
-  .session-sidebar {
-    position: fixed;
-    z-index: 20;
-    inset: 0 auto 0 0;
-    width: min(286px, 86vw);
-    transform: translateX(-102%);
-    transition: transform 160ms ease;
-  }
-  .session-sidebar--open {
-    transform: translateX(0);
   }
   .close-mobile-nav,
   .open-mobile-nav {
@@ -1837,16 +1682,6 @@ textarea:focus-visible {
     border: 0;
     background: rgb(0 0 0 / 32%);
   }
-  .topbar {
-    min-height: 62px;
-    padding: 0 16px;
-  }
-  .task-title {
-    min-width: 0;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-  }
   .workbench-grid.has-workbench {
     display: flex;
     flex: none;
@@ -1854,11 +1689,6 @@ textarea:focus-visible {
     min-height: calc(100vh - 62px);
     overflow: visible;
     animation: none;
-  }
-  .main-shell {
-    height: auto;
-    min-height: 100vh;
-    overflow: visible;
   }
   .conversation-scroll {
     flex: none;
@@ -1869,10 +1699,6 @@ textarea:focus-visible {
     border-top: 1px solid var(--theme-border);
     border-left: 0;
     transition: none;
-  }
-  .message-list,
-  .composer-area {
-    width: calc(100% - 24px);
   }
   .preview-switcher {
     position: static;

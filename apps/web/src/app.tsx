@@ -1196,7 +1196,7 @@ function PersistentAgentApp({
   const hasWorkbench = Boolean(uiState.workbench?.open);
 
   return (
-    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-sidebar text-text-primary">
+    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-sidebar text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
       <Sidebar
         serviceState={serviceState}
         serviceLabel=""
@@ -1219,8 +1219,8 @@ function PersistentAgentApp({
           onClick={() => setMobileNavOpen(false)}
         />
       ) : null}
-      <main className="main-shell flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface m-2 rounded-xl">
-        <header className="topbar flex items-center bg-surface text-text-primary">
+      <main className="main-shell m-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl bg-surface">
+        <header className="topbar flex min-h-[66px] items-center gap-2.5 bg-surface px-[26px] text-text-primary max-[720px]:min-h-[62px] max-[720px]:px-4">
           <button
             className="icon-button open-mobile-nav"
             type="button"
@@ -1230,8 +1230,8 @@ function PersistentAgentApp({
           >
             <Menu size={18} />
           </button>
-          <div className="task-title">
-            <span className="task-title__label">{uiState.label}</span>
+          <div className="task-title flex min-w-0 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
+            <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-base">{uiState.label}</span>
           </div>
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         </header>
@@ -1434,7 +1434,7 @@ export function AppShell({
   const serviceLabel = SERVICE_STATE_LABELS[serviceState];
   const hasWorkbench = Boolean(uiState.workbench?.open);
   return (
-    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-canvas text-text-primary">
+    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-canvas text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
       <Sidebar
         serviceState={serviceState}
         serviceLabel={serviceLabel}
@@ -1449,8 +1449,8 @@ export function AppShell({
           onClick={() => setMobileNavOpen(false)}
         />
       ) : null}
-      <main className="main-shell flex h-screen min-h-0 min-w-0 flex-col overflow-hidden bg-surface">
-        <header className="topbar flex items-center bg-surface text-text-primary">
+      <main className="main-shell flex h-screen min-h-0 min-w-0 flex-col overflow-hidden bg-surface max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
+        <header className="topbar flex min-h-[66px] items-center gap-2.5 bg-surface px-[26px] text-text-primary max-[720px]:min-h-[62px] max-[720px]:px-4">
           <button
             className="icon-button open-mobile-nav"
             type="button"
@@ -1460,8 +1460,8 @@ export function AppShell({
           >
             <Menu size={18} />
           </button>
-          <div className="task-title">
-            <span className="task-title__label">{uiState.label}</span>
+          <div className="task-title flex min-w-0 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
+            <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-base">{uiState.label}</span>
             {uiState.subtitle ? <span className="task-title__meta">{uiState.subtitle}</span> : null}
           </div>
           <ThemeToggle theme={activeTheme} onToggle={toggleTheme} />
@@ -1640,7 +1640,7 @@ function Sidebar({
 
   return (
     <>
-      <aside className={`session-sidebar flex h-screen min-h-screen min-w-0 flex-col overflow-hidden bg-sidebar ${mobileNavOpen ? 'session-sidebar--open' : ''}`}>
+      <aside className={`session-sidebar flex h-screen min-h-screen min-w-0 flex-col overflow-hidden bg-sidebar p-[22px_0_16px_14px] max-[720px]:fixed max-[720px]:inset-y-0 max-[720px]:left-0 max-[720px]:z-20 max-[720px]:w-[min(286px,86vw)] max-[720px]:-translate-x-[102%] max-[720px]:transition-transform ${mobileNavOpen ? 'session-sidebar--open max-[720px]:translate-x-0' : ''}`}>
         <div className="brand-row flex items-center gap-2.5 px-2 pb-7 pr-[22px]">
           <div className="brand-mark grid h-8 w-8 place-items-center rounded-[9px] border border-accent bg-accent text-white" aria-hidden="true">
             H
@@ -1674,8 +1674,8 @@ function Sidebar({
         <div className="session-list min-h-0 flex-1 overflow-y-auto pr-1.5 pb-[140px]">
           {sessions && selectedSessionId === null ? (
             <div className="session-row">
-                <button className="session-item is-active flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 py-2 text-left text-text-primary">
-                <span className="session-item__title">{AGENT_UI_COPY.defaultSessionTitle}</span>
+                <button className="session-item is-active mb-0.5 flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-transparent bg-surface-hover px-2.5 py-2 pr-12 text-left text-text-primary transition-colors hover:bg-surface-hover">
+                  <span className="session-item__title min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-normal">{AGENT_UI_COPY.defaultSessionTitle}</span>
               </button>
             </div>
           ) : null}
@@ -1683,7 +1683,7 @@ function Sidebar({
             sessions.map((session) => (
               <div className="session-row" key={session.id}>
                 <button
-                  className={`session-item flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-transparent px-2.5 py-2 text-left text-text-primary ${selectedSessionId === session.id ? 'is-active' : ''}`}
+                  className={`session-item mb-0.5 flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-transparent px-2.5 py-2 pr-12 text-left text-text-primary transition-colors hover:bg-surface-hover ${selectedSessionId === session.id ? 'is-active bg-surface-hover' : ''}`}
                   type="button"
                   onClick={() => onSelect?.(session.id)}
                   aria-label={
@@ -1697,7 +1697,7 @@ function Sidebar({
                       <i />
                     </span>
                   ) : null}
-                  <span className="session-item__title">{session.title}</span>
+                  <span className="session-item__title min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-normal">{session.title}</span>
                 </button>
                 <div className="session-actions">
                   <button
@@ -1716,8 +1716,8 @@ function Sidebar({
             ))
           ) : (
             <>
-              <button className="session-item is-active flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 py-2 text-left text-text-primary" type="button">
-                <span className="session-item__title">{AGENT_UI_COPY.defaultSessionTitle}</span>
+              <button className="session-item is-active mb-0.5 flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-transparent bg-surface-hover px-2.5 py-2 pr-12 text-left text-text-primary transition-colors hover:bg-surface-hover" type="button">
+                <span className="session-item__title min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-normal">{AGENT_UI_COPY.defaultSessionTitle}</span>
               </button>
               <div className="sidebar-section mt-6 flex items-center justify-between px-2 pb-2 pr-[22px] text-xs font-bold uppercase tracking-[0.08em] text-text-muted">
                 <span>最近使用</span>

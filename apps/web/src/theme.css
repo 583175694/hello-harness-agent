@@ -39,6 +39,8 @@
   --theme-text-disabled: #a0a09c;
   --theme-border: #dededb;
   --theme-border-subtle: #e6e6e2;
+  --theme-composer-border: #ededeb;
+  --theme-session-action-hover: #eeeeeb;
   --theme-accent: #171717;
   --theme-danger: #984b41;
   --theme-warning: #8b6a3e;
@@ -58,6 +60,8 @@
   --theme-text-disabled: rgb(255 255 255 / 24%);
   --theme-border: #2b2b2b;
   --theme-border-subtle: #222222;
+  --theme-composer-border: #383838;
+  --theme-session-action-hover: #242424;
   --theme-accent: #d8d8d8;
   --theme-danger: #e28d85;
   --theme-warning: #c9a06b;
@@ -93,7 +97,7 @@
 
 :root[data-theme='dark'] .composer,
 :root[data-theme='dark'] .rename-dialog input {
-  border-color: #383838;
+  border-color: var(--theme-composer-border);
 }
 
 :root[data-theme='dark'] .composer:focus-within,
@@ -110,8 +114,8 @@
 }
 
 :root[data-theme='dark'] .session-item:hover {
-  border-color: #262626;
-  background: #1b1b1b;
+  border-color: transparent;
+  background: #292929;
 }
 
 :root[data-theme='dark'] .session-item.is-active {
@@ -121,6 +125,19 @@
 
 :root[data-theme='dark'] .session-item.is-active .session-item__title {
   color: var(--theme-text-primary);
+}
+
+:root[data-theme='dark'] .session-more {
+  color: var(--theme-text-secondary);
+}
+
+:root[data-theme='dark'] .session-more:hover,
+:root[data-theme='dark'] .session-more:focus-visible {
+  color: var(--theme-text-primary);
+}
+
+:root[data-theme='dark'] .session-menu .session-menu__danger {
+  color: var(--theme-danger);
 }
 
 :root[data-theme='dark'] .markdown-content :not(pre) > code {

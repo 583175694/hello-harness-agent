@@ -41,4 +41,51 @@ describe('MarkdownContent', () => {
     expect(container.firstChild).toHaveClass('markdown-content--report');
     expect(container.querySelector('pre > code')).toHaveTextContent('const result = true;');
   });
+
+  it('renders the supported Markdown elements with semantic HTML', () => {
+    const markdown = `# 一级标题
+
+## 二级标题
+
+普通文本包含 **粗体**、*斜体*、~~删除线~~、\`行内代码\`和[链接](https://example.com)。
+
+> 引用内容
+
+- 无序项
+  - 嵌套无序项
+
+1. 有序项
+   1. 嵌套有序项
+
+- [x] 已完成
+- [ ] 未完成
+
+---
+
+| 名称 | 状态 |
+| --- | --- |
+| Markdown | 正常 |
+
+![示例图片](https://example.com/example.png "示例标题")
+
+\`\`\`ts
+const ok = true;
+\`\`\``;
+
+    const { container } = render(<MarkdownContent>{markdown}</MarkdownContent>);
+
+    expect(screen.getByRole('heading', { level: 1, name: '一级标题' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: '二级标题' })).toBeInTheDocument();
+    expect(container.querySelector('strong')).toHaveTextContent('粗体');
+    expect(container.querySelector('em')).toHaveTextContent('斜体');
+    expect(container.querySelector('del')).toHaveTextContent('删除线');
+    expect(container.querySelector('blockquote')).toHaveTextContent('引用内容');
+    expect(container.querySelector('ul > li > ul > li')).toHaveTextContent('嵌套无序项');
+    expect(container.querySelector('ol > li > ol > li')).toHaveTextContent('嵌套有序项');
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2);
+    expect(container.querySelector('hr')).toBeInTheDocument();
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: '示例图片' })).toHaveAttribute('title', '示例标题');
+    expect(container.querySelector('pre > code.language-ts')).toHaveTextContent('const ok = true;');
+  });
 });

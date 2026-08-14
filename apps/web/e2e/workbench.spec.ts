@@ -18,6 +18,37 @@ test('renders the running search fixture and workbench sources', async ({ page }
   await expect(page.getByRole('navigation', { name: '预览状态' })).toBeVisible();
 });
 
+test('renders Markdown lists and the core content components', async ({ page }) => {
+  await page.goto('/agent/preview?state=direct-answer');
+
+  const markdown = page.locator('.assistant-content .markdown-content');
+  await expect(markdown.getByRole('heading', { name: 'Markdown 组件检查' })).toBeVisible();
+  await expect(markdown.getByRole('blockquote')).toContainText('人工复核');
+  await expect(markdown.getByRole('table')).toBeVisible();
+  await expect(markdown.locator('pre > code.language-ts')).toContainText('Hello, Markdown');
+  await expect(markdown.getByRole('checkbox')).toHaveCount(2);
+
+  const listStyles = await markdown.evaluate((root) => {
+    const unordered = root.querySelector('ul:not(.contains-task-list)');
+    const ordered = root.querySelector('ol');
+    const nestedUnordered = unordered?.querySelector('ul');
+    const nestedOrdered = ordered?.querySelector('ol');
+    return {
+      unordered: unordered ? getComputedStyle(unordered).listStyleType : null,
+      ordered: ordered ? getComputedStyle(ordered).listStyleType : null,
+      nestedUnordered: nestedUnordered ? getComputedStyle(nestedUnordered).listStyleType : null,
+      nestedOrdered: nestedOrdered ? getComputedStyle(nestedOrdered).listStyleType : null,
+    };
+  });
+
+  expect(listStyles).toEqual({
+    unordered: 'disc',
+    ordered: 'decimal',
+    nestedUnordered: 'circle',
+    nestedOrdered: 'lower-alpha',
+  });
+});
+
 test('opens and focuses the workbench from a conversation tool call', async ({ page }) => {
   await page.goto('/agent/preview?state=tool-running');
   await expect(page.getByRole('complementary', { name: '工作区' })).toHaveCount(0);

@@ -95,25 +95,13 @@ pnpm test:integration  # API/PostgreSQL integration tests
 pnpm test:e2e          # desktop/mobile browser tests
 pnpm eval:research      # 串行运行 6 题真实联网 Smoke 评测
 pnpm eval:research:full # 串行运行 24 题真实联网 Full 评测
-pnpm db:local:init     # 初始化本地 harness 用户和数据库
-pnpm db:migrate        # 开发期创建并应用 Prisma migration
-pnpm db:reset-reasoning-cutover # 临时：预览 Reasoning 断代升级将清理的数据
+pnpm setup             # 首次准备本地数据库、应用 migration 并生成 Prisma Client
+pnpm db:update         # 拉取数据库变更后应用 migration 并生成 Prisma Client
+pnpm db:migrate        # 仅在修改 schema.prisma 时创建开发 migration
 pnpm db:studio         # 打开 Prisma Studio
 ```
 
-Reasoning Transcript 断代升级期间，家里和公司数据库分别先停止应用并执行：
-
-```bash
-pnpm db:reset-reasoning-cutover
-pnpm db:reset-reasoning-cutover -- --execute --confirm=harness
-pnpm db:migrate
-pnpm db:generate
-```
-
-第二条命令中的数据库名必须与脚本 dry-run 输出一致。脚本只允许本机数据库，并保留
-`users`；两个环境完成后删除临时脚本和对应 package 命令。
-
-PostgreSQL 使用本机服务，Web 和 API 通过 pnpm 在宿主机运行。首次初始化会创建或更新 `.env` 中配置的 PostgreSQL 用户和数据库；停止或重启数据库由本机 PostgreSQL 服务管理。API、数据库端口和连接字符串从 `.env` 读取；修改 Web 端口时还需同步 `apps/web/package.json`、Playwright 配置和 `WEB_ORIGIN`。
+日常只需要在首次安装时运行 `pnpm setup`，拉取到新的 Prisma migration 后运行 `pnpm db:update`。`db:local:init`、`db:deploy` 和 `db:generate` 作为底层排障命令继续保留。PostgreSQL 使用本机服务，Web 和 API 通过 pnpm 在宿主机运行。首次初始化会创建或更新 `.env` 中配置的 PostgreSQL 用户和数据库；停止或重启数据库由本机 PostgreSQL 服务管理。API、数据库端口和连接字符串从 `.env` 读取；修改 Web 端口时还需同步 `apps/web/package.json`、Playwright 配置和 `WEB_ORIGIN`。
 
 ## 工程结构
 

@@ -19,12 +19,13 @@
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "setup": "pnpm db:local:init && pnpm db:update",
+    "db:update": "pnpm db:deploy && pnpm db:generate",
     "db:local:init": "node scripts/setup-local-postgres.mjs",
     "db:generate": "pnpm --filter @harness/api db:generate",
     "db:migrate": "pnpm --filter @harness/api db:migrate",
     "db:deploy": "pnpm --filter @harness/api db:deploy",
-    "db:studio": "pnpm --filter @harness/api db:studio",
-    "db:reset-reasoning-cutover": "node scripts/reset-reasoning-cutover.mjs"
+    "db:studio": "pnpm --filter @harness/api db:studio"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

@@ -113,7 +113,11 @@ describe('ChatService session persistence', () => {
         roundSequence: 1,
         blockSequence: 0,
       }),
-      { type: 'message.completed', messageId: prepared.assistantMessageId, model: 'deepseek-v4-pro' },
+      {
+        type: 'message.completed',
+        messageId: prepared.assistantMessageId,
+        model: 'deepseek-v4-pro',
+      },
     ]);
     expect(providerCreate).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'deepseek-v4-pro', reasoning_effort: 'max' }),
@@ -165,11 +169,63 @@ describe('ChatService session persistence', () => {
     expect(messageCreate).toHaveBeenCalledTimes(1);
   });
 
+  it('replays reasoning only for historical assistant tool-call messages', async () => {
+    const providerCreate = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { choices: [{ delta: { content: '新回答' }, finish_reason: 'stop' }] };
+      })(),
+    );
+    const { service } = makeService(providerCreate);
+    const prepared = await service.prepareSessionStream('session-1', 'new question');
+    prepared.reasoningEffort = 'off';
+    prepared.messages = [
+      { role: 'user', content: '问题一' },
+      { role: 'assistant', content: '普通回答', reasoning: '不应回放的最终推理' },
+      {
+        role: 'assistant',
+        content: '我先搜索。',
+        reasoning: '必须回放的工具推理',
+        toolCalls: [
+          {
+            id: 'call-1',
+            name: 'web_search',
+            arguments: '{"query":"test"}',
+            blockSequence: 1,
+            providerIndex: 0,
+          },
+        ],
+      },
+      { role: 'tool', toolCallId: 'call-1', content: '{"ok":true}' },
+      { role: 'user', content: '问题二' },
+    ];
+
+    await collect(service.streamPrepared(prepared, undefined, { persistFinal: false }));
+
+    const request = providerCreate.mock.calls[0]?.[0] as {
+      thinking: { type: string };
+      messages: Array<{ role: string; content: string | null; reasoning_content?: string }>;
+    };
+    expect(request.thinking).toEqual({ type: 'disabled' });
+    expect(request.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ content: '普通回答' }),
+        expect.objectContaining({
+          content: '我先搜索。',
+          reasoning_content: '必须回放的工具推理',
+        }),
+      ]),
+    );
+    expect(
+      request.messages.find((message) => message.content === '普通回答')?.reasoning_content,
+    ).toBeUndefined();
+  });
+
   it('executes a streamed tool call and persists its recoverable snapshot', async () => {
     const providerCreate = vi
       .fn()
       .mockResolvedValueOnce(
         (async function* () {
+          yield { choices: [{ delta: { reasoning_content: '搜索推理' } }] };
           yield { choices: [{ delta: { content: '我先检索。' } }] };
           yield {
             choices: [
@@ -202,7 +258,8 @@ describe('ChatService session persistence', () => {
       )
       .mockResolvedValueOnce(
         (async function* () {
-          yield { choices: [{ delta: { content: '检索完成：https://example.com/' } }] };
+          yield { choices: [{ delta: { reasoning_content: '最终推理' } }] };
+          yield { choices: [{ delta: { content: '检索完成。' } }] };
           yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
         })(),
       );
@@ -230,19 +287,42 @@ describe('ChatService session persistence', () => {
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'search the web');
+    const onTranscriptItem = vi.fn();
+    prepared.onTranscriptItem = onTranscriptItem;
     const events = await collect(service.streamPrepared(prepared));
 
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: 'tool.started', toolCallId: 'call-search' }),
         expect.objectContaining({ type: 'tool.completed', result: toolResult }),
-        expect.objectContaining({ type: 'message.delta', delta: '检索完成：https://example.com/' }),
+        expect.objectContaining({ type: 'message.delta', delta: '检索完成。' }),
       ]),
     );
     expect(providerCreate).toHaveBeenCalledTimes(2);
+    expect(events.some((event) => (event as { type?: string }).type === 'reasoning.delta')).toBe(
+      false,
+    );
+    expect(onTranscriptItem).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        role: 'assistant',
+        content: '我先检索。',
+        reasoning: '搜索推理',
+        toolCalls: [expect.objectContaining({ id: 'call-search' })],
+      }),
+    );
+    const finalTranscript = onTranscriptItem.mock.calls.at(-1)?.[0] as {
+      role: string;
+      content: string;
+      reasoning: string;
+    };
+    expect(finalTranscript).toMatchObject({ role: 'assistant', reasoning: '最终推理' });
+    expect(finalTranscript.content).toContain('检索完成。');
+    expect(finalTranscript.content).toContain('https://example.com/');
+    expect(finalTranscript.content).not.toContain('我先检索。');
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
       data: {
-        content: '我先检索。检索完成：https://example.com/',
+        content: expect.stringContaining('我先检索。检索完成。'),
         metadata: {
           model: DEFAULT_MODEL_ID,
           blocks: [

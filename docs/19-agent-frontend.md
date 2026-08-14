@@ -41,7 +41,7 @@ Playwright
 |----------|---------------------------------------|---------------------------------------|
 | New      | User goal                             | [Activity] [Sources] [Report] [Debug] |
 | session  | Clarification / steer                 | Selected/current execution            |
-| history  | Ordered reasoning / text / tool blocks| Evidence/source list                  |
+| history  | Ordered text / tool activity blocks   | Evidence/source list                  |
 |          | Final delivery message                | Markdown report preview               |
 |          | Composer                              |                                       |
 +--------------------------------------------------------------------------------+
@@ -114,7 +114,7 @@ terminal
 - 模型只支持开关而不支持强度时，UI 禁用不可表达的档位并给出简短 tooltip。
 - 模型不支持 reasoning 控制时隐藏或禁用菜单，不伪造支持。
 - 档位和默认值只从 Public Config capability 获取，不根据模型名称硬编码。
-- `off` 不展示空的 reasoning 区域。
+- raw reasoning 不进入普通 Conversation；`off` 也不创建任何 reasoning 展示区域。
 - 键盘、移动端和窄屏下菜单不能遮挡输入框或发送按钮。
 - 打开旧 Session 时若当前模型无法兼容历史 reasoning，Composer 禁止发送并显示“当前模型无法继续此会话”，提供新建 Session 的明确入口。
 
@@ -141,7 +141,7 @@ R1 不显示逐任务外部发送确认：部署者配置相应 API Key 后，�
 
 ### Inline Tool Activity
 
-Conversation 不展示独立 RunCard。一个 assistant turn 由有序 `reasoning`、`text` 和 `tool_activity` 内容块组成，思考与工具调用按真实时间位置穿插，不得展示 raw event/provider payload。
+Conversation 不展示独立 RunCard，也不展示 raw reasoning。一个 assistant turn 由有序 `text` 和 `tool_activity` 内容块组成，工具轮前言与工具调用按真实时间位置穿插，不得按类型拆成“执行区”和“回答区”，也不得展示 raw event/provider payload。
 
 交互边界：
 
@@ -149,8 +149,8 @@ Conversation 不展示独立 RunCard。一个 assistant turn 由有序 `reasonin
 - 点击 Activity 按 `runId/stepId/toolCallId` 打开并定位 Workbench。
 - running、completed、failed、cancelled 均同时显示图标和文字，不只依赖颜色。
 - 连续文本 delta 合并为一个 text block；被 Activity 打断后的文本创建新 block。
-- 连续 reasoning delta 合并为独立 reasoning block；reasoning 默认可折叠，展开后展示已交付的完整 canonical 内容。
-- “正在思考”loading 状态不得伪装成真实 reasoning；只有收到 reasoning delta 后才创建 reasoning block。
+- 工具轮 `content` 在流式阶段作为普通 text 原位显示；Round 完成并出现 Tool Call 后仍留在该 Tool Activity 之前，不移动到最终回答区。
+- 首版不折叠 text 或 Tool Activity；未来只允许以完整工具轮次为单位折叠。
 - 成功完成后刷新仍恢复完全相同的穿插顺序；未完成时间线当前不承诺跨刷新恢复。
 - 下一轮模型上下文从 durable canonical transcript 恢复，不从 Conversation blocks 反向拼装；Tool Activity 的 UI 文案仍不进入模型消息。
 

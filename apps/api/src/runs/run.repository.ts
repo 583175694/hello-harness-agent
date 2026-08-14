@@ -77,6 +77,9 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
               }),
             ]
           : []),
+        this.prisma.modelTranscriptItem.deleteMany({
+          where: { runId: run.id, state: 'active' },
+        }),
       ]);
     }
   }
@@ -215,7 +218,9 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       profile: {
         provider: run.provider,
         model: run.model,
-        reasoningEffort: run.reasoningEffort as NonNullable<RunSnapshot['profile']>['reasoningEffort'],
+        reasoningEffort: run.reasoningEffort as NonNullable<
+          RunSnapshot['profile']
+        >['reasoningEffort'],
         ...(run.reasoningFormat ? { reasoningFormat: run.reasoningFormat } : {}),
       },
       assistantMessageId: run.assistantMessageId,
@@ -248,10 +253,16 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       throw new Error('MODEL_TRANSCRIPT_INTEGRITY_ERROR');
     }
     const committed = items.filter((item) => item.state === 'committed');
+    const nativeReasoningItems = committed.filter(
+      (item) =>
+        item.kind === 'assistant' &&
+        item.reasoning &&
+        Array.isArray(item.toolCalls) &&
+        item.toolCalls.length,
+    );
     if (
-      committed.some(
-        (item) =>
-          item.provider !== run.provider || item.reasoningFormat !== run.reasoningFormat,
+      nativeReasoningItems.some(
+        (item) => item.provider !== run.provider || item.reasoningFormat !== run.reasoningFormat,
       )
     ) {
       throw new Error('MODEL_TRANSCRIPT_INCOMPATIBLE');
@@ -265,9 +276,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         role: 'assistant',
         content: item.content,
         ...(item.reasoning ? { reasoning: item.reasoning } : {}),
-        ...(Array.isArray(item.toolCalls)
-          ? { toolCalls: item.toolCalls as ModelToolCall[] }
-          : {}),
+        ...(Array.isArray(item.toolCalls) ? { toolCalls: item.toolCalls as ModelToolCall[] } : {}),
       };
     });
   }
@@ -280,7 +289,12 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     for (const item of items) {
       if (item.kind === 'assistant' && Array.isArray(item.toolCalls)) {
         for (const call of item.toolCalls) {
-          if (typeof call === 'object' && call !== null && 'id' in call && typeof call.id === 'string')
+          if (
+            typeof call === 'object' &&
+            call !== null &&
+            'id' in call &&
+            typeof call.id === 'string'
+          )
             calls.add(call.id);
         }
       }

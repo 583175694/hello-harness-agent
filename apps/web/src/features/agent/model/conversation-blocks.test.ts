@@ -66,6 +66,29 @@ describe('conversation blocks reducer', () => {
     expect(blocks.map((block) => block.id)).toEqual(['preamble', 'final']);
   });
 
+  it('filters legacy reasoning blocks from restored snapshots', () => {
+    const blocks = cloneAssistantBlocks([
+      {
+        id: 'reasoning',
+        type: 'reasoning',
+        content: '内部推理',
+        roundId: 'round-1',
+        roundSequence: 1,
+        blockSequence: 0,
+      },
+      {
+        id: 'answer',
+        type: 'text',
+        content: '回答',
+        roundId: 'round-1',
+        roundSequence: 1,
+        blockSequence: 1,
+      },
+    ]);
+
+    expect(blocks).toEqual([expect.objectContaining({ id: 'answer', type: 'text' })]);
+  });
+
   it('preserves text-tool-text order and updates one tool block in place', () => {
     let blocks = appendTextDelta([], {
       type: 'message.delta',

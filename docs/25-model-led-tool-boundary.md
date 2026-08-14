@@ -54,7 +54,7 @@ Context Engineer（后续）
 - 每个 assistant run 最多 20 次模型声明的 Function Tool Call。
 - 模型单轮超时、Tool 声明超时的统一执行，以及用户取消传播。
 - Tool Call 与 Tool Message 的完整配对。
-- reasoning、Tool Call、Tool Result 的顺序、关联和完整回放。
+- reasoning、Tool Call、Tool Result 的顺序、关联，以及 Tool Call 协议单元的完整回放。
 - 工具生命周期事件、执行历史、日志和持久化交付。
 - 达到 20 次 Tool Call 后停止暴露工具，并发起一次无工具最终回答。
 - 最终回答的空内容、长度、DSML 和结构化 Tool Call 污染校验。
@@ -184,7 +184,7 @@ Source snapshot / Workbench
 - `modelContextInjected` 或“已获取、未注入模型”状态。
 - Tool Result 的选择、压缩、截断和淘汰。
 
-在 Context Engineering 前，先按 `27-reasoning-context-transcript.md` 建立完整 reasoning/tool transcript 事实源和跨轮回放。该前置阶段解决协议正确性与透明化，不做 token 预算或压缩决策。
+在 Context Engineering 前，先按 `27-reasoning-context-transcript.md` 建立完整 reasoning/tool transcript 事实源，并选择性回放 Tool Call 协议所需 reasoning。该前置阶段解决协议正确性与用户可理解的时序投影，不做 token 预算或压缩决策。
 
 当前 Tool Result 始终注入 Runtime。长会话或连续大结果可能扩大模型上下文，这是已知的阶段性限制。
 

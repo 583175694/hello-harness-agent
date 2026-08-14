@@ -53,31 +53,31 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       throw new Error(`REASONING_EFFORT_UNSUPPORTED:${input.model}:${input.reasoningEffort}`);
     }
     const request = {
-        model: input.model,
-        stream: true,
-        ...(configured?.request.temperature !== undefined
-          ? { temperature: configured.request.temperature }
-          : {}),
-        ...(configured?.request.maxTokens !== undefined
-          ? { max_tokens: configured.request.maxTokens }
-          : {}),
-        messages: this.toProviderMessages(input.messages),
-        ...(input.tools
-          ? { tools: this.toProviderTools(input.tools), tool_choice: 'auto' as const }
-          : {}),
-        ...(profile.provider === 'deepseek'
-          ? input.reasoningEffort === 'off'
-            ? { thinking: { type: 'disabled' } }
-            : {
-                thinking: { type: 'enabled' },
-                reasoning_effort: input.reasoningEffort,
-              }
-          : {}),
-      };
-    const response = await this.getClient(input.model).chat.completions.create(
+      model: input.model,
+      stream: true,
+      ...(configured?.request.temperature !== undefined
+        ? { temperature: configured.request.temperature }
+        : {}),
+      ...(configured?.request.maxTokens !== undefined
+        ? { max_tokens: configured.request.maxTokens }
+        : {}),
+      messages: this.toProviderMessages(input.messages),
+      ...(input.tools
+        ? { tools: this.toProviderTools(input.tools), tool_choice: 'auto' as const }
+        : {}),
+      ...(profile.provider === 'deepseek'
+        ? input.reasoningEffort === 'off'
+          ? { thinking: { type: 'disabled' } }
+          : {
+              thinking: { type: 'enabled' },
+              reasoning_effort: input.reasoningEffort,
+            }
+        : {}),
+    };
+    const response = (await this.getClient(input.model).chat.completions.create(
       request as Parameters<OpenAI['chat']['completions']['create']>[0],
       input.signal ? { signal: input.signal } : undefined,
-    ) as Awaited<ReturnType<OpenAI['chat']['completions']['create']>> & AsyncIterable<unknown>;
+    )) as Awaited<ReturnType<OpenAI['chat']['completions']['create']>> & AsyncIterable<unknown>;
     const pendingCalls = new Map<number, ModelToolCall>();
     let finishReason: string | null = null;
     let nextBlockSequence = 0;
@@ -154,7 +154,9 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         return {
           role: 'assistant',
           content: message.content,
-          ...(message.reasoning ? { reasoning_content: message.reasoning } : {}),
+          ...(message.reasoning && message.toolCalls?.length
+            ? { reasoning_content: message.reasoning }
+            : {}),
           tool_calls: message.toolCalls?.map((call) => ({
             id: call.id,
             type: 'function' as const,

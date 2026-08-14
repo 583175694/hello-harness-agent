@@ -501,15 +501,15 @@ Memory、Delegation、认证、远程存储和服务端重启自动续跑不是 
 
 ## 12.1 R-Reasoning: Reasoning Context Transcript
 
-目标：在 Context Engineering 前补齐 Thinking 模型协议、透明化展示和完整跨轮模型上下文。
+目标：在 Context Engineering 前补齐 Thinking 模型协议、完整工具链上下文和用户可理解的时序投影。
 
 实施范围：
 
 - Model Adapter 捕获并规范化 reasoning stream，按目标 provider/model capability 编码回请求。
 - Composer 提供无思考、轻度、中度、高度四档选择；canonical `off/low/high/max` 由 Adapter 映射到供应商参数。
 - Runtime 保持 reasoning、Tool Call、Tool Result 和 final answer 的稳定顺序与关联。
-- Shared Protocol/SSE/Conversation 增加独立 reasoning event/block，前端可折叠展示并支持刷新恢复。
-- 新增 durable canonical transcript，跨用户轮次完整回放，不再只读取最近 user/assistant 最终正文；本次断代不兼容旧 Session，旧数据由临时清库脚本删除。
+- Runtime 内部保留独立 reasoning event，普通 Conversation SSE/UI 不展示 raw reasoning；前端按时序展示 text 与 Tool Activity，首版不折叠。
+- 新增 durable canonical transcript，跨用户轮次完整回放 Tool Call 关联单元与最终正文，不回放无 Tool Call 最终 Round 的 reasoning；本次断代不兼容旧 Session，旧数据由临时清库脚本删除。
 - 同一 run 冻结 provider、model 和 thinking profile；模型切换时执行显式兼容判断。
 - Run 持久化 requested/effective reasoning effort，重试、重连和恢复不得改变档位。
 - Public Config 暴露 canonical reasoning capability，前端不按模型名称硬编码。

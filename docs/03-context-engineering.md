@@ -4,7 +4,7 @@
 
 ## 1. 当前状态
 
-当前生产 Runtime 使用数据库最近 user/assistant 最终正文和当前 assistant run 内的 Tool Message 组成模型上下文；它尚未持久化和跨用户轮次回放 reasoning、Tool Call 与 Tool Result 的完整 transcript。该缺口由 Reasoning Context Transcript 前置阶段修复。完成后，Context Engineering 以完整 canonical transcript 为输入，再实现全局 Token 预算、材料选择、压缩、淘汰、摘要和最终回答空间预留。
+当前 Runtime 已持久化 reasoning、Tool Call 与 Tool Result 的 canonical transcript；当前收敛项是只 native replay Tool Call 关联的 reasoning，并让无 Tool Call 最终 Round 只回放正文。Context Engineering 以后以完整保存、按协议选择性编译的 canonical transcript 为输入，再实现全局 Token 预算、材料选择、压缩、淘汰、摘要和最终回答空间预留。
 
 因此，以下内容都不是当前能力：
 
@@ -81,7 +81,7 @@ Reasoning 的供应商解码和编码属于 Model Adapter；reasoning、Tool Cal
 - 是否需要 context trace、included/omitted refs 和可解释淘汰原因。
 - Context 编译是纯函数、带 I/O 的加载器加纯编译器，还是其他组合。
 
-在这些决策完成前，不增加临时 observation/delivery 字段；Reasoning Context Transcript 所需的 canonical reasoning、SSE block 和 durable transcript 字段不属于临时 Context Engineering 占位，而是当前模型协议正确性所需事实。
+在这些决策完成前，不增加临时 observation/delivery 字段；Reasoning Context Transcript 所需的 canonical reasoning、Runtime 内部事件和 durable transcript 字段不属于临时 Context Engineering 占位，而是当前模型协议正确性所需事实。普通 Conversation 不需要 reasoning SSE block。
 
 ## 5. 进入实施的触发条件
 

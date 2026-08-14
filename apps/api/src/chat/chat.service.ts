@@ -169,20 +169,6 @@ export class ChatService {
         else await prepared.onTranscriptItem?.(event.message);
         continue;
       }
-      if (event.type === 'reasoning.delta') {
-        const blockId = conversation.appendReasoning(event);
-        await notifyProjection();
-        yield {
-          type: 'reasoning.delta',
-          messageId: prepared.assistantMessageId,
-          blockId,
-          delta: event.delta,
-          roundId: event.roundId,
-          roundSequence: event.roundSequence,
-          blockSequence: event.blockSequence,
-        };
-        continue;
-      }
       if (event.type === 'text.delta') {
         // 只记录首个文本增量；逐片打印 SSE delta 会淹没真正有用的链路日志。
         if (firstDeltaAt === undefined) {
@@ -398,9 +384,11 @@ export class ChatService {
       });
     let snapshot = projection.snapshot();
     const linkedContent = this.ensureSourceLinks(content, snapshot.sources);
+    let finalTranscriptSuffix = '';
     // 当前搜索协议要求结果至少带可访问链接；模型未主动输出时补充去重后的来源列表。
     if (linkedContent.length > content.length) {
       const delta = linkedContent.slice(content.length);
+      finalTranscriptSuffix = delta;
       const finalText = [...conversation.snapshot()]
         .reverse()
         .find((block) => block.type === 'text');
@@ -426,7 +414,10 @@ export class ChatService {
     projection.markUsed(content);
     snapshot = projection.snapshot();
     if (finalTranscriptMessage)
-      await prepared.onTranscriptItem?.({ ...finalTranscriptMessage, content });
+      await prepared.onTranscriptItem?.({
+        ...finalTranscriptMessage,
+        content: `${finalTranscriptMessage.content ?? ''}${finalTranscriptSuffix}`,
+      });
     await notifyProjection();
     if (options.persistFinal !== false)
       await this.delivery.save({

@@ -2,14 +2,12 @@ import type {
   AssistantContentBlock,
   AssistantTextBlock,
   AssistantToolActivityBlock,
-  AssistantReasoningBlock,
   ChatStreamEvent,
 } from '@harness/agent-protocol';
 
 import type { ToolStreamEvent } from '../../../api/client';
 
 type MessageDeltaEvent = Extract<ChatStreamEvent, { type: 'message.delta' }>;
-type ReasoningDeltaEvent = Extract<ChatStreamEvent, { type: 'reasoning.delta' }>;
 
 function compareBlockOrder(left: AssistantContentBlock, right: AssistantContentBlock): number {
   const leftRound = left.roundSequence ?? Number.MAX_SAFE_INTEGER;
@@ -71,32 +69,6 @@ export function appendTextDelta(
             ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
             ...(event.blockSequence !== undefined ? { blockSequence: event.blockSequence } : {}),
           }
-        : block,
-    ),
-  );
-}
-
-export function appendReasoningDelta(
-  blocks: AssistantContentBlock[],
-  event: ReasoningDeltaEvent,
-): AssistantContentBlock[] {
-  const index = blocks.findIndex(
-    (block) => block.id === event.blockId && block.type === 'reasoning',
-  );
-  if (index < 0) {
-    return insertOrdered(blocks, {
-      id: event.blockId,
-      type: 'reasoning',
-      content: event.delta,
-      roundId: event.roundId,
-      roundSequence: event.roundSequence,
-      blockSequence: event.blockSequence,
-    });
-  }
-  return orderAssistantBlocks(
-    blocks.map((block, blockIndex) =>
-      blockIndex === index
-        ? { ...block, content: `${(block as AssistantReasoningBlock).content}${event.delta}` }
         : block,
     ),
   );
@@ -193,9 +165,11 @@ export function flattenAssistantText(blocks: AssistantContentBlock[]): string {
 // 将持久化块复制为前端可安全更新的独立对象。
 export function cloneAssistantBlocks(blocks: AssistantContentBlock[]): AssistantContentBlock[] {
   return orderAssistantBlocks(
-    blocks.map(
-      (block) =>
-        ({ ...block }) as AssistantTextBlock | AssistantReasoningBlock | AssistantToolActivityBlock,
-    ),
+    blocks
+      .filter(
+        (block): block is AssistantTextBlock | AssistantToolActivityBlock =>
+          block.type !== 'reasoning',
+      )
+      .map((block) => ({ ...block })),
   );
 }

@@ -22,7 +22,7 @@ import {
   subscribeRun,
   updateSession,
 } from './api/client';
-import type { MessageDeltaEvent, ReasoningDeltaEvent, ToolStreamEvent } from './api/client';
+import type { MessageDeltaEvent, ToolStreamEvent } from './api/client';
 import {
   AGENT_PROTOCOL_LIMITS,
   assistantAgentMetadataSchema,
@@ -51,7 +51,6 @@ import type {
 } from './features/agent/model/types';
 import {
   appendTextDelta,
-  appendReasoningDelta,
   applyToolActivityEvent,
   cloneAssistantBlocks,
 } from './features/agent/model/conversation-blocks';
@@ -541,7 +540,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     const controller = new AbortController();
     void getPublicAgentConfig(controller.signal)
       .then((config) => {
-        const selected = config.models.find((model) => model.id === config.defaultModel) ?? config.models[0];
+        const selected =
+          config.models.find((model) => model.id === config.defaultModel) ?? config.models[0];
         setModels(config.models);
         if (selected) {
           setSelectedModel(selected.id);
@@ -701,22 +701,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       return;
     }
     if (event.type === 'reasoning.delta') {
-      const delta = event.payload as ReasoningDeltaEvent;
-      setSessionStates((current) => {
-        const target = current[sessionId];
-        if (!target) return current;
-        return {
-          ...current,
-          [sessionId]: {
-            ...target,
-            conversation: target.conversation.map((item) =>
-              item.kind === 'assistant' && item.id === delta.messageId
-                ? { ...item, blocks: appendReasoningDelta(item.blocks, delta) }
-                : item,
-            ),
-          },
-        };
-      });
+      // 协议 0.10 兼容：旧 Event Tail 中的 reasoning 只推进 cursor，不再进入用户投影。
       runSequencesRef.current[event.runId] = event.seq;
       return;
     }
@@ -994,7 +979,9 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       const state = current[sessionId];
       if (!state) return current;
       const historicalItem = state.conversation.find(
-        (item) => item.kind === 'assistant' && item.id === target.runId,
+        (item) =>
+          item.kind === 'assistant' &&
+          (item.workbench?.runId === target.runId || item.id === target.runId),
       );
       const historical =
         historicalItem?.kind === 'assistant' ? historicalItem.workbench : undefined;

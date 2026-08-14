@@ -8,6 +8,7 @@ import type { ToolRegistryService } from '../../../src/tools/tool-registry.servi
 
 type RoundEvent =
   | { type: 'text.delta'; delta: string }
+  | { type: 'reasoning.delta'; delta: string }
   | {
       type: 'tool_calls.completed';
       calls: Array<{ id: string; name: string; arguments: string }>;
@@ -65,6 +66,26 @@ function logger(): Logger {
 }
 
 describe('AgentRuntimeService model-led tool boundary', () => {
+  it('keeps reasoning in transcript items without emitting a user-facing reasoning event', async () => {
+    const model = modelFromRounds([
+      [
+        { type: 'reasoning.delta', delta: '内部推理' },
+        { type: 'text.delta', delta: '最终回答' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+
+    const events = await collect(new AgentRuntimeService(model, registry(), logger()));
+
+    expect(events.some((event) => (event as { type: string }).type === 'reasoning.delta')).toBe(
+      false,
+    );
+    expect(events).toContainEqual({
+      type: 'transcript.item',
+      message: { role: 'assistant', content: '最终回答', reasoning: '内部推理' },
+    });
+  });
+
   it('serializes canonical success output instead of consuming tool-owned model content', async () => {
     const model = modelFromRounds([
       [

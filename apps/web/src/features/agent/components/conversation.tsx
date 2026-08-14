@@ -95,14 +95,17 @@ const UserMessage = memo(function UserMessage({
 const AssistantMessage = memo(
   function AssistantMessage({
     item,
+    showThinking,
     onFocusWorkbench,
   }: {
     item: AssistantItem;
+    showThinking: boolean;
     onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
   }) {
     const text = flattenAssistantText(item.blocks);
-    const executionBlocks = item.blocks.filter((block) => block.type !== 'text');
-    const answerBlocks = item.blocks.filter((block) => block.type === 'text');
+    const hasVisibleBlocks = item.blocks.some(
+      (block) => block.type === 'text' || block.type === 'tool_activity',
+    );
     return (
       <div className="message message--assistant flex gap-3 text-text-primary">
         <div className="message-avatar assistant-avatar">
@@ -115,44 +118,25 @@ const AssistantMessage = memo(
           ) : item.deliveryStatus === 'failed' ? (
             <div className="assistant-delivery-status">本次回答未完成</div>
           ) : null}
-          {item.pending &&
-          !item.blocks.some((block) => block.type === 'text' && block.content.trim()) ? (
+          {showThinking && !hasVisibleBlocks ? (
             <p className="assistant-thinking" role="status" aria-live="polite">
               正在思考中…
             </p>
           ) : null}
           <div className="assistant-blocks">
-            {executionBlocks.length ? (
-              <details className="execution-trace" open={item.pending || undefined}>
-                <summary>
-                  <Sparkles size={13} />
-                  <span>思考过程</span>
-                  <ChevronRight className="execution-trace__chevron" size={14} />
-                </summary>
-                <div className="execution-trace__content">
-                  {executionBlocks.map((block) =>
-                    block.type === 'reasoning' ? (
-                      <div className="reasoning-block" key={block.id}>
-                        <MarkdownContent>{block.content}</MarkdownContent>
-                      </div>
-                    ) : block.type === 'tool_activity' ? (
-                      <ToolActivity
-                        key={block.id}
-                        block={block}
-                        messageId={item.workbench?.runId ?? item.id}
-                        canOpenWorkbench={Boolean(item.workbench)}
-                        onFocusWorkbench={onFocusWorkbench}
-                      />
-                    ) : null,
-                  )}
-                </div>
-              </details>
-            ) : null}
-            {answerBlocks.map((block) =>
+            {item.blocks.map((block) =>
               block.type === 'text' ? (
                 <div className="assistant-text-block" key={block.id}>
                   <MarkdownContent>{block.content}</MarkdownContent>
                 </div>
+              ) : block.type === 'tool_activity' ? (
+                <ToolActivity
+                  key={block.id}
+                  block={block}
+                  messageId={item.workbench?.runId ?? item.id}
+                  canOpenWorkbench={Boolean(item.workbench)}
+                  onFocusWorkbench={onFocusWorkbench}
+                />
               ) : null,
             )}
           </div>
@@ -165,7 +149,7 @@ const AssistantMessage = memo(
     );
   },
   // 回调由上层渲染时重新创建，但它只通过 ref 定位当前会话，不影响消息内容。
-  (previous, next) => previous.item === next.item,
+  (previous, next) => previous.item === next.item && previous.showThinking === next.showThinking,
 );
 
 // 渲染消息时间线、内联工具活动、错误提示和 Composer。
@@ -209,6 +193,9 @@ export function Conversation({
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const scrollFrameRef = useRef<number | null>(null);
+  const latestAssistantId = [...state.conversation]
+    .reverse()
+    .find((item) => item.kind === 'assistant')?.id;
   function handleComposerSubmit(event: FormEvent<HTMLFormElement>): void {
     stickToBottomRef.current = true;
     onSubmit(event);
@@ -255,7 +242,14 @@ export function Conversation({
               item.kind === 'user' ? (
                 <UserMessage key={item.id} item={item} />
               ) : (
-                <AssistantMessage key={item.id} item={item} onFocusWorkbench={onFocusWorkbench} />
+                <AssistantMessage
+                  key={item.id}
+                  item={item}
+                  showThinking={
+                    Boolean(item.pending) || (submitting && item.id === latestAssistantId)
+                  }
+                  onFocusWorkbench={onFocusWorkbench}
+                />
               ),
             )}
           </div>
@@ -451,7 +445,9 @@ export function Composer({
                 : AGENT_UI_COPY.composerHints.clarification}
             </span>
           </div>
-        ) : <span />}
+        ) : (
+          <span />
+        )}
         <div className="composer-submit-group">
           {mode !== 'steer' && mode !== 'clarification' ? (
             <ModelSettingsMenu
@@ -465,15 +461,15 @@ export function Composer({
           ) : null}
           <button
             className="send-button"
-          type={submitting ? 'button' : 'submit'}
-          aria-label={submitting ? '停止任务' : '发送任务'}
-          title={submitting ? '停止任务' : '发送任务'}
-          disabled={
-            submitting
-              ? !onCancel
-              : !prompt.trim() || serviceState !== 'ready' || mode === 'disabled'
-          }
-          onClick={submitting ? onCancel : undefined}
+            type={submitting ? 'button' : 'submit'}
+            aria-label={submitting ? '停止任务' : '发送任务'}
+            title={submitting ? '停止任务' : '发送任务'}
+            disabled={
+              submitting
+                ? !onCancel
+                : !prompt.trim() || serviceState !== 'ready' || mode === 'disabled'
+            }
+            onClick={submitting ? onCancel : undefined}
           >
             {submitting ? <Square size={14} fill="currentColor" /> : <Send size={18} />}
           </button>

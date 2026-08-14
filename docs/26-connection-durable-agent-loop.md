@@ -1,6 +1,6 @@
 # Connection-Durable Agent Loop
 
-> 决策状态：当前 Connection Durable 的权威实现。Run/Step、Ordered Model Rounds、后台 Executor、版本化 Checkpoint、Event Tail、SSE 重连和 assistant draft 均已落地。Reasoning 与完整模型 transcript 的后续扩展以 `27-reasoning-context-transcript.md` 为准。当前只保证 API 进程存活期间的连接恢复，不实现服务端重启后的自动续跑。
+> 决策状态：当前 Connection Durable 的权威实现。Run/Step、Ordered Model Rounds、后台 Executor、版本化 Checkpoint、Event Tail、SSE 重连和 assistant draft 均已落地。Reasoning 与完整模型 transcript 的保存、选择性回放和用户投影以 `27-reasoning-context-transcript.md` 为准。当前只保证 API 进程存活期间的连接恢复，不实现服务端重启后的自动续跑。
 
 ## 1. 当前目标
 
@@ -50,8 +50,8 @@ PostgreSQL Checkpoint
   保存最近一次已确认的完整 Run/UI Snapshot
   支持页面刷新和 ActiveRun 不存在时恢复
 
-Canonical Transcript（待 Reasoning 阶段补齐）
-  保存模型下一轮请求所需的 reasoning / tool call / tool result 历史
+Canonical Transcript（已由 Reasoning 阶段补齐）
+  保存 reasoning / tool call / tool result 历史，并按工具链协议选择性回放
   不由 UI Snapshot 或 Conversation Projection 反向重建
 
 Live Projection
@@ -96,7 +96,7 @@ Runtime Event 转成 Chat Projection
     │  chat.service.ts -> streamPrepared()
     │  conversation-block.collector.ts
     ↓
-Canonical Transcript 追加与持久化（待实施）
+Canonical Transcript 追加与持久化（已实施）
     │
     │  reasoning / assistant tool calls / tool results / final text
     ↓

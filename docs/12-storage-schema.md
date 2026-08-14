@@ -137,7 +137,7 @@ model_transcript_items (
   provider         text null,
   model            text null,
   reasoning_format text null,
-  replay_mode      text null,     -- native / display_only
+  replay_mode      text null,     -- native_tool_chain / diagnostic_only
   commit_state     text not null, -- active / committed
   schema_version   text not null,
   created_at       timestamptz not null,
@@ -145,7 +145,7 @@ model_transcript_items (
 )
 ```
 
-本次实现冻结为逐项 `model_transcript_items` 表，不做 JSON-only checkpoint。断代升级前由临时脚本清空所有 Session；不提供旧 Session lazy migration 或 Message 回退。必须支持：稳定顺序、assistant reasoning/content/tool_calls 共存、Tool Result 配对、provider/model/thinking profile 恢复，以及 Session 删除时级联清理。`session_id` 是生命周期边界；Run/Message 删除只解除来源关联，不能删除已经 committed 的长期 transcript。
+本次实现冻结为逐项 `model_transcript_items` 表，不做 JSON-only checkpoint。断代升级前由临时脚本清空所有 Session；不提供旧 Session lazy migration 或 Message 回退。必须支持：稳定顺序、assistant reasoning/content/tool_calls 共存、Tool Result 配对、provider/model/thinking profile 恢复、区分 Tool Call reasoning 与无 Tool Call 最终 reasoning，以及 Session 删除时级联清理。该 replay 语义可以由 `tool_calls` 确定性派生，不强制新增物理列。`session_id` 是生命周期边界；Run/Message 删除只解除来源关联，不能删除已经 committed 的长期 transcript。
 
 完整 reasoning 默认不复制到 `observe_trace` 或普通日志。若未来需要 retention 或用户删除策略，应按用户会话数据处理，而不是按匿名诊断数据处理。
 

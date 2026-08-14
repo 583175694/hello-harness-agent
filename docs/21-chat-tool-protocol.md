@@ -1,6 +1,6 @@
 # 阶段一、阶段二协议
 
-> 本文记录纯对话和普通 Function Calling 的既有最小协议。Reasoning、完整 Tool transcript、跨轮回放和透明化增量按 `27-reasoning-context-transcript.md` 扩展；它不是完整 Agent Run、Workbench 或事件存储协议。
+> 本文记录纯对话和普通 Function Calling 的既有最小协议。Reasoning、完整 Tool transcript、选择性跨轮回放和用户时序投影按 `27-reasoning-context-transcript.md` 扩展；它不是完整 Agent Run、Workbench 或事件存储协议。
 
 ## 1. 协议原则
 
@@ -96,21 +96,12 @@ type ChatStreamEvent =
       code: string;
       detail: string;
     }
-  | {
-      type: 'reasoning.delta';
-      messageId: string;
-      blockId: string;
-      delta: string;
-      roundId: string;
-      roundSequence: number;
-      blockSequence: number;
-    }
   | { type: 'message.delta'; messageId: string; blockId: string; delta: string }
   | { type: 'message.completed'; messageId: string; model: string }
   | { type: 'stream.failed'; code: string; detail: string };
 ```
 
-`messageId` 把本轮所有事件绑定到同一条 assistant 消息；`blockId` 标识其中一个稳定内容块。reasoning/text 增量到达 API 后立即向 SSE 写出，不等待当前模型轮次结束；两者使用不同 block。工具事件插入一个 tool activity block，完成、失败或取消事件通过 `toolCallId/blockId` 原位更新，不追加重复活动。`tool.started.title` 是后端确定的用户可见名称，保证实时展示和刷新恢复一致。完成事件中的 Message ID 是最终持久化 ID。
+`messageId` 把本轮所有事件绑定到同一条 assistant 消息；`blockId` 标识其中一个稳定内容块。text 增量到达 API 后立即向 SSE 写出，不等待当前模型轮次结束；reasoning 只在 Runtime 内聚合，不进入普通 Conversation SSE。工具事件插入一个 tool activity block，完成、失败或取消事件通过 `toolCallId/blockId` 原位更新，不追加重复活动。`tool.started.title` 是后端确定的用户可见名称，保证实时展示和刷新恢复一致。完成事件中的 Message ID 是最终持久化 ID。
 
 ### 2.4 Assistant 有序内容块
 
@@ -119,7 +110,6 @@ Conversation 的展示与恢复事实是按真实发生顺序保存的内容块�
 ```ts
 type AssistantContentBlock =
   | { id: string; type: 'text'; content: string }
-  | { id: string; type: 'reasoning'; content: string }
   | {
       id: string;
       type: 'tool_activity';
@@ -134,9 +124,9 @@ type AssistantContentBlock =
     };
 ```
 
-成功完成的 assistant turn 将 `blocks` 保存到 Message metadata，顺序可以是 `reasoning → tool_activity → reasoning → text`。兼容字段 `Message.content` 仍只由所有 text blocks 顺序拼接生成；reasoning 不混入最终正文，工具 UI 标题、状态或摘要也不注入模型。下一轮模型上下文改由 durable canonical transcript 恢复，不能从这些 UI blocks 反向重建。
+成功完成的 assistant turn 将 `blocks` 保存到 Message metadata，顺序可以是 `text（工具前言）→ tool_activity → text（下一工具前言）→ tool_activity → text（最终回答）`。`Message.content` 仍只由所有 text blocks 顺序拼接生成；工具 UI 标题、状态或摘要不注入模型。Raw reasoning 只保存在 canonical transcript，不进入这些 UI blocks。下一轮模型上下文由 durable canonical transcript 恢复，不能从 UI blocks 反向重建。
 
-客户端只提交本轮 content。现行代码仍从数据库截取最近 20 条 user/assistant 最终正文；Reasoning Context Transcript 实施后，该逻辑将替换为完整 transcript 回放，主动选择和压缩留给后续 Context Engineering。
+客户端只提交本轮 content。Run 执行链从 durable canonical transcript 恢复历史：完整回放 Tool Call 关联单元和最终正文，但不回放无 Tool Call 最终 Round 的 reasoning。主动预算、压缩和淘汰留给后续 Context Engineering。
 
 ## 3. 阶段二：Function Calling 协议
 
@@ -179,8 +169,10 @@ messages + tools
   -> application executes tool
   -> tool message
   -> model
-  -> assistant(reasoning + content)
+  -> assistant(reasoning + final content)
 ```
+
+最后一个无 Tool Call assistant round 的 reasoning 可以保存用于会话事实和诊断，但下一用户轮次只回放 final content；前序 Tool Call round 的 reasoning 必须与 Tool Call/Tool Result 一起原样回放。
 
 这仍然可以在一次 HTTP 请求或一次 Chat SSE 内完成，不代表已经具备可恢复的 Agent Run。
 

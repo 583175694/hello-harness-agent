@@ -55,8 +55,8 @@ describe('Conversation tool activity navigation', () => {
     await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
   });
 
-  it('keeps completed reasoning visible and expandable after the final answer arrives', () => {
-    render(
+  it('hides legacy reasoning and renders text/tool blocks in canonical order without folding', () => {
+    const { container } = render(
       <Conversation
         state={{
           label: 'test',
@@ -77,12 +77,33 @@ describe('Conversation tool activity navigation', () => {
                   blockSequence: 0,
                 },
                 {
-                  id: 'text-1',
+                  id: 'preamble-1',
                   type: 'text',
-                  content: '这是最终回答。',
+                  content: '我先搜索。',
                   roundId: 'round-1',
                   roundSequence: 1,
                   blockSequence: 1,
+                },
+                {
+                  id: 'tool-1',
+                  type: 'tool_activity',
+                  toolCallId: 'call-1',
+                  toolName: 'web_search',
+                  status: 'completed',
+                  title: '搜索网页',
+                  startedAt: '2026-08-12T09:00:00.000Z',
+                  completedAt: '2026-08-12T09:00:01.000Z',
+                  roundId: 'round-1',
+                  roundSequence: 1,
+                  blockSequence: 2,
+                },
+                {
+                  id: 'text-final',
+                  type: 'text',
+                  content: '这是最终回答。',
+                  roundId: 'round-2',
+                  roundSequence: 2,
+                  blockSequence: 0,
                 },
               ],
             },
@@ -100,16 +121,19 @@ describe('Conversation tool activity navigation', () => {
       />,
     );
 
-    expect(screen.getByText('思考过程')).toBeInTheDocument();
+    expect(screen.queryByText('思考过程')).not.toBeInTheDocument();
+    expect(screen.queryByText('这是已经完成的思考过程。')).not.toBeInTheDocument();
     expect(screen.getByText('这是最终回答。')).toBeInTheDocument();
-    const details = screen.getByText('思考过程').closest('details');
-    expect(details).not.toHaveAttribute('open');
-    fireEvent.click(screen.getByText('思考过程'));
-    expect(details).toHaveAttribute('open');
-    expect(screen.getByText('这是已经完成的思考过程。')).toBeInTheDocument();
+    const blocks = [...container.querySelectorAll('.assistant-blocks > *')];
+    expect(blocks.map((block) => block.textContent)).toEqual([
+      '我先搜索。',
+      expect.stringContaining('搜索网页'),
+      '这是最终回答。',
+    ]);
+    expect(container.querySelector('details')).toBeNull();
   });
 
-  it('keeps the thinking status visible while tools run before answer text arrives', () => {
+  it('hides the generic thinking status once a tool is visible', () => {
     render(
       <Conversation
         state={{
@@ -146,9 +170,42 @@ describe('Conversation tool activity navigation', () => {
       />,
     );
 
-    expect(screen.getByText('正在思考中…')).toBeInTheDocument();
+    expect(screen.queryByText('正在思考中…')).not.toBeInTheDocument();
     expect(screen.getByText('AI 正在回复')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '停止任务' })).toBeInTheDocument();
+  });
+
+  it('shows the generic thinking status on the latest empty assistant while submitting', () => {
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [
+            {
+              id: 'assistant-1',
+              kind: 'assistant',
+              pending: false,
+              blocks: [{ id: 'text-1', type: 'text', content: '上一轮回答。' }],
+            },
+            { id: 'user-2', kind: 'user', content: '继续。' },
+            { id: 'assistant-2', kind: 'assistant', pending: false, blocks: [] },
+          ],
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText('正在思考中…')).toBeInTheDocument();
+    expect(screen.getByText('AI 正在回复')).toBeInTheDocument();
   });
 
   it('uses the server message identity while the assistant still has an optimistic id', () => {

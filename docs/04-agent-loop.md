@@ -146,7 +146,7 @@ EvidenceSource       can be cited as [Sx]
 
 ## 11. Tool Result
 
-当前 Runtime 把 Tool 的 canonical `output/error` 序列化为 Tool Message 直接交给下一模型轮次，不建立独立 `tool_observation` 或字符注入预算。Reasoning Context Transcript 实施后，assistant reasoning、Tool Call 与对应 Tool Result 必须作为关联历史持久化并跨用户轮次回放。未来 Context Engineering 面向完整 canonical transcript 统一选择和编译材料，本草案不预先冻结 EvidenceCard/refs 或 observation schema。
+当前 Runtime 把 Tool 的 canonical `output/error` 序列化为 Tool Message 直接交给下一模型轮次，不建立独立 `tool_observation` 或字符注入预算。Assistant Tool Call reasoning、Tool Call 与对应 Tool Result 作为关联历史持久化并跨用户轮次回放；无 Tool Call 最终 Round 的 reasoning 只保存、不回放。未来 Context Engineering 面向完整 canonical transcript 统一选择和编译材料，本草案不预先冻结 EvidenceCard/refs 或 observation schema。
 
 ## 12. Stop Conditions
 
@@ -162,7 +162,7 @@ EvidenceSource       can be cited as [Sx]
 
 ## 13. Streaming
 
-R1 可以流式展示 progress/preview，但未通过 citation validation 的 draft 不作为最终 answer。Provider-specific text/reasoning stream delta 在 ModelAdapter 内规范化；reasoning 作为独立透明化内容块展示，不拼入最终 answer。
+R1 可以流式展示 progress/preview，但未通过 citation validation 的 draft 不作为最终 answer。Provider-specific text/reasoning stream delta 在 ModelAdapter 内规范化；text 进入 Conversation，reasoning 只进入 Runtime/transcript，不作为用户可见内容块，也不拼入最终 answer。
 
 ## 14. Observability
 

@@ -1,15 +1,16 @@
 # Reasoning Context Transcript
 
-> 决策状态：待实施的当前优先方案。本文冻结 Reasoning、Tool Call、Tool Result 的跨模型轮次与跨用户轮次保存、回放和透明化边界；Context Engineering 只在后续负责计量、选择、压缩和淘汰，不得用临时截断替代本文的完整 transcript 基线。
+> 决策状态：已实施。本文冻结 Reasoning、Tool Call、Tool Result 的保存与选择性回放规则，并明确模型协议事实不等于用户可见内容；Context Engineering 只在后续负责计量、选择、压缩和淘汰，不得用临时截断替代本文的 transcript 基线。
 
 ## 1. 背景与问题
 
-当前 Runtime 在一次 assistant run 内会追加 Assistant Tool Call 和对应 Tool Message，但供应商返回的 reasoning 没有进入 canonical model message。Run 完成后，下一次用户请求只从数据库恢复 user/assistant 最终正文，历史 reasoning、Tool Call 和 Tool Result 不再进入模型上下文。
+Reasoning Context Transcript 已将供应商 reasoning、Assistant Tool Call 和对应 Tool Result 纳入 canonical model message 与 durable transcript，解决了 DeepSeek Thinking + Tool Calling 的协议回传问题。Conversation 不直接展示冗长的原始 reasoning；请求编译也不会把无 Tool Call 的最终回答 reasoning 带入下一用户轮次。
 
-这会产生两个问题：
+这些边界解决三个问题：
 
-- DeepSeek V4 等 Thinking + Tool Calling 模型要求后续请求完整回传相关 `reasoning_content`，当前 run 内丢失会直接导致协议错误。
+- DeepSeek V4 等 Thinking + Tool Calling 模型要求后续请求完整回传与 Tool Call 关联的 `reasoning_content`，丢失会直接导致协议错误。
 - 跨用户轮次只回放问题和最终回答会丢失模型此前看到的工具材料与执行路径，后续问题无法可靠引用上一轮调查上下文。
+- 原始 reasoning 通常冗长且不等于可靠解释，直接投影到普通 Conversation 会压过工具活动和最终答案。
 
 因此，Context Engineering 实施前先建立完整、结构化、可持久化的 model transcript。
 
@@ -27,13 +28,14 @@ Runtime
   维护顺序、关联、完整性和执行边界
 
 Projection / Stream
-  将 reasoning、tool activity 和 answer 透明地展示给用户
+  只将 text 和 tool activity 按真实发生顺序展示给用户
+  raw reasoning 不进入普通 Conversation
 
 Context Engineering（后续）
   决定完整 transcript 中哪些材料进入有限模型窗口
 ```
 
-当前基线是：在没有 Context Engineering 决策前，历史 transcript 按顺序完整回放，不主动摘要、裁剪或只保留最终回答。达到供应商上下文限制时应返回明确错误，不得静默删除 reasoning 或 Tool Result。
+当前基线是：durable transcript 按顺序完整保存，不主动摘要、裁剪或只保留最终回答；请求编译按供应商协议选择性回放。与 Tool Call 绑定的 reasoning、Tool Call 和全部 Tool Result 作为原子单元回放；无 Tool Call 的最终回答只回放 `content`，其 reasoning 可以保留为会话事实和诊断材料，但不进入下一用户轮次。达到供应商上下文限制时应返回明确错误，不得静默破坏工具协议单元。
 
 ## 3. 三类模型与数据
 
@@ -59,13 +61,13 @@ type ReasoningPayload = {
     model: string;
     format: string;
   };
-  replay: 'native' | 'display_only';
+  replay: 'native_tool_chain' | 'diagnostic_only';
 };
 ```
 
 具体字段名可在实现时调整，但必须保留以下语义：
 
-- reasoning 与产生它的 assistant turn、Tool Call 保持关联。
+- reasoning 与产生它的 assistant turn 保持关联；有 Tool Call 时进一步与完整工具协议单元绑定。
 - Tool Result 通过 `toolCallId` 与 Tool Call 完整配对。
 - provider/model/format 足以判断是否可以原样回放。
 - 最终正文、reasoning 和工具协议不是同一个字符串字段。
@@ -77,14 +79,14 @@ System Prompt 由当前运行配置在请求编译时注入，不作为会话 tr
 用户可见的有序时间线：
 
 ```text
-reasoning block
+text block（工具调用前言，可选）
 tool activity block
-reasoning block
+text block（下一次工具调用前言，可选）
 tool activity block
 answer text block
 ```
 
-Projection 可以折叠 reasoning，但不得把它伪装成最终答案，也不得用 UI 摘要替换 canonical transcript。
+Projection 不展示 raw reasoning，也不从 reasoning 生成或伪造用户可见解释。`text` 与 `tool_activity` 必须按 `roundSequence + blockSequence` 的真实业务顺序渲染；首版不折叠。未来若内容过长，只能以完整工具轮次为单位折叠，不能把工具前言留在外部而单独折叠 Tool Activity。
 
 ### 3.3 Observe / Debug Trace
 
@@ -94,30 +96,31 @@ Projection 可以折叠 reasoning，但不得把它伪装成最终答案，也�
 
 ### 4.1 当前 Run 内
 
-每次模型请求都携带当前 run 已产生的完整链：
+每次后续模型请求都携带当前 run 已产生的完整工具链：
 
 ```text
 User Question
-Assistant Reasoning 1 + Tool Call 1
+Assistant Reasoning 1 + Content 1 + Tool Call 1
 Tool Result 1
-Assistant Reasoning 2 + Tool Call 2
+Assistant Reasoning 2 + Content 2 + Tool Call 2
 Tool Result 2
 ...
 ```
 
-DeepSeek 的 `reasoning_content` 必须完整聚合并在后续请求中原样回传。流式分片不能只保留最后一段，也不能混入 `content`。
+DeepSeek 与 Tool Call 关联的 `reasoning_content` 必须完整聚合并在后续请求中原样回传。流式分片不能只保留最后一段，也不能混入 `content`。模型流结束前不能仅凭先到达的 `content` 判断它是工具前言还是最终答案；Round 完成且存在 Tool Call 时，它属于工具轮并保持原位，否则才是最终回答。
 
 ### 4.2 跨用户轮次
 
-Run 成功完成后，下一次用户请求仍回放历史完整 transcript：
+Run 成功完成后，下一次用户请求按协议回放历史 transcript：
 
 ```text
 User Question 1
-Reasoning / Tool Calls / Tool Results / Final Answer 1
+Reasoning + Content + Tool Calls / Tool Results
+Final Answer 1（不携带该最终 Round 的 reasoning）
 User Question 2
 ```
 
-现有“只恢复最近 user/assistant 最终正文”的行为需要替换。工具 UI Projection 不能反向充当 transcript；必须从专用 canonical 持久化数据恢复。
+与 Tool Call 绑定的历史 reasoning 必须继续以 native `reasoning_content` 回放；无 Tool Call 的最终 assistant round 只回放最终 `content`，不把该 round 的 reasoning 拼入下一用户轮次。工具 UI Projection 不能反向充当 transcript；必须从专用 canonical 持久化数据恢复。
 
 ### 4.3 原子完整性
 
@@ -131,10 +134,10 @@ Assistant Reasoning
 
 禁止：
 
-- 保留 Tool Call 但删除对应 reasoning。
+- 保留 Tool Call 但删除其对应的 reasoning。
 - 保留 Tool Result 但删除 Tool Call。
 - 摘要或改写 reasoning 后冒充供应商原始字段回传。
-- 合并 assistant turns 时丢失其中一段 reasoning。
+- 合并 assistant turns 时丢失工具协议所需的 reasoning，或把最终回答 reasoning 错标为工具链 reasoning。
 - 根据 UI block 文案重建 provider 请求。
 
 未来 Context Engineering 如需压缩，必须对关联单元执行显式、可解释的转换策略。
@@ -144,7 +147,7 @@ Assistant Reasoning
 Model Adapter 是供应商协议差异的唯一编码/解码边界：
 
 - 读取 DeepSeek `reasoning_content`、其他供应商等价字段或内容块。
-- 输出统一的 reasoning delta/completed 事件。
+- 输出 Runtime 内部统一的 reasoning delta/completed 事件。
 - 将 canonical assistant turn 编码为目标供应商支持的消息格式。
 - 根据 provider/model profile 判断 reasoning 的 native replay 能力。
 - 对不兼容的目标拒绝原样编码，返回结构化 capability/compatibility 结果。
@@ -154,7 +157,7 @@ Model Adapter 不负责：
 - 决定删除哪些历史材料。
 - 决定压缩或摘要策略。
 - 将不兼容 reasoning 自动改写成普通 assistant 正文。
-- 决定 reasoning 是否在 UI 展开。
+- 决定 raw reasoning 是否进入普通 Conversation；当前产品边界由 Projection 契约统一规定为不展示。
 
 模型切换时，Runtime/未来 Context Compiler 先选择或转换上下文，Adapter 只编码已经确认兼容的 canonical input。若没有安全转换策略，应明确拒绝或降级，而不是静默丢字段。
 
@@ -166,7 +169,7 @@ Runtime 负责：
 - 保持 reasoning、content、Tool Call 的业务顺序。
 - 在执行 Tool 前形成完整 assistant turn。
 - 为每个 Tool Call 补齐 Tool Result。
-- 将完整 transcript 交给下一模型轮次。
+- 按工具链回放规则将 canonical transcript 编译给下一模型轮次。
 - 在 run terminal 前持久化足以恢复的 canonical transcript/checkpoint。
 - 重试时隔离不同 attempt，失败尝试的半截 reasoning 不得混入有效历史。
 
@@ -176,12 +179,12 @@ Runtime 负责：
 
 Composer 在发送按钮旁提供供应商无关的四档推理强度：
 
-| UI 文案 | Canonical 值 | DeepSeek OpenAI 格式 |
-|---|---|---|
-| 无思考 | `off` | `thinking: { type: 'disabled' }` |
-| 轻度 | `low` | `thinking: { type: 'enabled' }` + `reasoning_effort: 'low'` |
-| 中度 | `high` | `thinking: { type: 'enabled' }` + `reasoning_effort: 'high'` |
-| 高度 | `max` | `thinking: { type: 'enabled' }` + `reasoning_effort: 'max'` |
+| UI 文案 | Canonical 值 | DeepSeek OpenAI 格式                                         |
+| ------- | ------------ | ------------------------------------------------------------ |
+| 无思考  | `off`        | `thinking: { type: 'disabled' }`                             |
+| 轻度    | `low`        | `thinking: { type: 'enabled' }` + `reasoning_effort: 'low'`  |
+| 中度    | `high`       | `thinking: { type: 'enabled' }` + `reasoning_effort: 'high'` |
+| 高度    | `max`        | `thinking: { type: 'enabled' }` + `reasoning_effort: 'max'`  |
 
 DeepSeek 没有名为 `medium` 的协议值；UI 的“中度”映射到官方 `high`，“高度”映射到官方 `max`。默认选择“中度”，与 DeepSeek 默认启用 thinking 且默认 effort 为 `high` 保持一致。
 
@@ -201,42 +204,21 @@ DeepSeek 没有名为 `medium` 的协议值；UI 的“中度”映射到官方 
 - Adapter 不得因为当前 run 选择 `off` 就删除历史 `reasoning_content`。
 - 如果目标供应商不允许“关闭当前思考但保留历史 reasoning”的组合，服务端应在创建 run 前返回兼容性错误。
 
-## 7. Stream 与前端透明化
+## 7. Stream 与前端投影
 
-共享协议增加独立 reasoning 事件和内容块，例如：
-
-```ts
-type ReasoningDeltaEvent = {
-  type: 'reasoning.delta';
-  messageId: string;
-  blockId: string;
-  delta: string;
-  roundId: string;
-  roundSequence: number;
-  blockSequence: number;
-};
-
-type AssistantReasoningBlock = {
-  id: string;
-  type: 'reasoning';
-  content: string;
-  roundId: string;
-  roundSequence: number;
-  blockSequence: number;
-};
-```
+Model Adapter 和 Runtime 内部保留 canonical reasoning 增量，用于聚合、attempt 隔离和 transcript 提交；普通 Conversation SSE 不需要发送 raw reasoning delta，也不创建用户可见 reasoning block。已有协议类型和旧 Snapshot 在过渡期可以保留兼容解析，但前端应忽略 reasoning block，不能因旧数据存在而恢复失败。
 
 产品要求：
 
-- reasoning 按真实发生位置穿插展示。
-- 默认可折叠，但用户可以查看完整已交付内容。
-- loading 状态与真实 reasoning 内容必须区分。
+- 普通 Conversation 不展示 raw reasoning，也不提供“思考过程”折叠区。
+- `text` 和 `tool_activity` 按真实发生位置穿插展示，首版不折叠。
+- 工具轮 `content` 是用户可见前言，必须紧邻该轮 Tool Activity，不能被统一移动到所有工具活动之后。
 - reasoning 不参与最终 answer 文本拼接。
-- 刷新和重连后恢复相同顺序与内容。
-- 前端只理解 canonical `reasoning`，不理解 `reasoning_content` 等供应商字段。
+- 刷新和重连后恢复相同的 text/tool activity 顺序与内容。
+- 前端不理解 `reasoning_content` 等供应商字段，也不从 reasoning 重建用户可见状态。
 - Composer 显示当前推理强度；控件使用菜单或分段选项，不占用发送按钮的主命令语义。
-- `off` 模式不创建空 reasoning block；如果供应商仍返回 reasoning，应按实际响应规范化并记录能力偏差。
-- reasoning delta 可以在 Event Tail 中合并以控制事件数量，但 durable reasoning block 必须保存完整内容，不能只保存预览。
+- `off` 模式下如果供应商仍返回 reasoning，Adapter 仍按实际响应规范化并记录能力偏差，但不投影到 Conversation。
+- 若未来需要用户可见过程说明，应由独立、简短的 Progress/Tool Activity 语义生成，不能直接暴露或摘要 raw reasoning 后冒充模型解释。
 
 ## 8. 持久化边界
 
@@ -254,7 +236,7 @@ type AssistantReasoningBlock = {
 - 能恢复用户请求档位与 Adapter 实际生效档位。
 - 能表达 assistant reasoning + content + tool calls。
 - 能表达完整 Tool Result 和关联 ID。
-- 与用户可见 Message/Projection 分离。
+- 与用户可见 Message/Projection 分离；Projection 不需要保存 durable reasoning block。
 - active Run checkpoint 与 terminal history 都可恢复。
 
 原始 reasoning 属于用户会话数据，应随 Session 删除；日志默认不得重复保存完整 reasoning，避免形成不受控副本。
@@ -272,10 +254,10 @@ completed
 
 failed/cancelled
   保留用户可见 Message/失败 Projection
-  不把半截 reasoning、孤立 Tool Call 或未配对 Tool Result 提交到长期 transcript
+  清理 active transcript，不把半截 reasoning、孤立 Tool Call 或未配对 Tool Result 提交到长期 transcript
 ```
 
-失败或取消的 active checkpoint 可以短期保留用于当前 Run 诊断与恢复展示，但下一次新用户 Run 默认不得加载它。若未来支持从失败步骤继续执行，需要单独定义 resume 协议，不能把半成品历史当作已完成上下文。
+失败或取消的 active checkpoint 不进入用户可见 Projection，并应在 terminal/reconciliation 事务中清理。若未来支持从失败步骤继续执行，需要单独定义有期限的诊断保留与 resume 协议，不能把半成品历史当作已完成上下文。
 
 高推理强度耗尽输出 token、只产生 reasoning 而没有最终 answer 时，Run 应以明确的模型长度错误失败；reasoning 不得自动提升为最终回答。
 
@@ -349,14 +331,14 @@ Context Engineering 不能把 provider 私有 reasoning 当作普通可随意改
 - canonical reasoning 类型和 model profile capability。
 - canonical `off | low | high | max` 推理强度与供应商映射。
 - 流式读取/聚合 reasoning。
-- DeepSeek 请求回传 `reasoning_content`。
+- DeepSeek 请求只为 Tool Call 关联的 assistant round 回传 `reasoning_content`。
 - Adapter 单元测试和真实 API 合约测试。
 
-### R1：Runtime、Stream 与 Projection
+### R1：Runtime 与 Projection
 
-- reasoning runtime event、SSE event、content block。
+- reasoning runtime 内部事件和 attempt 隔离，不向普通 Conversation SSE 暴露 raw reasoning。
 - Composer 推理强度菜单、能力状态和每次新 run 的冻结配置。
-- 前端有序、可折叠展示。
+- 前端只将 text/tool activity 按真实顺序展示，首版不折叠。
 - Tool loop 完整性和 attempt 隔离测试。
 
 ### R2：跨轮持久化与恢复
@@ -371,7 +353,7 @@ Context Engineering 不能把 provider 私有 reasoning 当作普通可随意改
 ### R3：模型切换与兼容策略
 
 - provider/model profile 能力矩阵。
-- native replay、display-only、拒绝/降级路径。
+- native tool-chain replay、diagnostic-only、拒绝/降级路径。
 - 不兼容模型切换的明确产品反馈。
 - Public Config reasoning capability 与旧 Session 兼容检查。
 
@@ -381,9 +363,9 @@ Context Engineering 在 R0-R3 的完整事实边界稳定后实施。
 
 1. DeepSeek Thinking + Tool Calling 连续多轮不因缺失 `reasoning_content` 返回 400。
 2. 同一 run 多次 Tool Call 的 reasoning、调用和结果顺序完整。
-3. 新用户问题可以回放上一轮完整 transcript，而不是只回放最终正文。
-4. reasoning 实时可见，刷新和重连后仍可恢复。
-5. reasoning 不混入最终答案或 Tool Activity 文案。
+3. 新用户问题可以回放上一轮完整工具链和最终正文；与 Tool Call 绑定的 reasoning 原样回放，无 Tool Call 的最终 reasoning 不进入下一用户轮次。
+4. raw reasoning 不进入普通 Conversation、Message content 或用户 SSE；刷新和重连后 text/tool activity 顺序一致。
+5. 工具轮 content 紧邻对应 Tool Activity，不能统一移动到执行区之外或最终答案区域。
 6. 模型切换不会把不兼容的 provider 私有字段静默发送出去。
 7. 未实施 Context Engineering 前不静默截断 transcript；超限返回明确错误。
 8. Session 删除会清理 transcript，普通日志不保存完整 reasoning 副本。

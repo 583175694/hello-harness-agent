@@ -15,13 +15,6 @@ export type AgentRuntimeInput = {
 // eventSequence 由 RunEventHub 在 Projection 已准备好后统一分配。
 export type AgentRuntimeEvent =
   | {
-      type: 'reasoning.delta';
-      delta: string;
-      roundId: string;
-      roundSequence: number;
-      blockSequence: number;
-    }
-  | {
       type: 'text.delta';
       delta: string;
       roundId: string;

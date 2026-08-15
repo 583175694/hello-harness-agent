@@ -14,8 +14,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@harness/deepseek-tokenizer": "workspace:*",
     "@harness/agent-protocol": "workspace:*",
-    "@huggingface/tokenizers": "0.1.3",
     "openai": "^7.4.0",
     "zod": "^3.25.76"
   },

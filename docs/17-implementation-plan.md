@@ -144,7 +144,7 @@ Web：
 验收：
 
 ```text
-pnpm db:local:init
+pnpm db -- init
 pnpm install
 pnpm dev
 -> healthz/readyz healthy

@@ -20,6 +20,19 @@ export type ConfiguredModel = {
   };
 };
 
+// Context Profile 是代码评审和正式 Baseline 的受控事实，不允许通过运行时环境变量覆盖。
+// 在填写供应商权威来源并完成确认前，verified 必须保持 false。
+export const DEEPSEEK_CONTEXT_WINDOW_TOKENS = 131_072;
+export const DEEPSEEK_MAX_OUTPUT_TOKENS = 8_192;
+export const DEEPSEEK_MODEL_PROFILE_SOURCE = '';
+export const DEEPSEEK_MODEL_PROFILE_VERIFIED = false;
+const UNVERIFIED_MODEL_PROFILE_SOURCE = '未填写供应商权威来源';
+
+if (DEEPSEEK_MODEL_PROFILE_VERIFIED && !DEEPSEEK_MODEL_PROFILE_SOURCE)
+  throw new Error(
+    'Verified DeepSeek model context profile requires an authoritative source in model-catalog.ts',
+  );
+
 // 模型供应商配置集中在代码目录中；密钥仍由 OPENAI_API_KEY 注入，避免进入配置文件。
 export const MODEL_CATALOG: readonly ConfiguredModel[] = [
   {
@@ -30,13 +43,13 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     reasoningFormat: 'deepseek.reasoning_content.v1',
     reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'], default: 'high' },
     context: {
-      contextWindowTokens: 131_072,
-      maxOutputTokens: 8_192,
+      contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
+      maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
       tokenizer: 'deepseek-v3',
-      source: 'P0 development default; verify against the active provider before baseline',
-      verified: false,
+      source: DEEPSEEK_MODEL_PROFILE_SOURCE || UNVERIFIED_MODEL_PROFILE_SOURCE,
+      verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
     },
-    request: { temperature: 0, maxTokens: 8_192 },
+    request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
   },
   {
     id: 'deepseek-v4-pro',
@@ -46,13 +59,13 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     reasoningFormat: 'deepseek.reasoning_content.v1',
     reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'], default: 'high' },
     context: {
-      contextWindowTokens: 131_072,
-      maxOutputTokens: 8_192,
+      contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
+      maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
       tokenizer: 'deepseek-v3',
-      source: 'P0 development default; verify against the active provider before baseline',
-      verified: false,
+      source: DEEPSEEK_MODEL_PROFILE_SOURCE || UNVERIFIED_MODEL_PROFILE_SOURCE,
+      verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
     },
-    request: { temperature: 0, maxTokens: 8_192 },
+    request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
   },
 ];
 

@@ -1,11 +1,10 @@
-import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { DeepSeekTokenizer } from '@harness/deepseek-tokenizer';
 import { CONTEXT_CORE_V1, selectContextTasks } from '../src/context/cases.js';
-import { DeepSeekTokenizer } from '../src/context/deepseek-tokenizer.js';
 import { bootstrapPassRate, summarizePasses } from '../src/context/statistics.js';
 import { parseContextCliArguments } from '../src/context/cli.js';
 import { gradeContextTrial } from '../src/context/graders.js';
@@ -164,10 +163,7 @@ describe('context-core-v1', () => {
       metricDeltas: { estimatedPromptTokens: -20 },
     });
     expect(() =>
-      compareContextReports(
-        { ...candidate, benchmarkHash: 'different-benchmark' },
-        baseline,
-      ),
+      compareContextReports({ ...candidate, benchmarkHash: 'different-benchmark' }, baseline),
     ).toThrow('benchmarkHash 不一致');
     expect(() =>
       compareContextReports(
@@ -242,51 +238,42 @@ function comparisonReport(
 }
 
 const workspace = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const tokenizerRoot = join(workspace, 'artifacts/tokenizers/deepseek-v3');
+describe('DeepSeek TypeScript tokenizer', () => {
+  it('matches Python Transformers golden token IDs', async () => {
+    const tokenizer = await DeepSeekTokenizer.load();
+    const golden = JSON.parse(
+      await readFile(
+        join(workspace, 'packages/agent-evals/fixtures/tokenizer/deepseek-v3-golden.json'),
+        'utf8',
+      ),
+    ) as Array<{ text: string; ids: number[]; count: number }>;
+    for (const vector of golden) {
+      expect(tokenizer.encode(vector.text)).toEqual(vector.ids);
+      expect(tokenizer.count(vector.text)).toBe(vector.count);
+    }
+  });
 
-describe.runIf(existsSync(join(tokenizerRoot, 'tokenizer.json')))(
-  'DeepSeek TypeScript tokenizer',
-  () => {
-    it('matches Python Transformers golden token IDs', async () => {
-      const tokenizer = await DeepSeekTokenizer.load(tokenizerRoot);
-      const golden = JSON.parse(
-        await readFile(
-          join(workspace, 'packages/agent-evals/fixtures/tokenizer/deepseek-v3-golden.json'),
-          'utf8',
-        ),
-      ) as Array<{ text: string; ids: number[]; count: number }>;
-      for (const vector of golden) {
-        expect(tokenizer.encode(vector.text)).toEqual(vector.ids);
-        expect(tokenizer.count(vector.text)).toBe(vector.count);
+  it('materially reaches the declared S/M/L/X pressure bands', async () => {
+    const tokenizer = await DeepSeekTokenizer.load();
+    const expected = {
+      S: [0.04, 0.15],
+      M: [0.35, 0.6],
+      L: [0.7, 0.9],
+      X: [1, Number.POSITIVE_INFINITY],
+    } as const;
+    for (const pressure of ['S', 'M', 'L', 'X'] as const) {
+      const tasks = CONTEXT_CORE_V1.filter(
+        (task) =>
+          task.pressure === pressure &&
+          task.capability !== 'connection_durability' &&
+          task.capability !== 'short_regression',
+      );
+      for (const task of tasks) {
+        const tokens = tokenizer.count(task.scenario.map((step) => step.content).join('\n'));
+        const ratio = tokens / 131_072;
+        expect(ratio, task.id).toBeGreaterThanOrEqual(expected[pressure][0]);
+        expect(ratio, task.id).toBeLessThanOrEqual(expected[pressure][1]);
       }
-    });
-
-    it(
-      'materially reaches the declared S/M/L/X pressure bands',
-      async () => {
-        const tokenizer = await DeepSeekTokenizer.load(tokenizerRoot);
-        const expected = {
-          S: [0.04, 0.15],
-          M: [0.35, 0.6],
-          L: [0.7, 0.9],
-          X: [1, Number.POSITIVE_INFINITY],
-        } as const;
-        for (const pressure of ['S', 'M', 'L', 'X'] as const) {
-          const tasks = CONTEXT_CORE_V1.filter(
-            (task) =>
-              task.pressure === pressure &&
-              task.capability !== 'connection_durability' &&
-              task.capability !== 'short_regression',
-          );
-          for (const task of tasks) {
-            const tokens = tokenizer.count(task.scenario.map((step) => step.content).join('\n'));
-            const ratio = tokens / 131_072;
-            expect(ratio, task.id).toBeGreaterThanOrEqual(expected[pressure][0]);
-            expect(ratio, task.id).toBeLessThanOrEqual(expected[pressure][1]);
-          }
-        }
-      },
-      20_000,
-    );
-  },
-);
+    }
+  }, 20_000);
+});

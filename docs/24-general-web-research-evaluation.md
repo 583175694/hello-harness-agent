@@ -25,13 +25,13 @@ Session 创建
 
 ```bash
 pnpm dev
-pnpm eval:research
+pnpm eval -- research smoke
 ```
 
 默认 Smoke 串行运行 6 题并在采集后删除临时 Session。发布前显式运行 24 题 Full：
 
 ```bash
-pnpm eval:research:full
+pnpm eval -- research full
 ```
 
 可选参数：
@@ -176,8 +176,8 @@ Fixture 只替换 Tool 的外部世界，不能绕过 API、Durable Agent Loop�
 继续使用现有命令：
 
 ```bash
-pnpm eval:research
-pnpm eval:research:full
+pnpm eval -- research smoke
+pnpm eval -- research full
 ```
 
 它验证真实 Search Provider、网页变化和网络故障，但实时网页和搜索排序会变化，因此不用于计算 Context Engineering 的精确版本增益。
@@ -496,16 +496,16 @@ packages/agent-evals/src/
 建议命令：
 
 ```bash
-pnpm eval:context
-pnpm eval:context:full
-pnpm eval:context:baseline
-pnpm eval:context:calibrate -- --input <human-review.csv>
+pnpm eval -- context smoke
+pnpm eval -- context full
+pnpm eval -- context baseline
+pnpm eval -- context calibrate --input <human-review.csv>
 ```
 
 概念上的 Baseline 对比：
 
 ```bash
-pnpm eval:context:full --trials 5 \
+pnpm eval -- context full --trials 5 \
   --compare .eval/context/baselines/context-core-v1.json
 ```
 
@@ -534,16 +534,18 @@ Manifest 至少记录：
 - Evaluation Clock。
 - Trial Count 和原始 Run ID。
 
-正式 Baseline 还要求 API 公开的 Model Context Profile 已验证。通过以下环境变量提供供应商权威值；`verified=true` 但缺少任一值或来源时 API 拒绝启动：
+正式 Baseline 还要求 API 公开的 Model Context Profile 已验证。Context Window、Max Output、权威来源和 verified 状态统一维护在 `apps/api/src/model/model-catalog.ts` 的代码变量中，不允许通过环境变量覆盖。当前代码先固定供应商给出的数值，但来源尚未填写且 `verified=false`；完成权威来源核验后，才允许在代码中显式更新来源并将 verified 改为 true：
 
 ```text
-DEEPSEEK_CONTEXT_WINDOW_TOKENS
-DEEPSEEK_MAX_OUTPUT_TOKENS
-DEEPSEEK_MODEL_PROFILE_SOURCE
-DEEPSEEK_MODEL_PROFILE_VERIFIED=true
+export const DEEPSEEK_CONTEXT_WINDOW_TOKENS = 131072;
+export const DEEPSEEK_MAX_OUTPUT_TOKENS = 8192;
+export const DEEPSEEK_MODEL_PROFILE_SOURCE = '<填写供应商权威来源>';
+export const DEEPSEEK_MODEL_PROFILE_VERIFIED = true;
 ```
 
-Context Judge 未配置时 Runner 不再静默跳过；必须配置独立 Judge，或显式使用 `--skip-judge` 将其记录为禁用。Judge 首次结构化输出失败时允许一次格式修复，输入会裁剪长压力材料并限制 Evidence 总量。人工填写 `human-review.csv` 后，`eval:context:calibrate` 计算一致率、Cohen's Kappa、严重 False Pass，并生成 JSON/Markdown 校准报告。
+Context Judge 未配置时 Runner 不再静默跳过；必须配置独立 Judge，或显式使用 `--skip-judge` 将其记录为禁用。Judge 首次结构化输出失败时允许一次格式修复，输入会裁剪长压力材料并限制 Evidence 总量。人工填写 `human-review.csv` 后，`pnpm eval -- context calibrate` 计算一致率、Cohen's Kappa、严重 False Pass，并生成 JSON/Markdown 校准报告。
+
+Context Eval 的请求前 Token 压力计算使用独立 workspace 包 `@harness/deepseek-tokenizer`。该包内置并校验 DeepSeek 官方 Tokenizer JSON，不依赖 API 环境变量或仓库外路径。API 请求完成后的 Prompt、Completion 和 Cache Token 统计以 DeepSeek `usage` 为准；本地字符估算仅是供应商 Usage 缺失时的诊断近似，不参与 Context Window 安全判断。
 
 P0 只有在以下条件全部满足后才完成：
 

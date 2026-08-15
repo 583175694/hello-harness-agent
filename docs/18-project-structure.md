@@ -362,8 +362,8 @@ P2 才增加 runtime/finalizer/state/stream/projection。P5 增加 context/loop/
 ```text
 cp .env.example .env
 pnpm install
-pnpm db:local:init
-pnpm db:deploy
+pnpm db -- init
+pnpm db -- deploy
 pnpm dev
 ```
 

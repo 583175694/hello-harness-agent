@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { DeepSeekTokenizer } from '@harness/deepseek-tokenizer';
 import { EvalApiClient } from '../api-client.js';
 import { resolveWorkspaceEnvironmentPath } from '../cli.js';
 import { CONTEXT_CORE_V1, selectContextTasks } from './cases.js';
-import { DeepSeekTokenizer } from './deepseek-tokenizer.js';
 import { writeContextReport } from './report.js';
 import { runContextTrial, type ContextJudge } from './scenario-runner.js';
 import { bootstrapTaskPassRate, summarizePasses } from './statistics.js';
@@ -76,11 +76,7 @@ export async function runContextEvaluation(
     ...(options.capability ? { capability: options.capability } : {}),
     ...(options.pressure ? { pressure: options.pressure } : {}),
   });
-  const tokenizer = await DeepSeekTokenizer.load(
-    join(workspace, 'artifacts/tokenizers/deepseek-v3'),
-  ).catch(() => {
-    throw new Error('DeepSeek Tokenizer 未安装，请先运行 pnpm setup:tokenizer。');
-  });
+  const tokenizer = await DeepSeekTokenizer.load();
   const startedAt = new Date();
   const experimentId = startedAt.toISOString().replace(/[-:.]/gu, '').replace('Z', 'Z');
   const trials = [];

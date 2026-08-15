@@ -10,7 +10,6 @@ export * from './sse.js';
 export * from './types.js';
 export * from './context/calibration.js';
 export * from './context/cases.js';
-export * from './context/deepseek-tokenizer.js';
 export * from './context/graders.js';
 export * from './context/runner.js';
 export * from './context/scenario-runner.js';

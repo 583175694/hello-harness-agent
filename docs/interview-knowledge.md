@@ -4,11 +4,11 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：工程基线、OpenAI-compatible 模型适配、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影，以及 Connection-Durable Agent Loop 的 Run/Step、snapshot、SSE replay、cancel 和重启中断收敛。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop，以及 Context Engineering 前置评测系统。
 
 ## 1. 项目一句话介绍
 
-这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、Connection-Durable Run 和可断线恢复的 Conversation/Workbench。
+这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、Connection-Durable Run 和可断线恢复的 Conversation/Workbench。
 
 面试时需要主动区分：
 
@@ -93,6 +93,55 @@ session-scoped request
 - `INVALID_CHAT_REQUEST`：请求结构不符合协议。
 
 HTTP 层统一输出 Problem Details，前端通过共享 schema 解析，而不是直接依赖某个供应商的错误 JSON。
+
+### 3.4 DeepSeek V4 的上下文为什么需要专门适配
+
+DeepSeek V4 虽然提供 OpenAI-compatible Chat Completions 接口，但 Thinking + Tool Calling 的上下文契约不能按“普通 assistant 文本历史”处理。模型在工具轮可能同时产生：
+
+```text
+reasoning_content + content + tool_calls
+                         |
+                         v
+                一个完整工具协议单元
+```
+
+其中 `reasoning_content` 不是用户可见正文，却是 DeepSeek 恢复历史 Tool Call 所需的原生协议字段。后续请求如果只回传 assistant `content + tool_calls`，可能破坏供应商对工具链上下文的校验；如果把所有历史 reasoning 都无差别回放，又会把最终回答内部推理持续塞进后续上下文。
+
+项目最终采用“完整保存、选择性编译”的两层设计：
+
+```text
+DeepSeek stream
+  -> Model Adapter 解码 reasoning_content
+  -> Runtime 聚合 canonical reasoning/content/tool calls
+  -> Repository 按顺序持久化 canonical transcript
+  -> 下一轮请求编译
+       |- assistant 含 tool_calls：回放 reasoning_content + content + tool_calls
+       `- 最终 assistant 无 tool_calls：只回放 content
+```
+
+Model Adapter 是供应商差异的唯一边界，Runtime 不依赖 `reasoning_content` 这个私有字段；它只理解 canonical reasoning、assistant Tool Call 和 Tool Result。请求编码时，Adapter 仅在 `message.reasoning && message.toolCalls?.length` 时恢复 DeepSeek 的 `reasoning_content`。这避免把供应商协议散落到 ChatService、Repository 或前端。
+
+这里有五个关键不变量：
+
+1. 与 Tool Call 绑定的 reasoning、assistant content、全部 Tool Call 和对应 Tool Result 是原子单元，不能只保留其中一部分。
+2. 无 Tool Call 最终 Round 的 reasoning 可以留在 durable transcript 作为事实和诊断材料，但下一用户轮次只发送最终 `content`。
+3. `reasoningEffort=off` 只关闭当前 Run 的新 thinking；历史工具协议要求的 reasoning 仍必须回放，否则“关闭本轮推理”会意外破坏历史上下文。
+4. 只有需要 native reasoning replay 的历史工具单元才检查 provider 和 `reasoningFormat`；普通最终回答不应仅因来自另一模型就阻塞会话继续。
+5. raw reasoning 不进入普通 Conversation、Workbench 或用户 SSE。用户看到的是按 `roundSequence + blockSequence` 排序的文本和 Tool Activity，而不是供应商内部思维文本。
+
+流式实现还有一个容易忽略的点：`reasoning_content`、普通 `content` 和 `tool_calls` 都可能跨 chunk 到达，且先后顺序不能单靠网络事件推断语义。Adapter 解码 reasoning/content 分片、按 provider index 聚合工具参数，并为 Content/Tool 分配稳定 `blockSequence`；Runtime 再分别聚合 canonical reasoning 与正文。只有 Round 结束后，Runtime 才能根据是否存在 Tool Call 判断这一轮 content 是工具前言还是最终回答。
+
+这项优化的工程收益不是简单的“少传一个字段”：
+
+- 保证 DeepSeek V4 多轮 Tool Calling 的协议正确性和历史可恢复性。
+- 避免最终回答 reasoning 在每轮请求中反复累积，减少不必要的上下文占用。
+- 允许不依赖 native reasoning 的普通回答跨模型复用，同时对真正不兼容的工具历史明确失败。
+- 将模型事实、供应商编码和用户展示拆成三个边界，降低 raw reasoning 泄露到 UI 或业务协议的风险。
+- 为后续 Context Engineering 提供完整 canonical transcript；未来可以计量、选择和淘汰原子单元，而不是从 UI 文本反推模型历史。
+
+面试口述时可以这样概括：
+
+> DeepSeek V4 的难点不是把 Base URL 换成兼容接口，而是 Thinking 和 Tool Calling 形成了特殊上下文契约。工具轮的 `reasoning_content` 必须和 Tool Call、Tool Result 一起恢复，但最终回答的 reasoning 不应该继续进入下一轮。我把供应商字段限制在 Model Adapter 内，Runtime 和数据库只保存 canonical transcript；请求时对工具单元做 native replay，对最终回答只回放正文。这样既保证了 DeepSeek 工具链协议，又避免无效 reasoning 持续膨胀上下文，同时不把 raw reasoning 暴露给用户。
 
 ## 4. 阶段三：流式对话的一致性边界
 
@@ -569,7 +618,70 @@ terminal 的要求更严格：先在内存提交 terminal Event 与 Projection�
 >
 > 最后我用 Unit、Integration 和真实浏览器三层验证。真实浏览器在时序主链之外又发现 React state/ref 的立即提交竞争，进一步证明可恢复系统不能只测 reducer，也必须用真实连接、真实会话切换和真实模型工具循环做黑盒验证。
 
-## 14. 面试表达模板
+## 14. Context Engineering 为什么先建设评测系统
+
+### 14.1 当时的问题：上下文优化不是普通重构
+
+Context Engineering 的目标不是简单地“少传几条消息”。选择、裁剪、重排、摘要、Tool Result 压缩都会改变模型看到的事实和顺序，属于有损且非确定性的行为变更。没有改动前 Baseline，就无法回答三个最基本的问题：
+
+1. 回答变短是成本优化，还是约束、证据和限定语被一起删掉了？
+2. 结果退化来自模型、Context Compiler、工具/SSE 链路，还是评测规则自身？
+3. Provider 报告的真实输入量、本地编译器计划的 Token 数和模型官方 Context Window，是否被错误地当成了同一个数字？
+
+这个项目还有 Tool Calling 和 Connection-Durable Run。Context 不只包含 user/assistant 文本，还包含 reasoning、Tool Call、Tool Result 和恢复轨迹；即使最终答案正确，也可能已经破坏工具协议或断线 replay。因此先写一个 Compiler 再凭几次人工对话观察，无法为后续有损策略提供可信的回归边界。
+
+### 14.2 解决方式：建立可复现的真实黑盒 Eval
+
+评测没有绕过生产代码直接调用 Model Adapter，而是从真实的 Session、Run 和 SSE 接口驱动 Agent，覆盖数据库事实、后台执行、工具调用、投影和断线恢复。Search、Fetch 和错误响应使用固定 Fixture，并校验 Fixture Hash；这样模型仍是真实的，但外部网页变化不会让相同 Case 每次得到不同材料。
+
+评测同时维护三类互补信号：
+
+- **确定性规则**：检查精确事实、禁用词、工具次数、事件序列和 critical contract，适合做稳定质量门。
+- **模型 Judge**：评价任务完成度、约束遵循、证据扎根、限定语保留和目标连贯性，覆盖难以完全规则化的语义质量。
+- **人工复核**：输出 `human-review.csv`，用于校准 Judge，而不是默认相信另一个模型的分数。
+
+Token 事实源也被拆开处理：
+
+- DeepSeek 流式响应的 `prompt_tokens`、`completion_tokens` 和 `prompt_cache_hit_tokens` 表示供应商实际处理和缓存命中的 Usage，用于观察真实成本与压力。
+- 本地 tokenizer 表示 Context Compiler 在请求前的 planned tokens，用于预算、预留和拒绝决策；它不能被字符数启发式替代。
+- Context Window 和最大输出来自代码内的 Model Context Profile。正式 Baseline 必须填写供应商权威来源并显式 `verified=true`，不能用一个“看起来合理”的数字冻结基准。
+
+DeepSeek tokenizer 最初被设计成外部目录环境变量，这会让运行结果依赖某台机器的相对路径，也会把 8 MB 左右的资源加载扩散到主 API。最终把官网下载资源封装为独立 `@harness/deepseek-tokenizer` 包：资源随包固定、SHA-256 校验，评测进程惰性加载，并以同一个 Promise/Tokenizer 实例做进程级强缓存。它不缓存任意长文本的 Token ID 数组，避免为了“强缓存”反而制造无界内存增长；主 API 则继续使用供应商真实 Usage，不依赖这个本地大包。
+
+### 14.3 真实 Smoke 暴露了哪些问题
+
+首次 Context Smoke 运行 8 个 Trial，规则结果为 6/8 通过、2 个 critical violation。它产生了完整报告和人工复核文件，随后因为 critical quality gate 返回退出码 1；这表示评测成功完成并阻止了不合格结果，不是 CLI 或 Agent 运行时崩溃。
+
+这次运行没有只得到一个 Pass Rate，而是把问题分成了几类：
+
+1. **真实模型行为失败**：`pollution-similar-facts` 要求只输出权威代号，但模型用一段拒绝说明代替直接回答，并复述了干扰项 `ORANGE`。现有“包含正确值且排除错误值”的规则也不够严格，后续应改为规范化后的精确答案。这说明 Eval 既发现了模型问题，也暴露了 grader 过宽。
+2. **Harness/契约问题**：`connection-replay-after-start` 的最终回答正确，但首次订阅收到的是 `run.snapshot`，没有观察到预期的 `run.started`，所以 Runner 没在预定位置断线。这需要澄清 snapshot 是否可合法替代已经错过的 started event，或者服务端是否必须从 sequence zero replay；不能把它误算成回答质量失败。
+3. **Judge 合约问题**：8 次 Judge 全部返回 `incorrect`、`match` 之类的裸文本，而 schema 要求包含五项分数、`pass|fail|unknown` verdict 和 reason 的 JSON。当前 Trial 的 `passed` 只由确定性规则决定，Judge 虽默认必配，却还没有进入 Summary、Baseline 对比或 CLI exit，失败请求的 Token Usage 也丢失了。正式 Baseline 前必须明确 Judge 是门槛还是诊断信号，并让实现与命名一致。
+4. **Baseline 可比性问题**：CLI 支持按 case、capability、pressure 过滤，但比较逻辑尚未证明 Candidate 与 Baseline 覆盖完全相同的 `(taskId, trialIndex)` 集合。若把局部 Candidate 与完整 Baseline 做 aggregate delta，对比结论没有统计意义。
+5. **配置与运行边界问题**：普通 API 和 Eval Fixture API 同时占用 `4318` 会触发 `EADDRINUSE`；未启用 Fixture 时 Hash 显示 `actual=disabled`；未验证 Model Context Profile 时正式 Baseline 会被主动阻止。这些报错看似增加了启动步骤，实际是在防止连错服务、题集漂移和用猜测容量生成“正式”结果。
+
+### 14.4 这个阶段实际解决了什么
+
+评测系统没有直接提升模型答案，而是先建立了后续优化可以依赖的测量与归因能力：
+
+- 在改变模型输入前保留可比较的行为基线，避免“Token 降了”掩盖质量退化。
+- 把供应商实际 Usage 与本地计划 Token 分开，既能观察真实缓存/成本，也能在发请求前做预算。
+- 通过固定 Fixture、Hash Gate、题集/配置清单、Run ID 和报告文件，让结果可复现、可审计。
+- 把模型行为失败、Judge/规则问题、SSE 恢复问题和环境接错分开，避免对着错误层修代码。
+- 用 verified gate 阻止不可信的 Context Window 参数进入正式 Baseline。
+- 为后续 Compiler 的 shadow mode、选择、摘要、压缩和重排提供同题集回归保护。
+
+当前边界也必须讲清楚：Eval Harness 已落地，但正式 Baseline 尚未冻结。可以先开发 `ContextFragment`、`ContextSource`、Token Budget、Context Trace 和 no-op/shadow Compiler 等不改变模型输入的基础层；消息删除、截断、摘要替换、证据压缩、相关性选择和重排，需要等 replay Case、Judge、精确 grader、Profile 验证、Full dry run 与人工校准完成后再逐项启用。
+
+### 14.5 面试口述版
+
+> Context Engineering 的难点不是少传几条消息，而是任何裁剪、摘要和重排都会改变模型行为。如果没有改动前的真实 Baseline，就无法判断 Token 下降是优化还是信息丢失，也无法区分模型、Compiler、Judge 和 SSE Harness 谁出了问题。
+>
+> 所以我先从生产 Session、Run、SSE 边界搭了黑盒评测，用固定并校验 Hash 的工具 Fixture 控制外部变量，同时记录确定性规则、模型 Judge、人工复核、供应商真实 Usage 和本地 planned tokens。DeepSeek 的 tokenizer 做成独立包并进程级强缓存，主 API 则读取供应商真实 Usage；模型 Context Window 必须有权威来源并显式 verified，才能跑正式 Baseline。
+>
+> 首次 Smoke 是 6/8，通过评测我把两个 critical 分成了真实模型污染失败和 replay 时序问题，还发现 Judge 8/8 不符合 schema、Judge 尚未真正参与 pass、以及局部 Candidate 可能与完整 Baseline 错误比较。这个阶段的价值不是证明系统已经优秀，而是让后续 Context Compiler 的每次有损变更都可测量、可归因、可回归。
+
+## 15. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
@@ -599,7 +711,23 @@ terminal 的要求更严格：先在内存提交 terminal Event 与 Projection�
 
 答：取消的是整个 run 的墙上时钟，不是取消所有边界。单次模型和 Tool 仍有独立超时，用户取消会立即传播；每个 assistant run 还有 20 次 Tool Call 上限。达到上限后，最终回答请求完全不发送工具定义，并在服务端缓冲校验。因此正常复杂任务不会被累计耗时误杀，异常循环也仍然确定收敛。历史版本中的 Web URL/Passage/无新增内容边界已经删除，不应再作为当前目标架构讲解。
 
-## 15. 后续追加规则
+### 问：DeepSeek V4 既然兼容 OpenAI API，为什么还需要专门的 Model Adapter 优化？
+
+答：兼容的是请求外形，不代表上下文语义完全相同。DeepSeek Thinking + Tool Calling 要求历史工具轮携带原生 `reasoning_content`，否则 Tool Call 上下文可能不完整；但最终回答的 reasoning 又不应在后续轮次反复回放。我在 Adapter 中解码流式 reasoning，Runtime/Repository 保存供应商无关的 canonical transcript，请求编译时只对包含 Tool Call 的 assistant 消息恢复 `reasoning_content`，最终回答只发送正文。同时按 provider 和 reasoning format 校验真正需要 native replay 的工具单元，并把 raw reasoning 排除在用户 SSE 和 UI 之外。
+
+### 问：为什么不直接实现 Context Compiler，而先做 Eval？
+
+答：Compiler 的选择、裁剪、摘要和重排都会改变模型输入，是有损行为变更。没有改动前的固定题集 Baseline，就只能看到 Token 变少，无法证明约束、证据、Tool 协议和恢复语义没有退化。我先用真实 Session/Run/SSE 黑盒链路、固定 Fixture、确定性规则、Judge 和人工复核建立测量边界；基础 Compiler 可以先以 no-op/shadow mode 开发，行为策略等正式 Baseline 冻结后逐项启用。
+
+### 问：为什么同时需要供应商 Usage 和本地 Tokenizer？
+
+答：二者解决的时间点不同。供应商 Usage 是请求完成后模型实际处理的 Token 事实，包含 DeepSeek 的缓存命中，适合核对成本和真实压力；本地 tokenizer 是请求发出前的计划值，用于 Context Compiler 做预算、淘汰和最终回答预留。字符估算只能做诊断，两者都不能替代经过权威来源验证的 Context Window 上限。
+
+### 问：首次 Context Smoke 暴露了什么？
+
+答：8 题中 6 题通过、2 个 critical。一个是模型没有按要求只输出权威事实并复述干扰项；另一个是断线恢复 Case 没观察到预期的 `run.started`，属于 Harness 时序或 replay 契约问题。此外 Judge 8/8 返回格式不合约，而且当前还没有真正参与 pass；Baseline 比较也需要补相同 Trial 集合校验。这说明评测的作用不仅是打分，更重要的是把模型缺陷、grader 缺陷和基础设施缺陷分层定位。
+
+## 16. 后续追加规则
 
 每个阶段只追加四类内容：
 

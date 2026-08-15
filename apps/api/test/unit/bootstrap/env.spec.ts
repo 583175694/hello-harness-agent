@@ -43,23 +43,4 @@ describe('environment validation', () => {
       }).EVAL_FIXTURE_ROOT,
     ).toBe('/tmp/context-fixtures');
   });
-
-  it('requires a complete authoritative model profile before verification', () => {
-    expect(() =>
-      validateEnvironment({
-        ...validEnvironment,
-        DEEPSEEK_MODEL_PROFILE_VERIFIED: 'true',
-        DEEPSEEK_CONTEXT_WINDOW_TOKENS: '131072',
-      }),
-    ).toThrow('authoritative source');
-    expect(
-      validateEnvironment({
-        ...validEnvironment,
-        DEEPSEEK_MODEL_PROFILE_VERIFIED: 'true',
-        DEEPSEEK_CONTEXT_WINDOW_TOKENS: '131072',
-        DEEPSEEK_MAX_OUTPUT_TOKENS: '8192',
-        DEEPSEEK_MODEL_PROFILE_SOURCE: 'provider-console-2026-08-15',
-      }).DEEPSEEK_MODEL_PROFILE_VERIFIED,
-    ).toBe(true);
-  });
 });

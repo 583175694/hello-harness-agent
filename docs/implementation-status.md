@@ -2,13 +2,15 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-14（Reasoning Context Transcript 断代升级已实施，模型透传与 transcript 完整性已加固）
+> 最后更新：2026-08-16（Context Engineering 评测基础设施已落地，真实 Smoke 已完成，正式 Baseline 尚未冻结）
 
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 20 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P8 Connection-Durable 时序加固已落地”：Run 已与 Chat HTTP/SSE 解耦，具备后台执行、Ordered Model Rounds、PostgreSQL versioned checkpoint、checkpoint 后 Event Tail、SSE replay/snapshot fallback、严格客户端 cursor、独立 cancel 和终态 CAS。Context Engineering、steer、搜索 fallback、Memory 和 Delegation 仍未实现。
+当前状态可以描述为“P8 Connection-Durable 时序加固已落地，P0 Context Evaluation Harness 已落地”：Run 已与 Chat HTTP/SSE 解耦，具备后台执行、Ordered Model Rounds、PostgreSQL versioned checkpoint、checkpoint 后 Event Tail、SSE replay/snapshot fallback、严格客户端 cursor、独立 cancel 和终态 CAS。Context Eval 已能够从真实 Session/Run/SSE 边界测量规则正确性、上下文压力、供应商 Usage、工具轨迹和恢复语义；Context Compiler、steer、搜索 fallback、Memory 和 Delegation 仍未实现。
+
+2026-08-16 的真实 Context Smoke 共运行 8 题，通过 6 题、失败 2 题，Pass Rate 为 75%，并产生 2 个 critical violation。结果证明评测链路已经能够发现真实模型行为缺陷与 Harness 时序缺陷，但 Judge 8/8 返回格式不合约、Model Context Profile 尚未完成权威来源验证，因此该结果只是校准数据，不是可冻结的正式 Baseline。
 
 Model-led Tool Boundary 已落地为协议 `0.8.0`：模型负责语义规划，Runtime 只执行模型决策和通用执行边界，Tool 只执行能力并返回 canonical 结构化结果，Runtime 统一序列化 Tool Message，Projection 派生 provenance 并按 URL/contentHash 归并 canonical source。`ToolRunState`、`WebResearchRunState`、Tool `modelContent/control` 和跨调用 URL allowlist 已删除；没有新增 Runtime Decision Policy、Web Research Policy 或 Tool observation 预算协议。详见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md)。
 
@@ -97,6 +99,32 @@ OpenAI-compatible Adapter 已捕获并选择性回放 DeepSeek `reasoning_conten
 
 本轮 review 加固了模型透传和完整性边界：ChatService 使用 Run 冻结模型，不再用默认模型覆盖用户选择；Snapshot profile 改为必填；未知模型直接拒绝；transcript 校验孤立 Tool Call 和缺失 Tool Result；前端不再兼容渲染最终回答之后的非法 reasoning/tool 顺序。旧的 `prepareSessionStream()` Message 上下文方法仍因现有历史单测保留，但实际 Run 执行链不再调用它，后续可单独删除并重写测试。
 
+### DeepSeek V4 Model Adapter 上下文优化（已实施）
+
+DeepSeek V4 的 Thinking + Tool Calling 上下文不是普通 OpenAI-compatible 文本历史：与 Tool Call 同轮生成的 `reasoning_content` 属于供应商原生工具协议单元，后续请求必须连同 assistant content、Tool Call 和对应 Tool Result 完整回传；但无 Tool Call 最终回答的 reasoning 不需要进入下一用户轮次。若把两类 reasoning 一律丢弃，会破坏历史工具链；若一律回放，又会把无协议价值的最终推理持续带入上下文，增加上下文占用并扩大 raw reasoning 的暴露面。
+
+当前 `OpenAICompatibleModelAdapter` 已把差异收敛在供应商边界：流式解码 DeepSeek `reasoning_content` 并向 Runtime 输出供应商无关的 reasoning delta，由 Runtime 聚合为 canonical reasoning；请求编码时仅为包含 Tool Call 的 assistant message 恢复原生 `reasoning_content`，普通最终回答只发送 `content`。`thinking.type` 与 `reasoning_effort` 由冻结的 Run profile 映射，当前 run 选择 `off` 只关闭新 reasoning 生成，不删除历史 Tool Call 协议仍需要回放的 reasoning。Repository 也只对这类 native reasoning tool-call unit 校验 provider 与 `reasoningFormat` 兼容性，允许不依赖原生 reasoning 的普通最终回答跨模型继续使用。
+
+这项优化同时保留三条边界：canonical transcript 完整保存模型事实，Model Adapter 独占供应商私有字段的编解码，Conversation/Workbench 不展示 raw reasoning。对应测试覆盖了 Tool Call reasoning 的选择性回放、最终 Round reasoning 的剥离、跨 provider/format 兼容拒绝、`reasoningEffort=off` 下的历史协议回放，以及 reasoning 不进入用户 SSE/内容块。详细协议与失败策略见 [27-reasoning-context-transcript.md](./27-reasoning-context-transcript.md)。
+
+### P0 Context Engineering Evaluation（Harness 已落地，正式 Baseline 尚未冻结）
+
+**当时的问题**：Context Engineering 后续会引入选择、裁剪、重排、摘要和证据压缩，这些操作天然有损。仅观察“回答看起来更短”无法判断是否遗漏约束、污染事实、破坏 Tool 协议或断线恢复，也无法区分模型退化、评测规则错误和 Harness 自身时序问题。供应商实际计费 Usage、本地计划阶段 Token 估算和模型官方 Context Window 还是三类不同事实源，不能用字符估算相互替代。
+
+**解决方式**：新增真实黑盒 Context Eval，从生产 Session/Run/SSE 接口驱动固定题集和确定性 Search/Fetch/Error Fixture，并通过 Fixture Hash 阻止题集与服务端数据漂移。评测同时记录确定性规则、Judge、人工复核表、工具轨迹、恢复轨迹、供应商实际 Usage 和本地计划 Token。DeepSeek tokenizer 被封装为独立的 `@harness/deepseek-tokenizer` 包，资源随包固定并校验 SHA-256，加载使用进程级惰性 Promise/实例强缓存；API 不依赖本地 tokenizer，正式请求优先读取 DeepSeek 流式 `prompt_tokens`、`completion_tokens` 和 `prompt_cache_hit_tokens`。模型 Context Window、最大输出和权威来源则由代码内 Model Context Profile 管理，正式 Baseline 必须显式完成来源验证。
+
+**阶段结果**：`pnpm eval -- context smoke` 已真实完成 8 个 Trial，6/8 通过、2 个 critical violation。共观察到 1,556,749 个供应商 prompt tokens、4,605 个 completion tokens、1,495,936 个 cached tokens；峰值实际 prompt tokens 为 139,441，本地计划峰值为 58,749，28 个模型 Round、13 次 Tool Call、无重复 Tool Call。报告、结构化 Summary 和人工复核 CSV 保存在 `.eval/context/2026-08-15T16-03-57-868Z/`。命令最终退出码为 1 是 critical quality gate 生效，不代表运行过程崩溃或报告未生成。
+
+**真实暴露的问题**：
+
+- `pollution-similar-facts` 中，模型没有按要求只输出权威代号，并在拒绝说明中复述了干扰项 `ORANGE`；这是模型行为失败。同时现有规则只检查包含/排除，后续应收紧为规范化后的精确答案。
+- `connection-replay-after-start` 的回答正确，但首个订阅先收到 `run.snapshot`，没有观察到预期的 `run.started`，导致断线点没有按题意触发；这是 Create/Subscribe 时序竞争或 replay 契约需要澄清的 Harness 问题。
+- Judge 8/8 返回 `incorrect`、`match` 等非结构化值，全部 schema 校验失败。当前 Trial 的 `passed` 只由确定性规则计算，Judge verdict/error 尚未进入 Summary、对比或 CLI exit；失败 Judge 调用的 Token Usage 也没有被保存，因此正式 Baseline 前必须修正 Judge 提示、解析和评分语义。
+- Candidate 与 Baseline 的比较尚未校验二者是否覆盖相同的 `(taskId, trialIndex)` 集合；带 `--case`、`--capability` 或压力过滤的局部结果可能被错误地与完整 Baseline 比较。
+- `DEEPSEEK_CONTEXT_WINDOW_TOKENS=131072` 与最大输出值虽然已经进入代码常量，但权威来源仍为空且 `verified=false`。安全门会主动拒绝正式 Baseline，防止用猜测值冻结基准。
+
+**当前边界**：可以并行建设不改变模型输入行为的 Context 基础设施，例如 `ContextFragment`、`ContextSource`、Token Budget、Context Trace、Compiler 接口及 no-op/shadow mode；在上述 P0 问题修复、Full dry run、Judge 人工校准和正式 Baseline 冻结前，不启用消息删除、截断、摘要替换、证据压缩、相关性选择或上下文重排。
+
 ## 3. 已完成
 
 ### 工程与基础设施
@@ -110,6 +138,8 @@ OpenAI-compatible Adapter 已捕获并选择性回放 DeepSeek `reasoning_conten
 - 配置校验、请求 ID 和敏感字段脱敏已接入；生产环境保留结构化 JSON 日志。
 - 开发环境日志已切换为彩色中文单行格式，关闭常规 HTTP 请求/响应明细和 Nest 启动路由噪声；模型链路只记录生成开始、首字响应、完成或失败，并提供会话短 ID、模型、上下文条数、首字耗时、总耗时和输出字数。
 - OpenAI 官方 SDK 和 OpenAI-compatible Chat Completions 已接入；模型 ID、Base URL、能力和请求参数由 `apps/api/src/model/model-catalog.ts` 管理，只有 `OPENAI_API_KEY` 从环境变量读取。
+- DeepSeek V4 Thinking + Tool Calling 已通过 Model Adapter 做上下文特化：解码 `reasoning_content` 分片并由 Runtime 聚合，仅对历史 Tool Call 原子单元做 native replay，最终回答 reasoning 不进入下一轮请求；provider/format 兼容检查、Run reasoning profile 和用户投影隐藏边界均已落地并有单测覆盖。
+- Context Evaluation Harness 已落地：真实 Session/Run/SSE 黑盒 Runner、固定 Fixture 与 Hash Gate、确定性规则、Judge/人工复核、上下文压力与 Usage 指标、独立 DeepSeek tokenizer 包及进程级强缓存均已实现；正式 Baseline 仍处于校准阶段。
 - 已实现每个 assistant run 最多 20 次 Tool Call 的模型-工具循环，支持分片 arguments 聚合、参数校验、串行执行、错误回传和达到调用上限后的无工具最终回答。
 - 模型调用已通过 `ModelAdapter` 与 OpenAI SDK 隔离；`AgentRuntimeService` 只依赖 canonical message、模型事件和工具契约。
 - 工具层已拆为 `AgentTool`、集中式 Tool Catalog 和通用 Registry；新增工具不再需要把业务逻辑写入 Registry。
@@ -180,16 +210,26 @@ PostgreSQL:      127.0.0.1:5432
 
 ```bash
 pnpm install
-pnpm db:local:init
-pnpm db:deploy
+pnpm db -- setup
 pnpm dev
 ```
 
 `pnpm dev` 输出的 Web/API 地址以当前配置为准；如果 `4317` 或 `4318` 已被占用，启动脚本会直接报告冲突，不会打印误导性的成功链接。PostgreSQL 使用本机服务，不再依赖 Docker。
 
-首次完成 `db:local:init` 和 `db:deploy` 后，日常开发只需运行 `pnpm dev`；PostgreSQL 由本机服务管理。
+首次完成 `pnpm db -- setup` 后，日常开发只需运行 `pnpm dev`；PostgreSQL 由本机服务管理。
 
 ## 5. 验证记录
+
+2026-08-16 完成 Context Evaluation Harness、DeepSeek Usage 适配、独立 tokenizer 包和根命令封装后执行：
+
+```text
+pnpm check
+pnpm install --frozen-lockfile
+git diff --check
+pnpm eval -- context smoke
+```
+
+静态验证结果为 Tokenizer 2 项、Protocol 13 项、Agent Evals 37 项、API 73 项、Web 28 项、Testkit 1 项，共 154 项 unit test 通过；typecheck、lint、build、冻结 lockfile 安装和 whitespace 检查通过。真实 Context Smoke 完成 8 个 Trial，规则结果 6/8 通过、2 个 critical violation；Judge 8/8 schema error。该次运行成功生成完整报告后因 critical quality gate 返回退出码 1，原始结果位于 `.eval/context/2026-08-15T16-03-57-868Z/`。
 
 最近一次 UI/工程验证已通过：
 
@@ -303,6 +343,7 @@ git diff --check
 - 搜索 fallback；正式 Evidence、引用校验和 Markdown Report Artifact 不属于当前范围，是否进入后续 Deep Research 由未来产品需求决定。
 - steer、pause 和 Human-in-the-loop 尚未实现；独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
 - user Memory、Delegation、Worker 和多用户认证。
+- Context Evaluation 正式 Baseline 尚未冻结：需要修复 Judge schema/评分接入、connection replay 断线点、污染题精确规则和 Candidate/Baseline 题集对齐校验，并为 Model Context Profile 填写供应商权威来源后显式标记 verified。
 
 ### General Web Research V1 完成边界
 
@@ -339,12 +380,13 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 
 ## 7. 下一阶段建议
 
-当前已完成 P8 Connection-Durable Agent Loop。下一阶段按以下顺序推进：
+当前已完成 P8 Connection-Durable Agent Loop 和 P0 Context Evaluation Harness，下一阶段按以下顺序推进：
 
-1. **进入 Context Engineering**：基于完整 canonical transcript 实现 Token 计量、选择、压缩、淘汰和最终回答预留。
-2. **伴随修正评测事实源**：统一 Run snapshot、assistant metadata 和 Tool execution 指标，把 Provider 失败、Judge 超时、规则不匹配和真实行为缺陷拆成可聚合分类。
-3. **校准真实行为**：修复直链任务工具选择和题目工具上限偏差；将重复调用作为效率信号，连续运行至少两轮 Smoke 并人工检查全部 6 题，再决定 Full 24 题门槛。
-4. **保持能力边界**：服务端重启自动续跑、Evidence/Citation、Report Artifact、Browser/PDF Fetch、Memory 和 Delegation 不与 Reasoning/Context Engineering 混成一次大重构。
+1. **先完成评测 P0**：修复 replay Case、Judge schema 与评分语义、污染题精确断言和 Candidate/Baseline 题集对齐；填写并验证 Model Context Profile 的供应商权威来源。
+2. **冻结正式 Baseline**：运行 Full dry run，根据 `human-review.csv` 校准 Judge，再用完整固定题集生成正式 Baseline；任何过滤后的局部运行不得冒充完整基准。
+3. **并行建设 Context 基础层**：基于完整 canonical transcript 实现 Fragment/Source、Token Budget、Trace 和 Compiler no-op/shadow mode，只观测编译决策，不改变实际模型输入。
+4. **基于基准逐项启用策略**：Baseline 冻结后再分别实验选择、压缩、淘汰、摘要和最终回答预留，每次用相同 Trial 集合判断质量、成本和延迟变化。
+5. **保持能力边界**：服务端重启自动续跑、Evidence/Citation、Report Artifact、Browser/PDF Fetch、Memory 和 Delegation 不与 Context Engineering 混成一次大重构。
 
 后续还需独立讨论 Agent Loop Semantics，包括 Goal/Task State、可选 Plan/Todo、动态修订、结构化 Observation、Progress、Completion Policy、Ask User/Clarification 和 Reflect/Re-plan。当前仅在实施计划中留档，未立项、未冻结接口，也不进入本轮 Context Engineering，避免把当前 Model-led Tool Loop 误描述为已经具备完整任务规划与完成判定。
 
@@ -358,6 +400,11 @@ P8 的完成标准不是“再增加一个工具”，而是现有 `Chat -> Agen
 - [ ] 将 Judge 超时、Agent 流中断和工具快照不一致拆成可聚合的失败分类。
 - [ ] 为直链题、搜索题和 Fetch 题分别校准硬规则，避免单一规则把行为问题和协议投影问题混在一起。
 - [ ] 根据至少两轮真实 Smoke 结果冻结语义质量阈值，再决定 Full suite 是否进入发布门槛。
+- [x] Context Eval 已记录供应商真实 Usage、本地 planned tokens、压力档位、规则/Judge 结果、Run/Tool/恢复轨迹和人工复核 CSV。
+- [ ] 修复 Context Judge 结构化输出；明确 Judge 是评分门槛还是独立诊断信号，并保存失败调用的可用 Usage。
+- [ ] 修复 `connection-replay-after-start` 的 create/subscribe 竞争或调整契约，使断线恢复 Case 能在确定位置触发。
+- [ ] 将污染题收紧为规范化精确答案，并在 Baseline 比较前校验 Candidate/Baseline 的 `(taskId, trialIndex)` 集合完全一致。
+- [ ] 填写 Model Context Profile 权威来源并显式 verified，完成 Full dry run、人工校准和正式 Baseline 冻结。
 
 Connection-Durable Agent Loop 与 Reasoning Context Transcript 已落地，当前进入 Context Engineering、真实评测校准与 Release Hardening。服务端重启自动续跑、Worker 独立上下文、动态 Browser Fetch、PDF 和正式 Evidence/Report 等能力按真实需求独立推进。
 

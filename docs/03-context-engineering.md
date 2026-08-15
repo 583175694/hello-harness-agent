@@ -319,18 +319,19 @@ type CompiledContext = {
 项目统一使用 DeepSeek V3 开源 Tokenizer 进行本地 Token 计量。当前原始资产位于：
 
 ```text
-/Users/sz-0203017616/Downloads/deepseek_v3_tokenizer/
-├── deepseek_tokenizer.py
-├── tokenizer.json
-└── tokenizer_config.json
+packages/deepseek-tokenizer/
+├── resources/
+│   ├── tokenizer.json
+│   └── tokenizer_config.json
+└── src/index.ts
 ```
 
-已确认 `tokenizer.json` 是 Hugging Face Tokenizer 格式，核心为 128,000 词表的 BPE，并包含 DeepSeek 的数字、中日韩文字、通用文本和 ByteLevel 预切分规则。Python 文件只负责通过 Transformers 加载本地资产并调用 `encode()`。
+已确认 `tokenizer.json` 是 Hugging Face Tokenizer 格式，核心为 128,000 词表的 BPE，并包含 DeepSeek 的数字、中日韩文字、通用文本和 ByteLevel 预切分规则。资源已作为 `@harness/deepseek-tokenizer` 的受控依赖纳入 workspace，加载时校验固定 SHA-256；官方 ZIP 中的 Python 示例和 macOS 元数据未进入项目。
 
 正式实现要求：
 
 - Runtime 不能依赖开发者 `Downloads` 目录；实现时将经过来源和许可证确认的 Tokenizer 资产复制到仓库内的稳定资源目录。
-- 使用 TypeScript 实现 `DeepSeekTokenMeter`，直接加载 `tokenizer.json`；不在生产链路调用 Python 子进程。
+- 使用独立 TypeScript 包 `@harness/deepseek-tokenizer` 直接加载内置 `tokenizer.json`；不在生产链路调用 Python 子进程，也不通过环境变量读取任意外部路径。
 - TypeScript 版本必须精确编码普通文本，并使用项目冻结的 DeepSeek Chat Template 对 `ModelMessage[]`、Tool Definition 和 Tool Protocol 特殊 Token 生成确定性本地估算。Provider 服务端可能使用不同或升级后的隐藏序列化，因此 Provider Usage 仍是实际计费和请求用量的权威值。
 - 使用现有 Python Transformers 版本生成 Golden Vectors，覆盖中文、英文、数字、Unicode、JSON、Tool Call、Tool Result 和特殊 Token；TypeScript 输出必须逐项匹配 Token ID 和 Token Count。
 - `tokenizer_config.json` 中当前的 `model_max_length=16384` 只属于该下载资产的配置，不能作为 `deepseek-v4-flash/pro` 的 Context Window。模型窗口和最大输出仍由独立 `ModelProfile` 明确配置。

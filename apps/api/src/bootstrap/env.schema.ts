@@ -33,27 +33,6 @@ export const envSchema = z
       (value) => (value === '' ? undefined : value),
       z.string().min(1).optional(),
     ),
-    DEEPSEEK_TOKENIZER_ROOT: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().min(1).optional(),
-    ),
-    DEEPSEEK_CONTEXT_WINDOW_TOKENS: z.coerce.number().int().positive().optional(),
-    DEEPSEEK_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().optional(),
-    DEEPSEEK_MODEL_PROFILE_SOURCE: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().min(1).optional(),
-    ),
-    DEEPSEEK_MODEL_PROFILE_VERIFIED: z
-      .preprocess(
-        (value) =>
-          value === true || value === 'true'
-            ? true
-            : value === false || value === 'false'
-              ? false
-              : value,
-        z.boolean(),
-      )
-      .default(false),
   })
   .superRefine((value, context) => {
     if (value.EVAL_FIXTURE_ROOT && value.NODE_ENV !== 'test')
@@ -61,18 +40,6 @@ export const envSchema = z
         code: z.ZodIssueCode.custom,
         path: ['EVAL_FIXTURE_ROOT'],
         message: 'only allowed when NODE_ENV=test',
-      });
-    if (
-      value.DEEPSEEK_MODEL_PROFILE_VERIFIED &&
-      (!value.DEEPSEEK_CONTEXT_WINDOW_TOKENS ||
-        !value.DEEPSEEK_MAX_OUTPUT_TOKENS ||
-        !value.DEEPSEEK_MODEL_PROFILE_SOURCE)
-    )
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['DEEPSEEK_MODEL_PROFILE_VERIFIED'],
-        message:
-          'verified profile requires context window, max output tokens, and an authoritative source',
       });
   });
 

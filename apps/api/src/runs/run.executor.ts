@@ -54,6 +54,17 @@ export class RunExecutor implements OnModuleDestroy {
       toolCallCount: 0,
       executions: [],
       sources: [],
+      observability: {
+        version: 1,
+        modelRounds: [],
+        totals: {
+          promptTokens: 0,
+          completionTokens: 0,
+          cachedTokens: 0,
+          estimatedPromptTokens: 0,
+          modelRoundDurationMs: 0,
+        },
+      },
     };
     let draftVersion = 0;
     let lastFlushAt = Date.now();
@@ -92,7 +103,9 @@ export class RunExecutor implements OnModuleDestroy {
           assistantMessageId: stored.assistantMessageId,
           messages,
           model: stored.model,
-          reasoningEffort: stored.reasoningEffort as NonNullable<RunSnapshot['profile']>['reasoningEffort'],
+          reasoningEffort: stored.reasoningEffort as NonNullable<
+            RunSnapshot['profile']
+          >['reasoningEffort'],
           onTranscriptItem: (message) => this.repository.appendTranscriptItem(runId, message),
         },
         active.abortController.signal,
@@ -268,6 +281,7 @@ export class RunExecutor implements OnModuleDestroy {
       executions: projection.executions,
       sources: projection.sources,
       toolCallCount: projection.toolCallCount,
+      observability: projection.observability,
       lastEventSequence: seq,
       ...(error ? { error } : {}),
     });

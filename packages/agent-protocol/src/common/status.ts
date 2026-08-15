@@ -6,6 +6,10 @@ export const serviceStatusSchema = z.object({
   service: z.string().min(1),
   version: z.string().min(1),
   checks: z.record(z.enum(['ok', 'error'])).optional(),
+  evalFixtureHash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/u)
+    .optional(),
 });
 
 export type ServiceStatus = z.infer<typeof serviceStatusSchema>;

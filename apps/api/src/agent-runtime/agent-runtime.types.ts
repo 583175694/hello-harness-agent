@@ -1,4 +1,4 @@
-import type { ReasoningEffort } from '@harness/agent-protocol';
+import type { ModelRoundObservation, ReasoningEffort } from '@harness/agent-protocol';
 import type { ModelMessage } from '../model/model-adapter';
 
 export type AgentRuntimeInput = {
@@ -14,6 +14,7 @@ export type AgentRuntimeInput = {
 // Runtime 事件只描述 Agent 语义和稳定业务位置，不携带 Run eventSequence；
 // eventSequence 由 RunEventHub 在 Projection 已准备好后统一分配。
 export type AgentRuntimeEvent =
+  | { type: 'model.round.completed'; observation: ModelRoundObservation }
   | {
       type: 'text.delta';
       delta: string;

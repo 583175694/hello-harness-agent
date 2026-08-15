@@ -23,6 +23,7 @@ export async function parseSseResponse(response: Response): Promise<ChatStreamEv
       const event = runStreamEventSchema.parse(JSON.parse(data));
       if (
         event.type === 'message.delta' ||
+        event.type === 'model.round.completed' ||
         event.type === 'tool.started' ||
         event.type === 'tool.completed' ||
         event.type === 'tool.failed' ||

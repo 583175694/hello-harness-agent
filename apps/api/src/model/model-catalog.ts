@@ -7,6 +7,13 @@ export type ConfiguredModel = {
   baseUrl: string;
   reasoningFormat?: string;
   reasoning: ReasoningCapability;
+  context: {
+    contextWindowTokens: number;
+    maxOutputTokens: number;
+    tokenizer: 'deepseek-v3';
+    source: string;
+    verified: boolean;
+  };
   request: {
     temperature?: number;
     maxTokens?: number;
@@ -22,7 +29,14 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     baseUrl: 'https://api.deepseek.com',
     reasoningFormat: 'deepseek.reasoning_content.v1',
     reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'], default: 'high' },
-    request: {},
+    context: {
+      contextWindowTokens: 131_072,
+      maxOutputTokens: 8_192,
+      tokenizer: 'deepseek-v3',
+      source: 'P0 development default; verify against the active provider before baseline',
+      verified: false,
+    },
+    request: { temperature: 0, maxTokens: 8_192 },
   },
   {
     id: 'deepseek-v4-pro',
@@ -31,7 +45,14 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     baseUrl: 'https://api.deepseek.com',
     reasoningFormat: 'deepseek.reasoning_content.v1',
     reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'], default: 'high' },
-    request: {},
+    context: {
+      contextWindowTokens: 131_072,
+      maxOutputTokens: 8_192,
+      tokenizer: 'deepseek-v3',
+      source: 'P0 development default; verify against the active provider before baseline',
+      verified: false,
+    },
+    request: { temperature: 0, maxTokens: 8_192 },
   },
 ];
 

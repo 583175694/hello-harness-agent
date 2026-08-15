@@ -49,7 +49,7 @@ async function startMockApi(): Promise<{
         );
       } else if (request.method === 'GET' && request.url === '/api/agent/runs/run-1/events') {
         const envelope = (seq: number, payload: object) => ({
-          version: '0.10.0',
+          version: '0.11.0',
           eventId: `run-1:${seq}`,
           seq,
           sessionId: 'session-1',

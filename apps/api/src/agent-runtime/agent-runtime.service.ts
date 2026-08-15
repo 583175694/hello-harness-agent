@@ -85,6 +85,12 @@ export class AgentRuntimeService {
         reasoningDeltas = [];
         calls = [];
         finishReason = null;
+        let usage = {
+          promptTokens: null as number | null,
+          completionTokens: null as number | null,
+          cachedTokens: null as number | null,
+          estimatedPromptTokens: 0,
+        };
         this.logger.log(
           `模型轮次开始 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 尝试=${attempt}/${maxAttempts} | 可用工具=${definitions?.length ?? 0} 个 | 仅最终回答=${finalResponseOnly ? '是' : '否'}`,
           AgentRuntimeService.name,
@@ -123,6 +129,7 @@ export class AgentRuntimeService {
             } else {
               // 结束原因用于区分正常完成、长度截断和其他供应商终态。
               finishReason = event.finishReason;
+              usage = event.usage;
             }
           }
         } catch (error) {
@@ -146,6 +153,17 @@ export class AgentRuntimeService {
         }
 
         const roundContent = textDeltas.join('');
+        const roundDurationMs = Date.now() - attemptStartedAt;
+        yield {
+          type: 'model.round.completed',
+          observation: {
+            roundSequence: modelRounds,
+            attempt,
+            ...usage,
+            durationMs: roundDurationMs,
+            finishReason,
+          },
+        };
         const blockOrder = [
           ...(textDeltas.length > 0 ? [`text:${textBlockSequence}`] : []),
           ...calls.map(
@@ -154,7 +172,7 @@ export class AgentRuntimeService {
           ),
         ].join(',');
         this.logger.log(
-          `模型轮次完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 尝试=${attempt}/${maxAttempts} | 原因=${finishReason ?? 'unknown'} | 文本=${roundContent.length} 字 | 工具调用=${calls.length} 个 | Block顺序=${blockOrder || '空'} | 耗时=${formatLogDuration(Date.now() - attemptStartedAt)}`,
+          `模型轮次完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 尝试=${attempt}/${maxAttempts} | 原因=${finishReason ?? 'unknown'} | 文本=${roundContent.length} 字 | 工具调用=${calls.length} 个 | Block顺序=${blockOrder || '空'} | 耗时=${formatLogDuration(roundDurationMs)}`,
           AgentRuntimeService.name,
         );
 

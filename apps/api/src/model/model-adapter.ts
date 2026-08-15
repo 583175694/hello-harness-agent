@@ -35,7 +35,16 @@ export type ModelRoundEvent =
   // Tool Call 参数在 Adapter 内聚合完整后一次性交给 Runtime，避免执行半截 JSON。
   | { type: 'tool_calls.completed'; calls: ModelToolCall[] }
   // Round 结束后 Runtime 才能根据是否存在 Tool Call 判断 Content 的最终语义。
-  | { type: 'round.completed'; finishReason: string | null };
+  | {
+      type: 'round.completed';
+      finishReason: string | null;
+      usage: {
+        promptTokens: number | null;
+        completionTokens: number | null;
+        cachedTokens: number | null;
+        estimatedPromptTokens: number;
+      };
+    };
 
 // 隔离具体模型供应商协议，Runtime 只消费标准化轮次事件。
 export abstract class ModelAdapter {

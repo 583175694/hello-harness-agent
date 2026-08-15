@@ -26,4 +26,40 @@ describe('environment validation', () => {
       'SEARCH_PROVIDER',
     );
   });
+
+  it('only permits eval fixtures in test processes', () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        NODE_ENV: 'production',
+        EVAL_FIXTURE_ROOT: '/tmp/context-fixtures',
+      }),
+    ).toThrow('EVAL_FIXTURE_ROOT');
+    expect(
+      validateEnvironment({
+        ...validEnvironment,
+        NODE_ENV: 'test',
+        EVAL_FIXTURE_ROOT: '/tmp/context-fixtures',
+      }).EVAL_FIXTURE_ROOT,
+    ).toBe('/tmp/context-fixtures');
+  });
+
+  it('requires a complete authoritative model profile before verification', () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        DEEPSEEK_MODEL_PROFILE_VERIFIED: 'true',
+        DEEPSEEK_CONTEXT_WINDOW_TOKENS: '131072',
+      }),
+    ).toThrow('authoritative source');
+    expect(
+      validateEnvironment({
+        ...validEnvironment,
+        DEEPSEEK_MODEL_PROFILE_VERIFIED: 'true',
+        DEEPSEEK_CONTEXT_WINDOW_TOKENS: '131072',
+        DEEPSEEK_MAX_OUTPUT_TOKENS: '8192',
+        DEEPSEEK_MODEL_PROFILE_SOURCE: 'provider-console-2026-08-15',
+      }).DEEPSEEK_MODEL_PROFILE_VERIFIED,
+    ).toBe(true);
+  });
 });

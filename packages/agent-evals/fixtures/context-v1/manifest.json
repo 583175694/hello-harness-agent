@@ -1,0 +1,239 @@
+{
+  "version": "context-fixtures-v1",
+  "search": [
+    {
+      "query": "eval chain alpha",
+      "aliases": ["eval chain alpha 验证码"],
+      "result": {
+        "query": "eval chain alpha",
+        "provider": "bocha",
+        "results": [
+          {
+            "id": "search-chain-alpha",
+            "title": "Eval Chain Alpha",
+            "url": "https://eval.invalid/chain-a91f",
+            "domain": "eval.invalid",
+            "snippet": "固定评测链路材料"
+          }
+        ]
+      }
+    }
+  ],
+  "chains": [
+    {
+      "urls": [
+        "https://eval.invalid/chain-a91f",
+        "https://eval.invalid/chain-7c42",
+        "https://eval.invalid/chain-f003",
+        "https://eval.invalid/chain-b18e",
+        "https://eval.invalid/chain-44d2",
+        "https://eval.invalid/chain-e6a1",
+        "https://eval.invalid/chain-90bf",
+        "https://eval.invalid/chain-c72d",
+        "https://eval.invalid/chain-15aa",
+        "https://eval.invalid/chain-d8e4"
+      ],
+      "finalText": "链路验证码是 CHAIN-4821。"
+    }
+  ],
+  "fetch": [
+    {
+      "url": "https://eval.invalid/negation",
+      "result": {
+        "status": "succeeded",
+        "requestedUrl": "https://eval.invalid/negation",
+        "finalUrl": "https://eval.invalid/negation",
+        "normalizedUrl": "https://eval.invalid/negation",
+        "title": "离线模式说明",
+        "language": "zh-CN",
+        "contentType": "text/plain",
+        "retrievedAt": "2026-08-15T00:00:00.000Z",
+        "contentHash": "fixture-negation-v1",
+        "cacheStatus": "miss",
+        "truncated": false,
+        "passages": [
+          {
+            "passageId": "negation-p1",
+            "text": "该计划不支持离线模式。",
+            "locator": {
+              "kind": "web_text",
+              "quote": { "exact": "该计划不支持离线模式。" },
+              "position": { "start": 0, "end": 11 }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "url": "https://eval.invalid/qualifier",
+      "result": {
+        "status": "succeeded",
+        "requestedUrl": "https://eval.invalid/qualifier",
+        "finalUrl": "https://eval.invalid/qualifier",
+        "normalizedUrl": "https://eval.invalid/qualifier",
+        "title": "优惠资格",
+        "language": "zh-CN",
+        "contentType": "text/plain",
+        "retrievedAt": "2026-08-15T00:00:00.000Z",
+        "contentHash": "fixture-qualifier-v1",
+        "cacheStatus": "miss",
+        "truncated": false,
+        "passages": [
+          {
+            "passageId": "qualifier-p1",
+            "text": "该优惠仅适用于2026年8月前注册的教育用户。",
+            "locator": {
+              "kind": "web_text",
+              "quote": { "exact": "该优惠仅适用于2026年8月前注册的教育用户。" },
+              "position": { "start": 0, "end": 23 }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "url": "https://eval.invalid/number",
+      "result": {
+        "status": "succeeded",
+        "requestedUrl": "https://eval.invalid/number",
+        "finalUrl": "https://eval.invalid/number",
+        "normalizedUrl": "https://eval.invalid/number",
+        "title": "载荷规格",
+        "language": "zh-CN",
+        "contentType": "text/plain",
+        "retrievedAt": "2026-08-15T00:00:00.000Z",
+        "contentHash": "fixture-number-v1",
+        "cacheStatus": "miss",
+        "truncated": false,
+        "passages": [
+          {
+            "passageId": "number-p1",
+            "text": "最大载荷为 12 千克，不是 12 磅。",
+            "locator": {
+              "kind": "web_text",
+              "quote": { "exact": "最大载荷为 12 千克，不是 12 磅。" },
+              "position": { "start": 0, "end": 20 }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "url": "https://eval.invalid/conflict",
+      "result": {
+        "status": "succeeded",
+        "requestedUrl": "https://eval.invalid/conflict",
+        "finalUrl": "https://eval.invalid/conflict",
+        "normalizedUrl": "https://eval.invalid/conflict",
+        "title": "版本审计",
+        "language": "zh-CN",
+        "contentType": "text/plain",
+        "retrievedAt": "2026-08-15T00:00:00.000Z",
+        "contentHash": "fixture-conflict-v1",
+        "cacheStatus": "miss",
+        "truncated": false,
+        "passages": [
+          {
+            "passageId": "conflict-p1",
+            "text": "最终审计记录确认版本号为 4.2；早期草案中的 4.1 已作废。",
+            "locator": {
+              "kind": "web_text",
+              "quote": { "exact": "最终审计记录确认版本号为 4.2；早期草案中的 4.1 已作废。" },
+              "position": { "start": 0, "end": 32 }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "url": "https://eval.invalid/unknown",
+      "result": {
+        "status": "succeeded",
+        "requestedUrl": "https://eval.invalid/unknown",
+        "finalUrl": "https://eval.invalid/unknown",
+        "normalizedUrl": "https://eval.invalid/unknown",
+        "title": "公开规格",
+        "language": "zh-CN",
+        "contentType": "text/plain",
+        "retrievedAt": "2026-08-15T00:00:00.000Z",
+        "contentHash": "fixture-unknown-v1",
+        "cacheStatus": "miss",
+        "truncated": false,
+        "passages": [
+          {
+            "passageId": "unknown-p1",
+            "text": "公开材料没有披露续航时间。",
+            "locator": {
+              "kind": "web_text",
+              "quote": { "exact": "公开材料没有披露续航时间。" },
+              "position": { "start": 0, "end": 13 }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "url": "https://eval.invalid/chain-alpha",
+      "result": {
+        "status": "succeeded",
+        "requestedUrl": "https://eval.invalid/chain-alpha",
+        "finalUrl": "https://eval.invalid/chain-alpha",
+        "normalizedUrl": "https://eval.invalid/chain-alpha",
+        "title": "Chain Alpha",
+        "language": "zh-CN",
+        "contentType": "text/plain",
+        "retrievedAt": "2026-08-15T00:00:00.000Z",
+        "contentHash": "fixture-chain-v1",
+        "cacheStatus": "miss",
+        "truncated": false,
+        "passages": [
+          {
+            "passageId": "chain-p1",
+            "text": "链路验证码是 CHAIN-4821。",
+            "locator": {
+              "kind": "web_text",
+              "quote": { "exact": "链路验证码是 CHAIN-4821。" },
+              "position": { "start": 0, "end": 18 }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "url": "https://eval.invalid/recovery",
+      "result": {
+        "status": "succeeded",
+        "requestedUrl": "https://eval.invalid/recovery",
+        "finalUrl": "https://eval.invalid/recovery",
+        "normalizedUrl": "https://eval.invalid/recovery",
+        "title": "Recovery",
+        "language": "zh-CN",
+        "contentType": "text/plain",
+        "retrievedAt": "2026-08-15T00:00:00.000Z",
+        "contentHash": "fixture-recovery-v1",
+        "cacheStatus": "miss",
+        "truncated": false,
+        "passages": [
+          {
+            "passageId": "recovery-p1",
+            "text": "恢复码是 RECOVER-77。",
+            "locator": {
+              "kind": "web_text",
+              "quote": { "exact": "恢复码是 RECOVER-77。" },
+              "position": { "start": 0, "end": 16 }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "url": "https://eval.invalid/failure",
+      "result": {
+        "status": "failed",
+        "requestedUrl": "https://eval.invalid/failure",
+        "code": "FETCH_UPSTREAM_FAILED",
+        "detail": "固定评测故障"
+      }
+    }
+  ]
+}

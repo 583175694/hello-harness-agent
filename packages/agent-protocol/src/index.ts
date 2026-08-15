@@ -14,7 +14,7 @@ import {
 } from './web-fetch/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.10.0';
+export const protocolVersion = '0.11.0';
 
 export const reasoningEffortSchema = z.enum(['off', 'low', 'high', 'max']);
 export const reasoningCapabilitySchema = z.object({
@@ -22,16 +22,48 @@ export const reasoningCapabilitySchema = z.object({
   levels: z.array(reasoningEffortSchema),
   default: reasoningEffortSchema,
 });
+export const modelContextProfileSchema = z.object({
+  contextWindowTokens: z.number().int().positive(),
+  maxOutputTokens: z.number().int().positive(),
+  tokenizer: z.literal('deepseek-v3'),
+  source: z.string().min(1),
+  verified: z.boolean(),
+});
 export const modelRunProfileSchema = z.object({
   provider: z.string().min(1),
   model: z.string().min(1),
   reasoningEffort: reasoningEffortSchema,
   reasoningFormat: z.string().min(1).optional(),
 });
+
+// 供应商实际 Usage 与本地估算严格分离；供应商未返回的字段必须保留为 null。
+export const modelRoundObservationSchema = z.object({
+  roundSequence: z.number().int().positive(),
+  attempt: z.number().int().positive(),
+  promptTokens: z.number().int().nonnegative().nullable(),
+  completionTokens: z.number().int().nonnegative().nullable(),
+  cachedTokens: z.number().int().nonnegative().nullable(),
+  estimatedPromptTokens: z.number().int().nonnegative(),
+  durationMs: z.number().int().nonnegative(),
+  finishReason: z.string().nullable(),
+});
+
+export const runObservabilitySchema = z.object({
+  version: z.literal(1),
+  modelRounds: z.array(modelRoundObservationSchema),
+  totals: z.object({
+    promptTokens: z.number().int().nonnegative().nullable(),
+    completionTokens: z.number().int().nonnegative().nullable(),
+    cachedTokens: z.number().int().nonnegative().nullable(),
+    estimatedPromptTokens: z.number().int().nonnegative(),
+    modelRoundDurationMs: z.number().int().nonnegative(),
+  }),
+});
 export const publicModelConfigSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   reasoning: reasoningCapabilitySchema,
+  context: modelContextProfileSchema.optional(),
 });
 export const publicAgentConfigSchema = z.object({
   defaultModel: z.string().min(1),
@@ -335,6 +367,10 @@ export const chatStreamEventSchema = z.union([
   toolStartedEventSchema,
   toolCompletedEventSchema,
   z.object({
+    type: z.literal('model.round.completed'),
+    observation: modelRoundObservationSchema,
+  }),
+  z.object({
     type: z.literal('tool.failed'),
     messageId: z.string().min(1),
     blockId: z.string().min(1),
@@ -433,6 +469,7 @@ export const runSnapshotSchema = z.object({
   sources: z.array(researchSourceSnapshotSchema),
   toolCallCount: z.number().int().nonnegative(),
   lastEventSequence: z.number().int().nonnegative(),
+  observability: runObservabilitySchema.optional(),
   error: z.object({ code: z.string().min(1), detail: z.string().min(1) }).optional(),
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().optional(),
@@ -455,6 +492,7 @@ export const runStreamEventSchema = z.object({
   type: z.enum([
     'run.snapshot',
     'run.started',
+    'model.round.completed',
     'reasoning.delta',
     'message.delta',
     'tool.started',
@@ -478,6 +516,9 @@ export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 export type ReasoningCapability = z.infer<typeof reasoningCapabilitySchema>;
 export type ModelRunProfile = z.infer<typeof modelRunProfileSchema>;
+export type ModelContextProfile = z.infer<typeof modelContextProfileSchema>;
+export type ModelRoundObservation = z.infer<typeof modelRoundObservationSchema>;
+export type RunObservability = z.infer<typeof runObservabilitySchema>;
 export type PublicAgentConfig = z.infer<typeof publicAgentConfigSchema>;
 export type PublicModelConfig = z.infer<typeof publicModelConfigSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;

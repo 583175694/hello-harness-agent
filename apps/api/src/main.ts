@@ -4,6 +4,7 @@ import { Logger } from 'nestjs-pino';
 
 import { AppModule } from './app.module';
 import { ENV_KEYS } from './bootstrap/env.constants';
+import { configureHttpBodyParsing } from './bootstrap/http-body';
 import { HttpExceptionFilter } from './shared/http-exception.filter';
 
 // 创建 API 应用，配置全局中间件并启动服务。
@@ -11,11 +12,13 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
     autoFlushLogs: false,
+    bodyParser: false,
   });
   const config = app.get(ConfigService);
   const logger = app.get(Logger);
 
   app.useLogger(logger);
+  configureHttpBodyParsing(app);
   app.useGlobalFilters(new HttpExceptionFilter());
   app.enableCors({
     origin: config.getOrThrow<string>(ENV_KEYS.webOrigin),

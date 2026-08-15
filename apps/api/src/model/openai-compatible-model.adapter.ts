@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import type {
@@ -6,6 +6,9 @@ import type {
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
 import type { ReasoningCapability } from '@harness/agent-protocol';
+import { Tokenizer } from '@huggingface/tokenizers';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { ENV_KEYS } from '../bootstrap/env.constants';
 import { ModelAdapter } from './model-adapter';
@@ -24,9 +27,16 @@ type DeepSeekAssistantMessage = ChatCompletionMessageParam & { reasoning_content
 export class OpenAICompatibleModelAdapter extends ModelAdapter {
   private client?: OpenAI;
   private clientBaseUrl?: string;
+  private readonly tokenizer?: Tokenizer;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(@Inject(ConfigService) private readonly config: ConfigService) {
     super();
+    const root = config.get<string>(ENV_KEYS.deepSeekTokenizerRoot);
+    if (root)
+      this.tokenizer = new Tokenizer(
+        JSON.parse(readFileSync(join(root, 'tokenizer.json'), 'utf8')),
+        JSON.parse(readFileSync(join(root, 'tokenizer_config.json'), 'utf8')),
+      );
   }
 
   profile(model: string): {
@@ -55,11 +65,12 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     const request = {
       model: input.model,
       stream: true,
+      stream_options: { include_usage: true },
       ...(configured?.request.temperature !== undefined
         ? { temperature: configured.request.temperature }
         : {}),
-      ...(configured?.request.maxTokens !== undefined
-        ? { max_tokens: configured.request.maxTokens }
+      ...(this.maxOutputTokens(configured?.request.maxTokens) !== undefined
+        ? { max_tokens: this.maxOutputTokens(configured?.request.maxTokens) }
         : {}),
       messages: this.toProviderMessages(input.messages),
       ...(input.tools
@@ -83,10 +94,19 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     let nextBlockSequence = 0;
     let contentBlockSequence: number | undefined;
     let reasoningBlockSequence: number | undefined;
+    let promptTokens: number | null = null;
+    let completionTokens: number | null = null;
+    let cachedTokens: number | null = null;
 
     // 一个工具调用的名称和 JSON 参数可能跨多个 chunk，必须按 index 分组累积。
     for await (const rawChunk of response) {
       const chunk = rawChunk as import('openai/resources/chat/completions').ChatCompletionChunk;
+      // OpenAI-compatible Provider 通常在 choices 为空的最后一个 chunk 返回 Usage。
+      if (chunk.usage) {
+        promptTokens = chunk.usage.prompt_tokens ?? null;
+        completionTokens = chunk.usage.completion_tokens ?? null;
+        cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens ?? null;
+      }
       const choice = chunk.choices[0];
       if (!choice) continue;
       finishReason = choice.finish_reason ?? finishReason;
@@ -125,7 +145,17 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       .sort(([left], [right]) => left - right)
       .map(([, call]) => call);
     if (calls.length) yield { type: 'tool_calls.completed', calls };
-    yield { type: 'round.completed', finishReason };
+    yield {
+      type: 'round.completed',
+      finishReason,
+      usage: {
+        promptTokens,
+        completionTokens,
+        cachedTokens,
+        // 供应商消息 framing 不公开；本字段只表示确定性的本地近似，不能代替 Usage。
+        estimatedPromptTokens: this.estimatePromptTokens(request.messages, request.tools),
+      },
+    };
   }
 
   // 执行一次非流式文本生成，供标题等轻量任务复用。
@@ -137,8 +167,8 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       ...(configured?.request.temperature !== undefined
         ? { temperature: configured.request.temperature }
         : {}),
-      ...(configured?.request.maxTokens !== undefined
-        ? { max_tokens: configured.request.maxTokens }
+      ...(this.maxOutputTokens(configured?.request.maxTokens) !== undefined
+        ? { max_tokens: this.maxOutputTokens(configured?.request.maxTokens) }
         : {}),
     });
     return response.choices[0]?.message.content ?? '';
@@ -174,6 +204,20 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       type: 'function',
       function: { name: tool.name, description: tool.description, parameters: tool.parameters },
     }));
+  }
+
+  private estimatePromptTokens(
+    messages: ChatCompletionMessageParam[],
+    tools?: ChatCompletionTool[],
+  ): number {
+    const serialized = JSON.stringify({ messages, tools: tools ?? [] });
+    return this.tokenizer
+      ? this.tokenizer.encode(serialized, { add_special_tokens: false }).ids.length
+      : Math.ceil(Array.from(serialized).length / 4);
+  }
+
+  private maxOutputTokens(fallback?: number): number | undefined {
+    return this.config.get<number>(ENV_KEYS.deepSeekMaxOutputTokens) ?? fallback;
   }
 
   // 延迟创建客户端，保证未配置模型时 API 仍可启动并返回明确错误。

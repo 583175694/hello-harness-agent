@@ -5,7 +5,9 @@ import { Logger } from 'nestjs-pino';
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import type {
   ChatStreamEvent,
+  ModelRoundObservation,
   ResearchSourceSnapshot,
+  RunObservability,
   SearchToolResult,
   WebFetchInput,
   WebFetchResult,
@@ -41,6 +43,7 @@ export type ChatProjectionSnapshot = {
   toolCallCount: number;
   executions: import('@harness/agent-protocol').ToolExecutionSnapshot[];
   sources: ResearchSourceSnapshot[];
+  observability: RunObservability;
 };
 
 @Injectable()
@@ -139,6 +142,7 @@ export class ChatService {
     const conversation = new ConversationBlockCollector(prepared.assistantMessageId);
     let content = '';
     let toolCallCount = 0;
+    const modelRounds: ModelRoundObservation[] = [];
     let firstDeltaAt: number | undefined;
     let finalTranscriptMessage: Extract<ModelMessage, { role: 'assistant' }> | undefined;
     const notifyProjection = async (): Promise<void> => {
@@ -151,6 +155,7 @@ export class ChatService {
         toolCallCount,
         executions: snapshot.executions,
         sources: snapshot.sources,
+        observability: this.observability(modelRounds),
       });
     };
 
@@ -163,6 +168,12 @@ export class ChatService {
       reasoningEffort: prepared.reasoningEffort,
       signal,
     })) {
+      if (event.type === 'model.round.completed') {
+        modelRounds.push(event.observation);
+        await notifyProjection();
+        yield event;
+        continue;
+      }
       if (event.type === 'transcript.item') {
         if (event.message.role === 'assistant' && !event.message.toolCalls?.length)
           finalTranscriptMessage = event.message;
@@ -524,5 +535,30 @@ export class ChatService {
       ? '### 搜索来源'
       : '### 搜索线索';
     return `${content.trimEnd()}\n\n${heading}\n\n${links.join('\n')}`;
+  }
+
+  private observability(modelRounds: ModelRoundObservation[]): RunObservability {
+    const sumNullable = (
+      field: 'promptTokens' | 'completionTokens' | 'cachedTokens',
+    ): number | null => {
+      const values = modelRounds.map((round) => round[field]);
+      return values.some((value) => value === null)
+        ? null
+        : values.reduce<number>((total, value) => total + (value ?? 0), 0);
+    };
+    return {
+      version: 1,
+      modelRounds: [...modelRounds],
+      totals: {
+        promptTokens: sumNullable('promptTokens'),
+        completionTokens: sumNullable('completionTokens'),
+        cachedTokens: sumNullable('cachedTokens'),
+        estimatedPromptTokens: modelRounds.reduce(
+          (total, round) => total + round.estimatedPromptTokens,
+          0,
+        ),
+        modelRoundDurationMs: modelRounds.reduce((total, round) => total + round.durationMs, 0),
+      },
+    };
   }
 }

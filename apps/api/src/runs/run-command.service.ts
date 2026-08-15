@@ -162,6 +162,17 @@ export class RunCommandService {
       executions: snapshot.executions,
       sources: snapshot.sources,
       toolCallCount: snapshot.toolCallCount,
+      observability: snapshot.observability ?? {
+        version: 1,
+        modelRounds: [],
+        totals: {
+          promptTokens: null,
+          completionTokens: null,
+          cachedTokens: null,
+          estimatedPromptTokens: 0,
+          modelRoundDurationMs: 0,
+        },
+      },
     };
     await this.repository.terminal({
       runId,

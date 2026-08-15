@@ -2,6 +2,7 @@ import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { Prisma } from '@prisma/client';
 import {
   assistantAgentMetadataSchema,
+  runObservabilitySchema,
   type AgentRunStatus,
   type RunSnapshot,
 } from '@harness/agent-protocol';
@@ -211,6 +212,9 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     const message = run.messages.find((item) => item.id === run.assistantMessageId);
     const metadata = assistantAgentMetadataSchema.safeParse(this.metadata(message?.metadata));
     const value = metadata.success ? metadata.data : undefined;
+    const observability = runObservabilitySchema.safeParse(
+      this.metadata(run.metadata).observability,
+    );
     return {
       runId: run.id,
       sessionId: run.sessionId,
@@ -230,6 +234,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       sources: value?.agent?.sources ?? [],
       toolCallCount: run.toolCallCount,
       lastEventSequence: Number(run.lastEventSequence),
+      ...(observability.success ? { observability: observability.data } : {}),
       ...(run.errorCode && run.errorDetail
         ? { error: { code: run.errorCode, detail: run.errorDetail } }
         : {}),
@@ -453,6 +458,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           toolCallCount: projection.toolCallCount,
           lastEventSequence: BigInt(lastEventSequence),
           heartbeatAt: new Date(),
+          metadata: { observability: projection.observability } as Prisma.InputJsonValue,
           version: { increment: 1 },
         },
       });
@@ -560,6 +566,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           activeStepId: null,
           endedAt: new Date(),
           heartbeatAt: new Date(),
+          metadata: { observability: input.projection.observability } as Prisma.InputJsonValue,
           version: { increment: 1 },
         },
       });

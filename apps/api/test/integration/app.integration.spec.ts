@@ -4,6 +4,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../../src/app.module';
+import { configureHttpBodyParsing } from '../../src/bootstrap/http-body';
 import { HttpExceptionFilter } from '../../src/shared/http-exception.filter';
 import { PrismaService } from '../../src/database/prisma.service';
 import { getDefaultModel } from '../../src/model/model-catalog';
@@ -14,7 +15,8 @@ describe('foundation API', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = moduleRef.createNestApplication();
+    app = moduleRef.createNestApplication({ bodyParser: false });
+    configureHttpBodyParsing(app);
     app.useGlobalFilters(new HttpExceptionFilter());
     await app.init();
     prisma = app.get(PrismaService);
@@ -147,6 +149,22 @@ describe('foundation API', () => {
       .expect(400);
     expect(response.headers['content-type']).toContain('application/problem+json');
     expect(response.body.code).toBe('INVALID_SESSION_REQUEST');
+  });
+
+  it('accepts context-eval requests larger than the default 100KB body limit', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/agent/sessions')
+      .send({ title: '__test__长上下文请求' })
+      .expect(201);
+    const content = '上下文压力材料。'.repeat(15_000);
+    expect(Buffer.byteLength(JSON.stringify({ content }), 'utf8')).toBeGreaterThan(100 * 1_024);
+
+    const response = await request(app.getHttpServer())
+      .post(`/api/agent/sessions/${created.body.session.id}/runs`)
+      .send({ content, model: 'missing-model', idempotencyKey: crypto.randomUUID() })
+      .expect(400);
+    expect(response.body.code).toBe('INVALID_SESSION_REQUEST');
+    expect(response.body.detail).toContain('model');
   });
 
   it('blocks concurrent runs and deletion while a session is active', async () => {

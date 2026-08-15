@@ -84,6 +84,14 @@ describe('ChatService session persistence', () => {
       (async function* () {
         yield { choices: [{ delta: { content: '完整' } }] };
         yield { choices: [{ delta: { content: '回答' } }] };
+        yield {
+          choices: [],
+          usage: {
+            prompt_tokens: 120,
+            completion_tokens: 8,
+            prompt_tokens_details: { cached_tokens: 40 },
+          },
+        };
       })(),
     );
     const { service, messageCreate, executions } = makeService(providerCreate);
@@ -113,6 +121,16 @@ describe('ChatService session persistence', () => {
         roundSequence: 1,
         blockSequence: 0,
       }),
+      expect.objectContaining({
+        type: 'model.round.completed',
+        observation: expect.objectContaining({
+          roundSequence: 1,
+          attempt: 1,
+          promptTokens: 120,
+          completionTokens: 8,
+          cachedTokens: 40,
+        }),
+      }),
       {
         type: 'message.completed',
         messageId: prepared.assistantMessageId,
@@ -120,7 +138,12 @@ describe('ChatService session persistence', () => {
       },
     ]);
     expect(providerCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'deepseek-v4-pro', reasoning_effort: 'max' }),
+      expect.objectContaining({
+        model: 'deepseek-v4-pro',
+        reasoning_effort: 'max',
+        temperature: 0,
+        max_tokens: 8_192,
+      }),
       expect.anything(),
     );
     expect(messageCreate).toHaveBeenCalledTimes(2);

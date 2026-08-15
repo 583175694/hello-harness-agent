@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import type {
   WebFetchInput,
@@ -16,6 +16,7 @@ import { WebFetchCache } from './web-fetch.cache';
 import { asWebFetchError, WebFetchError } from './web-fetch.error';
 import { WebFetchUrlGuard } from './web-fetch-url.guard';
 import type { GuardedWebUrl, NormalizedWebDocument, RankedWebPassage } from './web-fetch.types';
+import { EvalFixtureStore } from '../eval-fixtures/eval-fixture.store';
 
 @Injectable()
 export class WebFetchService {
@@ -29,6 +30,7 @@ export class WebFetchService {
     private readonly chunker: PassageChunker,
     private readonly ranker: PassageRanker,
     private readonly budgeter: BatchPassageBudgeter,
+    @Optional() private readonly fixtures?: EvalFixtureStore,
   ) {}
 
   // 批量读取 URL 并生成按输入顺序排列的 fetched-source 材料。
@@ -39,6 +41,7 @@ export class WebFetchService {
     result: { query?: string; results: WebFetchItemResult[] };
     networkAttempts: number;
   }> {
+    if (this.fixtures?.isEnabled()) return this.fixtures.fetch(input);
     if (signal?.aborted)
       throw new WebFetchError(AGENT_ERROR_CODES.fetchCancelled, '网页读取已取消。');
     const results = new Map<number, WebFetchItemResult>();

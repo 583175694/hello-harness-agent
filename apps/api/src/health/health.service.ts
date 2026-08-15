@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import type { ServiceStatus } from '@harness/agent-protocol';
 
 import { PrismaService } from '../database/prisma.service';
+import { EvalFixtureStore } from '../eval-fixtures/eval-fixture.store';
 
 // 暴露在健康检查中的服务版本，暂与应用版本保持同步。
 const serviceVersion = '0.1.0';
@@ -15,6 +16,7 @@ export class HealthService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ConfigService) private readonly config: ConfigService,
+    @Inject(EvalFixtureStore) private readonly fixtures: EvalFixtureStore,
   ) {}
 
   // 构造低成本的存活检查响应。
@@ -23,6 +25,7 @@ export class HealthService {
       status: 'ok',
       service: 'hello-harness-api',
       version: serviceVersion,
+      ...(this.fixtures.hash ? { evalFixtureHash: this.fixtures.hash } : {}),
     };
   }
 
@@ -58,6 +61,7 @@ export class HealthService {
       service: 'hello-harness-api',
       version: serviceVersion,
       checks,
+      ...(this.fixtures.hash ? { evalFixtureHash: this.fixtures.hash } : {}),
     };
   }
 }

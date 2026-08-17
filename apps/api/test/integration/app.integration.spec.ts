@@ -151,7 +151,7 @@ describe('foundation API', () => {
     expect(response.body.code).toBe('INVALID_SESSION_REQUEST');
   });
 
-  it('accepts context-eval requests larger than the default 100KB body limit', async () => {
+  it('accepts long user requests larger than the default 100KB body limit', async () => {
     const created = await request(app.getHttpServer())
       .post('/api/agent/sessions')
       .send({ title: '__test__长上下文请求' })
@@ -191,7 +191,11 @@ describe('foundation API', () => {
     try {
       const chat = await request(app.getHttpServer())
         .post(`/api/agent/sessions/${sessionId}/runs`)
-        .send({ content: '第二条并发消息', model: getDefaultModel().id, idempotencyKey: crypto.randomUUID() })
+        .send({
+          content: '第二条并发消息',
+          model: getDefaultModel().id,
+          idempotencyKey: crypto.randomUUID(),
+        })
         .expect(409);
       expect(chat.body.code).toBe('SESSION_BUSY');
       const deletion = await request(app.getHttpServer())

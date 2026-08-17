@@ -1,6 +1,6 @@
 # Context Engineering
 
-> 文档状态：方案已确认，P0 Context Engineering Eval 代码已落地；修订后的真实 S/M/L/X 高压力 Dry Run、Judge 人工校准和正式 Baseline 尚未完成。早期低压力 20/20 只验证了 Harness 链路，已因压力等级不足而废弃，不能作为 Context Engineering 零点。P0 是 Context Engineering 实施的硬前置；完成并冻结 Baseline 后才能进入阶段一。本文冻结职责边界、核心数据模型、主流程和初始默认参数，所有经验参数仍需用相同 Benchmark 持续校准。
+> 文档状态：Context Engineering 方案草案。评估体系已从当前仓库移除并暂缓建设，不再作为 Context Engineering 的硬前置。本文保留职责边界、核心数据模型、主流程和初始默认参数；经验参数先通过自动化测试、运行观测和人工检查验证，未来再由独立评估模块校准。
 
 ## 1. 背景与问题
 
@@ -60,21 +60,9 @@ Context Compiler 可以选择、摘要、重排或淘汰模型本轮看到的材
 
 每个 Model Round 保存精简的 Context Trace，记录选择了哪些 Fragment、使用了哪些摘要、遗漏了什么以及原因，但不重复保存完整 Prompt 和原始证据。
 
-### 2.7 Eval-first
+### 2.7 分阶段验证
 
-Context Engineering 复杂度较高，不能在全部实现后再凭主观感受判断效果。实现前必须先在 `@harness/agent-evals` 中完成 P0 Context Engineering Benchmark，并对当前上下文逻辑运行正式 Baseline。
-
-后续阶段使用相同 Benchmark、Fixture、Model Profile 和 Grader Version 重复运行：
-
-```text
-P0 Baseline：当前上下文逻辑
-V1：每轮 Context Compiler + Token Budget
-V2：V1 + Summary + Constraint Ledger
-V3：V2 + Evidence Artifact / Passage
-V4：V3 + 扩展 Context Source
-```
-
-每个阶段必须同时证明目标能力提升、Regression 不退化和成本可接受。P0 的任务、Fixture、Trial、Grader、人工校准、版本纪律与完成标准见 [Agent Evaluation System](./24-general-web-research-evaluation.md)。
+Context Engineering 的选择、裁剪、重排和摘要都可能造成信息损失。当前先用单元测试、集成测试、真实运行观测和人工检查保护 Canonical Transcript、Tool 协议、恢复语义与成本边界；每个阶段都要保留可回滚开关并记录关键指标。统一的 Benchmark、Grader、Judge 与 Baseline 暂不在本项目中实现，未来作为独立评估模块设计后再接入。
 
 ## 3. 业界实践依据
 
@@ -246,7 +234,7 @@ TypeScript 类型只对后端有效。Context Compiler 必须把必要的类型�
 </external_evidence>
 ```
 
-具体采用 XML 边界、独立 Message 还是其他序列化形式，由 Model Adapter 能力和评测确定。外部网页与 Tool Result 必须始终标记为不可信数据，不能进入指令权威层。
+具体采用 XML 边界、独立 Message 还是其他序列化形式，由 Model Adapter 能力、兼容性测试和真实运行反馈确定。外部网页与 Tool Result 必须始终标记为不可信数据，不能进入指令权威层。
 
 ## 6. 每轮编译流程
 
@@ -316,30 +304,20 @@ type CompiledContext = {
 
 ### 7.1 Tokenizer
 
-项目统一使用 DeepSeek V3 开源 Tokenizer 进行本地 Token 计量。当前原始资产位于：
-
-```text
-packages/deepseek-tokenizer/
-├── resources/
-│   ├── tokenizer.json
-│   └── tokenizer_config.json
-└── src/index.ts
-```
-
-已确认 `tokenizer.json` 是 Hugging Face Tokenizer 格式，核心为 128,000 词表的 BPE，并包含 DeepSeek 的数字、中日韩文字、通用文本和 ByteLevel 预切分规则。资源已作为 `@harness/deepseek-tokenizer` 的受控依赖纳入 workspace，加载时校验固定 SHA-256；官方 ZIP 中的 Python 示例和 macOS 元数据未进入项目。
+本地 Token 计量尚未实现。Context Compiler 落地时应根据实际模型选择经过来源与许可证确认的 Tokenizer，并将它作为生产 Context 能力的一部分建设，不能依赖已移除的评估基础设施。
 
 正式实现要求：
 
 - Runtime 不能依赖开发者 `Downloads` 目录；实现时将经过来源和许可证确认的 Tokenizer 资产复制到仓库内的稳定资源目录。
-- 使用独立 TypeScript 包 `@harness/deepseek-tokenizer` 直接加载内置 `tokenizer.json`；不在生产链路调用 Python 子进程，也不通过环境变量读取任意外部路径。
+- 使用独立 TypeScript 组件加载仓库内受控的 Tokenizer 资产；不在生产链路调用 Python 子进程，也不通过环境变量读取任意外部路径。
 - TypeScript 版本必须精确编码普通文本，并使用项目冻结的 DeepSeek Chat Template 对 `ModelMessage[]`、Tool Definition 和 Tool Protocol 特殊 Token 生成确定性本地估算。Provider 服务端可能使用不同或升级后的隐藏序列化，因此 Provider Usage 仍是实际计费和请求用量的权威值。
 - 使用现有 Python Transformers 版本生成 Golden Vectors，覆盖中文、英文、数字、Unicode、JSON、Tool Call、Tool Result 和特殊 Token；TypeScript 输出必须逐项匹配 Token ID 和 Token Count。
-- `tokenizer_config.json` 中当前的 `model_max_length=16384` 只属于该下载资产的配置，不能作为 `deepseek-v4-flash/pro` 的 Context Window。模型窗口和最大输出仍由独立 `ModelProfile` 明确配置。
+- 未来引入的 Tokenizer 资产即使包含 `model_max_length`，该值也只属于资产自身配置，不能直接作为 `deepseek-v4-flash/pro` 的 Context Window。模型窗口和最大输出仍由独立 `ModelProfile` 明确配置。
 - Provider 实际返回的 Usage 与本地估算分字段保存；本地 Tokenizer 不能伪装成 Provider Usage。
 
 ### 7.2 初始预算公式
 
-业界没有适用于所有模型和 Agent 的统一数值。共同做法是预留输出、保留安全边界、在硬溢出前主动 Compaction，并通过真实 Evals 校准。本项目采用以下保守默认值作为 V1 起点：
+业界没有适用于所有模型和 Agent 的统一数值。共同做法是预留输出、保留安全边界、在硬溢出前主动 Compaction，并根据实际运行数据持续调整。本项目采用以下保守默认值作为 V1 起点：
 
 ```text
 C = Model Profile Context Window
@@ -359,7 +337,7 @@ Hard Limit         = floor(B × 90%)
 - 达到 Hard Limit：必须执行 Compaction/Selection，把最终材料压回不高于 Soft Limit 的目标区间。
 - Emergency：P0、P1、P2 强制集合本身超过 `B` 时，不发送必然失败或协议不完整的模型请求，返回明确预算错误并记录 Trace。
 
-`O` 最终必须受 Provider 最大输出能力约束；模型具有更高或更低输出要求时，在 Model Profile 中显式覆盖。上述 70%/90%/5% 是可运行默认值，不是跨模型行业标准，后续只能根据固定 Benchmark 的质量、Overflow、Token、成本和延迟共同调整。
+`O` 最终必须受 Provider 最大输出能力约束；模型具有更高或更低输出要求时，在 Model Profile 中显式覆盖。上述 70%/90%/5% 是可运行默认值，不是跨模型行业标准，后续只能根据真实运行中的质量、Overflow、Token、成本和延迟共同调整。
 
 ### 7.3 优先级
 
@@ -396,7 +374,7 @@ P0、P1、P2 先形成 Mandatory Set，不参与下面的普通比例竞争。Ma
 - Mandatory Set 永远不会为了满足类别比例而被截断。
 - Evidence 密集任务可以从 Recent Transcript、Memory 等未使用预算借用；纯对话任务反之。
 - 单个 Fragment 超过本类软配额时，Compiler 根据 `required`、priority、相关性和可恢复性决定保留或降级，不能机械截断协议单元。
-- 配额必须在 P0/V1 的 Constraint、Evidence、Long Loop 和 Short Regression Case 上分别报告和校准。
+- 配额必须通过覆盖 Constraint、Evidence、Long Loop 和 Short Regression 场景的自动化测试与人工检查分别验证。
 
 ## 8. 摘要与长期连续性
 
@@ -474,12 +452,12 @@ type ContextSummary = {
 - 能定位摘要覆盖的原始 Fragment 和 sequence range。
 - 不同时注入摘要及其覆盖的全部原文。
 - 通过层级摘要合并较旧材料，避免无限反复改写一个摘要造成漂移。
-- Conversation Summary 优先保证召回率，再通过评测减少冗余。
+- Conversation Summary 优先保证召回率，再根据测试与人工检查减少冗余。
 - 当前用户请求、有效指令、未闭合 Tool Unit 禁止进入有损摘要。
 
 ### 8.5 模型、Prompt 与质量验证
 
-Conversation Summary 的模型和 Prompt 不在设计阶段凭经验永久冻结。阶段二先为 Summary 定义独立 Model Profile 和版本化 Prompt，再通过 P0 已预留的 Context Eval Summary Case 做选择。
+Conversation Summary 的模型和 Prompt 不在设计阶段凭经验永久冻结。阶段二先为 Summary 定义独立 Model Profile 和版本化 Prompt，再通过自动化回归、人工样例和真实运行反馈做选择。
 
 至少验证：
 
@@ -491,7 +469,7 @@ Conversation Summary 的模型和 Prompt 不在设计阶段凭经验永久冻结
 - 多级 Summary 的累计漂移。
 - 压缩率、额外 Token 成本和延迟。
 
-确定性字段优先使用程序 Grader；开放式语义使用经过人工校准的独立 Judge。Summary 方案只有在目标压力 Case 上降低输入 Token，同时不造成 Critical Evidence/Constraint Regression，才能进入默认路径。
+确定性字段优先使用自动化断言；开放式语义通过固定人工样例检查。Summary 方案只有在目标压力场景下降低输入 Token，同时不造成 Critical Evidence/Constraint Regression，才能进入默认路径。
 
 ## 9. Tool Evidence 与大型网页
 
@@ -521,7 +499,7 @@ flowchart TD
 2. 完整内容保存为不可变 Evidence Artifact。
 3. 保存 URL、抓取时间、内容哈希、标题和段落边界。
 4. 当前 Tool Result 向模型提供 Artifact 元数据和相关原文片段。
-5. 模型通过内部 Artifact 读取能力按 Passage 或 Offset 继续读取；具体是独立 `read_artifact` 还是扩展 `web_fetch`，在阶段三评测后冻结。
+5. 模型通过内部 Artifact 读取能力按 Passage 或 Offset 继续读取；具体是独立 `read_artifact` 还是扩展 `web_fetch`，在阶段三实现验证后冻结。
 6. 最终回答需要引用或核对事实时，重新加载对应原文片段。
 
 概念结果：
@@ -620,12 +598,11 @@ Object Storage
 - Session 删除或显式归档后：进入 30 天 Grace Period，之后仅在没有其他引用时 GC。
 - 未被任何成功 Run、Summary 或用户结果引用的临时/失败抓取：7 天后 GC。
 - 被用户显式 Pin、被长期 Memory 引用或受审计要求约束：跟随引用对象生命周期，不使用普通 TTL。
-- Eval Fixture：不可变、版本化并长期保留，不能被运行时 GC。
 - 用户上传或项目级文档：跟随对应用户/项目的显式生命周期，不能套用临时网页 TTL。
 
 Artifact 使用 Content Hash 去重，但引用、抓取时间和来源记录不能因 Blob 去重而丢失。部署方的隐私、合规和存储政策可以把 TTL 调短；任何清理都必须先确认没有 Active Run、Summary、Memory 或用户交付引用。
 
-保留周期属于第三阶段实现参数。正式默认值在 Evidence Eval、存储成本和恢复需求数据可用后再次确认。
+保留周期属于第三阶段实现参数。正式默认值在存储成本、真实使用量和恢复需求数据可用后再次确认。
 
 ### 9.5 `web_fetch` 与已抓取 Artifact 的再次读取
 
@@ -643,7 +620,7 @@ Artifact 使用 Content Hash 去重，但引用、抓取时间和来源记录不
   Tool 数量更少，但一个 Tool 同时承担外部网络与内部快照读取
 ```
 
-评估维度包括 Tool 选择正确率、重复网络请求率、Token、延迟、协议清晰度、安全边界和模型理解成本。在阶段三方案确认前，阶段一和阶段二保持现有 `web_fetch` 行为，不预留虚假的 `read_artifact` 协议。
+决策维度包括 Tool 选择正确率、重复网络请求率、Token、延迟、协议清晰度、安全边界和模型理解成本。在阶段三方案确认前，阶段一和阶段二保持现有 `web_fetch` 行为，不预留虚假的 `read_artifact` 协议。
 
 ## 10. Tool Protocol Unit
 
@@ -907,21 +884,10 @@ Evidence Artifact 的存储和读取可以作为独立模块，由 Context Engin
 
 ## 17. 实施阶段
 
-### 阶段零：P0 Context Engineering Evaluation Baseline
-
-- 在现有 `@harness/agent-evals` 中增加独立 Context Eval。
-- 建设约 20 个 Constraint、Pollution、Evidence、Long Loop、Resume 和 Short Regression Case。
-- 使用固定 Search/Fetch/Error Fixture 和 Multi-turn Scenario Runner。
-- 支持每题多 Trial、Outcome/Trace/Cost Scorecard 和 Baseline/Candidate Diff。
-- 补齐 Provider Token Usage、TTFT、Model Round 和 Context Overflow 等通用观测。
-- 完成人工 Grader 校准、Dry Run、Benchmark v1 冻结和当前版本正式 Baseline。
-
-阶段零完成标准和数据格式见 [Agent Evaluation System](./24-general-web-research-evaluation.md)。未产出经过人工复核的正式 Baseline，不进入阶段一。
-
 ### 阶段一：Compiler 基础框架
 
 - `ContextFragment` 和 `ContextSource`。
-- TypeScript `DeepSeekTokenMeter`、Python Golden Vectors 一致性测试和 Model Profile Context Limit。
+- Token Meter、Golden Vectors 一致性测试和 Model Profile Context Limit。
 - Token Budget 与输出空间预留。
 - 每个 Model Round 调用 Context Compiler。
 - Canonical Transcript 与 Compiled Context 分离。
@@ -938,7 +904,7 @@ Evidence Artifact 的存储和读取可以作为独立模块，由 Context Engin
 - 摘要版本、coverage range 和 source refs。
 - Soft Limit 自动摘要。
 - 摘要 + 最近原始 Transcript Tail 的组合。
-- 使用 P0 预留的 Summary Case 对模型、Prompt、事实召回、约束保持和漂移打分。
+- 使用固定的 Summary 回归样例检查模型、Prompt、事实召回、约束保持和漂移。
 
 摘要必须在该阶段进入真实 Agent Loop，不能只保留接口占位。
 
@@ -962,7 +928,7 @@ Constraint 自动提取的置信度、纠错和审计机制在进入阶段二时
 - Environment 和 Current Time。
 - Tool Catalog / Tool Search。
 - Prompt Cache 指标和 Cache-aware 优化。
-- 基于 Evals 调整预算、相关性和摘要策略。
+- 基于测试、运行指标和人工检查调整预算、相关性和摘要策略。
 
 ## 18. 已确认决策
 
@@ -980,31 +946,31 @@ Constraint 自动提取的置信度、纠错和审计机制在进入阶段二时
 10. 每个 Model Step 持久化精简 Context Trace。
 11. Runtime 每轮调用 Compiler；Model Adapter 不承担选择和压缩。
 12. 所有有损压缩都必须保留回到原始材料的路径。
-13. P0 Context Engineering Eval 和正式 Baseline 是阶段一的硬前置。
-14. Token 计量使用 DeepSeek 开源 Tokenizer 的 TypeScript 实现，并通过 Python Golden Vectors 验证一致性。
-15. V1 默认使用 Output Reserve、5% Safety Margin、70% Soft Limit 和 90% Hard Limit；所有参数由 Benchmark 校准。
+13. 阶段一必须具备自动化回归、运行指标和可回滚开关。
+14. 实现 Token 计量时使用与目标模型匹配的受控 Tokenizer，并通过跨实现 Golden Vectors 验证一致性。
+15. V1 默认使用 Output Reserve、5% Safety Margin、70% Soft Limit 和 90% Hard Limit；所有参数根据真实运行数据调整。
 16. Fragment 配额是 Mandatory Set 之后的可借用软配额，不能机械截断高权威指令或 Tool Protocol Unit。
-17. Passage 使用 DOM/结构清洗、语义块和 Token Window 的混合切分，第三阶段通过 Evidence Eval 校准。
+17. Passage 使用 DOM/结构清洗、语义块和 Token Window 的混合切分，第三阶段根据实现验证与真实运行数据调整。
 18. Evidence Raw Blob 后续进入对象存储，PostgreSQL 保存 metadata、locator、引用和生命周期状态。
 19. 阶段三前不冻结 `read_artifact`，先比较独立 Tool 与扩展 `web_fetch` 两种职责划分。
 20. Memory 的写入和跨 Session 权限留到 Memory 模块设计，不在 Context V1 中占位。
 
-## 19. 仍需通过实现与评测确定的问题
+## 19. 仍需通过实现与验证确定的问题
 
 以下问题已明确讨论阶段，不能由阶段一临时实现替代：
 
 - 阶段二：Constraint 自动提取的置信度、用户纠错、supersede/revoke 和审计机制。
-- 阶段二：Conversation Summary 的最终模型、Prompt Version 和质量门槛；由 Summary Eval 结果决定。
+- 阶段二：Conversation Summary 的最终模型、Prompt Version 和质量门槛；由自动化回归、人工检查和真实运行反馈决定。
 - 阶段三：`web_fetch` 首次 Passage 选择策略，以及独立 `read_artifact` 与扩展 `web_fetch` 的职责选择。
 - 阶段三：Evidence Artifact 的正式 Object Store、30/7 天建议 TTL 是否需要按成本、隐私和恢复数据调整。
 - Memory 模块：写入条件、生命周期、用户可编辑性和跨 Session 权限。
 - 多用户/生产部署：Context Preview 的最终 Admin/Owner 权限、审计保留和部署级脱敏策略。
 
-以下经验参数已经有 V1 默认值，但仍必须通过固定 Benchmark 收敛：
+以下经验参数已经有 V1 默认值，但仍必须通过自动化回归、固定人工样例和真实运行数据收敛：
 
 - 不同 DeepSeek Model Profile 的 Context Window、最大输出和 Soft/Hard Limit 覆盖值。
 - Flexible Fragment 的份额、相关性阈值和预算借用规则。
 - Passage 的 800/1,200/100/1,600 Token 参数。
 - Artifact TTL 和 Object Storage 成本。
 
-所有调整必须保留 Benchmark Version、参数版本和 Context Trace，使用相同任务比较质量、Constraint、Evidence、Overflow、Token、延迟和成本；不能在领域 Tool 内增加不可追踪的临时字符裁剪协议。
+所有调整必须保留参数版本和 Context Trace，使用相同任务比较质量、Constraint、Evidence、Overflow、Token、延迟和成本；不能在领域 Tool 内增加不可追踪的临时字符裁剪协议。

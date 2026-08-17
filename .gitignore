@@ -9,6 +9,5 @@ artifacts/*
 !artifacts/.gitkeep
 playwright-report/
 test-results/
-.eval/
 *.log
 .DS_Store

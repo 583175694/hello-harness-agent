@@ -10,14 +10,12 @@ import { SessionsModule } from './sessions/sessions.module';
 import { ToolsModule } from './tools/tools.module';
 import { RunsModule } from './runs/runs.module';
 import { ModelModule } from './model/model.module';
-import { EvalFixturesModule } from './eval-fixtures/eval-fixtures.module';
 
 @Module({
   imports: [
     BootstrapConfigModule,
     LoggingModule,
     DatabaseModule,
-    EvalFixturesModule,
     ToolsModule,
     ChatModule,
     RunsModule,

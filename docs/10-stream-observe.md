@@ -7,7 +7,7 @@
 ```text
 State            durable execution facts
 Stream Events    client-facing recoverable projection events
-Observe Signals  backend diagnostics and evaluation traces
+Observe Signals  backend diagnostics and runtime traces
 ```
 
 Agent Gateway 把事实和状态变化安全地投影给 Web，不决定 Agent action。
@@ -262,12 +262,6 @@ Clarification：Conversation 展示单个问题，run 状态 waiting；用户回
 - unsupported claim counts
 - citation validation outcome
 - report quality
-
-### EvaluationTrace
-
-- fixture/eval case ID
-- hard-rule results
-- manual review reference
 
 Observe 不反向控制当前 run。
 

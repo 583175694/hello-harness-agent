@@ -4,7 +4,7 @@
 
 当前已完成工程基线、持久化聊天、General Web Research V1、Model-led Tool Boundary 和 Connection-Durable Agent Loop 时序加固：Run 已与 Chat/SSE 解耦，Ordered Model Rounds、Canonical Live Projection、版本化 PostgreSQL Checkpoint、Checkpoint 水位后的 Event Tail、严格 SSE cursor 和终态 CAS 已落地。客户端断线、刷新和切换会话可以恢复，且不牺牲普通 Tool Round 的 Content 首字速度。服务端重启后的自动续跑不属于本阶段；Context Compiler、Memory 和 Delegation 尚未实现，Deep Research 引用/报告是否建设由后续产品需求决定。
 
-独立的 `@harness/agent-evals` 已提供 6 题 Smoke 和 24 题 Full 真实黑盒评测，覆盖生产 Session、Chat SSE、工具执行、持久化快照、确定性硬规则、模型 Judge 和人工抽检文件。
+评估体系当前暂缓建设，仓库不包含 Benchmark、Grader、Judge、评估 Fixture 或评估 Runner。后续会把它作为独立模块重新设计，不作为当前功能开发的硬前置。
 
 ## 当前能力
 
@@ -28,7 +28,6 @@
 
 下一阶段
   全局 Context Engineering
-  真实评测事实源与行为阈值校准
   Release Hardening
 
 后续能力
@@ -93,8 +92,6 @@ curl http://127.0.0.1:4318/readyz
 pnpm check             # lint + typecheck + unit tests + build
 pnpm test:integration  # API/PostgreSQL integration tests
 pnpm test:e2e          # desktop/mobile browser tests
-pnpm eval -- research smoke # 串行运行 6 题真实联网 Smoke 评测
-pnpm eval -- research full  # 串行运行 24 题真实联网 Full 评测
 pnpm setup                  # 首次准备本地数据库、应用 migration 并生成 Prisma Client
 pnpm db -- update           # 拉取数据库变更后应用 migration 并生成 Prisma Client
 pnpm db -- migrate          # 仅在修改 schema.prisma 时创建开发 migration
@@ -110,7 +107,6 @@ apps/web                React/Vite 工作台
 apps/api                NestJS API + Prisma
 packages/agent-protocol 跨前后端 canonical schema/type
 packages/agent-testkit  确定性测试 fixtures
-packages/agent-evals    General Web Research 真实黑盒评测
 scripts                 本地开发和 PostgreSQL 初始化脚本
 artifacts               本地 Artifact 内容根目录
 docs                    产品、架构与实施文档
@@ -128,7 +124,6 @@ docs                    产品、架构与实施文档
 8. [工程结构](./docs/18-project-structure.md)
 9. [API 协议](./docs/11-api-protocol.md)
 10. [存储方案](./docs/12-storage-schema.md)
-11. [General Web Research 真实评测](./docs/24-general-web-research-evaluation.md)
 
 ## 文档规则
 

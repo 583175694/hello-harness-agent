@@ -76,7 +76,7 @@ Tool 不返回控制命令，不决定下一步，不声明任务完成，不维
 - 根据已经发生的用户消息、Tool Call 和 Tool Result 派生 source snapshot。
 - 记录 URL provenance，但不把 provenance 当作执行权限。
 - 完整保留每次 execution，同时把相同来源归并为一条 canonical source。
-- 为 Conversation、Workbench、持久化恢复和评测提供一致读模型。
+- 为 Conversation、Workbench、持久化恢复和运行观测提供一致读模型。
 
 Projection 只解释事实，不反向控制 Runtime 或 Tool。
 
@@ -233,9 +233,9 @@ Source snapshot / Workbench
 - 模型可能重复 Search、重复 Fetch、低效重试或选择质量较低的 URL。
 - 完整 Tool Result 始终注入，长会话可能增加延迟、成本并触发供应商上下文限制。
 - 删除 URL allowlist 后，Fetch 目标不保证来自当前 Search clue；网络安全仍由 URL Guard 保证。
-- 删除领域早停后，执行效率更多依赖提示词、模型能力、评测和 20 次通用上限。
+- 删除领域早停后，执行效率更多依赖提示词、模型能力、运行观测和 20 次通用上限。
 
-这些属于当前阶段明确接受的质量与上下文风险。先通过真实评测观察，再决定是否优化提示词、模型、Tool 输出契约或建设全局 Context Engineer。安全、成本和平台稳定性边界仍必须由确定性代码强制，但不能以 Tool 建议的形式重新引入隐藏 planner。
+这些属于当前阶段明确接受的质量与上下文风险。先通过真实运行观测和人工检查收集问题，再决定是否优化提示词、模型、Tool 输出契约或建设全局 Context Engineer。安全、成本和平台稳定性边界仍必须由确定性代码强制，但不能以 Tool 建议的形式重新引入隐藏 planner。
 
 ## 9. 迁移顺序
 
@@ -246,8 +246,8 @@ Source snapshot / Workbench
 5. 简化 Web Fetch，使其只处理本次输入、单次调用去重和能力内部安全约束。
 6. 将 `WebFetchResult.budget` 替换为不带控制语义的本次调用 `stats`。
 7. 由 Projection 派生 provenance，并按 canonical URL/contentHash 归并 source snapshot。
-8. 更新 Runtime、Tool、API、Web 和评测测试，删除领域预算、allowlist 和强制早停断言。
-9. 使用真实 Research Eval 观察重复调用、来源质量、上下文大小和执行效率。
+8. 更新 Runtime、Tool、API、Web 和回归测试，删除领域预算、allowlist 和强制早停断言。
+9. 使用真实运行观测和人工检查关注重复调用、来源质量、上下文大小和执行效率。
 
 ## 10. 验收标准
 

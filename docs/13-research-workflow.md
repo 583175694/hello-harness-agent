@@ -268,7 +268,7 @@ Validator 不调用模型，至少校验：
 5. 报告不得引用 clue-only result。
 6. Artifact 内容 hash 与通过验证的 revision 一致。
 
-Validator 不尝试确定性判断自然语言蕴含关系；语义支持度由 review step 和评测集检查。
+Validator 不尝试确定性判断自然语言蕴含关系；语义支持度由 review step 和人工质量检查处理。
 
 ## 14. 完成语义
 
@@ -314,27 +314,6 @@ Debug          raw events/state，仅开发模式
 
 Conversation 中的内联 Tool Activity 使用 `runId/stepId/toolCallId` 打开 Workbench 并定位对应 Activity execution。Provider attempts 在普通 Activity 中聚合，只有 Debug 可以展示脱敏 trace。
 
-## 16. 评测门槛
+## 16. 当前验证边界
 
-固定中文调研题集至少覆盖：
-
-- 时效性问题
-- 多对象比较
-- 地域限定
-- 证据不足
-- primary provider failure / fallback
-- clue-only result
-- steer
-- cancel
-- citation validator failure
-- limited report
-
-硬失败条件：
-
-- 不存在的 displayId
-- clue 冒充 evidence
-- 零证据却 completed
-- provider/API Key 泄露到日志或 Artifact
-- 外部内容改变系统指令
-
-发布需要 contract/integration/UI 测试通过，并完成人工报告质量抽检。
+当前发布要求 contract、integration 和 UI 测试通过，并完成人工报告质量检查。统一质量阈值不在本文定义。

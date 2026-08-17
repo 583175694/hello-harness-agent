@@ -24,7 +24,7 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 
 ## 2. 当前基线
 
-当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、真实 Workbench 投影和独立真实评测工具。P7 General Web Research Hardening、P8 Model-led Tool Boundary、Connection-Durable Agent Loop 与 Reasoning Context Transcript 均已完成；Ordered Model Rounds、Canonical Live Projection、版本化 Checkpoint、Event Tail、严格 SSE cursor、Run 状态 CAS、durable model transcript 和选择性 reasoning replay 已落地。下一优先项是 Context Engineering；Memory 和 Delegation 尚未完成。
+当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答` 和真实 Workbench 投影。P7 General Web Research Hardening、P8 Model-led Tool Boundary、Connection-Durable Agent Loop 与 Reasoning Context Transcript 均已完成；Ordered Model Rounds、Canonical Live Projection、版本化 Checkpoint、Event Tail、严格 SSE cursor、Run 状态 CAS、durable model transcript 和选择性 reasoning replay 已落地。下一优先项是 Context Engineering；Memory 和 Delegation 尚未完成。评估体系暂缓，后续作为独立模块重新设计。
 
 详细代码状态、验证记录和已知限制统一维护在 [implementation-status.md](./implementation-status.md)。只有代码、测试和验收记录同时存在时，能力才算完成。
 
@@ -46,7 +46,6 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 - query-aware 原文 Passage 筛选，外部内容不能改变 Agent 指令和执行边界
 - 基于真正读取来源的普通回答与 Sources / Activity Workbench
 - 部分来源失败或触及通用硬边界时使用已有材料平稳交付
-- 通用 Agent 固定题集评测和人工抽检
 
 当前首次发布不要求服务端重启后自动续跑。进程重启导致的 active Run 必须明确收敛为 `failed + RUN_INTERRUPTED`；Checkpoint、Worker lease 和跨进程接管仅保留未来升级空间。
 
@@ -135,7 +134,7 @@ packages/agent-protocol
 
 ### 7.2 Context Engineering（后续方向）
 
-当前不冻结 Context Compiler 接口。未来如果真实评测证明有必要，应面向 System Prompt、历史消息、用户输入、Assistant Tool Calls、Tool Results 和最终回答预留等完整上下文统一计量、选择、压缩和编译；不能用 Web Research 或 Tool observation 的局部字符预算代替。
+当前不冻结 Context Compiler 接口。未来如果真实运行数据证明有必要，应面向 System Prompt、历史消息、用户输入、Assistant Tool Calls、Tool Results 和最终回答预留等完整上下文统一计量、选择、压缩和编译；不能用 Web Research 或 Tool observation 的局部字符预算代替。
 
 ### 7.3 Thin Runtime
 
@@ -187,7 +186,7 @@ P4  PostgreSQL Durable State + Local Artifact Foundation
 P5  Real Model Final Answer + Clarification
 P6  Search Provider Tooling + Iterative Research
 P7  General Web Research Hardening
-P8  Recovery + Evaluation + Release Hardening
+P8  Recovery + Release Hardening
 R1  First User-Ready General Agent Release
 P9  User Memory Read Path
 P10 User Memory Write/Review
@@ -212,7 +211,6 @@ P8 Recovery 切片采用 [Connection-Durable Agent Loop](./26-connection-durable
 9. 部分来源失败或通用硬边界触发时，Agent 能使用已有材料平稳交付并说明限制。
 10. Workbench 能恢复 Search、Fetch、成功、失败和最终采用来源。
 11. contract/integration/UI 测试通过。
-12. 通用 Agent 固定题集评测通过并完成人工抽检。
 
 ## 11. 决策所有权
 

@@ -18,7 +18,6 @@ export const ENV_KEYS = {
   serperSearchUrl: 'SERPER_SEARCH_URL',
   // Serper 搜索密钥对应的环境变量。
   serperSearchApiKey: 'SERPER_SEARCH_API_KEY',
-  evalFixtureRoot: 'EVAL_FIXTURE_ROOT',
 } as const;
 
 // 集中维护本地开发和外部 Provider 的默认配置。

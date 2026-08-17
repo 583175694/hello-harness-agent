@@ -2,15 +2,15 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-16（Context Engineering 评测基础设施已落地，真实 Smoke 已完成，正式 Baseline 尚未冻结）
+> 最后更新：2026-08-17（评估体系代码与文档已清理，后续作为独立模块重新设计）
 
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 20 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P8 Connection-Durable 时序加固已落地，P0 Context Evaluation Harness 已落地”：Run 已与 Chat HTTP/SSE 解耦，具备后台执行、Ordered Model Rounds、PostgreSQL versioned checkpoint、checkpoint 后 Event Tail、SSE replay/snapshot fallback、严格客户端 cursor、独立 cancel 和终态 CAS。Context Eval 已能够从真实 Session/Run/SSE 边界测量规则正确性、上下文压力、供应商 Usage、工具轨迹和恢复语义；Context Compiler、steer、搜索 fallback、Memory 和 Delegation 仍未实现。
+当前状态可以描述为“P8 Connection-Durable 时序加固已落地”：Run 已与 Chat HTTP/SSE 解耦，具备后台执行、Ordered Model Rounds、PostgreSQL versioned checkpoint、checkpoint 后 Event Tail、SSE replay/snapshot fallback、严格客户端 cursor、独立 cancel 和终态 CAS。Context Compiler、steer、搜索 fallback、Memory 和 Delegation 仍未实现。
 
-2026-08-16 的真实 Context Smoke 共运行 8 题，通过 6 题、失败 2 题，Pass Rate 为 75%，并产生 2 个 critical violation。结果证明评测链路已经能够发现真实模型行为缺陷与 Harness 时序缺陷，但 Judge 8/8 返回格式不合约、Model Context Profile 尚未完成权威来源验证，因此该结果只是校准数据，不是可冻结的正式 Baseline。
+评估体系当前暂缓建设。相关实现、配置、命令、数据和专题文档已于 2026-08-17 移除；普通 unit、integration、E2E 与 `agent-testkit` 回归测试继续保留。后续评估能力作为独立模块重新设计，不再阻塞当前 Context Engineering 或功能开发。
 
 Model-led Tool Boundary 已落地为协议 `0.8.0`：模型负责语义规划，Runtime 只执行模型决策和通用执行边界，Tool 只执行能力并返回 canonical 结构化结果，Runtime 统一序列化 Tool Message，Projection 派生 provenance 并按 URL/contentHash 归并 canonical source。`ToolRunState`、`WebResearchRunState`、Tool `modelContent/control` 和跨调用 URL allowlist 已删除；没有新增 Runtime Decision Policy、Web Research Policy 或 Tool observation 预算协议。详见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md)。
 
@@ -72,7 +72,6 @@ Connection-Durable 不引入 Redis，也不实现服务端重启后的自动续�
 
 **当前仍未解决**：
 
-- 首次真实 Smoke 只有 2/6 题通过硬规则；直链题工具选择、execution/source 快照一致性、题目工具调用上限、模型流中断和 Judge 超时仍需分类和校准。
 - Runtime 仍属于一次 Chat 请求内的内存循环，没有持久化 Run/Step/Event、断线 replay、后台继续执行、真正的 steer 和可恢复 cancel。
 - 上下文仍主要使用最近消息和本轮完整 Tool Result，没有全局 Context Engineering、精确 Token 预算、材料选择/压缩/淘汰和最终回答空间预留；连续大结果可能触发模型上下文限制。
 - Search 仍是单 Provider，没有 fallback、运行内熔断或失败查询抑制；重复上游失败会安全地消耗 20 次额度，但不够高效。
@@ -89,7 +88,7 @@ Connection-Durable 不引入 Redis，也不实现服务端重启后的自动续�
 
 **阶段结果**：客户端断线、刷新和切换会话不会取消后台 Run；重连时可以先读取 Snapshot，再按 cursor 精确 replay Event Tail，无法连续 replay 时回退到完整 Snapshot。实时流、历史恢复和持久化消息统一使用稳定的文本/工具块顺序，终态只有在数据库提交成功后才向客户端广播。8 月 13 日又将 Round/Block 字段收紧为必填，统一服务端与前端的 Block canonical sort，并补充顺序诊断日志和流式消息局部渲染优化。阶段六把原本依附请求的 Tool Loop 变成了具备后台生命周期、连接恢复、阶段性持久化和可诊断时序不变量的 Durable Run。
 
-**当前仍未解决**：这仍然是 Model-led Tool Loop，不包含显式 Goal/Plan/Observation/Progress/Completion Policy 等完整 Agent Loop 语义；没有服务端重启后的 Runtime 自动恢复、多实例 Worker lease、数据库 Event Log、Redis、Tool exactly-once 或跨进程接管。Event Tail 的软/绝对上限和 checkpoint 失败后的强制收敛仍属于后续 Release Hardening。Context Engineering、真实评测校准、Memory 和 Delegation 按后续阶段独立推进。
+**当前仍未解决**：这仍然是 Model-led Tool Loop，不包含显式 Goal/Plan/Observation/Progress/Completion Policy 等完整 Agent Loop 语义；没有服务端重启后的 Runtime 自动恢复、多实例 Worker lease、数据库 Event Log、Redis、Tool exactly-once 或跨进程接管。Event Tail 的软/绝对上限和 checkpoint 失败后的强制收敛仍属于后续 Release Hardening。Context Engineering、Memory 和 Delegation 按后续阶段独立推进。
 
 ### Reasoning Context Transcript（断代升级已实施）
 
@@ -107,24 +106,6 @@ DeepSeek V4 的 Thinking + Tool Calling 上下文不是普通 OpenAI-compatible 
 
 这项优化同时保留三条边界：canonical transcript 完整保存模型事实，Model Adapter 独占供应商私有字段的编解码，Conversation/Workbench 不展示 raw reasoning。对应测试覆盖了 Tool Call reasoning 的选择性回放、最终 Round reasoning 的剥离、跨 provider/format 兼容拒绝、`reasoningEffort=off` 下的历史协议回放，以及 reasoning 不进入用户 SSE/内容块。详细协议与失败策略见 [27-reasoning-context-transcript.md](./27-reasoning-context-transcript.md)。
 
-### P0 Context Engineering Evaluation（Harness 已落地，正式 Baseline 尚未冻结）
-
-**当时的问题**：Context Engineering 后续会引入选择、裁剪、重排、摘要和证据压缩，这些操作天然有损。仅观察“回答看起来更短”无法判断是否遗漏约束、污染事实、破坏 Tool 协议或断线恢复，也无法区分模型退化、评测规则错误和 Harness 自身时序问题。供应商实际计费 Usage、本地计划阶段 Token 估算和模型官方 Context Window 还是三类不同事实源，不能用字符估算相互替代。
-
-**解决方式**：新增真实黑盒 Context Eval，从生产 Session/Run/SSE 接口驱动固定题集和确定性 Search/Fetch/Error Fixture，并通过 Fixture Hash 阻止题集与服务端数据漂移。评测同时记录确定性规则、Judge、人工复核表、工具轨迹、恢复轨迹、供应商实际 Usage 和本地计划 Token。DeepSeek tokenizer 被封装为独立的 `@harness/deepseek-tokenizer` 包，资源随包固定并校验 SHA-256，加载使用进程级惰性 Promise/实例强缓存；API 不依赖本地 tokenizer，正式请求优先读取 DeepSeek 流式 `prompt_tokens`、`completion_tokens` 和 `prompt_cache_hit_tokens`。模型 Context Window、最大输出和权威来源则由代码内 Model Context Profile 管理，正式 Baseline 必须显式完成来源验证。
-
-**阶段结果**：`pnpm eval -- context smoke` 已真实完成 8 个 Trial，6/8 通过、2 个 critical violation。共观察到 1,556,749 个供应商 prompt tokens、4,605 个 completion tokens、1,495,936 个 cached tokens；峰值实际 prompt tokens 为 139,441，本地计划峰值为 58,749，28 个模型 Round、13 次 Tool Call、无重复 Tool Call。报告、结构化 Summary 和人工复核 CSV 保存在 `.eval/context/2026-08-15T16-03-57-868Z/`。命令最终退出码为 1 是 critical quality gate 生效，不代表运行过程崩溃或报告未生成。
-
-**真实暴露的问题**：
-
-- `pollution-similar-facts` 中，模型没有按要求只输出权威代号，并在拒绝说明中复述了干扰项 `ORANGE`；这是模型行为失败。同时现有规则只检查包含/排除，后续应收紧为规范化后的精确答案。
-- `connection-replay-after-start` 的回答正确，但首个订阅先收到 `run.snapshot`，没有观察到预期的 `run.started`，导致断线点没有按题意触发；这是 Create/Subscribe 时序竞争或 replay 契约需要澄清的 Harness 问题。
-- Judge 8/8 返回 `incorrect`、`match` 等非结构化值，全部 schema 校验失败。当前 Trial 的 `passed` 只由确定性规则计算，Judge verdict/error 尚未进入 Summary、对比或 CLI exit；失败 Judge 调用的 Token Usage 也没有被保存，因此正式 Baseline 前必须修正 Judge 提示、解析和评分语义。
-- Candidate 与 Baseline 的比较尚未校验二者是否覆盖相同的 `(taskId, trialIndex)` 集合；带 `--case`、`--capability` 或压力过滤的局部结果可能被错误地与完整 Baseline 比较。
-- `DEEPSEEK_CONTEXT_WINDOW_TOKENS=131072` 与最大输出值虽然已经进入代码常量，但权威来源仍为空且 `verified=false`。安全门会主动拒绝正式 Baseline，防止用猜测值冻结基准。
-
-**当前边界**：可以并行建设不改变模型输入行为的 Context 基础设施，例如 `ContextFragment`、`ContextSource`、Token Budget、Context Trace、Compiler 接口及 no-op/shadow mode；在上述 P0 问题修复、Full dry run、Judge 人工校准和正式 Baseline 冻结前，不启用消息删除、截断、摘要替换、证据压缩、相关性选择或上下文重排。
-
 ## 3. 已完成
 
 ### 工程与基础设施
@@ -139,7 +120,7 @@ DeepSeek V4 的 Thinking + Tool Calling 上下文不是普通 OpenAI-compatible 
 - 开发环境日志已切换为彩色中文单行格式，关闭常规 HTTP 请求/响应明细和 Nest 启动路由噪声；模型链路只记录生成开始、首字响应、完成或失败，并提供会话短 ID、模型、上下文条数、首字耗时、总耗时和输出字数。
 - OpenAI 官方 SDK 和 OpenAI-compatible Chat Completions 已接入；模型 ID、Base URL、能力和请求参数由 `apps/api/src/model/model-catalog.ts` 管理，只有 `OPENAI_API_KEY` 从环境变量读取。
 - DeepSeek V4 Thinking + Tool Calling 已通过 Model Adapter 做上下文特化：解码 `reasoning_content` 分片并由 Runtime 聚合，仅对历史 Tool Call 原子单元做 native replay，最终回答 reasoning 不进入下一轮请求；provider/format 兼容检查、Run reasoning profile 和用户投影隐藏边界均已落地并有单测覆盖。
-- Context Evaluation Harness 已落地：真实 Session/Run/SSE 黑盒 Runner、固定 Fixture 与 Hash Gate、确定性规则、Judge/人工复核、上下文压力与 Usage 指标、独立 DeepSeek tokenizer 包及进程级强缓存均已实现；正式 Baseline 仍处于校准阶段。
+- 评估体系已从当前工作区移除；普通 unit、integration、E2E 与 `agent-testkit` 工程回归能力保留。
 - 已实现每个 assistant run 最多 20 次 Tool Call 的模型-工具循环，支持分片 arguments 聚合、参数校验、串行执行、错误回传和达到调用上限后的无工具最终回答。
 - 模型调用已通过 `ModelAdapter` 与 OpenAI SDK 隔离；`AgentRuntimeService` 只依赖 canonical message、模型事件和工具契约。
 - 工具层已拆为 `AgentTool`、集中式 Tool Catalog 和通用 Registry；新增工具不再需要把业务逻辑写入 Registry。
@@ -166,9 +147,6 @@ DeepSeek V4 的 Thinking + Tool Calling 上下文不是普通 OpenAI-compatible 
 - 不同 Session 可并行生成；同一 Session 由内存执行注册表限制为单流，活跃会话禁止删除。
 - 用户消息、模型消息和后续报告共用 `MarkdownContent` 组件，支持 GFM、代码块、表格和安全外链。
 - 根目录 `pnpm dev` 会分别启动 Web/API，等待健康检查通过后输出可点击地址。
-- 新增独立 `@harness/agent-evals` workspace 包；默认串行运行 6 题 Smoke，发布前运行 24 题 Full，不进入生产 Runtime 或数据库 Schema。
-- 评测通过生产 Session/Chat SSE 黑盒采集标准事件与 assistant metadata，并输出确定性硬规则、聚合指标、无联网检索权限的模型 Judge 和稳定人工抽检 CSV。
-- 评测 Session 默认在结果采集后删除；支持 `--keep-sessions`、单题、跳过 Judge、自定义 API 和输出目录。
 
 ### Web 工作台
 
@@ -219,17 +197,6 @@ pnpm dev
 首次完成 `pnpm db -- setup` 后，日常开发只需运行 `pnpm dev`；PostgreSQL 由本机服务管理。
 
 ## 5. 验证记录
-
-2026-08-16 完成 Context Evaluation Harness、DeepSeek Usage 适配、独立 tokenizer 包和根命令封装后执行：
-
-```text
-pnpm check
-pnpm install --frozen-lockfile
-git diff --check
-pnpm eval -- context smoke
-```
-
-静态验证结果为 Tokenizer 2 项、Protocol 13 项、Agent Evals 37 项、API 73 项、Web 28 项、Testkit 1 项，共 154 项 unit test 通过；typecheck、lint、build、冻结 lockfile 安装和 whitespace 检查通过。真实 Context Smoke 完成 8 个 Trial，规则结果 6/8 通过、2 个 critical violation；Judge 8/8 schema error。该次运行成功生成完整报告后因 critical quality gate 返回退出码 1，原始结果位于 `.eval/context/2026-08-15T16-03-57-868Z/`。
 
 最近一次 UI/工程验证已通过：
 
@@ -304,21 +271,17 @@ git diff --check
 
 2026-08-10 完成 General Web Research V1 hardening 后执行 `pnpm check`、`pnpm test:integration`、`pnpm test:e2e` 和 `git diff --check`。workspace lint、typecheck、production build 全部通过；共享协议 12 项、API 44 项、Web 17 项、testkit 1 项 unit test 通过，API integration 9 项通过，Playwright desktop/mobile 16 项通过。新增回归覆盖 Runtime Policy 常量、URL 确定性规范化、Search/Fetch 稳定工具集、用户直链/Search clue 来源登记、模型自造 URL 网络前拒绝、Run Ledger 的 URL/正文去重与早停、Document Quality Gate、动态 Passage 预算、partial-success skipped、同一模型响应的后续调用静默补齐、当时实现的内部调查超时与强制最终回答，以及最终回答带追踪参数 URL 的 `used` 规范化匹配。自动验收没有请求真实外部搜索或网页 Provider。该条是历史验收记录，其中的内部调查超时已于 2026-08-11 被单轮模型超时替代。
 
-2026-08-10 新增 General Web Research 真实评测 V1。题集版本为 `v1`，包含 Smoke 6 题和 Full 24 题；评测包 26 项 Mock 自动测试覆盖 SSE 半包、生产 API 客户端、硬规则、指标、Judge 修复、本地能力预检、workspace 根 `.env` 定位、Session 标题边界、Runner 清理/保留/异常恢复、CLI 和报告输出。本轮 `pnpm check`、评测包独立 build 和 `git diff --check` 均通过。真实外部 Smoke 需要 API、PostgreSQL、主模型和 Search Provider 就绪后单独执行；首次结果只作为人工校准基线，不作为冻结发布阈值。
-
-同日首次真实 Smoke 已执行：6 题中硬规则 2 题通过、4 题失败，评测 Session 清理全部成功。首轮暴露的主要问题包括直链题仍先调用 Search、部分工具 execution/source 快照与 SSE 不一致、部分题超出题目工具调用上限、模型流中断，以及 Judge 请求超时。原始结果保存在 `.eval/research/2026-08-10T12-09-47-750Z/`。评测报告已补充逐题问题、Agent 最终回答、失败规则、工具摘要、来源摘要和 Judge 信息；下一轮继续观察真实链路后再决定哪些属于 Agent 行为缺陷、哪些属于评测规则需要校准。
-
 2026-08-11 完成 Agent 运行边界和 Runtime 工具中立化重构。删除会误伤正常长任务的 120 秒 Agent 总截止时间，改为普通模型单轮 120 秒、最终回答单轮 30 秒以及 Search/Fetch 各自 10/20 秒的故障隔离；保留 20 次通用工具调用、25 个 URL、60,000 Passage 字符和连续两次无新增内容等结构性边界。强制最终回答不再发送任何工具定义，服务端完整缓冲并拒绝 DSML 或结构化工具调用污染，最多重试一次；污染内容不会进入 SSE、数据库或后续上下文。
 
-同次重构将 URL provenance、URL/正文去重、Web 资源预算和无新增内容状态从 Runtime 下沉到 `WebResearchRunState`，Runtime 只创建通用 `ToolRunState`，按统一契约执行任意命名工具并处理 `logFields`、`disableTools` 和 `forceFinalAnswer`。上游调用失败日志继续保留脱敏后的真实原因、HTTP 状态、请求 ID、上游地址和响应摘要。执行 `pnpm check` 与 `git diff --check` 全部通过：Protocol 12 项、API 56 项、Web 18 项、Evals 26 项、Testkit 1 项 unit test 通过，workspace lint、typecheck 和 production build 全部通过。本轮没有重复执行依赖数据库或浏览器环境的 integration/E2E。
+同次重构将 URL provenance、URL/正文去重、Web 资源预算和无新增内容状态从 Runtime 下沉到 `WebResearchRunState`，Runtime 只创建通用 `ToolRunState`，按统一契约执行任意命名工具并处理 `logFields`、`disableTools` 和 `forceFinalAnswer`。上游调用失败日志继续保留脱敏后的真实原因、HTTP 状态、请求 ID、上游地址和响应摘要。执行 `pnpm check` 与 `git diff --check` 全部通过：Protocol 12 项、API 56 项、Web 18 项、Testkit 1 项 unit test 通过，workspace lint、typecheck 和 production build 全部通过。本轮没有重复执行依赖数据库或浏览器环境的 integration/E2E。
 
-2026-08-12 完成 Connection-Durable Agent Loop 第一版实施与当时验收。新增 `AgentRun/AgentRunStep`、Run 幂等键和 active Session partial unique index；创建、后台执行、draft flush、语义 Step、terminal transaction、heartbeat/restart reconciliation、独立 cancel 和优雅停机收敛全部接入。新增 Run Event Hub 的 run-scoped sequence、Ring Buffer、snapshot fallback、多 subscriber、有界队列和 terminal close；Web 首次提交、刷新、切换会话、断网重连统一走 `createRun -> observeRun`，并保留失败/取消草稿终态。当时验证结果为 Protocol 13、API unit 58、API integration 10、Web unit 19、Agent evals 28、Playwright E2E 16 全部通过；workspace lint、typecheck、production build 和 `git diff --check` 全部通过。后续真实切会话场景暴露并确认了 Model Round/Block 排序、Snapshot/sequence、cursor 和状态竞争问题，因此该记录只表示第一版基线验收，不表示时序加固已经完成。当前仍明确不实现服务端重启自动续跑、多实例 Worker lease、数据库 Event Log、Redis、逐 token 持久化和 Context Engineering。
+2026-08-12 完成 Connection-Durable Agent Loop 第一版实施与当时验收。新增 `AgentRun/AgentRunStep`、Run 幂等键和 active Session partial unique index；创建、后台执行、draft flush、语义 Step、terminal transaction、heartbeat/restart reconciliation、独立 cancel 和优雅停机收敛全部接入。新增 Run Event Hub 的 run-scoped sequence、Ring Buffer、snapshot fallback、多 subscriber、有界队列和 terminal close；Web 首次提交、刷新、切换会话、断网重连统一走 `createRun -> observeRun`，并保留失败/取消草稿终态。当时验证结果为 Protocol 13、API unit 58、API integration 10、Web unit 19、Playwright E2E 16 全部通过；workspace lint、typecheck、production build 和 `git diff --check` 全部通过。后续真实切会话场景暴露并确认了 Model Round/Block 排序、Snapshot/sequence、cursor 和状态竞争问题，因此该记录只表示第一版基线验收，不表示时序加固已经完成。当前仍明确不实现服务端重启自动续跑、多实例 Worker lease、数据库 Event Log、Redis、逐 token 持久化和 Context Engineering。
 
 2026-08-12 完成 Connection-Durable Agent Loop 时序加固与真实黑盒验收。协议升级到 `0.9.0`，为文本和工具事件增加 `roundId + roundSequence + blockSequence`；Adapter 按 Provider 全局 index 或 Block 首次出现顺序建立 Ordered Model Rounds，普通 Tool Round 的 Content 首字继续即时交付，Projection 按稳定位置创建或原位更新 Block。Active Run 统一维护同版本 `liveProjection/liveSequence`、不可变版本化 Checkpoint 和 Checkpoint 水位后的 Event Tail；Checkpoint 串行写入并仅在成功后清理已覆盖 Event，Latest Live Snapshot、连续 Tail replay 与实时流得到相同 `blocks[]`。SSE 订阅消除 replay/live 空窗，Web 只在成功应用连续 Event 后推进 cursor，并拒绝旧 Session Detail、Snapshot 或异步 HTTP 结果覆盖新状态。terminal Event 改为数据库 CAS/checkpoint 成功后再广播，queued cancel、cancel/complete 竞争和 reconciliation owner 条件均按不可逆状态机收敛。
 
-同轮真实 `agent-browser` 黑盒测试覆盖长任务的多次 Search/Fetch、生成中切换并切回 Session、浏览器离线重连、active Run 刷新恢复、不同 Session 并行 Run、取消隔离、双击提交去重、Pixel 7 移动布局和三轮上下文对话。DOM 稳定保持“Round 前言文本 -> Tools -> 下一轮文本 -> 最终正文”；刷新后恢复 3 条 user、3 条 assistant 以及全部 Tool Block，控制台无错误。测试还发现“新建 Session 后立即提交”时 React state 与 `selectedSessionIdRef` 可能被旧 Effect 写回的独立竞争，现已用同步 setter 同时更新 state/ref 并增加回归测试。核心 Durable Loop 文件已补充中文设计意图与不变量注释。最终执行 `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build`、`pnpm test:integration`、`pnpm test:e2e` 和 `git diff --check` 全部通过：Protocol 13、API unit 59、Web unit 21、Agent Evals 28、Testkit 1、API integration 10、Playwright desktop/mobile 16 项成功。当前目标仍是 API 进程存活期间的 Connection Durable，不新增 Prisma migration、数据库 Event Log、Redis、Worker lease、Runtime resume 或 Tool exactly-once。
+同轮真实 `agent-browser` 黑盒测试覆盖长任务的多次 Search/Fetch、生成中切换并切回 Session、浏览器离线重连、active Run 刷新恢复、不同 Session 并行 Run、取消隔离、双击提交去重、Pixel 7 移动布局和三轮上下文对话。DOM 稳定保持“Round 前言文本 -> Tools -> 下一轮文本 -> 最终正文”；刷新后恢复 3 条 user、3 条 assistant 以及全部 Tool Block，控制台无错误。测试还发现“新建 Session 后立即提交”时 React state 与 `selectedSessionIdRef` 可能被旧 Effect 写回的独立竞争，现已用同步 setter 同时更新 state/ref 并增加回归测试。核心 Durable Loop 文件已补充中文设计意图与不变量注释。最终执行 `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build`、`pnpm test:integration`、`pnpm test:e2e` 和 `git diff --check` 全部通过：Protocol 13、API unit 59、Web unit 21、Testkit 1、API integration 10、Playwright desktop/mobile 16 项成功。当前目标仍是 API 进程存活期间的 Connection Durable，不新增 Prisma migration、数据库 Event Log、Redis、Worker lease、Runtime resume 或 Tool exactly-once。
 
-2026-08-11 随后完成 Model-led Tool Boundary 代码迁移，协议升级到 `0.8.0`。删除 `ToolRunState`、`WebResearchRunState`、Tool `modelContent/control`、跨调用 URL/Passage 预算、URL allowlist 和领域早停；Runtime 统一序列化 canonical `output/error`，Tool 失败可由模型下一轮继续处理。Search/Fetch 外层 timeout 分别为 10/45 秒，Fetch transport timeout 保持 20 秒；Projection 派生 provenance，Execution 完整保留，Source 按 URL/contentHash 归并。后续验收补齐混合 Tool Call 计数、实时/恢复 canonical merge、Fetch stats 全分支与真实 retry 计数、Eval provenance/canonical/toolCallCount 反向规则；评测使用 `modelProposedSourceCount` 表示最终保留的模型直提 canonical 来源数量，避免与 Fetch 调用次数混淆。最终执行 `pnpm check`、API integration、Playwright E2E 和 `git diff --check`：Protocol 12 项、API 52 项、Web 19 项、Evals 28 项、Testkit 1 项，共 112 项 unit test，API integration 9 项和 Playwright desktop/mobile 16 项全部通过。真实外部 `pnpm eval:research` 未执行，避免在未明确要求时产生模型和搜索 Provider 调用费用。
+2026-08-11 随后完成 Model-led Tool Boundary 代码迁移，协议升级到 `0.8.0`。删除 `ToolRunState`、`WebResearchRunState`、Tool `modelContent/control`、跨调用 URL/Passage 预算、URL allowlist 和领域早停；Runtime 统一序列化 canonical `output/error`，Tool 失败可由模型下一轮继续处理。Search/Fetch 外层 timeout 分别为 10/45 秒，Fetch transport timeout 保持 20 秒；Projection 派生 provenance，Execution 完整保留，Source 按 URL/contentHash 归并。后续验收补齐混合 Tool Call 计数、实时/恢复 canonical merge、Fetch stats 全分支与真实 retry 计数。最终执行 `pnpm check`、API integration、Playwright E2E 和 `git diff --check`：Protocol 12 项、API 52 项、Web 19 项、Testkit 1 项 unit test，API integration 9 项和 Playwright desktop/mobile 16 项全部通过。
 
 覆盖范围包括：
 
@@ -343,7 +306,7 @@ git diff --check
 - 搜索 fallback；正式 Evidence、引用校验和 Markdown Report Artifact 不属于当前范围，是否进入后续 Deep Research 由未来产品需求决定。
 - steer、pause 和 Human-in-the-loop 尚未实现；独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
 - user Memory、Delegation、Worker 和多用户认证。
-- Context Evaluation 正式 Baseline 尚未冻结：需要修复 Judge schema/评分接入、connection replay 断线点、污染题精确规则和 Candidate/Baseline 题集对齐校验，并为 Model Context Profile 填写供应商权威来源后显式标记 verified。
+- 评估体系尚未重新设计；当前不存在可运行的 Benchmark、Judge、Grader 或正式 Baseline。
 
 ### General Web Research V1 完成边界
 
@@ -359,7 +322,6 @@ git diff --check
 - [x] `clue/fetched + used` 来源协议、确定性 URL 匹配、已读来源优先 fallback 和 Workbench 恢复。
 - [x] 用户直链 Fetch Prompt、普通模型单轮 120 秒超时、最终回答单轮 30 秒超时和用户 Abort 分离；Agent run 无总截止时间。
 - [x] Workbench 展示本次成功/失败/跳过、网络请求、相关 Passage 和采用/已读/线索数量。
-- [x] 通用 Agent 固定题集、真实 API 黑盒 Runner、指标聚合、模型 Judge 和人工抽检文件已实现；真实基线运行与两轮人工阈值校准仍待执行。
 - [ ] 公网/多用户部署前的连接 IP pinning、网络出口隔离和完整 DNS rebinding 防护仍属后续安全加固。
 - [x] Model-led Tool Boundary：已删除 Tool 控制意图、`modelContent`、Web 跨调用规划状态和 URL allowlist；Runtime 统一序列化 `output/error`，保留 20 次 Tool Call、Tool 外层超时及 Fetch 能力安全，由 Projection 派生 provenance 和 canonical source。
 
@@ -380,33 +342,18 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 
 ## 7. 下一阶段建议
 
-当前已完成 P8 Connection-Durable Agent Loop 和 P0 Context Evaluation Harness，下一阶段按以下顺序推进：
+当前已完成 P8 Connection-Durable Agent Loop，下一阶段按以下顺序推进：
 
-1. **先完成评测 P0**：修复 replay Case、Judge schema 与评分语义、污染题精确断言和 Candidate/Baseline 题集对齐；填写并验证 Model Context Profile 的供应商权威来源。
-2. **冻结正式 Baseline**：运行 Full dry run，根据 `human-review.csv` 校准 Judge，再用完整固定题集生成正式 Baseline；任何过滤后的局部运行不得冒充完整基准。
-3. **并行建设 Context 基础层**：基于完整 canonical transcript 实现 Fragment/Source、Token Budget、Trace 和 Compiler no-op/shadow mode，只观测编译决策，不改变实际模型输入。
-4. **基于基准逐项启用策略**：Baseline 冻结后再分别实验选择、压缩、淘汰、摘要和最终回答预留，每次用相同 Trial 集合判断质量、成本和延迟变化。
-5. **保持能力边界**：服务端重启自动续跑、Evidence/Citation、Report Artifact、Browser/PDF Fetch、Memory 和 Delegation 不与 Context Engineering 混成一次大重构。
+1. **建设 Context 基础层**：基于完整 canonical transcript 实现 Fragment/Source、Token Budget、Trace 和 Compiler no-op/shadow mode，先观测编译决策，不改变实际模型输入。
+2. **分阶段启用策略**：分别实现选择、压缩、淘汰、摘要和最终回答预留；每一步都用 unit/integration/E2E、固定人工样例、运行指标和可回滚开关控制风险。
+3. **保持能力边界**：服务端重启自动续跑、Evidence/Citation、Report Artifact、Browser/PDF Fetch、Memory 和 Delegation 不与 Context Engineering 混成一次大重构。
+4. **评估体系独立立项**：需要统一 Benchmark、Judge、Grader 或 Baseline 时单独设计模块，不在当前功能代码中预留空接口或专用生产分支。
 
 后续还需独立讨论 Agent Loop Semantics，包括 Goal/Task State、可选 Plan/Todo、动态修订、结构化 Observation、Progress、Completion Policy、Ask User/Clarification 和 Reflect/Re-plan。当前仅在实施计划中留档，未立项、未冻结接口，也不进入本轮 Context Engineering，避免把当前 Model-led Tool Loop 误描述为已经具备完整任务规划与完成判定。
 
-P8 的完成标准不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Search/Fetch -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败、可重复评测和最小恢复能力。
+P8 的完成标准不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Search/Fetch -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败和最小恢复能力。
 
-### 评测报告 TODO
-
-- [x] `summary.md` 展示总体指标和每题状态。
-- [x] `review.md` 展示每题问题、Agent 最终回答、失败规则、工具执行、来源摘要和 Judge 结果。
-- [x] `human-review.csv` 保留人工评分字段，同时带上自动诊断上下文。
-- [ ] 将 Judge 超时、Agent 流中断和工具快照不一致拆成可聚合的失败分类。
-- [ ] 为直链题、搜索题和 Fetch 题分别校准硬规则，避免单一规则把行为问题和协议投影问题混在一起。
-- [ ] 根据至少两轮真实 Smoke 结果冻结语义质量阈值，再决定 Full suite 是否进入发布门槛。
-- [x] Context Eval 已记录供应商真实 Usage、本地 planned tokens、压力档位、规则/Judge 结果、Run/Tool/恢复轨迹和人工复核 CSV。
-- [ ] 修复 Context Judge 结构化输出；明确 Judge 是评分门槛还是独立诊断信号，并保存失败调用的可用 Usage。
-- [ ] 修复 `connection-replay-after-start` 的 create/subscribe 竞争或调整契约，使断线恢复 Case 能在确定位置触发。
-- [ ] 将污染题收紧为规范化精确答案，并在 Baseline 比较前校验 Candidate/Baseline 的 `(taskId, trialIndex)` 集合完全一致。
-- [ ] 填写 Model Context Profile 权威来源并显式 verified，完成 Full dry run、人工校准和正式 Baseline 冻结。
-
-Connection-Durable Agent Loop 与 Reasoning Context Transcript 已落地，当前进入 Context Engineering、真实评测校准与 Release Hardening。服务端重启自动续跑、Worker 独立上下文、动态 Browser Fetch、PDF 和正式 Evidence/Report 等能力按真实需求独立推进。
+Connection-Durable Agent Loop 与 Reasoning Context Transcript 已落地，当前进入 Context Engineering 与 Release Hardening。服务端重启自动续跑、Worker 独立上下文、动态 Browser Fetch、PDF、正式 Evidence/Report 和新的评估体系按真实需求独立推进。
 
 ## 8. 关联文档
 
@@ -419,7 +366,6 @@ Connection-Durable Agent Loop 与 Reasoning Context Transcript 已落地，当�
 - 工程结构：[docs/18-project-structure.md](./18-project-structure.md)
 - 面试知识点：[docs/interview-knowledge.md](./interview-knowledge.md)
 - Web Fetch 设计：[docs/23-web-fetch-tool.md](./23-web-fetch-tool.md)
-- 真实评测：[docs/24-general-web-research-evaluation.md](./24-general-web-research-evaluation.md)
 - Connection-Durable Agent Loop：[docs/26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)
 
 ## 9. 维护规则

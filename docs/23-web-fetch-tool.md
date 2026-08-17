@@ -33,7 +33,7 @@ type WebFetchInput = {
 - `query` 是这一批 URL 共用的证据需求，用于从每份正文中选择相关抽取式原文片段，不用于生成摘要。
 - 模型不能指定 Header、Cookie、Authorization、代理、缓存 TTL、超时、响应上限、选择器或安全策略。
 
-URL provenance 不属于 Fetch 权限。Chat / Research Projection 根据用户直链、Search clue 和模型调用记录派生 `user_provided | search_clue | model_proposed | unknown`，仅用于来源展示、恢复和评测。
+URL provenance 不属于 Fetch 权限。Chat / Research Projection 根据用户直链、Search clue 和模型调用记录派生 `user_provided | search_clue | model_proposed | unknown`，仅用于来源展示、恢复和运行观测。
 
 工具描述：
 

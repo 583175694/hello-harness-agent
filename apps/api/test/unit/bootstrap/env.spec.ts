@@ -26,21 +26,4 @@ describe('environment validation', () => {
       'SEARCH_PROVIDER',
     );
   });
-
-  it('only permits eval fixtures in test processes', () => {
-    expect(() =>
-      validateEnvironment({
-        ...validEnvironment,
-        NODE_ENV: 'production',
-        EVAL_FIXTURE_ROOT: '/tmp/context-fixtures',
-      }),
-    ).toThrow('EVAL_FIXTURE_ROOT');
-    expect(
-      validateEnvironment({
-        ...validEnvironment,
-        NODE_ENV: 'test',
-        EVAL_FIXTURE_ROOT: '/tmp/context-fixtures',
-      }).EVAL_FIXTURE_ROOT,
-    ).toBe('/tmp/context-fixtures');
-  });
 });

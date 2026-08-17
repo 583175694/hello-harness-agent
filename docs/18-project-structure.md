@@ -250,7 +250,7 @@ type ModelProfile = {
 };
 ```
 
-endpoint 可配置，但只有 `tested: true` 且通过 evaluation suite 的 profile 属于正式兼容清单。
+endpoint 可配置，但只有 `tested: true` 且通过对应的协议、集成和真实调用兼容性检查后，profile 才属于正式兼容清单。
 
 ## 8. Search Provider Adapter
 

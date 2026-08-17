@@ -48,7 +48,7 @@ P4  PostgreSQL Durable State + Local Artifact Foundation
 P5  Real Model Final Answer + Clarification
 P6  Search Provider Tooling + Iterative Research
 P7  General Web Research Hardening
-P8  Recovery + Evaluation + Release Hardening
+P8  Recovery + Release Hardening
 R1  First User-Ready General Agent Release
 R-Reasoning  Reasoning Context Transcript
 Later Context Engineering
@@ -397,7 +397,7 @@ tool_call / ask_clarification / finish_research / fail
 - 用户直接提供 URL 时无需先 Search 即可 Fetch
 - 模型、Search、Fetch 各自独立的单操作超时和端到端取消传播；不设置整个 Agent run 的总执行时间预算
 - Activity / Sources 投影和恢复；展示成功、失败、重复、预算和最终采用来源
-- 通用 Agent 固定题集和 Fetch 运行指标
+- 通用 Agent 真实运行样例和 Fetch 运行指标
 
 流程：
 
@@ -428,7 +428,7 @@ user task or direct URL
 
 正式 Evidence/Citation、报告复核和可验证 Markdown Report 不属于当前阶段，未来是否实现根据产品需求再决定。完整上下文的 Token 计量、选择、压缩、淘汰、动态加载和最终回答预留等待 Context Engineering。后台执行与客户端断线恢复已进入当前 Connection-Durable Agent Loop 方案；Worker 独立上下文继续等待 Delegation。
 
-## 11. P8: Recovery + Evaluation + Release Hardening
+## 11. P8: Recovery + Release Hardening
 
 目标：让 P1-P7 达到真实用户可用门槛。
 
@@ -446,9 +446,9 @@ P8 首个架构收敛项 [Model-led Tool Boundary](./25-model-led-tool-boundary.
 - 保留 Fetch 单次调用的 URL 数量、网络安全、响应大小、提取、Passage、Locator 与 LRU。
 - 删除 Tool Result 字符硬上限、独立 observation/delivery 和注入状态；当前 Tool Result 始终进入下一模型轮次。
 - 将 `WebFetchResult.budget` 改为只描述本次调用事实、不带控制语义的 `stats`。
-- 同步简化共享协议、SSE/metadata、Workbench、评测规则和回归测试。
+- 同步简化共享协议、SSE/metadata、Workbench 和回归测试。
 
-验收时 Tool 在类型层无法返回控制命令，Runtime 不含 Web 领域状态或停止条件；未达到 20 次 Tool Call 且未取消时，继续调用工具或回答完全由模型下一轮决定。完成该迁移后再基于真实 Eval 判断是否存在重复调用、上下文过大或效率问题，不预先增加第二套 Runtime/Research Decision Policy，也不为未来 Context Engineering 冻结局部字符预算协议。
+验收时 Tool 在类型层无法返回控制命令，Runtime 不含 Web 领域状态或停止条件；未达到 20 次 Tool Call 且未取消时，继续调用工具或回答完全由模型下一轮决定。重复调用、上下文大小和执行效率先通过运行观测与人工检查发现，不预先增加第二套 Runtime/Research Decision Policy，也不为未来 Context Engineering 冻结局部字符预算协议。
 
 范围：
 
@@ -466,7 +466,6 @@ P8 首个架构收敛项 [Model-led Tool Boundary](./25-model-led-tool-boundary.
 - orphan temp Artifact cleanup
 - provider/tool result short retention cleanup
 - context/tool/event payload limits
-- fixed Chinese general-agent evaluation set
 - Search/Fetch degradation checks and repeated-call efficiency signals
 - manual answer/source quality rubric
 - Playwright desktop/mobile E2E
@@ -474,7 +473,7 @@ P8 首个架构收敛项 [Model-led Tool Boundary](./25-model-led-tool-boundary.
 R1 发布门槛：
 
 - contract/integration/UI tests 全部通过
-- 固定题集不突破通用 Tool Call 硬边界，重复 Search/Fetch 进入效率评审
+- 真实运行样例不突破通用 Tool Call 硬边界，重复 Search/Fetch 进入效率评审
 - 无 search-snippet-as-fetched-source
 - 无 invalid-page-as-successful-document
 - steer/cancel/fallback/partial-source-failure 场景通过
@@ -494,7 +493,7 @@ query-aware fetched passages
 lightweight real sources
 Workbench
 steer/cancel
-recovery and evaluation baseline
+recovery baseline
 ```
 
 Memory、Delegation、认证、远程存储和服务端重启自动续跑不是 R1 release blocker。
@@ -535,7 +534,7 @@ Memory、Delegation、认证、远程存储和服务端重启自动续跑不是 
 - Ask User / Clarification
 - Reflect / Re-plan
 
-本节当前只用于防止后续遗漏，不代表已经立项或冻结设计。以上能力不进入当前 Context Engineering 实施范围，不预先创建协议、数据库表、Runtime 接口或占位模块。正式启动前应先结合真实评测决定哪些能力需要显式建模、哪些继续由模型隐式完成，并保证简单任务不被迫经过完整规划与反思流程。
+本节当前只用于防止后续遗漏，不代表已经立项或冻结设计。以上能力不进入当前 Context Engineering 实施范围，不预先创建协议、数据库表、Runtime 接口或占位模块。正式启动前应先结合真实运行反馈决定哪些能力需要显式建模、哪些继续由模型隐式完成，并保证简单任务不被迫经过完整规划与反思流程。
 
 ## 13. P9: User Memory Read Path
 

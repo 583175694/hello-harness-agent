@@ -60,6 +60,16 @@ import { Conversation } from './features/agent/components/conversation';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
 import { AGENT_UI_COPY, SERVICE_STATE_LABELS } from './features/agent/config/ui.constants';
 import { useTheme, type Theme } from './theme';
+import {
+  Dialog,
+  DialogAction,
+  DialogCancel,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './components/ui/dialog';
 
 // 将传输和供应商异常转换为用户可读的提示文案。
 function getErrorMessage(error: unknown): string {
@@ -516,6 +526,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   const [draftState, setDraftState] = useState<AgentUiState>(() => makeFixture('empty'));
   const [prompt, setPrompt] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
   const [reconnectRunId, setReconnectRunId] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('high');
@@ -1007,8 +1018,6 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
 
   // 删除确认后的会话，并按最新列表决定恢复落点。
   async function removeSession(sessionId: string): Promise<void> {
-    const target = sessions.find((session) => session.id === sessionId);
-    if (!window.confirm(`确定删除会话“${target?.title ?? '未命名会话'}”吗？`)) return;
     try {
       await deleteSession(sessionId);
       setSessionStates((current) => {
@@ -1236,7 +1245,10 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         pendingSessions={pendingSessions}
         onNew={startDraft}
         onSelect={selectSession}
-        onDelete={(sessionId) => void removeSession(sessionId)}
+        onDelete={(sessionId) => {
+          const target = sessions.find((session) => session.id === sessionId);
+          if (target) setDeleteTarget(target);
+        }}
         onRename={(sessionId, title) => modifySession(sessionId, { title })}
         onTogglePin={(sessionId, isPinned) => void modifySession(sessionId, { isPinned })}
       />
@@ -1248,60 +1260,88 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           onClick={() => setMobileNavOpen(false)}
         />
       ) : null}
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除会话</DialogTitle>
+            <DialogDescription>
+              确定删除“{deleteTarget?.title ?? '未命名会话'}
+              ”吗？会话中的消息、报告和证据也会一并删除。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogCancel>取消</DialogCancel>
+            <DialogAction
+              className="ui-dialog-action--destructive"
+              type="button"
+              onClick={() => {
+                if (!deleteTarget) return;
+                const sessionId = deleteTarget.id;
+                setDeleteTarget(null);
+                void removeSession(sessionId);
+              }}
+            >
+              删除
+            </DialogAction>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <main className="main-shell my-2 mr-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl bg-surface">
-        <header className="topbar flex min-h-[66px] items-center gap-2.5 bg-surface px-[26px] text-text-primary max-[720px]:min-h-[62px] max-[720px]:px-4">
-          <button
-            className="icon-button open-mobile-nav"
-            type="button"
-            aria-label="打开会话栏"
-            title="打开会话栏"
-            onClick={() => setMobileNavOpen(true)}
-          >
-            <Menu size={18} />
-          </button>
-          <div className="task-title flex min-w-0 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
-            <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-base">
-              {uiState.label}
-            </span>
-          </div>
-          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
-        </header>
         <div
           className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}
         >
-          <Conversation
-            state={uiState}
-            error={error}
-            onDismissError={() => setError(null)}
-            onReconnect={
-              reconnectRunId && selectedSessionId
-                ? () => {
-                    setError(null);
-                    setReconnectRunId(null);
-                    void observeRun(selectedSessionId, reconnectRunId);
-                  }
-                : undefined
-            }
-            onFocusWorkbench={focusCurrentWorkbench}
-            prompt={prompt}
-            submitting={submitting}
-            serviceState={serviceState}
-            composerMode="new-run"
-            reasoningEffort={reasoningEffort}
-            models={models}
-            selectedModel={selectedModel}
-            onModelChange={(modelId) => {
-              const model = models.find((candidate) => candidate.id === modelId);
-              if (!model) return;
-              setSelectedModel(model.id);
-              if (!model.reasoning.levels.includes(reasoningEffort))
-                setReasoningEffort(model.reasoning.default);
-            }}
-            onReasoningEffortChange={setReasoningEffort}
-            onPromptChange={setPrompt}
-            onSubmit={(event) => void handleSubmit(event)}
-            onCancel={() => void handleCancel()}
-          />
+          <section className="conversation-column">
+            <header className="topbar flex min-h-[66px] items-center gap-2.5 bg-surface px-[26px] text-text-primary max-[720px]:min-h-[62px] max-[720px]:px-4">
+              <button
+                className="icon-button open-mobile-nav"
+                type="button"
+                aria-label="打开会话栏"
+                title="打开会话栏"
+                onClick={() => setMobileNavOpen(true)}
+              >
+                <Menu size={18} />
+              </button>
+              <div className="task-title flex min-w-0 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
+                <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-base">
+                  {uiState.label}
+                </span>
+              </div>
+              <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+            </header>
+            <Conversation
+              state={uiState}
+              error={error}
+              onDismissError={() => setError(null)}
+              onReconnect={
+                reconnectRunId && selectedSessionId
+                  ? () => {
+                      setError(null);
+                      setReconnectRunId(null);
+                      void observeRun(selectedSessionId, reconnectRunId);
+                    }
+                  : undefined
+              }
+              onFocusWorkbench={focusCurrentWorkbench}
+              prompt={prompt}
+              submitting={submitting}
+              serviceState={serviceState}
+              composerMode="new-run"
+              reasoningEffort={reasoningEffort}
+              models={models}
+              selectedModel={selectedModel}
+              onModelChange={(modelId) => {
+                const model = models.find((candidate) => candidate.id === modelId);
+                if (!model) return;
+                setSelectedModel(model.id);
+                if (!model.reasoning.levels.includes(reasoningEffort))
+                  setReasoningEffort(model.reasoning.default);
+              }}
+              onReasoningEffortChange={setReasoningEffort}
+              onPromptChange={setPrompt}
+              onSubmit={(event) => void handleSubmit(event)}
+              onCancel={() => void handleCancel()}
+            />
+          </section>
           {uiState.workbench ? (
             <WorkbenchShell
               state={uiState.workbench}
@@ -1494,39 +1534,43 @@ export function AppShell({
         />
       ) : null}
       <main className="main-shell flex h-screen min-h-0 min-w-0 flex-col overflow-hidden bg-surface max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
-        <header className="topbar flex min-h-[66px] items-center gap-2.5 bg-surface px-[26px] text-text-primary max-[720px]:min-h-[62px] max-[720px]:px-4">
-          <button
-            className="icon-button open-mobile-nav"
-            type="button"
-            aria-label="打开会话栏"
-            title="打开会话栏"
-            onClick={() => setMobileNavOpen(true)}
-          >
-            <Menu size={18} />
-          </button>
-          <div className="task-title flex min-w-0 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
-            <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-base">
-              {uiState.label}
-            </span>
-            {uiState.subtitle ? <span className="task-title__meta">{uiState.subtitle}</span> : null}
-          </div>
-          <ThemeToggle theme={activeTheme} onToggle={toggleTheme} />
-        </header>
         <div
           className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}
         >
-          <Conversation
-            state={uiState}
-            error={error}
-            onDismissError={() => setError(null)}
-            onFocusWorkbench={(target) => focusWorkbench(target)}
-            prompt={prompt}
-            submitting={submitting}
-            serviceState={serviceState}
-            composerMode={composerMode}
-            onPromptChange={setPrompt}
-            onSubmit={handleSubmit}
-          />
+          <section className="conversation-column">
+            <header className="topbar flex min-h-[66px] items-center gap-2.5 bg-surface px-[26px] text-text-primary max-[720px]:min-h-[62px] max-[720px]:px-4">
+              <button
+                className="icon-button open-mobile-nav"
+                type="button"
+                aria-label="打开会话栏"
+                title="打开会话栏"
+                onClick={() => setMobileNavOpen(true)}
+              >
+                <Menu size={18} />
+              </button>
+              <div className="task-title flex min-w-0 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
+                <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-base">
+                  {uiState.label}
+                </span>
+                {uiState.subtitle ? (
+                  <span className="task-title__meta">{uiState.subtitle}</span>
+                ) : null}
+              </div>
+              <ThemeToggle theme={activeTheme} onToggle={toggleTheme} />
+            </header>
+            <Conversation
+              state={uiState}
+              error={error}
+              onDismissError={() => setError(null)}
+              onFocusWorkbench={(target) => focusWorkbench(target)}
+              prompt={prompt}
+              submitting={submitting}
+              serviceState={serviceState}
+              composerMode={composerMode}
+              onPromptChange={setPrompt}
+              onSubmit={handleSubmit}
+            />
+          </section>
           {uiState.workbench ? (
             <WorkbenchShell
               state={uiState.workbench}

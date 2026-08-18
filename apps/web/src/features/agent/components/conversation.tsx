@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { memo, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 import { MarkdownContent } from '../../../components/markdown-content';
 import {
@@ -196,6 +197,22 @@ export function Conversation({
   const latestAssistantId = [...state.conversation]
     .reverse()
     .find((item) => item.kind === 'assistant')?.id;
+  // 短会话保留普通 DOM，避免为少量消息引入虚拟化开销；长会话才启用窗口化渲染。
+  const shouldVirtualize = state.conversation.length > 40;
+  // TanStack Virtual 返回带内部状态的方法，不能交给 React Compiler 自动记忆。
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count: state.conversation.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 120,
+    getItemKey: (index) => state.conversation[index]?.id ?? index,
+    measureElement: (element) => element.getBoundingClientRect().height,
+    overscan: 6,
+    paddingStart: 34,
+    paddingEnd: 22,
+    // JSDOM 没有真实布局尺寸；浏览器挂载后会由测量结果替换这个初始视口。
+    initialRect: { width: 0, height: 800 },
+  });
   function handleComposerSubmit(event: FormEvent<HTMLFormElement>): void {
     stickToBottomRef.current = true;
     onSubmit(event);
@@ -212,8 +229,9 @@ export function Conversation({
   // 在浏览器绘制前同步到底部，避免新 token 先以旧 scrollTop 绘制一帧后再跳动。
   useLayoutEffect(() => {
     if (!stickToBottomRef.current || !scrollRef.current) return;
+    if (shouldVirtualize) virtualizer.measure();
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [state.conversation]);
+  }, [shouldVirtualize, state.conversation, virtualizer]);
 
   return (
     <section
@@ -237,21 +255,51 @@ export function Conversation({
             </h1>
           </div>
         ) : (
-          <div className="message-list mx-auto w-[min(820px,calc(100%-72px))] py-[34px] pb-[22px] max-[1180px]:w-[min(760px,calc(100%-48px))] max-[900px]:w-[min(720px,calc(100%-36px))] max-[720px]:w-[calc(100%-24px)]">
-            {state.conversation.map((item) =>
-              item.kind === 'user' ? (
-                <UserMessage key={item.id} item={item} />
-              ) : (
-                <AssistantMessage
-                  key={item.id}
-                  item={item}
-                  showThinking={
-                    Boolean(item.pending) || (submitting && item.id === latestAssistantId)
-                  }
-                  onFocusWorkbench={onFocusWorkbench}
-                />
-              ),
-            )}
+          <div
+            className={`message-list mx-auto w-[min(820px,calc(100%-72px))] max-[1180px]:w-[min(760px,calc(100%-48px))] max-[900px]:w-[min(720px,calc(100%-36px))] max-[720px]:w-[calc(100%-24px)] ${shouldVirtualize ? '' : 'message-list--static'}`}
+            style={shouldVirtualize ? { height: virtualizer.getTotalSize() } : undefined}
+          >
+            {shouldVirtualize
+              ? virtualizer.getVirtualItems().map((virtualRow) => {
+                  const item = state.conversation[virtualRow.index];
+                  if (!item) return null;
+                  return (
+                    <div
+                      className="message-list__row"
+                      data-index={virtualRow.index}
+                      key={virtualRow.key}
+                      ref={virtualizer.measureElement}
+                      style={{ transform: `translateY(${virtualRow.start}px)` }}
+                    >
+                      {item.kind === 'user' ? (
+                        <UserMessage item={item} />
+                      ) : (
+                        <AssistantMessage
+                          item={item}
+                          showThinking={
+                            Boolean(item.pending) || (submitting && item.id === latestAssistantId)
+                          }
+                          onFocusWorkbench={onFocusWorkbench}
+                        />
+                      )}
+                    </div>
+                  );
+                })
+              : state.conversation.map((item) => (
+                  <div className="message-list__row message-list__row--static" key={item.id}>
+                    {item.kind === 'user' ? (
+                      <UserMessage item={item} />
+                    ) : (
+                      <AssistantMessage
+                        item={item}
+                        showThinking={
+                          Boolean(item.pending) || (submitting && item.id === latestAssistantId)
+                        }
+                        onFocusWorkbench={onFocusWorkbench}
+                      />
+                    )}
+                  </div>
+                ))}
           </div>
         )}
       </div>

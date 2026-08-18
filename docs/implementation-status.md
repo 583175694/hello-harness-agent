@@ -363,20 +363,147 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 - 正式 `EvidenceSource`、report-scoped `[Sx]`、Report Artifact、同模型复核和 Citation Validator 不阻塞当前阶段，也不在本次架构中承诺实现。
 - JavaScript Browser Fetch、PDF、登录态网页、页面操作和其他来源格式属于独立的工具能力扩展，不并入当前阶段。
 
-## 7. 下一阶段建议
+## 7. 后续优先级计划
 
-当前已完成 P8 Connection-Durable Agent Loop 和 Context Engineering 第一阶段，下一阶段按以下顺序推进：
+> 本节是 Context Engineering 第一阶段之后的执行顺序。后续规划明确区分 **Agent Kernel（内核）** 和 **Capability（功能能力）**：内核优先级高于功能，功能通过统一 Action/Artifact/Source 协议接入，不反向改变 Runtime 语义。编号是规划编号，不表示已经实现。
 
-1. **冻结 Context 最小基线**：只修复真实运行暴露的正确性问题，不继续建设 Fragment、Trace、审计、通用策略 DSL 或独立 Attention Engine。
-2. **先建设新的 Context 来源**：按产品优先级实现 Skills、Memory、`NOTES.md` 和 `TODO.md`，明确各自事实源、生命周期和写入语义。
-3. **再迭代注意力管理**：有真实多来源数据后，实现相关性选择、优先级排序、Token 预算分配，以及长 Loop 或压缩后的 Goal Reminder/Attention Refresh。
-4. **保持能力边界**：服务端重启自动续跑、Evidence/Citation、Report Artifact、Browser/PDF Fetch 和 Delegation 不与 Context Engineering 混成一次大重构；评估体系仍独立立项。
+### 7.1 Agent Kernel 主线
 
-后续还需独立讨论 Agent Loop Semantics，包括 Goal/Task State、可选 Plan/Todo、动态修订、结构化 Observation、Progress、Completion Policy、Ask User/Clarification 和 Reflect/Re-plan。当前仅在实施计划中留档，未立项、未冻结接口，也不进入本轮 Context Engineering，避免把当前 Model-led Tool Loop 误描述为已经具备完整任务规划与完成判定。
+```text
+K1  Connection-Durable Runtime                  已完成
+K2  Context Engineering 第一阶段                 已完成
+K3  Release Control & Hardening                  下一阶段
+    - steer（下一安全步骤生效）
+    - ask user / clarification / waiting_for_user
+    - pause / resume
+    - retry current step
+    - cancel 语义完整化、幂等和终态收敛
+    - Search fallback、Provider 熔断与降级
+    - Prompt Injection、SSRF、资源上限和凭证边界加固
+    - 评估 Fixture、基础 Benchmark 和运行可观测数据采集
 
-P8 的完成标准不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Search/Fetch -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败和最小恢复能力。
+K4  Agent Task Semantics                         核心智能阶段
+    - Goal、Constraints、Success Criteria
+    - Subgoal、Progress、Observation、Blocker
+    - Completion Policy、轻量 Verification
+    - Re-plan / no-progress 检测
+    - Task State 持久化并按预算注入 Context
 
-Connection-Durable Agent Loop、Reasoning Context Transcript 与 Context Engineering 第一阶段均已落地。当前先推进 Skills、Memory 和文件化任务状态；Context 的多来源选择与注意力保持等第二阶段能力，等这些上游能力稳定后按真实运行问题推进。
+K5  Human-in-the-loop & Side-effect Control       内核完成后的中高优先级
+    - 统一 ask user / approval 协议
+    - Read-only、可逆写入、不可逆操作风险分级
+    - 外部发送、文件删除、Code Execution、Browser Use 和 MCP 写操作确认
+    - 审批超时、拒绝、取消传播和审计记录
+
+K6  Evidence / Citation / Completion Verification 横切内核能力
+    - Passage -> Evidence -> Claim -> Citation
+    - 来源定位、引用校验和证据覆盖
+    - 最终交付前的任务完成检查与限制说明
+```
+
+K3、K4、K5 是当前 Agent 从“可靠工具循环”升级为“可控、可解释、可验证任务循环”的核心阶段。K6 会横切文件分析、研究回答和 Artifact 生成，不能等所有功能完成后才设计来源关联。
+
+### 7.2 Capability 主线
+
+```text
+C1  File & Multimodal Foundation                  高优先级
+    - 上传并绑定 Session / Task / Run 的文件
+    - PDF、DOCX、XLSX、CSV、Markdown、TXT
+    - 图片上传、OCR、视觉理解、图表/截图/表格分析
+    - 页码、Sheet、行号、区域和 contentHash 定位
+    - 文件安全检查、大小限制、解析状态和 Context 引用
+
+C2  Artifact & Report Generation                  高优先级
+    - Markdown、HTML、DOCX、XLSX/CSV、PPTX、PDF
+    - Structured Artifact -> Format Renderer
+    - 预览、下载、多版本、局部修改和失败重试
+    - Artifact 与 Task / Run / Source / Citation 关联
+
+C3  Code Execution Sandbox                        高优先级
+    - 临时文件系统、CPU/Memory/Time 限制、进程隔离
+    - 默认无网络或白名单网络
+    - 数据清洗、图表、格式转换、文件处理和结果 Artifact 化
+    - 可取消、可审计、输出可恢复
+
+C4  MCP Client & Tool Ecosystem                   中高优先级
+    - 外部 MCP Server 发现、Tool Schema 校验和生命周期
+    - 内置松耦合能力的 MCP Server 适配
+    - 凭证绑定、权限、timeout/cancel、命名冲突和审计
+    - Read-only 默认自动执行，写操作接入 K5
+
+C5  Website Generation & Workbench Preview        中高优先级
+    - HTML/CSS/JS Artifact 生成和版本迭代
+    - 基于 Code Sandbox 的构建/校验
+    - Workbench 沙箱预览、运行日志、源码下载和安全网络策略
+
+C6  Browser Use                                   中期
+    - 使用 agent-browser 作为底层执行能力
+    - open/click/type/select/scroll/extract/screenshot/download
+    - 先支持公开网页和受限流程，再扩展登录态和写操作
+    - 所有副作用动作接入 K5
+
+C7  Skills / Notes / TODO / Memory                中期
+    - 可复用 Skill、任务模板和输出契约
+    - 文件化任务状态、用户偏好和候选 Memory
+    - Memory 写入需有来源、置信度、可见性和用户删除能力
+```
+
+文件和图片上传共享同一 Artifact/Source 底座；Artifact 生成依赖文件和结构化产物模型；Website Generation 依赖 Artifact、Code Sandbox 和 Workbench Preview；MCP 与 Browser Use 依赖 Action Boundary、权限和 Human-in-the-loop，不应提前把外部工具直接接入核心循环。
+
+### 7.3 低优先级扩展
+
+```text
+L1  Retrieved Image Rendering                    低优先级
+    - 检索图片的 MediaSource、缓存/代理、来源、版权和回答内渲染
+
+L2  Third-party Connectors                       低优先级
+    - GitHub、Notion、Slack、钉钉、飞书、Drive、邮箱、Jira 等
+    - 优先通过 MCP 接入；受资质、授权和维护成本影响，暂不作为核心前置
+
+L3  Background Tasks / Schedule                  低优先级
+    - 定时任务、后台运行、通知、长期监控和 Gateway/Queue 能力
+    - 等单次 Task、Task State 和恢复语义稳定后再做
+
+L4  Delegation / Worker                          后期
+    - 多 Worker、并行任务、父子 Run、预算分配和结果合并
+
+L5  Cost / Quality / Runtime Console             最后建设展示层
+    - Token、费用、Provider 健康、Tool 耗时、失败率、任务成功率和评估趋势
+    - 数据采集从 K3 开始，控制台 UI 放到后期
+
+L6  Mobile / Desktop Clients                     Agent 完善后
+    - Web、桌面端和移动端均作为 Task/Run/Event/Artifact/Approval 的客户端
+    - 不为多端重新定义 Agent Kernel 或业务协议
+
+L7  Multi-user / Remote Storage / Operations      更后期
+    - 认证、权限、Workspace、远程对象存储、多租户和团队协作
+```
+
+### 7.4 推荐执行顺序
+
+```text
+K3 Release Control & Hardening
+  -> K4 Agent Task Semantics
+  -> C1 File & Multimodal Foundation
+  -> C2 Artifact & Report Generation
+  -> K5 Human-in-the-loop & Side-effect Control
+  -> C3 Code Execution Sandbox
+  -> C4 MCP Client
+  -> C5 Website Generation & Workbench Preview
+  -> C6 Browser Use（agent-browser）
+  -> K6 Evidence / Citation / Verification 持续横切
+  -> C7 Skills / Notes / TODO / Memory
+  -> L1/L2/L3 低优先级扩展
+  -> L4 Delegation / Worker
+  -> L5 成本/质量/运行控制台
+  -> L6 Desktop / Mobile
+```
+
+其中 K6 虽在编号上列于后面，但应从 C1 文件分析和 C2 Artifact 生成开始同步建设来源引用关系；L5 只把指标展示放到最后，运行数据采集不得延后。第三方连接器和 Background Tasks 不作为当前 Agent Kernel 或首批功能的前置条件。
+
+本阶段的产品目标是建设 **AI Agent 工作台**：用户可以输入文字、文件和图片，Agent 在可控、可恢复、可验证的 Task Loop 中调用内置工具、Code Sandbox、MCP 和 Browser Use，最终生成回答、报告、表格、演示文稿或可预览网站；Web、桌面端和移动端在 Agent Kernel 完善后复用同一套 canonical protocol。
+
+P8 的完成标准仍然不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Tool/Artifact -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败、用户可控和最小恢复能力。
 
 ## 8. 关联文档
 

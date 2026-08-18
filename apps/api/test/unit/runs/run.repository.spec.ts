@@ -147,4 +147,91 @@ describe('RunRepository reasoning transcript boundaries', () => {
       where: { runId: 'run-1', state: 'active' },
     });
   });
+
+  it('atomically persists the in-memory compaction state when a run completes', async () => {
+    const compactionState = {
+      summary: 'summary',
+      coveredMessageCount: 8,
+      coveredThroughItemId: null,
+      version: 2,
+      tokenCount: 10,
+    };
+    const tx = {
+      agentRun: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findUnique: vi.fn().mockResolvedValue({ sessionId: 'session-1' }),
+      },
+      contextCompactionState: { upsert: vi.fn().mockResolvedValue({}) },
+      modelTranscriptItem: {
+        updateMany: vi.fn().mockResolvedValue({ count: 2 }),
+        deleteMany: vi.fn(),
+      },
+      message: { update: vi.fn().mockResolvedValue({}) },
+    };
+    const prisma = { ...tx, $transaction: vi.fn(async (callback) => callback(tx)) };
+    const repository = new RunRepository(prisma as unknown as PrismaService);
+
+    await expect(
+      repository.terminal({
+        runId: 'run-1',
+        assistantMessageId: 'assistant-1',
+        status: 'completed',
+        projection: {
+          model: 'deepseek-v4-flash',
+          blocks: [],
+          toolCallCount: 0,
+          executions: [],
+          sources: [],
+          observability: { modelRounds: [] },
+        } as never,
+        lastEventSequence: 3,
+        draftVersion: 1,
+        compactionState,
+      }),
+    ).resolves.toBe(true);
+
+    expect(tx.contextCompactionState.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { sessionId: 'session-1' },
+        create: expect.objectContaining({ summary: 'summary', coveredMessageCount: 8 }),
+      }),
+    );
+    expect(tx.modelTranscriptItem.updateMany).toHaveBeenCalled();
+  });
+
+  it.each(['failed', 'cancelled'] as const)(
+    'does not persist compaction state when a run ends as %s',
+    async (status) => {
+      const tx = {
+        agentRun: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        contextCompactionState: { upsert: vi.fn() },
+        modelTranscriptItem: {
+          updateMany: vi.fn(),
+          deleteMany: vi.fn().mockResolvedValue({ count: 2 }),
+        },
+        message: { update: vi.fn().mockResolvedValue({}) },
+      };
+      const prisma = { ...tx, $transaction: vi.fn(async (callback) => callback(tx)) };
+      const repository = new RunRepository(prisma as unknown as PrismaService);
+
+      await repository.terminal({
+        runId: 'run-1',
+        assistantMessageId: 'assistant-1',
+        status,
+        projection: {
+          model: 'deepseek-v4-flash',
+          blocks: [],
+          toolCallCount: 0,
+          executions: [],
+          sources: [],
+          observability: { modelRounds: [] },
+        } as never,
+        lastEventSequence: 3,
+        draftVersion: 1,
+      });
+
+      expect(tx.contextCompactionState.upsert).not.toHaveBeenCalled();
+      expect(tx.modelTranscriptItem.deleteMany).toHaveBeenCalled();
+    },
+  );
 });

@@ -1,5 +1,6 @@
 import {
   ArrowUpRight,
+  Braces,
   Check,
   ChevronRight,
   CircleAlert,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { MarkdownContent } from '../../../components/markdown-content';
+import { JsonViewer } from '../../../components/ui/json-viewer';
 
 import type {
   ActivityStatus,
@@ -43,6 +45,8 @@ export function WorkbenchShell({
     const result: Array<{ id: WorkspaceView; label: string; icon: LucideIcon }> = [
       { id: 'activity', label: 'Activity', icon: LoaderCircle },
     ];
+    // Context 是调试入口，即使当前 Run 尚未产生 Model Round 也保持可见。
+    result.push({ id: 'context', label: 'Context', icon: Braces });
     if (state.sources.length) result.push({ id: 'sources', label: 'Sources', icon: Search });
     if (state.report) result.push({ id: 'report', label: 'Report', icon: FileText });
     return result;
@@ -111,6 +115,8 @@ export function WorkbenchShell({
             status={state.activityStatus ?? 'running'}
             onSelect={onExecutionSelect}
           />
+        ) : state.activeView === 'context' ? (
+          <ContextView context={state.context} />
         ) : state.activeView === 'sources' ? (
           <SourcesView sources={state.sources} />
         ) : state.report ? (
@@ -118,6 +124,32 @@ export function WorkbenchShell({
         ) : null}
       </div>
     </aside>
+  );
+}
+
+function ContextView({ context }: { context?: WorkbenchState['context'] }) {
+  if (!context) {
+    return (
+      <div className="context-view context-view--empty">
+        <strong>当前 Run 尚无 Context</strong>
+        <span>下一次 Model Round 完成后，编译后的 Context JSON 会显示在这里。</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="context-view">
+      <div className="view-toolbar  m-4">
+        <div>
+          <strong>Model Round {context.roundSequence}</strong>
+          <span>
+            {context.estimatedInputTokens.toLocaleString()} estimated tokens · attempt{' '}
+            {context.attempt}
+          </span>
+        </div>
+      </div>
+      <JsonViewer value={context} />
+    </div>
   );
 }
 

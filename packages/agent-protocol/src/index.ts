@@ -25,6 +25,7 @@ export const reasoningCapabilitySchema = z.object({
 export const modelContextProfileSchema = z.object({
   contextWindowTokens: z.number().int().positive(),
   maxOutputTokens: z.number().int().positive(),
+  compactionTriggerTokens: z.number().int().positive(),
   tokenizer: z.literal('deepseek-v3'),
   source: z.string().min(1),
   verified: z.boolean(),
@@ -58,6 +59,19 @@ export const runObservabilitySchema = z.object({
     estimatedPromptTokens: z.number().int().nonnegative(),
     modelRoundDurationMs: z.number().int().nonnegative(),
   }),
+});
+export const runContextDebugSchema = z.object({
+  version: z.literal(1),
+  roundSequence: z.number().int().positive(),
+  attempt: z.number().int().positive(),
+  estimatedInputTokens: z.number().int().nonnegative(),
+  promptBudget: z.number().int().nonnegative().nullable(),
+  compactionTriggered: z.boolean(),
+  finalResponseOnly: z.boolean(),
+  messages: z.array(z.unknown()),
+  // 本轮模型输出，与发送给模型的 messages 分离，便于调试完整观察一轮输入/输出。
+  response: z.unknown().optional(),
+  tools: z.array(z.unknown()),
 });
 export const publicModelConfigSchema = z.object({
   id: z.string().min(1),
@@ -294,6 +308,7 @@ export const assistantAgentMetadataSchema = z.object({
     .array(assistantContentBlockSchema)
     .max(AGENT_PROTOCOL_LIMITS.assistantContentBlocksMax)
     .optional(),
+  context: runContextDebugSchema.optional(),
   agent: z
     .object({
       toolCallCount: z.number().int().nonnegative().max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
@@ -369,6 +384,7 @@ export const chatStreamEventSchema = z.union([
   z.object({
     type: z.literal('model.round.completed'),
     observation: modelRoundObservationSchema,
+    context: runContextDebugSchema.optional(),
   }),
   z.object({
     type: z.literal('tool.failed'),
@@ -470,6 +486,7 @@ export const runSnapshotSchema = z.object({
   toolCallCount: z.number().int().nonnegative(),
   lastEventSequence: z.number().int().nonnegative(),
   observability: runObservabilitySchema.optional(),
+  context: runContextDebugSchema.optional(),
   error: z.object({ code: z.string().min(1), detail: z.string().min(1) }).optional(),
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().optional(),
@@ -519,6 +536,7 @@ export type ModelRunProfile = z.infer<typeof modelRunProfileSchema>;
 export type ModelContextProfile = z.infer<typeof modelContextProfileSchema>;
 export type ModelRoundObservation = z.infer<typeof modelRoundObservationSchema>;
 export type RunObservability = z.infer<typeof runObservabilitySchema>;
+export type RunContextDebug = z.infer<typeof runContextDebugSchema>;
 export type PublicAgentConfig = z.infer<typeof publicAgentConfigSchema>;
 export type PublicModelConfig = z.infer<typeof publicModelConfigSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;

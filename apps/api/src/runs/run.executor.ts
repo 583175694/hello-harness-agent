@@ -8,6 +8,7 @@ import { ActiveRunRegistry } from './active-run.registry';
 import { RunEventHub } from './run-event-hub';
 import { RunRepository } from './run.repository';
 import { shortLogId } from '../shared/logging.utils';
+import type { CompactionState } from '../context-engineering/context-engineering.types';
 
 @Injectable()
 export class RunExecutor implements OnModuleDestroy {
@@ -70,6 +71,7 @@ export class RunExecutor implements OnModuleDestroy {
     let lastFlushAt = Date.now();
     let lastFlushLength = 0;
     let stepSequence = 1;
+    let compactionState: CompactionState | undefined;
     const toolSteps = new Map<string, string>();
     const modelStepId = crypto.randomUUID();
     const heartbeat = setInterval(() => void this.repository.heartbeat(runId), 5_000);
@@ -99,6 +101,7 @@ export class RunExecutor implements OnModuleDestroy {
       for await (const event of this.chat.streamPrepared(
         {
           sessionId: stored.sessionId,
+          runId,
           userMessageId: stored.inputMessageId,
           assistantMessageId: stored.assistantMessageId,
           messages,
@@ -107,6 +110,9 @@ export class RunExecutor implements OnModuleDestroy {
             RunSnapshot['profile']
           >['reasoningEffort'],
           onTranscriptItem: (message) => this.repository.appendTranscriptItem(runId, message),
+          onCompactionState: (state) => {
+            compactionState = state;
+          },
         },
         active.abortController.signal,
         {
@@ -119,6 +125,9 @@ export class RunExecutor implements OnModuleDestroy {
       )) {
         if (event.type === 'message.completed') continue;
         if (event.type === 'stream.failed') throw new Error(event.detail);
+        if (event.type === 'model.round.completed' && event.context) {
+          active.liveSnapshot.context = structuredClone(event.context);
+        }
         // 用户可见变化统一遵循：分配 seq -> 更新 Live Snapshot -> 写 Tail -> 广播。
         // Projection 已由 onProjection 准备好，因此 Event 与 Snapshot 不会跨版本。
         const published = this.events.commit(runId, event.type, event);
@@ -165,6 +174,8 @@ export class RunExecutor implements OnModuleDestroy {
         projection,
         lastEventSequence: terminal.seq,
         draftVersion,
+        context: active.liveSnapshot.context,
+        ...(compactionState ? { compactionState } : {}),
       });
       if (!terminalCommitted) {
         // CAS 冲突说明合法终态已被其他竞争路径占用；撤销尚未广播的内存终态。
@@ -202,6 +213,7 @@ export class RunExecutor implements OnModuleDestroy {
         projection,
         lastEventSequence: terminal.seq,
         draftVersion,
+        context: active.liveSnapshot.context,
         error: failure,
       });
       if (terminalCommitted) {

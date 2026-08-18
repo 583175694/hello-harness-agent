@@ -41,9 +41,25 @@ model Session {
   messages  Message[]
   runs      AgentRun[]
   transcriptItems ModelTranscriptItem[]
+  compactionState ContextCompactionState?
 
   @@index([userId, isPinned(sort: Desc), updatedAt(sort: Desc)])
   @@map("sessions")
+}
+
+model ContextCompactionState {
+  id                    String   @id
+  sessionId             String   @unique @map("session_id")
+  summary               String
+  coveredMessageCount   Int      @map("covered_message_count")
+  coveredThroughItemId  String?  @map("covered_through_item_id")
+  version               Int      @default(1)
+  tokenCount            Int      @map("token_count")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  session               Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("context_compaction_states")
 }
 
 model Message {

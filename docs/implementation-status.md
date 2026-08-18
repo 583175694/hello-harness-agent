@@ -2,13 +2,13 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-17（评估体系代码与文档已清理，后续作为独立模块重新设计）
+> 最后更新：2026-08-18（Context Engineering 第一阶段基线与调试视图已完成）
 
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 20 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P8 Connection-Durable 时序加固已落地”：Run 已与 Chat HTTP/SSE 解耦，具备后台执行、Ordered Model Rounds、PostgreSQL versioned checkpoint、checkpoint 后 Event Tail、SSE replay/snapshot fallback、严格客户端 cursor、独立 cancel 和终态 CAS。Context Compiler、steer、搜索 fallback、Memory 和 Delegation 仍未实现。
+当前状态可以描述为“P8 Connection-Durable 时序加固和 Context Engineering 第一阶段基线已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、steer、搜索 fallback 和 Delegation 仍未实现。
 
 评估体系当前暂缓建设。相关实现、配置、命令、数据和专题文档已于 2026-08-17 移除；普通 unit、integration、E2E 与 `agent-testkit` 回归测试继续保留。后续评估能力作为独立模块重新设计，不再阻塞当前 Context Engineering 或功能开发。
 
@@ -88,13 +88,13 @@ Connection-Durable 不引入 Redis，也不实现服务端重启后的自动续�
 
 **阶段结果**：客户端断线、刷新和切换会话不会取消后台 Run；重连时可以先读取 Snapshot，再按 cursor 精确 replay Event Tail，无法连续 replay 时回退到完整 Snapshot。实时流、历史恢复和持久化消息统一使用稳定的文本/工具块顺序，终态只有在数据库提交成功后才向客户端广播。8 月 13 日又将 Round/Block 字段收紧为必填，统一服务端与前端的 Block canonical sort，并补充顺序诊断日志和流式消息局部渲染优化。阶段六把原本依附请求的 Tool Loop 变成了具备后台生命周期、连接恢复、阶段性持久化和可诊断时序不变量的 Durable Run。
 
-**当前仍未解决**：这仍然是 Model-led Tool Loop，不包含显式 Goal/Plan/Observation/Progress/Completion Policy 等完整 Agent Loop 语义；没有服务端重启后的 Runtime 自动恢复、多实例 Worker lease、数据库 Event Log、Redis、Tool exactly-once 或跨进程接管。Event Tail 的软/绝对上限和 checkpoint 失败后的强制收敛仍属于后续 Release Hardening。Context Engineering、Memory 和 Delegation 按后续阶段独立推进。
+**当前仍未解决**：这仍然是 Model-led Tool Loop，不包含显式 Goal/Plan/Observation/Progress/Completion Policy 等完整 Agent Loop 语义；没有服务端重启后的 Runtime 自动恢复、多实例 Worker lease、数据库 Event Log、Redis、Tool exactly-once 或跨进程接管。Event Tail 的软/绝对上限和 checkpoint 失败后的强制收敛仍属于后续 Release Hardening。Context Engineering 第一阶段已完成，Skills、Memory、文件化任务状态、Goal Reminder 和 Delegation 按后续阶段独立推进。
 
 ### Reasoning Context Transcript（断代升级已实施）
 
 OpenAI-compatible Adapter 已捕获并选择性回放 DeepSeek `reasoning_content`，Runtime 使用 canonical reasoning、assistant Tool Call 和 Tool Result transcript；跨用户轮次不再从 Message 正文猜测模型上下文。普通 Conversation 不展示 raw reasoning，text 与 Tool Activity 按真实时序展示且首版不折叠；旧 reasoning event/block 仅保留协议兼容解析。
 
-实现已落地：Model Adapter 负责供应商 reasoning 编解码和能力校验，Runtime/Repository 持久化并恢复 canonical transcript。后续用户轮次按顺序回放 reasoning + Tool Call + Tool Result 原子单元与 final answer，但不回放无 Tool Call 最终 Round 的 reasoning。Composer 通过 Public Config 提供 Flash/Pro 和 `off/low/high/max` 四档选择，模型与推理强度在 Run 创建时冻结并纳入幂等 hash。失败、取消、进程中断和未闭合 Tool Call 不进入 committed history；Session 删除级联清理 transcript。Context Engineering 仍未实施，当前上下文超限返回明确错误。详细设计见 [27-reasoning-context-transcript.md](./27-reasoning-context-transcript.md)。
+实现已落地：Model Adapter 负责供应商 reasoning 编解码和能力校验，Runtime/Repository 持久化并恢复 canonical transcript。后续用户轮次按顺序回放 reasoning + Tool Call + Tool Result 原子单元与 final answer，但不回放无 Tool Call 最终 Round 的 reasoning。Composer 通过 Public Config 提供 Flash/Pro 和 `off/low/high/max` 四档选择，模型与推理强度在 Run 创建时冻结并纳入幂等 hash。失败、取消、进程中断和未闭合 Tool Call 不进入 committed history；Session 删除级联清理 transcript。Context Engineering 已在该 canonical transcript 之上实现第一阶段编译、预算、裁剪和压缩。详细设计见 [27-reasoning-context-transcript.md](./27-reasoning-context-transcript.md) 与 [03-context-engineering.md](./03-context-engineering.md)。
 
 本轮 review 加固了模型透传和完整性边界：ChatService 使用 Run 冻结模型，不再用默认模型覆盖用户选择；Snapshot profile 改为必填；未知模型直接拒绝；transcript 校验孤立 Tool Call 和缺失 Tool Result；前端不再兼容渲染最终回答之后的非法 reasoning/tool 顺序。旧的 `prepareSessionStream()` Message 上下文方法仍因现有历史单测保留，但实际 Run 执行链不再调用它，后续可单独删除并重写测试。
 
@@ -105,6 +105,14 @@ DeepSeek V4 的 Thinking + Tool Calling 上下文不是普通 OpenAI-compatible 
 当前 `OpenAICompatibleModelAdapter` 已把差异收敛在供应商边界：流式解码 DeepSeek `reasoning_content` 并向 Runtime 输出供应商无关的 reasoning delta，由 Runtime 聚合为 canonical reasoning；请求编码时仅为包含 Tool Call 的 assistant message 恢复原生 `reasoning_content`，普通最终回答只发送 `content`。`thinking.type` 与 `reasoning_effort` 由冻结的 Run profile 映射，当前 run 选择 `off` 只关闭新 reasoning 生成，不删除历史 Tool Call 协议仍需要回放的 reasoning。Repository 也只对这类 native reasoning tool-call unit 校验 provider 与 `reasoningFormat` 兼容性，允许不依赖原生 reasoning 的普通最终回答跨模型继续使用。
 
 这项优化同时保留三条边界：canonical transcript 完整保存模型事实，Model Adapter 独占供应商私有字段的编解码，Conversation/Workbench 不展示 raw reasoning。对应测试覆盖了 Tool Call reasoning 的选择性回放、最终 Round reasoning 的剥离、跨 provider/format 兼容拒绝、`reasoningEffort=off` 下的历史协议回放，以及 reasoning 不进入用户 SSE/内容块。详细协议与失败策略见 [27-reasoning-context-transcript.md](./27-reasoning-context-transcript.md)。
+
+### Context Engineering 第一阶段基线（已实施）
+
+每个 Model Round 调用模型前，`ContextEngineeringService.compileRound()` 都会基于受控 Model Profile 计算 `contextWindow - maxOutput - safetyMargin`，把 canonical messages 与 Tool Definitions 一起交给本地 DeepSeek V3 tokenizer 估算。达到 100,000 token 触发线时，系统只摘要封闭的历史前缀，保留最近 12 条消息及完整 Tool Call/Tool Result 边界。当前 Run 内的最新摘要由 Runtime 保存在内存并立即注入后续轮次；只有 Run 成功完成时，才与 Transcript 原子提交为 Session 正式状态，失败或取消时自然丢弃。压缩后仍超预算时先清理一个最早旧 Tool Result，仍然超限则返回明确的 `CONTEXT_BUDGET_EXCEEDED`。
+
+同一 Model Round 产生多个大型 Tool Result 时，Runtime 先收集完整批次，Context Engineering 扣除既有 messages 和 Tool Definitions 的固定成本，再按模型声明顺序公平分配剩余预算，并使用首尾保留策略裁剪。裁剪完成后 Runtime 严格按 `assistant(toolCalls) -> tool(result)` 写入 canonical transcript，避免破坏供应商工具协议。
+
+Workbench 的 Context Tab 只保留当前 Run 最后一轮快照，Run 结束和页面刷新后仍可恢复。调试 JSON 明确区分 `messages`（本轮模型输入）与 `response`（本轮模型输出），同时展示 tools、预算、估算值和是否触发压缩。当前阶段不实现 Skills、Memory、`NOTES.md`、`TODO.md` 的相关性召回，也不实现长 Loop 中周期性重新注入目标的 Goal Reminder；这些能力会改变 Context 来源、优先级和预算分配，应在对应能力形成真实数据后再迭代，而不是提前建设通用 Attention Engine。
 
 ## 3. 已完成
 
@@ -120,6 +128,8 @@ DeepSeek V4 的 Thinking + Tool Calling 上下文不是普通 OpenAI-compatible 
 - 开发环境日志已切换为彩色中文单行格式，关闭常规 HTTP 请求/响应明细和 Nest 启动路由噪声；模型链路只记录生成开始、首字响应、完成或失败，并提供会话短 ID、模型、上下文条数、首字耗时、总耗时和输出字数。
 - OpenAI 官方 SDK 和 OpenAI-compatible Chat Completions 已接入；模型 ID、Base URL、能力和请求参数由 `apps/api/src/model/model-catalog.ts` 管理，只有 `OPENAI_API_KEY` 从环境变量读取。
 - DeepSeek V4 Thinking + Tool Calling 已通过 Model Adapter 做上下文特化：解码 `reasoning_content` 分片并由 Runtime 聚合，仅对历史 Tool Call 原子单元做 native replay，最终回答 reasoning 不进入下一轮请求；provider/format 兼容检查、Run reasoning profile 和用户投影隐藏边界均已落地并有单测覆盖。
+- Context Engineering 第一阶段已接入每个 Model Round：本地 DeepSeek V3 tokenizer 统一估算 messages 与 Tool Definitions，按 Model Profile 预留最大输出和安全空间，支持 Tool Result 批次裁剪、封闭历史前缀压缩、Session 级摘要状态和明确的最终超限错误。
+- Workbench 已增加当前 Run 的 Context 调试视图；Run 结束及刷新后保留最后一轮快照，JSON 分离展示模型输入 `messages` 与本轮输出 `response`，并支持主题色、长内容换行和复制。
 - 评估体系已从当前工作区移除；普通 unit、integration、E2E 与 `agent-testkit` 工程回归能力保留。
 - 已实现每个 assistant run 最多 20 次 Tool Call 的模型-工具循环，支持分片 arguments 聚合、参数校验、串行执行、错误回传和达到调用上限后的无工具最终回答。
 - 模型调用已通过 `ModelAdapter` 与 OpenAI SDK 隔离；`AgentRuntimeService` 只依赖 canonical message、模型事件和工具契约。
@@ -206,6 +216,17 @@ pnpm test:integration
 pnpm --filter @harness/web test:e2e
 ```
 
+2026-08-18 完成 Context Engineering 第一阶段、Context Workbench 调试视图和最终 Round 输入/输出分离后执行：
+
+```text
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+```
+
+结果为全量通过：API unit 74 项、Web unit 31 项、Protocol unit 13 项、DeepSeek tokenizer unit 3 项和 agent-testkit unit 1 项通过；production build 通过。新增回归验证同批大型 Tool Result 的共享预算裁剪、封闭历史前缀压缩与摘要状态持久化、压缩后按实际编译 Context 计算 Tool Result 剩余预算、43K Context 下保留实质搜索内容、`assistant(toolCalls) -> tool(result)` 顺序，以及最终 assistant 输出进入最后一轮 Context Debug 的 `response` 字段。
+
 2026-08-14 完成 reasoning 用户投影隐藏、Tool 时序恢复和选择性回放后执行：
 
 ```text
@@ -275,7 +296,7 @@ git diff --check
 
 同次重构将 URL provenance、URL/正文去重、Web 资源预算和无新增内容状态从 Runtime 下沉到 `WebResearchRunState`，Runtime 只创建通用 `ToolRunState`，按统一契约执行任意命名工具并处理 `logFields`、`disableTools` 和 `forceFinalAnswer`。上游调用失败日志继续保留脱敏后的真实原因、HTTP 状态、请求 ID、上游地址和响应摘要。执行 `pnpm check` 与 `git diff --check` 全部通过：Protocol 12 项、API 56 项、Web 18 项、Testkit 1 项 unit test 通过，workspace lint、typecheck 和 production build 全部通过。本轮没有重复执行依赖数据库或浏览器环境的 integration/E2E。
 
-2026-08-12 完成 Connection-Durable Agent Loop 第一版实施与当时验收。新增 `AgentRun/AgentRunStep`、Run 幂等键和 active Session partial unique index；创建、后台执行、draft flush、语义 Step、terminal transaction、heartbeat/restart reconciliation、独立 cancel 和优雅停机收敛全部接入。新增 Run Event Hub 的 run-scoped sequence、Ring Buffer、snapshot fallback、多 subscriber、有界队列和 terminal close；Web 首次提交、刷新、切换会话、断网重连统一走 `createRun -> observeRun`，并保留失败/取消草稿终态。当时验证结果为 Protocol 13、API unit 58、API integration 10、Web unit 19、Playwright E2E 16 全部通过；workspace lint、typecheck、production build 和 `git diff --check` 全部通过。后续真实切会话场景暴露并确认了 Model Round/Block 排序、Snapshot/sequence、cursor 和状态竞争问题，因此该记录只表示第一版基线验收，不表示时序加固已经完成。当前仍明确不实现服务端重启自动续跑、多实例 Worker lease、数据库 Event Log、Redis、逐 token 持久化和 Context Engineering。
+2026-08-12 完成 Connection-Durable Agent Loop 第一版实施与当时验收。新增 `AgentRun/AgentRunStep`、Run 幂等键和 active Session partial unique index；创建、后台执行、draft flush、语义 Step、terminal transaction、heartbeat/restart reconciliation、独立 cancel 和优雅停机收敛全部接入。新增 Run Event Hub 的 run-scoped sequence、Ring Buffer、snapshot fallback、多 subscriber、有界队列和 terminal close；Web 首次提交、刷新、切换会话、断网重连统一走 `createRun -> observeRun`，并保留失败/取消草稿终态。当时验证结果为 Protocol 13、API unit 58、API integration 10、Web unit 19、Playwright E2E 16 全部通过；workspace lint、typecheck、production build 和 `git diff --check` 全部通过。后续真实切会话场景暴露并确认了 Model Round/Block 排序、Snapshot/sequence、cursor 和状态竞争问题，因此该记录只表示第一版基线验收，不表示时序加固已经完成。当时明确不实现服务端重启自动续跑、多实例 Worker lease、数据库 Event Log、Redis、逐 token 持久化和 Context Engineering；Context Engineering 已于 2026-08-18 完成第一阶段基线。
 
 2026-08-12 完成 Connection-Durable Agent Loop 时序加固与真实黑盒验收。协议升级到 `0.9.0`，为文本和工具事件增加 `roundId + roundSequence + blockSequence`；Adapter 按 Provider 全局 index 或 Block 首次出现顺序建立 Ordered Model Rounds，普通 Tool Round 的 Content 首字继续即时交付，Projection 按稳定位置创建或原位更新 Block。Active Run 统一维护同版本 `liveProjection/liveSequence`、不可变版本化 Checkpoint 和 Checkpoint 水位后的 Event Tail；Checkpoint 串行写入并仅在成功后清理已覆盖 Event，Latest Live Snapshot、连续 Tail replay 与实时流得到相同 `blocks[]`。SSE 订阅消除 replay/live 空窗，Web 只在成功应用连续 Event 后推进 cursor，并拒绝旧 Session Detail、Snapshot 或异步 HTTP 结果覆盖新状态。terminal Event 改为数据库 CAS/checkpoint 成功后再广播，queued cancel、cancel/complete 竞争和 reconciliation owner 条件均按不可逆状态机收敛。
 
@@ -305,7 +326,8 @@ git diff --check
 - 服务端重启后继续原 Run、多实例 Worker lease、Provider cursor 和 Tool 副作用幂等；当前重启遗留 Run 收敛为 `RUN_INTERRUPTED`。
 - 搜索 fallback；正式 Evidence、引用校验和 Markdown Report Artifact 不属于当前范围，是否进入后续 Deep Research 由未来产品需求决定。
 - steer、pause 和 Human-in-the-loop 尚未实现；独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
-- user Memory、Delegation、Worker 和多用户认证。
+- Skills、user Memory、`NOTES.md`、`TODO.md`、Delegation、Worker 和多用户认证。
+- 长 Agent Loop 的 Goal Reminder/Attention Refresh 尚未实现；当前只保留最近消息、当前任务和 Tool Call/Result 协议完整性，等多来源 Context 形成真实需求后再建设相关性选择、优先级和预算分配。
 - 评估体系尚未重新设计；当前不存在可运行的 Benchmark、Judge、Grader 或正式 Baseline。
 
 ### General Web Research V1 完成边界
@@ -335,25 +357,26 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 
 ### 后续阶段边界
 
-- 完整 Context Engineering 面向 System Prompt、历史消息、用户输入、Assistant Tool Calls、Tool Results 和最终回答预留统一实现 Token 计量、选择、压缩、淘汰和编译；当前不预先冻结具体 schema。
+- Context Engineering 第一阶段已经覆盖 System Prompt、历史消息、用户输入、Assistant Tool Calls、Tool Results、Tool Definitions 和最终回答预留；当前冻结这一最小基线，不继续扩展通用 Fragment、Trace、审计或 Attention Engine。
+- Skills、Memory、`NOTES.md` 和 `TODO.md` 落地后，再基于真实来源增加相关性选择、优先级、预算分配与 Goal Reminder；不提前为尚不存在的数据源冻结抽象接口。
 - Connection-Durable Agent Loop 已按独立方案完成后台执行和客户端断线恢复；Delegation 再实现 Worker 独立上下文和大规模 Wide Research。这些能力都不属于当前 Web Fetch 模块本身。
 - 正式 `EvidenceSource`、report-scoped `[Sx]`、Report Artifact、同模型复核和 Citation Validator 不阻塞当前阶段，也不在本次架构中承诺实现。
 - JavaScript Browser Fetch、PDF、登录态网页、页面操作和其他来源格式属于独立的工具能力扩展，不并入当前阶段。
 
 ## 7. 下一阶段建议
 
-当前已完成 P8 Connection-Durable Agent Loop，下一阶段按以下顺序推进：
+当前已完成 P8 Connection-Durable Agent Loop 和 Context Engineering 第一阶段，下一阶段按以下顺序推进：
 
-1. **建设 Context 基础层**：基于完整 canonical transcript 实现 Fragment/Source、Token Budget、Trace 和 Compiler no-op/shadow mode，先观测编译决策，不改变实际模型输入。
-2. **分阶段启用策略**：分别实现选择、压缩、淘汰、摘要和最终回答预留；每一步都用 unit/integration/E2E、固定人工样例、运行指标和可回滚开关控制风险。
-3. **保持能力边界**：服务端重启自动续跑、Evidence/Citation、Report Artifact、Browser/PDF Fetch、Memory 和 Delegation 不与 Context Engineering 混成一次大重构。
-4. **评估体系独立立项**：需要统一 Benchmark、Judge、Grader 或 Baseline 时单独设计模块，不在当前功能代码中预留空接口或专用生产分支。
+1. **冻结 Context 最小基线**：只修复真实运行暴露的正确性问题，不继续建设 Fragment、Trace、审计、通用策略 DSL 或独立 Attention Engine。
+2. **先建设新的 Context 来源**：按产品优先级实现 Skills、Memory、`NOTES.md` 和 `TODO.md`，明确各自事实源、生命周期和写入语义。
+3. **再迭代注意力管理**：有真实多来源数据后，实现相关性选择、优先级排序、Token 预算分配，以及长 Loop 或压缩后的 Goal Reminder/Attention Refresh。
+4. **保持能力边界**：服务端重启自动续跑、Evidence/Citation、Report Artifact、Browser/PDF Fetch 和 Delegation 不与 Context Engineering 混成一次大重构；评估体系仍独立立项。
 
 后续还需独立讨论 Agent Loop Semantics，包括 Goal/Task State、可选 Plan/Todo、动态修订、结构化 Observation、Progress、Completion Policy、Ask User/Clarification 和 Reflect/Re-plan。当前仅在实施计划中留档，未立项、未冻结接口，也不进入本轮 Context Engineering，避免把当前 Model-led Tool Loop 误描述为已经具备完整任务规划与完成判定。
 
 P8 的完成标准不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Search/Fetch -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败和最小恢复能力。
 
-Connection-Durable Agent Loop 与 Reasoning Context Transcript 已落地，当前进入 Context Engineering 与 Release Hardening。服务端重启自动续跑、Worker 独立上下文、动态 Browser Fetch、PDF、正式 Evidence/Report 和新的评估体系按真实需求独立推进。
+Connection-Durable Agent Loop、Reasoning Context Transcript 与 Context Engineering 第一阶段均已落地。当前先推进 Skills、Memory 和文件化任务状态；Context 的多来源选择与注意力保持等第二阶段能力，等这些上游能力稳定后按真实运行问题推进。
 
 ## 8. 关联文档
 

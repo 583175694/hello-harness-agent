@@ -10,6 +10,7 @@ export type ConfiguredModel = {
   context: {
     contextWindowTokens: number;
     maxOutputTokens: number;
+    compactionTriggerTokens: number;
     tokenizer: 'deepseek-v3';
     source: string;
     verified: boolean;
@@ -24,9 +25,9 @@ export type ConfiguredModel = {
 // 在填写供应商权威来源并完成确认前，verified 必须保持 false。
 export const DEEPSEEK_CONTEXT_WINDOW_TOKENS = 131_072;
 export const DEEPSEEK_MAX_OUTPUT_TOKENS = 8_192;
-export const DEEPSEEK_MODEL_PROFILE_SOURCE = '';
-export const DEEPSEEK_MODEL_PROFILE_VERIFIED = false;
-const UNVERIFIED_MODEL_PROFILE_SOURCE = '未填写供应商权威来源';
+export const DEEPSEEK_COMPACTION_TRIGGER_TOKENS = 100_000;
+export const DEEPSEEK_MODEL_PROFILE_SOURCE = 'https://api-docs.deepseek.com/quick_start/pricing/';
+export const DEEPSEEK_MODEL_PROFILE_VERIFIED = true;
 
 if (DEEPSEEK_MODEL_PROFILE_VERIFIED && !DEEPSEEK_MODEL_PROFILE_SOURCE)
   throw new Error(
@@ -45,8 +46,9 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     context: {
       contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
       maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
+      compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
       tokenizer: 'deepseek-v3',
-      source: DEEPSEEK_MODEL_PROFILE_SOURCE || UNVERIFIED_MODEL_PROFILE_SOURCE,
+      source: DEEPSEEK_MODEL_PROFILE_SOURCE,
       verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
     },
     request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
@@ -61,8 +63,9 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     context: {
       contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
       maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
+      compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
       tokenizer: 'deepseek-v3',
-      source: DEEPSEEK_MODEL_PROFILE_SOURCE || UNVERIFIED_MODEL_PROFILE_SOURCE,
+      source: DEEPSEEK_MODEL_PROFILE_SOURCE,
       verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
     },
     request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },

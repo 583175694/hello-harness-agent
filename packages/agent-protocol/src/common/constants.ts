@@ -51,6 +51,8 @@ export const AGENT_ERROR_CODES = {
   modelLengthLimit: 'MODEL_LENGTH_LIMIT',
   // 模型返回了空内容，无法交付 assistant 消息。
   modelEmptyResponse: 'MODEL_EMPTY_RESPONSE',
+  // Context Engineering 在强制保留内容仍无法放入模型预算时返回。
+  contextBudgetExceeded: 'CONTEXT_BUDGET_EXCEEDED',
   // 当前 assistant run 已达到模型工具调用次数上限。
   toolCallLimitExceeded: 'TOOL_CALL_LIMIT_EXCEEDED',
   // 工具未在自身声明的外层执行时间内完成。

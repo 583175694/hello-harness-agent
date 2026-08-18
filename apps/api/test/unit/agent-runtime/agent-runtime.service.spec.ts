@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import { AgentRuntimeService } from '../../../src/agent-runtime/agent-runtime.service';
+import type { ContextEngineeringService } from '../../../src/context-engineering/context-engineering.service';
 import type { ModelAdapter, ModelRoundInput } from '../../../src/model/model-adapter';
 import type { ToolRegistryService } from '../../../src/tools/tool-registry.service';
 
@@ -84,6 +85,20 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       type: 'transcript.item',
       message: { role: 'assistant', content: '最终回答', reasoning: '内部推理' },
     });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'model.round.completed',
+          context: expect.objectContaining({
+            roundSequence: 1,
+            messages: [
+              { role: 'system', content: 'test' },
+              { role: 'user', content: 'hello' },
+            ],
+          }),
+        }),
+      ]),
+    );
   });
 
   it('serializes canonical success output instead of consuming tool-owned model content', async () => {
@@ -125,12 +140,113 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         output: { query: 'market', results: [] },
       }),
     });
+    const assistantToolCallIndex = secondInput.messages.findIndex(
+      (message) => message.role === 'assistant' && message.toolCalls?.length,
+    );
+    const toolResultIndex = secondInput.messages.findIndex((message) => message.role === 'tool');
+    expect(assistantToolCallIndex).toBeGreaterThanOrEqual(0);
+    expect(toolResultIndex).toBeGreaterThan(assistantToolCallIndex);
+    const rounds = events.filter((event) => event.type === 'model.round.completed');
+    expect(rounds[0]).toEqual(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          response: expect.objectContaining({
+            role: 'assistant',
+            toolCalls: expect.arrayContaining([expect.objectContaining({ id: 'call-1' })]),
+          }),
+        }),
+      }),
+    );
+    expect(rounds[1]).toEqual(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          response: { role: 'assistant', content: '完成回答' },
+        }),
+      }),
+    );
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: 'tool.completed', toolCallId: 'call-1' }),
         expect.objectContaining({ type: 'text.delta', delta: '完成回答', roundSequence: 2 }),
       ]),
     );
+  });
+
+  it('budgets Tool Results against the compiled round instead of the uncompressed transcript', async () => {
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'call-after-compaction',
+              name: AGENT_TOOL_NAMES.webSearch,
+              arguments: '{"query":"latest market"}',
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '已使用完整搜索结果回答。' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const compiledMessages = [
+      { role: 'system' as const, content: 'test' },
+      { role: 'system' as const, content: '<compaction_summary>older history</compaction_summary>' },
+      { role: 'user' as const, content: 'hello' },
+    ];
+    const compactionState = {
+      summary: 'older history',
+      coveredMessageCount: 20,
+      coveredThroughItemId: null,
+      version: 2,
+      tokenCount: 10,
+    };
+    const trimToolResults = vi.fn(
+      async (
+        _messages: ModelRoundInput['messages'],
+        _definitions: unknown,
+        candidates: Array<{ toolCallId: string; toolName: string; content: string }>,
+      ) =>
+        candidates.map((candidate) => ({
+          ...candidate,
+          originalTokens: 100,
+          retainedTokens: 100,
+          truncated: false,
+        })),
+    );
+    const compileRound = vi
+        .fn()
+        .mockResolvedValueOnce({
+          messages: compiledMessages,
+          estimatedInputTokens: 43_000,
+          promptBudget: 116_326,
+          compactionTriggered: true,
+          compactionState,
+        })
+        .mockImplementation(async (input: { messages: ModelRoundInput['messages'] }) => ({
+          messages: input.messages,
+          estimatedInputTokens: 45_000,
+          promptBudget: 116_326,
+          compactionTriggered: false,
+        }));
+    const context = {
+      compileRound,
+      trimToolResults,
+    } as unknown as ContextEngineeringService;
+
+    await collect(new AgentRuntimeService(model, registry(), logger(), context));
+
+    const budgetMessages = trimToolResults.mock.calls[0]![0];
+    expect(budgetMessages.slice(0, compiledMessages.length)).toEqual(compiledMessages);
+    expect(budgetMessages).toHaveLength(compiledMessages.length + 1);
+    expect(budgetMessages.at(-1)).toMatchObject({
+      role: 'assistant',
+      toolCalls: [expect.objectContaining({ id: 'call-after-compaction' })],
+    });
+    expect(compileRound.mock.calls[1]![0]).toMatchObject({ compactionState });
   });
 
   it('returns structured failure to the model and lets the model continue', async () => {

@@ -206,12 +206,20 @@ export function Conversation({
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 120,
     getItemKey: (index) => state.conversation[index]?.id ?? index,
-    measureElement: (element) => element.getBoundingClientRect().height,
     overscan: 6,
     paddingStart: 34,
     paddingEnd: 22,
     // JSDOM 没有真实布局尺寸；浏览器挂载后会由测量结果替换这个初始视口。
     initialRect: { width: 0, height: 800 },
+    onChange: (instance, sync) => {
+      if (sync || !shouldVirtualize || !stickToBottomRef.current) return;
+      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        if (stickToBottomRef.current && state.conversation.length)
+          instance.scrollToIndex(state.conversation.length - 1, { align: 'end' });
+      });
+    },
   });
   function handleComposerSubmit(event: FormEvent<HTMLFormElement>): void {
     stickToBottomRef.current = true;
@@ -220,8 +228,6 @@ export function Conversation({
   function handleConversationScroll(): void {
     const node = scrollRef.current;
     if (!node) return;
-    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
-    scrollFrameRef.current = null;
     stickToBottomRef.current =
       node.scrollHeight - node.scrollTop - node.clientHeight <
       AGENT_UI_BEHAVIOR.stickToBottomThresholdPx;
@@ -229,13 +235,28 @@ export function Conversation({
   // 在浏览器绘制前同步到底部，避免新 token 先以旧 scrollTop 绘制一帧后再跳动。
   useLayoutEffect(() => {
     if (!stickToBottomRef.current || !scrollRef.current) return;
-    if (shouldVirtualize) virtualizer.measure();
-    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const node = scrollRef.current;
+    const scrollToBottom = () => {
+      if (shouldVirtualize && state.conversation.length)
+        virtualizer.scrollToIndex(state.conversation.length - 1, { align: 'end' });
+      else node.scrollTop = node.scrollHeight;
+    };
+    scrollToBottom();
+    // 虚拟行的 ResizeObserver 会在布局后更新总高度；下一帧再对齐一次新底部。
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      if (stickToBottomRef.current) scrollToBottom();
+    });
+    return () => {
+      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    };
   }, [shouldVirtualize, state.conversation, virtualizer]);
 
   return (
     <section
-      className="conversation flex min-h-0 min-w-0 flex-col bg-surface text-text-primary"
+      className="conversation flex min-h-0 min-w-0 flex-1 flex-col bg-surface text-text-primary"
       aria-label="对话"
     >
       <div
@@ -324,20 +345,36 @@ export function Conversation({
             </button>
           </div>
         ) : null}
-        <Composer
-          prompt={prompt}
-          submitting={submitting}
-          serviceState={serviceState}
-          mode={composerMode}
-          onPromptChange={onPromptChange}
-          onSubmit={handleComposerSubmit}
-          onCancel={onCancel}
-          reasoningEffort={reasoningEffort}
-          models={models}
-          selectedModel={selectedModel}
-          onModelChange={onModelChange}
-          onReasoningEffortChange={onReasoningEffortChange}
-        />
+        <div className={`composer-wrap ${submitting ? 'is-running' : ''}`}>
+          {submitting ? (
+            <div
+              className="composer-running-indicator"
+              role="status"
+              aria-label="AI 正在回复"
+              title="AI 正在回复"
+            >
+              <span className="activity-bars" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+            </div>
+          ) : null}
+          <Composer
+            prompt={prompt}
+            submitting={submitting}
+            serviceState={serviceState}
+            mode={composerMode}
+            onPromptChange={onPromptChange}
+            onSubmit={handleComposerSubmit}
+            onCancel={onCancel}
+            reasoningEffort={reasoningEffort}
+            models={models}
+            selectedModel={selectedModel}
+            onModelChange={onModelChange}
+            onReasoningEffortChange={onReasoningEffortChange}
+          />
+        </div>
       </div>
     </section>
   );
@@ -445,16 +482,6 @@ export function Composer({
       className="composer rounded-[14px] border border-[var(--theme-composer-border)] bg-surface shadow-[0_8px_24px_rgb(0_0_0_/_3%)]"
       onSubmit={onSubmit}
     >
-      {submitting ? (
-        <div className="composer-running-status" role="status" aria-live="polite">
-          <span className="activity-bars" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-          <span>AI 正在回复</span>
-        </div>
-      ) : null}
       <textarea
         aria-label="任务输入"
         placeholder={placeholder}

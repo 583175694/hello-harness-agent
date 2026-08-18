@@ -4,12 +4,14 @@ import {
   assistantAgentMetadataSchema,
   runObservabilitySchema,
   type AgentRunStatus,
+  type RunContextDebug,
   type RunSnapshot,
 } from '@harness/agent-protocol';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
 import type { ChatProjectionSnapshot } from '../chat/chat.service';
 import type { ModelMessage, ModelToolCall } from '../model/model-adapter';
+import type { CompactionState } from '../context-engineering/context-engineering.types';
 
 const ACTIVE_STATUSES = ['queued', 'running', 'cancel_requested'] as const;
 
@@ -234,6 +236,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       sources: value?.agent?.sources ?? [],
       toolCallCount: run.toolCallCount,
       lastEventSequence: Number(run.lastEventSequence),
+      ...(value?.context ? { context: value.context } : {}),
       ...(observability.success ? { observability: observability.data } : {}),
       ...(run.errorCode && run.errorDetail
         ? { error: { code: run.errorCode, detail: run.errorDetail } }
@@ -536,6 +539,8 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     projection: ChatProjectionSnapshot;
     lastEventSequence: number;
     draftVersion: number;
+    context?: RunContextDebug;
+    compactionState?: CompactionState;
     error?: { code: string; detail: string };
   }): Promise<boolean> {
     const content = input.projection.blocks
@@ -572,6 +577,28 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       });
       if (updated.count !== 1) return false;
       if (input.status === 'completed') {
+        if (input.compactionState) {
+          const run = await tx.agentRun.findUnique({
+            where: { id: input.runId },
+            select: { sessionId: true },
+          });
+          if (!run) throw new Error('RUN_NOT_FOUND_DURING_TERMINAL_COMMIT');
+          await tx.contextCompactionState.upsert({
+            where: { sessionId: run.sessionId },
+            create: {
+              id: crypto.randomUUID(),
+              sessionId: run.sessionId,
+              ...input.compactionState,
+            },
+            update: {
+              summary: input.compactionState.summary,
+              coveredMessageCount: input.compactionState.coveredMessageCount,
+              coveredThroughItemId: input.compactionState.coveredThroughItemId,
+              version: input.compactionState.version,
+              tokenCount: input.compactionState.tokenCount,
+            },
+          });
+        }
         await tx.modelTranscriptItem.updateMany({
           where: { runId: input.runId, state: 'active' },
           data: { state: 'committed' },
@@ -592,6 +619,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
             draftVersion: input.draftVersion,
             lastEventSequence: input.lastEventSequence,
             blocks: input.projection.blocks,
+            ...(input.context ? { context: input.context } : {}),
             agent: {
               toolCallCount: input.projection.toolCallCount,
               executions: input.projection.executions,

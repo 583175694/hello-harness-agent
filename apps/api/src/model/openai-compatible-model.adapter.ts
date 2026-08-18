@@ -7,6 +7,7 @@ import type {
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
 import type { ReasoningCapability } from '@harness/agent-protocol';
+import { getDeepSeekV3TokenEstimator, type DeepSeekMessage } from '@harness/deepseek-v3-tokenizer';
 
 import { ENV_KEYS } from '../bootstrap/env.constants';
 import { ModelAdapter } from './model-adapter';
@@ -43,6 +44,7 @@ export function normalizeProviderUsage(usage: ProviderUsage): {
 export class OpenAICompatibleModelAdapter extends ModelAdapter {
   private client?: OpenAI;
   private clientBaseUrl?: string;
+  private readonly tokenEstimator = getDeepSeekV3TokenEstimator();
 
   constructor(@Inject(ConfigService) private readonly config: ConfigService) {
     super();
@@ -162,24 +164,31 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         completionTokens,
         cachedTokens,
         // 供应商消息 framing 不公开；本字段只表示确定性的本地近似，不能代替 Usage。
-        estimatedPromptTokens: this.estimatePromptTokens(request.messages, request.tools),
+        estimatedPromptTokens: await this.estimatePromptTokens(request.messages, request.tools),
       },
     };
   }
 
   // 执行一次非流式文本生成，供标题等轻量任务复用。
-  async generateText(model: string, messages: ModelMessage[]): Promise<string> {
+  async generateText(
+    model: string,
+    messages: ModelMessage[],
+    signal?: AbortSignal,
+  ): Promise<string> {
     const configured = getConfiguredModel(model);
-    const response = await this.getClient(model).chat.completions.create({
-      model,
-      messages: this.toProviderMessages(messages),
-      ...(configured?.request.temperature !== undefined
-        ? { temperature: configured.request.temperature }
-        : {}),
-      ...(configured?.request.maxTokens !== undefined
-        ? { max_tokens: configured.request.maxTokens }
-        : {}),
-    });
+    const response = await this.getClient(model).chat.completions.create(
+      {
+        model,
+        messages: this.toProviderMessages(messages),
+        ...(configured?.request.temperature !== undefined
+          ? { temperature: configured.request.temperature }
+          : {}),
+        ...(configured?.request.maxTokens !== undefined
+          ? { max_tokens: configured.request.maxTokens }
+          : {}),
+      },
+      signal ? { signal } : undefined,
+    );
     return response.choices[0]?.message.content ?? '';
   }
 
@@ -215,13 +224,52 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     }));
   }
 
-  private estimatePromptTokens(
+  private async estimatePromptTokens(
     messages: ChatCompletionMessageParam[],
     tools?: ChatCompletionTool[],
-  ): number {
-    const serialized = JSON.stringify({ messages, tools: tools ?? [] });
-    // 只作为供应商 Usage 缺失时的诊断近似；不能用于 Context Window 安全边界。
-    return Math.ceil(Array.from(serialized).length / 4);
+  ): Promise<number> {
+    const tokenizerMessages: DeepSeekMessage[] = messages.map((message) => {
+      if (message.role === 'assistant') {
+        return {
+          role: 'assistant' as const,
+          content: typeof message.content === 'string' ? message.content : null,
+          toolCalls: message.tool_calls
+            ?.filter(
+              (call): call is Extract<typeof call, { type: 'function' }> =>
+                call.type === 'function',
+            )
+            .map((call) => ({
+              id: call.id,
+              name: call.function.name,
+              arguments: call.function.arguments,
+              type: call.type,
+            })),
+        };
+      }
+      if (message.role === 'tool') {
+        return {
+          role: 'tool' as const,
+          content: typeof message.content === 'string' ? message.content : '',
+        };
+      }
+      if (message.role === 'developer') {
+        return {
+          role: 'system' as const,
+          content: typeof message.content === 'string' ? message.content : '',
+        };
+      }
+      return {
+        role: message.role === 'function' ? ('tool' as const) : message.role,
+        content: typeof message.content === 'string' ? message.content : '',
+      } as DeepSeekMessage;
+    });
+    if (tools?.length) {
+      tokenizerMessages.push({
+        role: 'system',
+        content: `<tool_definitions>${JSON.stringify(tools)}</tool_definitions>`,
+      });
+    }
+    return this.tokenEstimator.countMessages(tokenizerMessages);
   }
 
   // 延迟创建客户端，保证未配置模型时 API 仍可启动并返回明确错误。

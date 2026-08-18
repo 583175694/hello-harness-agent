@@ -1,5 +1,6 @@
 import type {
   AssistantContentBlock,
+  RunContextDebug,
   SourceProvenance,
   WebFetchPassage,
 } from '@harness/agent-protocol';
@@ -22,7 +23,7 @@ export type PreviewState =
   | 'fetch-running'
   | 'fetch-candidate'
   | 'fetch-failed';
-export type WorkspaceView = 'activity' | 'sources' | 'report';
+export type WorkspaceView = 'activity' | 'context' | 'sources' | 'report';
 export type ActivityStatus =
   'running' | 'completed' | 'waiting' | 'cancelling' | 'cancelled' | 'failed';
 export type ToolCallStatus =
@@ -97,6 +98,7 @@ export type WorkbenchState = {
   focusTarget?: WorkbenchFocusTarget;
   followMode: 'auto' | 'pinned';
   sources: SourceView[];
+  context?: RunContextDebug;
   report?: ReportView;
   open: boolean;
 };
@@ -108,4 +110,5 @@ export type AgentUiState = {
   workbench?: WorkbenchState;
   autoOpenSuppressedRunIds?: string[];
   activeRunId?: string;
+  context?: RunContextDebug;
 };

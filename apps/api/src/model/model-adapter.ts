@@ -54,5 +54,9 @@ export abstract class ModelAdapter {
     reasoning: ReasoningCapability;
   };
   abstract streamRound(input: ModelRoundInput): AsyncIterable<ModelRoundEvent>;
-  abstract generateText(model: string, messages: ModelMessage[]): Promise<string>;
+  abstract generateText(
+    model: string,
+    messages: ModelMessage[],
+    signal?: AbortSignal,
+  ): Promise<string>;
 }

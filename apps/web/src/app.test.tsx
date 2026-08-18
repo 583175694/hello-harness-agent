@@ -293,6 +293,42 @@ describe('R1 workbench shell', () => {
     });
   });
 
+  it('restores a context-only workbench from the final assistant message', () => {
+    const message: PersistedMessage = {
+      id: 'assistant-context',
+      sessionId: 'session-context',
+      role: 'assistant',
+      kind: 'assistant_delivery',
+      content: '你好',
+      runId: 'run-context',
+      createdAt: '2026-08-18T01:00:00.000Z',
+      metadata: {
+        model: 'deepseek-v4-flash',
+        deliveryStatus: 'completed',
+        runId: 'run-context',
+        context: {
+          version: 1,
+          roundSequence: 1,
+          attempt: 1,
+          estimatedInputTokens: 64,
+          promptBudget: 1_000,
+          compactionTriggered: false,
+          finalResponseOnly: true,
+          messages: [{ role: 'user', content: '你好' }],
+          tools: [],
+        },
+      },
+    };
+
+    expect(workbenchFromPersistedMessage(message)).toMatchObject({
+      runId: 'run-context',
+      activeView: 'context',
+      context: { estimatedInputTokens: 64 },
+      executions: [],
+      sources: [],
+    });
+  });
+
   it('exposes a mock state switcher on the preview route', () => {
     window.history.replaceState({}, '', '/agent/preview?state=waiting');
     render(<App />);

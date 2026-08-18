@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   Inject,
   Injectable,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
@@ -14,6 +15,9 @@ import { ToolRegistryService } from '../tools/tool-registry.service';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import type { AgentRuntimeEvent, AgentRuntimeInput } from './agent-runtime.types';
 import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
+import { ContextEngineeringService } from '../context-engineering/context-engineering.service';
+import type { ToolResultCandidate } from '../context-engineering/context-engineering.types';
+import type { CompactionState } from '../context-engineering/context-engineering.types';
 
 class ToolExecutionTimeoutError extends Error {
   constructor() {
@@ -28,6 +32,9 @@ export class AgentRuntimeService {
     @Inject(ModelAdapter) private readonly model: ModelAdapter,
     @Inject(ToolRegistryService) private readonly tools: ToolRegistryService,
     @Inject(Logger) private readonly logger: Logger,
+    @Optional()
+    @Inject(ContextEngineeringService)
+    private readonly context?: ContextEngineeringService,
   ) {}
 
   // 执行受通用调用上限约束的模型-工具循环，并输出供应商无关的 Runtime 事件。
@@ -45,6 +52,7 @@ export class AgentRuntimeService {
     let finalContent = '';
     let visibleContent = '';
     let modelRounds = 0;
+    let compactionState: CompactionState | undefined;
     // 将运行从可调用工具的调查阶段单向切换到无工具的最终回答阶段。
     const enterFinalAnswer = () => {
       // 同一批 Tool Call 必须先补齐全部 Tool Message，最终回答指令在批次结束后追加。
@@ -59,6 +67,29 @@ export class AgentRuntimeService {
       // 最终回答阶段从请求参数层面移除工具，不能只依赖 Prompt 约束模型。
       const definitions = finalResponseOnly ? undefined : this.tools.definitions();
       // 每次模型尝试都重新收集文本、工具调用和结束原因，污染重试不得混入上一轮内容。
+      let compiled;
+      try {
+        compiled = this.context
+            ? await this.context.compileRound({
+                sessionId: input.sessionId,
+                model: input.model,
+                messages,
+                tools: definitions,
+                signal: input.signal,
+                ...(compactionState ? { compactionState } : {}),
+              })
+          : { messages, estimatedInputTokens: 0, promptBudget: null, compactionTriggered: false };
+      } catch (error) {
+        if (error instanceof Error && error.message === 'CONTEXT_BUDGET_EXCEEDED') {
+          throw new ServiceUnavailableException({
+            code: AGENT_ERROR_CODES.contextBudgetExceeded,
+            detail: '当前上下文超过模型预算，无法在保留必要内容后继续执行。',
+          });
+        }
+        throw error;
+      }
+      if (compiled.compactionState) compactionState = compiled.compactionState;
+      const roundMessages = compiled.messages;
       let textDeltas: string[] = [];
       let reasoningDeltas: string[] = [];
       let calls: ModelToolCall[] = [];
@@ -100,7 +131,7 @@ export class AgentRuntimeService {
           // Adapter 持续产出文本和聚合后的工具调用，Runtime 不依赖供应商 chunk 结构。
           for await (const event of this.model.streamRound({
             model: input.model,
-            messages,
+            messages: roundMessages,
             tools: definitions,
             reasoningEffort: input.reasoningEffort ?? 'off',
             signal: roundSignal,
@@ -154,6 +185,12 @@ export class AgentRuntimeService {
 
         const roundContent = textDeltas.join('');
         const roundDurationMs = Date.now() - attemptStartedAt;
+        const roundResponse: ModelMessage = {
+          role: 'assistant',
+          content: roundContent || null,
+          ...(reasoningDeltas.length ? { reasoning: reasoningDeltas.join('') } : {}),
+          ...(calls.length ? { toolCalls: structuredClone(calls) } : {}),
+        };
         yield {
           type: 'model.round.completed',
           observation: {
@@ -162,6 +199,18 @@ export class AgentRuntimeService {
             ...usage,
             durationMs: roundDurationMs,
             finishReason,
+          },
+          context: {
+            version: 1,
+            roundSequence: modelRounds,
+            attempt,
+            estimatedInputTokens: compiled.estimatedInputTokens,
+            promptBudget: compiled.promptBudget,
+            compactionTriggered: compiled.compactionTriggered,
+            finalResponseOnly,
+            messages: structuredClone(roundMessages),
+            response: structuredClone(roundResponse),
+            tools: structuredClone(definitions ?? []),
           },
         };
         const blockOrder = [
@@ -274,30 +323,37 @@ export class AgentRuntimeService {
         providerIndex: call.providerIndex ?? callIndex,
       }));
       // 先追加包含完整 Tool Calls 的 assistant message，后续必须为每个调用补齐 tool message。
-      messages.push({
+      const assistantToolCallMessage: ModelMessage = {
         role: 'assistant',
         content: textDeltas.join('') || null,
         ...(reasoningDeltas.length ? { reasoning: reasoningDeltas.join('') } : {}),
         toolCalls: normalizedCalls,
-      });
-      yield { type: 'transcript.item', message: messages.at(-1)! };
+      };
+      messages.push(assistantToolCallMessage);
+      yield { type: 'transcript.item', message: assistantToolCallMessage };
 
-      // 同一 Round 可能包含多个 Tool Call。当前保持模型声明顺序串行执行，
-      // 并为每个调用补齐 Tool Message，避免下一轮模型上下文违反供应商协议。
+      // 同一 Round 可能包含多个 Tool Call。工具按声明顺序执行，但结果先暂存在内存中，
+      // 批次完成后统一按 Context Engineering 预算裁剪，再写入下一轮上下文。
+      const pendingToolResults: Array<{
+        candidate: ToolResultCandidate;
+        event?: AgentRuntimeEvent;
+        enterFinalAnswer: boolean;
+      }> = [];
+
       for (const call of normalizedCalls) {
-        // 调用额度耗尽后的同批调用不再计数或执行，只补齐对应的 tool message。
         if (toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
-          messages.push({
-            role: 'tool',
-            toolCallId: call.id,
-            content: this.serializeToolError({
-              code: AGENT_ERROR_CODES.toolCallLimitExceeded,
-              detail: '工具调用已达到当前 assistant run 的次数上限。',
-              retryable: false,
-            }),
+          pendingToolResults.push({
+            candidate: {
+              toolCallId: call.id,
+              toolName: call.name,
+              content: this.serializeToolError({
+                code: AGENT_ERROR_CODES.toolCallLimitExceeded,
+                detail: '工具调用已达到当前 assistant run 的次数上限。',
+                retryable: false,
+              }),
+            },
+            enterFinalAnswer: true,
           });
-          yield { type: 'transcript.item', message: messages.at(-1)! };
-          enterFinalAnswer();
           this.logger.warn(
             `工具调用已达到上限 | 会话=${shortLogId(input.sessionId)} | 上限=${DEFAULT_RUNTIME_POLICY.maxToolCalls} 次`,
             AgentRuntimeService.name,
@@ -306,32 +362,31 @@ export class AgentRuntimeService {
         }
         toolCallCount += 1;
 
-        // Registry 统一完成 JSON 解析和工具自身 Zod Schema 校验。
         let toolInput: unknown;
         try {
           toolInput = this.tools.parseInput(call.name, call.arguments);
         } catch (error) {
           const code =
             error instanceof Error ? error.message : AGENT_ERROR_CODES.invalidToolArguments;
-          messages.push({
-            role: 'tool',
-            toolCallId: call.id,
-            content: this.serializeToolError({
-              code,
-              detail: '工具参数无法通过 Schema 校验。',
-              retryable: false,
-            }),
+          pendingToolResults.push({
+            candidate: {
+              toolCallId: call.id,
+              toolName: call.name,
+              content: this.serializeToolError({
+                code,
+                detail: '工具参数无法通过 Schema 校验。',
+                retryable: false,
+              }),
+            },
+            enterFinalAnswer: toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls,
           });
-          yield { type: 'transcript.item', message: messages.at(-1)! };
           this.logger.warn(
             `工具参数无效 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 错误码=${code}`,
             AgentRuntimeService.name,
           );
-          if (toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls) enterFinalAnswer();
           continue;
         }
 
-        // 参数校验通过后才发布 started，确保每个 started 都能对应一个明确终态。
         const startedAt = new Date();
         this.logger.log(
           `工具调用开始 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name}`,
@@ -349,7 +404,6 @@ export class AgentRuntimeService {
         };
         let result: ToolExecutionResult<unknown>;
         try {
-          // Runtime 统一组合用户取消和 Tool 声明的外层超时，Tool 只处理本次能力调用。
           result = await this.executeTool(
             call.name,
             toolInput,
@@ -390,15 +444,16 @@ export class AgentRuntimeService {
             },
           };
         }
+
         const completedAt = new Date();
         const durationMs = completedAt.getTime() - startedAt.getTime();
-        // 工具成功时向前端投影 canonical output，Runtime 随后统一生成模型 Tool Message。
+        let event: AgentRuntimeEvent;
         if (result.status === 'succeeded') {
           this.logger.log(
             `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=成功${this.formatToolLogFields(result.logFields)} | 耗时=${formatLogDuration(durationMs)}`,
             AgentRuntimeService.name,
           );
-          yield {
+          event = {
             type: 'tool.completed',
             toolCallId: call.id,
             toolName: call.name,
@@ -411,7 +466,6 @@ export class AgentRuntimeService {
             blockSequence: call.blockSequence,
           };
         } else if (result.status === 'cancelled') {
-          // 工具主动返回 cancelled 时保留稳定业务错误码，上游 cause 只进入服务端日志。
           const upstreamReason =
             result.error.cause === undefined
               ? ''
@@ -420,7 +474,7 @@ export class AgentRuntimeService {
             `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=已取消 | 错误码=${result.error.code}${this.formatToolLogFields(result.logFields)}${upstreamReason} | 耗时=${formatLogDuration(durationMs)}`,
             AgentRuntimeService.name,
           );
-          yield {
+          event = {
             type: 'tool.cancelled',
             toolCallId: call.id,
             toolName: call.name,
@@ -434,7 +488,6 @@ export class AgentRuntimeService {
             blockSequence: call.blockSequence,
           };
         } else {
-          // 所有结构化失败都投影为 failed，前端不会接触敏感的上游 cause。
           const upstreamReason =
             result.error.cause === undefined
               ? ''
@@ -443,7 +496,7 @@ export class AgentRuntimeService {
             `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=${result.status} | 错误码=${result.error.code}${this.formatToolLogFields(result.logFields)}${upstreamReason} | 耗时=${formatLogDuration(durationMs)}`,
             AgentRuntimeService.name,
           );
-          yield {
+          event = {
             type: 'tool.failed',
             toolCallId: call.id,
             toolName: call.name,
@@ -459,18 +512,49 @@ export class AgentRuntimeService {
           };
         }
         if (input.signal?.aborted) throw this.abortError();
-        // Runtime 统一序列化公开 Tool Result；诊断 cause 和 logFields 永不进入模型。
+        pendingToolResults.push({
+          candidate: {
+            toolCallId: call.id,
+            toolName: call.name,
+            content:
+              result.status === 'succeeded'
+                ? this.serializeToolSuccess(result.output)
+                : this.serializeToolError(result.error),
+          },
+          event,
+          enterFinalAnswer: toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls,
+        });
+      }
+
+      // Tool Result 会进入下一轮已编译 Context，而不是重新带回已被 summary 覆盖的原始历史。
+      // compileRound 未改写数组时，messages 已包含当前 Tool Call；改写后需显式补到编译结果末尾。
+      const toolResultBudgetMessages =
+        roundMessages === messages
+          ? messages
+          : [...roundMessages, structuredClone(assistantToolCallMessage)];
+      const trimmedToolResults = this.context
+        ? await this.context.trimToolResults(
+            toolResultBudgetMessages,
+            definitions,
+            pendingToolResults.map(({ candidate }) => candidate),
+            input.model,
+          )
+        : pendingToolResults.map(({ candidate }) => ({
+            ...candidate,
+            originalTokens: 0,
+            retainedTokens: 0,
+            truncated: false,
+          }));
+      for (const [index, trimmed] of trimmedToolResults.entries()) {
+        const pending = pendingToolResults[index]!;
+        if (pending.event) yield pending.event;
         messages.push({
           role: 'tool',
-          toolCallId: call.id,
-          content:
-            result.status === 'succeeded'
-              ? this.serializeToolSuccess(result.output)
-              : this.serializeToolError(result.error),
+          toolCallId: trimmed.toolCallId,
+          content: trimmed.content,
         });
         yield { type: 'transcript.item', message: messages.at(-1)! };
-        // 全局工具调用上限优先保证循环收敛，不受具体工具类型影响。
-        if (toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls) enterFinalAnswer();
+        if (pending.enterFinalAnswer) enterFinalAnswer();
       }
       // 整批 assistant Tool Calls 已逐一配对后，再追加一次无工具最终回答约束。
       if (finalResponseOnly && !finalInstructionAdded) {
@@ -488,7 +572,12 @@ export class AgentRuntimeService {
       `Agent 运行完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 工具=${toolCallCount} 次 | 耗时=${formatLogDuration(Date.now() - runtimeStartedAt)}`,
       AgentRuntimeService.name,
     );
-    yield { type: 'run.completed', content: finalContent, toolCallCount };
+    yield {
+      type: 'run.completed',
+      content: finalContent,
+      toolCallCount,
+      ...(compactionState ? { compactionState } : {}),
+    };
   }
 
   // 将客户端取消信号与单次模型请求的超时信号合并。

@@ -22,7 +22,7 @@ import {
   subscribeRun,
   updateSession,
 } from './api/client';
-import type { MessageDeltaEvent, ToolStreamEvent } from './api/client';
+import type { MessageDeltaEvent, ModelRoundCompletedEvent, ToolStreamEvent } from './api/client';
 import {
   AGENT_PROTOCOL_LIMITS,
   assistantAgentMetadataSchema,
@@ -154,8 +154,11 @@ export function workbenchFromPersistedMessage(
 ): WorkbenchState | undefined {
   if (message.role !== 'assistant') return undefined;
   const metadata = assistantAgentMetadataSchema.safeParse(message.metadata);
-  if (!metadata.success || !metadata.data.agent?.executions.length) return undefined;
-  const { executions, sources } = metadata.data.agent;
+  if (!metadata.success) return undefined;
+  const executions = metadata.data.agent?.executions ?? [];
+  const sources = metadata.data.agent?.sources ?? [];
+  const context = metadata.data.context;
+  if (!executions.length && !context) return undefined;
   const completedCount = executions.filter((execution) => execution.status === 'completed').length;
   const cancelledCount = executions.filter((execution) => execution.status === 'cancelled').length;
   let clueIndex = 0;
@@ -202,9 +205,12 @@ export function workbenchFromPersistedMessage(
   });
   return {
     runId: message.runId ?? message.id,
-    title: AGENT_UI_COPY.searchWorkbenchTitle,
-    subtitle: `${executions.length} 次调用 · ${sourceViews.length} 个来源`,
-    activeView: sources.length ? 'sources' : 'activity',
+    title: context && !executions.length ? 'Context 调试' : AGENT_UI_COPY.searchWorkbenchTitle,
+    subtitle:
+      context && !executions.length
+        ? `Model Round ${context.roundSequence}`
+        : `${executions.length} 次调用 · ${sourceViews.length} 个来源`,
+    activeView: sources.length ? 'sources' : context && !executions.length ? 'context' : 'activity',
     activityStatus: completedCount
       ? 'completed'
       : cancelledCount === executions.length
@@ -246,7 +252,8 @@ export function workbenchFromPersistedMessage(
     }),
     followMode: 'auto',
     sources: sourceViews,
-    open: false,
+    ...(context ? { context } : {}),
+    open: Boolean(context && !executions.length),
   };
 }
 
@@ -643,6 +650,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
             ...item,
             runId: snapshot.runId,
           })),
+          ...(snapshot.context ? { context: snapshot.context } : {}),
         }
       : undefined;
     // 只替换目标 Run 对应的 Assistant Message；其他历史轮次和其他 Session 缓存保持不变。
@@ -665,6 +673,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
               )
             : [...target.conversation, item],
           ...(workbench ? { workbench } : {}),
+          ...(snapshot.context ? { context: snapshot.context } : {}),
           ...(active ? { activeRunId: snapshot.runId } : { activeRunId: undefined }),
         },
       };
@@ -716,6 +725,27 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       runSequencesRef.current[event.runId] = event.seq;
       return;
     }
+    if (event.type === 'model.round.completed') {
+      const round = event.payload as ModelRoundCompletedEvent;
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        const workbench =
+          target.workbench && round.context
+            ? { ...target.workbench, context: round.context }
+            : target.workbench;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            ...(round.context ? { context: round.context } : {}),
+            workbench,
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
     if (
       event.type === 'tool.started' ||
       event.type === 'tool.completed' ||
@@ -753,6 +783,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           currentUserUrls,
         );
         workbench.runId = event.runId;
+        workbench.context = target.context;
         workbench.executions = workbench.executions.map((item) => ({
           ...item,
           runId: event.runId,
@@ -923,16 +954,21 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       setSessionStates((current) => {
         const conversation = session.messages.map(toConversationItem);
         const activeWorkbench = current[sessionId]?.workbench;
-        const restoredItem = activeWorkbench
-          ? (conversation.find(
-              (item) =>
-                item.kind === 'assistant' &&
-                (item.workbench?.runId === activeWorkbench.runId ||
-                  item.id === activeWorkbench.runId),
-            ) ?? [...conversation].reverse().find((item) => item.kind === 'assistant'))
-          : undefined;
+        const restoredItem =
+          (activeWorkbench
+            ? conversation.find(
+                (item) =>
+                  item.kind === 'assistant' &&
+                  (item.workbench?.runId === activeWorkbench.runId ||
+                    item.id === activeWorkbench.runId),
+              )
+            : undefined) ??
+          [...conversation]
+            .reverse()
+            .find((item) => item.kind === 'assistant' && item.workbench);
         const restoredWorkbench =
           restoredItem?.kind === 'assistant' ? restoredItem.workbench : undefined;
+        const cachedContext = activeWorkbench?.context ?? current[sessionId]?.context;
         return {
           ...current,
           [sessionId]: {
@@ -940,8 +976,16 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
             subtitle: '',
             conversation,
             ...(restoredWorkbench
-              ? { workbench: { ...restoredWorkbench, open: activeWorkbench?.open ?? false } }
+              ? {
+                  workbench: {
+                    ...restoredWorkbench,
+                    open: activeWorkbench?.open ?? false,
+                    activeView: activeWorkbench?.activeView ?? restoredWorkbench.activeView,
+                    ...(cachedContext ? { context: cachedContext } : {}),
+                  },
+                }
               : {}),
+            ...(cachedContext ? { context: cachedContext } : {}),
             autoOpenSuppressedRunIds: current[sessionId]?.autoOpenSuppressedRunIds,
           },
         };

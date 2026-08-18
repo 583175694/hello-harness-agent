@@ -26,15 +26,18 @@ import { compareMessageOrder } from './message-order';
 import type { ModelMessage } from '../model/model-adapter';
 import type { ReasoningEffort } from '@harness/agent-protocol';
 import { getDefaultModel } from '../model/model-catalog';
+import type { CompactionState } from '../context-engineering/context-engineering.types';
 
 export type PreparedSessionStream = {
   sessionId: string;
+  runId?: string;
   userMessageId: string;
   assistantMessageId: string;
   messages: ModelMessage[];
   model: string;
   reasoningEffort: ReasoningEffort;
   onTranscriptItem?: (message: ModelMessage) => void | Promise<void>;
+  onCompactionState?: (state: CompactionState) => void;
 };
 
 export type ChatProjectionSnapshot = {
@@ -161,6 +164,7 @@ export class ChatService {
 
     for await (const event of this.runtime.run({
       sessionId: prepared.sessionId,
+      runId: prepared.runId,
       messageId: prepared.assistantMessageId,
       model,
       systemPrompt: CHAT_SYSTEM_PROMPT,
@@ -385,6 +389,7 @@ export class ChatService {
       if (event.type !== 'run.completed') continue;
       content = event.content;
       toolCallCount = event.toolCallCount;
+      if (event.compactionState) prepared.onCompactionState?.(event.compactionState);
       await notifyProjection();
     }
 

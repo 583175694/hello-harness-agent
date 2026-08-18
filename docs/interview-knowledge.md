@@ -4,17 +4,17 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影和 Connection-Durable Agent Loop。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop 和 Context Engineering 第一阶段。
 
 ## 1. 项目一句话介绍
 
-这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、Connection-Durable Run 和可断线恢复的 Conversation/Workbench。
+这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、Connection-Durable Run、可断线恢复的 Conversation/Workbench，以及 Model Round 级的 Context 编译、Token 预算、Tool Result 裁剪和历史压缩。
 
 面试时需要主动区分：
 
 ```text
-已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch 和 Workbench 恢复
-尚未完成：服务重启后续跑、多实例 Worker lease、Context Compiler、正式 Evidence/Citation、Memory 和 Delegation
+已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch、Workbench 恢复和 Context Engineering 第一阶段
+尚未完成：服务重启后续跑、多实例 Worker lease、Skills、Memory、NOTES/TODO、Goal Reminder、正式 Evidence/Citation 和 Delegation
 ```
 
 ## 2. 阶段一：工程基线
@@ -618,11 +618,87 @@ terminal 的要求更严格：先在内存提交 terminal Event 与 Projection�
 >
 > 最后我用 Unit、Integration 和真实浏览器三层验证。真实浏览器在时序主链之外又发现 React state/ref 的立即提交竞争，进一步证明可恢复系统不能只测 reducer，也必须用真实连接、真实会话切换和真实模型工具循环做黑盒验证。
 
-## 14. 面试表达模板
+## 14. Context Engineering 与应用层注意力保持
+
+### 14.1 为什么 Context Engineering 不只是截断历史消息
+
+Agent Context 同时包含 System Prompt、用户与 assistant 历史、assistant Tool Calls、Tool Results、Tool Definitions 和最终回答空间。简单按消息条数或字符数截断会产生三个问题：Token 与字符不是固定比例；Tool Call 和 Tool Result 可能被拆散，破坏供应商协议；输入塞满窗口后没有空间生成最终回答。
+
+当前实现把编译放在 Agent Loop 的每个 Model Round 之前：
+
+```text
+canonical transcript + tool definitions
+  -> 注入已有 compaction summary
+  -> DeepSeek V3 tokenizer 估算
+  -> 达到 trigger 时压缩封闭历史前缀
+  -> 超过 prompt budget 时清理旧 Tool Result
+  -> 仍超限则明确失败
+  -> compiled messages 发送给模型
+```
+
+Prompt Budget 使用：
+
+```text
+contextWindowTokens
+- maxOutputTokens
+- max(4096, contextWindowTokens * 5%)
+```
+
+这使“最大输入”不再等同于“模型窗口”，为输出和 tokenizer/provider 差异保留了硬空间。
+
+### 14.2 为什么 Tool Result 在 Context Engineering 层裁剪
+
+Tool Module 应返回完整 canonical 结果，不应该知道当前模型窗口、历史占用或同轮其他工具结果。Runtime 收集同一批 Tool Result 后，由 Context Engineering 扣除 messages 和 Tool Definitions 的固定成本，再对候选结果共享分配剩余预算；裁剪使用首尾保留并写入原始 token 数标记。
+
+职责边界是：
+
+```text
+Tool Module          负责能力执行和完整结果
+Agent Runtime        负责调用顺序和协议配对
+Context Engineering 负责进入模型前的预算与裁剪
+Model Adapter        负责供应商请求编码
+```
+
+Runtime 必须先保存 `assistant(toolCalls)`，再按相同声明顺序保存每个 `tool(result)`。Context Engineering 可以缩短 Tool Result 内容，但不能重排、删除配对关系或把 Tool Result 变成普通 assistant 文本。
+
+### 14.3 历史压缩为什么只处理封闭前缀
+
+当前压缩保留最近 12 条消息，并向前移动边界以避免从 Tool Result 中间切开工具协议。只把边界之前尚未覆盖的历史交给模型生成 continuation summary。Run 内的 `summary + coveredMessageCount + version + tokenCount` 由 Runtime 保存在内存，后续 Round 用一条 `<compaction_summary>` system message 替代已覆盖前缀；只有 Run 成功结束才在 terminal transaction 中保存为 Session 正式状态，失败、取消或进程中断时不写入。
+
+压缩可能在一个长 Agent Loop 中触发多次。每次只总结上次覆盖位置之后的新封闭前缀，并把旧摘要一并提供给摘要模型，因此不是不断重新总结完整历史。
+
+### 14.4 模型 Attention 与应用层 Goal Reminder 的区别
+
+Transformer Attention 是模型内部机制，应用无法在 Prompt 编排层修改。工程上所说的 Attention Refresh、Goal Reminder 或 Context Anchoring，是在长 Agent Loop 的特定节点重新注入任务锚点，降低大量 Tool Result 和中间步骤对原始目标的稀释，例如：
+
+```text
+Original request
+Current objective
+Completed work
+Unresolved work
+Important constraints
+Next expected action
+```
+
+它属于 Context Engineering，但当前没有实现。原因不是它没有价值，而是 Goal Reminder 需要知道哪些信息是当前目标、进度和未完成项；在 Skills、Memory、`NOTES.md`、`TODO.md` 尚未形成事实源和生命周期之前，提前建设通用 Attention Engine 只能机械重复原始问题，既增加 token，也可能强化过时目标。
+
+后续合理的触发点包括压缩之后、长 Loop 每 N 轮、进入最终回答之前，或者真实数据证明模型发生目标漂移时。实现位置应在 `ContextEngineeringService.compileRound()`，而不是 Tool Module 或 Model Adapter。
+
+### 14.5 为什么当前阶段选择冻结
+
+第一阶段已经解决容量安全和协议正确性：精确估算、输出预留、Tool Result 裁剪、历史压缩、超限失败和调试快照。下一阶段先建设 Skills、Memory 和文件化任务状态；有真实多来源 Context 后，再迭代相关性选择、优先级排序、预算分配和 Goal Reminder。这个顺序避免为不存在的数据源提前设计 Fragment DSL、审计流水或复杂策略引擎。
+
+### 14.6 面试口述版
+
+> 我把 Context Engineering 放在每个 Model Round 之前，而不是只在会话开始时处理一次。系统用本地 DeepSeek V3 tokenizer 对消息和工具定义统一计量，先为最大输出和安全边界留空间，再决定是否压缩封闭历史；同轮大型 Tool Result 则由 Context 层共享分配剩余预算，Runtime 继续保证 Tool Call 与 Tool Result 的配对顺序。
+>
+> 我也区分模型内部 Attention 和应用层注意力保持。后者本质是在长 Loop 中重新注入目标、进度与约束，属于 Context Engineering，但当前没有提前实现。因为 Skills、Memory、NOTES 和 TODO 还没有形成真实 Context 来源，现在做通用 Attention Engine 容易过度设计。第一阶段先保证容量和协议正确，等多来源 Context 落地后再基于真实目标漂移问题建设选择、优先级和 Goal Reminder。
+
+## 15. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
-答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、Activity/Sources 投影，以及客户端断线可恢复的 Durable Run。服务重启自动续跑和多实例 Worker lease 仍明确不在当前范围。
+答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、Activity/Sources 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、预算、裁剪和压缩。服务重启自动续跑和多实例 Worker lease 仍明确不在当前范围。
 
 ### 问：SSE 为什么没有直接使用 WebSocket？
 
@@ -642,7 +718,7 @@ terminal 的要求更严格：先在内存提交 terminal Event 与 Projection�
 
 ### 问：为什么 Web Fetch 不直接把整个网页放进上下文？
 
-答：整页 HTML 同时包含脚本、导航、模板噪声和大量无关文本，直接注入会浪费上下文并放大 Prompt Injection。当前先提取 canonical Markdown，再做质量门、结构切块和 query-aware 排序，只返回可定位的抽取式 Passage。这是 Context Compiler 前的最小上下文安全阀，不等同于完整 Context Engineering。
+答：整页 HTML 同时包含脚本、导航、模板噪声和大量无关文本，直接注入会浪费上下文并放大 Prompt Injection。当前先提取 canonical Markdown，再做质量门、结构切块和 query-aware 排序，只返回可定位的抽取式 Passage。这是来源侧的安全阀；进入 Agent Loop 后，Context Engineering 还会统一计算 messages、Tool Definitions、Tool Results 和输出预留。
 
 ### 问：为什么取消 Agent 总超时，不会导致工具无限调用？
 
@@ -652,7 +728,15 @@ terminal 的要求更严格：先在内存提交 terminal Event 与 Projection�
 
 答：兼容的是请求外形，不代表上下文语义完全相同。DeepSeek Thinking + Tool Calling 要求历史工具轮携带原生 `reasoning_content`，否则 Tool Call 上下文可能不完整；但最终回答的 reasoning 又不应在后续轮次反复回放。我在 Adapter 中解码流式 reasoning，Runtime/Repository 保存供应商无关的 canonical transcript，请求编译时只对包含 Tool Call 的 assistant 消息恢复 `reasoning_content`，最终回答只发送正文。同时按 provider 和 reasoning format 校验真正需要 native replay 的工具单元，并把 raw reasoning 排除在用户 SSE 和 UI 之外。
 
-## 15. 后续追加规则
+### 问：为什么 Context Engineering 要在每个 Model Round 执行？
+
+答：Agent Loop 每轮都会新增 assistant Tool Call 和 Tool Result，输入规模和结构持续变化，只在 Run 开始时计算一次预算会失真。当前每轮先注入已有摘要，再统一估算 messages 与 Tool Definitions；需要时压缩历史，保证 Tool Call/Result 协议完整，并为最终输出保留固定空间。
+
+### 问：为什么现在不实现 Goal Reminder 或注意力刷新？
+
+答：它属于应用层 Context Engineering，不是模型内部 Attention。它应该重新注入当前目标、已完成工作、未完成项和关键约束，而不只是机械重复原始问题。Skills、Memory、NOTES 和 TODO 尚未建立事实源与生命周期时，提前做通用 Attention Engine 很容易固化错误抽象；当前先解决容量和协议正确性，等真实多来源 Context 与目标漂移问题出现后再实现。
+
+## 16. 后续追加规则
 
 每个阶段只追加四类内容：
 

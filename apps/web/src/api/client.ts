@@ -38,6 +38,7 @@ export type ToolStreamEvent = Extract<
 // 文本增量单独导出，保证 Conversation Block 更新时保留稳定的 Round/Block 位置信息。
 export type MessageDeltaEvent = Extract<RunPayload, { type: 'message.delta' }>;
 export type ReasoningDeltaEvent = Extract<RunPayload, { type: 'reasoning.delta' }>;
+export type ModelRoundCompletedEvent = Extract<RunPayload, { type: 'model.round.completed' }>;
 
 // 为空时通过 Vite 反向代理访问同源 API，部署时可覆盖为独立服务地址。
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';

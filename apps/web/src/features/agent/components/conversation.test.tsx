@@ -171,7 +171,7 @@ describe('Conversation tool activity navigation', () => {
     );
 
     expect(screen.queryByText('正在思考中…')).not.toBeInTheDocument();
-    expect(screen.getByText('AI 正在回复')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'AI 正在回复' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '停止任务' })).toBeInTheDocument();
   });
 
@@ -205,7 +205,7 @@ describe('Conversation tool activity navigation', () => {
     );
 
     expect(screen.getByText('正在思考中…')).toBeInTheDocument();
-    expect(screen.getByText('AI 正在回复')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'AI 正在回复' })).toBeInTheDocument();
   });
 
   it('uses the server message identity while the assistant still has an optimistic id', () => {

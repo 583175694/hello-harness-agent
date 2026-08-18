@@ -33,9 +33,10 @@ describe('model catalog', () => {
     expect(controller.getPublicConfig().models[0]?.context).toEqual({
       contextWindowTokens: 131_072,
       maxOutputTokens: 8_192,
+      compactionTriggerTokens: 100_000,
       tokenizer: 'deepseek-v3',
-      source: '未填写供应商权威来源',
-      verified: false,
+      source: 'https://api-docs.deepseek.com/quick_start/pricing/',
+      verified: true,
     });
   });
 });

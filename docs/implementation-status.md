@@ -373,32 +373,36 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 K1  Connection-Durable Runtime                  已完成
 K2  Context Engineering 第一阶段                 已完成
 K3  Release Control & Hardening                  下一阶段
-    - steer（下一安全步骤生效）
-    - ask user / clarification / waiting_for_user
-    - pause / resume
-    - retry current step
-    - cancel 语义完整化、幂等和终态收敛
-    - Search fallback、Provider 熔断与降级
-    - Prompt Injection、SSRF、资源上限和凭证边界加固
-    - 评估 Fixture、基础 Benchmark 和运行可观测数据采集
+    - steer（下一安全步骤生效；用户纠偏从下一个安全动作开始，不打断当前不可逆动作）
+    - ask user / clarification / waiting_for_user（信息不足时向用户提问，并暂停等待回复）
+    - pause / resume（暂时停住 Run，之后从可恢复位置继续）
+    - retry current step（只重试当前失败步骤，不重复整条任务）
+    - cancel 语义完整化、幂等和终态收敛（重复取消结果一致，并正确处理取消/完成竞态）
+    - Search fallback、Provider 熔断与降级（搜索服务故障时切换备用服务，连续失败时暂时停止请求）
+    - Prompt Injection、SSRF、资源上限和凭证边界加固（防止网页诱导、内网访问、资源失控和密钥越权）
+    - 评估 Fixture、基础 Benchmark 和运行可观测数据采集（用固定样例和指标持续回归 Agent 行为）
+
+K3.1 当前先实施 Interrupt & Resume Control Plane：以 `Model Round 完成`、`Tool Dispatch 前`、`Tool 完成并持久化` 为三个安全边界，先冻结 clarification、approve/reject、pause、steer 和三类 Resume 的基础语义。详见 [28-interrupt-resume-control-plane.md](./28-interrupt-resume-control-plane.md)。
+
+K3.2 方案已冻结：完成 `clarification Interrupt → respond → 下一轮 Model Round` 与 `tool_approval Interrupt → approve / reject` 两条路径，共用 Interrupt 持久化、等待和幂等恢复机制；暂不实现 `edit`、复杂审批策略和完整 Steer。详见 [29-clarification-and-tool-approval.md](./29-clarification-and-tool-approval.md)。
 
 K4  Agent Task Semantics                         核心智能阶段
-    - Goal、Constraints、Success Criteria
-    - Subgoal、Progress、Observation、Blocker
-    - Completion Policy、轻量 Verification
-    - Re-plan / no-progress 检测
-    - Task State 持久化并按预算注入 Context
+    - Goal、Constraints、Success Criteria（明确任务目标、限制条件和完成标准）
+    - Subgoal、Progress、Observation、Blocker（记录子目标、进度、观察结果和阻塞原因）
+    - Completion Policy、轻量 Verification（定义何时算完成，并做基本结果检查）
+    - Re-plan / no-progress 检测（发现计划失效或长时间没有进展时重新规划）
+    - Task State 持久化并按预算注入 Context（保存任务状态，并在上下文预算内恢复给模型）
 
 K5  Human-in-the-loop & Side-effect Control       内核完成后的中高优先级
-    - 统一 ask user / approval 协议
-    - Read-only、可逆写入、不可逆操作风险分级
-    - 外部发送、文件删除、Code Execution、Browser Use 和 MCP 写操作确认
-    - 审批超时、拒绝、取消传播和审计记录
+    - 统一 ask user / approval 协议（统一提问和请求用户确认的消息格式与状态）
+    - Read-only、可逆写入、不可逆操作风险分级（按操作风险决定是否需要确认）
+    - 外部发送、文件删除、Code Execution、Browser Use 和 MCP 写操作确认（发送、删除和写入外部系统前先获得许可）
+    - 审批超时、拒绝、取消传播和审计记录（确认失效或被拒后安全停止，并保留操作记录）
 
 K6  Evidence / Citation / Completion Verification 横切内核能力
-    - Passage -> Evidence -> Claim -> Citation
-    - 来源定位、引用校验和证据覆盖
-    - 最终交付前的任务完成检查与限制说明
+    - Passage -> Evidence -> Claim -> Citation（从原文片段提取证据，支撑具体结论并生成引用）
+    - 来源定位、引用校验和证据覆盖（确认引用能定位原文，并覆盖回答中的关键主张）
+    - 最终交付前的任务完成检查与限制说明（交付前检查是否完成，并明确已知局限）
 ```
 
 K3、K4、K5 是当前 Agent 从“可靠工具循环”升级为“可控、可解释、可验证任务循环”的核心阶段。K6 会横切文件分析、研究回答和 Artifact 生成，不能等所有功能完成后才设计来源关联。
@@ -407,45 +411,45 @@ K3、K4、K5 是当前 Agent 从“可靠工具循环”升级为“可控、可
 
 ```text
 C1  File & Multimodal Foundation                  高优先级
-    - 上传并绑定 Session / Task / Run 的文件
-    - PDF、DOCX、XLSX、CSV、Markdown、TXT
-    - 图片上传、OCR、视觉理解、图表/截图/表格分析
-    - 页码、Sheet、行号、区域和 contentHash 定位
-    - 文件安全检查、大小限制、解析状态和 Context 引用
+    - 上传并绑定 Session / Task / Run 的文件（让任务可以引用用户上传的文件）
+    - PDF、DOCX、XLSX、CSV、Markdown、TXT（先覆盖常见文档和数据格式）
+    - 图片上传、OCR、视觉理解、图表/截图/表格分析（读取图片文字并理解视觉内容）
+    - 页码、Sheet、行号、区域和 contentHash 定位（引用时能精确回到文件位置）
+    - 文件安全检查、大小限制、解析状态和 Context 引用（控制风险、容量和解析过程）
 
 C2  Artifact & Report Generation                  高优先级
-    - Markdown、HTML、DOCX、XLSX/CSV、PPTX、PDF
-    - Structured Artifact -> Format Renderer
-    - 预览、下载、多版本、局部修改和失败重试
-    - Artifact 与 Task / Run / Source / Citation 关联
+    - Markdown、HTML、DOCX、XLSX/CSV、PPTX、PDF（生成常见交付格式）
+    - Structured Artifact -> Format Renderer（先生成统一结构，再渲染成具体格式）
+    - 预览、下载、多版本、局部修改和失败重试（支持查看、迭代和恢复）
+    - Artifact 与 Task / Run / Source / Citation 关联（保留产物、任务和来源之间的关系）
 
 C3  Code Execution Sandbox                        高优先级
-    - 临时文件系统、CPU/Memory/Time 限制、进程隔离
-    - 默认无网络或白名单网络
-    - 数据清洗、图表、格式转换、文件处理和结果 Artifact 化
-    - 可取消、可审计、输出可恢复
+    - 临时文件系统、CPU/Memory/Time 限制、进程隔离（限制代码能使用的资源和环境）
+    - 默认无网络或白名单网络（只有明确允许的地址才能访问）
+    - 数据清洗、图表、格式转换、文件处理和结果 Artifact 化（把计算结果保存为可交付文件）
+    - 可取消、可审计、输出可恢复（运行可停止，过程可追踪，结果可恢复）
 
 C4  MCP Client & Tool Ecosystem                   中高优先级
-    - 外部 MCP Server 发现、Tool Schema 校验和生命周期
-    - 内置松耦合能力的 MCP Server 适配
-    - 凭证绑定、权限、timeout/cancel、命名冲突和审计
-    - Read-only 默认自动执行，写操作接入 K5
+    - 外部 MCP Server 发现、Tool Schema 校验和生命周期（接入外部工具并验证其契约）
+    - 内置松耦合能力的 MCP Server 适配（让内置能力也能通过统一协议提供）
+    - 凭证绑定、权限、timeout/cancel、命名冲突和审计（管理授权、超时、取消和调用记录）
+    - Read-only 默认自动执行，写操作接入 K5（只读可自动运行，修改外部状态需确认）
 
 C5  Website Generation & Workbench Preview        中高优先级
-    - HTML/CSS/JS Artifact 生成和版本迭代
-    - 基于 Code Sandbox 的构建/校验
-    - Workbench 沙箱预览、运行日志、源码下载和安全网络策略
+    - HTML/CSS/JS Artifact 生成和版本迭代（生成可运行的网站并支持修改版本）
+    - 基于 Code Sandbox 的构建/校验（在隔离环境中构建并检查网站）
+    - Workbench 沙箱预览、运行日志、源码下载和安全网络策略（在工作台安全预览和调试）
 
 C6  Browser Use                                   中期
-    - 使用 agent-browser 作为底层执行能力
-    - open/click/type/select/scroll/extract/screenshot/download
-    - 先支持公开网页和受限流程，再扩展登录态和写操作
-    - 所有副作用动作接入 K5
+    - 使用 agent-browser 作为底层执行能力（用浏览器完成网页交互）
+    - open/click/type/select/scroll/extract/screenshot/download（打开、点击、输入、提取和下载）
+    - 先支持公开网页和受限流程，再扩展登录态和写操作（先做低风险场景）
+    - 所有副作用动作接入 K5（可能修改外部状态的操作都需要权限控制）
 
 C7  Skills / Notes / TODO / Memory                中期
-    - 可复用 Skill、任务模板和输出契约
-    - 文件化任务状态、用户偏好和候选 Memory
-    - Memory 写入需有来源、置信度、可见性和用户删除能力
+    - 可复用 Skill、任务模板和输出契约（把常用工作流程封装成可重复能力）
+    - 文件化任务状态、用户偏好和候选 Memory（保存任务笔记、待办和可复用用户信息）
+    - Memory 写入需有来源、置信度、可见性和用户删除能力（记忆可追溯、可管理、可删除）
 ```
 
 文件和图片上传共享同一 Artifact/Source 底座；Artifact 生成依赖文件和结构化产物模型；Website Generation 依赖 Artifact、Code Sandbox 和 Workbench Preview；MCP 与 Browser Use 依赖 Action Boundary、权限和 Human-in-the-loop，不应提前把外部工具直接接入核心循环。

@@ -479,7 +479,7 @@ textarea:focus-visible {
 }
 .message-list {
   width: min(820px, calc(100% - 72px));
-  margin: auto auto 0;
+  margin: 0 auto;
   position: relative;
   padding: 0;
 }
@@ -993,7 +993,7 @@ textarea:focus-visible {
 .composer-running-indicator {
   position: absolute;
   top: 2px;
-  right: 4px;
+  left: 4px;
   display: flex;
   align-items: center;
   color: #777773;

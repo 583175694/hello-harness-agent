@@ -91,6 +91,25 @@ test('keeps preview chrome fixed while only conversation content scrolls', async
   expect(composerPlacement.composerBottom).toBeLessThan(composerPlacement.switcherTop);
 });
 
+test('starts a short conversation at the top of the message viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/agent/preview?state=tool-running');
+  await expect(page.locator('.message--user').first()).toBeVisible();
+
+  const placement = await page.evaluate(() => {
+    const viewport = document.querySelector('.conversation-scroll')?.getBoundingClientRect();
+    const firstMessage = document.querySelector('.message--user')?.getBoundingClientRect();
+    return {
+      offsetFromTop: (firstMessage?.top ?? 0) - (viewport?.top ?? 0),
+      freeSpaceBelow: (viewport?.bottom ?? 0) - (firstMessage?.bottom ?? 0),
+    };
+  });
+
+  expect(placement.offsetFromTop).toBeGreaterThanOrEqual(30);
+  expect(placement.offsetFromTop).toBeLessThan(50);
+  expect(placement.freeSpaceBelow).toBeGreaterThan(placement.offsetFromTop);
+});
+
 test('renders waiting and failed mock states from the preview switcher', async ({ page }) => {
   await page.goto('/agent/preview?state=waiting');
   await expect(page.getByText('等待你的确认')).toBeVisible();

@@ -14,7 +14,6 @@
 
 ```text
 已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch、Workbench 恢复和 Context Engineering 第一阶段
-尚未完成：服务重启后续跑、多实例 Worker lease、Skills、Memory、NOTES/TODO、Goal Reminder、正式 Evidence/Citation 和 Delegation
 ```
 
 ## 2. 阶段一：工程基线
@@ -137,7 +136,7 @@ Model Adapter 是供应商差异的唯一边界，Runtime 不依赖 `reasoning_c
 - 避免最终回答 reasoning 在每轮请求中反复累积，减少不必要的上下文占用。
 - 允许不依赖 native reasoning 的普通回答跨模型复用，同时对真正不兼容的工具历史明确失败。
 - 将模型事实、供应商编码和用户展示拆成三个边界，降低 raw reasoning 泄露到 UI 或业务协议的风险。
-- 为后续 Context Engineering 提供完整 canonical transcript；未来可以计量、选择和淘汰原子单元，而不是从 UI 文本反推模型历史。
+- 为 Context Engineering 提供完整 canonical transcript，使后端可以直接基于模型事实做计量、压缩和裁剪，而不是从 UI 文本反推模型历史。
 
 面试口述时可以这样概括：
 
@@ -209,15 +208,15 @@ buffer = events.pop() ?? '';
 - 一次 chunk 可以包含多条 event，一条 event 也可以跨多个 chunk，解析逻辑不能依赖读取次数。
 - 完成后必须收到 `message.completed` 和持久化 `messageId`；只有连接自然结束但没有完成事件时，客户端会把它视为不完整交付，而不是静默成功。
 
-这里的工程重点不是实现“打字机效果”，而是不能把底层传输分块误当成业务消息边界。当前实现已经处理增量 UTF-8 解码和事件缓冲，但仍未实现断线续传、`Last-Event-ID`、sequence 和 replay。
+这里的工程重点不是实现“打字机效果”，而是不能把底层传输分块误当成业务消息边界。当前实现已经处理增量 UTF-8 解码、事件缓冲、Run sequence、`Last-Event-ID` 和 replay。
 
 ### 4.4 从 Chat SSE 到 Run Event SSE
 
-当前 SSE 已是独立观察通道：每个 Run 使用从 1 开始的严格递增 `seq`，通过标准 `id/event/data` 字段发送；客户端用 `Last-Event-ID` replay 内存窗口，cursor 过期或 Run 不在当前进程时改用 PostgreSQL snapshot。SSE close 只移除 subscriber，不触发 Runtime 的 AbortSignal；Cancel 使用独立 command API。当前仍不承诺跨进程继续执行，服务重启会把遗留 Run 收敛为 `failed + RUN_INTERRUPTED`。
+当前 SSE 已是独立观察通道：每个 Run 使用从 1 开始的严格递增 `seq`，通过标准 `id/event/data` 字段发送；客户端用 `Last-Event-ID` replay 内存窗口，cursor 过期或 Run 不在当前进程时改用 PostgreSQL snapshot。SSE close 只移除 subscriber，不触发 Runtime 的 AbortSignal；Cancel 使用独立 command API。服务重启时，遗留 Run 会收敛为 `failed + RUN_INTERRUPTED`。
 
 ## 5. 阶段四：Workbench 的状态边界
 
-Workbench 不是另一套对话页面，而是 Agent 执行事实的投影容器。生产链路已经接入真实 Search/Fetch Activity 和 Sources；Preview fixture 只保留 waiting、report、steer/cancel 等尚未进入生产链路的状态。
+Workbench 不是另一套对话页面，而是 Agent 执行事实的投影容器。生产链路已经接入真实 Search/Fetch Activity、Sources 和 Context Debug。
 
 ```text
 Agent Runtime / Event Stream
@@ -233,11 +232,11 @@ Agent Runtime / Event Stream
 可讲的设计决策：
 
 - Conversation 用有序文本与 Tool Activity block 还原真实执行时间线；Tool Activity 点击后定位 Workbench，避免再用 RunCard 重复展示同一工具状态。
-- Workbench 只在出现可查看的 Source、Artifact 或报告草稿后展开；没有内容时不渲染空 Tab，避免把“未来能力”伪装成当前能力。
+- Workbench 根据当前 Run 是否存在可查看的 Activity、Sources 或 Context Debug 展开；没有内容时不渲染空视图。
 - Activity、Sources、Report 是同一运行上下文的不同视图，不应由各组件分别维护一份运行状态。
 - 用户手动收起 Workbench 后，本次 run 内由 `pinned/auto-follow` 语义阻止自动重新打开；这类交互状态必须与运行事实分开保存。
 
-当前恢复同时使用 assistant draft metadata、Run snapshot 和 Checkpoint 水位后的进程内 Event Tail。Workbench 的 open/tab/focus/pinned 属于本地选择，不被 server snapshot 覆盖；blocks、execution、source 和 Run 状态属于服务端投影。系统实现了真实 cancel，但 steer、pause 和跨进程 Event Store 仍不在当前范围。
+当前恢复同时使用 assistant draft metadata、Run snapshot 和 Checkpoint 水位后的进程内 Event Tail。Workbench 的 open/tab/focus/pinned 属于本地选择，不被 server snapshot 覆盖；blocks、execution、source 和 Run 状态属于服务端投影。用户取消通过独立 command API 传播到 Runtime。
 
 ## 6. 阶段五：会话持久化与并发隔离
 
@@ -278,7 +277,7 @@ Agent Runtime / Event Stream
 
 当前 `packages/agent-protocol` 已被 Web/API 共享，用 Zod 同时承担运行时校验和类型推导；Chat SSE 已升级为带 `type/messageId` 的阶段一事件，但仍不等同于最终 Agent Run 协议。
 
-后续应把职责拆开：
+当前实现的职责拆分是：
 
 ```text
 Protocol      定义事件、状态、动作和数据结构
@@ -287,7 +286,7 @@ Projector     把事件折叠成 Conversation/Run/Workbench 状态
 React         只负责展示和触发动作
 ```
 
-这是一个可验证的演进策略：当前先统一消息 ID、Chat SSE 事件和 Function Calling 的结构化对象；进入 Agent Run 阶段后，再增加 `sessionId/runId/eventId/sequence` 和事件 envelope。在此之前，不把供应商 SDK 的响应对象直接泄漏到前端，也不让 Workbench 组件解析裸 SSE JSON。
+这套边界已经落地：Protocol 定义共享结构，SSE 传递带 sequence 的事件，Projector 折叠服务端事实，React 只负责展示和触发动作。供应商 SDK 响应不会直接泄漏到前端，Workbench 也不解析裸 SSE JSON。
 
 ## 8. 不可信 Markdown 的安全渲染边界
 
@@ -306,10 +305,10 @@ untrusted Markdown string
 - 使用 `remark-gfm` 支持表格、任务列表等确定性 Markdown 语法。
 - 所有外链统一使用 `target="_blank"` 和 `rel="noopener noreferrer"`，防止新页面通过 `window.opener` 控制原页面，并减少不必要的 referrer 暴露。
 - 表格放入可键盘聚焦的横向滚动容器，避免模型生成的宽表破坏移动端和 Workbench 布局。
-- Chat 和未来 Report 复用同一个 renderer 和信任边界，避免两个页面对同一内容采用不同安全规则。
-- 数据库存储原始 Markdown，而不是渲染后 HTML；样式调整、引用导航和后续校验不需要迁移消息正文。
+- Chat 和 Workbench 内容复用同一个 renderer 和信任边界，避免不同页面对同一内容采用不同安全规则。
+- 数据库存储原始 Markdown，而不是渲染后 HTML；样式调整、引用导航和校验不需要迁移消息正文。
 
-这里需要避免过度表述：当前安全性依赖 `react-markdown` 默认不渲染原始 HTML，代码尚未引入 `rehype-raw`。如果后续允许供应商 HTML、自定义组件或更丰富的 URL scheme，必须重新评估 sanitization、协议白名单和内容安全策略，不能把当前边界等同于通用 HTML sanitizer。
+当前安全性依赖 `react-markdown` 默认不渲染原始 HTML；这套边界不等同于通用 HTML sanitizer，外链协议和渲染能力仍按显式白名单处理。
 
 ## 9. Function Calling Agent Loop 与 Tool Module
 
@@ -342,7 +341,7 @@ Tool implementation   只负责具体能力和自己的业务不变量
 
 ## 10. Web Search：Clue 发现与搜索投影
 
-模型只看到统一的 `web_search({query})`，不能选择 Provider、API 地址、密钥或供应商私有参数。后端 `SearchService` 再根据配置路由到 Bocha 或 Serper Adapter，并统一归一化为标题、URL、domain、snippet、publishedAt 和 source。当前单次最多返回 10 条，不做 fallback、并行 Provider 或分页。
+模型只看到统一的 `web_search({query})`，不能选择 Provider、API 地址、密钥或供应商私有参数。后端 `SearchService` 再根据配置路由到 Bocha 或 Serper Adapter，并统一归一化为标题、URL、domain、snippet、publishedAt 和 source；单次最多返回 10 条。
 
 搜索标题和摘要只是 `clue`，目的是帮助模型选择值得读正文的 URL，不是直接冒充事实依据。Search 成功后会把 clue URL 登记到本轮 Web Research 状态，成为 Fetch 可接受的候选；用户当前消息中的 HTTP/HTTPS 直链也可以直接登记。模型自行猜测的 URL 在网络请求前被拒绝。
 
@@ -379,13 +378,13 @@ Passage 必须是 canonical Markdown 的连续直接子串，不由模型改写�
 
 因此最终边界调整并实现为：模型是唯一语义规划者，Runtime 执行模型决策并维护 20 次 Tool Call、单操作超时、取消和协议安全等通用边界，Tool 只返回 canonical output、结构化错误和日志字段。Runtime 统一把 `output/error` 序列化为 Tool Message；`ToolRunState`、`WebResearchRunState`、Tool `modelContent`、Tool `forceFinalAnswer` 和 `disableTools` 已删除。SSRF、DNS、重定向、响应大小、正文提取、Passage 排序和 LRU 等能力内部约束继续留在 Fetch，因为它们属于安全与工程正确性，不属于任务决策。
 
-当前不建立 Tool observation 字符预算或注入状态，Tool Result 始终进入下一模型轮次。未来 Context Engineering 如果实施，应面向完整模型上下文统一做 Token 计量、选择、压缩和淘汰，而不是让 Tool 决定模型能看到什么。
+Tool Result 始终进入下一模型轮次；Context Engineering 面向完整模型上下文统一做 Token 计量、选择、压缩和淘汰，而不是让 Tool 决定模型能看到什么。
 
 这个案例的关键不是“所有状态都不好”，而是区分执行状态与规划状态：Runtime 可以记录 messages、rounds、tool-call count、cancel 和 execution history，但不能让某个 Tool 的领域状态成为主循环决策源。单操作超时与用户 Abort 同样继续保留；模型负责语义，不代表模型可以覆盖安全边界。
 
 ### 11.3 轻量 Source 语义不等于 Evidence
 
-搜索标题和 snippet 是 `clue`，成功读取并经质量门/相关性筛选的网页是 `fetched`。最终回答完成后，后端抽取回答中的 HTTP/HTTPS URL，执行去 fragment、tracking 参数和参数排序的同一规范化，再确定性设置 `used`。`used=true` 只表示回答采用了该链接，不能表述成“该来源逐句支撑了某个事实”。这个边界以很低的复杂度提供真实来源透明度，但不冒充正式逐句引用能力，也不承诺后续一定建设 Citation Validator。
+搜索标题和 snippet 是 `clue`，成功读取并经质量门/相关性筛选的网页是 `fetched`。最终回答完成后，后端抽取回答中的 HTTP/HTTPS URL，执行去 fragment、tracking 参数和参数排序的同一规范化，再确定性设置 `used`。`used=true` 表示回答采用了该链接，不等同于逐句事实支撑；这个边界以较低复杂度提供来源透明度。
 
 ### 11.4 网页内容是数据，不是指令
 
@@ -446,7 +445,7 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 
 当时把资源预算下沉到工具领域，Runtime 只理解通用工具调用额度、生命周期事件和 `disableTools` / `forceFinalAnswer`。它成功删除了 Runtime 中的 Web-specific 分支，但后来确认控制意图仍允许 Tool 反向驱动主循环，因此这是一版中间方案，而不是最终架构。
 
-### 12.4 后续架构复盘与修正
+### 12.4 架构复盘与修正
 
 复盘时采用了一个更严格的判断：Tool 是手脚，只应执行能力并返回结构化结果；模型是任务语义上的大脑；Runtime 是执行模型决策、传播事件并守住通用边界的编排器。若 Web Fetch 可以通过 `forceFinalAnswer` 结束工具阶段，或者通过 `WebResearchRunState` 决定“信息已无增益”，它就不再是纯 Tool，而拥有了一部分 planner 权力。
 
@@ -456,9 +455,7 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 
 ### 12.5 关键取舍
 
-这个方案没有追求一次性解决所有极端情况。当前阶段没有加入总 Token/成本预算、相似查询检测、供应商熔断、证据评分、持久化 Run State 或分布式任务恢复。原因是这些机制需要更多运行数据才能确定正确策略，过早引入会增加状态组合、误判和排障成本。
-
-目前接受一个明确限制：如果搜索供应商持续失败，模型仍可能重复搜索，直到消耗完 20 次通用工具额度。它不够高效，但运行一定会收敛，并且完整上游错误原因会进入服务端日志。等 Harness Agent 和运行观测完善后，再根据真实失败分布决定是否增加熔断或成本预算。
+当前运行使用 20 次通用 Tool Call 上限、单操作超时和用户取消传播来保证收敛；上游失败会进入结构化错误和脱敏日志。
 
 这里的设计取舍可以概括为：去掉会误伤正常复杂任务的全局时间限制，用单操作超时保证故障隔离，用 20 次 Tool Call 上限保证最终收敛，用无工具缓冲校验保证输出安全。
 
@@ -474,7 +471,7 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 >
 > 我先通过轮次和工具日志确认瓶颈不是某个请求卡死，而是正常操作累计耗时，因此删除了 Agent 总截止时间，保留模型、搜索和抓取各自的单操作超时，并用 20 次通用工具调用保证循环一定有硬上限。结束工具阶段后完全移除工具定义，缓冲并校验最终回答，发现 DSML 或结构化工具调用就丢弃并只重试一次。
 >
-> 第一版还把 URL、正文预算和早停状态下沉到 Web Research，并用 `forceFinalAnswer` 通知 Runtime。后续我意识到这只是隐藏了依赖：Tool 仍在替模型决定何时停止。于是目标架构进一步删除领域 run state 和控制意图，明确模型是唯一语义 planner，Runtime 只守通用执行边界，Tool 只返回结构化结果，来源事实由 Projection 派生。这个演进比单纯强调“Runtime 没有工具名称分支”更彻底，也避免每增加一个工具就增加一套隐形决策系统。
+> 第一版还把 URL、正文预算和早停状态下沉到 Web Research，并用 `forceFinalAnswer` 通知 Runtime。架构复盘确认这隐藏了决策依赖：Tool 仍在替模型决定何时停止。最终实现删除领域 run state 和控制意图，明确模型是唯一语义 planner，Runtime 只守通用执行边界，Tool 只返回结构化结果，来源事实由 Projection 派生。这个演进比单纯强调“Runtime 没有工具名称分支”更彻底，也避免每增加一个工具就增加一套隐形决策系统。
 
 ### 12.8 如何验证 Model-led 边界不是“只改了类型”
 
@@ -667,46 +664,25 @@ Runtime 必须先保存 `assistant(toolCalls)`，再按相同声明顺序保存�
 
 压缩可能在一个长 Agent Loop 中触发多次。每次只总结上次覆盖位置之后的新封闭前缀，并把旧摘要一并提供给摘要模型，因此不是不断重新总结完整历史。
 
-### 14.4 模型 Attention 与应用层 Goal Reminder 的区别
-
-Transformer Attention 是模型内部机制，应用无法在 Prompt 编排层修改。工程上所说的 Attention Refresh、Goal Reminder 或 Context Anchoring，是在长 Agent Loop 的特定节点重新注入任务锚点，降低大量 Tool Result 和中间步骤对原始目标的稀释，例如：
-
-```text
-Original request
-Current objective
-Completed work
-Unresolved work
-Important constraints
-Next expected action
-```
-
-它属于 Context Engineering，但当前没有实现。原因不是它没有价值，而是 Goal Reminder 需要知道哪些信息是当前目标、进度和未完成项；在 Skills、Memory、`NOTES.md`、`TODO.md` 尚未形成事实源和生命周期之前，提前建设通用 Attention Engine 只能机械重复原始问题，既增加 token，也可能强化过时目标。
-
-后续合理的触发点包括压缩之后、长 Loop 每 N 轮、进入最终回答之前，或者真实数据证明模型发生目标漂移时。实现位置应在 `ContextEngineeringService.compileRound()`，而不是 Tool Module 或 Model Adapter。
-
-### 14.5 为什么当前阶段选择冻结
-
-第一阶段已经解决容量安全和协议正确性：精确估算、输出预留、Tool Result 裁剪、历史压缩、超限失败和调试快照。下一阶段先建设 Skills、Memory 和文件化任务状态；有真实多来源 Context 后，再迭代相关性选择、优先级排序、预算分配和 Goal Reminder。这个顺序避免为不存在的数据源提前设计 Fragment DSL、审计流水或复杂策略引擎。
-
-### 14.6 面试口述版
+### 14.4 面试口述版
 
 > 我把 Context Engineering 放在每个 Model Round 之前，而不是只在会话开始时处理一次。系统用本地 DeepSeek V3 tokenizer 对消息和工具定义统一计量，先为最大输出和安全边界留空间，再决定是否压缩封闭历史；同轮大型 Tool Result 则由 Context 层共享分配剩余预算，Runtime 继续保证 Tool Call 与 Tool Result 的配对顺序。
 >
-> 我也区分模型内部 Attention 和应用层注意力保持。后者本质是在长 Loop 中重新注入目标、进度与约束，属于 Context Engineering，但当前没有提前实现。因为 Skills、Memory、NOTES 和 TODO 还没有形成真实 Context 来源，现在做通用 Attention Engine 容易过度设计。第一阶段先保证容量和协议正确，等多来源 Context 落地后再基于真实目标漂移问题建设选择、优先级和 Goal Reminder。
+> Context Engineering 的职责是保证每个 Model Round 的输入容量安全和协议正确：统一估算 Messages、Tools 和 Tool Results，必要时压缩封闭历史，并保证 Tool Call/Result 配对不被破坏。压缩状态在 Run 内存中即时生效，成功终态才与 Transcript 一起写入 Session 正式状态。
 
 ## 15. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
-答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、Activity/Sources 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、预算、裁剪和压缩。服务重启自动续跑和多实例 Worker lease 仍明确不在当前范围。
+答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、Activity/Sources 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、预算、裁剪和压缩。
 
 ### 问：SSE 为什么没有直接使用 WebSocket？
 
-答：事件主体仍是服务端单向推送，SSE 的部署和消费模型更简单；Create、Cancel 等客户端动作使用独立 HTTP command，不需要为了少量双向动作升级整条连接。恢复依赖 run-scoped sequence、Last-Event-ID、Checkpoint 水位后的 Event Tail 和 snapshot fallback，而不是恢复原 TCP 连接。未来若高频 steer 或多端协作成为主要需求，再评估 WebSocket。
+答：事件主体仍是服务端单向推送，SSE 的部署和消费模型更简单；Create、Cancel 等客户端动作使用独立 HTTP command。恢复依赖 run-scoped sequence、Last-Event-ID、Checkpoint 水位后的 Event Tail 和 snapshot fallback，而不是恢复原 TCP 连接。
 
 ### 问：为什么上下文由后端从 PostgreSQL 读取？
 
-答：如果由 Web 回传完整历史，前端缓存会变成事实来源，刷新恢复、后台多会话流和未来多端访问都容易产生分叉。现在 Web 只提交本轮 content，API 先持久化 user message，再读取最近 20 条数据库历史。前端缓存只负责低延迟投影，流完成后由详情接口覆盖。
+答：如果由 Web 回传完整历史，前端缓存会变成事实来源，刷新恢复、后台多会话流容易产生分叉。现在 Web 只提交本轮 content，API 先持久化 user message，再读取最近 20 条数据库历史。前端缓存只负责低延迟投影，流完成后由详情接口覆盖。
 
 ### 问：流式输出时如何保证用户消息立即出现？
 
@@ -732,11 +708,7 @@ Next expected action
 
 答：Agent Loop 每轮都会新增 assistant Tool Call 和 Tool Result，输入规模和结构持续变化，只在 Run 开始时计算一次预算会失真。当前每轮先注入已有摘要，再统一估算 messages 与 Tool Definitions；需要时压缩历史，保证 Tool Call/Result 协议完整，并为最终输出保留固定空间。
 
-### 问：为什么现在不实现 Goal Reminder 或注意力刷新？
-
-答：它属于应用层 Context Engineering，不是模型内部 Attention。它应该重新注入当前目标、已完成工作、未完成项和关键约束，而不只是机械重复原始问题。Skills、Memory、NOTES 和 TODO 尚未建立事实源与生命周期时，提前做通用 Attention Engine 很容易固化错误抽象；当前先解决容量和协议正确性，等真实多来源 Context 与目标漂移问题出现后再实现。
-
-## 16. 后续追加规则
+## 15. 追加规则
 
 每个阶段只追加四类内容：
 

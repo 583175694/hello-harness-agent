@@ -1,6 +1,8 @@
 # API / Protocol
 
 > 文档状态：长期 R1 API 目标契约。健康检查和普通对话 Session/Message API 已实现；当前 Run/Create/Subscribe/Snapshot/Cancel 与 SSE 恢复的实施边界以 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 为准。本文中的持久化 replay log、Clarification、Steer 和 Artifact endpoint 不属于当前恢复切片。
+>
+> K3.1/K3.2 的 Resume Command、Interrupt 身份、预期 Run Version 和幂等语义以 [28-interrupt-resume-control-plane.md](./28-interrupt-resume-control-plane.md) 与 [29-clarification-and-tool-approval.md](./29-clarification-and-tool-approval.md) 为准。下文 `/clarification + questionId` 与 `/steer` 仍是旧目标草案，不可直接作为 K3 实施 API；具体 endpoint/schema 在实施时从已冻结的 `interruptId + expectedRunVersion + idempotencyKey` 契约派生。
 
 ## 1. 原则
 

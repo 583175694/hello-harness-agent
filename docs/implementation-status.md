@@ -88,7 +88,7 @@ Connection-Durable 不引入 Redis，也不实现服务端重启后的自动续�
 
 **阶段结果**：客户端断线、刷新和切换会话不会取消后台 Run；重连时可以先读取 Snapshot，再按 cursor 精确 replay Event Tail，无法连续 replay 时回退到完整 Snapshot。实时流、历史恢复和持久化消息统一使用稳定的文本/工具块顺序，终态只有在数据库提交成功后才向客户端广播。8 月 13 日又将 Round/Block 字段收紧为必填，统一服务端与前端的 Block canonical sort，并补充顺序诊断日志和流式消息局部渲染优化。阶段六把原本依附请求的 Tool Loop 变成了具备后台生命周期、连接恢复、阶段性持久化和可诊断时序不变量的 Durable Run。
 
-**当前仍未解决**：这仍然是 Model-led Tool Loop，不包含显式 Goal/Plan/Observation/Progress/Completion Policy 等完整 Agent Loop 语义；没有服务端重启后的 Runtime 自动恢复、多实例 Worker lease、数据库 Event Log、Redis、Tool exactly-once 或跨进程接管。Event Tail 的软/绝对上限和 checkpoint 失败后的强制收敛仍属于后续 Release Hardening。Context Engineering 第一阶段已完成，Skills、Memory、文件化任务状态、Goal Reminder 和 Delegation 按后续阶段独立推进。
+**当前仍未解决**：这仍然是 Model-led Tool Loop，不包含显式 Goal/Plan/Observation/Progress/Completion Policy 等完整 Agent Loop 语义；没有服务端重启后的 Runtime 自动恢复、多实例 Worker lease、数据库 Event Log、Redis、Tool exactly-once 或跨进程接管。Event Tail 的软/绝对上限和 checkpoint 失败后的额外强制收敛移入后续 Reliability Backlog，不属于当前 K3.1/K3.2。Context Engineering 第一阶段已完成，Skills、Memory、文件化任务状态、Goal Reminder 和 Delegation 按后续阶段独立推进。
 
 ### Reasoning Context Transcript（断代升级已实施）
 
@@ -323,7 +323,7 @@ git diff --check
 以下内容仍按 `docs/17-implementation-plan.md` 和相关契约文档执行，不能从 Preview 状态推断已经完成：
 
 - Artifact 持久化和正式 Report 恢复；Session/Message/Run/Step 和 assistant draft snapshot 已完成。
-- 服务端重启后继续原 Run、多实例 Worker lease、Provider cursor 和 Tool 副作用幂等；当前重启遗留 Run 收敛为 `RUN_INTERRUPTED`。
+- 服务端重启后自动接管执行中的 Run、多实例 Worker lease、Provider cursor 和通用 Tool 副作用幂等；当前重启遗留 active execution 收敛为 `RUN_INTERRUPTED`。K3.1 只新增 waiting / paused Run 的持久化查询与用户触发恢复，不接管崩溃时执行中的 Model / Tool。
 - 搜索 fallback；正式 Evidence、引用校验和 Markdown Report Artifact 不属于当前范围，是否进入后续 Deep Research 由未来产品需求决定。
 - steer、pause 和 Human-in-the-loop 尚未实现；独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
 - Skills、user Memory、`NOTES.md`、`TODO.md`、Delegation、Worker 和多用户认证。
@@ -373,18 +373,19 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 K1  Connection-Durable Runtime                  已完成
 K2  Context Engineering 第一阶段                 已完成
 K3  Release Control & Hardening                  下一阶段
-    - steer（下一安全步骤生效；用户纠偏从下一个安全动作开始，不打断当前不可逆动作）
-    - ask user / clarification / waiting_for_user（信息不足时向用户提问，并暂停等待回复）
-    - pause / resume（暂时停住 Run，之后从可恢复位置继续）
-    - retry current step（只重试当前失败步骤，不重复整条任务）
-    - cancel 语义完整化、幂等和终态收敛（重复取消结果一致，并正确处理取消/完成竞态）
-    - Search fallback、Provider 熔断与降级（搜索服务故障时切换备用服务，连续失败时暂时停止请求）
-    - Prompt Injection、SSRF、资源上限和凭证边界加固（防止网页诱导、内网访问、资源失控和密钥越权）
-    - 评估 Fixture、基础 Benchmark 和运行可观测数据采集（用固定样例和指标持续回归 Agent 行为）
+    K3.1 Interrupt & Resume Kernel
+      - 安全边界、Pause / Control Resume、持久化 Interrupt、Checkpoint、CAS 和幂等恢复
+      - Cancel 只补充与 pending Interrupt、Resume 和终态事务的一致性，沿用现有取消能力
+    K3.2 Clarification & Tool Approval
+      - clarification → respond → 下一轮 Model Round
+      - tool_approval → approve / reject → Tool Step / Control Outcome
+    K3.3 Steer & Follow-up Queue（K3.1/K3.2 完成后再讨论和冻结）
 
-K3.1 当前先实施 Interrupt & Resume Control Plane：以 `Model Round 完成`、`Tool Dispatch 前`、`Tool 完成并持久化` 为三个安全边界，先冻结 clarification、approve/reject、pause、steer 和三类 Resume 的基础语义。详见 [28-interrupt-resume-control-plane.md](./28-interrupt-resume-control-plane.md)。
+K3.1 当前先实施 Interrupt & Resume Control Plane：以 `Model Round 完成`、`Tool Dispatch 前`、`Tool 完成并持久化` 为三个安全边界，完成持久化等待身份、显式 Resume、Checkpoint、状态 CAS、幂等和最低事件/Snapshot；不引入多实例 Worker lease、执行中自动接管或完整 Retry 平台。详见 [28-interrupt-resume-control-plane.md](./28-interrupt-resume-control-plane.md)。
 
 K3.2 方案已冻结：完成 `clarification Interrupt → respond → 下一轮 Model Round` 与 `tool_approval Interrupt → approve / reject` 两条路径，共用 Interrupt 持久化、等待和幂等恢复机制；暂不实现 `edit`、复杂审批策略和完整 Steer。详见 [29-clarification-and-tool-approval.md](./29-clarification-and-tool-approval.md)。
+
+实施顺序固定为 K3.1 → K3.2；两阶段端到端完成后再讨论 K3.3，不提前冻结 Steer 优先级、Queue 生命周期或前端交互。Retry Current Step、执行中自动接管、多实例 Worker、Provider/Search 韧性、系统性安全加固和完整评估/可观测平台移入后续 Backlog，不属于当前 K3 实施范围。
 
 K4  Agent Task Semantics                         核心智能阶段
     - Goal、Constraints、Success Criteria（明确任务目标、限制条件和完成标准）
@@ -473,7 +474,7 @@ L4  Delegation / Worker                          后期
 
 L5  Cost / Quality / Runtime Console             最后建设展示层
     - Token、费用、Provider 健康、Tool 耗时、失败率、任务成功率和评估趋势
-    - 数据采集从 K3 开始，控制台 UI 放到后期
+    - 数据采集和控制台均按后续真实需求建设，不属于当前 K3 范围
 
 L6  Mobile / Desktop Clients                     Agent 完善后
     - Web、桌面端和移动端均作为 Task/Run/Event/Artifact/Approval 的客户端

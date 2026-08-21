@@ -360,3 +360,239 @@ Clarification 一次集中询问当前最少关键问题；同一安全边界的
 - durable Tool Step、lease、execution_unknown 对账和至少一次副作用治理。
 
 在此之前，K3.1 的生命周期控制器是唯一暂停/恢复权威，数据库只保存已经提交的业务事实，不保存进程内等待状态。
+
+## 13. 实现映射与 Review Guide
+
+本节将 K3.2 的业务语义映射到当前 Web、API、Runtime、SSE 和 Transcript 实现。设计稿中的状态展示不等于运行时会同时存在的状态；一个 Run 同时只有一个 active pending Interrupt。
+
+### 13.1 端到端架构
+
+```mermaid
+flowchart LR
+    UI["Composer / Clarifier"] --> App["PersistentAgentApp"]
+    App --> Client["API Client"]
+    Client --> Controller["RunsController"]
+    Controller --> Commands["RunCommandService"]
+    Commands --> Executor["RunExecutor"]
+    Executor --> Lifecycle["RuntimeLifecycleController"]
+    Lifecycle --> Runtime["AgentRuntimeService"]
+    Runtime --> Adapter["OpenAI-compatible Adapter"]
+    Runtime --> Tools["Tool Registry / Tool Executor"]
+    Executor --> Hub["RunEventHub"]
+    Hub --> UI
+    Executor --> Repository["RunRepository"]
+    Repository --> DB[("PostgreSQL")]
+```
+
+实现位置：
+
+| 责任 | 实现位置 |
+| --- | --- |
+| Clarifier 渲染和本地选择状态 | `apps/web/src/features/agent/components/conversation.tsx` |
+| respond handler | `apps/web/src/app.tsx` 的 `handleClarificationResponse` |
+| approve/reject handler | `apps/web/src/app.tsx` 的 `handleApprovalResponse` |
+| Command schema/API 路由 | `apps/api/src/runs/runs.controller.ts`、`run-command.service.ts` |
+| Interrupt Promise 和状态校验 | `apps/api/src/agent-runtime/runtime-lifecycle.ts` |
+| Clarification / Approval 触发 | `apps/api/src/agent-runtime/agent-runtime.service.ts` |
+| 中断事件和控制 Snapshot | `apps/api/src/runs/run.executor.ts`、`run-event-hub.ts` |
+| Transcript facts / Tool outcome | `apps/api/src/runs/run.repository.ts` |
+| 公共协议和 Zod schema | `packages/agent-protocol/src/index.ts` |
+
+### 13.2 Clarification 数据流
+
+```mermaid
+sequenceDiagram
+    participant M as Model Provider
+    participant A as Model Adapter
+    participant R as AgentRuntimeService
+    participant L as LifecycleController
+    participant E as RunExecutor
+    participant H as RunEventHub
+    participant W as Web
+    participant DB as PostgreSQL
+
+    M->>A: request_clarification tool call
+    A->>A: parse clarificationRequestSchema
+    A-->>R: clarification.completed
+    R->>L: createClarification(context)
+    L->>L: state = waiting_for_user
+    L-->>E: interrupt created
+    E->>H: interrupt.created + run.waiting_for_user
+    H-->>W: SSE activeInterrupt
+    R-->>E: transcript.fact clarification_request
+    E->>DB: appendTranscriptFact
+
+    W->>E: respond(interruptId, answer)
+    E->>L: respond()
+    L->>L: validate interruptId / answer
+    L->>L: state = resuming
+    L-->>R: resolve same Promise
+    E->>H: interrupt.resolved
+    R-->>E: transcript.fact clarification_response
+    E->>DB: appendTranscriptFact
+    R->>M: next model round with user answer
+```
+
+Review 不变量：
+
+1. Clarification 请求和普通 Tool Call、最终回答互斥。
+2. 用户回答不能直接变成 Tool 参数，必须进入下一轮模型 Context。
+3. `respond` 校验失败不能解决 Interrupt。
+4. `respond` 不重新调用上一轮模型，不重复已有 Tool。
+5. 请求事实和回答事实都要保留 `interruptId`、`roundId`、`roundSequence`。
+
+### 13.3 Tool Approval 数据流
+
+```mermaid
+sequenceDiagram
+    participant M as Model
+    participant R as AgentRuntimeService
+    participant L as LifecycleController
+    participant E as RunExecutor
+    participant W as Web
+    participant T as Tool
+    participant H as RunEventHub
+
+    M->>R: tool_calls.completed
+    R->>R: parse Dispatch Plan + approvalPolicy
+    R->>R: calculate argumentsHash
+    R->>L: createToolApproval(items)
+    L->>L: state = waiting_for_user
+    L-->>E: interrupt.created
+    E->>H: publish interrupt events
+    H-->>W: active tool approval
+
+    W->>E: approve/reject(interruptId, decisions)
+    E->>L: decideApproval()
+    L->>L: validate itemId / toolCallId / argumentsHash
+    L->>L: state = resuming
+    L-->>R: resolve same Promise
+    alt approved
+        R->>T: execute original dispatch
+        T-->>R: canonical tool result
+    else rejected
+        R->>R: synthetic rejected_by_user Tool Result
+    end
+    R->>M: next model round with closed tool transcript
+```
+
+审批响应必须绑定当前 Runtime 生成的不可变摘要：
+
+```text
+itemId
+toolCallId
+toolName
+canonical input
+argumentsHash
+```
+
+用户响应中的任意项目缺失、重复、未知或 hash 不匹配，整个审批响应拒绝，不执行部分 Tool。
+
+### 13.4 当前实现与“串行审批”产品意图的差异
+
+当前实现的真实协议是：
+
+```text
+一个 tool_approval interrupt
+→ payload.items 可以包含同一 Model Round 的多个需审批 Tool
+→ 用户逐项给出 approve/reject
+→ 一次提交完整 decisions
+```
+
+代码位置：
+
+- `AgentRuntimeService` 收集 `approvalItems`：`apps/api/src/agent-runtime/agent-runtime.service.ts`
+- `RuntimeLifecycleController.createToolApproval` 保存 `payload.items`：`apps/api/src/agent-runtime/runtime-lifecycle.ts`
+- Web Composer 遍历 approval items：`apps/web/src/features/agent/components/conversation.tsx`
+
+这和“模型工具调用按原顺序执行”不同：当前是执行顺序串行/按 Plan 处理，但审批协议仍允许一个 Interrupt 内多个项目。如果产品冻结为“一次只审批一个 Tool”，需要改变 Runtime，而不只是改变 UI：
+
+```text
+Dispatch Plan
+→ 取第一个 require_approval Tool
+→ 创建单 item Interrupt
+→ 用户决定
+→ 执行或生成拒绝结果
+→ 再处理下一个 Tool
+```
+
+在协议真正收紧前，文档和 UI 不应宣称后端已经是严格 single-item approval。当前 Web 可将单 item 作为主要呈现，但必须保留多 item 响应校验的事实兼容性。
+
+### 13.5 Web 状态与失败恢复 Review
+
+当前 Web 的必要状态是：
+
+```text
+pending Interrupt
+→ 本地选择/输入
+→ submitting
+→ interrupt.resolved 后清除
+```
+
+不需要把以下 showcase 状态作为持久 UI 状态加入产品：
+
+```text
+已批准，正在执行工具
+已拒绝，Agent 将调整后续计划
+已收到回答，正在继续执行
+```
+
+这些可以由普通 Tool Activity、Agent 文本或 SSE 控制状态自然表达，不需要额外结果卡片。
+
+Review 时重点检查：
+
+| 优先级 | Review 点 | 当前风险/结论 |
+| --- | --- | --- |
+| P1 | active Interrupt 时普通 Composer 是否仍显示 | 当前代码存在条件渲染，需确保输入框和操作栏只 disabled、不消失 |
+| P1 | respond/approval 请求失败是否清除本地 submitting | 当前本地 loading 由 Composer 持有，失败重试需要显式 reset |
+| P1 | Interrupt resolve 是否只发生一次 | `interruptId`、状态和 Promise resolver 必须 CAS-like 校验 |
+| P2 | approval 是否严格 single-item | 当前协议允许 `payload.items` 多项，需要产品决策与文档保持一致 |
+| P2 | Cancel 是否清除 activeInterrupt | `requestCancel` 应发送 `interrupt.cancelled` 并进入 cancelled 终态 |
+| P2 | SSE 断线后是否恢复 pending interrupt | 同进程可从 Live Snapshot/Tail 恢复观察状态，重启后不能恢复 Runtime |
+| P3 | Controller 错误文案是否覆盖 K3.2 | 应包含 `respond`、`approve`、`reject`，不能只写 pause/resume/cancel |
+
+### 13.6 K3.2 测试矩阵
+
+```text
+Clarification
+  合法请求 → waiting_for_user + interrupt.created
+  空回答 → CLARIFICATION_RESPONSE_INVALID
+  非法 option → CLARIFICATION_RESPONSE_INVALID
+  正确 respond → interrupt.resolved + next model round
+  重复 respond → INTERRUPT_NOT_FOUND
+  Clarification 后再次 Clarification → 允许顺序发生
+
+Tool Approval
+  require_approval → Tool 未执行且产生 pending interrupt
+  approve → 原 Dispatch Plan 执行，不重新调用模型
+  reject → Tool 不执行，生成 rejected_by_user Tool Result
+  direct_reject → 不创建用户审批，生成 rejected_by_policy result
+  hash mismatch → TOOL_APPROVAL_RESPONSE_INVALID
+  缺失/重复/未知 decision → 整体拒绝
+  重复 approve → 不重复执行 Tool
+
+Cross-cutting
+  waiting_for_user + cancel → interrupt.cancelled + cancelled
+  SSE reconnect → activeInterrupt 不重复、不丢失
+  API command failure → UI 可重试且不丢失输入
+  process restart → 明确 RUNTIME_NOT_FOUND，不伪装成可恢复
+```
+
+### 13.7 K3.2 与 K3.1 的边界
+
+K3.2 不另造一套控制状态机。Clarification 和 Tool Approval 都复用 K3.1 的：
+
+- `RuntimeLifecycleController` 状态所有权；
+- `waiting_for_user`、`resuming`、`cancel_requested` 语义；
+- RunCommand API 和 ConflictException 错误边界；
+- RunEventHub 的事件序号、Snapshot 和 SSE Tail；
+- Tool Batch 闭合和 Transcript 顺序约束。
+
+差异只在等待原因和响应类型：
+
+| Interrupt kind | 创建边界 | 响应 | 恢复动作 |
+| --- | --- | --- | --- |
+| `clarification` | `model_round_classified` | `respond` | 写入 user clarification fact，下一轮 Model |
+| `tool_approval` | `tool_dispatch_ready` | `approve` / `reject` | 执行原 Tool 或生成 synthetic Tool Result |
+
+这样可以保证 K3.1 的 Pause/Resume、Cancel 和 K3.2 的 HITL 等待不会互相覆盖或绕过同一个 Runtime 的生命周期仲裁。

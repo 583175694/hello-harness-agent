@@ -38,7 +38,8 @@ describe('Conversation tool activity navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: '测试' }));
     fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
     expect(respond).toHaveBeenCalledWith('interrupt-1', '测试');
-    expect(screen.getByLabelText('任务输入')).toBeDisabled();
+    expect(screen.getByRole('button', { name: '正在提交回答' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '测试' })).toBeDisabled();
   });
 
   it('submits one mixed decision for every approval item', () => {

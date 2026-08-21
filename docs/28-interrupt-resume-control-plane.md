@@ -443,3 +443,169 @@ K3.1 Runtime Lifecycle + In-process Pause/Resume（已完成）
 ```
 
 K3.2 必须复用这些生命周期边界和同一 Runtime 等待机制；不得回到 SSE 事件猜测暂停时机、Resume 重建 Runtime 或在未闭合 Tool Transcript 上继续请求模型的实现方式。
+
+## 14. 实现映射与 Review Guide
+
+本节把 K3.1 的设计决策映射到当前代码，供实现 Review 和回归测试使用。
+
+### 14.1 控制面架构
+
+```mermaid
+flowchart LR
+    UI["Web Composer / Workbench"] --> Client["Web API Client"]
+    Client --> Controller["RunsController"]
+    Controller --> Commands["RunCommandService"]
+    Commands --> Executor["RunExecutor"]
+    Executor --> Lifecycle["RuntimeLifecycleController"]
+    Lifecycle --> Runtime["AgentRuntimeService"]
+    Runtime --> Boundaries["Typed lifecycle boundaries"]
+    Executor --> Hub["RunEventHub"]
+    Hub --> SSE["Snapshot + Tail + SSE"]
+    SSE --> UI
+    Executor --> Repository["RunRepository"]
+    Repository --> DB[("PostgreSQL")]
+```
+
+代码入口：
+
+| 责任 | 实现位置 |
+| --- | --- |
+| Web pause/resume/cancel handler | `apps/web/src/app.tsx` 的 `handlePause`、`handleResume`、`handleCancel` |
+| HTTP command 校验和路由 | `apps/api/src/runs/runs.controller.ts`、`run-command.service.ts` |
+| 当前进程 Runtime 命令入口 | `apps/api/src/runs/run.executor.ts` |
+| 状态机、Pause Hook、等待 Promise | `apps/api/src/agent-runtime/runtime-lifecycle.ts` |
+| 生命周期边界报告 | `apps/api/src/agent-runtime/agent-runtime.service.ts` |
+| 控制事件、Live Snapshot、Tail replay | `apps/api/src/runs/run-event-hub.ts` |
+| Durable Run/Projection/Transcript | `apps/api/src/runs/run.repository.ts` |
+
+### 14.2 Pause/Resume/Cancel 数据流
+
+```mermaid
+sequenceDiagram
+    participant W as Web
+    participant API as RunsController
+    participant C as RunCommandService
+    participant E as RunExecutor
+    participant L as LifecycleController
+    participant R as AgentRuntimeService
+    participant H as RunEventHub
+
+    W->>API: command pause
+    API->>C: schema validation
+    C->>E: pause(runId)
+    E->>L: requestPause()
+    L-->>H: run.pause_requested
+    R->>L: reach(before_model_request / tool_batch_committed)
+    L->>L: state = paused
+    L-->>H: run.paused
+    H-->>W: SSE control events
+
+    W->>API: command resume
+    API->>C: resume(runId)
+    C->>E: resume(runId)
+    E->>L: resume()
+    L->>L: resolve resume Promise
+    L-->>H: run.resuming / run.resumed
+    R->>R: continue same Agent Loop
+
+    W->>API: cancel
+    C->>E: requestCancel(runId)
+    E->>L: requestCancel()
+    E->>E: AbortController.abort()
+    E-->>H: run.cancel_requested / run.cancelled
+```
+
+Pause 的 review 重点：
+
+1. `requestPause()` 只设置 `pause_requested`，不会直接假装已经暂停。
+2. Pause 只在 `before_model_request` 和 `tool_batch_committed` 等安全边界等待。
+3. 当前模型请求或当前完整 Tool Batch 不被硬中断。
+4. Resume 唤醒原 Runtime Promise，不重新创建 Executor、不重放 Tool。
+5. Cancel 可以唤醒 paused Runtime，也可以 reject waiting Interrupt，最终统一进入取消收尾。
+
+### 14.3 状态机与事件契约
+
+```mermaid
+stateDiagram-v2
+    [*] --> running
+    running --> pause_requested: pause command
+    pause_requested --> paused: safe boundary reached
+    paused --> resuming: resume command
+    resuming --> running: resume resolver completes
+    running --> cancel_requested: cancel command
+    paused --> cancel_requested: cancel command
+    cancel_requested --> cancelled: abort + terminal commit
+    running --> completed: final answer commit
+    running --> failed: unrecoverable error
+```
+
+控制事件：
+
+```text
+run.pause_requested
+run.paused
+run.resuming
+run.resumed
+run.phase_changed
+run.cancel_requested
+run.cancelled
+```
+
+事件由 `RunExecutor` 的 Lifecycle listener 产生，`RunEventHub` 负责分配 run-scoped sequence、更新 Live Snapshot、写入 Tail 并广播；Web 不应根据按钮点击自行推导最终状态。
+
+### 14.4 SSE / Snapshot 恢复链路
+
+```mermaid
+sequenceDiagram
+    participant W as Web
+    participant API as RunsController
+    participant H as RunEventHub
+    participant R as RunRepository
+    participant DB as PostgreSQL
+
+    W->>API: GET /runs/:id
+    API->>R: load durable snapshot
+    API-->>W: live control + snapshot
+    W->>API: GET /runs/:id/events + Last-Event-ID
+    API->>H: subscribe(runId, cursor)
+    alt Tail cursor is continuous
+        H-->>W: replay tail then live events
+    else Tail unavailable or Runtime absent
+        API->>R: load PostgreSQL checkpoint
+        API-->>W: run.snapshot fallback
+    end
+```
+
+这条链路只保证连接恢复，不保证 Runtime 恢复。服务进程重启后，数据库可以提供最后一个 durable Snapshot，但无法重建内存中的 `resumeResolver`、Async Generator 或 Pause 位置。
+
+### 14.5 K3.1 Review Findings
+
+以下是实现 Review 时必须明确的边界，而不是额外的功能需求：
+
+| 优先级 | Review 点 | 当前结论 |
+| --- | --- | --- |
+| P1 | Pause 是否在安全边界生效 | 是；只挂在 `before_model_request`、`tool_batch_committed` |
+| P1 | Resume 是否重建 Runtime | 否；唤醒同一个 Lifecycle Promise |
+| P1 | Tool Batch 是否可能半闭合后暂停 | 不允许；完整 Tool Batch 提交后才可暂停 |
+| P1 | Final answer 是否可暂停 | 不允许；返回 `RUN_FINAL_ANSWER_NOT_PAUSABLE` |
+| P1 | Cancel 是否能结束 paused/waiting Runtime | 能；requestCancel 会唤醒等待并触发 abort |
+| P2 | Snapshot 是否等价于 Runtime 恢复 | 不等价；Snapshot/Tail 只恢复观察面 |
+| P2 | 多实例/重启后能否 Resume | 当前不能，明确返回 `RUNTIME_NOT_FOUND` |
+| P3 | Controller 错误文案 | 需要覆盖完整命令集合，不能只写 pause/resume/cancel |
+
+### 14.6 K3.1 测试矩阵
+
+```text
+running → pause_requested → paused
+paused → resuming → running
+running → cancel_requested → cancelled
+waiting_for_user → cancel_requested → cancelled
+final_answer + pause → RUN_FINAL_ANSWER_NOT_PAUSABLE
+重复 pause → RUN_ALREADY_PAUSED
+非 paused resume → RUN_NOT_PAUSED
+Pause during model → complete current model/tool boundary first
+Pause during tool batch → complete whole batch first
+SSE disconnect/reconnect → no duplicate or missing sequence
+```
+
+对应测试应覆盖 `runtime-lifecycle.spec.ts`、`run-event-hub.spec.ts`、`run-command.service` 和 Web 状态 reducer；新增状态行为时，必须同时验证 Command Response、SSE Event 和最终 Snapshot 三者收敛。

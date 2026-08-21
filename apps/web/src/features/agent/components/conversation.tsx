@@ -4,6 +4,8 @@ import {
   CircleAlert,
   CircleUserRound,
   Copy,
+  ChevronDown,
+  Gavel,
   LoaderCircle,
   Pause,
   Play,
@@ -505,8 +507,27 @@ export function Composer({
   onReasoningEffortChange?: (value: ReasoningEffort) => void;
 }) {
   const composingRef = useRef(false);
-  const [answer, setAnswer] = useState('');
-  const [decisions, setDecisions] = useState<Record<string, 'approve' | 'reject'>>({});
+  const [interruptState, setInterruptState] = useState<{
+    interruptId?: string;
+    answer: string;
+    decisions: Record<string, 'approve' | 'reject'>;
+    submitting: boolean;
+    expandedTool?: string;
+  }>({ answer: '', decisions: {}, submitting: false });
+  const currentInterruptState =
+    interruptState.interruptId === activeInterrupt?.interruptId
+      ? interruptState
+      : { answer: '', decisions: {} as Record<string, 'approve' | 'reject'>, submitting: false };
+  const updateInterruptState = (update: Partial<typeof currentInterruptState>) => {
+    setInterruptState({
+      interruptId: activeInterrupt?.interruptId,
+      answer: currentInterruptState.answer,
+      decisions: currentInterruptState.decisions,
+      submitting: currentInterruptState.submitting,
+      expandedTool: currentInterruptState.expandedTool,
+      ...update,
+    });
+  };
   const placeholder =
     mode === 'steer'
       ? AGENT_UI_COPY.composerPlaceholders.steer
@@ -520,7 +541,112 @@ export function Composer({
       className="composer rounded-[14px] border border-[var(--theme-composer-border)] bg-surface shadow-[0_8px_24px_rgb(0_0_0_/_3%)]"
       onSubmit={onSubmit}
     >
-      <textarea
+      {activeInterrupt?.kind === 'clarification' ? (
+        <div className="composer-hitl-panel" role="group" aria-label="需要补充信息">
+          <div className="composer-hitl-header">
+            <strong>需要补充信息</strong>
+          </div>
+          <p className="composer-hitl-question">{activeInterrupt.payload.question}</p>
+          {activeInterrupt.payload.options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={currentInterruptState.answer === option ? 'text-button composer-hitl-option is-active' : 'text-button composer-hitl-option'}
+              disabled={currentInterruptState.submitting}
+              onClick={() => updateInterruptState({ answer: option })}
+            >
+              {option}
+            </button>
+          ))}
+          {activeInterrupt.payload.allowFreeText ? (
+            <input
+              aria-label="澄清回答"
+              value={currentInterruptState.answer}
+              disabled={currentInterruptState.submitting}
+              onChange={(event) => updateInterruptState({ answer: event.target.value })}
+            />
+          ) : null}
+          <button
+            className="send-button"
+            type="button"
+            disabled={!currentInterruptState.answer.trim() || !onClarificationRespond || currentInterruptState.submitting}
+            onClick={() => {
+              updateInterruptState({ submitting: true });
+              onClarificationRespond?.(activeInterrupt.interruptId, currentInterruptState.answer);
+            }}
+          >
+            {currentInterruptState.submitting ? <LoaderCircle className="spin" size={14} /> : null}
+            {currentInterruptState.submitting ? '正在提交回答' : '提交回答'}
+          </button>
+        </div>
+      ) : null}
+      {activeInterrupt?.kind === 'tool_approval' ? (
+        <div className="composer-hitl-panel" role="group" aria-label="工具审批">
+          <div className="composer-hitl-header">
+            <Gavel size={15} aria-hidden="true" />
+            <strong>需要批准工具调用</strong>
+          </div>
+          {activeInterrupt.payload.items.map((item) => (
+            <div className="approval-item" key={item.itemId}>
+              <div className="approval-item__summary">
+                <strong>{item.toolName}</strong>
+                <span>{JSON.stringify(item.input)}</span>
+              </div>
+              <button
+                type="button"
+                className="approval-item__details"
+                onClick={() => updateInterruptState({ expandedTool: currentInterruptState.expandedTool === item.itemId ? undefined : item.itemId })}
+              >
+                查看参数 <ChevronDown size={13} className={currentInterruptState.expandedTool === item.itemId ? 'rotate-180' : ''} />
+              </button>
+              <button
+                type="button"
+                className="secondary-button approval-item__reject"
+                disabled={currentInterruptState.submitting}
+                aria-pressed={currentInterruptState.decisions[item.itemId] === 'reject'}
+                onClick={() => updateInterruptState({ decisions: { ...currentInterruptState.decisions, [item.itemId]: 'reject' } })}
+              >
+                拒绝
+              </button>
+              <button
+                type="button"
+                className={currentInterruptState.decisions[item.itemId] === 'approve' ? 'send-button approval-item__approve is-active' : 'send-button approval-item__approve'}
+                disabled={currentInterruptState.submitting}
+                aria-pressed={currentInterruptState.decisions[item.itemId] === 'approve'}
+                onClick={() => updateInterruptState({ decisions: { ...currentInterruptState.decisions, [item.itemId]: 'approve' } })}
+              >
+                批准
+              </button>
+              {currentInterruptState.expandedTool === item.itemId ? <code className="approval-item__expanded">{JSON.stringify(item.input, null, 2)}</code> : null}
+            </div>
+          ))}
+          <button
+            className="send-button"
+            type="button"
+            disabled={
+              !onApprovalSubmit ||
+              currentInterruptState.submitting ||
+              activeInterrupt.payload.items.some((item) => !currentInterruptState.decisions[item.itemId])
+            }
+            onClick={() => {
+              updateInterruptState({ submitting: true });
+              onApprovalSubmit?.(
+                activeInterrupt.interruptId,
+                activeInterrupt.payload.items.map((item) => ({
+                  itemId: item.itemId,
+                  toolCallId: item.toolCallId,
+                  argumentsHash: item.argumentsHash,
+                  decision: currentInterruptState.decisions[item.itemId]!,
+                })),
+              );
+            }}
+          >
+            {currentInterruptState.submitting ? <LoaderCircle className="spin" size={14} /> : null}
+            {currentInterruptState.submitting ? '正在提交审批' : '提交审批'}
+          </button>
+        </div>
+      ) : null}
+      {!activeInterrupt ? <textarea
         aria-label="任务输入"
         placeholder={placeholder}
         rows={3}
@@ -550,83 +676,8 @@ export function Composer({
               event.currentTarget.form?.requestSubmit();
           }
         }}
-      />
-      {activeInterrupt?.kind === 'clarification' ? (
-        <div className="composer-hitl-panel" role="group" aria-label="需要补充信息">
-          <strong>{activeInterrupt.payload.question}</strong>
-          {activeInterrupt.payload.options.map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={answer === option ? 'text-button is-active' : 'text-button'}
-              onClick={() => setAnswer(option)}
-            >
-              {option}
-            </button>
-          ))}
-          {activeInterrupt.payload.allowFreeText ? (
-            <input
-              aria-label="澄清回答"
-              value={answer}
-              onChange={(event) => setAnswer(event.target.value)}
-            />
-          ) : null}
-          <button
-            className="send-button"
-            type="button"
-            disabled={!answer.trim() || !onClarificationRespond}
-            onClick={() => onClarificationRespond?.(activeInterrupt.interruptId, answer)}
-          >
-            提交回答
-          </button>
-        </div>
-      ) : null}
-      {activeInterrupt?.kind === 'tool_approval' ? (
-        <div className="composer-hitl-panel" role="group" aria-label="工具审批">
-          {activeInterrupt.payload.items.map((item) => (
-            <div className="approval-item" key={item.itemId}>
-              <strong>{item.toolName}</strong>
-              <span>{JSON.stringify(item.input)}</span>
-              <button
-                type="button"
-                className={decisions[item.itemId] === 'approve' ? 'text-button is-active' : 'text-button'}
-                onClick={() => setDecisions((current) => ({ ...current, [item.itemId]: 'approve' }))}
-              >
-                批准
-              </button>
-              <button
-                type="button"
-                className={decisions[item.itemId] === 'reject' ? 'text-button is-active' : 'text-button'}
-                onClick={() => setDecisions((current) => ({ ...current, [item.itemId]: 'reject' }))}
-              >
-                拒绝
-              </button>
-            </div>
-          ))}
-          <button
-            className="send-button"
-            type="button"
-            disabled={
-              !onApprovalSubmit ||
-              activeInterrupt.payload.items.some((item) => !decisions[item.itemId])
-            }
-            onClick={() =>
-              onApprovalSubmit?.(
-                activeInterrupt.interruptId,
-                activeInterrupt.payload.items.map((item) => ({
-                  itemId: item.itemId,
-                  toolCallId: item.toolCallId,
-                  argumentsHash: item.argumentsHash,
-                  decision: decisions[item.itemId]!,
-                })),
-              )
-            }
-          >
-            提交审批
-          </button>
-        </div>
-      ) : null}
-      <div className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
+      /> : null}
+      {!activeInterrupt ? <div className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
         {mode === 'steer' || mode === 'clarification' ? (
           <div className="composer-hints">
             <SlidersHorizontal size={14} />
@@ -697,7 +748,7 @@ export function Composer({
             </>
           )}
         </div>
-      </div>
+      </div> : null}
     </form>
   );
 }

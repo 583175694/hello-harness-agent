@@ -576,6 +576,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   const runControllersRef = useRef<Record<string, AbortController>>({});
   const runSequencesRef = useRef<Record<string, number>>({});
   const sessionStatesRef = useRef<Record<string, AgentUiState>>({});
+  // 草稿提交在创建持久化 Session 前可能跨越一次导航；递增 token 让旧请求失去“抢回”当前视图的资格。
+  const draftSubmissionTokenRef = useRef(0);
 
   useEffect(() => {
     pendingSessionsRef.current = pendingSessions;
@@ -866,7 +868,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           toolEvent.type === 'tool.completed' &&
           (toolEvent.toolName === 'web_search'
             ? toolEvent.result.results.length > 0
-            : toolEvent.toolName === 'web_fetch' && toolEvent.result.results.some(
+            : toolEvent.toolName === 'web_fetch' &&
+              toolEvent.result.results.some(
                 (item) => item.status === 'succeeded' && item.passages.length > 0,
               ));
         const currentUserUrls = new Set(
@@ -1062,9 +1065,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
                     item.id === activeWorkbench.runId),
               )
             : undefined) ??
-          [...conversation]
-            .reverse()
-            .find((item) => item.kind === 'assistant' && item.workbench);
+          [...conversation].reverse().find((item) => item.kind === 'assistant' && item.workbench);
         const restoredWorkbench =
           restoredItem?.kind === 'assistant' ? restoredItem.workbench : undefined;
         const cachedContext = activeWorkbench?.context ?? current[sessionId]?.context;
@@ -1107,6 +1108,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
 
   // 切换会话只改变当前视图：先展示目标缓存，再异步刷新详情；不会 abort 任何 Run Observer。
   function selectSession(sessionId: string): void {
+    draftSubmissionTokenRef.current += 1;
+    setDraftPending(false);
     setSelectedSession(sessionId);
     setPrompt('');
     setError(null);
@@ -1117,6 +1120,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
 
   // 新建按钮只进入本地空白草稿，不提前写数据库。
   function startDraft(): void {
+    draftSubmissionTokenRef.current += 1;
+    setDraftPending(false);
     setSelectedSession(null);
     setDraftState(makeFixture('empty'));
     setPrompt('');
@@ -1219,6 +1224,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     const localAssistantId = `local-assistant-${crypto.randomUUID()}`;
     let assistantMessageId = localAssistantId;
     let sessionId = currentId;
+    const draftSubmissionToken = currentId ? undefined : ++draftSubmissionTokenRef.current;
     const optimisticUser: ConversationItem = {
       id: localUserId,
       kind: 'user',
@@ -1247,8 +1253,12 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         const created = await createSession(makeProvisionalTitle(task));
         sessionId = created.id;
         setSessions((current) => [created, ...current.filter((item) => item.id !== created.id)]);
-        setSelectedSession(created.id);
-        updateSessionUrl(created.id, true);
+        // 用户可能已经切换到其他会话；旧草稿请求仍继续观察自己的 Run，
+        // 但不得改变当前选中的会话或地址栏。
+        if (draftSubmissionToken === draftSubmissionTokenRef.current) {
+          setSelectedSession(created.id);
+          updateSessionUrl(created.id, true);
+        }
       }
 
       const targetId = sessionId;
@@ -1337,7 +1347,11 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         const targetId = sessionId;
         setSessionPending(targetId, false);
       }
-      setDraftPending(false);
+      if (
+        draftSubmissionToken === undefined ||
+        draftSubmissionToken === draftSubmissionTokenRef.current
+      )
+        setDraftPending(false);
     }
   }
 

@@ -4,7 +4,7 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop 和 Context Engineering 第一阶段。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering 第一阶段和 K3.1/K3.2 Runtime HITL。
 
 ## 1. 项目一句话介绍
 
@@ -670,7 +670,40 @@ Runtime 必须先保存 `assistant(toolCalls)`，再按相同声明顺序保存�
 >
 > Context Engineering 的职责是保证每个 Model Round 的输入容量安全和协议正确：统一估算 Messages、Tools 和 Tool Results，必要时压缩封闭历史，并保证 Tool Call/Result 配对不被破坏。压缩状态在 Run 内存中即时生效，成功终态才与 Transcript 一起写入 Session 正式状态。
 
-## 15. 面试表达模板
+## 15. K3 Runtime Lifecycle 与 HITL
+
+### 15.1 为什么暂停不能由 SSE 消费者决定
+
+Pause 的安全性取决于 Runtime 是否已经提交了一个完整、可继续的事实单元，而不是某一条正在传输的 UI 事件。当前 Runtime 以强类型生命周期边界协调控制：`before_model_request`、`model_round_classified`、`tool_dispatch_ready`、`tool_batch_committed`、`final_answer` 和 `terminal`。Pause Hook 只在下一轮模型请求前或完整 Tool Batch 提交后等待；Tool Batch 中间不暂停，最终回答阶段也不暂停。
+
+这解决了早期“在异步事件流里找一个看起来安全的时机停止”的问题。Runtime 是唯一推进 Loop 的主体，SSE、Projection 和 React 只观察状态。Resume 只唤醒原来的 Promise，不创建新的 Executor、不重放模型轮次，也不重复执行已经完成的工具。
+
+### 15.2 K3.2 Clarification 如何避免重复调用
+
+模型输出结构化 clarification request 后，Runtime 在 `model_round_classified` 创建唯一的进程内 Interrupt 并等待。用户通过统一 command API 的 `respond` 提交答案；答案作为 `clarification_response` 业务事实进入同一个 Runtime 的下一轮 Context。上一轮模型请求只执行一次，request/response 两条事实通过同一个 `interruptId` 关联。
+
+这个设计区分了三种东西：模型提出的请求、用户回答的语义事实和 Runtime 的等待控制。澄清不是 Tool Call，也不伪装成 Tool Result；服务重启、刷新或多实例切换后的等待恢复不在本阶段承诺范围内。
+
+### 15.3 Tool Approval 的批次屏障
+
+Tool Approval 的关键不只是加一个确认按钮，而是保证审批前没有副作用。Runtime 先完成不可变 Dispatch Plan 和参数 hash，再在 `tool_dispatch_ready` 创建批量 approval Interrupt；等待期间不发送 `tool.started`，也不执行 Tool。审批通过后恢复原 Dispatch Plan，按声明顺序执行；拒绝则为原 `toolCallId` 生成 synthetic canonical Tool Result，继续保持 `assistant(tool_calls)` 与所有 Tool Messages 闭合。
+
+每个 Tool Result 还保留独立控制事实：`approved_by_user`、`rejected_by_user` 或 `rejected_by_policy`。这些审计字段写入现有 Transcript metadata，但 Provider Adapter 会在请求编码时过滤它们，避免把内部控制实现泄露给模型供应商。这样既保留审计语义，又不改变供应商标准 Tool Message 协议。
+
+### 15.4 面试口述版
+
+> 我把 Pause、Clarification 和 Tool Approval 都挂到 Runtime 生命周期边界，而不是让前端或 SSE 事件猜测什么时候安全。Runtime 在明确提交的事实边界上串行仲裁控制：Tool 批次必须全部闭合后才允许暂停，审批必须在 Tool Dispatch 前完成，Resume 只唤醒同一个执行 Promise。
+>
+> Clarification 解决的是模型缺少任务语义，回答会作为新的 user 事实进入下一轮；Tool Approval 解决的是副作用授权，审批前零个 Tool 执行，reject 通过匹配原 toolCallId 的 synthetic Tool Result 保持上下文协议闭合。控制等待只存在进程内，但用户回答、审批决定和控制结果属于业务事实，会写入 Transcript 并可审计。
+
+### 15.5 验证方式
+
+- Runtime unit：边界顺序、Pause/Resume 竞态、Interrupt 单 pending、clarification interruptId、审批 approve/reject/direct reject 和 Tool Transcript 闭合。
+- Repository/protocol：Interrupt pending/resolved/cancelled 状态、Transcript metadata、Provider 不泄露内部控制字段。
+- 真实有头 `agent-browser`：approve、reject、clarification 三条模型路径；审批前无 Tool Activity，恢复后不重复模型或工具，最终 Run 为 completed。
+- 最终验证：`pnpm check`、`pnpm test:integration`、`pnpm test:e2e`、`git diff --check`。
+
+## 16. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
@@ -708,7 +741,7 @@ Runtime 必须先保存 `assistant(toolCalls)`，再按相同声明顺序保存�
 
 答：Agent Loop 每轮都会新增 assistant Tool Call 和 Tool Result，输入规模和结构持续变化，只在 Run 开始时计算一次预算会失真。当前每轮先注入已有摘要，再统一估算 messages 与 Tool Definitions；需要时压缩历史，保证 Tool Call/Result 协议完整，并为最终输出保留固定空间。
 
-## 15. 追加规则
+## 17. 追加规则
 
 每个阶段只追加四类内容：
 

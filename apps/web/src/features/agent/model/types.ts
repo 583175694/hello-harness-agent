@@ -1,5 +1,6 @@
 import type {
   AssistantContentBlock,
+  InterruptSnapshot,
   RunContextDebug,
   SourceProvenance,
   WebFetchPassage,
@@ -31,6 +32,7 @@ export type ActivityStatus =
   | 'pause_requested'
   | 'paused'
   | 'resuming'
+  | 'waiting_for_user'
   | 'cancelling'
   | 'cancelled'
   | 'failed';
@@ -103,6 +105,7 @@ export type WorkbenchState = {
   activeView: WorkspaceView;
   activityStatus?: ActivityStatus;
   controlPhase?: 'tool_loop' | 'final_answer' | 'terminal';
+  activeInterrupt?: InterruptSnapshot;
   executions: ToolCallView[];
   focusTarget?: WorkbenchFocusTarget;
   followMode: 'auto' | 'pinned';
@@ -119,5 +122,6 @@ export type AgentUiState = {
   workbench?: WorkbenchState;
   autoOpenSuppressedRunIds?: string[];
   activeRunId?: string;
+  activeInterrupt?: InterruptSnapshot;
   context?: RunContextDebug;
 };

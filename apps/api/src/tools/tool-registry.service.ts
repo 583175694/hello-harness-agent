@@ -38,6 +38,10 @@ export class ToolRegistryService {
     return this.get(name).executionPolicy;
   }
 
+  approvalPolicy(name: string): 'auto_execute' | 'require_approval' | 'direct_reject' {
+    return this.executionPolicy(name).approval ?? 'auto_execute';
+  }
+
   // 按工具自身 schema 解析模型返回的 JSON 参数。
   parseInput(name: string, rawArguments: string): unknown {
     const tool = this.get(name);

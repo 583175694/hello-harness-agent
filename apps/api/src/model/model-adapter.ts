@@ -1,4 +1,5 @@
 import type { AgentToolDefinition } from '../tools/agent-tool.types';
+import type { ClarificationRequest } from '@harness/agent-protocol';
 import type { ReasoningCapability, ReasoningEffort } from '@harness/agent-protocol';
 
 export type ModelToolCall = {
@@ -18,7 +19,12 @@ export type ModelMessage =
       reasoning?: string;
       toolCalls?: ModelToolCall[];
     }
-  | { role: 'tool'; content: string; toolCallId: string };
+  | {
+      role: 'tool';
+      content: string;
+      toolCallId: string;
+      controlOutcome?: 'approved_by_user' | 'rejected_by_user' | 'rejected_by_policy';
+    };
 
 export type ModelRoundInput = {
   model: string;
@@ -26,6 +32,7 @@ export type ModelRoundInput = {
   tools?: AgentToolDefinition[];
   reasoningEffort: ReasoningEffort;
   signal?: AbortSignal;
+  allowClarification?: boolean;
 };
 
 export type ModelRoundEvent =
@@ -34,6 +41,7 @@ export type ModelRoundEvent =
   | { type: 'reasoning.delta'; delta: string; blockSequence: number }
   // Tool Call 参数在 Adapter 内聚合完整后一次性交给 Runtime，避免执行半截 JSON。
   | { type: 'tool_calls.completed'; calls: ModelToolCall[] }
+  | { type: 'clarification.completed'; request: ClarificationRequest }
   // Round 结束后 Runtime 才能根据是否存在 Tool Call 判断 Content 的最终语义。
   | {
       type: 'round.completed';

@@ -38,6 +38,7 @@ import type {
   SourceProvenance,
   ReasoningEffort,
   PublicModelConfig,
+  ToolApprovalDecision,
 } from '@harness/agent-protocol';
 import type {
   AgentUiState,
@@ -219,9 +220,12 @@ export function workbenchFromPersistedMessage(
         : 'failed',
     executions: executions.map((execution) => {
       const isFetch = execution.toolName === 'web_fetch';
+      const isApprovalTest = execution.toolName === 'approval_test';
       const inputSummary = isFetch
         ? `${execution.input.urls.length} 个网页${execution.input.query ? ` · ${execution.input.query}` : ''}`
-        : execution.input.query;
+        : isApprovalTest
+          ? execution.input.message
+          : execution.input.query;
       return {
         toolCallId: execution.toolCallId,
         runId: message.runId ?? message.id,
@@ -229,12 +233,16 @@ export function workbenchFromPersistedMessage(
         toolName: execution.toolName,
         title: isFetch
           ? `读取 ${execution.input.urls.length} 个网页`
-          : `搜索：${execution.input.query}`,
+          : isApprovalTest
+            ? '运行审批测试'
+            : `搜索：${execution.input.query}`,
         detail:
           execution.status === 'completed'
             ? isFetch
               ? '网页原文读取已完成'
-              : '公开网页检索已完成'
+              : isApprovalTest
+                ? '审批测试已完成'
+                : '公开网页检索已完成'
             : execution.status === 'cancelled'
               ? '工具调用已取消'
               : '工具调用未完成',
@@ -279,16 +287,27 @@ export function applyToolEvent(
   };
   if (event.type === 'tool.started') {
     const isFetch = event.toolName === 'web_fetch';
+    const isApprovalTest = event.toolName === 'approval_test';
     const inputSummary = isFetch
       ? `${event.input.urls.length} 个网页${event.input.query ? ` · ${event.input.query}` : ''}`
-      : event.input.query;
+      : isApprovalTest
+        ? event.input.message
+        : event.input.query;
     const tool: ToolCallView = {
       toolCallId: event.toolCallId,
       runId: event.messageId,
       stepId: event.toolCallId,
       toolName: event.toolName,
-      title: isFetch ? `读取 ${event.input.urls.length} 个网页` : `搜索：${event.input.query}`,
-      detail: isFetch ? '正在读取和过滤网页正文' : '正在搜索公开网页',
+      title: isFetch
+        ? `读取 ${event.input.urls.length} 个网页`
+        : isApprovalTest
+          ? '运行审批测试'
+          : `搜索：${event.input.query}`,
+      detail: isFetch
+        ? '正在读取和过滤网页正文'
+        : isApprovalTest
+          ? '正在执行已批准的无副作用工具'
+          : '正在搜索公开网页',
       status: 'running',
       elapsed: '进行中',
       inputSummary,
@@ -319,6 +338,8 @@ export function applyToolEvent(
       ? ('cancelled' as const)
       : ('failed' as const);
   const completedFetch = completedEvent?.toolName === 'web_fetch' ? completedEvent : undefined;
+  const completedApproval =
+    completedEvent?.toolName === 'approval_test' ? completedEvent : undefined;
   const fetchSucceeded =
     completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
   const executions = base.executions.map((tool) =>
@@ -329,18 +350,27 @@ export function applyToolEvent(
           detail: completedEvent
             ? completedFetch
               ? '网页原文读取已完成'
-              : '公开网页检索已完成'
+              : completedApproval
+                ? '审批测试已完成'
+                : '公开网页检索已完成'
             : (cancelledEvent?.detail ?? failedEvent?.detail ?? '工具执行失败'),
           elapsed: formatToolDuration(event.durationMs),
           outputSummary: completedEvent
             ? completedFetch
               ? `成功 ${completedFetch.result.stats.succeededCount} 个，失败 ${completedFetch.result.stats.failedCount} 个，跳过 ${completedFetch.result.stats.skippedCount} 个，网络请求 ${completedFetch.result.stats.networkAttemptCount} 次，提取 ${completedFetch.result.stats.passageCount} 段原文`
-              : `返回 ${completedEvent.result.results.length} 条网页结果`
+              : completedApproval
+                ? `返回：${completedApproval.result.echoed}`
+                : `返回 ${completedEvent?.toolName === 'web_search' ? completedEvent.result.results.length : 0} 条网页结果`
             : (cancelledEvent?.detail ?? failedEvent?.detail),
-          resultCount: completedEvent?.result.results.length,
+          resultCount:
+            completedEvent && completedEvent.toolName !== 'approval_test'
+              ? completedEvent.result.results.length
+              : undefined,
           sourceCount: completedFetch
             ? fetchSucceeded.length
-            : completedEvent?.result.results.length,
+            : completedEvent && completedEvent.toolName !== 'approval_test'
+              ? completedEvent.result.results.length
+              : undefined,
         }
       : tool,
   );
@@ -602,7 +632,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     const activityStatus =
       controlStatus === 'paused' ||
       controlStatus === 'pause_requested' ||
-      controlStatus === 'resuming'
+      controlStatus === 'resuming' ||
+      controlStatus === 'waiting_for_user'
         ? controlStatus
         : snapshot.status === 'cancelled'
           ? ('cancelled' as const)
@@ -654,6 +685,9 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           runId: snapshot.runId,
           activityStatus,
           ...(snapshot.control?.phase ? { controlPhase: snapshot.control.phase } : {}),
+          ...(snapshot.activeInterrupt
+            ? { activeInterrupt: snapshot.activeInterrupt }
+            : { activeInterrupt: undefined }),
           executions: restored.workbench.executions.map((item) => ({
             ...item,
             runId: snapshot.runId,
@@ -682,6 +716,9 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
             : [...target.conversation, item],
           ...(workbench ? { workbench } : {}),
           ...(snapshot.context ? { context: snapshot.context } : {}),
+          ...(snapshot.activeInterrupt
+            ? { activeInterrupt: snapshot.activeInterrupt }
+            : { activeInterrupt: undefined }),
           ...(active ? { activeRunId: snapshot.runId } : { activeRunId: undefined }),
         },
       };
@@ -759,7 +796,11 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       event.type === 'run.paused' ||
       event.type === 'run.resuming' ||
       event.type === 'run.resumed' ||
-      event.type === 'run.phase_changed'
+      event.type === 'run.phase_changed' ||
+      event.type === 'run.waiting_for_user' ||
+      event.type === 'interrupt.created' ||
+      event.type === 'interrupt.resolved' ||
+      event.type === 'interrupt.cancelled'
     ) {
       if (!('control' in event.payload)) return;
       const control = event.payload.control;
@@ -772,16 +813,29 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           ...current,
           [sessionId]: {
             ...target,
+            activeInterrupt:
+              event.type === 'interrupt.resolved' || event.type === 'interrupt.cancelled'
+                ? undefined
+                : 'interrupt' in event.payload
+                  ? event.payload.interrupt
+                  : control.activeInterrupt,
             workbench: target.workbench
               ? {
                   ...target.workbench,
                   activityStatus:
                     control.state === 'paused' ||
                     control.state === 'pause_requested' ||
-                    control.state === 'resuming'
+                    control.state === 'resuming' ||
+                    control.state === 'waiting_for_user'
                       ? control.state
                       : ('running' as const),
                   controlPhase: control.phase,
+                  activeInterrupt:
+                    event.type === 'interrupt.resolved' || event.type === 'interrupt.cancelled'
+                      ? undefined
+                      : 'interrupt' in event.payload
+                        ? event.payload.interrupt
+                        : control.activeInterrupt,
                 }
               : target.workbench,
           },
@@ -812,7 +866,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           toolEvent.type === 'tool.completed' &&
           (toolEvent.toolName === 'web_search'
             ? toolEvent.result.results.length > 0
-            : toolEvent.result.results.some(
+            : toolEvent.toolName === 'web_fetch' && toolEvent.result.results.some(
                 (item) => item.status === 'succeeded' && item.passages.length > 0,
               ));
         const currentUserUrls = new Set(
@@ -871,6 +925,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           [sessionId]: {
             ...target,
             activeRunId: undefined,
+            activeInterrupt: undefined,
             workbench,
             conversation: target.conversation.map((item) =>
               item.kind === 'assistant' && item.pending
@@ -1315,7 +1370,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     const runId = sessionId ? sessionStatesRef.current[sessionId]?.activeRunId : undefined;
     if (!sessionId || !runId) return;
     try {
-      const result = await controlRun(runId, 'pause');
+      const result = await controlRun(runId, { type: 'pause' });
       applyRunSnapshot(sessionId, result.snapshot);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -1327,10 +1382,55 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     const runId = sessionId ? sessionStatesRef.current[sessionId]?.activeRunId : undefined;
     if (!sessionId || !runId) return;
     try {
-      const result = await controlRun(runId, 'resume');
+      const result = await controlRun(runId, { type: 'resume' });
       applyRunSnapshot(sessionId, result.snapshot);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
+    }
+  }
+
+  async function handleClarificationResponse(interruptId: string, answer: string): Promise<void> {
+    const sessionId = selectedSessionIdRef.current;
+    const runId = sessionId ? sessionStatesRef.current[sessionId]?.activeRunId : undefined;
+    if (!sessionId || !runId) return;
+    try {
+      const result = await controlRun(runId, {
+        type: 'respond',
+        interruptId,
+        payload: { answer },
+      });
+      applyRunSnapshot(sessionId, result.snapshot);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+      try {
+        applyRunSnapshot(sessionId, await getRun(runId));
+      } catch {
+        // 保留原始命令错误。
+      }
+    }
+  }
+
+  async function handleApprovalResponse(
+    interruptId: string,
+    decisions: ToolApprovalDecision[],
+  ): Promise<void> {
+    const sessionId = selectedSessionIdRef.current;
+    const runId = sessionId ? sessionStatesRef.current[sessionId]?.activeRunId : undefined;
+    if (!sessionId || !runId) return;
+    try {
+      const result = await controlRun(runId, {
+        type: decisions.every((decision) => decision.decision === 'reject') ? 'reject' : 'approve',
+        interruptId,
+        decisions,
+      });
+      applyRunSnapshot(sessionId, result.snapshot);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+      try {
+        applyRunSnapshot(sessionId, await getRun(runId));
+      } catch {
+        // 保留原始命令错误。
+      }
     }
   }
 
@@ -1454,6 +1554,12 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
               onPause={() => void handlePause()}
               onResume={() => void handleResume()}
               onCancel={() => void handleCancel()}
+              onClarificationRespond={(interruptId, answer) =>
+                void handleClarificationResponse(interruptId, answer)
+              }
+              onApprovalSubmit={(interruptId, decisions) =>
+                void handleApprovalResponse(interruptId, decisions)
+              }
             />
           </section>
           {uiState.workbench ? (

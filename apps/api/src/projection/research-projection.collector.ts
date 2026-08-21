@@ -11,7 +11,8 @@ import type {
 
 type ToolProjectionInput =
   | { toolName: typeof AGENT_TOOL_NAMES.webSearch; input: { query: string } }
-  | { toolName: typeof AGENT_TOOL_NAMES.webFetch; input: WebFetchInput };
+  | { toolName: typeof AGENT_TOOL_NAMES.webFetch; input: WebFetchInput }
+  | { toolName: typeof AGENT_TOOL_NAMES.approvalTest; input: { message: string } };
 
 const PROVENANCE_PRIORITY: Readonly<Record<SourceProvenance, number>> = {
   // 用户当前消息直接提供的 URL 拥有最高来源优先级。
@@ -74,6 +75,23 @@ export class ResearchProjectionCollector {
         toolCallIds: [input.toolCallId],
       });
     }
+  }
+
+  recordApprovalTestCompleted(input: {
+    toolCallId: string;
+    toolInput: { message: string };
+    completedAt: string;
+    durationMs: number;
+  }): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.approvalTest,
+      input: input.toolInput,
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+    });
   }
 
   // 记录一次批量网页读取，并按 URL 或正文 hash 归并来源而不隐藏执行事实。
@@ -239,7 +257,9 @@ export class ResearchProjectionCollector {
     };
     return input.toolName === AGENT_TOOL_NAMES.webFetch
       ? { ...base, toolName: AGENT_TOOL_NAMES.webFetch, input: input.input }
-      : { ...base, toolName: AGENT_TOOL_NAMES.webSearch, input: input.input };
+      : input.toolName === AGENT_TOOL_NAMES.approvalTest
+        ? { ...base, toolName: AGENT_TOOL_NAMES.approvalTest, input: input.input }
+        : { ...base, toolName: AGENT_TOOL_NAMES.webSearch, input: input.input };
   }
 
   // 返回来源可参与 canonical 匹配的全部 URL。

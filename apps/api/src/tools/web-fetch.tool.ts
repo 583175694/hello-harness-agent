@@ -21,7 +21,10 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
   // 输入无法通过 Schema 时向 Runtime 返回这个 Web Fetch 专用错误码。
   readonly inputErrorCode = AGENT_ERROR_CODES.fetchInputInvalid;
   // Runtime 使用这个外层超时约束整批网页读取，内部单 URL 仍保留更细超时。
-  readonly executionPolicy = { timeoutMs: WEB_FETCH_POLICY.toolTimeoutMs } as const;
+  readonly executionPolicy = {
+    timeoutMs: WEB_FETCH_POLICY.toolTimeoutMs,
+    approval: 'auto_execute',
+  } as const;
   // 核心 Service 负责安全校验、抓取、正文处理和 Passage 选择。
   constructor(private readonly webFetch: WebFetchService) {}
 

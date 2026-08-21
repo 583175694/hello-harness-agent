@@ -23,6 +23,7 @@ import type {
   SessionDetailResponse,
   SessionSummary,
   RunSnapshot,
+  RunControlCommand,
   RunStreamEvent,
   RunControlResponse,
   UpdateSessionRequest,
@@ -157,12 +158,12 @@ export async function cancelRun(runId: string): Promise<CancelRunResponse> {
 
 export async function controlRun(
   runId: string,
-  type: 'pause' | 'resume' | 'cancel',
+  command: RunControlCommand,
 ): Promise<RunControlResponse> {
   const response = await fetch(`${apiBaseUrl}/api/agent/runs/${runId}/commands`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ type }),
+    body: JSON.stringify(command),
   });
   return runControlResponseSchema.parse(await parseResponse(response));
 }

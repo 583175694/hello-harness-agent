@@ -14,7 +14,7 @@ import {
 } from './web-fetch/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.12.0';
+export const protocolVersion = '0.13.0';
 
 export const reasoningEffortSchema = z.enum(['off', 'low', 'high', 'max']);
 export const reasoningCapabilitySchema = z.object({
@@ -205,6 +205,10 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
     input: webFetchInputSchema,
     stats: webFetchStatsSchema.optional(),
   }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal('approval_test'),
+    input: z.object({ message: z.string().min(1).max(500) }),
+  }),
 ]);
 
 // 标识来源 URL 在当前 assistant run 中如何进入模型规划范围。
@@ -341,6 +345,19 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     roundSequence: z.number().int().positive(),
     blockSequence: z.number().int().nonnegative(),
     toolCallId: z.string().min(1),
+    toolName: z.literal('approval_test'),
+    title: z.string().min(1),
+    input: z.object({ message: z.string().min(1).max(500) }),
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
     toolName: z.literal('web_fetch'),
     title: z.string().min(1),
     input: webFetchInputSchema,
@@ -374,6 +391,19 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     completedAt: z.string().datetime(),
     durationMs: z.number().int().nonnegative(),
     result: webFetchResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('approval_test'),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: z.object({ echoed: z.string() }),
   }),
 ]);
 
@@ -458,6 +488,7 @@ export const runtimeControlStateSchema = z.enum([
   'pause_requested',
   'paused',
   'resuming',
+  'waiting_for_user',
   'completed',
   'cancel_requested',
   'cancelled',
@@ -468,7 +499,69 @@ export const runtimeControlSnapshotSchema = z.object({
   runId: z.string().min(1),
   state: runtimeControlStateSchema,
   phase: runtimePhaseSchema,
+  activeInterrupt: z.lazy(() => pendingInterruptSnapshotSchema).optional(),
 });
+export const clarificationRequestSchema = z
+  .object({
+    question: z.string().trim().min(1).max(AGENT_PROTOCOL_LIMITS.clarificationQuestionMaxLength),
+    options: z
+      .array(
+        z.string().trim().min(1).max(AGENT_PROTOCOL_LIMITS.clarificationOptionMaxLength),
+      )
+      .max(AGENT_PROTOCOL_LIMITS.clarificationOptionsMax)
+      .default([]),
+    allowFreeText: z.boolean(),
+  })
+  .superRefine((value, context) => {
+    if (!value.allowFreeText && value.options.length === 0)
+      context.addIssue({ code: z.ZodIssueCode.custom, message: '必须提供至少一个选项。' });
+    if (new Set(value.options).size !== value.options.length)
+      context.addIssue({ code: z.ZodIssueCode.custom, message: '选项不能重复。' });
+  });
+export const toolApprovalDecisionSchema = z.object({
+  itemId: z.string().min(1),
+  toolCallId: z.string().min(1),
+  argumentsHash: z.string().min(1),
+  decision: z.enum(['approve', 'reject']),
+});
+const clarificationInterruptSnapshotSchema = z.object({
+    interruptId: z.string().min(1),
+    runId: z.string().min(1),
+    kind: z.literal('clarification'),
+    status: z.enum(['pending', 'resolved', 'cancelled']),
+    createdAt: z.string().datetime(),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    payload: clarificationRequestSchema,
+  });
+const toolApprovalInterruptSnapshotSchema = z.object({
+    interruptId: z.string().min(1),
+    runId: z.string().min(1),
+    kind: z.literal('tool_approval'),
+    status: z.enum(['pending', 'resolved', 'cancelled']),
+    createdAt: z.string().datetime(),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    payload: z.object({
+      items: z.array(
+        z.object({
+          itemId: z.string().min(1),
+          toolCallId: z.string().min(1),
+          toolName: z.string().min(1),
+          input: z.unknown(),
+          argumentsHash: z.string().min(1),
+        }),
+      ),
+    }),
+  });
+export const interruptSnapshotSchema = z.discriminatedUnion('kind', [
+  clarificationInterruptSnapshotSchema,
+  toolApprovalInterruptSnapshotSchema,
+]);
+export const pendingInterruptSnapshotSchema = z.discriminatedUnion('kind', [
+  clarificationInterruptSnapshotSchema.extend({ status: z.literal('pending') }),
+  toolApprovalInterruptSnapshotSchema.extend({ status: z.literal('pending') }),
+]);
 export const assistantDeliveryStatusSchema = z.enum([
   'streaming',
   'completed',
@@ -508,6 +601,7 @@ export const runSnapshotSchema = z.object({
   startedAt: z.string().datetime().optional(),
   endedAt: z.string().datetime().optional(),
   control: runtimeControlSnapshotSchema.optional(),
+  activeInterrupt: pendingInterruptSnapshotSchema.optional(),
 });
 export const runEventPayloadSchema = z.union([
   chatStreamEventSchema,
@@ -523,6 +617,17 @@ export const runEventPayloadSchema = z.union([
       'run.phase_changed',
     ]),
     control: runtimeControlSnapshotSchema,
+    activeInterrupt: pendingInterruptSnapshotSchema.optional(),
+  }),
+  z.object({
+    type: z.enum([
+      'interrupt.created',
+      'interrupt.resolved',
+      'interrupt.cancelled',
+      'run.waiting_for_user',
+    ]),
+    control: runtimeControlSnapshotSchema,
+    interrupt: interruptSnapshotSchema,
   }),
 ]);
 // RunStreamEvent.seq 只负责传输去重、gap detection 与 Checkpoint 水位；
@@ -552,6 +657,10 @@ export const runStreamEventSchema = z.object({
     'run.resuming',
     'run.resumed',
     'run.phase_changed',
+    'interrupt.created',
+    'interrupt.resolved',
+    'interrupt.cancelled',
+    'run.waiting_for_user',
   ]),
   occurredAt: z.string().datetime(),
   payload: runEventPayloadSchema,
@@ -560,9 +669,24 @@ export const cancelRunResponseSchema = z.object({
   runId: z.string().min(1),
   status: z.enum(['cancel_requested', 'cancelled', 'completed', 'failed']),
 });
-export const runControlCommandSchema = z.object({
-  type: z.enum(['pause', 'resume', 'cancel']),
-});
+export const runControlCommandSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.enum(['pause', 'resume', 'cancel']) }),
+  z.object({
+    type: z.literal('respond'),
+    interruptId: z.string().min(1),
+    payload: z.object({ answer: z.string().trim().min(1) }),
+  }),
+  z.object({
+    type: z.literal('approve'),
+    interruptId: z.string().min(1),
+    decisions: z.array(toolApprovalDecisionSchema).min(1),
+  }),
+  z.object({
+    type: z.literal('reject'),
+    interruptId: z.string().min(1),
+    decisions: z.array(toolApprovalDecisionSchema).min(1),
+  }),
+]);
 export const runControlResponseSchema = z.object({
   runId: z.string().min(1),
   control: runtimeControlSnapshotSchema,
@@ -578,6 +702,11 @@ export type ModelRoundObservation = z.infer<typeof modelRoundObservationSchema>;
 export type RunObservability = z.infer<typeof runObservabilitySchema>;
 export type RunContextDebug = z.infer<typeof runContextDebugSchema>;
 export type RuntimeControlSnapshot = z.infer<typeof runtimeControlSnapshotSchema>;
+export type ClarificationRequest = z.infer<typeof clarificationRequestSchema>;
+export type ToolApprovalDecision = z.infer<typeof toolApprovalDecisionSchema>;
+export type InterruptSnapshot = z.infer<typeof interruptSnapshotSchema>;
+export type PendingInterruptSnapshot = z.infer<typeof pendingInterruptSnapshotSchema>;
+export type InterruptKind = InterruptSnapshot['kind'];
 export type RunControlCommand = z.infer<typeof runControlCommandSchema>;
 export type RunControlResponse = z.infer<typeof runControlResponseSchema>;
 export type PublicAgentConfig = z.infer<typeof publicAgentConfigSchema>;

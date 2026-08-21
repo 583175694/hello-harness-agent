@@ -4,6 +4,8 @@ import {
   chatStreamEventSchema,
   createRunRequestSchema,
   runSnapshotSchema,
+  interruptSnapshotSchema,
+  runControlCommandSchema,
   runStreamEventSchema,
   createSessionRequestSchema,
   persistedMessageSchema,
@@ -21,7 +23,59 @@ import {
 
 describe('foundation protocol', () => {
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.12.0');
+    expect(protocolVersion).toBe('0.13.0');
+  });
+
+  it('validates HITL commands and rejects incomplete approval decisions', () => {
+    expect(
+      runControlCommandSchema.parse({
+        type: 'respond',
+        interruptId: 'interrupt-1',
+        payload: { answer: '测试环境' },
+      }),
+    ).toMatchObject({ type: 'respond' });
+    expect(() =>
+      runControlCommandSchema.parse({
+        type: 'approve',
+        interruptId: 'interrupt-1',
+        decisions: [],
+      }),
+    ).toThrow();
+  });
+
+  it('allows resolved interrupt events but only pending active interrupts', () => {
+    const resolved = {
+      interruptId: 'interrupt-1',
+      runId: 'run-1',
+      kind: 'clarification' as const,
+      status: 'resolved' as const,
+      createdAt: '2026-08-21T00:00:00.000Z',
+      roundId: 'round-1',
+      roundSequence: 1,
+      payload: { question: '选择环境', options: ['测试'], allowFreeText: false },
+    };
+    expect(interruptSnapshotSchema.parse(resolved).status).toBe('resolved');
+    expect(() =>
+      runSnapshotSchema.parse({
+        runId: 'run-1',
+        sessionId: 'session-1',
+        status: 'running',
+        profile: {
+          provider: 'deepseek',
+          model: 'test-model',
+          reasoningEffort: 'high',
+        },
+        assistantMessageId: 'message-1',
+        assistantContent: '',
+        blocks: [],
+        executions: [],
+        sources: [],
+        toolCallCount: 0,
+        lastEventSequence: 0,
+        createdAt: '2026-08-21T00:00:00.000Z',
+        activeInterrupt: resolved,
+      }),
+    ).toThrow();
   });
 
   it('normalizes source URLs deterministically without deleting business parameters', () => {
@@ -171,7 +225,7 @@ describe('foundation protocol', () => {
     });
     expect(
       runStreamEventSchema.parse({
-        version: '0.12.0',
+        version: '0.13.0',
         eventId: 'event-1',
         seq: 0,
         sessionId: 'session-1',

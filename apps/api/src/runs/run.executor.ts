@@ -13,6 +13,7 @@ import {
   RuntimeLifecycleRegistry,
   type RuntimeControlSnapshot,
 } from '../agent-runtime/runtime-lifecycle';
+import type { ToolApprovalDecision } from '@harness/agent-protocol';
 
 @Injectable()
 export class RunExecutor implements OnModuleDestroy {
@@ -71,6 +72,26 @@ export class RunExecutor implements OnModuleDestroy {
     return after;
   }
 
+  respond(runId: string, interruptId: string, answer: string): RuntimeControlSnapshot {
+    const lifecycle = this.lifecycles.get(runId);
+    if (!lifecycle) throw new Error('RUNTIME_NOT_FOUND');
+    const snapshot = lifecycle.respond(interruptId, answer);
+    this.logger.log(`澄清响应已提交 | Run=${shortLogId(runId)} | Interrupt=${shortLogId(interruptId)}`, RunExecutor.name);
+    return snapshot;
+  }
+
+  decideApproval(
+    runId: string,
+    interruptId: string,
+    decisions: readonly ToolApprovalDecision[],
+  ): RuntimeControlSnapshot {
+    const lifecycle = this.lifecycles.get(runId);
+    if (!lifecycle) throw new Error('RUNTIME_NOT_FOUND');
+    const snapshot = lifecycle.decideApproval(interruptId, decisions);
+    this.logger.log(`工具审批已提交 | Run=${shortLogId(runId)} | Interrupt=${shortLogId(interruptId)}`, RunExecutor.name);
+    return snapshot;
+  }
+
   requestCancel(runId: string): void {
     this.lifecycles.get(runId)?.requestCancel();
   }
@@ -113,7 +134,29 @@ export class RunExecutor implements OnModuleDestroy {
               : control.state === 'running'
                 ? 'run.resumed'
                 : undefined;
-      if (eventType) this.events.publish(runId, eventType, { type: eventType, control });
+      if (eventType) {
+        const payload = {
+          type: eventType,
+          control,
+        };
+        this.events.publish(runId, eventType, payload as never);
+      }
+    }, (type, interrupt, control) => {
+      const eventType = `interrupt.${type}` as
+        | 'interrupt.created'
+        | 'interrupt.resolved'
+        | 'interrupt.cancelled';
+      this.events.publish(runId, eventType, {
+        type: `interrupt.${type}`,
+        control,
+        interrupt,
+      } as never);
+      if (type === 'created')
+        this.events.publish(runId, 'run.waiting_for_user', {
+          type: 'run.waiting_for_user',
+          control,
+          interrupt,
+        } as never);
     });
     const model = stored.model;
     // projection 是 Chat 业务状态；active.liveSnapshot 是加上 Run status/sequence 的传输快照。
@@ -178,6 +221,7 @@ export class RunExecutor implements OnModuleDestroy {
             RunSnapshot['profile']
           >['reasoningEffort'],
           onTranscriptItem: (message) => this.repository.appendTranscriptItem(runId, message),
+          onTranscriptFact: (fact) => this.repository.appendTranscriptFact(runId, fact),
           onCompactionState: (state) => {
             compactionState = state;
           },

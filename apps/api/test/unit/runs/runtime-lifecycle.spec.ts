@@ -135,4 +135,82 @@ describe('RuntimeLifecycleController', () => {
     await waiting;
     expect(lifecycle.snapshot().state).toBe('cancel_requested');
   });
+
+  it('waits for clarification and validates the response against the active interrupt', async () => {
+    const interruptEvents: Array<{ type: string; status: string }> = [];
+    const lifecycle = new RuntimeLifecycleController(
+      'run-1',
+      undefined,
+      [],
+      (type, interrupt) => interruptEvents.push({ type, status: interrupt.status }),
+    );
+    const waiting = lifecycle.createClarification({
+      roundId: 'round-1',
+      roundSequence: 1,
+      finishReason: 'tool_calls',
+      outcome: 'final_answer',
+      toolCalls: [],
+      clarification: {
+        question: '选择环境',
+        options: ['测试', '生产'],
+        allowFreeText: false,
+      },
+    });
+    const interrupt = lifecycle.snapshot().activeInterrupt;
+    expect(lifecycle.snapshot().state).toBe('waiting_for_user');
+    expect(interrupt).toMatchObject({ kind: 'clarification', status: 'pending' });
+    expect(() => lifecycle.respond(interrupt!.interruptId, '其他')).toThrow();
+    lifecycle.respond(interrupt!.interruptId, '测试');
+    await expect(waiting).resolves.toEqual({ kind: 'clarification', answer: '测试' });
+    expect(lifecycle.snapshot().state).toBe('running');
+    expect(lifecycle.snapshot().activeInterrupt).toBeUndefined();
+    expect(interruptEvents).toEqual([
+      { type: 'created', status: 'pending' },
+      { type: 'resolved', status: 'resolved' },
+    ]);
+  });
+
+  it('marks a cancelled pending interrupt as cancelled in the lifecycle event', async () => {
+    const events: Array<{ type: string; status: string }> = [];
+    const lifecycle = new RuntimeLifecycleController(
+      'run-1',
+      undefined,
+      [],
+      (type, interrupt) => events.push({ type, status: interrupt.status }),
+    );
+    const waiting = lifecycle.createClarification({
+      roundId: 'round-1',
+      roundSequence: 1,
+      finishReason: 'tool_calls',
+      outcome: 'final_answer',
+      toolCalls: [],
+      clarification: { question: '继续吗', options: ['继续'], allowFreeText: false },
+    });
+    lifecycle.requestCancel();
+    await expect(waiting).rejects.toThrow('RUNTIME_CANCELLED');
+    expect(events).toEqual([
+      { type: 'created', status: 'pending' },
+      { type: 'cancelled', status: 'cancelled' },
+    ]);
+  });
+
+  it('accepts a complete mixed tool approval decision exactly once', async () => {
+    const lifecycle = new RuntimeLifecycleController('run-1');
+    const waiting = lifecycle.createToolApproval({
+      roundId: 'round-1',
+      roundSequence: 1,
+      items: [
+        { itemId: 'one', toolCallId: 'call-1', toolName: 'approval_test', input: { a: 1 }, argumentsHash: 'h1' },
+        { itemId: 'two', toolCallId: 'call-2', toolName: 'approval_test', input: { a: 2 }, argumentsHash: 'h2' },
+      ],
+    });
+    const interruptId = lifecycle.snapshot().activeInterrupt!.interruptId;
+    const decisions = [
+      { itemId: 'one', toolCallId: 'call-1', argumentsHash: 'h1', decision: 'approve' as const },
+      { itemId: 'two', toolCallId: 'call-2', argumentsHash: 'h2', decision: 'reject' as const },
+    ];
+    lifecycle.decideApproval(interruptId, decisions);
+    await expect(waiting).resolves.toEqual({ kind: 'tool_approval', decisions });
+    expect(() => lifecycle.decideApproval(interruptId, decisions)).toThrow();
+  });
 });

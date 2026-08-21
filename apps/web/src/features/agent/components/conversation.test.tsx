@@ -4,6 +4,93 @@ import { describe, expect, it, vi } from 'vitest';
 import { Conversation } from './conversation';
 
 describe('Conversation tool activity navigation', () => {
+  it('submits a clarification answer from the active interrupt', () => {
+    const respond = vi.fn();
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [],
+          activeInterrupt: {
+            interruptId: 'interrupt-1',
+            runId: 'run-1',
+            kind: 'clarification',
+            status: 'pending',
+            createdAt: '2026-08-21T00:00:00.000Z',
+            roundId: 'round-1',
+            roundSequence: 1,
+            payload: { question: '使用哪个环境？', options: ['测试', '生产'], allowFreeText: false },
+          },
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onClarificationRespond={respond}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '测试' }));
+    fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
+    expect(respond).toHaveBeenCalledWith('interrupt-1', '测试');
+    expect(screen.getByLabelText('任务输入')).toBeDisabled();
+  });
+
+  it('submits one mixed decision for every approval item', () => {
+    const submit = vi.fn();
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [],
+          activeInterrupt: {
+            interruptId: 'interrupt-2',
+            runId: 'run-1',
+            kind: 'tool_approval',
+            status: 'pending',
+            createdAt: '2026-08-21T00:00:00.000Z',
+            roundId: 'round-1',
+            roundSequence: 1,
+            payload: {
+              items: [
+                { itemId: 'one', toolCallId: 'call-1', toolName: 'approval_test', input: { message: 'one' }, argumentsHash: 'h1' },
+                { itemId: 'two', toolCallId: 'call-2', toolName: 'approval_test', input: { message: 'two' }, argumentsHash: 'h2' },
+              ],
+            },
+          },
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onApprovalSubmit={submit}
+      />,
+    );
+    const approve = screen.getAllByRole('button', { name: '批准' });
+    const reject = screen.getAllByRole('button', { name: '拒绝' });
+    fireEvent.click(approve[0]!);
+    fireEvent.click(reject[1]!);
+    fireEvent.click(screen.getByRole('button', { name: '提交审批' }));
+    expect(submit).toHaveBeenCalledWith(
+      'interrupt-2',
+      expect.arrayContaining([
+        expect.objectContaining({ itemId: 'one', decision: 'approve' }),
+        expect.objectContaining({ itemId: 'two', decision: 'reject' }),
+      ]),
+    );
+  });
+
   it('selects model and closes the settings popover when clicking outside', async () => {
     const onModelChange = vi.fn();
     render(

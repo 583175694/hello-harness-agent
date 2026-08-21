@@ -182,7 +182,7 @@ export function makeToolCalls(
   const currentStatus: ToolCallStatus =
     status === 'cancelling' || status === 'pause_requested' || status === 'paused' || status === 'resuming'
       ? 'running'
-      : status === 'waiting'
+      : status === 'waiting' || status === 'waiting_for_user'
         ? 'waiting'
         : status;
   return [

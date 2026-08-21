@@ -121,6 +121,8 @@ enum TranscriptItemKind {
   user
   assistant
   tool_result
+  clarification_request
+  clarification_response
 }
 
 enum TranscriptItemState {
@@ -141,6 +143,7 @@ model ModelTranscriptItem {
   reasoning       String?
   toolCalls       Json?               @map("tool_calls")
   toolCallId      String?             @map("tool_call_id")
+  metadata        Json?
   provider        String
   model           String
   reasoningEffort String               @map("reasoning_effort")

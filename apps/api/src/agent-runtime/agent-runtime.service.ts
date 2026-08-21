@@ -5,6 +5,7 @@ import {
   Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { Logger } from 'nestjs-pino';
 
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
@@ -111,6 +112,7 @@ export class AgentRuntimeService {
       let textDeltas: string[] = [];
       let reasoningDeltas: string[] = [];
       let calls: ModelToolCall[] = [];
+      let clarification: import('@harness/agent-protocol').ClarificationRequest | undefined;
       let finishReason: string | null = null;
       // roundId 是稳定关联标识，roundSequence 才承担跨 Round 的排序职责。
       let roundId = crypto.randomUUID();
@@ -153,6 +155,7 @@ export class AgentRuntimeService {
             tools: definitions,
             reasoningEffort: input.reasoningEffort ?? 'off',
             signal: roundSignal,
+            allowClarification: !finalResponseOnly,
           })) {
             // 普通 Tool Round 的 Content 首字立即交付，不为排序牺牲首字速度；
             // Round 完成且存在 Tool Call 时，它自然被解释为工具前言而非最终正文。
@@ -175,6 +178,8 @@ export class AgentRuntimeService {
             } else if (event.type === 'tool_calls.completed') {
               // Adapter 已聚合供应商的分片参数，Runtime 只消费完整 Tool Call。
               calls = event.calls;
+            } else if (event.type === 'clarification.completed') {
+              clarification = event.request;
             } else {
               // 结束原因用于区分正常完成、长度截断和其他供应商终态。
               finishReason = event.finishReason;
@@ -318,9 +323,55 @@ export class AgentRuntimeService {
         finishReason,
         outcome: normalizedCalls.length ? 'tool_calls' : 'final_answer',
         toolCalls: normalizedCalls,
+        ...(clarification ? { clarification } : {}),
       });
       if (classifiedWait) await classifiedWait;
       if (input.signal?.aborted) throw this.abortError();
+
+      if (clarification) {
+        if (normalizedCalls.length || finalResponseOnly)
+          throw new ServiceUnavailableException({ code: 'INVALID_CLARIFICATION', detail: '澄清请求不能与工具调用或最终回答混合。' });
+        if (!input.lifecycle) throw new ServiceUnavailableException({ code: 'HITL_RUNTIME_REQUIRED', detail: '澄清请求缺少 Runtime 控制器。' });
+        const clarificationWait = input.lifecycle.createClarification({
+          roundId,
+          roundSequence: modelRounds,
+          finishReason,
+          outcome: 'final_answer',
+          toolCalls: normalizedCalls,
+          clarification,
+        });
+        const interruptId = input.lifecycle.interrupt()?.interruptId;
+        if (!interruptId) throw new Error('CLARIFICATION_INTERRUPT_MISSING');
+        messages.push({
+          role: 'assistant',
+          content: this.clarificationRequestContent(clarification),
+        });
+        yield {
+          type: 'transcript.fact',
+          fact: {
+            kind: 'clarification_request',
+            interruptId,
+            roundId,
+            roundSequence: modelRounds,
+            request: clarification,
+          },
+        };
+        yield { type: 'clarification.requested', request: clarification, roundId, roundSequence: modelRounds };
+        const result = await clarificationWait;
+        if (result.kind !== 'clarification') throw new Error('INVALID_CLARIFICATION_RESPONSE');
+        messages.push({ role: 'user', content: result.answer });
+        yield {
+          type: 'transcript.fact',
+          fact: {
+            kind: 'clarification_response',
+            interruptId,
+            roundId,
+            roundSequence: modelRounds,
+            answer: result.answer,
+          },
+        };
+        continue;
+      }
 
       // Round outcome 只在完整消费供应商流后确认：无 Tool Call 才是最终正文。
       if (!normalizedCalls.length) {
@@ -371,6 +422,7 @@ export class AgentRuntimeService {
       const pendingToolResults: Array<{
         candidate: ToolResultCandidate;
         event?: AgentRuntimeEvent;
+        controlOutcome?: 'approved_by_user' | 'rejected_by_user' | 'rejected_by_policy';
         enterFinalAnswer: boolean;
         summary: RuntimeToolResultSummary;
       }> = [];
@@ -454,6 +506,24 @@ export class AgentRuntimeService {
       if (dispatchReadyWait) await dispatchReadyWait;
       if (input.signal?.aborted) throw this.abortError();
 
+      const approvalItems = dispatchPlan
+        .filter((item): item is Extract<PreparedDispatch, { status: 'ready' }> => item.status === 'ready')
+        .filter((item) => this.approvalPolicy(item.call.name) === 'require_approval')
+        .map((item) => ({
+          itemId: `${roundId}:${item.call.id}`,
+          toolCallId: item.call.id,
+          toolName: item.call.name,
+          input: item.input,
+          argumentsHash: this.hashCanonical(item.call.name, item.input),
+        }));
+      let approvalDecisions = new Map<string, 'approve' | 'reject'>();
+      if (approvalItems.length) {
+        if (!input.lifecycle) throw new ServiceUnavailableException({ code: 'HITL_RUNTIME_REQUIRED', detail: '工具审批缺少 Runtime 控制器。' });
+        const approvalResult = await input.lifecycle.createToolApproval({ roundId, roundSequence: modelRounds, items: approvalItems });
+        if (approvalResult.kind !== 'tool_approval') throw new Error('INVALID_TOOL_APPROVAL_RESPONSE');
+        approvalDecisions = new Map(approvalResult.decisions.map((decision) => [decision.toolCallId, decision.decision]));
+      }
+
       for (const dispatch of dispatchPlan) {
         const { call } = dispatch;
         if (dispatch.status === 'rejected') {
@@ -474,6 +544,34 @@ export class AgentRuntimeService {
         }
 
         const toolInput = dispatch.input;
+        if (this.approvalPolicy(call.name) === 'direct_reject') {
+          pendingToolResults.push({
+            candidate: {
+              toolCallId: call.id,
+              toolName: call.name,
+              content: JSON.stringify({
+                type: 'tool_control_outcome',
+                toolCallId: call.id,
+                executed: false,
+                outcomeType: 'rejected_by_policy',
+                retryable: false,
+              }),
+            },
+            controlOutcome: 'rejected_by_policy',
+            enterFinalAnswer: dispatch.enterFinalAnswer,
+            summary: { toolCallId: call.id, toolName: call.name, status: 'rejected' },
+          });
+          continue;
+        }
+        if (approvalDecisions.get(call.id) === 'reject') {
+          pendingToolResults.push({
+            candidate: { toolCallId: call.id, toolName: call.name, content: JSON.stringify({ type: 'tool_control_outcome', toolCallId: call.id, executed: false, outcomeType: 'rejected_by_user', retryable: false }) },
+            controlOutcome: 'rejected_by_user',
+            enterFinalAnswer: dispatch.enterFinalAnswer,
+            summary: { toolCallId: call.id, toolName: call.name, status: 'rejected' },
+          });
+          continue;
+        }
 
         const startedAt = new Date();
         this.logger.log(
@@ -610,6 +708,9 @@ export class AgentRuntimeService {
                 : this.serializeToolError(result.error),
           },
           event,
+          ...(approvalDecisions.get(call.id) === 'approve'
+            ? { controlOutcome: 'approved_by_user' as const }
+            : {}),
           enterFinalAnswer: dispatch.enterFinalAnswer,
           summary: {
             toolCallId: call.id,
@@ -650,6 +751,7 @@ export class AgentRuntimeService {
           role: 'tool',
           toolCallId: trimmed.toolCallId,
           content: trimmed.content,
+          ...(pending.controlOutcome ? { controlOutcome: pending.controlOutcome } : {}),
         });
         yield { type: 'transcript.item', message: messages.at(-1)! };
         if (pending.enterFinalAnswer) enterFinalAnswer();
@@ -712,6 +814,32 @@ export class AgentRuntimeService {
     context: RuntimeLifecycleContextMap[RuntimeLifecycleBoundary],
   ): string {
     return 'roundSequence' in context ? String(context.roundSequence) : '-';
+  }
+
+  private hashCanonical(toolName: string, input: unknown): string {
+    const ordered = JSON.stringify(input, (_key, value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+      return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)));
+    });
+    return createHash('sha256').update(`${toolName}:${ordered}`).digest('hex');
+  }
+
+  private approvalPolicy(
+    toolName: string,
+  ): 'auto_execute' | 'require_approval' | 'direct_reject' {
+    const registry = this.tools as ToolRegistryService & {
+      approvalPolicy?: ToolRegistryService['approvalPolicy'];
+    };
+    return registry.approvalPolicy?.(toolName) ?? 'auto_execute';
+  }
+
+  private clarificationRequestContent(
+    request: import('@harness/agent-protocol').ClarificationRequest,
+  ): string {
+    const options = request.options.length
+      ? `\n可选项：\n${request.options.map((option) => `- ${option}`).join('\n')}`
+      : '';
+    return `我需要用户补充信息后才能继续：${request.question}${options}`;
   }
 
   // 将客户端取消信号与单次模型请求的超时信号合并。

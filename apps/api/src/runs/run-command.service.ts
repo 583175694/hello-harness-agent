@@ -127,12 +127,20 @@ export class RunCommandService {
     // Active Run 优先返回进程内 Latest Snapshot；Registry 不存在时退回 PostgreSQL Checkpoint。
     const live = this.registry.get(runId)?.liveSnapshot;
     const control = this.executor.controlSnapshot(runId);
-    return control ? { ...(live ?? snapshot), control } : live ?? snapshot;
+    return control
+      ? {
+          ...(live ?? snapshot),
+          control,
+          ...(control.activeInterrupt
+            ? { activeInterrupt: control.activeInterrupt }
+            : { activeInterrupt: undefined }),
+        }
+      : live ?? snapshot;
   }
 
   async control(runId: string, command: RunControlCommand): Promise<RunControlResponse> {
     if (command.type === 'cancel') await this.cancel(runId);
-    else {
+    else if (command.type === 'pause' || command.type === 'resume') {
       try {
         if (command.type === 'pause') this.executor.pause(runId);
         else this.executor.resume(runId);
@@ -143,6 +151,23 @@ export class RunCommandService {
             code: 'RUNTIME_NOT_FOUND',
             detail: '当前 API 进程没有该 Run 的可控制 Runtime。',
           });
+        throw error;
+      }
+    } else {
+      try {
+        if (command.type === 'respond')
+          this.executor.respond(runId, command.interruptId, command.payload.answer);
+        else if (command.type === 'approve' || command.type === 'reject')
+          this.executor.decideApproval(
+            runId,
+            command.interruptId,
+            command.decisions,
+          );
+        else throw new Error('INVALID_RUN_COMMAND');
+      } catch (error) {
+        if (error instanceof ConflictException) throw error;
+        if (error instanceof Error && error.message === 'RUNTIME_NOT_FOUND')
+          throw new ConflictException({ code: 'RUNTIME_NOT_FOUND', detail: '当前 API 进程没有该 Run 的可控制 Runtime。' });
         throw error;
       }
     }

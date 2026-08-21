@@ -12,6 +12,7 @@ import { PrismaService } from '../database/prisma.service';
 import type { ChatProjectionSnapshot } from '../chat/chat.service';
 import type { ModelMessage, ModelToolCall } from '../model/model-adapter';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
+import type { AgentRuntimeEvent } from '../agent-runtime/agent-runtime.types';
 
 const ACTIVE_STATUSES = ['queued', 'running', 'cancel_requested'] as const;
 
@@ -277,9 +278,17 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     }
     this.assertCommittedTranscriptClosed(committed);
     return items.map((item): ModelMessage => {
-      if (item.kind === 'user') return { role: 'user', content: item.content ?? '' };
-      if (item.kind === 'tool_result')
-        return { role: 'tool', content: item.content ?? '', toolCallId: item.toolCallId ?? '' };
+      if (item.kind === 'user' || item.kind === 'clarification_response')
+        return { role: 'user', content: item.content ?? '' };
+      if (item.kind === 'tool_result') {
+        const controlOutcome = this.readToolControlOutcome(item.metadata);
+        return {
+          role: 'tool',
+          content: item.content ?? '',
+          toolCallId: item.toolCallId ?? '',
+          ...(controlOutcome ? { controlOutcome } : {}),
+        };
+      }
       return {
         role: 'assistant',
         content: item.content,
@@ -342,6 +351,10 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
               ? (message.toolCalls as unknown as Prisma.InputJsonValue)
               : undefined,
           toolCallId: message.role === 'tool' ? message.toolCallId : null,
+          metadata:
+            message.role === 'tool' && message.controlOutcome
+              ? ({ toolControlOutcome: message.controlOutcome } as Prisma.InputJsonValue)
+              : undefined,
           provider: run.provider,
           model: run.model,
           reasoningEffort: run.reasoningEffort,
@@ -349,6 +362,73 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         },
       });
     });
+  }
+
+  async appendTranscriptFact(
+    runId: string,
+    fact: Extract<AgentRuntimeEvent, { type: 'transcript.fact' }>['fact'],
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const run = await tx.agentRun.findUnique({ where: { id: runId } });
+      if (!run || !ACTIVE_STATUSES.includes(run.status as (typeof ACTIVE_STATUSES)[number])) return;
+      const [latest, runLatest] = await Promise.all([
+        tx.modelTranscriptItem.findFirst({
+          where: { sessionId: run.sessionId },
+          orderBy: { sequence: 'desc' },
+        }),
+        tx.modelTranscriptItem.findFirst({
+          where: { runId },
+          orderBy: { runSequence: 'desc' },
+        }),
+      ]);
+      await tx.modelTranscriptItem.create({
+        data: {
+          id: crypto.randomUUID(),
+          sessionId: run.sessionId,
+          runId,
+          messageId: fact.kind === 'clarification_request' ? run.assistantMessageId : null,
+          sequence: (latest?.sequence ?? 0) + 1,
+          runSequence: (runLatest?.runSequence ?? 0) + 1,
+          kind: fact.kind,
+          state: 'active',
+          content:
+            fact.kind === 'clarification_request'
+              ? this.clarificationRequestContent(fact.request)
+              : fact.answer,
+          metadata: {
+            interruptId: fact.interruptId,
+            roundId: fact.roundId,
+            roundSequence: fact.roundSequence,
+            ...(fact.kind === 'clarification_request' ? { request: fact.request } : {}),
+          } as Prisma.InputJsonValue,
+          provider: run.provider,
+          model: run.model,
+          reasoningEffort: run.reasoningEffort,
+          reasoningFormat: run.reasoningFormat,
+        },
+      });
+    });
+  }
+
+  private clarificationRequestContent(
+    request: import('@harness/agent-protocol').ClarificationRequest,
+  ): string {
+    const options = request.options.length
+      ? `\n可选项：\n${request.options.map((option) => `- ${option}`).join('\n')}`
+      : '';
+    return `我需要用户补充信息后才能继续：${request.question}${options}`;
+  }
+
+  private readToolControlOutcome(
+    metadata: Prisma.JsonValue | null,
+  ): Extract<ModelMessage, { role: 'tool' }>['controlOutcome'] | undefined {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return;
+    const outcome = metadata.toolControlOutcome;
+    return outcome === 'approved_by_user' ||
+      outcome === 'rejected_by_user' ||
+      outcome === 'rejected_by_policy'
+      ? outcome
+      : undefined;
   }
 
   // 使用数据库 CAS 抢占 queued Run 的执行权。

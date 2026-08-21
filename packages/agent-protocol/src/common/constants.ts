@@ -20,6 +20,9 @@ export const AGENT_PROTOCOL_LIMITS = {
   webFetchQueryMaxLength: 500,
   // 单个网页读取结果允许保存的最大 Passage 数量。
   webFetchPassagesMax: 6,
+  clarificationQuestionMaxLength: 2_000,
+  clarificationOptionsMax: 12,
+  clarificationOptionMaxLength: 500,
 } as const;
 
 // 集中维护协议中稳定的工具标识。
@@ -28,6 +31,8 @@ export const AGENT_TOOL_NAMES = {
   webSearch: 'web_search',
   // 网页读取工具在 Function Calling 协议中的稳定名称。
   webFetch: 'web_fetch',
+  // 无副作用的审批链路验证工具；生产工具策略保持不变。
+  approvalTest: 'approval_test',
 } as const;
 
 // 集中维护 API 与 SSE 共用的机器可读错误码。

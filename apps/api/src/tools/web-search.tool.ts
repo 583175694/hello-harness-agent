@@ -16,7 +16,10 @@ const webSearchInputSchema = z
 export class WebSearchTool implements AgentTool<{ query: string }, SearchToolResult> {
   readonly name = AGENT_TOOL_NAMES.webSearch;
   readonly inputSchema = webSearchInputSchema;
-  readonly executionPolicy = { timeoutMs: SEARCH_LIMITS.toolTimeoutMs } as const;
+  readonly executionPolicy = {
+    timeoutMs: SEARCH_LIMITS.toolTimeoutMs,
+    approval: 'auto_execute',
+  } as const;
 
   constructor(private readonly search: SearchService) {}
 

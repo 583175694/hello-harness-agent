@@ -51,6 +51,7 @@ export const ACTIVITY_STATUS_COPY: Record<ActivityStatus, { title: string; subti
   pause_requested: { title: '即将暂停', subtitle: '当前工具批次完成后将在安全位置暂停' },
   paused: { title: '任务已暂停', subtitle: '可恢复同一个 Runtime 继续执行' },
   resuming: { title: '正在恢复', subtitle: '正在从暂停边界继续执行' },
+  waiting_for_user: { title: '等待你的操作', subtitle: '提交回答或审批后继续当前任务' },
   // Runtime 等待用户确认时的标题和说明。
   waiting: { title: '等待你的确认', subtitle: '确认后才会继续检索与筛选' },
   // 收到取消请求但尚未完全结束时的标题和说明。

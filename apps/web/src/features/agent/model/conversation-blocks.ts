@@ -112,7 +112,9 @@ export function applyToolActivityEvent(
       summary:
         event.toolName === 'web_fetch'
           ? `读取 ${event.input.urls.length} 个网页`
-          : event.input.query,
+          : event.toolName === 'approval_test'
+            ? event.input.message
+            : event.input.query,
       startedAt: event.startedAt,
     });
   }
@@ -131,7 +133,9 @@ export function applyToolActivityEvent(
         summary:
           event.toolName === 'web_fetch'
             ? `成功 ${succeeded.length} 个，失败 ${event.result.results.length - succeeded.length} 个，提取 ${passageCount} 段原文`
-            : `找到 ${event.result.results.length} 个结果`,
+            : event.toolName === 'approval_test'
+              ? '审批测试已完成'
+              : `找到 ${event.result.results.length} 个结果`,
         completedAt: event.completedAt,
         durationMs: event.durationMs,
       };

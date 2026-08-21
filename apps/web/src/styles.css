@@ -1046,6 +1046,61 @@ textarea:focus-visible {
 .composer textarea::placeholder {
   color: #a0a09c;
 }
+.composer-hitl-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px;
+  padding: 12px 4px;
+  border-top: 1px solid var(--theme-border);
+  font-size: 13px;
+}
+.composer-hitl-panel > strong {
+  flex: 1 0 100%;
+  color: var(--theme-text-primary);
+  line-height: 1.45;
+}
+.composer-hitl-panel input {
+  min-width: min(100%, 280px);
+  flex: 1;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--theme-border);
+  border-radius: 6px;
+  color: var(--theme-text-primary);
+  background: var(--theme-surface);
+}
+.composer-hitl-panel .text-button.is-active {
+  border-color: var(--theme-border-strong);
+  background: var(--theme-surface-hover);
+  color: var(--theme-text-primary);
+}
+.approval-item {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(90px, auto) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+.approval-item > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--theme-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .approval-item {
+    grid-template-columns: 1fr auto auto;
+  }
+  .approval-item > span {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
 .composer-actions {
   display: flex;
   min-height: 48px;

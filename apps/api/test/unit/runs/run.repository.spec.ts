@@ -17,6 +17,7 @@ function transcriptItem(overrides: Record<string, unknown> = {}) {
     reasoning: '历史推理',
     toolCalls: null,
     toolCallId: null,
+    metadata: null,
     provider: 'other-provider',
     model: 'other-model',
     reasoningEffort: 'high',
@@ -28,6 +29,97 @@ function transcriptItem(overrides: Record<string, unknown> = {}) {
 }
 
 describe('RunRepository reasoning transcript boundaries', () => {
+  it('restores a durable tool control outcome without changing provider-visible content', async () => {
+    const prisma = {
+      agentRun: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'run-1',
+          sessionId: 'session-1',
+          provider: 'deepseek',
+          reasoningFormat: null,
+        }),
+      },
+      modelTranscriptItem: {
+        findMany: vi.fn().mockResolvedValue([
+          transcriptItem({
+            runId: 'run-1',
+            kind: 'user',
+            state: 'active',
+            content: '执行审批工具',
+            reasoning: null,
+            provider: 'deepseek',
+            reasoningFormat: null,
+          }),
+          transcriptItem({
+            sequence: 2,
+            runSequence: 2,
+            toolCalls: [{ id: 'call-1', name: 'approval_test', arguments: '{}' }],
+            reasoning: null,
+            provider: 'deepseek',
+            reasoningFormat: null,
+          }),
+          transcriptItem({
+            sequence: 3,
+            runSequence: 3,
+            kind: 'tool_result',
+            content: '{"ok":true}',
+            reasoning: null,
+            toolCallId: 'call-1',
+            metadata: { toolControlOutcome: 'approved_by_user' },
+            provider: 'deepseek',
+            reasoningFormat: null,
+          }),
+        ]),
+      },
+    };
+    const repository = new RunRepository(prisma as unknown as PrismaService);
+
+    await expect(repository.loadTranscript('run-1')).resolves.toContainEqual({
+      role: 'tool',
+      content: '{"ok":true}',
+      toolCallId: 'call-1',
+      controlOutcome: 'approved_by_user',
+    });
+  });
+
+  it('persists tool control outcomes in transcript metadata', async () => {
+    const create = vi.fn().mockResolvedValue({});
+    const tx = {
+      agentRun: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'run-1',
+          sessionId: 'session-1',
+          assistantMessageId: 'assistant-1',
+          provider: 'deepseek',
+          model: 'test-model',
+          reasoningEffort: 'high',
+          reasoningFormat: null,
+          status: 'running',
+        }),
+      },
+      modelTranscriptItem: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create,
+      },
+    };
+    const prisma = { ...tx, $transaction: vi.fn(async (callback) => callback(tx)) };
+    const repository = new RunRepository(prisma as unknown as PrismaService);
+
+    await repository.appendTranscriptItem('run-1', {
+      role: 'tool',
+      content: '{"ok":true}',
+      toolCallId: 'call-1',
+      controlOutcome: 'approved_by_user',
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          metadata: { toolControlOutcome: 'approved_by_user' },
+        }),
+      }),
+    );
+  });
   it('does not apply native reasoning compatibility checks to final no-tool reasoning', async () => {
     const prisma = {
       agentRun: {

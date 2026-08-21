@@ -2,13 +2,13 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-21（K3.1 Runtime Lifecycle 与进程内 Pause/Resume 已完成）
+> 最后更新：2026-08-21（K3.2 HITL Clarification & Tool Approval 已完成）
 
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 20 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段和 K3.1 Runtime Lifecycle 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界，Pause 只在完整 Tool Batch 后或下一轮模型请求前等待，Resume 继续同一个 Runtime。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、steer、搜索 fallback 和 Delegation 仍未实现。
+当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3.1 Runtime Lifecycle 和 K3.2 HITL 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject，控制等待仍只存在 API 进程内，业务事实写入 Transcript。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、steer、搜索 fallback 和 Delegation 仍未实现。
 
 评估体系当前暂缓建设。相关实现、配置、命令、数据和专题文档已于 2026-08-17 移除；普通 unit、integration、E2E 与 `agent-testkit` 回归测试继续保留。后续评估能力作为独立模块重新设计，不再阻塞当前 Context Engineering 或功能开发。
 
@@ -302,6 +302,12 @@ git diff --check
 
 同轮真实 `agent-browser` 黑盒测试覆盖长任务的多次 Search/Fetch、生成中切换并切回 Session、浏览器离线重连、active Run 刷新恢复、不同 Session 并行 Run、取消隔离、双击提交去重、Pixel 7 移动布局和三轮上下文对话。DOM 稳定保持“Round 前言文本 -> Tools -> 下一轮文本 -> 最终正文”；刷新后恢复 3 条 user、3 条 assistant 以及全部 Tool Block，控制台无错误。测试还发现“新建 Session 后立即提交”时 React state 与 `selectedSessionIdRef` 可能被旧 Effect 写回的独立竞争，现已用同步 setter 同时更新 state/ref 并增加回归测试。核心 Durable Loop 文件已补充中文设计意图与不变量注释。最终执行 `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build`、`pnpm test:integration`、`pnpm test:e2e` 和 `git diff --check` 全部通过：Protocol 13、API unit 59、Web unit 21、Testkit 1、API integration 10、Playwright desktop/mobile 16 项成功。当前目标仍是 API 进程存活期间的 Connection Durable，不新增 Prisma migration、数据库 Event Log、Redis、Worker lease、Runtime resume 或 Tool exactly-once。
 
+2026-08-21 完成 K3.1 Runtime Lifecycle 与 K3.2 HITL 实施收口。K3.1 通过强类型 `RuntimeLifecycleController` 管理 `before_model_request`、`model_round_classified`、`tool_dispatch_ready`、`tool_batch_committed`、`final_answer` 和 `terminal` 边界；Pause 只在完整 Tool Batch 后或下一轮模型请求前等待，Resume 唤醒同一个 Runtime，不重建 Executor、不重复模型轮次或工具调用。K3.2 在同一进程内等待机制上实现结构化 Clarification 和 Tool Approval：`respond` 将回答作为 clarification transcript fact 进入下一轮 Context；`approve/reject` 恢复原 Dispatch Plan 或生成闭合的 synthetic Tool Result；审批前不产生 `tool.started`。
+
+本轮协议升级到 `0.13.0`，新增 `clarification_request/clarification_response` Transcript 类型和 `ModelTranscriptItem.metadata`。Clarification request/response 保存同一 `interruptId`；Tool Control Outcome 写入现有 metadata，区分 `approved_by_user`、`rejected_by_user` 和 `rejected_by_policy`，Provider Adapter 不向供应商透传内部审计字段。新增无副作用 `approval_test` 工具作为审批流程夹具，Web 提供澄清表单和批量审批 UI；不实现 Steer、Follow-up Queue、持久化 Interrupt/Checkpoint/Command、服务重启恢复或多实例迁移。
+
+验证记录：`pnpm check` 通过（lint、typecheck、production build、Protocol 15、API unit 99、Web unit 33）；`pnpm test:integration` 11/11 通过；`pnpm test:e2e` 20 passed、2 skipped；`git diff --check` 通过。另用有头 `agent-browser` 完成 approve、reject 和 clarification 三条真实模型路径：审批前无 Tool Activity，approve 只执行一次并最终 completed，reject 不执行工具但保留 synthetic result，clarification 回答后同一 Run 进入下一轮并 completed。数据库抽查确认控制结果 metadata 和 request/response 的 interruptId 均正确。
+
 2026-08-11 随后完成 Model-led Tool Boundary 代码迁移，协议升级到 `0.8.0`。删除 `ToolRunState`、`WebResearchRunState`、Tool `modelContent/control`、跨调用 URL/Passage 预算、URL allowlist 和领域早停；Runtime 统一序列化 canonical `output/error`，Tool 失败可由模型下一轮继续处理。Search/Fetch 外层 timeout 分别为 10/45 秒，Fetch transport timeout 保持 20 秒；Projection 派生 provenance，Execution 完整保留，Source 按 URL/contentHash 归并。后续验收补齐混合 Tool Call 计数、实时/恢复 canonical merge、Fetch stats 全分支与真实 retry 计数。最终执行 `pnpm check`、API integration、Playwright E2E 和 `git diff --check`：Protocol 12 项、API 52 项、Web 19 项、Testkit 1 项 unit test，API integration 9 项和 Playwright desktop/mobile 16 项全部通过。
 
 覆盖范围包括：
@@ -325,7 +331,7 @@ git diff --check
 - Artifact 持久化和正式 Report 恢复；Session/Message/Run/Step 和 assistant draft snapshot 已完成。
 - 服务端重启后自动接管执行中的 Run、多实例 Worker lease、Provider cursor 和通用 Tool 副作用幂等；重启遗留 active execution 仍收敛为 `RUN_INTERRUPTED`。K3.1 Pause/Resume 仅存在于 API 进程内，重启、多实例切换和 Runtime Registry 丢失后的控制恢复不在承诺范围内。
 - 搜索 fallback；正式 Evidence、引用校验和 Markdown Report Artifact 不属于当前范围，是否进入后续 Deep Research 由未来产品需求决定。
-- K3.1 Pause/Resume、Runtime Lifecycle Hook、统一 control command API 和控制 SSE 已实现；clarification、Tool Approval、steer 和 Human-in-the-loop 尚未实现。独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
+- K3.1 Pause/Resume、Runtime Lifecycle Hook、统一 control command API 和控制 SSE 已实现；K3.2 Clarification、Tool Approval、统一 Interrupt Snapshot 和 Transcript 业务事实已实现。Steer、Follow-up Queue、完整副作用风险分级和跨进程 Human-in-the-loop 仍未实现。独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
 - Skills、user Memory、`NOTES.md`、`TODO.md`、Delegation、Worker 和多用户认证。
 - 长 Agent Loop 的 Goal Reminder/Attention Refresh 尚未实现；当前只保留最近消息、当前任务和 Tool Call/Result 协议完整性，等多来源 Context 形成真实需求后再建设相关性选择、优先级和预算分配。
 - 评估体系尚未重新设计；当前不存在可运行的 Benchmark、Judge、Grader 或正式 Baseline。
@@ -372,7 +378,7 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 ```text
 K1  Connection-Durable Runtime                  已完成
 K2  Context Engineering 第一阶段                 已完成
-K3  Release Control & Hardening                  下一阶段
+K3  Release Control & Hardening                  K3.1/K3.2 已完成
     K3.1 Interrupt & Resume Kernel
       - 进程内 Runtime 生命周期安全边界与 Pause / Resume
       - Cancel 沿用现有 AbortController，并能唤醒 paused Runtime
@@ -383,7 +389,7 @@ K3  Release Control & Hardening                  下一阶段
 
 K3.1 第一批已完成 Runtime Lifecycle 重构：以 `before_model_request`、`model_round_classified`、`tool_dispatch_ready`、`tool_batch_committed`、`final_answer` 和 `terminal` 建立强类型边界，Pause Hook 只在完整 Tool Batch 后或下一轮模型请求前等待；不新增数据库表/字段，不持久化 Interrupt、Checkpoint、Command 或幂等键，不引入多实例 Worker lease。详见 [28-interrupt-resume-control-plane.md](./28-interrupt-resume-control-plane.md)。
 
-K3.2 方案已冻结：只完成 `clarification Interrupt → respond → 下一轮 Model Round` 与 `tool_approval Interrupt → approve / reject` 两条 HITL 路径，复用 K3.1 生命周期边界和进程内等待机制，不包含 Steer 或 Follow-up Queue；是否增加 Interrupt 持久化、Checkpoint 和跨进程恢复，需另行冻结。详见 [29-clarification-and-tool-approval.md](./29-clarification-and-tool-approval.md)。
+K3.2 已实施并验证：完成 `clarification Interrupt → respond → 下一轮 Model Round` 与 `tool_approval Interrupt → approve / reject` 两条 HITL 路径，复用 K3.1 生命周期边界和进程内等待机制；Clarification 事实与 Tool Control Outcome 写入现有 Transcript，不包含 Steer 或 Follow-up Queue。持久化 Interrupt、Checkpoint、Command 和跨进程恢复仍需另行冻结。详见 [29-clarification-and-tool-approval.md](./29-clarification-and-tool-approval.md)。
 
 实施顺序固定为 K3.1 → K3.2；两阶段端到端完成后再讨论 K3.3，不提前冻结 Steer 优先级、Queue 生命周期或前端交互。Retry Current Step、执行中自动接管、多实例 Worker、Provider/Search 韧性、系统性安全加固和完整评估/可观测平台移入后续 Backlog，不属于当前 K3 实施范围。
 

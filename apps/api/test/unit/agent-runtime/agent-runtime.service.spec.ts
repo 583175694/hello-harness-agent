@@ -19,6 +19,10 @@ type RoundEvent =
       type: 'tool_calls.completed';
       calls: Array<{ id: string; name: string; arguments: string }>;
     }
+  | {
+      type: 'clarification.completed';
+      request: { question: string; options: string[]; allowFreeText: boolean };
+    }
   | { type: 'round.completed'; finishReason: string | null };
 
 // 从固定轮次数组构造供应商无关的模型测试替身。
@@ -77,6 +81,106 @@ function logger(): Logger {
 }
 
 describe('AgentRuntimeService model-led tool boundary', () => {
+  it('persists clarification request and response facts with the same interrupt id', async () => {
+    const model = modelFromRounds([
+      [
+        {
+          type: 'clarification.completed',
+          request: {
+            question: '选择环境',
+            options: ['测试', '生产'],
+            allowFreeText: false,
+          },
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '已选择测试环境' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const lifecycle = new RuntimeLifecycleController('run-1');
+    const execution = collect(
+      new AgentRuntimeService(model, registry(), logger()),
+      undefined,
+      lifecycle,
+    );
+    await vi.waitFor(() => expect(lifecycle.snapshot().activeInterrupt?.kind).toBe('clarification'));
+    const interruptId = lifecycle.snapshot().activeInterrupt!.interruptId;
+    lifecycle.respond(interruptId, '测试');
+
+    const events = await execution;
+    const facts = events.filter((event) => event.type === 'transcript.fact');
+    expect(facts).toEqual([
+      expect.objectContaining({
+        fact: expect.objectContaining({ kind: 'clarification_request', interruptId }),
+      }),
+      expect.objectContaining({
+        fact: expect.objectContaining({ kind: 'clarification_response', interruptId }),
+      }),
+    ]);
+    expect(model.streamRound).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['approve', true, 'approved_by_user'],
+    ['reject', false, 'rejected_by_user'],
+  ] as const)(
+    'records %s tool approval as a durable control outcome without replaying the model round',
+    async (decision, executes, controlOutcome) => {
+      const model = modelFromRounds([
+        [
+          {
+            type: 'tool_calls.completed',
+            calls: [
+              {
+                id: 'approval-call',
+                name: AGENT_TOOL_NAMES.approvalTest,
+                arguments: '{"message":"audit"}',
+              },
+            ],
+          },
+          { type: 'round.completed', finishReason: 'tool_calls' },
+        ],
+        [
+          { type: 'text.delta', delta: '审批完成' },
+          { type: 'round.completed', finishReason: 'stop' },
+        ],
+      ]);
+      const tools = registry({
+        approvalPolicy: vi.fn(() => 'require_approval'),
+      } as Partial<ToolRegistryService>);
+      const lifecycle = new RuntimeLifecycleController('run-1');
+      const execution = collect(
+        new AgentRuntimeService(model, tools, logger()),
+        undefined,
+        lifecycle,
+      );
+      await vi.waitFor(() => expect(lifecycle.snapshot().activeInterrupt?.kind).toBe('tool_approval'));
+      const interrupt = lifecycle.snapshot().activeInterrupt!;
+      if (interrupt.kind !== 'tool_approval') throw new Error('expected tool approval');
+      const item = interrupt.payload.items[0]!;
+      lifecycle.decideApproval(interrupt.interruptId, [
+        {
+          itemId: item.itemId,
+          toolCallId: item.toolCallId,
+          argumentsHash: item.argumentsHash,
+          decision,
+        },
+      ]);
+
+      const events = await execution;
+      const toolMessage = events.find(
+        (event) => event.type === 'transcript.item' && event.message.role === 'tool',
+      );
+      expect(toolMessage).toMatchObject({
+        type: 'transcript.item',
+        message: { role: 'tool', toolCallId: 'approval-call', controlOutcome },
+      });
+      expect(tools.execute).toHaveBeenCalledTimes(executes ? 1 : 0);
+      expect(model.streamRound).toHaveBeenCalledTimes(2);
+    },
+  );
   it('reports strongly ordered lifecycle boundaries with prepared dispatch context', async () => {
     const model = modelFromRounds([
       [

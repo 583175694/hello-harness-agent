@@ -18,6 +18,26 @@ import type {
   ModelRoundInput,
   ModelToolCall,
 } from './model-adapter';
+import { clarificationRequestSchema } from '@harness/agent-protocol';
+
+const CLARIFICATION_CONTROL_NAME = 'request_clarification';
+const CLARIFICATION_CONTROL_TOOL: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: CLARIFICATION_CONTROL_NAME,
+    description: '仅当缺少必须由用户提供且无法安全推断的信息时，请求用户澄清。',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        question: { type: 'string' },
+        options: { type: 'array', items: { type: 'string' } },
+        allowFreeText: { type: 'boolean' },
+      },
+      required: ['question', 'allowFreeText'],
+    },
+  },
+};
 
 type DeepSeekDelta = { reasoning_content?: string };
 type DeepSeekAssistantMessage = ChatCompletionMessageParam & { reasoning_content?: string };
@@ -84,8 +104,14 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         ? { max_tokens: configured.request.maxTokens }
         : {}),
       messages: this.toProviderMessages(input.messages),
-      ...(input.tools
-        ? { tools: this.toProviderTools(input.tools), tool_choice: 'auto' as const }
+      ...(input.tools || input.allowClarification
+        ? {
+            tools: [
+              ...(this.toProviderTools(input.tools) ?? []),
+              ...(input.allowClarification ? [CLARIFICATION_CONTROL_TOOL] : []),
+            ],
+            tool_choice: 'auto' as const,
+          }
         : {}),
       ...(profile.provider === 'deepseek'
         ? input.reasoningEffort === 'off'
@@ -151,10 +177,19 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       }
     }
 
-    const calls = [...pendingCalls.entries()]
+    const allCalls = [...pendingCalls.entries()]
       // 供应商可能交错返回多个工具调用，结束时恢复模型声明的原始顺序。
       .sort(([left], [right]) => left - right)
       .map(([, call]) => call);
+    const clarificationCalls = allCalls.filter((call) => call.name === CLARIFICATION_CONTROL_NAME);
+    const calls = allCalls.filter((call) => call.name !== CLARIFICATION_CONTROL_NAME);
+    if (clarificationCalls.length > 1 || (clarificationCalls.length && calls.length))
+      throw new Error('INVALID_CLARIFICATION_PROTOCOL');
+    if (clarificationCalls[0])
+      yield {
+        type: 'clarification.completed',
+        request: clarificationRequestSchema.parse(JSON.parse(clarificationCalls[0].arguments)),
+      };
     if (calls.length) yield { type: 'tool_calls.completed', calls };
     yield {
       type: 'round.completed',

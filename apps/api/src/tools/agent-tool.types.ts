@@ -43,6 +43,7 @@ export interface AgentTool<TInput = unknown, TOutput = unknown> {
   readonly inputErrorCode?: string;
   readonly executionPolicy: {
     timeoutMs: number;
+    approval?: 'auto_execute' | 'require_approval' | 'direct_reject';
   };
   // 返回当前工具对模型公开的 Function Calling 声明。
   definition(): AgentToolDefinition;

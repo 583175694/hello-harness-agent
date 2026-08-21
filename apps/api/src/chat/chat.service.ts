@@ -38,6 +38,12 @@ export type PreparedSessionStream = {
   model: string;
   reasoningEffort: ReasoningEffort;
   onTranscriptItem?: (message: ModelMessage) => void | Promise<void>;
+  onTranscriptFact?: (
+    fact: Extract<
+      import('../agent-runtime/agent-runtime.types').AgentRuntimeEvent,
+      { type: 'transcript.fact' }
+    >['fact'],
+  ) => void | Promise<void>;
   onCompactionState?: (state: CompactionState) => void;
 };
 
@@ -187,6 +193,10 @@ export class ChatService {
         else await prepared.onTranscriptItem?.(event.message);
         continue;
       }
+      if (event.type === 'transcript.fact') {
+        await prepared.onTranscriptFact?.(event.fact);
+        continue;
+      }
       if (event.type === 'text.delta') {
         // 只记录首个文本增量；逐片打印 SSE delta 会淹没真正有用的链路日志。
         if (firstDeltaAt === undefined) {
@@ -211,14 +221,17 @@ export class ChatService {
       }
       if (event.type === 'tool.started') {
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
+        const isApprovalTest = event.toolName === AGENT_TOOL_NAMES.approvalTest;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
-        const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
+        const searchInput = isFetch || isApprovalTest ? undefined : this.asSearchInput(event.input);
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           summary: fetchInput
             ? `读取 ${fetchInput.urls.length} 个网页`
-            : (searchInput?.query ?? ''),
+            : isApprovalTest
+              ? String((event.input as { message?: unknown }).message ?? '')
+              : (searchInput?.query ?? ''),
           startedAt: event.startedAt,
           roundId: event.roundId,
           roundSequence: event.roundSequence,
@@ -234,6 +247,20 @@ export class ChatService {
             toolName: AGENT_TOOL_NAMES.webFetch,
             title: block.title,
             input: fetchInput,
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (isApprovalTest) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.approvalTest,
+            title: block.title,
+            input: event.input as { message: string },
             startedAt: event.startedAt,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
@@ -258,8 +285,9 @@ export class ChatService {
       }
       if (event.type === 'tool.completed') {
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
+        const isApprovalTest = event.toolName === AGENT_TOOL_NAMES.approvalTest;
         const fetchResult = isFetch ? (event.output as WebFetchResult) : undefined;
-        const searchResult = isFetch ? undefined : (event.output as SearchToolResult);
+        const searchResult = isFetch || isApprovalTest ? undefined : (event.output as SearchToolResult);
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
         if (fetchResult && fetchInput) {
@@ -278,6 +306,13 @@ export class ChatService {
             durationMs: event.durationMs,
             result: searchResult,
           });
+        } else if (isApprovalTest) {
+          projection.recordApprovalTestCompleted({
+            toolCallId: event.toolCallId,
+            toolInput: event.input as { message: string },
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+          });
         }
         const blockId = conversation.completeTool({
           toolCallId: event.toolCallId,
@@ -285,7 +320,9 @@ export class ChatService {
           durationMs: event.durationMs,
           summary: fetchResult
             ? `成功 ${fetchResult.stats.succeededCount} 个，失败 ${fetchResult.stats.failedCount} 个，跳过 ${fetchResult.stats.skippedCount} 个，网络请求 ${fetchResult.stats.networkAttemptCount} 次，提取 ${fetchResult.stats.passageCount} 段原文`
-            : `找到 ${searchResult?.results.length ?? 0} 个结果`,
+            : isApprovalTest
+              ? '审批测试已完成'
+              : `找到 ${searchResult?.results.length ?? 0} 个结果`,
         });
         await notifyProjection();
         if (fetchResult) {
@@ -312,6 +349,20 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: searchResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (isApprovalTest) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.approvalTest,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: event.output as { echoed: string },
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -521,6 +572,17 @@ export class ChatService {
     if (toolName === AGENT_TOOL_NAMES.webSearch) {
       return { toolName: AGENT_TOOL_NAMES.webSearch, input: this.asSearchInput(input) } as const;
     }
+    if (
+      toolName === AGENT_TOOL_NAMES.approvalTest &&
+      typeof input === 'object' &&
+      input !== null &&
+      'message' in input &&
+      typeof input.message === 'string'
+    )
+      return {
+        toolName: AGENT_TOOL_NAMES.approvalTest,
+        input: { message: input.message },
+      } as const;
     return undefined;
   }
 

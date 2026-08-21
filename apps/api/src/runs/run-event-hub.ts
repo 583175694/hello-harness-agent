@@ -1,10 +1,21 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { protocolVersion } from '@harness/agent-protocol';
-import type { RunSnapshot, RunStreamEvent } from '@harness/agent-protocol';
+import type {
+  InterruptSnapshot,
+  PendingInterruptSnapshot,
+  RunSnapshot,
+  RunStreamEvent,
+} from '@harness/agent-protocol';
 import { ActiveRunRegistry } from './active-run.registry';
 import type { RunSubscriber } from './run.types';
 
 const MAX_SUBSCRIBER_QUEUE = 256;
+
+function pendingInterrupt(
+  interrupt: InterruptSnapshot,
+): PendingInterruptSnapshot | undefined {
+  return interrupt.status === 'pending' ? (interrupt as PendingInterruptSnapshot) : undefined;
+}
 
 @Injectable()
 export class RunEventHub {
@@ -188,6 +199,11 @@ export class RunEventHub {
   // EventHub 只归约 Run 外壳状态；正文、Blocks 和工具投影由同版本 Projection 覆盖。
   private reduceSnapshot(snapshot: RunSnapshot, event: RunStreamEvent): RunSnapshot {
     const payload = event.payload;
+    const createdInterrupt =
+      (event.type === 'interrupt.created' || event.type === 'run.waiting_for_user') &&
+      'interrupt' in payload
+        ? pendingInterrupt(payload.interrupt)
+        : undefined;
     const status =
       event.type === 'run.started'
         ? 'running'
@@ -206,6 +222,10 @@ export class RunEventHub {
       lastEventSequence: event.seq,
       ...(event.type.startsWith('run.') && 'control' in payload
         ? { control: payload.control }
+        : {}),
+      ...(createdInterrupt ? { activeInterrupt: createdInterrupt } : {}),
+      ...(event.type === 'interrupt.resolved' || event.type === 'interrupt.cancelled'
+        ? { activeInterrupt: undefined }
         : {}),
       ...(event.type === 'run.failed' && 'code' in payload
         ? { error: { code: payload.code, detail: payload.detail } }

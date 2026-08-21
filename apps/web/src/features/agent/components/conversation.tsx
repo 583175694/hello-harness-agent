@@ -27,7 +27,12 @@ import {
   DropdownMenuTrigger,
 } from '../../../components/ui/dropdown-menu';
 import type { AgentUiState, ServiceState, WorkbenchFocusTarget, WorkbenchState } from '../model/types';
-import type { PublicModelConfig, ReasoningEffort } from '@harness/agent-protocol';
+import type {
+  InterruptSnapshot,
+  PublicModelConfig,
+  ReasoningEffort,
+  ToolApprovalDecision,
+} from '@harness/agent-protocol';
 import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
 
@@ -170,6 +175,8 @@ export function Conversation({
   onPause,
   onResume,
   onCancel,
+  onClarificationRespond,
+  onApprovalSubmit,
   onReconnect,
   reasoningEffort = 'high',
   models = [],
@@ -190,6 +197,8 @@ export function Conversation({
   onPause?: () => void;
   onResume?: () => void;
   onCancel?: () => void;
+  onClarificationRespond?: (interruptId: string, answer: string) => void;
+  onApprovalSubmit?: (interruptId: string, decisions: ToolApprovalDecision[]) => void;
   onReconnect?: () => void;
   reasoningEffort?: ReasoningEffort;
   models?: PublicModelConfig[];
@@ -376,6 +385,9 @@ export function Conversation({
             onPause={onPause}
             onResume={onResume}
             onCancel={onCancel}
+            activeInterrupt={state.activeInterrupt ?? state.workbench?.activeInterrupt}
+            onClarificationRespond={onClarificationRespond}
+            onApprovalSubmit={onApprovalSubmit}
             controlState={state.workbench?.activityStatus}
             controlPhase={state.workbench?.controlPhase}
             reasoningEffort={reasoningEffort}
@@ -461,6 +473,9 @@ export function Composer({
   onPause,
   onResume,
   onCancel,
+  activeInterrupt,
+  onClarificationRespond,
+  onApprovalSubmit,
   controlState,
   controlPhase,
   reasoningEffort = 'high',
@@ -478,6 +493,9 @@ export function Composer({
   onPause?: () => void;
   onResume?: () => void;
   onCancel?: () => void;
+  activeInterrupt?: InterruptSnapshot;
+  onClarificationRespond?: (interruptId: string, answer: string) => void;
+  onApprovalSubmit?: (interruptId: string, decisions: ToolApprovalDecision[]) => void;
   controlState?: WorkbenchState['activityStatus'];
   controlPhase?: WorkbenchState['controlPhase'];
   reasoningEffort?: ReasoningEffort;
@@ -487,6 +505,8 @@ export function Composer({
   onReasoningEffortChange?: (value: ReasoningEffort) => void;
 }) {
   const composingRef = useRef(false);
+  const [answer, setAnswer] = useState('');
+  const [decisions, setDecisions] = useState<Record<string, 'approve' | 'reject'>>({});
   const placeholder =
     mode === 'steer'
       ? AGENT_UI_COPY.composerPlaceholders.steer
@@ -505,7 +525,10 @@ export function Composer({
         placeholder={placeholder}
         rows={3}
         value={prompt}
-        disabled={mode === 'disabled' || controlState === 'paused'}
+        disabled={
+          mode === 'disabled' || controlState === 'paused' || controlState === 'waiting_for_user'
+          || Boolean(activeInterrupt)
+        }
         onChange={(event) => onPromptChange(event.target.value)}
         onCompositionStart={() => {
           composingRef.current = true;
@@ -528,6 +551,81 @@ export function Composer({
           }
         }}
       />
+      {activeInterrupt?.kind === 'clarification' ? (
+        <div className="composer-hitl-panel" role="group" aria-label="需要补充信息">
+          <strong>{activeInterrupt.payload.question}</strong>
+          {activeInterrupt.payload.options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={answer === option ? 'text-button is-active' : 'text-button'}
+              onClick={() => setAnswer(option)}
+            >
+              {option}
+            </button>
+          ))}
+          {activeInterrupt.payload.allowFreeText ? (
+            <input
+              aria-label="澄清回答"
+              value={answer}
+              onChange={(event) => setAnswer(event.target.value)}
+            />
+          ) : null}
+          <button
+            className="send-button"
+            type="button"
+            disabled={!answer.trim() || !onClarificationRespond}
+            onClick={() => onClarificationRespond?.(activeInterrupt.interruptId, answer)}
+          >
+            提交回答
+          </button>
+        </div>
+      ) : null}
+      {activeInterrupt?.kind === 'tool_approval' ? (
+        <div className="composer-hitl-panel" role="group" aria-label="工具审批">
+          {activeInterrupt.payload.items.map((item) => (
+            <div className="approval-item" key={item.itemId}>
+              <strong>{item.toolName}</strong>
+              <span>{JSON.stringify(item.input)}</span>
+              <button
+                type="button"
+                className={decisions[item.itemId] === 'approve' ? 'text-button is-active' : 'text-button'}
+                onClick={() => setDecisions((current) => ({ ...current, [item.itemId]: 'approve' }))}
+              >
+                批准
+              </button>
+              <button
+                type="button"
+                className={decisions[item.itemId] === 'reject' ? 'text-button is-active' : 'text-button'}
+                onClick={() => setDecisions((current) => ({ ...current, [item.itemId]: 'reject' }))}
+              >
+                拒绝
+              </button>
+            </div>
+          ))}
+          <button
+            className="send-button"
+            type="button"
+            disabled={
+              !onApprovalSubmit ||
+              activeInterrupt.payload.items.some((item) => !decisions[item.itemId])
+            }
+            onClick={() =>
+              onApprovalSubmit?.(
+                activeInterrupt.interruptId,
+                activeInterrupt.payload.items.map((item) => ({
+                  itemId: item.itemId,
+                  toolCallId: item.toolCallId,
+                  argumentsHash: item.argumentsHash,
+                  decision: decisions[item.itemId]!,
+                })),
+              )
+            }
+          >
+            提交审批
+          </button>
+        </div>
+      ) : null}
       <div className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
         {mode === 'steer' || mode === 'clarification' ? (
           <div className="composer-hints">
@@ -568,6 +666,8 @@ export function Composer({
               {submitting &&
               controlState !== 'pause_requested' &&
               controlState !== 'resuming' &&
+              controlState !== 'waiting_for_user' &&
+              !activeInterrupt &&
               controlPhase !== 'final_answer' ? (
                 <button
                   className="icon-button"

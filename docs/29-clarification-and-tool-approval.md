@@ -1,8 +1,10 @@
 # Clarification & Tool Approval
 
+> Implementation status: implemented in protocol `0.13.0` (2026-08-21). HITL waits are in-process only; clarification facts use the transcript enum migration and tool-control outcomes use existing transcript metadata. Steer, durable Interrupt state, and restart recovery remain out of scope.
+
 > 阶段：K3.2 Release Control & Hardening
 >
-> 状态：方案冻结，尚未实现。
+> 状态：已实现并完成验证（2026-08-21）。
 >
 > 本阶段在 K3.1 Runtime Lifecycle 的进程内安全边界上增加两条业务路径：模型请求用户澄清，以及 Runtime 在 Tool Dispatch 前请求用户批准。Interrupt 是当前 API 进程内的等待对象，不新增控制面数据库表、字段或迁移；是否需要跨进程恢复的持久化 Control Plane，另行作为后续方案冻结。
 >

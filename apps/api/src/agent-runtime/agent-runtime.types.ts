@@ -1,4 +1,5 @@
 import type {
+  ClarificationRequest,
   ModelRoundObservation,
   ReasoningEffort,
   RunContextDebug,
@@ -26,6 +27,12 @@ export type AgentRuntimeEvent =
       type: 'model.round.completed';
       observation: ModelRoundObservation;
       context?: RunContextDebug;
+    }
+  | {
+      type: 'clarification.requested';
+      request: import('@harness/agent-protocol').ClarificationRequest;
+      roundId: string;
+      roundSequence: number;
     }
   | {
       type: 'text.delta';
@@ -84,6 +91,24 @@ export type AgentRuntimeEvent =
       blockSequence: number;
     }
   | { type: 'transcript.item'; message: ModelMessage }
+  | {
+      type: 'transcript.fact';
+      fact:
+        | {
+            kind: 'clarification_request';
+            interruptId: string;
+            roundId: string;
+            roundSequence: number;
+            request: ClarificationRequest;
+          }
+        | {
+            kind: 'clarification_response';
+            interruptId: string;
+            roundId: string;
+            roundSequence: number;
+            answer: string;
+          };
+    }
   | {
       type: 'run.completed';
       content: string;

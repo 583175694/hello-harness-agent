@@ -13,6 +13,7 @@ import {
 import type { Response } from 'express';
 import {
   createRunRequestSchema,
+  runControlCommandSchema,
   protocolVersion,
   type RunStreamEvent,
 } from '@harness/agent-protocol';
@@ -53,6 +54,18 @@ export class RunsController {
   @HttpCode(200)
   cancel(@Param('runId') runId: string) {
     return this.commands.cancel(runId);
+  }
+
+  @Post('runs/:runId/commands')
+  @HttpCode(200)
+  command(@Param('runId') runId: string, @Body() body: unknown) {
+    const result = runControlCommandSchema.safeParse(body);
+    if (!result.success)
+      throw new BadRequestException({
+        code: 'INVALID_RUN_COMMAND',
+        detail: '控制命令必须是 pause、resume 或 cancel。',
+      });
+    return this.commands.control(runId, result.data);
   }
 
   // 建立 Run 的 SSE 观察连接，并按 cursor 重放事件或发送 Snapshot。

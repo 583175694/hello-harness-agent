@@ -2,13 +2,13 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-18（Context Engineering 第一阶段基线与调试视图已完成）
+> 最后更新：2026-08-21（K3.1 Runtime Lifecycle 与进程内 Pause/Resume 已完成）
 
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 20 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P8 Connection-Durable 时序加固和 Context Engineering 第一阶段基线已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、steer、搜索 fallback 和 Delegation 仍未实现。
+当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段和 K3.1 Runtime Lifecycle 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界，Pause 只在完整 Tool Batch 后或下一轮模型请求前等待，Resume 继续同一个 Runtime。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、steer、搜索 fallback 和 Delegation 仍未实现。
 
 评估体系当前暂缓建设。相关实现、配置、命令、数据和专题文档已于 2026-08-17 移除；普通 unit、integration、E2E 与 `agent-testkit` 回归测试继续保留。后续评估能力作为独立模块重新设计，不再阻塞当前 Context Engineering 或功能开发。
 
@@ -323,9 +323,9 @@ git diff --check
 以下内容仍按 `docs/17-implementation-plan.md` 和相关契约文档执行，不能从 Preview 状态推断已经完成：
 
 - Artifact 持久化和正式 Report 恢复；Session/Message/Run/Step 和 assistant draft snapshot 已完成。
-- 服务端重启后自动接管执行中的 Run、多实例 Worker lease、Provider cursor 和通用 Tool 副作用幂等；当前重启遗留 active execution 收敛为 `RUN_INTERRUPTED`。K3.1 只新增 waiting / paused Run 的持久化查询与用户触发恢复，不接管崩溃时执行中的 Model / Tool。
+- 服务端重启后自动接管执行中的 Run、多实例 Worker lease、Provider cursor 和通用 Tool 副作用幂等；重启遗留 active execution 仍收敛为 `RUN_INTERRUPTED`。K3.1 Pause/Resume 仅存在于 API 进程内，重启、多实例切换和 Runtime Registry 丢失后的控制恢复不在承诺范围内。
 - 搜索 fallback；正式 Evidence、引用校验和 Markdown Report Artifact 不属于当前范围，是否进入后续 Deep Research 由未来产品需求决定。
-- steer、pause 和 Human-in-the-loop 尚未实现；独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
+- K3.1 Pause/Resume、Runtime Lifecycle Hook、统一 control command API 和控制 SSE 已实现；clarification、Tool Approval、steer 和 Human-in-the-loop 尚未实现。独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
 - Skills、user Memory、`NOTES.md`、`TODO.md`、Delegation、Worker 和多用户认证。
 - 长 Agent Loop 的 Goal Reminder/Attention Refresh 尚未实现；当前只保留最近消息、当前任务和 Tool Call/Result 协议完整性，等多来源 Context 形成真实需求后再建设相关性选择、优先级和预算分配。
 - 评估体系尚未重新设计；当前不存在可运行的 Benchmark、Judge、Grader 或正式 Baseline。
@@ -374,16 +374,16 @@ K1  Connection-Durable Runtime                  已完成
 K2  Context Engineering 第一阶段                 已完成
 K3  Release Control & Hardening                  下一阶段
     K3.1 Interrupt & Resume Kernel
-      - 安全边界、Pause / Control Resume、持久化 Interrupt、Checkpoint、CAS 和幂等恢复
-      - Cancel 只补充与 pending Interrupt、Resume 和终态事务的一致性，沿用现有取消能力
-    K3.2 Clarification & Tool Approval
+      - 进程内 Runtime 生命周期安全边界与 Pause / Resume
+      - Cancel 沿用现有 AbortController，并能唤醒 paused Runtime
+    K3.2 HITL：Clarification & Tool Approval
       - clarification → respond → 下一轮 Model Round
-      - tool_approval → approve / reject → Tool Step / Control Outcome
+      - tool_approval → approve / reject → 原 Dispatch Plan / Control Outcome
     K3.3 Steer & Follow-up Queue（K3.1/K3.2 完成后再讨论和冻结）
 
-K3.1 当前先实施 Interrupt & Resume Control Plane：以 `Model Round 完成`、`Tool Dispatch 前`、`Tool 完成并持久化` 为三个安全边界，完成持久化等待身份、显式 Resume、Checkpoint、状态 CAS、幂等和最低事件/Snapshot；不引入多实例 Worker lease、执行中自动接管或完整 Retry 平台。详见 [28-interrupt-resume-control-plane.md](./28-interrupt-resume-control-plane.md)。
+K3.1 第一批已完成 Runtime Lifecycle 重构：以 `before_model_request`、`model_round_classified`、`tool_dispatch_ready`、`tool_batch_committed`、`final_answer` 和 `terminal` 建立强类型边界，Pause Hook 只在完整 Tool Batch 后或下一轮模型请求前等待；不新增数据库表/字段，不持久化 Interrupt、Checkpoint、Command 或幂等键，不引入多实例 Worker lease。详见 [28-interrupt-resume-control-plane.md](./28-interrupt-resume-control-plane.md)。
 
-K3.2 方案已冻结：完成 `clarification Interrupt → respond → 下一轮 Model Round` 与 `tool_approval Interrupt → approve / reject` 两条路径，共用 Interrupt 持久化、等待和幂等恢复机制；暂不实现 `edit`、复杂审批策略和完整 Steer。详见 [29-clarification-and-tool-approval.md](./29-clarification-and-tool-approval.md)。
+K3.2 方案已冻结：只完成 `clarification Interrupt → respond → 下一轮 Model Round` 与 `tool_approval Interrupt → approve / reject` 两条 HITL 路径，复用 K3.1 生命周期边界和进程内等待机制，不包含 Steer 或 Follow-up Queue；是否增加 Interrupt 持久化、Checkpoint 和跨进程恢复，需另行冻结。详见 [29-clarification-and-tool-approval.md](./29-clarification-and-tool-approval.md)。
 
 实施顺序固定为 K3.1 → K3.2；两阶段端到端完成后再讨论 K3.3，不提前冻结 Steer 优先级、Queue 生命周期或前端交互。Retry Current Step、执行中自动接管、多实例 Worker、Provider/Search 韧性、系统性安全加固和完整评估/可观测平台移入后续 Backlog，不属于当前 K3 实施范围。
 

@@ -14,7 +14,7 @@ import {
 } from './web-fetch/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.11.0';
+export const protocolVersion = '0.12.0';
 
 export const reasoningEffortSchema = z.enum(['off', 'low', 'high', 'max']);
 export const reasoningCapabilitySchema = z.object({
@@ -453,6 +453,22 @@ export const agentRunStatusSchema = z.enum([
   'failed',
   'cancelled',
 ]);
+export const runtimeControlStateSchema = z.enum([
+  'running',
+  'pause_requested',
+  'paused',
+  'resuming',
+  'completed',
+  'cancel_requested',
+  'cancelled',
+  'failed',
+]);
+export const runtimePhaseSchema = z.enum(['tool_loop', 'final_answer', 'terminal']);
+export const runtimeControlSnapshotSchema = z.object({
+  runId: z.string().min(1),
+  state: runtimeControlStateSchema,
+  phase: runtimePhaseSchema,
+});
 export const assistantDeliveryStatusSchema = z.enum([
   'streaming',
   'completed',
@@ -491,12 +507,23 @@ export const runSnapshotSchema = z.object({
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().optional(),
   endedAt: z.string().datetime().optional(),
+  control: runtimeControlSnapshotSchema.optional(),
 });
 export const runEventPayloadSchema = z.union([
   chatStreamEventSchema,
   runSnapshotSchema,
   z.object({ status: agentRunStatusSchema }),
   z.object({ code: z.string().min(1), detail: z.string().min(1) }),
+  z.object({
+    type: z.enum([
+      'run.pause_requested',
+      'run.paused',
+      'run.resuming',
+      'run.resumed',
+      'run.phase_changed',
+    ]),
+    control: runtimeControlSnapshotSchema,
+  }),
 ]);
 // RunStreamEvent.seq 只负责传输去重、gap detection 与 Checkpoint 水位；
 // Snapshot Event 使用所携 Snapshot 的水位，不代表又发生了一次新的业务变化。
@@ -520,6 +547,11 @@ export const runStreamEventSchema = z.object({
     'run.completed',
     'run.failed',
     'run.cancelled',
+    'run.pause_requested',
+    'run.paused',
+    'run.resuming',
+    'run.resumed',
+    'run.phase_changed',
   ]),
   occurredAt: z.string().datetime(),
   payload: runEventPayloadSchema,
@@ -527,6 +559,14 @@ export const runStreamEventSchema = z.object({
 export const cancelRunResponseSchema = z.object({
   runId: z.string().min(1),
   status: z.enum(['cancel_requested', 'cancelled', 'completed', 'failed']),
+});
+export const runControlCommandSchema = z.object({
+  type: z.enum(['pause', 'resume', 'cancel']),
+});
+export const runControlResponseSchema = z.object({
+  runId: z.string().min(1),
+  control: runtimeControlSnapshotSchema,
+  snapshot: runSnapshotSchema,
 });
 
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
@@ -537,6 +577,9 @@ export type ModelContextProfile = z.infer<typeof modelContextProfileSchema>;
 export type ModelRoundObservation = z.infer<typeof modelRoundObservationSchema>;
 export type RunObservability = z.infer<typeof runObservabilitySchema>;
 export type RunContextDebug = z.infer<typeof runContextDebugSchema>;
+export type RuntimeControlSnapshot = z.infer<typeof runtimeControlSnapshotSchema>;
+export type RunControlCommand = z.infer<typeof runControlCommandSchema>;
+export type RunControlResponse = z.infer<typeof runControlResponseSchema>;
 export type PublicAgentConfig = z.infer<typeof publicAgentConfigSchema>;
 export type PublicModelConfig = z.infer<typeof publicModelConfigSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;

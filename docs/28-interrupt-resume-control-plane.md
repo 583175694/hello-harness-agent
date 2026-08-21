@@ -1,437 +1,445 @@
-# Interrupt & Resume Control Plane
+# Runtime Lifecycle & Interrupt/Resume Control
 
 > 阶段：K3.1 Release Control & Hardening
 >
-> 状态：方案冻结，尚未实现。
+> 状态：第一批已实现并验证（2026-08-21）
 >
-> 本文定义第一阶段的 Interrupt/Resume 基础语义。它建立可持久化、可幂等、按安全边界恢复的控制平面，为后续 `clarification`、`steer`、Tool approval 和 Human-in-the-loop 提供共同基础。
+> 当前实现采用同一 API 进程内的 Runtime 生命周期控制。它不持久化 Interrupt、Resume Command 或恢复 Checkpoint；K3.1 只交付安全边界、Pause/Resume/Cancel 和后续 HITL/Steer 所需的生命周期扩展点。
 
-## 1. 目标与非目标
+## 1. 当前决策
 
-### 1.1 目标
-
-本阶段解决：
-
-- Run 如何在安全边界暂停；
-- Interrupt 如何保存等待原因和恢复上下文；
-- 用户或外部控制方如何提交 Resume；
-- Semantic、Decision、Control 三类 Resume 如何选择后续路径；
-- 断线、重复提交和并发控制下如何保持幂等；
-- 已完成的 Model Round / Tool Step 如何避免重复执行。
-
-### 1.2 非目标
-
-本阶段不实现：
-
-- 完整的副作用风险分级和权限系统；
-- Tool 参数在线编辑；
-- 所有 Tool 的中途暂停和继续；
-- 服务端重启后对执行中 Model / Tool 的自动接管和续跑；
-- 多实例 Worker 接管；
-- 复杂的 Approval Policy UI。
-
-Tool 是否需要审批由受信任的 Tool Policy 和 Runtime 判断；本阶段只冻结 `approve / reject` 两种 Tool 决策，不引入 `edit`。
-
-已经持久化的 waiting / paused Interrupt 在服务重启后仍必须可查询，并允许由新的用户命令触发恢复；这里排除的是没有外部命令时自动接管执行中的 Runtime，不是排除持久化等待恢复。
-
-## 2. 核心术语
-
-### Interrupt
-
-Run 在安全边界产生的、要求外部输入或控制的持久化等待事实。Interrupt 不是异常，也不等同于取消；它表示 Run 预期可以在未来继续。
-
-### Resume
-
-针对一个 pending Interrupt 提交外部输入，并按照其语义选择下一条合法执行路径。Resume 不是固定的“从原位置继续”。
-
-### Clarification
-
-模型发现任务信息不足或存在歧义时，主动请求用户补充信息的语义型 Interrupt。第一阶段使用 `clarification`，不使用泛化的 `ask_user` 命名。
-
-### Steer
-
-用户在 Run 过程中提供的新任务方向、约束或补充要求。Steer 默认在下一个安全边界生效；它不是新的独立 Run，也不是对已经完成事实的改写。
-
-## 3. 三个安全边界
-
-第一阶段只围绕以下三个边界设计恢复语义：
+K3.1 不再把“暂停”实现为持久化 Run 状态，也不从 SSE 或前端事件推测暂停时机。控制权完全位于正在执行 Agent Loop 的 Runtime 内：
 
 ```text
-Model Round 完成
-Tool Dispatch 前
-Tool 完成并持久化
+用户提交控制意图
+→ RunExecutor 路由到当前进程内唯一 RuntimeLifecycleController
+→ Runtime 在显式生命周期边界仲裁
+→ 必要时 await
+→ Resume 唤醒同一个 Runtime Promise
+→ 继续原来的 Loop
 ```
 
-### 3.1 Model Round 完成
+本阶段的核心不变量：
 
-模型输出已经完整接收，reasoning、文本和 Tool Call 已通过协议校验，并形成 Round Checkpoint。此时可以：
+1. Pause 不创建新的 Executor 或 Async Generator。
+2. Resume 不重新加载 Transcript、不重新调用已完成模型轮次、不重复执行工具。
+3. Tool Batch 中间不暂停；`assistant(tool_calls)` 必须和全部 Tool Messages 闭合。
+4. 最终回答不暂停。
+5. SSE、Snapshot 和 Web 只观察 Runtime 状态，不参与控制决策。
+6. 数据库 Run 状态在暂停期间仍保持 `running`。
 
-- 处理模型发出的 `clarification`；
-- 消费用户 `steer`；
-- 决定是否进入 Tool Dispatch；
-- 在 Tool 尚未执行前放弃旧 Tool Call；
-- 进入下一轮 Model Round。
+## 2. 范围与限制
 
-这是主要的语义控制边界。
+### 2.1 K3.1 已实现
 
-### 3.2 Tool Dispatch 前
+- 每个本地执行 Run 一个进程内 `RuntimeLifecycleController`；
+- 强类型、固定顺序、串行执行的 Runtime 生命周期 Hook；
+- `pause_requested → paused → resuming → running` 控制流；
+- 完整 Tool Batch 后暂停；
+- 下一轮模型请求前捕获已经到达的 Pause；
+- Resume 继续同一个 Runtime；
+- Cancel 通过现有 AbortController 协作式中止，并能唤醒 paused Runtime；
+- 统一 Run Command API、SSE 控制事件和 Web Pause/Resume 状态；
+- 生命周期、工具顺序和暂停落点日志。
 
-Tool Call 已生成且参数已校验，但 Tool 尚未真正执行。此时 Runtime 进行确定性的控制仲裁：
+### 2.2 本阶段不实现
 
-- 无控制且 Policy 允许自动执行：直接执行 Tool；
-- Policy 要求用户决定：创建 `tool_approval` Interrupt；
-- 已有新的 `steer`：放弃未执行的 Tool Call，进入 Semantic Resume；
-- Run 被 pause：等待 Control Resume；
-- 违反权限或安全边界：直接拒绝，不创建 approval。
+- 持久化 Interrupt、Resume Command、幂等键或 Checkpoint；
+- 数据库 `paused`、`waiting_for_user` 状态；
+- 服务重启后的 Pause/Resume 恢复；
+- 多实例命令路由、Worker lease 或 Runtime 接管；
+- Clarification、Tool Approval、HITL 和 Steer；
+- Tool Batch 中间暂停；
+- 最终回答暂停；
+- Tool 参数编辑、Retry Current Step 或副作用补偿。
 
-### 3.3 Tool 完成并持久化
+在进程重启、多实例切换或 Runtime Registry 丢失后，Pause/Resume 返回 `RUNTIME_NOT_FOUND`，不会根据数据库 `running` 状态重建 Runtime。
 
-Tool Result 已产生，Tool Step 和对应 Transcript 已成功持久化。此时：
+## 3. Runtime 生命周期
 
-- 成功 Tool 不因 Resume 重复执行；
-- `steer` 影响下一轮 Model Context；
-- pause 可以阻止下一轮模型启动；
-- 失败 Tool 只有在错误策略允许且声明可重试时才进入 Retry；
-- Resume 通常进入下一轮 Model Round，而不是重新执行已成功 Tool。
+### 3.1 生命周期边界
 
-Tool 执行中只保证协作式取消，不默认保证中途 pause/resume。Tool 是否可取消、可恢复、幂等或可补偿属于后续 Tool Capability 约束。
-
-## 4. Interrupt 触发来源
-
-### 4.1 模型触发：Clarification
-
-模型在 Model Round 完成时判断信息不足或存在歧义，产生：
-
-```text
-clarification Interrupt
-→ Run waiting_for_user
-→ 用户提交语义回答
-→ Semantic Resume
-→ 下一轮 Model Round
-```
-
-模型只能请求澄清，不能决定 Tool 是否需要审批，也不能绕过 Runtime Policy。
-
-### 4.2 Runtime 触发：Tool Approval
-
-Runtime 根据受信任的 Tool Policy、当前参数、权限和环境判断是否允许自动执行：
-
-```text
-Tool Call
-→ tool_approval Interrupt
-→ 用户 approve / reject
-```
-
-第一阶段只支持：
-
-- `approve`：不重新调用模型，为原始 Tool Call 创建持久化 Tool Step 后执行；
-- `reject`：不执行 Tool，生成 `rejected_by_user` 控制结果，再进入下一轮 Model Round。
-
-### 4.3 Runtime 触发：Pause
-
-用户或系统在安全边界主动暂停 Run：
-
-```text
-安全边界
-→ pause Interrupt
-→ Run paused
-```
-
-Pause 本身不改变任务语义，也不要求模型重新思考。用户只点击 Resume 时，走 Control Resume；用户在 paused 状态发送 Steer 时，走 Semantic Resume。
-
-## 5. 三类 Resume
-
-### 5.1 Semantic Resume
-
-Resume 携带新的任务语义，包括 clarification 回答或 steer：
-
-```text
-Interrupt
-→ 用户新信息
-→ 如存在尚未执行的 Tool Call，则标记为 superseded
-→ 新信息进入 Context
-→ 下一轮 Model Round
-```
-
-Semantic Resume 不执行旧 Tool，也不先调用旧 Tool 再让模型修正。
-
-### 5.2 Decision Resume
-
-Resume 携带对既定 Tool 动作的明确决策：
-
-```text
-approve
-→ 为原 Tool Call 创建持久化 Tool Step
-→ Worker 执行
-→ Tool Result
-→ 下一轮 Model Round
-
-reject
-→ 不执行 Tool
-→ 生成拒绝结果
-→ 下一轮 Model Round
-```
-
-Decision Resume 不先重新调用模型。第一阶段不支持直接修改 Tool 参数；用户想改变搜索目标、范围或任务方向，应使用 Steer/clarification，触发 Semantic Resume。
-
-### 5.3 Control Resume
-
-用户仅恢复一个被暂停的 Run，不提供新的语义，也不作 Tool 决策：
-
-```text
-paused
-→ Control Resume
-→ 从下一个已确认的安全执行点继续
-```
-
-## 6. 用户 Steer 的特殊路径
-
-本节只冻结 K3.1 为未来 Steer 提供的安全边界，不属于 K3.1 实现或验收；Steer 的优先级、命令批次和 Queue 交互在 K3.3 重新讨论。Steer 是用户在 Run 中提交的新语义控制，其最早生效位置取决于当前阶段：
-
-```text
-Model Round 生成中
-  → 记录 pending steer，等待 Round 完成
-
-Model Round 完成、Tool 尚未 Dispatch
-  → supersede 当前 Tool Call
-  → Semantic Resume
-
-Tool 执行中
-  → 请求取消（若 Tool 支持）或等待 Tool 终态
-  → 下一轮消费 steer
-
-Tool 完成并持久化
-  → 保留 Tool Result
-  → 下一轮 Context 消费 steer
-
-Run paused
-  → Steer 同时解除等待
-  → 视为 Semantic Resume，不需要先点击普通 Resume
-```
-
-Steer 不重写已提交 Transcript，不删除模型已经产生过的 Tool Call，也不撤销已经发生的外部副作用。
-
-## 7. 旧 Tool Call 的闭合
-
-模型已经产生但因用户 Steer 而未执行的 Tool Call 仍是模型事实，不能从 Transcript 中删除。事实层必须以明确的控制结果闭合：
-
-```text
-tool control outcome:
-  executed: false
-  outcomeType: superseded
-  reason: user_intervened
-  retryable: false
-```
-
-Provider Adapter 再将该控制结果投影成匹配原 `toolCallId` 的 canonical Tool Message。`superseded` 不是网络失败，也不是普通 Tool Error；它表示原动作因用户新意图失效，下一轮模型应基于新的语义重新规划。
-
-## 8. 状态与幂等原则
-
-Interrupt/Resume 必须与现有 Run Snapshot、Checkpoint、Event Tail、SSE cursor 和状态 CAS 一致。
-
-基本不变量：
-
-1. 一个 pending Interrupt 只能被一个有效 Resume 解决。
-2. 相同幂等键和相同 payload 重复提交，返回相同结果，不重复执行 Tool 或推进 Run。
-3. 相同幂等键但 payload 不同，返回冲突。
-4. Terminal Run 不接受新的 Interrupt 或 Resume。
-5. 已提交的 Model Round、成功 Tool Step 和 Transcript 不因 Resume 重复执行。
-6. Interrupt 创建、解决、过期、取消和 Resume 结果都必须可恢复、可观察。
-
-## 9. 最低执行正确性
-
-K3.1 不建设完整分布式执行平台，但必须完成以下最低正确性，否则 K3.2 的 clarification 和 approval 只能在 happy path 下工作。
-
-### 9.1 持久化 Envelope 与 Resume Command
-
-Interrupt 和 Resume 使用稳定身份，不依赖 HTTP 连接、SSE 连接或进程内对象：
+Runtime 使用封闭联合类型声明边界：
 
 ```ts
-type InterruptEnvelope = {
-  id: string;
+type RuntimeLifecycleBoundary =
+  | 'before_model_request'
+  | 'model_round_classified'
+  | 'tool_dispatch_ready'
+  | 'tool_batch_committed'
+  | 'final_answer'
+  | 'terminal';
+```
+
+标准 Tool Loop 顺序：
+
+```text
+before_model_request
+→ Model Round
+→ model_round_classified
+→ tool_dispatch_ready
+→ Tool Batch
+→ tool_batch_committed
+→ before_model_request
+```
+
+无 Tool Calls 的最终轮：
+
+```text
+before_model_request
+→ Model Round
+→ model_round_classified(final_answer)
+→ final_answer
+→ RunExecutor 提交数据库终态
+→ terminal
+```
+
+### 3.2 边界 Context
+
+| Boundary                 | Context 与成立条件                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------------- |
+| `before_model_request`   | 下一轮 sequence、是否为强制无工具最终回答；模型请求尚未发出                                         |
+| `model_round_classified` | 稳定 Round ID/sequence、finish reason、`tool_calls \| final_answer` 分类、规范化 Tool Calls         |
+| `tool_dispatch_ready`    | 全部 Tool Calls 已补齐稳定 ID 和顺序，参数已解析或形成稳定拒绝结果；尚未发出任何 `tool.started`     |
+| `tool_batch_committed`   | 全部 Tool Event、canonical Tool Messages 和 Projection 已按原顺序交付；下一动作是模型请求或最终回答 |
+| `final_answer`           | 当前轮已确认没有 Tool Calls；该边界不可等待                                                         |
+| `terminal`               | RunExecutor 已成功提交 `completed \| cancelled \| failed` 数据库终态；该边界只观察、不阻塞          |
+
+这些边界是未来控制策略的生命周期挂载点，不代表当前 Pause 会在每个边界停下。
+
+### 3.3 Hook 约束
+
+`RuntimeLifecycleController.reach(boundary, context)` 按固定顺序串行调用 Hook：
+
+- Boundary 与 Context 都是强类型、只读输入；
+- Hook 不能直接调用模型或工具；
+- Hook 不能修改 Transcript、Projection 或广播 SSE；
+- Runtime 是唯一消费 Hook 结果并推进 Loop 的主体；
+- 普通 Hook 的同步异常或 Promise rejection 进入现有 Run 失败路径；
+- `terminal` 已在数据库终态提交之后，只允许观察，不能延迟或推翻终态；
+- 没有控制动作时返回 `undefined`，不创建已完成 Promise，也不让出事件循环。
+
+同步快速路径用于消除以下竞态：
+
+```text
+边界检查发现无需暂停
+→ await resolved promise 让出事件循环
+→ Pause 在下一轮模型请求前插入
+→ Runtime 却已经通过旧检查
+```
+
+当前实现只有 Pause Hook；K3.2 增加 typed Interrupt 和 HITL 策略，Steer 与 Follow-up Queue 留到 K3.3。
+
+## 4. 控制状态
+
+### 4.1 进程内状态
+
+```ts
+type RuntimeControlState =
+  | 'running'
+  | 'pause_requested'
+  | 'paused'
+  | 'resuming'
+  | 'completed'
+  | 'cancel_requested'
+  | 'cancelled'
+  | 'failed';
+
+type RuntimePhase = 'tool_loop' | 'final_answer' | 'terminal';
+```
+
+公开 Snapshot 只暴露稳定的粗粒度状态：
+
+```ts
+type RuntimeControlSnapshot = {
   runId: string;
-  kind: "clarification" | "tool_approval" | "pause";
-  status: "pending" | "resolved" | "superseded" | "cancelled" | "expired";
-  checkpointId: string;
-  version: number;
-  payload: unknown;
+  state: RuntimeControlState;
+  phase: RuntimePhase;
 };
-
-type RunCommandBase = {
-  commandId: string;
-  runId: string;
-  expectedRunVersion: number;
-  idempotencyKey: string;
-};
-
-type RunControlCommand = RunCommandBase &
-  (
-    | { commandType: "pause" | "cancel"; payload?: unknown }
-    | {
-        commandType: "resume";
-        interruptId: string;
-        resumeType: "semantic" | "decision" | "control";
-        payload: unknown;
-      }
-  );
 ```
 
-Envelope 和 Command payload 必须是可持久化的 JSON 值。Runtime 对命令做 canonical serialization 并保存 hash；相同幂等键只有在 command type、目标和 payload hash 全部相同时才视为重复请求。
+具体 Lifecycle Boundary 是 API 内部控制位置，不加入公共协议，也不作为前端业务状态。
 
-### 9.2 Run Status 与调度职责
+### 4.2 状态所有权
 
-K3.1 在现有 Run Status 中正式加入 `waiting_for_user` 和 `paused`，两者都属于 active、不可调度、非终态状态：
+- `RuntimeLifecycleController` 是进程内控制状态的唯一所有者；
+- `RuntimeLifecycleRegistry` 保证同一进程内一个 Run 只有一个 Controller；
+- `AgentRuntimeService` 只报告边界并等待 Controller；
+- `RunExecutor` 路由 Pause/Resume/Cancel，投影控制状态并提交 Run 终态；
+- `RunEventHub` 只分配 SSE sequence、保存 Live Snapshot 和广播；
+- Web 只应用 API/SSE 返回的状态，不根据按钮点击推导最终状态。
+
+## 5. Pause/Resume 语义
+
+### 5.1 当前 Pause 落点
+
+Pause Hook 只在两个边界允许等待：
 
 ```text
-running / queued → paused
-paused → queued → running
-
-running → waiting_for_user
-waiting_for_user → queued → running
-
-queued / waiting_for_user / paused → cancelled
-running → cancel_requested → cancelled | failed
+before_model_request
+tool_batch_committed
 ```
 
-- `waiting_for_user` 表示 clarification / tool approval 等外部语义或决策输入；`paused` 只表示执行控制暂停；
-- Resume 事务不直接启动执行，而是把 Run 转回 `queued` 并创建下一 Step / dispatch intent，再由现有 Executor CAS 领取为 `running`；
-- paused / waiting Run 没有执行中工作，Cancel 直接在同一事务进入 `cancelled` 并关闭 pending Interrupt，不经过 `cancel_requested`；
-- active Run 判断、Session 的单 active Run 唯一索引、Session Snapshot 和 Web active 状态都必须包含 `waiting_for_user` 与 `paused`，防止等待期间创建第二个 Run；
-- Run Status 只表达调度生命周期，等待原因和允许响应始终由 active Interrupt 决定。
+`model_round_classified`、`tool_dispatch_ready` 已存在，但 K3.1 不在这些位置暂停。它们由 K3.2 用于 Clarification 和 Tool Approval。
 
-### 9.3 单 Run 串行化与原子提交
-
-每个 Run 的状态改变必须通过数据库事务中的行锁或 `expectedRunVersion` CAS 串行化，不依赖多实例 lease：
-
-- 命令处理先查询 `idempotencyKey`：已存在且 canonical hash 相同则直接返回首次结果，hash 不同则冲突；只有新 key 才进入状态与版本校验；
-- 并发首次提交依赖幂等键唯一约束选出单一赢家，失败方读取赢家结果，不能再次推进 Run；
-- 创建 Interrupt 时，安全边界 Checkpoint、Interrupt、Run Status 和 UI Projection Checkpoint 在同一事务提交；
-- 解决 Interrupt 时，幂等记录、Interrupt 终态、用户回答或决策事实、下一 Step / dispatch intent、Run Status 和 UI Projection Checkpoint 在同一事务提交；
-- 事务提交后才向进程内 Event Tail / SSE 广播；如果提交后、广播前进程崩溃，客户端通过最新持久化 Snapshot 恢复，不为 K3.1 引入数据库 Event Log 或 Outbox；
-- 事务提交前不向客户端发布可见的状态变化；Snapshot 和 SSE 只能观察已提交事实；
-- CAS 失败返回冲突并重新读取 Snapshot，不能在旧状态上继续推进。
-
-Runtime 为接受的控制命令分配 Run 内单调递增的 sequence。K3.1 只要求串行、幂等和可审计；Steer 的批次水位与优先级仲裁在 K3.3 实现。
-
-### 9.4 Checkpoint 与恢复位置
-
-Checkpoint 只在三个安全边界提交，并明确记录下一合法动作：
+### 5.2 Model 正在执行时请求 Pause
 
 ```text
-round_committed
-  → 处理 clarification / control
-  → 或进入 Tool Policy 与 Dispatch
-
-tool_dispatch_ready
-  → 等待 approval / pause
-  → 或创建 Tool Step
-
-tool_result_committed
-  → 进入下一轮 Model Round
+Model Round 已开始
+→ Pause 进入 pause_requested
+→ 不 Abort 当前 Model
+→ Model 返回 Tool Calls
+→ 经过 classified / dispatch_ready，但不等待
+→ 按声明顺序执行完整 Tool Batch
+→ 提交全部 Tool Messages
+→ tool_batch_committed 进入 paused
 ```
 
-- 未提交的 Model 流式输出、半成品 Transcript 和执行中的 Tool 内部状态不能作为 Resume 起点；
-- Resume 只消费已提交 Checkpoint，不重新调用已提交 Model Round，也不重新执行已成功并持久化的 Tool Step；
-- 恢复逻辑根据 `checkpointId + resumeType` 选择后续路径，不能通过前端传入“从哪里继续”。
+用户点击 Pause 后看到当前 Round 新产生的文本和 Tool Calls，表示模型请求在 Pause 到达前已经发出，不代表 Runtime 又启动了一轮。
 
-### 9.5 Pause、Cancel 与终态竞态
-
-- Pause 只在安全边界生效；Model 或 Tool 正在执行时只记录 pause request，不承诺中途暂停；
-- `waiting_for_user` 已经不可调度，不再创建第二个 pause Interrupt；Pause 请求返回非法状态冲突，前端应禁用该操作；
-- K3.1 的 paused Run 只接受匹配的 Control Resume 或 Cancel；普通 Control Resume 不携带新任务语义。K3.3 接入后才允许 Steer 作为 Semantic Resume 解除 paused；
-- Cancel 与其他控制命令进入同一串行化路径；Runtime 在推进安全边界前优先检查已持久化 Cancel，再处理 Pause / Resume；
-- Run 终态一旦提交，后续 Resume 必须拒绝；Run 进入终态时，pending Interrupt 在同一事务转为 `cancelled`；
-- 已提交的完成事实不能被稍后到达的 Cancel 改写，Cancel 也不能撤销已经发生的外部副作用。
-
-### 9.6 进程重启边界
-
-- waiting / paused Run、pending Interrupt、Checkpoint 和幂等结果在进程重启后仍可查询；
-- 启动 reconciliation 不能把 waiting / paused Run 收敛为 `RUN_INTERRUPTED`；只有没有可恢复等待事实的 active execution 才沿用现有失败收敛；
-- 用户提交新的有效 Resume 后，Runtime 可以从持久化 Checkpoint 创建下一 Step 并继续；
-- 已持久化但尚未开始的 queued Step 可以在重启后重新调度；
-- 对崩溃时已经处于 Model / Tool 执行中的 Step，K3.1 不做自动接管或盲目重试；由具体 Step 的安全策略决定失败、查询结果或进入明确的不确定状态；
-- K3.1 不引入多实例 Worker lease、fencing 或分布式选主。
-
-### 9.7 最低事件与 Snapshot
-
-这不是完整可观测平台，但以下事实必须在数据库事务提交后进入现有 Event Tail / SSE，并始终能由持久化 Snapshot 恢复：
+### 5.3 Tool 正在执行时请求 Pause
 
 ```text
-interrupt_created
-interrupt_resolved
-interrupt_cancelled
-run_waiting_for_user
-run_paused
-run_resumed
-resume_rejected
+Tool Batch 执行中
+→ Pause 进入 pause_requested
+→ 不中断当前 Tool，也不在单个 Tool 之间暂停
+→ 执行并提交整个 Batch
+→ tool_batch_committed 进入 paused
 ```
 
-Snapshot 至少包含 `run.status`、`run.version`、最后提交的 `checkpointId` 和完整 `activeInterrupt`。客户端刷新或 SSE 重连后不能依赖本地 UI 状态猜测等待原因。
+### 5.4 边界间请求 Pause
 
-## 10. K3.1 验收标准
+如果 Pause 在上一批 `tool_batch_committed` 后、下一轮模型发出前到达，`before_model_request` 会捕获并等待。无 Pause 时该路径完全同步，不存在 resolved Promise 引入的竞态。
 
-- 在三个安全边界发起 Pause，均只从合法的下一动作恢复；
-- Model / Tool 执行中发起 Pause，不中断当前不可恢复动作，并在下一安全边界进入 paused；
-- 页面刷新、SSE 重连和服务重启后，waiting / paused 状态及 active Interrupt 保持一致；
-- 相同幂等键和相同 payload 的 Resume 返回相同结果，不重复推进；相同 key 不同 payload 返回冲突；
-- stale `expectedRunVersion`、错误 `interruptId`、错误 Resume Type 和 Terminal Run 的 Resume 均被拒绝；
-- Resume、Cancel 和完成竞态通过同一 CAS 路径收敛，不产生双终态或遗留 pending Interrupt；
-- Resume 不重复已提交 Model Round，不重复已成功并持久化的 Tool Step；
-- 事务失败时 Run、Interrupt、Checkpoint、Projection 和下一 Step 不出现部分提交；提交后 Event 未广播时，Snapshot 仍能表达完整状态；
-- queued 但未开始的 Step 可在重启后重新调度，执行中 Step 不被 K3.1 自动接管；
-- `git diff --check` 以及相关 protocol、API、integration 测试通过。
+### 5.5 最终回答
 
-## 11. 业界实现模式映射
+- Runtime 已知进入 `final_answer` 后，新的 Pause 返回 `RUN_FINAL_ANSWER_NOT_PAUSABLE`；
+- 如果 Pause 在一个尚未分类的 Model Round 执行中到达，而该 Round 最终返回无 Tool Calls，则最终完成优先，未消费 Pause 被 terminal 状态覆盖；
+- 最终回答完整输出并由 RunExecutor 正常提交 `completed`，不会遗留 `pause_requested` 或 `running` UI。
 
-- [LangGraph Interrupts](https://docs.langchain.com/oss/javascript/langgraph/interrupts)：采用持久化 Checkpointer、稳定 thread identity 和显式 Resume；恢复可能重新进入节点，因此副作用必须放在 Interrupt 之后或保持幂等。
-- [Temporal Activity Definition](https://docs.temporal.io/activity-definition)：已完成 Activity 不因 Workflow Replay 重复，但执行完成与结果提交之间仍存在崩溃窗口；写操作使用稳定幂等键，平台只保证可恢复调度，不凭空提供副作用 exactly-once。
-- [AWS Step Functions Callback](https://docs.aws.amazon.com/step-functions/latest/dg/connect-to-resource.html#connect-wait-token)：用持久化 Task Token 绑定等待点与外部响应，只有匹配的成功/失败回调才能推进 Workflow。
+### 5.6 Resume 与 Cancel
 
-K3.1 采用这些模式中的共同最小集合：持久化等待身份、显式 Resume、Checkpoint、安全边界、CAS 和幂等；不照搬其分布式 Worker、自动 Retry、Heartbeat 或复杂 Timeout 平台。
+- Resume 只接受 `paused`，将状态切换为 `resuming` 并 resolve 当前等待 Promise；
+- Promise 完成后状态回到 `running`，Runtime 从当前生命周期调用之后继续；
+- Resume 不创建新 Runtime，不重建 Context；
+- Cancel 把状态置为 `cancel_requested`、唤醒等待 Promise，并触发现有 AbortController；
+- Cancel 唤醒 paused Runtime 后不会产生 `run.resumed`，而是进入取消终态路径；
+- 重复 Pause、非 paused Resume、final/terminal Pause 和本地 Runtime 不存在都返回明确冲突。
 
-## 12. 第一阶段推荐流程
+## 6. Tool Dispatch 与 Transcript 正确性
 
-下图展示 Kernel 的完整接入位置：clarification / tool approval 在 K3.2 实现，Steer 在 K3.3 实现；K3.1 本身只交付通用 Interrupt/Resume、Pause、Checkpoint 和最低执行正确性。
+### 6.1 Dispatch Plan
+
+模型 Round 返回 Tool Calls 后，Runtime 在任何工具开始前生成完整 Dispatch Plan：
+
+```text
+原始 Tool Calls
+→ 补齐稳定 ID、blockSequence、providerIndex
+→ 按原声明顺序解析参数
+→ ready(input) 或 rejected(error)
+→ tool_dispatch_ready
+→ 按 Plan 顺序执行
+```
+
+参数无效、未知 Tool 或超过调用上限也形成稳定 rejected 项，并最终生成与原 `toolCallId` 匹配的 canonical Tool Message。
+
+### 6.2 Batch 闭合不变量
+
+在允许下一次模型请求之前必须满足：
+
+```text
+assistant(tool_calls: [A, B, C])
+→ tool(A)
+→ tool(B)
+→ tool(C)
+→ tool_batch_committed
+```
+
+不允许：
+
+```text
+assistant(tool_calls)
+→ 部分 tool results
+→ Pause/Resume 后直接请求模型
+```
+
+因此 K3.1 不会再产生供应商错误：
+
+```text
+An assistant message with 'tool_calls' must be followed by tool messages
+responding to each 'tool_call_id'.
+```
+
+Activity、Context、Transcript 和工具执行 Projection 都使用稳定 Round/Block/Tool Call 顺序；Resume 不重新生成这些事实。
+
+## 7. API、SSE 与 Web
+
+### 7.1 Command API
+
+```http
+POST /api/agent/runs/:runId/commands
+```
+
+请求：
+
+```json
+{ "type": "pause" }
+```
+
+```json
+{ "type": "resume" }
+```
+
+```json
+{ "type": "cancel" }
+```
+
+响应包含：
+
+```text
+runId
+control: RuntimeControlSnapshot
+snapshot: RunSnapshot
+```
+
+K3.1 命令不持久化 `commandId`、幂等键或 Run version。旧 Cancel 入口继续兼容。
+
+### 7.2 SSE 控制事件
+
+```text
+run.pause_requested
+run.paused
+run.resuming
+run.resumed
+run.phase_changed
+```
+
+事件由 Controller 状态变化产生。SSE 未连接、重连或消费延迟不会影响 Runtime 是否暂停。
+
+### 7.3 Web 状态
+
+| Control state/phase   | Web 行为                          |
+| --------------------- | --------------------------------- |
+| `running / tool_loop` | 显示 Pause、Cancel                |
+| `pause_requested`     | 显示“将在当前工具批次完成后暂停”  |
+| `paused`              | 显示 Resume、Cancel，禁用普通输入 |
+| `resuming`            | 显示恢复中                        |
+| `final_answer`        | 不允许 Pause，仅保留 Cancel       |
+| terminal              | 清除运行控制，显示正常终态        |
+
+数据库 Snapshot 在 Pause 期间仍显示 Run `running`；同一 API 进程存在时，Command/Snapshot 服务会合并 Registry 中的 Live Control Snapshot。该行为不承诺跨服务重启恢复。
+
+## 8. 后续扩展契约
+
+K3.1 提供生命周期机制，但没有实现 Interrupt 本身。K3.2 应在现有 Controller 上演进仅服务于 HITL 的 typed Interrupt Channel，而不是重新修改 Loop 骨架；K3.3 再独立接入 Steer 与 Follow-up Queue。
+
+推荐挂载位置：
+
+| 阶段 | 能力          | 入口与等待边界                                                 |
+| ---- | ------------- | -------------------------------------------------------------- |
+| K3.2 | Clarification | `model_round_classified` 确认模型澄清输出后等待用户语义回答    |
+| K3.2 | Tool Approval | `tool_dispatch_ready`，任何 Tool 尚未执行时等待 approve/reject |
+| K3.3 | Steer         | 具体注入边界、优先级与 Queue 语义在 K3.3 讨论和冻结            |
+| K3.1 | 普通 Pause    | 保持当前两个等待边界                                           |
+
+K3.2 需要新增但 K3.1 不预实现：
+
+- 稳定 `interruptId`、kind、payload 和 active Interrupt Snapshot；
+- 带 payload 的 semantic/decision/control Resolution；
+- Clarification answer 和 approval decision 写入正式 Transcript；
+- Approve 后执行原 Dispatch Plan；Reject 后生成匹配 Tool Call 的 synthetic Tool Result；
+- Resolution、Cancel 和迟到请求的进程内并发校验；
+- 长时间等待的超时、Cancel 和 Registry 清理。
+
+即使 Interrupt 控制状态仍只保存在内存，用户回答、审批结果和 synthetic Tool Result 仍必须作为会话语义事实持久化。Steer 消息的事实模型留到 K3.3 定义。
+
+## 9. 持久化 Control Plane 的后续条件
+
+仅当产品需要以下任一能力时，才重新设计持久化 Interrupt/Resume：
+
+- 服务重启后继续 waiting/paused Run；
+- 多实例命令路由或 Worker 接管；
+- 长时间 HITL 的可靠恢复；
+- 命令审计、幂等重放和跨进程并发控制；
+- 运维侧需要数据库准确区分 running 与 paused。
+
+届时不能只给 Run 增加 `paused` 状态，必须一起设计：
+
+```text
+持久化 Interrupt Envelope
++ 稳定 Checkpoint 和唯一下一动作
++ Resume Command 幂等/CAS
++ 已完成 Round/Tool 去重
++ queued dispatch intent
++ 重启 reconciliation
+```
+
+单独持久化 `paused` 会产生“数据库看起来可恢复，但原 Async Generator 和恢复位置已经丢失”的伪状态，当前阶段明确不采用。
+
+## 10. 实现位置
+
+- `apps/api/src/agent-runtime/runtime-lifecycle.ts`：生命周期类型、Controller、Pause Hook 和 Registry；
+- `apps/api/src/agent-runtime/agent-runtime.service.ts`：显式报告边界、生成 Dispatch Plan、执行 Agent Loop；
+- `apps/api/src/runs/run.executor.ts`：Runtime 生命周期实例、命令路由、SSE 投影和终态提交；
+- `apps/api/src/chat/chat.service.ts`：在 Runtime Event、Projection 和 Transcript 消费链路中传递 Controller；
+- `packages/agent-protocol/src/index.ts`：公开 Control Snapshot、Command、Response 和 SSE Schema；
+- Web Conversation/App：应用 Control Snapshot 并展示 Pause/Resume 状态。
+
+## 11. 验收结果
+
+自动化覆盖：
+
+- Tool Round 与最终 Round 生命周期顺序；
+- `tool_dispatch_ready` 的规范化调用顺序和解析参数；
+- 无控制时同步快速路径；
+- Hook 串行执行和错误传播；
+- 首轮模型请求前暂停；
+- Model 执行中 Pause，完整 Tool Batch 后暂停；
+- Resume 后只启动下一轮，工具不重复；
+- final answer Pause 冲突和未消费 Pause 的完成优先；
+- Cancel 唤醒 paused Runtime且不产生 Resume；
+- success、failure、invalid arguments、unknown tool、调用上限和 Transcript 配对回归。
+
+已执行：
+
+```text
+pnpm check
+pnpm test:integration
+pnpm test:e2e
+git diff --check
+```
+
+有头 `agent-browser` 真实验证了多轮 Web Search/Fetch：Pause 在完整 Tool Batch 后进入 paused，Resume 继续同一个 Run，Activity 与 API Snapshot 工具数量/顺序一致，最终进入 `completed / terminal`，未出现不完整 Tool Transcript 或重复 Runtime。
+
+## 12. 当前流程
 
 ```mermaid
 flowchart TD
-    A["Model Round 完成"] --> B{"模型输出类型"}
-    B -->|"clarification"| C["模型触发 clarification Interrupt"]
-    C --> D["Run waiting_for_user"]
-    D --> E["用户回答"]
-    E --> F["Semantic Resume"]
-    F --> A
+    A["before_model_request"] --> B["执行完整 Model Round"]
+    B --> C["model_round_classified"]
+    C -->|"无 Tool Calls"| D["final_answer，不等待"]
+    D --> E["提交 completed"]
+    E --> F["terminal"]
 
-    B -->|"Tool Call"| G["Tool 参数校验"]
-    G --> H{"Runtime 控制仲裁"}
-    H -->|"用户 Steer"| I["supersede 未执行 Tool Call"]
-    I --> F
-    H -->|"用户 Pause"| J["Pause Interrupt / Run paused"]
-    J --> K{"用户恢复方式"}
-    K -->|"普通 Resume"| L["Control Resume"]
-    L --> G
-    K -->|"发送 Steer"| F
-    H -->|"需要审批"| M["tool_approval Interrupt"]
-    M --> N{"用户决定"}
-    N -->|"approve"| O["持久化 Tool Step 并执行"]
-    N -->|"reject"| P["拒绝结果"]
-    P --> A
-    H -->|"自动执行"| O
-    O --> Q["Tool 完成并持久化"]
-    Q --> A
-    H -->|"违反策略"| R["直接拒绝"]
-    R --> A
-
-    B -->|"最终回答"| S["完成并进入终态"]
+    C -->|"有 Tool Calls"| G["构建完整 Dispatch Plan"]
+    G --> H["tool_dispatch_ready"]
+    H --> I["按顺序执行完整 Tool Batch"]
+    I --> J["提交全部 Tool Messages"]
+    J --> K["tool_batch_committed"]
+    K -->|"无 Pause"| A
+    K -->|"pause_requested"| L["paused / await"]
+    L -->|"Resume"| A
+    L -->|"Cancel"| M["Abort / cancelled"]
 ```
 
-## 13. 与后续阶段的关系
+## 13. 阶段关系
 
 ```text
-K3.1 Interrupt & Resume Kernel
-  → K3.2 Clarification & Tool Approval
-  → K3.3 Steer & Follow-up Queue
-  → K5 Human-in-the-loop & Side-effect Control
+K3.1 Runtime Lifecycle + In-process Pause/Resume（已完成）
+  → K3.2 HITL：Typed Interrupt + Clarification + Tool Approval
+  → K3.3 Steer + Follow-up Queue
+  → 需要时再设计持久化 Control Plane
+  → K5 Side-effect Policy、权限、审批审计与完整 HITL
 ```
 
-实施顺序固定为先完成并验证 K3.1，再实现 K3.2；K3.1/K3.2 端到端通过后再讨论和冻结 K3.3。Retry Current Step、执行中自动接管、多实例 Worker、Provider/Search 韧性、系统性安全加固和完整评估平台不属于当前 K3 范围。Tool 风险等级、用户权限、不可逆副作用确认和审批审计在 K5 中继续扩展。
+K3.2 必须复用这些生命周期边界和同一 Runtime 等待机制；不得回到 SSE 事件猜测暂停时机、Resume 重建 Runtime 或在未闭合 Tool Transcript 上继续请求模型的实现方式。

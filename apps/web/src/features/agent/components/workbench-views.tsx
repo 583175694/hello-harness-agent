@@ -97,7 +97,10 @@ export function WorkbenchShell({
               className={
                 id === 'activity' &&
                 state.activeView === id &&
-                (state.activityStatus === 'running' || state.activityStatus === 'cancelling')
+                (state.activityStatus === 'running' ||
+                  state.activityStatus === 'pause_requested' ||
+                  state.activityStatus === 'resuming' ||
+                  state.activityStatus === 'cancelling')
                   ? 'spin'
                   : ''
               }
@@ -168,7 +171,11 @@ function ActivityView({
   onSelect: (tool: ToolCallView) => void;
 }) {
   const { title, subtitle } = ACTIVITY_STATUS_COPY[status];
-  const isBusy = status === 'running' || status === 'cancelling';
+  const isBusy =
+    status === 'running' ||
+    status === 'pause_requested' ||
+    status === 'resuming' ||
+    status === 'cancelling';
   const selectedTool =
     focusTarget?.kind === 'tool_call'
       ? executions.find((tool) => tool.toolCallId === focusTarget.toolCallId)
@@ -191,7 +198,7 @@ function ActivityView({
             <CircleAlert size={20} />
           ) : status === 'cancelled' ? (
             <X size={20} />
-          ) : status === 'waiting' ? (
+          ) : status === 'waiting' || status === 'paused' || status === 'pause_requested' ? (
             <Clock3 size={20} />
           ) : status === 'completed' ? (
             <Check size={20} />

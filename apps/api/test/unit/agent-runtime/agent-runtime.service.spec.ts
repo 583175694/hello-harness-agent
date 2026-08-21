@@ -6,6 +6,11 @@ import { AgentRuntimeService } from '../../../src/agent-runtime/agent-runtime.se
 import type { ContextEngineeringService } from '../../../src/context-engineering/context-engineering.service';
 import type { ModelAdapter, ModelRoundInput } from '../../../src/model/model-adapter';
 import type { ToolRegistryService } from '../../../src/tools/tool-registry.service';
+import {
+  RuntimeLifecycleController,
+  type RuntimeLifecycleEvent,
+  type RuntimeLifecycleHook,
+} from '../../../src/agent-runtime/runtime-lifecycle';
 
 type RoundEvent =
   | { type: 'text.delta'; delta: string }
@@ -47,7 +52,11 @@ function registry(overrides: Partial<ToolRegistryService> = {}): ToolRegistrySer
 }
 
 // 收集 Runtime 事件直到 run.completed 或异常。
-async function collect(runtime: AgentRuntimeService, signal?: AbortSignal) {
+async function collect(
+  runtime: AgentRuntimeService,
+  signal?: AbortSignal,
+  lifecycle?: RuntimeLifecycleController,
+) {
   const events = [];
   for await (const event of runtime.run({
     sessionId: 'session-1',
@@ -56,6 +65,7 @@ async function collect(runtime: AgentRuntimeService, signal?: AbortSignal) {
     systemPrompt: 'test',
     messages: [{ role: 'user', content: 'hello' }],
     signal,
+    lifecycle,
   }))
     events.push(event);
   return events;
@@ -67,6 +77,145 @@ function logger(): Logger {
 }
 
 describe('AgentRuntimeService model-led tool boundary', () => {
+  it('reports strongly ordered lifecycle boundaries with prepared dispatch context', async () => {
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'call-1',
+              name: AGENT_TOOL_NAMES.webSearch,
+              arguments: '{"query":"market"}',
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '完成回答' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const observed: RuntimeLifecycleEvent[] = [];
+    const observer: RuntimeLifecycleHook = {
+      onBoundary(event) {
+        observed.push(event);
+        return undefined;
+      },
+    };
+    const lifecycle = new RuntimeLifecycleController('run-1', undefined, [observer]);
+
+    await collect(new AgentRuntimeService(model, registry(), logger()), undefined, lifecycle);
+
+    expect(observed.map(({ boundary }) => boundary)).toEqual([
+      'before_model_request',
+      'model_round_classified',
+      'tool_dispatch_ready',
+      'tool_batch_committed',
+      'before_model_request',
+      'model_round_classified',
+      'final_answer',
+    ]);
+    expect(observed[2]).toMatchObject({
+      boundary: 'tool_dispatch_ready',
+      context: {
+        roundSequence: 1,
+        dispatchPlan: [
+          {
+            status: 'ready',
+            call: { id: 'call-1', providerIndex: 0 },
+            input: { query: 'market' },
+          },
+        ],
+      },
+    });
+    expect(observed[3]).toMatchObject({
+      boundary: 'tool_batch_committed',
+      context: {
+        nextAction: 'model_request',
+        results: [{ toolCallId: 'call-1', status: 'succeeded' }],
+      },
+    });
+  });
+
+  it('pauses before the first model request without launching the model', async () => {
+    const model = modelFromRounds([
+      [
+        { type: 'text.delta', delta: '完成回答' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const lifecycle = new RuntimeLifecycleController('run-1');
+    lifecycle.requestPause();
+
+    const execution = collect(
+      new AgentRuntimeService(model, registry(), logger()),
+      undefined,
+      lifecycle,
+    );
+    await vi.waitFor(() => expect(lifecycle.snapshot().state).toBe('paused'));
+    expect(model.streamRound).not.toHaveBeenCalled();
+
+    lifecycle.resume();
+    await execution;
+    expect(model.streamRound).toHaveBeenCalledOnce();
+  });
+
+  it('finishes the in-flight model tool batch before pausing and resumes at the next round', async () => {
+    let releaseFirstRound!: () => void;
+    let reportFirstRoundStarted!: () => void;
+    const firstRoundStarted = new Promise<void>((resolve) => {
+      reportFirstRoundStarted = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseFirstRound = resolve;
+    });
+    let round = 0;
+    const model = {
+      streamRound: vi.fn(async function* () {
+        round += 1;
+        if (round === 1) {
+          reportFirstRoundStarted();
+          await release;
+          yield {
+            type: 'tool_calls.completed' as const,
+            calls: [
+              {
+                id: 'call-1',
+                name: AGENT_TOOL_NAMES.webSearch,
+                arguments: '{"query":"market"}',
+              },
+            ],
+          };
+          yield { type: 'round.completed' as const, finishReason: 'tool_calls' };
+          return;
+        }
+        yield { type: 'text.delta' as const, delta: '完成回答' };
+        yield { type: 'round.completed' as const, finishReason: 'stop' };
+      }),
+    } as unknown as ModelAdapter & { streamRound: ReturnType<typeof vi.fn> };
+    const tools = registry();
+    const lifecycle = new RuntimeLifecycleController('run-1');
+    const execution = collect(
+      new AgentRuntimeService(model, tools, logger()),
+      undefined,
+      lifecycle,
+    );
+
+    await firstRoundStarted;
+    lifecycle.requestPause();
+    releaseFirstRound();
+    await vi.waitFor(() => expect(lifecycle.snapshot().state).toBe('paused'));
+    expect(tools.execute).toHaveBeenCalledOnce();
+    expect(model.streamRound).toHaveBeenCalledOnce();
+
+    lifecycle.resume();
+    await execution;
+    expect(tools.execute).toHaveBeenCalledOnce();
+    expect(model.streamRound).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps reasoning in transcript items without emitting a user-facing reasoning event', async () => {
     const model = modelFromRounds([
       [
@@ -194,7 +343,10 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     ]);
     const compiledMessages = [
       { role: 'system' as const, content: 'test' },
-      { role: 'system' as const, content: '<compaction_summary>older history</compaction_summary>' },
+      {
+        role: 'system' as const,
+        content: '<compaction_summary>older history</compaction_summary>',
+      },
       { role: 'user' as const, content: 'hello' },
     ];
     const compactionState = {
@@ -218,20 +370,20 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         })),
     );
     const compileRound = vi
-        .fn()
-        .mockResolvedValueOnce({
-          messages: compiledMessages,
-          estimatedInputTokens: 43_000,
-          promptBudget: 116_326,
-          compactionTriggered: true,
-          compactionState,
-        })
-        .mockImplementation(async (input: { messages: ModelRoundInput['messages'] }) => ({
-          messages: input.messages,
-          estimatedInputTokens: 45_000,
-          promptBudget: 116_326,
-          compactionTriggered: false,
-        }));
+      .fn()
+      .mockResolvedValueOnce({
+        messages: compiledMessages,
+        estimatedInputTokens: 43_000,
+        promptBudget: 116_326,
+        compactionTriggered: true,
+        compactionState,
+      })
+      .mockImplementation(async (input: { messages: ModelRoundInput['messages'] }) => ({
+        messages: input.messages,
+        estimatedInputTokens: 45_000,
+        promptBudget: 116_326,
+        compactionTriggered: false,
+      }));
     const context = {
       compileRound,
       trimToolResults,

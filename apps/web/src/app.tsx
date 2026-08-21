@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 import {
   ApiProblem,
   cancelRun,
+  controlRun,
   createRun,
   createSession,
   deleteSession,
@@ -597,6 +598,19 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     if (snapshot.lastEventSequence < (runSequencesRef.current[snapshot.runId] ?? 0)) return;
     runSequencesRef.current[snapshot.runId] = snapshot.lastEventSequence;
     const active = ['queued', 'running', 'cancel_requested'].includes(snapshot.status);
+    const controlStatus = snapshot.control?.state;
+    const activityStatus =
+      controlStatus === 'paused' ||
+      controlStatus === 'pause_requested' ||
+      controlStatus === 'resuming'
+        ? controlStatus
+        : snapshot.status === 'cancelled'
+          ? ('cancelled' as const)
+          : snapshot.status === 'failed'
+            ? ('failed' as const)
+            : snapshot.status === 'completed'
+              ? ('completed' as const)
+              : ('running' as const);
     setSessionPending(sessionId, active);
     const restored = toConversationItem({
       id: snapshot.assistantMessageId,
@@ -638,14 +652,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       ? {
           ...restored.workbench,
           runId: snapshot.runId,
-          activityStatus:
-            snapshot.status === 'cancelled'
-              ? ('cancelled' as const)
-              : snapshot.status === 'failed'
-                ? ('failed' as const)
-                : snapshot.status === 'completed'
-                  ? ('completed' as const)
-                  : ('running' as const),
+          activityStatus,
+          ...(snapshot.control?.phase ? { controlPhase: snapshot.control.phase } : {}),
           executions: restored.workbench.executions.map((item) => ({
             ...item,
             runId: snapshot.runId,
@@ -740,6 +748,42 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
             ...target,
             ...(round.context ? { context: round.context } : {}),
             workbench,
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    if (
+      event.type === 'run.pause_requested' ||
+      event.type === 'run.paused' ||
+      event.type === 'run.resuming' ||
+      event.type === 'run.resumed' ||
+      event.type === 'run.phase_changed'
+    ) {
+      if (!('control' in event.payload)) return;
+      const control = event.payload.control;
+      if (!control) return;
+      setSessionPending(sessionId, true);
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            workbench: target.workbench
+              ? {
+                  ...target.workbench,
+                  activityStatus:
+                    control.state === 'paused' ||
+                    control.state === 'pause_requested' ||
+                    control.state === 'resuming'
+                      ? control.state
+                      : ('running' as const),
+                  controlPhase: control.phase,
+                }
+              : target.workbench,
           },
         };
       });
@@ -1266,6 +1310,30 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     }
   }
 
+  async function handlePause(): Promise<void> {
+    const sessionId = selectedSessionIdRef.current;
+    const runId = sessionId ? sessionStatesRef.current[sessionId]?.activeRunId : undefined;
+    if (!sessionId || !runId) return;
+    try {
+      const result = await controlRun(runId, 'pause');
+      applyRunSnapshot(sessionId, result.snapshot);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    }
+  }
+
+  async function handleResume(): Promise<void> {
+    const sessionId = selectedSessionIdRef.current;
+    const runId = sessionId ? sessionStatesRef.current[sessionId]?.activeRunId : undefined;
+    if (!sessionId || !runId) return;
+    try {
+      const result = await controlRun(runId, 'resume');
+      applyRunSnapshot(sessionId, result.snapshot);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    }
+  }
+
   // 以下派生状态统一决定当前 Conversation、Composer 和 Workbench 布局。
   const uiState = selectedSessionId
     ? (sessionStates[selectedSessionId] ?? {
@@ -1383,6 +1451,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
               onReasoningEffortChange={setReasoningEffort}
               onPromptChange={setPrompt}
               onSubmit={(event) => void handleSubmit(event)}
+              onPause={() => void handlePause()}
+              onResume={() => void handleResume()}
               onCancel={() => void handleCancel()}
             />
           </section>

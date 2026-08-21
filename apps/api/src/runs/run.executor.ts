@@ -9,6 +9,10 @@ import { RunEventHub } from './run-event-hub';
 import { RunRepository } from './run.repository';
 import { shortLogId } from '../shared/logging.utils';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
+import {
+  RuntimeLifecycleRegistry,
+  type RuntimeControlSnapshot,
+} from '../agent-runtime/runtime-lifecycle';
 
 @Injectable()
 export class RunExecutor implements OnModuleDestroy {
@@ -24,6 +28,7 @@ export class RunExecutor implements OnModuleDestroy {
     @Inject(RunRepository) private readonly repository: RunRepository,
     @Inject(SessionTitleService) private readonly titles: SessionTitleService,
     @Inject(Logger) private readonly logger: Logger,
+    @Inject(RuntimeLifecycleRegistry) private readonly lifecycles: RuntimeLifecycleRegistry,
   ) {}
 
   // 启动一个 Run 的后台执行，并防止同一进程重复启动。
@@ -34,11 +39,54 @@ export class RunExecutor implements OnModuleDestroy {
     this.executions.set(runId, execution);
   }
 
+  pause(runId: string): RuntimeControlSnapshot {
+    const lifecycle = this.lifecycles.get(runId);
+    if (!lifecycle) throw new Error('RUNTIME_NOT_FOUND');
+    const before = lifecycle.snapshot();
+    this.logger.log(
+      `用户请求暂停 | Run=${shortLogId(runId)} | 状态=${before.state} | 阶段=${before.phase}`,
+      RunExecutor.name,
+    );
+    const after = lifecycle.requestPause();
+    this.logger.log(
+      `暂停请求已进入 Runtime | Run=${shortLogId(runId)} | 状态=${after.state} | 阶段=${after.phase}`,
+      RunExecutor.name,
+    );
+    return after;
+  }
+
+  resume(runId: string): RuntimeControlSnapshot {
+    const lifecycle = this.lifecycles.get(runId);
+    if (!lifecycle) throw new Error('RUNTIME_NOT_FOUND');
+    const before = lifecycle.snapshot();
+    this.logger.log(
+      `用户请求恢复 | Run=${shortLogId(runId)} | 状态=${before.state} | 阶段=${before.phase}`,
+      RunExecutor.name,
+    );
+    const after = lifecycle.resume();
+    this.logger.log(
+      `恢复请求已唤醒 Runtime | Run=${shortLogId(runId)} | 状态=${after.state} | 阶段=${after.phase}`,
+      RunExecutor.name,
+    );
+    return after;
+  }
+
+  requestCancel(runId: string): void {
+    this.lifecycles.get(runId)?.requestCancel();
+  }
+
+  controlSnapshot(runId: string): RuntimeControlSnapshot | undefined {
+    return this.lifecycles.get(runId)?.snapshot();
+  }
+
   // 停止时中止所有本地 Run，并等待执行 Promise 收尾。
   async onModuleDestroy(): Promise<void> {
-    // 当前不支持 Runtime resume，进程关闭时主动 abort，并让 catch 路径收敛为 RUN_INTERRUPTED。
+    // 生命周期控制不跨进程恢复；关闭时主动 abort，并让 catch 路径收敛为 RUN_INTERRUPTED。
     this.shuttingDown = true;
-    for (const run of this.registry.values()) run.abortController.abort();
+    for (const run of this.registry.values()) {
+      this.lifecycles.get(run.runId)?.requestCancel();
+      run.abortController.abort();
+    }
     await Promise.allSettled(this.executions.values());
   }
 
@@ -47,6 +95,26 @@ export class RunExecutor implements OnModuleDestroy {
     const active = this.registry.get(runId);
     const stored = await this.repository.findOwned(runId);
     if (!active || !stored) return;
+    let lastControlState: RuntimeControlSnapshot['state'] = 'running';
+    let lastControlPhase: RuntimeControlSnapshot['phase'] = 'tool_loop';
+    const lifecycle = this.lifecycles.create(runId, (control) => {
+      if (control.state === lastControlState && control.phase === lastControlPhase) return;
+      const phaseChanged = control.phase !== lastControlPhase;
+      lastControlState = control.state;
+      lastControlPhase = control.phase;
+      const eventType = phaseChanged
+        ? 'run.phase_changed'
+        : control.state === 'pause_requested'
+          ? 'run.pause_requested'
+          : control.state === 'paused'
+            ? 'run.paused'
+            : control.state === 'resuming'
+              ? 'run.resuming'
+              : control.state === 'running'
+                ? 'run.resumed'
+                : undefined;
+      if (eventType) this.events.publish(runId, eventType, { type: eventType, control });
+    });
     const model = stored.model;
     // projection 是 Chat 业务状态；active.liveSnapshot 是加上 Run status/sequence 的传输快照。
     let projection: ChatProjectionSnapshot = {
@@ -121,6 +189,7 @@ export class RunExecutor implements OnModuleDestroy {
           onProjection: async (next) => {
             projection = next;
           },
+          lifecycle,
         },
       )) {
         if (event.type === 'message.completed') continue;
@@ -184,6 +253,8 @@ export class RunExecutor implements OnModuleDestroy {
       }
       this.events.checkpointCommitted(runId, active.liveSnapshot, draftVersion);
       this.events.broadcast(runId, terminal);
+      lifecycle.markTerminal('completed');
+      active.liveSnapshot = { ...active.liveSnapshot, control: lifecycle.snapshot() };
       void this.generateFirstTitle(stored.sessionId);
     } catch (error) {
       // 用户取消与进程关闭使用同一个 AbortSignal，但必须映射为不同、不可混淆的终态原因。
@@ -219,12 +290,15 @@ export class RunExecutor implements OnModuleDestroy {
       if (terminalCommitted) {
         this.events.checkpointCommitted(runId, active.liveSnapshot, draftVersion);
         this.events.broadcast(runId, terminal);
+        lifecycle.markTerminal(status);
+        active.liveSnapshot = { ...active.liveSnapshot, control: lifecycle.snapshot() };
       } else {
         this.events.rollback(runId, terminal, previousSnapshot);
         throw new Error('TERMINAL_CHECKPOINT_CONFLICT');
       }
     } finally {
       clearInterval(heartbeat);
+      this.lifecycles.dispose(runId);
       // 先关闭 SSE，再短暂保留 Active Run，允许刚错过 terminal 的客户端读取最终 Live Snapshot。
       this.events.close(runId);
       setTimeout(() => this.registry.remove(runId), 60_000).unref();

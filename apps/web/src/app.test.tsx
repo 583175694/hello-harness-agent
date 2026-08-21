@@ -27,7 +27,7 @@ function runFrame(
         }
       : payload;
   return `id: ${seq}\nevent: ${type}\ndata: ${JSON.stringify({
-    version: '0.11.0',
+    version: '0.12.0',
     eventId: `event-${seq}`,
     seq,
     sessionId,

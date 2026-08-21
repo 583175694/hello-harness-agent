@@ -1,6 +1,11 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { AGENT_ERROR_CODES, type CreateRunResponse } from '@harness/agent-protocol';
+import {
+  AGENT_ERROR_CODES,
+  type CreateRunResponse,
+  type RunControlCommand,
+  type RunControlResponse,
+} from '@harness/agent-protocol';
 import type { ChatProjectionSnapshot } from '../chat/chat.service';
 import { ActiveRunRegistry } from './active-run.registry';
 import { RunEventHub } from './run-event-hub';
@@ -121,7 +126,40 @@ export class RunCommandService {
     if (!snapshot) this.notFound();
     // Active Run 优先返回进程内 Latest Snapshot；Registry 不存在时退回 PostgreSQL Checkpoint。
     const live = this.registry.get(runId)?.liveSnapshot;
-    return live ?? snapshot;
+    const control = this.executor.controlSnapshot(runId);
+    return control ? { ...(live ?? snapshot), control } : live ?? snapshot;
+  }
+
+  async control(runId: string, command: RunControlCommand): Promise<RunControlResponse> {
+    if (command.type === 'cancel') await this.cancel(runId);
+    else {
+      try {
+        if (command.type === 'pause') this.executor.pause(runId);
+        else this.executor.resume(runId);
+      } catch (error) {
+        if (error instanceof ConflictException) throw error;
+        if (error instanceof Error && error.message === 'RUNTIME_NOT_FOUND')
+          throw new ConflictException({
+            code: 'RUNTIME_NOT_FOUND',
+            detail: '当前 API 进程没有该 Run 的可控制 Runtime。',
+          });
+        throw error;
+      }
+    }
+    const snapshot = await this.snapshot(runId);
+    const control = snapshot.control ?? {
+      runId,
+      state:
+        snapshot.status === 'completed'
+          ? ('completed' as const)
+          : snapshot.status === 'cancelled'
+            ? ('cancelled' as const)
+            : snapshot.status === 'failed'
+              ? ('failed' as const)
+              : ('running' as const),
+      phase: 'terminal' as const,
+    };
+    return { runId, control, snapshot };
   }
 
   // 请求取消 Run，并根据当前执行位置选择立即终止或交给 Executor 收尾。
@@ -152,6 +190,7 @@ export class RunCommandService {
     if (active) {
       // running Run 先公开 cancel_requested，再 abort 本地 Runtime，由 Executor 持久化最终 cancelled。
       this.events.publish(runId, 'run.cancel_requested', { status: 'cancel_requested' });
+      this.executor.requestCancel(runId);
       active.abortController.abort();
       return { runId, status: 'cancel_requested' as const };
     }

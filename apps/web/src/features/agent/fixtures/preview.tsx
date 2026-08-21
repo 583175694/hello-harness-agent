@@ -179,7 +179,12 @@ export function makeToolCalls(
   status: ActivityStatus,
   sourceCount: number,
 ): ToolCallView[] {
-  const currentStatus: ToolCallStatus = status;
+  const currentStatus: ToolCallStatus =
+    status === 'cancelling' || status === 'pause_requested' || status === 'paused' || status === 'resuming'
+      ? 'running'
+      : status === 'waiting'
+        ? 'waiting'
+        : status;
   return [
     {
       toolCallId: `${runId}-tool-1`,

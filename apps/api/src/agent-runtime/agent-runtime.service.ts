@@ -18,6 +18,13 @@ import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
 import { ContextEngineeringService } from '../context-engineering/context-engineering.service';
 import type { ToolResultCandidate } from '../context-engineering/context-engineering.types';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
+import type {
+  RuntimeLifecycleBoundary,
+  RuntimeLifecycleContextMap,
+  RuntimeLifecycleToolCall,
+  RuntimeToolDispatchItem,
+  RuntimeToolResultSummary,
+} from './runtime-lifecycle';
 
 class ToolExecutionTimeoutError extends Error {
   constructor() {
@@ -63,21 +70,32 @@ export class AgentRuntimeService {
     // 每次外层循环对应一次独立模型请求，也就是一个稳定的 Model Round。
     // 每一轮要么得到最终文本，要么执行工具并把结果追加到下一轮上下文。
     while (modelRounds <= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
+      if (input.signal?.aborted) throw this.abortError();
       modelRounds += 1;
+      const beforeModelWait = this.reachLifecycle(input, 'before_model_request', {
+        roundSequence: modelRounds,
+        finalResponseOnly,
+      });
+      if (beforeModelWait) await beforeModelWait;
+      if (input.signal?.aborted) throw this.abortError();
+      this.logger.log(
+        `模型 Loop 即将开始 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | 轮次=${modelRounds} | 阶段=${finalResponseOnly ? 'final_answer' : 'tool_loop'} | 暂停状态=${input.lifecycle?.snapshot().state ?? 'none'}`,
+        AgentRuntimeService.name,
+      );
       // 最终回答阶段从请求参数层面移除工具，不能只依赖 Prompt 约束模型。
       const definitions = finalResponseOnly ? undefined : this.tools.definitions();
       // 每次模型尝试都重新收集文本、工具调用和结束原因，污染重试不得混入上一轮内容。
       let compiled;
       try {
         compiled = this.context
-            ? await this.context.compileRound({
-                sessionId: input.sessionId,
-                model: input.model,
-                messages,
-                tools: definitions,
-                signal: input.signal,
-                ...(compactionState ? { compactionState } : {}),
-              })
+          ? await this.context.compileRound({
+              sessionId: input.sessionId,
+              model: input.model,
+              messages,
+              tools: definitions,
+              signal: input.signal,
+              ...(compactionState ? { compactionState } : {}),
+            })
           : { messages, estimatedInputTokens: 0, promptBudget: null, compactionTriggered: false };
       } catch (error) {
         if (error instanceof Error && error.message === 'CONTEXT_BUDGET_EXCEEDED') {
@@ -285,8 +303,27 @@ export class AgentRuntimeService {
           detail: '模型输出达到长度上限，本次回答未保存。',
         });
       }
+      // 某些兼容供应商可能缺失 Tool Call ID，为每个调用补齐稳定关联标识。
+      const normalizedCalls: RuntimeLifecycleToolCall[] = calls.map((call, callIndex) => ({
+        ...call,
+        id: call.id || crypto.randomUUID(),
+        blockSequence:
+          call.blockSequence ??
+          (textDeltas.length > 0 ? textBlockSequence + callIndex + 1 : callIndex),
+        providerIndex: call.providerIndex ?? callIndex,
+      }));
+      const classifiedWait = this.reachLifecycle(input, 'model_round_classified', {
+        roundId,
+        roundSequence: modelRounds,
+        finishReason,
+        outcome: normalizedCalls.length ? 'tool_calls' : 'final_answer',
+        toolCalls: normalizedCalls,
+      });
+      if (classifiedWait) await classifiedWait;
+      if (input.signal?.aborted) throw this.abortError();
+
       // Round outcome 只在完整消费供应商流后确认：无 Tool Call 才是最终正文。
-      if (!calls.length) {
+      if (!normalizedCalls.length) {
         const roundContent = textDeltas.join('');
         // 普通调查轮同样不能把纯空白结果当作成功交付。
         if (!roundContent.trim()) {
@@ -295,6 +332,12 @@ export class AgentRuntimeService {
             detail: '模型没有返回可显示的文本，请稍后重试。',
           });
         }
+        const finalAnswerWait = this.reachLifecycle(input, 'final_answer', {
+          roundId,
+          roundSequence: modelRounds,
+          finishReason,
+        });
+        if (finalAnswerWait) await finalAnswerWait;
         finalContent = visibleContent;
         const finalMessage: ModelMessage = {
           role: 'assistant',
@@ -313,15 +356,6 @@ export class AgentRuntimeService {
         });
       }
 
-      // 某些兼容供应商可能缺失 Tool Call ID，为每个调用补齐稳定关联标识。
-      const normalizedCalls = calls.map((call, callIndex) => ({
-        ...call,
-        id: call.id || crypto.randomUUID(),
-        blockSequence:
-          call.blockSequence ??
-          (textDeltas.length > 0 ? textBlockSequence + callIndex + 1 : callIndex),
-        providerIndex: call.providerIndex ?? callIndex,
-      }));
       // 先追加包含完整 Tool Calls 的 assistant message，后续必须为每个调用补齐 tool message。
       const assistantToolCallMessage: ModelMessage = {
         role: 'assistant',
@@ -338,19 +372,34 @@ export class AgentRuntimeService {
         candidate: ToolResultCandidate;
         event?: AgentRuntimeEvent;
         enterFinalAnswer: boolean;
+        summary: RuntimeToolResultSummary;
       }> = [];
+      type PreparedDispatch = Readonly<
+        | {
+            status: 'ready';
+            call: RuntimeLifecycleToolCall;
+            input: unknown;
+            enterFinalAnswer: boolean;
+          }
+        | {
+            status: 'rejected';
+            call: RuntimeLifecycleToolCall;
+            error: Readonly<{ code: string; detail: string; retryable: false }>;
+            enterFinalAnswer: boolean;
+          }
+      >;
+      const dispatchPlan: PreparedDispatch[] = [];
 
+      // Dispatch Plan 在任何工具开始前一次性完成，供生命周期策略安全审查。
       for (const call of normalizedCalls) {
         if (toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
-          pendingToolResults.push({
-            candidate: {
-              toolCallId: call.id,
-              toolName: call.name,
-              content: this.serializeToolError({
-                code: AGENT_ERROR_CODES.toolCallLimitExceeded,
-                detail: '工具调用已达到当前 assistant run 的次数上限。',
-                retryable: false,
-              }),
+          dispatchPlan.push({
+            status: 'rejected',
+            call,
+            error: {
+              code: AGENT_ERROR_CODES.toolCallLimitExceeded,
+              detail: '工具调用已达到当前 assistant run 的次数上限。',
+              retryable: false,
             },
             enterFinalAnswer: true,
           });
@@ -368,15 +417,13 @@ export class AgentRuntimeService {
         } catch (error) {
           const code =
             error instanceof Error ? error.message : AGENT_ERROR_CODES.invalidToolArguments;
-          pendingToolResults.push({
-            candidate: {
-              toolCallId: call.id,
-              toolName: call.name,
-              content: this.serializeToolError({
-                code,
-                detail: '工具参数无法通过 Schema 校验。',
-                retryable: false,
-              }),
+          dispatchPlan.push({
+            status: 'rejected',
+            call,
+            error: {
+              code,
+              detail: '工具参数无法通过 Schema 校验。',
+              retryable: false,
             },
             enterFinalAnswer: toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls,
           });
@@ -386,6 +433,47 @@ export class AgentRuntimeService {
           );
           continue;
         }
+
+        dispatchPlan.push({
+          status: 'ready',
+          call,
+          input: toolInput,
+          enterFinalAnswer: toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls,
+        });
+      }
+
+      const dispatchReadyWait = this.reachLifecycle(input, 'tool_dispatch_ready', {
+        roundId,
+        roundSequence: modelRounds,
+        dispatchPlan: dispatchPlan.map<RuntimeToolDispatchItem>((item) =>
+          item.status === 'ready'
+            ? { status: 'ready', call: item.call, input: item.input }
+            : { status: 'rejected', call: item.call, error: item.error },
+        ),
+      });
+      if (dispatchReadyWait) await dispatchReadyWait;
+      if (input.signal?.aborted) throw this.abortError();
+
+      for (const dispatch of dispatchPlan) {
+        const { call } = dispatch;
+        if (dispatch.status === 'rejected') {
+          pendingToolResults.push({
+            candidate: {
+              toolCallId: call.id,
+              toolName: call.name,
+              content: this.serializeToolError(dispatch.error),
+            },
+            enterFinalAnswer: dispatch.enterFinalAnswer,
+            summary: {
+              toolCallId: call.id,
+              toolName: call.name,
+              status: 'rejected',
+            },
+          });
+          continue;
+        }
+
+        const toolInput = dispatch.input;
 
         const startedAt = new Date();
         this.logger.log(
@@ -522,7 +610,17 @@ export class AgentRuntimeService {
                 : this.serializeToolError(result.error),
           },
           event,
-          enterFinalAnswer: toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls,
+          enterFinalAnswer: dispatch.enterFinalAnswer,
+          summary: {
+            toolCallId: call.id,
+            toolName: call.name,
+            status:
+              result.status === 'succeeded'
+                ? 'succeeded'
+                : result.status === 'cancelled'
+                  ? 'cancelled'
+                  : 'failed',
+          },
         });
       }
 
@@ -556,6 +654,15 @@ export class AgentRuntimeService {
         yield { type: 'transcript.item', message: messages.at(-1)! };
         if (pending.enterFinalAnswer) enterFinalAnswer();
       }
+      // assistant Tool Calls 与全部 Tool Messages 已由消费者按顺序提交，之后才允许控制策略等待。
+      const batchCommittedWait = this.reachLifecycle(input, 'tool_batch_committed', {
+        roundId,
+        roundSequence: modelRounds,
+        results: pendingToolResults.map(({ summary }) => summary),
+        nextAction: finalResponseOnly ? 'final_answer' : 'model_request',
+      });
+      if (batchCommittedWait) await batchCommittedWait;
+      if (input.signal?.aborted) throw this.abortError();
       // 整批 assistant Tool Calls 已逐一配对后，再追加一次无工具最终回答约束。
       if (finalResponseOnly && !finalInstructionAdded) {
         finalInstructionAdded = true;
@@ -578,6 +685,33 @@ export class AgentRuntimeService {
       toolCallCount,
       ...(compactionState ? { compactionState } : {}),
     };
+  }
+
+  private reachLifecycle<Boundary extends RuntimeLifecycleBoundary>(
+    input: AgentRuntimeInput,
+    boundary: Boundary,
+    context: RuntimeLifecycleContextMap[Boundary],
+  ): Promise<void> | undefined {
+    const wait = input.lifecycle?.reach(boundary, context);
+    const state = input.lifecycle?.snapshot();
+    this.logger.log(
+      `Runtime 生命周期边界 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | Boundary=${boundary} | 轮次=${this.lifecycleRoundSequence(context)} | 状态=${state?.state ?? 'none'} | 阶段=${state?.phase ?? 'none'}`,
+      AgentRuntimeService.name,
+    );
+    if (!wait) return;
+    return wait.then(() => {
+      const resumed = input.lifecycle?.snapshot();
+      this.logger.log(
+        `Runtime 生命周期等待结束 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | Boundary=${boundary} | 轮次=${this.lifecycleRoundSequence(context)} | 状态=${resumed?.state ?? 'none'} | 阶段=${resumed?.phase ?? 'none'}`,
+        AgentRuntimeService.name,
+      );
+    });
+  }
+
+  private lifecycleRoundSequence(
+    context: RuntimeLifecycleContextMap[RuntimeLifecycleBoundary],
+  ): string {
+    return 'roundSequence' in context ? String(context.roundSequence) : '-';
   }
 
   // 将客户端取消信号与单次模型请求的超时信号合并。

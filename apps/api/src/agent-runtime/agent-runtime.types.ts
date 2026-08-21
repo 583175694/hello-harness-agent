@@ -5,6 +5,7 @@ import type {
 } from '@harness/agent-protocol';
 import type { ModelMessage } from '../model/model-adapter';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
+import type { RuntimeLifecycleController } from './runtime-lifecycle';
 
 export type AgentRuntimeInput = {
   sessionId: string;
@@ -15,6 +16,7 @@ export type AgentRuntimeInput = {
   messages: ModelMessage[];
   reasoningEffort?: ReasoningEffort;
   signal?: AbortSignal;
+  lifecycle?: RuntimeLifecycleController;
 };
 
 // Runtime 事件只描述 Agent 语义和稳定业务位置，不携带 Run eventSequence；

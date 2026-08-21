@@ -204,6 +204,9 @@ export class RunEventHub {
       ...snapshot,
       status,
       lastEventSequence: event.seq,
+      ...(event.type.startsWith('run.') && 'control' in payload
+        ? { control: payload.control }
+        : {}),
       ...(event.type === 'run.failed' && 'code' in payload
         ? { error: { code: payload.code, detail: payload.detail } }
         : {}),

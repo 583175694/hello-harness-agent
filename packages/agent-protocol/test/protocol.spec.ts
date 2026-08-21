@@ -21,7 +21,7 @@ import {
 
 describe('foundation protocol', () => {
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.11.0');
+    expect(protocolVersion).toBe('0.12.0');
   });
 
   it('normalizes source URLs deterministically without deleting business parameters', () => {
@@ -171,7 +171,7 @@ describe('foundation protocol', () => {
     });
     expect(
       runStreamEventSchema.parse({
-        version: '0.11.0',
+        version: '0.12.0',
         eventId: 'event-1',
         seq: 0,
         sessionId: 'session-1',

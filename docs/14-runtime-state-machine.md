@@ -2,7 +2,7 @@
 
 > 文档状态：后续完整 durable Runtime 状态草案。当前 Connection-Durable Agent Loop 只冻结 `queued/running/cancel_requested/completed/failed/cancelled`，不实现 `waiting_for_user`、可恢复 `interrupted`、Checkpoint resume 或服务端重启自动续跑；具体以 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 为准。
 >
-> K3.1/K3.2 实施时，Interrupt/Resume、`waiting_for_user`、`paused`、恢复回到 `queued` 以及 Cancel 竞态以 [28-interrupt-resume-control-plane.md](./28-interrupt-resume-control-plane.md) 和 [29-clarification-and-tool-approval.md](./29-clarification-and-tool-approval.md) 为准。本文的 `interrupted`、`timeout`、Steer 和完整 Retry 状态仍是远期草案，不能覆盖 K3 已冻结契约。
+> 当前 K3.1 已实现的是进程内 Runtime Lifecycle `pause_requested/paused/resuming`，数据库仍只保存现有 Run 生命周期状态；不实现 `waiting_for_user`、持久化 `paused`、Checkpoint resume 或服务端重启自动续跑。后续持久化状态机和 K3.2 HITL 以 [28-interrupt-resume-control-plane.md](./28-interrupt-resume-control-plane.md) 为准。本文的 `interrupted`、`timeout`、Steer 和完整 Retry 状态仍是远期草案。
 
 ## 1. 原则
 

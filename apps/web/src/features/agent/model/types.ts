@@ -25,7 +25,15 @@ export type PreviewState =
   | 'fetch-failed';
 export type WorkspaceView = 'activity' | 'context' | 'sources' | 'report';
 export type ActivityStatus =
-  'running' | 'completed' | 'waiting' | 'cancelling' | 'cancelled' | 'failed';
+  | 'running'
+  | 'completed'
+  | 'waiting'
+  | 'pause_requested'
+  | 'paused'
+  | 'resuming'
+  | 'cancelling'
+  | 'cancelled'
+  | 'failed';
 export type ToolCallStatus =
   'pending' | 'running' | 'waiting' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
 
@@ -94,6 +102,7 @@ export type WorkbenchState = {
   subtitle: string;
   activeView: WorkspaceView;
   activityStatus?: ActivityStatus;
+  controlPhase?: 'tool_loop' | 'final_answer' | 'terminal';
   executions: ToolCallView[];
   focusTarget?: WorkbenchFocusTarget;
   followMode: 'auto' | 'pinned';

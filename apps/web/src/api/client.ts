@@ -1,5 +1,6 @@
 import {
   cancelRunResponseSchema,
+  runControlResponseSchema,
   createRunResponseSchema,
   createSessionResponseSchema,
   deleteSessionResponseSchema,
@@ -23,6 +24,7 @@ import type {
   SessionSummary,
   RunSnapshot,
   RunStreamEvent,
+  RunControlResponse,
   UpdateSessionRequest,
   ReasoningEffort,
   PublicAgentConfig,
@@ -151,6 +153,18 @@ export async function getRun(runId: string, signal?: AbortSignal): Promise<RunSn
 export async function cancelRun(runId: string): Promise<CancelRunResponse> {
   const response = await fetch(`${apiBaseUrl}/api/agent/runs/${runId}/cancel`, { method: 'POST' });
   return cancelRunResponseSchema.parse(await parseResponse(response));
+}
+
+export async function controlRun(
+  runId: string,
+  type: 'pause' | 'resume' | 'cancel',
+): Promise<RunControlResponse> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/runs/${runId}/commands`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ type }),
+  });
+  return runControlResponseSchema.parse(await parseResponse(response));
 }
 
 // 独立订阅 Run；连接关闭只结束观察，不向后端发送取消命令。

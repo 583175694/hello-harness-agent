@@ -5,6 +5,8 @@ import {
   CircleUserRound,
   Copy,
   LoaderCircle,
+  Pause,
+  Play,
   Send,
   SlidersHorizontal,
   Sparkles,
@@ -24,7 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../../../components/ui/dropdown-menu';
-import type { AgentUiState, ServiceState, WorkbenchFocusTarget } from '../model/types';
+import type { AgentUiState, ServiceState, WorkbenchFocusTarget, WorkbenchState } from '../model/types';
 import type { PublicModelConfig, ReasoningEffort } from '@harness/agent-protocol';
 import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
@@ -165,6 +167,8 @@ export function Conversation({
   composerMode,
   onPromptChange,
   onSubmit,
+  onPause,
+  onResume,
   onCancel,
   onReconnect,
   reasoningEffort = 'high',
@@ -183,6 +187,8 @@ export function Conversation({
   composerMode: 'new-run' | 'steer' | 'clarification' | 'disabled';
   onPromptChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onPause?: () => void;
+  onResume?: () => void;
   onCancel?: () => void;
   onReconnect?: () => void;
   reasoningEffort?: ReasoningEffort;
@@ -367,7 +373,11 @@ export function Conversation({
             mode={composerMode}
             onPromptChange={onPromptChange}
             onSubmit={handleComposerSubmit}
+            onPause={onPause}
+            onResume={onResume}
             onCancel={onCancel}
+            controlState={state.workbench?.activityStatus}
+            controlPhase={state.workbench?.controlPhase}
             reasoningEffort={reasoningEffort}
             models={models}
             selectedModel={selectedModel}
@@ -448,7 +458,11 @@ export function Composer({
   mode,
   onPromptChange,
   onSubmit,
+  onPause,
+  onResume,
   onCancel,
+  controlState,
+  controlPhase,
   reasoningEffort = 'high',
   models = [],
   selectedModel = '',
@@ -461,7 +475,11 @@ export function Composer({
   mode: 'new-run' | 'steer' | 'clarification' | 'disabled';
   onPromptChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onPause?: () => void;
+  onResume?: () => void;
   onCancel?: () => void;
+  controlState?: WorkbenchState['activityStatus'];
+  controlPhase?: WorkbenchState['controlPhase'];
   reasoningEffort?: ReasoningEffort;
   models?: PublicModelConfig[];
   selectedModel?: string;
@@ -487,7 +505,7 @@ export function Composer({
         placeholder={placeholder}
         rows={3}
         value={prompt}
-        disabled={mode === 'disabled'}
+        disabled={mode === 'disabled' || controlState === 'paused'}
         onChange={(event) => onPromptChange(event.target.value)}
         onCompositionStart={() => {
           composingRef.current = true;
@@ -534,20 +552,50 @@ export function Composer({
               onReasoningEffortChange={onReasoningEffortChange}
             />
           ) : null}
-          <button
-            className="send-button"
-            type={submitting ? 'button' : 'submit'}
-            aria-label={submitting ? '停止任务' : '发送任务'}
-            title={submitting ? '停止任务' : '发送任务'}
-            disabled={
-              submitting
-                ? !onCancel
-                : !prompt.trim() || serviceState !== 'ready' || mode === 'disabled'
-            }
-            onClick={submitting ? onCancel : undefined}
-          >
-            {submitting ? <Square size={14} fill="currentColor" /> : <Send size={18} />}
-          </button>
+          {submitting && controlState === 'paused' ? (
+            <button
+              className="send-button"
+              type="button"
+              aria-label="恢复任务"
+              title="恢复任务"
+              disabled={!onResume}
+              onClick={onResume}
+            >
+              <Play size={16} fill="currentColor" />
+            </button>
+          ) : (
+            <>
+              {submitting &&
+              controlState !== 'pause_requested' &&
+              controlState !== 'resuming' &&
+              controlPhase !== 'final_answer' ? (
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label="暂停任务"
+                  title="暂停任务"
+                  disabled={!onPause}
+                  onClick={onPause}
+                >
+                  <Pause size={16} fill="currentColor" />
+                </button>
+              ) : null}
+              <button
+                className="send-button"
+                type={submitting ? 'button' : 'submit'}
+                aria-label={submitting ? '停止任务' : '发送任务'}
+                title={submitting ? '停止任务' : '发送任务'}
+                disabled={
+                  submitting
+                    ? !onCancel
+                    : !prompt.trim() || serviceState !== 'ready' || mode === 'disabled'
+                }
+                onClick={submitting ? onCancel : undefined}
+              >
+                {submitting ? <Square size={14} fill="currentColor" /> : <Send size={18} />}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </form>

@@ -8,6 +8,7 @@ import { RunEventHub } from './run-event-hub';
 import { RunExecutor } from './run.executor';
 import { RunRepository } from './run.repository';
 import { RunsController } from './runs.controller';
+import { RuntimeLifecycleRegistry } from '../agent-runtime/runtime-lifecycle';
 
 @Module({
   imports: [ChatModule, ModelModule],
@@ -19,6 +20,7 @@ import { RunsController } from './runs.controller';
     RunExecutor,
     RunCommandService,
     SessionTitleService,
+    RuntimeLifecycleRegistry,
   ],
   exports: [RunCommandService, RunRepository, ActiveRunRegistry],
 })

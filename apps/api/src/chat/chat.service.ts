@@ -27,6 +27,7 @@ import type { ModelMessage } from '../model/model-adapter';
 import type { ReasoningEffort } from '@harness/agent-protocol';
 import { getDefaultModel } from '../model/model-catalog';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
+import type { RuntimeLifecycleController } from '../agent-runtime/runtime-lifecycle';
 
 export type PreparedSessionStream = {
   sessionId: string;
@@ -127,6 +128,7 @@ export class ChatService {
     options: {
       persistFinal?: boolean;
       onProjection?: (snapshot: ChatProjectionSnapshot) => void | Promise<void>;
+      lifecycle?: RuntimeLifecycleController;
     } = {},
   ): AsyncGenerator<ChatStreamEvent> {
     const model = prepared.model;
@@ -171,6 +173,7 @@ export class ChatService {
       messages: prepared.messages,
       reasoningEffort: prepared.reasoningEffort,
       signal,
+      lifecycle: options.lifecycle,
     })) {
       if (event.type === 'model.round.completed') {
         modelRounds.push(event.observation);

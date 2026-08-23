@@ -691,6 +691,15 @@ textarea:focus-visible {
   transform: translateX(0);
 }
 .markdown-content {
+  /* Streamdown consumes these shadcn-compatible tokens. Values mirror the
+     existing markdown palette so its data-streamdown primitives inherit the
+     same visual treatment as the legacy renderer. */
+  --primary: 207 31% 36%;
+  --muted: 60 6% 96%;
+  --muted-foreground: 60 2% 40%;
+  --border: 60 4% 87%;
+  --ring: 60 3% 43%;
+  --radius: 7px;
   --markdown-heading: #222220;
   --markdown-muted: #686864;
   --markdown-link: #3f5f78;
@@ -716,6 +725,21 @@ textarea:focus-visible {
   margin-top: 0;
 }
 .markdown-content > :last-child {
+  margin-bottom: 0;
+}
+/* Streamdown wraps parsed blocks in a spacing utility. Our existing Markdown
+   rules own block margins, so neutralize that utility to preserve the old
+   rhythm exactly. */
+.markdown-content > .streamdown-markdown {
+  display: contents;
+}
+.markdown-content > .streamdown-markdown > * + * {
+  margin-top: 0;
+}
+.markdown-content > .streamdown-markdown > :first-child {
+  margin-top: 0;
+}
+.markdown-content > .streamdown-markdown > :last-child {
   margin-bottom: 0;
 }
 .markdown-content p {
@@ -936,6 +960,91 @@ textarea:focus-visible {
   border-radius: 7px;
   background: var(--theme-surface);
 }
+
+/* Streamdown's styling contract exposes stable data attributes. Keep these
+   scoped to our existing wrapper so the visual system remains unchanged. */
+.markdown-content [data-streamdown='heading-1'],
+.markdown-content [data-streamdown='heading-2'],
+.markdown-content [data-streamdown='heading-3'],
+.markdown-content [data-streamdown='heading-4'],
+.markdown-content [data-streamdown='heading-5'],
+.markdown-content [data-streamdown='heading-6'] {
+  color: var(--markdown-heading);
+  font-weight: 680;
+  line-height: 1.32;
+  text-wrap: balance;
+}
+.markdown-content [data-streamdown='link'] {
+  color: var(--markdown-link);
+  font-weight: 520;
+  text-decoration: underline;
+  text-decoration-color: rgb(63 95 120 / 38%);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.markdown-content [data-streamdown='inline-code'] {
+  padding: 2px 5px;
+  border: 1px solid #e1e1dd;
+  border-radius: 4px;
+  color: #343432;
+  background: var(--markdown-surface-strong);
+  font-size: 0.9em;
+  white-space: break-spaces;
+}
+.markdown-content [data-streamdown='blockquote'] {
+  margin: 12px 0 var(--markdown-flow-space);
+  padding: 2px 0 2px 13px;
+  border-left: 2px solid #cfcfca;
+  color: var(--markdown-muted);
+}
+.markdown-content [data-streamdown='horizontal-rule'] {
+  height: 1px;
+  margin: 20px 0;
+  border: 0;
+  background: var(--markdown-border-subtle);
+}
+.markdown-content [data-streamdown='code-block'] {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 12px 0 var(--markdown-flow-space);
+  border: 1px solid #e0e0dc;
+  border-radius: 7px;
+  background: var(--markdown-surface);
+  color: #30302e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.markdown-content [data-streamdown='table-wrapper'] {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 12px 0 var(--markdown-flow-space);
+  border: 1px solid var(--markdown-border);
+  border-radius: 7px;
+  background: var(--theme-surface);
+}
+.markdown-content [data-streamdown='table'] {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.93em;
+}
+.markdown-content [data-streamdown='table-header-cell'],
+.markdown-content [data-streamdown='table-cell'] {
+  min-width: 112px;
+  padding: 7px 9px;
+  border-right: 1px solid var(--markdown-border);
+  border-bottom: 1px solid var(--markdown-border);
+  overflow-wrap: anywhere;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.markdown-content [data-streamdown='table-header-cell'] {
+  color: #3d3d3a;
+  background: var(--theme-sidebar);
+  font-weight: 650;
+}
 .assistant-content {
   max-width: 680px;
   color: #30302f;
@@ -989,14 +1098,6 @@ textarea:focus-visible {
 }
 .composer-wrap.is-running {
   padding-top: 20px;
-}
-.composer-running-indicator {
-  position: absolute;
-  top: 2px;
-  left: 4px;
-  display: flex;
-  align-items: center;
-  color: #777773;
 }
 .activity-bars {
   display: inline-flex;

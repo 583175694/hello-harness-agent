@@ -110,10 +110,12 @@ const AssistantMessage = memo(
   function AssistantMessage({
     item,
     showThinking,
+    isAnimating,
     onFocusWorkbench,
   }: {
     item: AssistantItem;
     showThinking: boolean;
+    isAnimating: boolean;
     onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
   }) {
     const text = flattenAssistantText(item.blocks);
@@ -141,7 +143,7 @@ const AssistantMessage = memo(
             {item.blocks.map((block) =>
               block.type === 'text' ? (
                 <div className="assistant-text-block" key={block.id}>
-                  <MarkdownContent>{block.content}</MarkdownContent>
+                  <MarkdownContent isAnimating={isAnimating}>{block.content}</MarkdownContent>
                 </div>
               ) : block.type === 'tool_activity' ? (
                 <ToolActivity
@@ -163,7 +165,10 @@ const AssistantMessage = memo(
     );
   },
   // 回调由上层渲染时重新创建，但它只通过 ref 定位当前会话，不影响消息内容。
-  (previous, next) => previous.item === next.item && previous.showThinking === next.showThinking,
+  (previous, next) =>
+    previous.item === next.item &&
+    previous.showThinking === next.showThinking &&
+    previous.isAnimating === next.isAnimating,
 );
 
 // 渲染消息时间线、内联工具活动、错误提示和 Composer。
@@ -327,6 +332,7 @@ export function Conversation({
                           showThinking={
                             Boolean(item.pending) || (submitting && item.id === latestAssistantId)
                           }
+                          isAnimating={submitting && item.id === latestAssistantId}
                           onFocusWorkbench={onFocusWorkbench}
                         />
                       )}
@@ -343,6 +349,7 @@ export function Conversation({
                         showThinking={
                           Boolean(item.pending) || (submitting && item.id === latestAssistantId)
                         }
+                        isAnimating={submitting && item.id === latestAssistantId}
                         onFocusWorkbench={onFocusWorkbench}
                       />
                     )}
@@ -410,20 +417,6 @@ export function Conversation({
           </button>
         ) : null}
         <div className={`composer-wrap ${submitting ? 'is-running' : ''}`}>
-          {submitting ? (
-            <div
-              className="composer-running-indicator"
-              role="status"
-              aria-label="AI 正在回复"
-              title="AI 正在回复"
-            >
-              <span className="activity-bars" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </span>
-            </div>
-          ) : null}
           <Composer
             prompt={prompt}
             submitting={submitting}
@@ -718,14 +711,10 @@ export function Composer({
       ) : null}
       {activeInterrupt?.kind !== 'clarification' ? (
         <div className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
-          {mode === 'steer' || mode === 'clarification' ? (
+          {mode === 'clarification' ? (
             <div className="composer-hints">
               <SlidersHorizontal size={14} />
-              <span>
-                {mode === 'steer'
-                  ? AGENT_UI_COPY.composerHints.steer
-                  : AGENT_UI_COPY.composerHints.clarification}
-              </span>
+              <span>回答后继续当前任务</span>
             </div>
           ) : (
             <span />

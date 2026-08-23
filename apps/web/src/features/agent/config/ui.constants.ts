@@ -25,13 +25,6 @@ export const AGENT_UI_COPY = {
     // 运行取消期间不可提交时的输入提示。
     disabled: '正在取消当前任务……',
   },
-  // Composer 各运行模式下的辅助说明。
-  composerHints: {
-    // steer 提交按钮旁的说明。
-    steer: '作为调整提交 · 下一步骤生效',
-    // 确认提交按钮旁的说明。
-    clarification: '回答后继续当前任务',
-  },
 } as const;
 
 // 将服务状态映射为稳定的可读标签。

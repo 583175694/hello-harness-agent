@@ -209,6 +209,10 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
     toolName: z.literal('approval_test'),
     input: z.object({ message: z.string().min(1).max(500) }),
   }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal('get_current_time'),
+    input: z.object({}),
+  }),
 ]);
 
 // 标识来源 URL 在当前 assistant run 中如何进入模型规划范围。
@@ -345,6 +349,19 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     roundSequence: z.number().int().positive(),
     blockSequence: z.number().int().nonnegative(),
     toolCallId: z.string().min(1),
+    toolName: z.literal('get_current_time'),
+    title: z.string().min(1),
+    input: z.object({}),
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
     toolName: z.literal('approval_test'),
     title: z.string().min(1),
     input: z.object({ message: z.string().min(1).max(500) }),
@@ -404,6 +421,24 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     completedAt: z.string().datetime(),
     durationMs: z.number().int().nonnegative(),
     result: z.object({ echoed: z.string() }),
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('get_current_time'),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: z.object({
+      iso: z.string(),
+      date: z.string(),
+      time: z.string(),
+      timezone: z.literal('Asia/Shanghai'),
+    }),
   }),
 ]);
 
@@ -505,9 +540,7 @@ export const clarificationRequestSchema = z
   .object({
     question: z.string().trim().min(1).max(AGENT_PROTOCOL_LIMITS.clarificationQuestionMaxLength),
     options: z
-      .array(
-        z.string().trim().min(1).max(AGENT_PROTOCOL_LIMITS.clarificationOptionMaxLength),
-      )
+      .array(z.string().trim().min(1).max(AGENT_PROTOCOL_LIMITS.clarificationOptionMaxLength))
       .max(AGENT_PROTOCOL_LIMITS.clarificationOptionsMax)
       .default([]),
     allowFreeText: z.boolean(),
@@ -525,35 +558,35 @@ export const toolApprovalDecisionSchema = z.object({
   decision: z.enum(['approve', 'reject']),
 });
 const clarificationInterruptSnapshotSchema = z.object({
-    interruptId: z.string().min(1),
-    runId: z.string().min(1),
-    kind: z.literal('clarification'),
-    status: z.enum(['pending', 'resolved', 'cancelled']),
-    createdAt: z.string().datetime(),
-    roundId: z.string().min(1),
-    roundSequence: z.number().int().positive(),
-    payload: clarificationRequestSchema,
-  });
+  interruptId: z.string().min(1),
+  runId: z.string().min(1),
+  kind: z.literal('clarification'),
+  status: z.enum(['pending', 'resolved', 'cancelled']),
+  createdAt: z.string().datetime(),
+  roundId: z.string().min(1),
+  roundSequence: z.number().int().positive(),
+  payload: clarificationRequestSchema,
+});
 const toolApprovalInterruptSnapshotSchema = z.object({
-    interruptId: z.string().min(1),
-    runId: z.string().min(1),
-    kind: z.literal('tool_approval'),
-    status: z.enum(['pending', 'resolved', 'cancelled']),
-    createdAt: z.string().datetime(),
-    roundId: z.string().min(1),
-    roundSequence: z.number().int().positive(),
-    payload: z.object({
-      items: z.array(
-        z.object({
-          itemId: z.string().min(1),
-          toolCallId: z.string().min(1),
-          toolName: z.string().min(1),
-          input: z.unknown(),
-          argumentsHash: z.string().min(1),
-        }),
-      ),
-    }),
-  });
+  interruptId: z.string().min(1),
+  runId: z.string().min(1),
+  kind: z.literal('tool_approval'),
+  status: z.enum(['pending', 'resolved', 'cancelled']),
+  createdAt: z.string().datetime(),
+  roundId: z.string().min(1),
+  roundSequence: z.number().int().positive(),
+  payload: z.object({
+    items: z.array(
+      z.object({
+        itemId: z.string().min(1),
+        toolCallId: z.string().min(1),
+        toolName: z.string().min(1),
+        input: z.unknown(),
+        argumentsHash: z.string().min(1),
+      }),
+    ),
+  }),
+});
 export const interruptSnapshotSchema = z.discriminatedUnion('kind', [
   clarificationInterruptSnapshotSchema,
   toolApprovalInterruptSnapshotSchema,

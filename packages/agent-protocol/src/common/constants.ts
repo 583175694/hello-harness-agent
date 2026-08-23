@@ -33,6 +33,7 @@ export const AGENT_TOOL_NAMES = {
   webFetch: 'web_fetch',
   // 无副作用的审批链路验证工具；生产工具策略保持不变。
   approvalTest: 'approval_test',
+  getCurrentTime: 'get_current_time',
 } as const;
 
 // 集中维护 API 与 SSE 共用的机器可读错误码。

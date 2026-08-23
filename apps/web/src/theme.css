@@ -40,12 +40,17 @@
   --theme-border: #dededb;
   --theme-border-subtle: #e6e6e2;
   --theme-composer-border: #ededeb;
+  --theme-composer-placeholder: #a0a09c;
   --theme-session-action-hover: #eeeeeb;
   --theme-scrollbar: #dededb;
   --theme-accent: #171717;
   --theme-danger: #984b41;
   --theme-warning: #8b6a3e;
   --theme-info: #3f5f78;
+  --theme-approval-bg: #eaf2ec;
+  --theme-approval-text: #2f5d3a;
+  --theme-rejection-bg: #f8ecea;
+  --theme-rejection-text: #984b41;
 }
 
 :root[data-theme='dark'] {
@@ -62,12 +67,17 @@
   --theme-border: #2b2b2b;
   --theme-border-subtle: #222222;
   --theme-composer-border: #383838;
+  --theme-composer-placeholder: rgb(255 255 255 / 48%);
   --theme-session-action-hover: #242424;
   --theme-scrollbar: rgb(255 255 255 / 4%);
   --theme-accent: #d8d8d8;
   --theme-danger: #e28d85;
   --theme-warning: #c9a06b;
   --theme-info: #8fb5cf;
+  --theme-approval-bg: #1d2a20;
+  --theme-approval-text: #a9c5ae;
+  --theme-rejection-bg: #2d201f;
+  --theme-rejection-text: #d8aaa3;
 }
 
 :root[data-theme='dark'] .markdown-content,

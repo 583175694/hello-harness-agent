@@ -4,8 +4,6 @@ import {
   CircleAlert,
   CircleUserRound,
   Copy,
-  ChevronDown,
-  Gavel,
   LoaderCircle,
   Pause,
   Play,
@@ -121,7 +119,7 @@ const AssistantMessage = memo(
         <div className="message-avatar assistant-avatar">
           <Sparkles size={15} />
         </div>
-        <div className="assistant-content min-w-0 max-w-[680px] text-text-primary">
+        <div className="assistant-content w-full text-text-primary">
           <div className="message-meta">Harness</div>
           {item.deliveryStatus === 'cancelled' ? (
             <div className="assistant-delivery-status">本次回答已取消</div>
@@ -512,7 +510,6 @@ export function Composer({
     answer: string;
     decisions: Record<string, 'approve' | 'reject'>;
     submitting: boolean;
-    expandedTool?: string;
   }>({ answer: '', decisions: {}, submitting: false });
   const currentInterruptState =
     interruptState.interruptId === activeInterrupt?.interruptId
@@ -524,7 +521,6 @@ export function Composer({
       answer: currentInterruptState.answer,
       decisions: currentInterruptState.decisions,
       submitting: currentInterruptState.submitting,
-      expandedTool: currentInterruptState.expandedTool,
       ...update,
     });
   };
@@ -581,72 +577,42 @@ export function Composer({
         </div>
       ) : null}
       {activeInterrupt?.kind === 'tool_approval' ? (
-        <div className="composer-hitl-panel" role="group" aria-label="工具审批">
+        <div className="composer-hitl-panel composer-approval-overlay" role="group" aria-label="工具审批">
           <div className="composer-hitl-header">
-            <Gavel size={15} aria-hidden="true" />
             <strong>需要批准工具调用</strong>
           </div>
-          {activeInterrupt.payload.items.map((item) => (
+          {activeInterrupt.payload.items.slice(0, 1).map((item) => (
             <div className="approval-item" key={item.itemId}>
               <div className="approval-item__summary">
                 <strong>{item.toolName}</strong>
-                <span>{JSON.stringify(item.input)}</span>
               </div>
-              <button
-                type="button"
-                className="approval-item__details"
-                onClick={() => updateInterruptState({ expandedTool: currentInterruptState.expandedTool === item.itemId ? undefined : item.itemId })}
-              >
-                查看参数 <ChevronDown size={13} className={currentInterruptState.expandedTool === item.itemId ? 'rotate-180' : ''} />
-              </button>
-              <button
-                type="button"
-                className="secondary-button approval-item__reject"
-                disabled={currentInterruptState.submitting}
-                aria-pressed={currentInterruptState.decisions[item.itemId] === 'reject'}
-                onClick={() => updateInterruptState({ decisions: { ...currentInterruptState.decisions, [item.itemId]: 'reject' } })}
-              >
-                拒绝
-              </button>
-              <button
-                type="button"
-                className={currentInterruptState.decisions[item.itemId] === 'approve' ? 'send-button approval-item__approve is-active' : 'send-button approval-item__approve'}
-                disabled={currentInterruptState.submitting}
-                aria-pressed={currentInterruptState.decisions[item.itemId] === 'approve'}
-                onClick={() => updateInterruptState({ decisions: { ...currentInterruptState.decisions, [item.itemId]: 'approve' } })}
-              >
-                批准
-              </button>
-              {currentInterruptState.expandedTool === item.itemId ? <code className="approval-item__expanded">{JSON.stringify(item.input, null, 2)}</code> : null}
+              <div className="approval-item__actions">
+                {(['reject', 'approve'] as const).map((decision) => (
+                  <button
+                    key={decision}
+                    type="button"
+                    className={decision === 'approve' ? 'send-button approval-item__approve' : 'secondary-button approval-item__reject'}
+                    disabled={currentInterruptState.submitting || !onApprovalSubmit}
+                    onClick={() => {
+                      updateInterruptState({ submitting: true });
+                      onApprovalSubmit?.(activeInterrupt.interruptId, [{
+                        itemId: item.itemId,
+                        toolCallId: item.toolCallId,
+                        argumentsHash: item.argumentsHash,
+                        decision,
+                      }]);
+                    }}
+                  >
+                    {currentInterruptState.submitting ? <LoaderCircle className="spin" size={13} /> : null}
+                    {decision === 'approve' ? '批准' : '拒绝'}
+                  </button>
+                ))}
+              </div>
             </div>
           ))}
-          <button
-            className="send-button"
-            type="button"
-            disabled={
-              !onApprovalSubmit ||
-              currentInterruptState.submitting ||
-              activeInterrupt.payload.items.some((item) => !currentInterruptState.decisions[item.itemId])
-            }
-            onClick={() => {
-              updateInterruptState({ submitting: true });
-              onApprovalSubmit?.(
-                activeInterrupt.interruptId,
-                activeInterrupt.payload.items.map((item) => ({
-                  itemId: item.itemId,
-                  toolCallId: item.toolCallId,
-                  argumentsHash: item.argumentsHash,
-                  decision: currentInterruptState.decisions[item.itemId]!,
-                })),
-              );
-            }}
-          >
-            {currentInterruptState.submitting ? <LoaderCircle className="spin" size={14} /> : null}
-            {currentInterruptState.submitting ? '正在提交审批' : '提交审批'}
-          </button>
         </div>
       ) : null}
-      {!activeInterrupt ? <textarea
+      {activeInterrupt?.kind !== 'clarification' ? <textarea
         aria-label="任务输入"
         placeholder={placeholder}
         rows={3}
@@ -677,7 +643,7 @@ export function Composer({
           }
         }}
       /> : null}
-      {!activeInterrupt ? <div className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
+      {activeInterrupt?.kind !== 'clarification' ? <div className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
         {mode === 'steer' || mode === 'clarification' ? (
           <div className="composer-hints">
             <SlidersHorizontal size={14} />

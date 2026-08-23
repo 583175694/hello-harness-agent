@@ -1038,13 +1038,13 @@ textarea:focus-visible {
   padding: 14px 16px 8px;
   border: 0;
   outline: 0;
-  color: #1f1f1e;
+  color: var(--theme-text-primary);
   background: transparent;
   font-size: 15px;
   line-height: 1.55;
 }
 .composer textarea::placeholder {
-  color: #a0a09c;
+  color: var(--theme-composer-placeholder);
 }
 .composer-hitl-panel {
   display: flex;
@@ -1056,6 +1056,25 @@ textarea:focus-visible {
   padding: 18px 16px 20px;
   background: var(--theme-surface);
   font-size: 13px;
+}
+.composer:has(.composer-approval-overlay) {
+  position: relative;
+}
+.composer-approval-overlay {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  margin: 0;
+  box-sizing: border-box;
+  min-height: 0;
+  height: 100%;
+  border: 1px solid var(--theme-composer-border);
+  border-radius: 14px;
+  border-color: var(--theme-border-subtle);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 5%);
+}
+.composer:has(.composer-approval-overlay) {
+  overflow: visible;
 }
 .composer-hitl-header {
   display: flex;
@@ -1099,10 +1118,19 @@ textarea:focus-visible {
   background: var(--theme-surface-hover);
   color: var(--theme-text-primary);
 }
+.composer-hitl-panel:not(.composer-approval-overlay) > .send-button {
+  flex: 0 0 92px;
+  width: 92px;
+  min-width: 92px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
 .approval-item {
   display: grid;
   width: 100%;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
   padding: 8px;
@@ -1121,84 +1149,52 @@ textarea:focus-visible {
   font-size: 13px;
   font-weight: 600;
 }
-.approval-item__summary span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--theme-text-muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.approval-item__details {
-  display: inline-flex;
+.approval-item__actions {
+  display: flex;
   align-items: center;
-  gap: 3px;
-  border: 0;
-  color: var(--theme-text-muted);
-  background: transparent;
-  font-size: 11px;
+  gap: 6px;
 }
-.approval-item__details:hover {
-  color: var(--theme-text-primary);
-}
-.approval-item__details svg {
-  transition: transform 140ms ease;
-}
-.approval-item__details .rotate-180 {
-  transform: rotate(180deg);
-}
-.approval-item__reject {
-  min-height: 30px;
-}
+.approval-item__reject,
 .approval-item__approve {
-  width: auto;
+  flex: 0 0 62px;
+  width: 62px;
   min-width: 62px;
   height: 30px;
   border-radius: 6px;
   padding: 0 10px;
   font-size: 12px;
+  justify-content: center;
 }
-.approval-item__expanded {
-  grid-column: 1 / -1;
-  overflow: auto;
-  padding: 7px 8px;
-  border-top: 1px solid var(--theme-border-subtle);
-  color: var(--theme-text-secondary);
-  font-size: 11px;
-  line-height: 1.5;
-  white-space: pre-wrap;
+.approval-item__reject {
+  border-color: color-mix(in srgb, var(--theme-rejection-text) 32%, var(--theme-border));
+  color: var(--theme-rejection-text);
+  background: var(--theme-rejection-bg);
 }
-.composer-hitl-panel > .send-button:last-child {
-  margin-left: auto;
-  width: auto;
-  min-width: 84px;
-  height: 32px;
-  border-radius: 6px;
-  padding: 0 11px;
-  font-size: 12px;
+.approval-item__reject:hover:not(:disabled) {
+  border-color: var(--theme-rejection-text);
+  background: color-mix(in srgb, var(--theme-rejection-bg) 78%, var(--theme-rejection-text));
+}
+.approval-item__approve {
+  border-color: color-mix(in srgb, var(--theme-approval-text) 45%, var(--theme-border));
+  color: var(--theme-approval-text);
+  background: var(--theme-approval-bg);
+}
+.approval-item__approve:hover:not(:disabled) {
+  border-color: var(--theme-approval-text);
+  background: color-mix(in srgb, var(--theme-approval-bg) 78%, var(--theme-approval-text));
 }
 .composer:has(.composer-hitl-panel) {
   overflow: hidden;
 }
+.composer:has(.composer-approval-overlay) {
+  overflow: visible;
+}
 @media (max-width: 720px) {
   .approval-item {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr;
   }
-  .approval-item__summary {
-    grid-column: 1 / -1;
-  }
-  .approval-item__details {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: start;
-  }
-  .approval-item__reject {
-    grid-column: 1;
-    grid-row: 3;
-  }
-  .approval-item__approve {
-    grid-column: 2;
-    grid-row: 3;
+  .approval-item__actions {
+    justify-content: flex-end;
   }
 }
 .composer-actions {
@@ -1332,6 +1328,39 @@ textarea:focus-visible {
   border-color: #e0e0dc;
   color: #a4a4a0;
   background: #f0f0ee;
+}
+
+/* Approval decisions are a matched action pair; do not inherit the Composer send icon size. */
+.approval-item__actions .approval-item__reject,
+.approval-item__actions .approval-item__approve {
+  box-sizing: border-box;
+  flex: 0 0 62px;
+  width: 62px;
+  min-width: 62px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+}
+.approval-item__actions .approval-item__reject {
+  border-color: color-mix(in srgb, var(--theme-rejection-text) 32%, var(--theme-border));
+  color: var(--theme-rejection-text);
+  background: var(--theme-rejection-bg);
+}
+.approval-item__actions .approval-item__approve {
+  border-color: color-mix(in srgb, var(--theme-approval-text) 45%, var(--theme-border));
+  color: var(--theme-approval-text);
+  background: var(--theme-approval-bg);
+}
+.approval-item__actions .approval-item__reject:hover:not(:disabled) {
+  border-color: var(--theme-rejection-text);
+  background: color-mix(in srgb, var(--theme-rejection-bg) 78%, var(--theme-rejection-text));
+}
+.approval-item__actions .approval-item__approve:hover:not(:disabled) {
+  border-color: var(--theme-approval-text);
+  background: color-mix(in srgb, var(--theme-approval-bg) 78%, var(--theme-approval-text));
 }
 
 .resource-workspace {

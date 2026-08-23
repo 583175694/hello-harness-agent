@@ -2,6 +2,7 @@ import { WebSearchTool } from './web-search.tool';
 import { WebFetchTool } from './web-fetch.tool';
 import type { AgentTool } from './agent-tool.types';
 import { ApprovalTestTool } from './approval-test.tool';
+import { GetCurrentTimeTool } from './get-current-time.tool';
 
 // 多工具集合使用的 Nest 注入标识，避免业务服务依赖具体工具类。
 export const AGENT_TOOLS = Symbol('AGENT_TOOLS');
@@ -13,6 +14,7 @@ export const AGENT_TOOL_CLASSES = [
   // 网页读取工具，负责获取并筛选可定位原文。
   WebFetchTool,
   ApprovalTestTool,
+  GetCurrentTimeTool,
 ] as const;
 
 // 将 catalog 中的工具类实例聚合为 Registry 所需的统一集合。

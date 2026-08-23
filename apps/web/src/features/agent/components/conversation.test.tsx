@@ -42,7 +42,7 @@ describe('Conversation tool activity navigation', () => {
     expect(screen.getByRole('button', { name: '测试' })).toBeDisabled();
   });
 
-  it('submits one mixed decision for every approval item', () => {
+  it('submits approval immediately from the aligned action group', () => {
     const submit = vi.fn();
     render(
       <Conversation
@@ -61,7 +61,6 @@ describe('Conversation tool activity navigation', () => {
             payload: {
               items: [
                 { itemId: 'one', toolCallId: 'call-1', toolName: 'approval_test', input: { message: 'one' }, argumentsHash: 'h1' },
-                { itemId: 'two', toolCallId: 'call-2', toolName: 'approval_test', input: { message: 'two' }, argumentsHash: 'h2' },
               ],
             },
           },
@@ -78,18 +77,11 @@ describe('Conversation tool activity navigation', () => {
         onApprovalSubmit={submit}
       />,
     );
-    const approve = screen.getAllByRole('button', { name: '批准' });
-    const reject = screen.getAllByRole('button', { name: '拒绝' });
-    fireEvent.click(approve[0]!);
-    fireEvent.click(reject[1]!);
-    fireEvent.click(screen.getByRole('button', { name: '提交审批' }));
-    expect(submit).toHaveBeenCalledWith(
-      'interrupt-2',
-      expect.arrayContaining([
-        expect.objectContaining({ itemId: 'one', decision: 'approve' }),
-        expect.objectContaining({ itemId: 'two', decision: 'reject' }),
-      ]),
-    );
+    fireEvent.click(screen.getByRole('button', { name: '批准' }));
+    expect(submit).toHaveBeenCalledWith('interrupt-2', [
+      expect.objectContaining({ itemId: 'one', decision: 'approve' }),
+    ]);
+    expect(screen.queryByRole('button', { name: '提交审批' })).not.toBeInTheDocument();
   });
 
   it('selects model and closes the settings popover when clicking outside', async () => {

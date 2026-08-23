@@ -222,16 +222,22 @@ export class ChatService {
       if (event.type === 'tool.started') {
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
         const isApprovalTest = event.toolName === AGENT_TOOL_NAMES.approvalTest;
+        const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
-        const searchInput = isFetch || isApprovalTest ? undefined : this.asSearchInput(event.input);
+        const searchInput =
+          isFetch || isApprovalTest || isCurrentTime ? undefined : this.asSearchInput(event.input);
+        let toolSummary = searchInput?.query ?? '';
+        if (fetchInput) {
+          toolSummary = `读取 ${fetchInput.urls.length} 个网页`;
+        } else if (isApprovalTest) {
+          toolSummary = String((event.input as { message?: unknown }).message ?? '');
+        } else if (isCurrentTime) {
+          toolSummary = '获取当前日期和时间';
+        }
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
           toolName: event.toolName,
-          summary: fetchInput
-            ? `读取 ${fetchInput.urls.length} 个网页`
-            : isApprovalTest
-              ? String((event.input as { message?: unknown }).message ?? '')
-              : (searchInput?.query ?? ''),
+          summary: toolSummary,
           startedAt: event.startedAt,
           roundId: event.roundId,
           roundSequence: event.roundSequence,
@@ -266,6 +272,20 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
+        } else if (isCurrentTime) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.getCurrentTime,
+            title: block.title,
+            input: {},
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
         } else {
           yield {
             type: 'tool.started',
@@ -286,8 +306,12 @@ export class ChatService {
       if (event.type === 'tool.completed') {
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
         const isApprovalTest = event.toolName === AGENT_TOOL_NAMES.approvalTest;
+        const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
         const fetchResult = isFetch ? (event.output as WebFetchResult) : undefined;
-        const searchResult = isFetch || isApprovalTest ? undefined : (event.output as SearchToolResult);
+        const searchResult =
+          isFetch || isApprovalTest || isCurrentTime
+            ? undefined
+            : (event.output as SearchToolResult);
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
         if (fetchResult && fetchInput) {
@@ -322,7 +346,9 @@ export class ChatService {
             ? `成功 ${fetchResult.stats.succeededCount} 个，失败 ${fetchResult.stats.failedCount} 个，跳过 ${fetchResult.stats.skippedCount} 个，网络请求 ${fetchResult.stats.networkAttemptCount} 次，提取 ${fetchResult.stats.passageCount} 段原文`
             : isApprovalTest
               ? '审批测试已完成'
-              : `找到 ${searchResult?.results.length ?? 0} 个结果`,
+              : isCurrentTime
+                ? '当前时间已获取'
+                : `找到 ${searchResult?.results.length ?? 0} 个结果`,
         });
         await notifyProjection();
         if (fetchResult) {
@@ -363,6 +389,25 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: event.output as { echoed: string },
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (isCurrentTime) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.getCurrentTime,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: event.output as {
+              iso: string;
+              date: string;
+              time: string;
+              timezone: 'Asia/Shanghai';
+            },
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,

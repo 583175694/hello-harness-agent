@@ -221,11 +221,14 @@ export function workbenchFromPersistedMessage(
     executions: executions.map((execution) => {
       const isFetch = execution.toolName === 'web_fetch';
       const isApprovalTest = execution.toolName === 'approval_test';
+      const isCurrentTime = execution.toolName === 'get_current_time';
       const inputSummary = isFetch
         ? `${execution.input.urls.length} 个网页${execution.input.query ? ` · ${execution.input.query}` : ''}`
         : isApprovalTest
           ? execution.input.message
-          : execution.input.query;
+          : isCurrentTime
+            ? '获取当前日期和时间'
+            : execution.input.query;
       return {
         toolCallId: execution.toolCallId,
         runId: message.runId ?? message.id,
@@ -235,6 +238,8 @@ export function workbenchFromPersistedMessage(
           ? `读取 ${execution.input.urls.length} 个网页`
           : isApprovalTest
             ? '运行审批测试'
+            : isCurrentTime
+              ? '获取当前日期和时间'
             : `搜索：${execution.input.query}`,
         detail:
           execution.status === 'completed'
@@ -288,11 +293,14 @@ export function applyToolEvent(
   if (event.type === 'tool.started') {
     const isFetch = event.toolName === 'web_fetch';
     const isApprovalTest = event.toolName === 'approval_test';
+    const isCurrentTime = event.toolName === 'get_current_time';
     const inputSummary = isFetch
       ? `${event.input.urls.length} 个网页${event.input.query ? ` · ${event.input.query}` : ''}`
       : isApprovalTest
         ? event.input.message
-        : event.input.query;
+        : isCurrentTime
+          ? '获取当前日期和时间'
+          : event.input.query;
     const tool: ToolCallView = {
       toolCallId: event.toolCallId,
       runId: event.messageId,
@@ -302,11 +310,15 @@ export function applyToolEvent(
         ? `读取 ${event.input.urls.length} 个网页`
         : isApprovalTest
           ? '运行审批测试'
+          : isCurrentTime
+            ? '获取当前日期和时间'
           : `搜索：${event.input.query}`,
       detail: isFetch
         ? '正在读取和过滤网页正文'
         : isApprovalTest
           ? '正在执行已批准的无副作用工具'
+          : isCurrentTime
+            ? '正在获取当前日期和时间'
           : '正在搜索公开网页',
       status: 'running',
       elapsed: '进行中',
@@ -340,6 +352,8 @@ export function applyToolEvent(
   const completedFetch = completedEvent?.toolName === 'web_fetch' ? completedEvent : undefined;
   const completedApproval =
     completedEvent?.toolName === 'approval_test' ? completedEvent : undefined;
+  const completedCurrentTime =
+    completedEvent?.toolName === 'get_current_time' ? completedEvent : undefined;
   const fetchSucceeded =
     completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
   const executions = base.executions.map((tool) =>
@@ -352,6 +366,8 @@ export function applyToolEvent(
               ? '网页原文读取已完成'
               : completedApproval
                 ? '审批测试已完成'
+                : completedCurrentTime
+                  ? '当前时间已获取'
                 : '公开网页检索已完成'
             : (cancelledEvent?.detail ?? failedEvent?.detail ?? '工具执行失败'),
           elapsed: formatToolDuration(event.durationMs),
@@ -360,15 +376,17 @@ export function applyToolEvent(
               ? `成功 ${completedFetch.result.stats.succeededCount} 个，失败 ${completedFetch.result.stats.failedCount} 个，跳过 ${completedFetch.result.stats.skippedCount} 个，网络请求 ${completedFetch.result.stats.networkAttemptCount} 次，提取 ${completedFetch.result.stats.passageCount} 段原文`
               : completedApproval
                 ? `返回：${completedApproval.result.echoed}`
-                : `返回 ${completedEvent?.toolName === 'web_search' ? completedEvent.result.results.length : 0} 条网页结果`
+                : completedCurrentTime
+                  ? '已返回当前时间'
+                  : `返回 ${completedEvent?.toolName === 'web_search' ? completedEvent.result.results.length : 0} 条网页结果`
             : (cancelledEvent?.detail ?? failedEvent?.detail),
           resultCount:
-            completedEvent && completedEvent.toolName !== 'approval_test'
+            completedEvent && (completedEvent.toolName === 'web_search' || completedEvent.toolName === 'web_fetch')
               ? completedEvent.result.results.length
               : undefined,
           sourceCount: completedFetch
             ? fetchSucceeded.length
-            : completedEvent && completedEvent.toolName !== 'approval_test'
+            : completedEvent && (completedEvent.toolName === 'web_search' || completedEvent.toolName === 'web_fetch')
               ? completedEvent.result.results.length
               : undefined,
         }

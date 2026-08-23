@@ -114,7 +114,9 @@ export function applyToolActivityEvent(
           ? `读取 ${event.input.urls.length} 个网页`
           : event.toolName === 'approval_test'
             ? event.input.message
-            : event.input.query,
+            : event.toolName === 'get_current_time'
+              ? '获取当前日期和时间'
+              : event.input.query,
       startedAt: event.startedAt,
     });
   }
@@ -135,6 +137,8 @@ export function applyToolActivityEvent(
             ? `成功 ${succeeded.length} 个，失败 ${event.result.results.length - succeeded.length} 个，提取 ${passageCount} 段原文`
             : event.toolName === 'approval_test'
               ? '审批测试已完成'
+              : event.toolName === 'get_current_time'
+                ? '当前时间已获取'
               : `找到 ${event.result.results.length} 个结果`,
         completedAt: event.completedAt,
         durationMs: event.durationMs,

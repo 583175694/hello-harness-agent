@@ -42,9 +42,39 @@ model Session {
   runs      AgentRun[]
   transcriptItems ModelTranscriptItem[]
   compactionState ContextCompactionState?
+  pendingUserInputs PendingUserInput[]
 
   @@index([userId, isPinned(sort: Desc), updatedAt(sort: Desc)])
   @@map("sessions")
+}
+
+enum PendingUserInputKind {
+  follow_up
+  steer
+}
+
+enum PendingUserInputStatus {
+  pending
+  consumed
+  rejected
+  cancelled
+}
+
+model PendingUserInput {
+  id             String                 @id
+  sessionId      String                 @map("session_id")
+  kind           PendingUserInputKind
+  status         PendingUserInputStatus @default(pending)
+  content        String
+  sequence       Int
+  idempotencyKey String                 @map("idempotency_key")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  session        Session                @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, idempotencyKey])
+  @@index([sessionId, status, kind, sequence])
+  @@map("pending_user_inputs")
 }
 
 model ContextCompactionState {

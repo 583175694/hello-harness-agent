@@ -26,13 +26,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../../../components/ui/dropdown-menu';
-import type { AgentUiState, ServiceState, WorkbenchFocusTarget, WorkbenchState } from '../model/types';
+import type {
+  AgentUiState,
+  ServiceState,
+  WorkbenchFocusTarget,
+  WorkbenchState,
+} from '../model/types';
 import type {
   InterruptSnapshot,
   PublicModelConfig,
   ReasoningEffort,
   ToolApprovalDecision,
 } from '@harness/agent-protocol';
+import type { PendingUserInputView } from '@harness/agent-protocol';
 import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
 
@@ -177,6 +183,9 @@ export function Conversation({
   onCancel,
   onClarificationRespond,
   onApprovalSubmit,
+  pendingInputs = [],
+  onPromotePending,
+  onResumeQueue,
   onReconnect,
   reasoningEffort = 'high',
   models = [],
@@ -199,6 +208,9 @@ export function Conversation({
   onCancel?: () => void;
   onClarificationRespond?: (interruptId: string, answer: string) => void;
   onApprovalSubmit?: (interruptId: string, decisions: ToolApprovalDecision[]) => void;
+  pendingInputs?: PendingUserInputView[];
+  onPromotePending?: (inputId: string) => void;
+  onResumeQueue?: () => void;
   onReconnect?: () => void;
   reasoningEffort?: ReasoningEffort;
   models?: PublicModelConfig[];
@@ -359,6 +371,43 @@ export function Conversation({
               <X size={15} />
             </button>
           </div>
+        ) : null}
+        {pendingInputs
+          .filter((item) => item.status === 'pending')
+          .map((item) => (
+            <div
+              key={item.id}
+              className="mb-2 flex items-center justify-between rounded-lg border border-border-subtle px-3 py-2 text-xs text-text-muted"
+            >
+              <span>后续消息：{item.content}</span>
+              {item.kind === 'follow_up' && onPromotePending ? (
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={() => onPromotePending(item.id)}
+                >
+                  引导模型
+                </button>
+              ) : (
+                <span>
+                  {item.kind === 'steer'
+                    ? '引导中'
+                    : state.workbench?.activityStatus === 'failed' ||
+                        state.workbench?.activityStatus === 'cancelled'
+                      ? '任务失败，队列已暂停'
+                      : '等待当前任务完成'}
+                </span>
+              )}
+            </div>
+          ))}
+        {!submitting &&
+        onResumeQueue &&
+        pendingInputs.some((item) => item.kind === 'follow_up' && item.status === 'pending') &&
+        (state.workbench?.activityStatus === 'failed' ||
+          state.workbench?.activityStatus === 'cancelled') ? (
+          <button className="text-button mb-2" type="button" onClick={onResumeQueue}>
+            继续 Follow-up 队列
+          </button>
         ) : null}
         <div className={`composer-wrap ${submitting ? 'is-running' : ''}`}>
           {submitting ? (
@@ -547,7 +596,11 @@ export function Composer({
             <button
               key={option}
               type="button"
-              className={currentInterruptState.answer === option ? 'text-button composer-hitl-option is-active' : 'text-button composer-hitl-option'}
+              className={
+                currentInterruptState.answer === option
+                  ? 'text-button composer-hitl-option is-active'
+                  : 'text-button composer-hitl-option'
+              }
               disabled={currentInterruptState.submitting}
               onClick={() => updateInterruptState({ answer: option })}
             >
@@ -565,7 +618,11 @@ export function Composer({
           <button
             className="send-button"
             type="button"
-            disabled={!currentInterruptState.answer.trim() || !onClarificationRespond || currentInterruptState.submitting}
+            disabled={
+              !currentInterruptState.answer.trim() ||
+              !onClarificationRespond ||
+              currentInterruptState.submitting
+            }
             onClick={() => {
               updateInterruptState({ submitting: true });
               onClarificationRespond?.(activeInterrupt.interruptId, currentInterruptState.answer);
@@ -577,7 +634,11 @@ export function Composer({
         </div>
       ) : null}
       {activeInterrupt?.kind === 'tool_approval' ? (
-        <div className="composer-hitl-panel composer-approval-overlay" role="group" aria-label="工具审批">
+        <div
+          className="composer-hitl-panel composer-approval-overlay"
+          role="group"
+          aria-label="工具审批"
+        >
           <div className="composer-hitl-header">
             <strong>需要批准工具调用</strong>
           </div>
@@ -591,19 +652,27 @@ export function Composer({
                   <button
                     key={decision}
                     type="button"
-                    className={decision === 'approve' ? 'send-button approval-item__approve' : 'secondary-button approval-item__reject'}
+                    className={
+                      decision === 'approve'
+                        ? 'send-button approval-item__approve'
+                        : 'secondary-button approval-item__reject'
+                    }
                     disabled={currentInterruptState.submitting || !onApprovalSubmit}
                     onClick={() => {
                       updateInterruptState({ submitting: true });
-                      onApprovalSubmit?.(activeInterrupt.interruptId, [{
-                        itemId: item.itemId,
-                        toolCallId: item.toolCallId,
-                        argumentsHash: item.argumentsHash,
-                        decision,
-                      }]);
+                      onApprovalSubmit?.(activeInterrupt.interruptId, [
+                        {
+                          itemId: item.itemId,
+                          toolCallId: item.toolCallId,
+                          argumentsHash: item.argumentsHash,
+                          decision,
+                        },
+                      ]);
                     }}
                   >
-                    {currentInterruptState.submitting ? <LoaderCircle className="spin" size={13} /> : null}
+                    {currentInterruptState.submitting ? (
+                      <LoaderCircle className="spin" size={13} />
+                    ) : null}
                     {decision === 'approve' ? '批准' : '拒绝'}
                   </button>
                 ))}
@@ -612,109 +681,131 @@ export function Composer({
           ))}
         </div>
       ) : null}
-      {activeInterrupt?.kind !== 'clarification' ? <textarea
-        aria-label="任务输入"
-        placeholder={placeholder}
-        rows={3}
-        value={prompt}
-        disabled={
-          mode === 'disabled' || controlState === 'paused' || controlState === 'waiting_for_user'
-          || Boolean(activeInterrupt)
-        }
-        onChange={(event) => onPromptChange(event.target.value)}
-        onCompositionStart={() => {
-          composingRef.current = true;
-        }}
-        onCompositionEnd={() => {
-          composingRef.current = false;
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && !event.shiftKey) {
-            // 中文等输入法正在确认候选词时，Enter 只结束组合输入，不提交消息。
-            if (
-              composingRef.current ||
-              event.nativeEvent.isComposing ||
-              event.nativeEvent.keyCode === 229
-            )
-              return;
-            event.preventDefault();
-            if (prompt.trim() && !submitting && mode !== 'disabled')
-              event.currentTarget.form?.requestSubmit();
+      {activeInterrupt?.kind !== 'clarification' ? (
+        <textarea
+          aria-label="任务输入"
+          placeholder={placeholder}
+          rows={3}
+          value={prompt}
+          disabled={
+            mode === 'disabled' ||
+            controlState === 'paused' ||
+            controlState === 'waiting_for_user' ||
+            Boolean(activeInterrupt)
           }
-        }}
-      /> : null}
-      {activeInterrupt?.kind !== 'clarification' ? <div className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
-        {mode === 'steer' || mode === 'clarification' ? (
-          <div className="composer-hints">
-            <SlidersHorizontal size={14} />
-            <span>
-              {mode === 'steer'
-                ? AGENT_UI_COPY.composerHints.steer
-                : AGENT_UI_COPY.composerHints.clarification}
-            </span>
-          </div>
-        ) : (
-          <span />
-        )}
-        <div className="composer-submit-group">
-          {mode !== 'steer' && mode !== 'clarification' ? (
-            <ModelSettingsMenu
-              modelId={selectedModel}
-              models={models}
-              reasoningEffort={reasoningEffort}
-              disabled={submitting || mode === 'disabled'}
-              onModelChange={onModelChange}
-              onReasoningEffortChange={onReasoningEffortChange}
-            />
-          ) : null}
-          {submitting && controlState === 'paused' ? (
-            <button
-              className="send-button"
-              type="button"
-              aria-label="恢复任务"
-              title="恢复任务"
-              disabled={!onResume}
-              onClick={onResume}
-            >
-              <Play size={16} fill="currentColor" />
-            </button>
+          onChange={(event) => onPromptChange(event.target.value)}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false;
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              // 中文等输入法正在确认候选词时，Enter 只结束组合输入，不提交消息。
+              if (
+                composingRef.current ||
+                event.nativeEvent.isComposing ||
+                event.nativeEvent.keyCode === 229
+              )
+                return;
+              event.preventDefault();
+              if (prompt.trim() && !submitting && mode !== 'disabled')
+                event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+      ) : null}
+      {activeInterrupt?.kind !== 'clarification' ? (
+        <div className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
+          {mode === 'steer' || mode === 'clarification' ? (
+            <div className="composer-hints">
+              <SlidersHorizontal size={14} />
+              <span>
+                {mode === 'steer'
+                  ? AGENT_UI_COPY.composerHints.steer
+                  : AGENT_UI_COPY.composerHints.clarification}
+              </span>
+            </div>
           ) : (
-            <>
-              {submitting &&
-              controlState !== 'pause_requested' &&
-              controlState !== 'resuming' &&
-              controlState !== 'waiting_for_user' &&
-              !activeInterrupt &&
-              controlPhase !== 'final_answer' ? (
-                <button
-                  className="icon-button"
-                  type="button"
-                  aria-label="暂停任务"
-                  title="暂停任务"
-                  disabled={!onPause}
-                  onClick={onPause}
-                >
-                  <Pause size={16} fill="currentColor" />
-                </button>
-              ) : null}
+            <span />
+          )}
+          <div className="composer-submit-group">
+            {mode !== 'steer' && mode !== 'clarification' ? (
+              <ModelSettingsMenu
+                modelId={selectedModel}
+                models={models}
+                reasoningEffort={reasoningEffort}
+                disabled={submitting || mode === 'disabled'}
+                onModelChange={onModelChange}
+                onReasoningEffortChange={onReasoningEffortChange}
+              />
+            ) : null}
+            {submitting && controlState === 'paused' ? (
               <button
                 className="send-button"
-                type={submitting ? 'button' : 'submit'}
-                aria-label={submitting ? '停止任务' : '发送任务'}
-                title={submitting ? '停止任务' : '发送任务'}
-                disabled={
-                  submitting
-                    ? !onCancel
-                    : !prompt.trim() || serviceState !== 'ready' || mode === 'disabled'
-                }
-                onClick={submitting ? onCancel : undefined}
+                type="button"
+                aria-label="恢复任务"
+                title="恢复任务"
+                disabled={!onResume}
+                onClick={onResume}
               >
-                {submitting ? <Square size={14} fill="currentColor" /> : <Send size={18} />}
+                <Play size={16} fill="currentColor" />
               </button>
-            </>
-          )}
+            ) : (
+              <>
+                {submitting &&
+                controlState !== 'pause_requested' &&
+                controlState !== 'resuming' &&
+                controlState !== 'waiting_for_user' &&
+                !activeInterrupt &&
+                controlPhase !== 'final_answer' ? (
+                  <button
+                    className="icon-button"
+                    type="button"
+                    aria-label="暂停任务"
+                    title="暂停任务"
+                    disabled={!onPause}
+                    onClick={onPause}
+                  >
+                    <Pause size={16} fill="currentColor" />
+                  </button>
+                ) : null}
+                <button
+                  className="send-button"
+                  type={submitting && mode !== 'steer' ? 'button' : 'submit'}
+                  aria-label={
+                    submitting && mode !== 'steer'
+                      ? '停止任务'
+                      : mode === 'steer'
+                        ? '提交后续消息'
+                        : '发送任务'
+                  }
+                  title={
+                    submitting && mode !== 'steer'
+                      ? '停止任务'
+                      : mode === 'steer'
+                        ? '提交后续消息'
+                        : '发送任务'
+                  }
+                  disabled={
+                    submitting && mode !== 'steer'
+                      ? !onCancel
+                      : !prompt.trim() || serviceState !== 'ready' || mode === 'disabled'
+                  }
+                  onClick={submitting && mode !== 'steer' ? onCancel : undefined}
+                >
+                  {submitting && mode !== 'steer' ? (
+                    <Square size={14} fill="currentColor" />
+                  ) : (
+                    <Send size={18} />
+                  )}
+                </button>
+              </>
+            )}
+          </div>
         </div>
-      </div> : null}
+      ) : null}
     </form>
   );
 }

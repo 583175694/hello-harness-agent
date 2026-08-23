@@ -64,38 +64,34 @@ describe('ContextEngineeringService', () => {
     expect(result.every((item) => item.content.includes('搜索结果'))).toBe(true);
   }, 15_000);
 
-  it(
-    'compacts a closed historical prefix and persists the coverage boundary',
-    async () => {
-      const { service, model } = createService();
-      const largeHistory = variedChinese(100_000);
-      const messages = [
-        { role: 'system' as const, content: 'system' },
-        { role: 'user' as const, content: largeHistory },
-        ...Array.from({ length: 11 }, (_, index) => ({
-          role: 'user' as const,
-          content: `最近消息 ${index}`,
-        })),
-        { role: 'user' as const, content: '当前请求' },
-      ];
-      const compiled = await service.compileRound({
-        sessionId: 'session-1',
-        model: 'deepseek-v4-flash',
-        messages,
-      });
-      expect(compiled.compactionTriggered).toBe(true);
-      expect(model.generateText).toHaveBeenCalled();
-      expect(compiled.compactionState).toEqual(
-        expect.objectContaining({ summary: 'summary of completed work' }),
-      );
-      expect(
-        compiled.messages.some(
-          (message) => message.role === 'system' && message.content.includes('compaction_summary'),
-        ),
-      ).toBe(true);
-    },
-    15_000,
-  );
+  it('compacts a closed historical prefix and persists the coverage boundary', async () => {
+    const { service, model } = createService();
+    const largeHistory = variedChinese(100_000);
+    const messages = [
+      { role: 'system' as const, content: 'system' },
+      { role: 'user' as const, content: largeHistory },
+      ...Array.from({ length: 11 }, (_, index) => ({
+        role: 'user' as const,
+        content: `最近消息 ${index}`,
+      })),
+      { role: 'user' as const, content: '当前请求' },
+    ];
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-v4-flash',
+      messages,
+    });
+    expect(compiled.compactionTriggered).toBe(true);
+    expect(model.generateText).toHaveBeenCalled();
+    expect(compiled.compactionState).toEqual(
+      expect.objectContaining({ summary: 'summary of completed work' }),
+    );
+    expect(
+      compiled.messages.some(
+        (message) => message.role === 'system' && message.content.includes('compaction_summary'),
+      ),
+    ).toBe(true);
+  }, 15_000);
 
   it('returns compaction state in memory and reuses it in the next round', async () => {
     const { service, prisma } = createService();
@@ -116,7 +112,10 @@ describe('ContextEngineeringService', () => {
     await service.compileRound({
       sessionId: 'session-1',
       model: 'deepseek-v4-flash',
-      messages: [{ role: 'system', content: 'system' }, { role: 'user', content: '下一轮' }],
+      messages: [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: '下一轮' },
+      ],
       compactionState: first.compactionState,
     });
     expect(prisma.contextCompactionState.findUnique).toHaveBeenCalledOnce();

@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-21（K3.2 HITL Clarification & Tool Approval 已完成）
+> 最后更新：2026-08-23（K3.3 Steer & Follow-up MVP 已完成并通过真实浏览器验证）
 
 ## 1. 当前结论
 
@@ -535,3 +535,32 @@ P8 的完成标准仍然不是“再增加一个工具”，而是现有 `Chat -
 - 设计变更写入对应契约文档，不在本文件复制完整规范。
 - 所有状态必须区分 production capability、development-only fixture 和 planned capability。
 - 每次更新保留日期，并记录实际执行过的验证命令。
+
+## 10. K3.3 Steer & Follow-up MVP（已实施）
+
+### 10.1 当前结论
+
+K3.3 已完成 Pending User Input 持久化事实层、Follow-up FIFO 调度、Steer 安全边界消费、Snapshot/SSE canonical 状态和 Workbench Composer 交互。运行中的普通消息默认进入 `follow_up/pending` 队列；用户明确点击“引导模型”后才原子升级为 `steer`。Follow-up 在当前 Run `completed` 后自动领取并通过既有 `RunCommandService` 创建下一条普通 Run，失败或取消后队列保留并等待显式恢复。
+
+### 10.2 实际遇到的问题
+
+- Follow-up 提交后曾被立即渲染成右侧用户消息，导致 UI 暗示它已经进入当前 Runtime Context。
+- 第一轮完成后 Follow-up 曾停留在队列，用户被错误地要求点击“引导模型”；这混淆了 Follow-up 与 Steer 的职责。
+- 多条 Follow-up 后端已经按 FIFO 执行，但前端没有及时发现新 Run，必须刷新页面才能看到后续用户消息和 Assistant 内容。
+- Follow-up 新 Run 执行期间再次发送消息时，前端短暂把 Session 判断为空闲，错误调用普通 Create Run，收到 active-run 冲突。
+
+### 10.3 解决方案和边界
+
+- 新增 `PendingUserInput` 模型、Session sequence、幂等键和 CAS 状态转移；pending 输入不写正式 Message/Transcript。
+- Follow-up 领取后才创建正式 user Message、assistant draft 和 queued Run；队列卡片和正式用户气泡的出现时机明确分离。
+- terminal `completed` 路径直接领取最早 pending Follow-up，复用普通 Run 创建/执行链路；failed/cancelled 不自动消费，使用会话级“继续 Follow-up 队列”恢复。
+- Steer 仅在 `tool_batch_committed -> before_model_request` 边界批量消费，按 sequence 写入 canonical transcript，metadata 标注 `source: "steer"`；不会打断 Model Call、Tool Batch 或 final answer。
+- terminal 后前端使用短暂幂等重试读取 Session Detail，发现新 active Run 后立即加载正式 user message 并启动下一轮 SSE observer，避免刷新依赖。
+- 发送入口同时使用最新 `pendingSessionsRef` 和 Session `activeRunId` 判断运行态；Follow-up 新 Run 切换窗口内再次发送的消息继续进入队列，不再创建并发 Run。
+
+### 10.4 验证结果
+
+- Web TypeScript 编译通过。
+- Web Vitest：33 tests passed。
+- 真实浏览器验证覆盖：运行中提交 Follow-up 不显示正式 user bubble；Follow-up 自动执行；多条 Follow-up 严格串行；第二条在前一条完成后无需刷新进入正式对话；运行中继续发送消息进入队列。
+- 已知边界：MVP 仍是单 API executor 实例；服务重启后的 active Runtime 不自动续跑，Follow-up 队列保留；没有 Redis、分布式 dispatcher 或 Steer 智能合并。

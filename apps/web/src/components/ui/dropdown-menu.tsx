@@ -35,10 +35,7 @@ export function DropdownMenuSeparator({
   ...props
 }: ComponentProps<typeof DropdownMenuPrimitive.Separator>) {
   return (
-    <DropdownMenuPrimitive.Separator
-      className={`ui-dropdown-separator ${className}`}
-      {...props}
-    />
+    <DropdownMenuPrimitive.Separator className={`ui-dropdown-separator ${className}`} {...props} />
   );
 }
 
@@ -48,10 +45,7 @@ export function DropdownMenuRadioItem({
   ...props
 }: ComponentProps<typeof DropdownMenuPrimitive.RadioItem>) {
   return (
-    <DropdownMenuPrimitive.RadioItem
-      className={`ui-dropdown-radio-item ${className}`}
-      {...props}
-    >
+    <DropdownMenuPrimitive.RadioItem className={`ui-dropdown-radio-item ${className}`} {...props}>
       <span>{children}</span>
       <DropdownMenuPrimitive.ItemIndicator className="ui-dropdown-indicator">
         <Check size={14} />

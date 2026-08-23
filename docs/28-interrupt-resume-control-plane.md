@@ -468,15 +468,15 @@ flowchart LR
 
 代码入口：
 
-| 责任 | 实现位置 |
-| --- | --- |
-| Web pause/resume/cancel handler | `apps/web/src/app.tsx` 的 `handlePause`、`handleResume`、`handleCancel` |
-| HTTP command 校验和路由 | `apps/api/src/runs/runs.controller.ts`、`run-command.service.ts` |
-| 当前进程 Runtime 命令入口 | `apps/api/src/runs/run.executor.ts` |
-| 状态机、Pause Hook、等待 Promise | `apps/api/src/agent-runtime/runtime-lifecycle.ts` |
-| 生命周期边界报告 | `apps/api/src/agent-runtime/agent-runtime.service.ts` |
-| 控制事件、Live Snapshot、Tail replay | `apps/api/src/runs/run-event-hub.ts` |
-| Durable Run/Projection/Transcript | `apps/api/src/runs/run.repository.ts` |
+| 责任                                 | 实现位置                                                                |
+| ------------------------------------ | ----------------------------------------------------------------------- |
+| Web pause/resume/cancel handler      | `apps/web/src/app.tsx` 的 `handlePause`、`handleResume`、`handleCancel` |
+| HTTP command 校验和路由              | `apps/api/src/runs/runs.controller.ts`、`run-command.service.ts`        |
+| 当前进程 Runtime 命令入口            | `apps/api/src/runs/run.executor.ts`                                     |
+| 状态机、Pause Hook、等待 Promise     | `apps/api/src/agent-runtime/runtime-lifecycle.ts`                       |
+| 生命周期边界报告                     | `apps/api/src/agent-runtime/agent-runtime.service.ts`                   |
+| 控制事件、Live Snapshot、Tail replay | `apps/api/src/runs/run-event-hub.ts`                                    |
+| Durable Run/Projection/Transcript    | `apps/api/src/runs/run.repository.ts`                                   |
 
 ### 14.2 Pause/Resume/Cancel 数据流
 
@@ -582,16 +582,16 @@ sequenceDiagram
 
 以下是实现 Review 时必须明确的边界，而不是额外的功能需求：
 
-| 优先级 | Review 点 | 当前结论 |
-| --- | --- | --- |
-| P1 | Pause 是否在安全边界生效 | 是；只挂在 `before_model_request`、`tool_batch_committed` |
-| P1 | Resume 是否重建 Runtime | 否；唤醒同一个 Lifecycle Promise |
-| P1 | Tool Batch 是否可能半闭合后暂停 | 不允许；完整 Tool Batch 提交后才可暂停 |
-| P1 | Final answer 是否可暂停 | 不允许；返回 `RUN_FINAL_ANSWER_NOT_PAUSABLE` |
-| P1 | Cancel 是否能结束 paused/waiting Runtime | 能；requestCancel 会唤醒等待并触发 abort |
-| P2 | Snapshot 是否等价于 Runtime 恢复 | 不等价；Snapshot/Tail 只恢复观察面 |
-| P2 | 多实例/重启后能否 Resume | 当前不能，明确返回 `RUNTIME_NOT_FOUND` |
-| P3 | Controller 错误文案 | 需要覆盖完整命令集合，不能只写 pause/resume/cancel |
+| 优先级 | Review 点                                | 当前结论                                                  |
+| ------ | ---------------------------------------- | --------------------------------------------------------- |
+| P1     | Pause 是否在安全边界生效                 | 是；只挂在 `before_model_request`、`tool_batch_committed` |
+| P1     | Resume 是否重建 Runtime                  | 否；唤醒同一个 Lifecycle Promise                          |
+| P1     | Tool Batch 是否可能半闭合后暂停          | 不允许；完整 Tool Batch 提交后才可暂停                    |
+| P1     | Final answer 是否可暂停                  | 不允许；返回 `RUN_FINAL_ANSWER_NOT_PAUSABLE`              |
+| P1     | Cancel 是否能结束 paused/waiting Runtime | 能；requestCancel 会唤醒等待并触发 abort                  |
+| P2     | Snapshot 是否等价于 Runtime 恢复         | 不等价；Snapshot/Tail 只恢复观察面                        |
+| P2     | 多实例/重启后能否 Resume                 | 当前不能，明确返回 `RUNTIME_NOT_FOUND`                    |
+| P3     | Controller 错误文案                      | 需要覆盖完整命令集合，不能只写 pause/resume/cancel        |
 
 ### 14.6 K3.1 测试矩阵
 

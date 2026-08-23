@@ -105,7 +105,9 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       undefined,
       lifecycle,
     );
-    await vi.waitFor(() => expect(lifecycle.snapshot().activeInterrupt?.kind).toBe('clarification'));
+    await vi.waitFor(() =>
+      expect(lifecycle.snapshot().activeInterrupt?.kind).toBe('clarification'),
+    );
     const interruptId = lifecycle.snapshot().activeInterrupt!.interruptId;
     lifecycle.respond(interruptId, '测试');
 
@@ -156,7 +158,9 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         undefined,
         lifecycle,
       );
-      await vi.waitFor(() => expect(lifecycle.snapshot().activeInterrupt?.kind).toBe('tool_approval'));
+      await vi.waitFor(() =>
+        expect(lifecycle.snapshot().activeInterrupt?.kind).toBe('tool_approval'),
+      );
       const interrupt = lifecycle.snapshot().activeInterrupt!;
       if (interrupt.kind !== 'tool_approval') throw new Error('expected tool approval');
       const item = interrupt.payload.items[0]!;

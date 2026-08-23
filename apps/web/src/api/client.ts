@@ -139,6 +139,34 @@ export async function createRun(
   return createRunResponseSchema.parse(await parseResponse(response));
 }
 
+export async function submitPendingInput(sessionId: string, content: string): Promise<unknown> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/pending-inputs`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ content, idempotencyKey: crypto.randomUUID() }),
+  });
+  return parseResponse(response);
+}
+export async function promotePendingInput(inputId: string): Promise<unknown> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/pending-inputs/${inputId}/steer`, {
+    method: 'POST',
+  });
+  return parseResponse(response);
+}
+export async function cancelPendingInput(inputId: string): Promise<unknown> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/pending-inputs/${inputId}/cancel`, {
+    method: 'POST',
+  });
+  return parseResponse(response);
+}
+export async function resumePendingQueue(sessionId: string): Promise<CreateRunResponse> {
+  const response = await fetch(
+    `${apiBaseUrl}/api/agent/sessions/${sessionId}/pending-inputs/resume`,
+    { method: 'POST' },
+  );
+  return createRunResponseSchema.parse(await parseResponse(response));
+}
+
 export async function getPublicAgentConfig(signal?: AbortSignal): Promise<PublicAgentConfig> {
   const response = await fetch(`${apiBaseUrl}/api/agent/config/public`, { signal });
   return publicAgentConfigSchema.parse(await parseResponse(response));

@@ -137,21 +137,11 @@ export class ContextEngineeringService {
     const previousCovered = Math.min(state?.coveredMessageCount ?? 0, protectedStart);
     const prefix = history.slice(previousCovered, protectedStart);
     if (prefix.length === 0) return null;
-    let summary = await this.summarizePrefix(
-      input,
-      prefix,
-      state?.summary ?? '',
-      promptBudget,
-    );
+    let summary = await this.summarizePrefix(input, prefix, state?.summary ?? '', promptBudget);
     if (!summary) return null;
     const tokenCount = await this.estimator.countText(summary);
     if (tokenCount > SUMMARY_MAX_TOKENS)
-      summary = await this.trimText(
-        summary,
-        SUMMARY_MAX_TOKENS,
-        tokenCount,
-        'Compaction Summary',
-      );
+      summary = await this.trimText(summary, SUMMARY_MAX_TOKENS, tokenCount, 'Compaction Summary');
     const nextState = {
       summary,
       coveredMessageCount: protectedStart,

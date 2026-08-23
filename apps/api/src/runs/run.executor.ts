@@ -1,4 +1,5 @@
 import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 import type { ChatStreamEvent, RunSnapshot } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
@@ -14,6 +15,8 @@ import {
   type RuntimeControlSnapshot,
 } from '../agent-runtime/runtime-lifecycle';
 import type { ToolApprovalDecision } from '@harness/agent-protocol';
+import { PendingUserInputService } from './pending-user-input.service';
+import { RunCommandService } from './run-command.service';
 
 @Injectable()
 export class RunExecutor implements OnModuleDestroy {
@@ -30,6 +33,8 @@ export class RunExecutor implements OnModuleDestroy {
     @Inject(SessionTitleService) private readonly titles: SessionTitleService,
     @Inject(Logger) private readonly logger: Logger,
     @Inject(RuntimeLifecycleRegistry) private readonly lifecycles: RuntimeLifecycleRegistry,
+    @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
+    @Inject(ModuleRef) private readonly moduleRef: ModuleRef,
   ) {}
 
   // 启动一个 Run 的后台执行，并防止同一进程重复启动。
@@ -76,7 +81,10 @@ export class RunExecutor implements OnModuleDestroy {
     const lifecycle = this.lifecycles.get(runId);
     if (!lifecycle) throw new Error('RUNTIME_NOT_FOUND');
     const snapshot = lifecycle.respond(interruptId, answer);
-    this.logger.log(`澄清响应已提交 | Run=${shortLogId(runId)} | Interrupt=${shortLogId(interruptId)}`, RunExecutor.name);
+    this.logger.log(
+      `澄清响应已提交 | Run=${shortLogId(runId)} | Interrupt=${shortLogId(interruptId)}`,
+      RunExecutor.name,
+    );
     return snapshot;
   }
 
@@ -88,7 +96,10 @@ export class RunExecutor implements OnModuleDestroy {
     const lifecycle = this.lifecycles.get(runId);
     if (!lifecycle) throw new Error('RUNTIME_NOT_FOUND');
     const snapshot = lifecycle.decideApproval(interruptId, decisions);
-    this.logger.log(`工具审批已提交 | Run=${shortLogId(runId)} | Interrupt=${shortLogId(interruptId)}`, RunExecutor.name);
+    this.logger.log(
+      `工具审批已提交 | Run=${shortLogId(runId)} | Interrupt=${shortLogId(interruptId)}`,
+      RunExecutor.name,
+    );
     return snapshot;
   }
 
@@ -118,46 +129,48 @@ export class RunExecutor implements OnModuleDestroy {
     if (!active || !stored) return;
     let lastControlState: RuntimeControlSnapshot['state'] = 'running';
     let lastControlPhase: RuntimeControlSnapshot['phase'] = 'tool_loop';
-    const lifecycle = this.lifecycles.create(runId, (control) => {
-      if (control.state === lastControlState && control.phase === lastControlPhase) return;
-      const phaseChanged = control.phase !== lastControlPhase;
-      lastControlState = control.state;
-      lastControlPhase = control.phase;
-      const eventType = phaseChanged
-        ? 'run.phase_changed'
-        : control.state === 'pause_requested'
-          ? 'run.pause_requested'
-          : control.state === 'paused'
-            ? 'run.paused'
-            : control.state === 'resuming'
-              ? 'run.resuming'
-              : control.state === 'running'
-                ? 'run.resumed'
-                : undefined;
-      if (eventType) {
-        const payload = {
-          type: eventType,
-          control,
-        };
-        this.events.publish(runId, eventType, payload as never);
-      }
-    }, (type, interrupt, control) => {
-      const eventType = `interrupt.${type}` as
-        | 'interrupt.created'
-        | 'interrupt.resolved'
-        | 'interrupt.cancelled';
-      this.events.publish(runId, eventType, {
-        type: `interrupt.${type}`,
-        control,
-        interrupt,
-      } as never);
-      if (type === 'created')
-        this.events.publish(runId, 'run.waiting_for_user', {
-          type: 'run.waiting_for_user',
+    const lifecycle = this.lifecycles.create(
+      runId,
+      (control) => {
+        if (control.state === lastControlState && control.phase === lastControlPhase) return;
+        const phaseChanged = control.phase !== lastControlPhase;
+        lastControlState = control.state;
+        lastControlPhase = control.phase;
+        const eventType = phaseChanged
+          ? 'run.phase_changed'
+          : control.state === 'pause_requested'
+            ? 'run.pause_requested'
+            : control.state === 'paused'
+              ? 'run.paused'
+              : control.state === 'resuming'
+                ? 'run.resuming'
+                : control.state === 'running'
+                  ? 'run.resumed'
+                  : undefined;
+        if (eventType) {
+          const payload = {
+            type: eventType,
+            control,
+          };
+          this.events.publish(runId, eventType, payload as never);
+        }
+      },
+      (type, interrupt, control) => {
+        const eventType = `interrupt.${type}` as
+          'interrupt.created' | 'interrupt.resolved' | 'interrupt.cancelled';
+        this.events.publish(runId, eventType, {
+          type: `interrupt.${type}`,
           control,
           interrupt,
         } as never);
-    });
+        if (type === 'created')
+          this.events.publish(runId, 'run.waiting_for_user', {
+            type: 'run.waiting_for_user',
+            control,
+            interrupt,
+          } as never);
+      },
+    );
     const model = stored.model;
     // projection 是 Chat 业务状态；active.liveSnapshot 是加上 Run status/sequence 的传输快照。
     let projection: ChatProjectionSnapshot = {
@@ -234,6 +247,17 @@ export class RunExecutor implements OnModuleDestroy {
             projection = next;
           },
           lifecycle,
+          onBeforeModelRequest: async (_round, finalResponseOnly) => {
+            if (finalResponseOnly || _round <= 1) return [];
+            const steers = await this.pendingInputs.claimSteers(stored.sessionId);
+            const additions = steers.map((item) => ({
+              role: 'user' as const,
+              content: item.content,
+            }));
+            for (const message of additions)
+              await this.repository.appendTranscriptItem(runId, message, { source: 'steer' });
+            return additions;
+          },
         },
       )) {
         if (event.type === 'message.completed') continue;
@@ -299,6 +323,11 @@ export class RunExecutor implements OnModuleDestroy {
       this.events.broadcast(runId, terminal);
       lifecycle.markTerminal('completed');
       active.liveSnapshot = { ...active.liveSnapshot, control: lifecycle.snapshot() };
+      await this.startPendingFollowUp(
+        stored.sessionId,
+        stored.model,
+        stored.reasoningEffort as NonNullable<RunSnapshot['profile']>['reasoningEffort'],
+      );
       void this.generateFirstTitle(stored.sessionId);
     } catch (error) {
       // 用户取消与进程关闭使用同一个 AbortSignal，但必须映射为不同、不可混淆的终态原因。
@@ -347,6 +376,22 @@ export class RunExecutor implements OnModuleDestroy {
       this.events.close(runId);
       setTimeout(() => this.registry.remove(runId), 60_000).unref();
     }
+  }
+
+  private async startPendingFollowUp(
+    sessionId: string,
+    model: string,
+    reasoningEffort: NonNullable<RunSnapshot['profile']>['reasoningEffort'],
+  ): Promise<void> {
+    const pending = await this.pendingInputs.claimFollowUp(sessionId);
+    if (!pending) return;
+    const commands = this.moduleRef.get(RunCommandService, { strict: false });
+    await commands.create(sessionId, {
+      content: pending.content,
+      idempotencyKey: `pending:${pending.id}`,
+      model,
+      reasoningEffort,
+    });
   }
 
   // 在工具开始或结束等语义边界写入诊断 Step。

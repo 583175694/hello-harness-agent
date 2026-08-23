@@ -78,6 +78,10 @@ export class AgentRuntimeService {
         finalResponseOnly,
       });
       if (beforeModelWait) await beforeModelWait;
+      if (input.onBeforeModelRequest) {
+        const additions = await input.onBeforeModelRequest(modelRounds, finalResponseOnly);
+        if (additions.length) messages.push(...additions);
+      }
       if (input.signal?.aborted) throw this.abortError();
       this.logger.log(
         `模型 Loop 即将开始 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | 轮次=${modelRounds} | 阶段=${finalResponseOnly ? 'final_answer' : 'tool_loop'} | 暂停状态=${input.lifecycle?.snapshot().state ?? 'none'}`,
@@ -330,8 +334,15 @@ export class AgentRuntimeService {
 
       if (clarification) {
         if (normalizedCalls.length || finalResponseOnly)
-          throw new ServiceUnavailableException({ code: 'INVALID_CLARIFICATION', detail: '澄清请求不能与工具调用或最终回答混合。' });
-        if (!input.lifecycle) throw new ServiceUnavailableException({ code: 'HITL_RUNTIME_REQUIRED', detail: '澄清请求缺少 Runtime 控制器。' });
+          throw new ServiceUnavailableException({
+            code: 'INVALID_CLARIFICATION',
+            detail: '澄清请求不能与工具调用或最终回答混合。',
+          });
+        if (!input.lifecycle)
+          throw new ServiceUnavailableException({
+            code: 'HITL_RUNTIME_REQUIRED',
+            detail: '澄清请求缺少 Runtime 控制器。',
+          });
         const clarificationWait = input.lifecycle.createClarification({
           roundId,
           roundSequence: modelRounds,
@@ -356,7 +367,12 @@ export class AgentRuntimeService {
             request: clarification,
           },
         };
-        yield { type: 'clarification.requested', request: clarification, roundId, roundSequence: modelRounds };
+        yield {
+          type: 'clarification.requested',
+          request: clarification,
+          roundId,
+          roundSequence: modelRounds,
+        };
         const result = await clarificationWait;
         if (result.kind !== 'clarification') throw new Error('INVALID_CLARIFICATION_RESPONSE');
         messages.push({ role: 'user', content: result.answer });
@@ -507,7 +523,9 @@ export class AgentRuntimeService {
       if (input.signal?.aborted) throw this.abortError();
 
       const approvalItems = dispatchPlan
-        .filter((item): item is Extract<PreparedDispatch, { status: 'ready' }> => item.status === 'ready')
+        .filter(
+          (item): item is Extract<PreparedDispatch, { status: 'ready' }> => item.status === 'ready',
+        )
         .filter((item) => this.approvalPolicy(item.call.name) === 'require_approval')
         .map((item) => ({
           itemId: `${roundId}:${item.call.id}`,
@@ -518,10 +536,21 @@ export class AgentRuntimeService {
         }));
       let approvalDecisions = new Map<string, 'approve' | 'reject'>();
       if (approvalItems.length) {
-        if (!input.lifecycle) throw new ServiceUnavailableException({ code: 'HITL_RUNTIME_REQUIRED', detail: '工具审批缺少 Runtime 控制器。' });
-        const approvalResult = await input.lifecycle.createToolApproval({ roundId, roundSequence: modelRounds, items: approvalItems });
-        if (approvalResult.kind !== 'tool_approval') throw new Error('INVALID_TOOL_APPROVAL_RESPONSE');
-        approvalDecisions = new Map(approvalResult.decisions.map((decision) => [decision.toolCallId, decision.decision]));
+        if (!input.lifecycle)
+          throw new ServiceUnavailableException({
+            code: 'HITL_RUNTIME_REQUIRED',
+            detail: '工具审批缺少 Runtime 控制器。',
+          });
+        const approvalResult = await input.lifecycle.createToolApproval({
+          roundId,
+          roundSequence: modelRounds,
+          items: approvalItems,
+        });
+        if (approvalResult.kind !== 'tool_approval')
+          throw new Error('INVALID_TOOL_APPROVAL_RESPONSE');
+        approvalDecisions = new Map(
+          approvalResult.decisions.map((decision) => [decision.toolCallId, decision.decision]),
+        );
       }
 
       for (const dispatch of dispatchPlan) {
@@ -565,7 +594,17 @@ export class AgentRuntimeService {
         }
         if (approvalDecisions.get(call.id) === 'reject') {
           pendingToolResults.push({
-            candidate: { toolCallId: call.id, toolName: call.name, content: JSON.stringify({ type: 'tool_control_outcome', toolCallId: call.id, executed: false, outcomeType: 'rejected_by_user', retryable: false }) },
+            candidate: {
+              toolCallId: call.id,
+              toolName: call.name,
+              content: JSON.stringify({
+                type: 'tool_control_outcome',
+                toolCallId: call.id,
+                executed: false,
+                outcomeType: 'rejected_by_user',
+                retryable: false,
+              }),
+            },
             controlOutcome: 'rejected_by_user',
             enterFinalAnswer: dispatch.enterFinalAnswer,
             summary: { toolCallId: call.id, toolName: call.name, status: 'rejected' },
@@ -824,9 +863,7 @@ export class AgentRuntimeService {
     return createHash('sha256').update(`${toolName}:${ordered}`).digest('hex');
   }
 
-  private approvalPolicy(
-    toolName: string,
-  ): 'auto_execute' | 'require_approval' | 'direct_reject' {
+  private approvalPolicy(toolName: string): 'auto_execute' | 'require_approval' | 'direct_reject' {
     const registry = this.tools as ToolRegistryService & {
       approvalPolicy?: ToolRegistryService['approvalPolicy'];
     };

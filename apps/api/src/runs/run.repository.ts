@@ -207,6 +207,29 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async latestTerminalProfile(sessionId: string) {
+    return this.prisma.agentRun.findFirst({
+      where: { sessionId, status: { in: ['completed', 'failed', 'cancelled'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { model: true, reasoningEffort: true },
+    });
+  }
+
+  async claimFollowUp(sessionId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.pendingUserInput.findFirst({
+        where: { sessionId, kind: 'follow_up', status: 'pending' },
+        orderBy: { sequence: 'asc' },
+      });
+      if (!row) return undefined;
+      const result = await tx.pendingUserInput.updateMany({
+        where: { id: row.id, status: 'pending' },
+        data: { status: 'consumed' },
+      });
+      return result.count ? row : undefined;
+    });
+  }
+
   // 从数据库中的 Run 和 Assistant Draft 组装可返回给客户端的 Snapshot。
   async snapshot(runId: string): Promise<RunSnapshot | undefined> {
     // PostgreSQL 保存完整 UI Snapshot，不保存可重放 Runtime Event Log。
@@ -218,6 +241,10 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     const observability = runObservabilitySchema.safeParse(
       this.metadata(run.metadata).observability,
     );
+    const pendingUserInputs = await this.prisma.pendingUserInput.findMany({
+      where: { sessionId: run.sessionId },
+      orderBy: { sequence: 'asc' },
+    });
     return {
       runId: run.id,
       sessionId: run.sessionId,
@@ -245,6 +272,13 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       createdAt: run.createdAt.toISOString(),
       ...(run.startedAt ? { startedAt: run.startedAt.toISOString() } : {}),
       ...(run.endedAt ? { endedAt: run.endedAt.toISOString() } : {}),
+      pendingUserInputs: pendingUserInputs.map((input) => ({
+        id: input.id,
+        kind: input.kind,
+        status: input.status,
+        content: input.content,
+        sequence: input.sequence,
+      })),
     };
   }
 
@@ -321,8 +355,12 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       throw new Error('MODEL_TRANSCRIPT_INTEGRITY_ERROR');
   }
 
-  async appendTranscriptItem(runId: string, message: ModelMessage): Promise<void> {
-    if (message.role === 'system' || message.role === 'user') return;
+  async appendTranscriptItem(
+    runId: string,
+    message: ModelMessage,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    if (message.role === 'system') return;
     await this.prisma.$transaction(async (tx) => {
       const run = await tx.agentRun.findUnique({ where: { id: runId } });
       if (!run || !ACTIVE_STATUSES.includes(run.status as (typeof ACTIVE_STATUSES)[number])) return;
@@ -342,7 +380,12 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           messageId: message.role === 'assistant' ? run.assistantMessageId : null,
           sequence: (latest?.sequence ?? 0) + 1,
           runSequence: (runLatest?.runSequence ?? 0) + 1,
-          kind: message.role === 'assistant' ? 'assistant' : 'tool_result',
+          kind:
+            message.role === 'assistant'
+              ? 'assistant'
+              : message.role === 'user'
+                ? 'user'
+                : 'tool_result',
           state: 'active',
           content: message.content,
           reasoning: message.role === 'assistant' ? message.reasoning : null,
@@ -351,10 +394,10 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
               ? (message.toolCalls as unknown as Prisma.InputJsonValue)
               : undefined,
           toolCallId: message.role === 'tool' ? message.toolCallId : null,
-          metadata:
-            message.role === 'tool' && message.controlOutcome
-              ? ({ toolControlOutcome: message.controlOutcome } as Prisma.InputJsonValue)
-              : undefined,
+          metadata: (metadata ??
+            (message.role === 'tool' && message.controlOutcome
+              ? { toolControlOutcome: message.controlOutcome }
+              : undefined)) as Prisma.InputJsonValue | undefined,
           provider: run.provider,
           model: run.model,
           reasoningEffort: run.reasoningEffort,

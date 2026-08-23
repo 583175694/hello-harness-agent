@@ -8,7 +8,10 @@ test.describe('live agent run', () => {
     'Set RUN_LIVE_MODEL_E2E=1 to run the real provider end-to-end test.',
   );
 
-  test('answers a simple greeting through the real UI and SSE stream', async ({ page, request }) => {
+  test('answers a simple greeting through the real UI and SSE stream', async ({
+    page,
+    request,
+  }) => {
     await page.goto('/agent');
     await page.getByRole('button', { name: '新建会话' }).click();
     await page.getByRole('textbox', { name: '任务输入' }).fill('你好');

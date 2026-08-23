@@ -22,6 +22,9 @@ import {
   listSessions,
   subscribeRun,
   updateSession,
+  submitPendingInput,
+  promotePendingInput,
+  resumePendingQueue,
 } from './api/client';
 import type { MessageDeltaEvent, ModelRoundCompletedEvent, ToolStreamEvent } from './api/client';
 import {
@@ -38,6 +41,7 @@ import type {
   SourceProvenance,
   ReasoningEffort,
   PublicModelConfig,
+  PendingUserInputView,
   ToolApprovalDecision,
 } from '@harness/agent-protocol';
 import type {
@@ -240,7 +244,7 @@ export function workbenchFromPersistedMessage(
             ? '运行审批测试'
             : isCurrentTime
               ? '获取当前日期和时间'
-            : `搜索：${execution.input.query}`,
+              : `搜索：${execution.input.query}`,
         detail:
           execution.status === 'completed'
             ? isFetch
@@ -312,14 +316,14 @@ export function applyToolEvent(
           ? '运行审批测试'
           : isCurrentTime
             ? '获取当前日期和时间'
-          : `搜索：${event.input.query}`,
+            : `搜索：${event.input.query}`,
       detail: isFetch
         ? '正在读取和过滤网页正文'
         : isApprovalTest
           ? '正在执行已批准的无副作用工具'
           : isCurrentTime
             ? '正在获取当前日期和时间'
-          : '正在搜索公开网页',
+            : '正在搜索公开网页',
       status: 'running',
       elapsed: '进行中',
       inputSummary,
@@ -368,7 +372,7 @@ export function applyToolEvent(
                 ? '审批测试已完成'
                 : completedCurrentTime
                   ? '当前时间已获取'
-                : '公开网页检索已完成'
+                  : '公开网页检索已完成'
             : (cancelledEvent?.detail ?? failedEvent?.detail ?? '工具执行失败'),
           elapsed: formatToolDuration(event.durationMs),
           outputSummary: completedEvent
@@ -381,12 +385,15 @@ export function applyToolEvent(
                   : `返回 ${completedEvent?.toolName === 'web_search' ? completedEvent.result.results.length : 0} 条网页结果`
             : (cancelledEvent?.detail ?? failedEvent?.detail),
           resultCount:
-            completedEvent && (completedEvent.toolName === 'web_search' || completedEvent.toolName === 'web_fetch')
+            completedEvent &&
+            (completedEvent.toolName === 'web_search' || completedEvent.toolName === 'web_fetch')
               ? completedEvent.result.results.length
               : undefined,
           sourceCount: completedFetch
             ? fetchSucceeded.length
-            : completedEvent && (completedEvent.toolName === 'web_search' || completedEvent.toolName === 'web_fetch')
+            : completedEvent &&
+                (completedEvent.toolName === 'web_search' ||
+                  completedEvent.toolName === 'web_fetch')
               ? completedEvent.result.results.length
               : undefined,
         }
@@ -582,6 +589,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   const [draftState, setDraftState] = useState<AgentUiState>(() => makeFixture('empty'));
   const [prompt, setPrompt] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [pendingInputs, setPendingInputs] = useState<PendingUserInputView[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
   const [reconnectRunId, setReconnectRunId] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -647,6 +655,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     // Snapshot 是完整替换，但旧 HTTP/SSE 响应不能覆盖已经应用到更高 cursor 的 Live 状态。
     if (snapshot.lastEventSequence < (runSequencesRef.current[snapshot.runId] ?? 0)) return;
     runSequencesRef.current[snapshot.runId] = snapshot.lastEventSequence;
+    if (snapshot.pendingUserInputs) setPendingInputs(snapshot.pendingUserInputs);
     const active = ['queued', 'running', 'cancel_requested'].includes(snapshot.status);
     const controlStatus = snapshot.control?.state;
     const activityStatus =
@@ -1023,7 +1032,10 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           // Terminal 后数据库是最终事实；非 Terminal 断流则用 Snapshot 补齐当前可见草稿。
           if (terminalObserved) {
             setReconnectRunId(null);
-            await loadSessionDetail(sessionId);
+            // 终态后允许详情读取新的 active Run；Follow-up dispatcher 可能正在
+            // 完成领取/创建事务，因此使用短暂重试保证下一轮及时进入 UI。
+            setSessionPending(sessionId, false);
+            await syncFollowUpAfterTerminal(sessionId);
           } else {
             const snapshot = await getRun(runId);
             applyRunSnapshot(sessionId, snapshot);
@@ -1117,6 +1129,30 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     }
   }
 
+  // Terminal 与 Follow-up dispatcher 之间存在一个很短的事务切换窗口。
+  // 终态 SSE 到达时，新 Run 可能尚未出现在 Session detail 中；短暂重试
+  // 可以在不要求用户刷新页面的情况下，及时展示已领取的 Follow-up 用户消息
+  // 并开始观察下一轮 Run。所有读取都是幂等的，发现 activeRun 后立即停止。
+  async function syncFollowUpAfterTerminal(sessionId: string): Promise<void> {
+    const delays = [0, 150, 350, 700, 1200];
+    for (const delay of delays) {
+      if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay));
+      if (pendingSessionsRef.current[sessionId]) continue;
+      try {
+        const { session } = await getSession(sessionId);
+        if (session.activeRun) {
+          await loadSessionDetail(sessionId);
+          return;
+        }
+        // 没有 active Run 时仍刷新一次，确保已消费的队列卡片被移除；
+        // 后续重试负责覆盖 dispatcher 尚未完成的窗口。
+        if (delay === delays[delays.length - 1]) await loadSessionDetail(sessionId);
+      } catch {
+        // 下一轮重试会重新读取 Durable 状态；终态本身已经可靠持久化。
+      }
+    }
+  }
+
   // 重新读取侧栏顺序，同时保留各会话独立内容缓存。
   async function refreshSessions(): Promise<SessionSummary[]> {
     const loaded = await listSessions();
@@ -1131,6 +1167,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     setSelectedSession(sessionId);
     setPrompt('');
     setError(null);
+    setPendingInputs([]);
     updateSessionUrl(sessionId);
     setMobileNavOpen(false);
     void loadSessionDetail(sessionId);
@@ -1144,6 +1181,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     setDraftState(makeFixture('empty'));
     setPrompt('');
     setError(null);
+    setPendingInputs([]);
     updateSessionUrl(null);
     setMobileNavOpen(false);
   }
@@ -1233,7 +1271,32 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     event.preventDefault();
     const task = prompt.trim();
     const currentId = selectedSessionIdRef.current;
-    if (!task || (currentId ? pendingSessions[currentId] : draftPending)) return;
+    if (!task) return;
+    // 运行中的消息进入 Pending User Input 收件箱，不创建第二个 Run。
+    // 使用 ref 读取最新的运行态，避免 terminal/Follow-up 切换期间闭包里的
+    // pendingSessions 旧值把消息误送到普通 Create Run（后端随后返回 active-run 冲突）。
+    const runtimeActive = currentId
+      ? Boolean(
+          pendingSessionsRef.current[currentId] || sessionStatesRef.current[currentId]?.activeRunId,
+        )
+      : false;
+    if (currentId && runtimeActive) {
+      setPrompt('');
+      setError(null);
+      try {
+        const result = (await submitPendingInput(currentId, task)) as {
+          input?: PendingUserInputView;
+        };
+        if (result.input)
+          setPendingInputs((current) =>
+            [...current, result.input!].sort((a, b) => a.sequence - b.sequence),
+          );
+      } catch (requestError) {
+        setError(getErrorMessage(requestError));
+      }
+      return;
+    }
+    if (currentId ? runtimeActive : draftPending) return;
     setPrompt('');
     setError(null);
     const createdAt = new Date().toISOString();
@@ -1474,7 +1537,11 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         conversation: [],
       })
     : draftState;
-  const submitting = selectedSessionId ? Boolean(pendingSessions[selectedSessionId]) : draftPending;
+  // activeRunId 作为 Durable/Snapshot 侧的第二个信号，覆盖 Follow-up 新 Run
+  // 刚创建但 pendingSessions React 状态尚未完成刷新的短窗口。
+  const submitting = selectedSessionId
+    ? Boolean(pendingSessions[selectedSessionId] || sessionStates[selectedSessionId]?.activeRunId)
+    : draftPending;
   const hasWorkbench = Boolean(uiState.workbench?.open);
 
   return (
@@ -1569,7 +1636,24 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
               prompt={prompt}
               submitting={submitting}
               serviceState={serviceState}
-              composerMode="new-run"
+              composerMode={submitting && !uiState.activeInterrupt ? 'steer' : 'new-run'}
+              pendingInputs={pendingInputs}
+              onPromotePending={
+                submitting
+                  ? async (inputId) => {
+                      const updated = (await promotePendingInput(inputId)) as PendingUserInputView;
+                      setPendingInputs((current) =>
+                        current.map((item) => (item.id === inputId ? updated : item)),
+                      );
+                    }
+                  : undefined
+              }
+              onResumeQueue={async () => {
+                if (!selectedSessionId) return;
+                const run = await resumePendingQueue(selectedSessionId);
+                setSessionPending(selectedSessionId, true);
+                void observeRun(selectedSessionId, run.runId);
+              }}
               reasoningEffort={reasoningEffort}
               models={models}
               selectedModel={selectedModel}

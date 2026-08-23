@@ -138,11 +138,8 @@ describe('RuntimeLifecycleController', () => {
 
   it('waits for clarification and validates the response against the active interrupt', async () => {
     const interruptEvents: Array<{ type: string; status: string }> = [];
-    const lifecycle = new RuntimeLifecycleController(
-      'run-1',
-      undefined,
-      [],
-      (type, interrupt) => interruptEvents.push({ type, status: interrupt.status }),
+    const lifecycle = new RuntimeLifecycleController('run-1', undefined, [], (type, interrupt) =>
+      interruptEvents.push({ type, status: interrupt.status }),
     );
     const waiting = lifecycle.createClarification({
       roundId: 'round-1',
@@ -172,11 +169,8 @@ describe('RuntimeLifecycleController', () => {
 
   it('marks a cancelled pending interrupt as cancelled in the lifecycle event', async () => {
     const events: Array<{ type: string; status: string }> = [];
-    const lifecycle = new RuntimeLifecycleController(
-      'run-1',
-      undefined,
-      [],
-      (type, interrupt) => events.push({ type, status: interrupt.status }),
+    const lifecycle = new RuntimeLifecycleController('run-1', undefined, [], (type, interrupt) =>
+      events.push({ type, status: interrupt.status }),
     );
     const waiting = lifecycle.createClarification({
       roundId: 'round-1',
@@ -200,8 +194,20 @@ describe('RuntimeLifecycleController', () => {
       roundId: 'round-1',
       roundSequence: 1,
       items: [
-        { itemId: 'one', toolCallId: 'call-1', toolName: 'approval_test', input: { a: 1 }, argumentsHash: 'h1' },
-        { itemId: 'two', toolCallId: 'call-2', toolName: 'approval_test', input: { a: 2 }, argumentsHash: 'h2' },
+        {
+          itemId: 'one',
+          toolCallId: 'call-1',
+          toolName: 'approval_test',
+          input: { a: 1 },
+          argumentsHash: 'h1',
+        },
+        {
+          itemId: 'two',
+          toolCallId: 'call-2',
+          toolName: 'approval_test',
+          input: { a: 2 },
+          argumentsHash: 'h2',
+        },
       ],
     });
     const interruptId = lifecycle.snapshot().activeInterrupt!.interruptId;

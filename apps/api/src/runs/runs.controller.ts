@@ -20,13 +20,70 @@ import {
 import { SseEventWriter } from '../stream/sse-event-writer';
 import { RunCommandService } from './run-command.service';
 import { RunEventHub } from './run-event-hub';
+import { PendingUserInputService } from './pending-user-input.service';
 
 @Controller('api/agent')
 export class RunsController {
   constructor(
     @Inject(RunCommandService) private readonly commands: RunCommandService,
     @Inject(RunEventHub) private readonly events: RunEventHub,
+    @Inject(PendingUserInputService) private readonly pending: PendingUserInputService,
   ) {}
+
+  @Post('sessions/:sessionId/pending-inputs')
+  async submitPending(@Param('sessionId') sessionId: string, @Body() body: unknown) {
+    const value = body as { content?: unknown; idempotencyKey?: unknown };
+    if (
+      typeof value?.content !== 'string' ||
+      !value.content.trim() ||
+      typeof value.idempotencyKey !== 'string'
+    )
+      throw new BadRequestException({
+        code: 'INVALID_PENDING_INPUT',
+        detail: 'content 和 idempotencyKey 必填。',
+      });
+    const result = await this.pending.submit(sessionId, value.content.trim(), value.idempotencyKey);
+    if (result.kind === 'pending') await this.broadcastPending(sessionId);
+    return result;
+  }
+
+  @Get('sessions/:sessionId/pending-inputs')
+  listPending(@Param('sessionId') sessionId: string) {
+    return this.pending.list(sessionId);
+  }
+
+  @Post('sessions/:sessionId/pending-inputs/resume')
+  resumePending(@Param('sessionId') sessionId: string) {
+    return this.commands.resumeFollowUpQueue(sessionId);
+  }
+
+  @Post('pending-inputs/:inputId/steer')
+  async promotePending(@Param('inputId') inputId: string) {
+    const input = await this.pending.promote(inputId);
+    await this.broadcastPending(input.sessionId);
+    return input;
+  }
+
+  @Post('pending-inputs/:inputId/cancel')
+  async cancelPending(@Param('inputId') inputId: string) {
+    const input = await this.pending.cancel(inputId);
+    await this.broadcastPending(input.sessionId);
+    return input;
+  }
+
+  @Post('pending-inputs/:inputId/follow-up')
+  async demotePending(@Param('inputId') inputId: string) {
+    const input = await this.pending.demote(inputId);
+    await this.broadcastPending(input.sessionId);
+    return input;
+  }
+
+  private async broadcastPending(sessionId: string): Promise<void> {
+    const runId = await this.pending.activeRunId(sessionId);
+    if (!runId) return;
+    const snapshot = await this.commands.snapshot(runId);
+    this.events.publish(runId, 'user_input.updated', snapshot as never);
+  }
 
   // 校验创建请求，并把合法请求交给命令服务。
   // 创建接口返回 Run 标识和 SSE 地址；模型生成由后台 Executor 继续执行。

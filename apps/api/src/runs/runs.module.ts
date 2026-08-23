@@ -9,6 +9,7 @@ import { RunExecutor } from './run.executor';
 import { RunRepository } from './run.repository';
 import { RunsController } from './runs.controller';
 import { RuntimeLifecycleRegistry } from '../agent-runtime/runtime-lifecycle';
+import { PendingUserInputService } from './pending-user-input.service';
 
 @Module({
   imports: [ChatModule, ModelModule],
@@ -21,6 +22,7 @@ import { RuntimeLifecycleRegistry } from '../agent-runtime/runtime-lifecycle';
     RunCommandService,
     SessionTitleService,
     RuntimeLifecycleRegistry,
+    PendingUserInputService,
   ],
   exports: [RunCommandService, RunRepository, ActiveRunRegistry],
 })

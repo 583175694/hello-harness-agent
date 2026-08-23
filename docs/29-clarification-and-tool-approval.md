@@ -386,17 +386,17 @@ flowchart LR
 
 实现位置：
 
-| 责任 | 实现位置 |
-| --- | --- |
-| Clarifier 渲染和本地选择状态 | `apps/web/src/features/agent/components/conversation.tsx` |
-| respond handler | `apps/web/src/app.tsx` 的 `handleClarificationResponse` |
-| approve/reject handler | `apps/web/src/app.tsx` 的 `handleApprovalResponse` |
-| Command schema/API 路由 | `apps/api/src/runs/runs.controller.ts`、`run-command.service.ts` |
-| Interrupt Promise 和状态校验 | `apps/api/src/agent-runtime/runtime-lifecycle.ts` |
-| Clarification / Approval 触发 | `apps/api/src/agent-runtime/agent-runtime.service.ts` |
-| 中断事件和控制 Snapshot | `apps/api/src/runs/run.executor.ts`、`run-event-hub.ts` |
-| Transcript facts / Tool outcome | `apps/api/src/runs/run.repository.ts` |
-| 公共协议和 Zod schema | `packages/agent-protocol/src/index.ts` |
+| 责任                            | 实现位置                                                         |
+| ------------------------------- | ---------------------------------------------------------------- |
+| Clarifier 渲染和本地选择状态    | `apps/web/src/features/agent/components/conversation.tsx`        |
+| respond handler                 | `apps/web/src/app.tsx` 的 `handleClarificationResponse`          |
+| approve/reject handler          | `apps/web/src/app.tsx` 的 `handleApprovalResponse`               |
+| Command schema/API 路由         | `apps/api/src/runs/runs.controller.ts`、`run-command.service.ts` |
+| Interrupt Promise 和状态校验    | `apps/api/src/agent-runtime/runtime-lifecycle.ts`                |
+| Clarification / Approval 触发   | `apps/api/src/agent-runtime/agent-runtime.service.ts`            |
+| 中断事件和控制 Snapshot         | `apps/api/src/runs/run.executor.ts`、`run-event-hub.ts`          |
+| Transcript facts / Tool outcome | `apps/api/src/runs/run.repository.ts`                            |
+| 公共协议和 Zod schema           | `packages/agent-protocol/src/index.ts`                           |
 
 ### 13.2 Clarification 数据流
 
@@ -541,15 +541,15 @@ pending Interrupt
 
 Review 时重点检查：
 
-| 优先级 | Review 点 | 当前风险/结论 |
-| --- | --- | --- |
-| P1 | active Interrupt 时普通 Composer 是否仍显示 | 当前代码存在条件渲染，需确保输入框和操作栏只 disabled、不消失 |
-| P1 | respond/approval 请求失败是否清除本地 submitting | 当前本地 loading 由 Composer 持有，失败重试需要显式 reset |
-| P1 | Interrupt resolve 是否只发生一次 | `interruptId`、状态和 Promise resolver 必须 CAS-like 校验 |
-| P2 | approval 是否严格 single-item | 当前协议允许 `payload.items` 多项，需要产品决策与文档保持一致 |
-| P2 | Cancel 是否清除 activeInterrupt | `requestCancel` 应发送 `interrupt.cancelled` 并进入 cancelled 终态 |
-| P2 | SSE 断线后是否恢复 pending interrupt | 同进程可从 Live Snapshot/Tail 恢复观察状态，重启后不能恢复 Runtime |
-| P3 | Controller 错误文案是否覆盖 K3.2 | 应包含 `respond`、`approve`、`reject`，不能只写 pause/resume/cancel |
+| 优先级 | Review 点                                        | 当前风险/结论                                                       |
+| ------ | ------------------------------------------------ | ------------------------------------------------------------------- |
+| P1     | active Interrupt 时普通 Composer 是否仍显示      | 当前代码存在条件渲染，需确保输入框和操作栏只 disabled、不消失       |
+| P1     | respond/approval 请求失败是否清除本地 submitting | 当前本地 loading 由 Composer 持有，失败重试需要显式 reset           |
+| P1     | Interrupt resolve 是否只发生一次                 | `interruptId`、状态和 Promise resolver 必须 CAS-like 校验           |
+| P2     | approval 是否严格 single-item                    | 当前协议允许 `payload.items` 多项，需要产品决策与文档保持一致       |
+| P2     | Cancel 是否清除 activeInterrupt                  | `requestCancel` 应发送 `interrupt.cancelled` 并进入 cancelled 终态  |
+| P2     | SSE 断线后是否恢复 pending interrupt             | 同进程可从 Live Snapshot/Tail 恢复观察状态，重启后不能恢复 Runtime  |
+| P3     | Controller 错误文案是否覆盖 K3.2                 | 应包含 `respond`、`approve`、`reject`，不能只写 pause/resume/cancel |
 
 ### 13.6 K3.2 测试矩阵
 
@@ -590,9 +590,9 @@ K3.2 不另造一套控制状态机。Clarification 和 Tool Approval 都复用 
 
 差异只在等待原因和响应类型：
 
-| Interrupt kind | 创建边界 | 响应 | 恢复动作 |
-| --- | --- | --- | --- |
-| `clarification` | `model_round_classified` | `respond` | 写入 user clarification fact，下一轮 Model |
-| `tool_approval` | `tool_dispatch_ready` | `approve` / `reject` | 执行原 Tool 或生成 synthetic Tool Result |
+| Interrupt kind  | 创建边界                 | 响应                 | 恢复动作                                   |
+| --------------- | ------------------------ | -------------------- | ------------------------------------------ |
+| `clarification` | `model_round_classified` | `respond`            | 写入 user clarification fact，下一轮 Model |
+| `tool_approval` | `tool_dispatch_ready`    | `approve` / `reject` | 执行原 Tool 或生成 synthetic Tool Result   |
 
 这样可以保证 K3.1 的 Pause/Resume、Cancel 和 K3.2 的 HITL 等待不会互相覆盖或绕过同一个 Runtime 的生命周期仲裁。

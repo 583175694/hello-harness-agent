@@ -135,6 +135,10 @@ export class ChatService {
       persistFinal?: boolean;
       onProjection?: (snapshot: ChatProjectionSnapshot) => void | Promise<void>;
       lifecycle?: RuntimeLifecycleController;
+      onBeforeModelRequest?: (
+        roundSequence: number,
+        finalResponseOnly: boolean,
+      ) => Promise<ModelMessage[]>;
     } = {},
   ): AsyncGenerator<ChatStreamEvent> {
     const model = prepared.model;
@@ -180,6 +184,7 @@ export class ChatService {
       reasoningEffort: prepared.reasoningEffort,
       signal,
       lifecycle: options.lifecycle,
+      onBeforeModelRequest: options.onBeforeModelRequest,
     })) {
       if (event.type === 'model.round.completed') {
         modelRounds.push(event.observation);

@@ -11,9 +11,7 @@ import type { RunSubscriber } from './run.types';
 
 const MAX_SUBSCRIBER_QUEUE = 256;
 
-function pendingInterrupt(
-  interrupt: InterruptSnapshot,
-): PendingInterruptSnapshot | undefined {
+function pendingInterrupt(interrupt: InterruptSnapshot): PendingInterruptSnapshot | undefined {
   return interrupt.status === 'pending' ? (interrupt as PendingInterruptSnapshot) : undefined;
 }
 
@@ -199,6 +197,13 @@ export class RunEventHub {
   // EventHub 只归约 Run 外壳状态；正文、Blocks 和工具投影由同版本 Projection 覆盖。
   private reduceSnapshot(snapshot: RunSnapshot, event: RunStreamEvent): RunSnapshot {
     const payload = event.payload;
+    if (event.type === 'user_input.updated' && 'pendingUserInputs' in payload) {
+      return {
+        ...snapshot,
+        pendingUserInputs: payload.pendingUserInputs,
+        lastEventSequence: event.seq,
+      };
+    }
     const createdInterrupt =
       (event.type === 'interrupt.created' || event.type === 'run.waiting_for_user') &&
       'interrupt' in payload

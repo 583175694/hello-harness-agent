@@ -741,6 +741,36 @@ Tool Approval 的关键不只是加一个确认按钮，而是保证审批前没
 
 答：Agent Loop 每轮都会新增 assistant Tool Call 和 Tool Result，输入规模和结构持续变化，只在 Run 开始时计算一次预算会失真。当前每轮先注入已有摘要，再统一估算 messages 与 Tool Definitions；需要时压缩历史，保证 Tool Call/Result 协议完整，并为最终输出保留固定空间。
 
+## K3.3 Steer & Follow-up 面试专题
+
+### 问：Follow-up 和 Steer 的区别是什么？
+
+答：Follow-up 是“提前发送、等待下一轮执行”的普通跨轮消息。运行中提交后先进入 Pending User Input 队列，不进入当前 Run Context，也不立即显示为正式 user message；当前 Run completed 后按 Session FIFO 领取，创建一条完全复用普通 Create Run/Executor/Transcript 流程的新 Run。Steer 是对当前 Runtime 的运行中指导，只有用户明确点击“引导模型”才从 pending follow-up 原子升级为 steer，并且只在完整 Tool Batch 提交后、下一轮模型请求前的安全边界批量注入。前者改变下一轮任务，后者改变当前 Runtime 的下一步方向。
+
+### 问：为什么单独建 PendingUserInput，而不是直接写 Message？
+
+答：正式 Message 会直接进入后续 Context，无法表达“用户已经发送但还没有被当前或下一轮 Runtime 消费”的阶段，也难以安全实现一次性领取。独立事实层提供 `pending/consumed/rejected/cancelled` 状态、Session sequence、幂等键和 CAS；只有 Follow-up 被领取创建新 Run 时才写正式 Message，Steer 被安全边界消费时才写 canonical transcript。
+
+### 问：如何保证多个 Follow-up 串行而不创建重复 Run？
+
+答：领取逻辑在事务内按 Session sequence 找最早 pending follow-up，并用 `pending -> consumed` CAS 只成功一次。随后在同一套普通 Run 创建逻辑中检查 Session active-run 唯一性，创建 user message、assistant draft 和 queued Run。terminal 重复事件、重复点击和断线重连都会再次经过 CAS/幂等键，因此不会重复消费或创建并发 Run。
+
+### 问：为什么 Follow-up 有时后端已经执行，页面却要刷新才能看到？
+
+答：旧前端只在旧 Run terminal 后读取一次 Session Detail。terminal 广播和 Follow-up dispatcher 创建新 Run 之间存在短事务窗口，前端可能读到暂时没有 active Run 的快照，从而漏掉新 Run。修复后 terminal 收尾使用短暂幂等重试读取 Session；一旦发现新 active Run，就立即加载正式 user message 并启动下一轮 SSE observer。这样队列消息在真正被领取时进入对话，不需要刷新页面。
+
+### 问：Follow-up 执行时再次发送消息为什么会出现 active-run 冲突？
+
+答：前端原来只依赖 React 的 `pendingSessions` 状态。Follow-up 新 Run 刚创建或 observer 切换期间，这个状态可能暂时是旧值，于是第二条消息错误地走普通 Create Run；后端检测到 Session 已有 active Run 后正确拒绝。修复后发送入口同时检查最新 `pendingSessionsRef` 和当前 Session 的 `activeRunId`，只要任一存在，就统一提交 Pending User Input；Composer 也用 `activeRunId` 补充运行态，覆盖 React 状态刷新窗口。
+
+### 问：为什么 Follow-up 不需要用户点击“引导模型”？
+
+答：“引导模型”是 Steer 操作，不是普通队列调度按钮。Follow-up 的语义是下一轮普通对话，当前 Run 正常完成后由 terminal 路径自动领取队首并启动下一条普通 Run；如果 Run failed/cancelled，队列按设计暂停，用户需要显式点击“继续 Follow-up 队列”恢复。这样不会把 Steer 的安全边界语义和 Follow-up 的 FIFO 调度混在一起。
+
+### 问：如何验证 Follow-up 交互没有依赖前端乐观猜测？
+
+答：队列列表、状态、消费结果和顺序以服务端 PendingUserInput/Snapshot/SSE 为 canonical source。前端提交时只显示 pending 队列卡片；user bubble 只有在 Session Detail 返回已创建的正式 Message 后才出现。真实浏览器验证覆盖运行中提交、连续多条 Follow-up、自动串行执行、无需刷新进入下一轮以及执行期间继续提交；单元测试和 TypeScript 编译负责 reducer/API 边界，浏览器黑盒负责真实模型、SSE 和 React 状态切换的组合时序。
+
 ## 17. 追加规则
 
 每个阶段只追加四类内容：

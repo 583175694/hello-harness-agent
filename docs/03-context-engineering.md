@@ -250,23 +250,23 @@ sequenceDiagram
 
 ### 3.4 Review 代码索引
 
-| 关注点 | 代码位置 | 说明 |
-| --- | --- | --- |
-| 编译入口 | `apps/api/src/context-engineering/context-engineering.service.ts:30` | 正式 State、内存 State、预算和最终超限保护。 |
-| Context 类型 | `apps/api/src/context-engineering/context-engineering.types.ts:4` | `CompactionState`、`CompiledContext` 和 Tool Result 类型。 |
-| Prompt Budget | `apps/api/src/context-engineering/context-engineering.service.ts:394` | Window 减输出预留和安全边界。 |
-| 模型配置 | `apps/api/src/model/model-catalog.ts:24` | Context Window、输出预留和压缩阈值。 |
-| Token 估算 | `packages/deepseek-v3-tokenizer/src/index.ts:94` | DeepSeek 模板渲染、Token 计算和缓存。 |
-| 历史压缩 | `apps/api/src/context-engineering/context-engineering.service.ts:124` | 封闭前缀、增量 Summary 和内存 State。 |
-| Summary 分批 | `apps/api/src/context-engineering/context-engineering.service.ts:167` | Tool Unit 分组、预算检查和超大单元首尾裁剪。 |
-| Summary 取消 | `apps/api/src/context-engineering/context-engineering.service.ts:271` | Run AbortSignal、120 秒超时和一次 text-only 重试。 |
-| Tool Result 裁剪 | `apps/api/src/context-engineering/context-engineering.service.ts:79` | 扣除已编译 Context 后共享分配剩余预算。 |
-| Runtime State | `apps/api/src/agent-runtime/agent-runtime.service.ts:55` | 当前 Run 内存 State 生命周期。 |
-| 裁剪基线 | `apps/api/src/agent-runtime/agent-runtime.service.ts:529` | 压缩后 Context 加当前 assistant Tool Calls。 |
-| 终态提交 | `apps/api/src/runs/run.repository.ts:535` | completed 原子提交正式 State 和 Transcript。 |
-| 正式 State 表 | `apps/api/prisma/schema.prisma:50` | Session 级正式状态，没有 Draft 模型。 |
-| 压缩测试 | `apps/api/test/unit/context-engineering/context-engineering.service.spec.ts:67` | 压缩、内存复用、取消、分批和失败回滚。 |
-| 终态测试 | `apps/api/test/unit/runs/run.repository.spec.ts:151` | completed 写入，failed/cancelled 不写入。 |
+| 关注点           | 代码位置                                                                        | 说明                                                       |
+| ---------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| 编译入口         | `apps/api/src/context-engineering/context-engineering.service.ts:30`            | 正式 State、内存 State、预算和最终超限保护。               |
+| Context 类型     | `apps/api/src/context-engineering/context-engineering.types.ts:4`               | `CompactionState`、`CompiledContext` 和 Tool Result 类型。 |
+| Prompt Budget    | `apps/api/src/context-engineering/context-engineering.service.ts:394`           | Window 减输出预留和安全边界。                              |
+| 模型配置         | `apps/api/src/model/model-catalog.ts:24`                                        | Context Window、输出预留和压缩阈值。                       |
+| Token 估算       | `packages/deepseek-v3-tokenizer/src/index.ts:94`                                | DeepSeek 模板渲染、Token 计算和缓存。                      |
+| 历史压缩         | `apps/api/src/context-engineering/context-engineering.service.ts:124`           | 封闭前缀、增量 Summary 和内存 State。                      |
+| Summary 分批     | `apps/api/src/context-engineering/context-engineering.service.ts:167`           | Tool Unit 分组、预算检查和超大单元首尾裁剪。               |
+| Summary 取消     | `apps/api/src/context-engineering/context-engineering.service.ts:271`           | Run AbortSignal、120 秒超时和一次 text-only 重试。         |
+| Tool Result 裁剪 | `apps/api/src/context-engineering/context-engineering.service.ts:79`            | 扣除已编译 Context 后共享分配剩余预算。                    |
+| Runtime State    | `apps/api/src/agent-runtime/agent-runtime.service.ts:55`                        | 当前 Run 内存 State 生命周期。                             |
+| 裁剪基线         | `apps/api/src/agent-runtime/agent-runtime.service.ts:529`                       | 压缩后 Context 加当前 assistant Tool Calls。               |
+| 终态提交         | `apps/api/src/runs/run.repository.ts:535`                                       | completed 原子提交正式 State 和 Transcript。               |
+| 正式 State 表    | `apps/api/prisma/schema.prisma:50`                                              | Session 级正式状态，没有 Draft 模型。                      |
+| 压缩测试         | `apps/api/test/unit/context-engineering/context-engineering.service.spec.ts:67` | 压缩、内存复用、取消、分批和失败回滚。                     |
+| 终态测试         | `apps/api/test/unit/runs/run.repository.spec.ts:151`                            | completed 写入，failed/cancelled 不写入。                  |
 
 一个长 Agent Loop 可以发生两次或更多次 Compaction。这是正常路径，不是异常。
 

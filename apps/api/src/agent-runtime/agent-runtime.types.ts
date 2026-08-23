@@ -18,6 +18,10 @@ export type AgentRuntimeInput = {
   reasoningEffort?: ReasoningEffort;
   signal?: AbortSignal;
   lifecycle?: RuntimeLifecycleController;
+  onBeforeModelRequest?: (
+    roundSequence: number,
+    finalResponseOnly: boolean,
+  ) => Promise<ModelMessage[]>;
 };
 
 // Runtime 事件只描述 Agent 语义和稳定业务位置，不携带 Run eventSequence；

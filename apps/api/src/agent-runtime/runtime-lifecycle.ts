@@ -294,7 +294,10 @@ export class RuntimeLifecycleController {
     if (!context.clarification)
       throw new ConflictException({ code: 'INVALID_CLARIFICATION', detail: '澄清请求为空。' });
     if (this.activeInterrupt)
-      throw new ConflictException({ code: 'RUN_INTERRUPT_PENDING', detail: '运行已有待处理的用户请求。' });
+      throw new ConflictException({
+        code: 'RUN_INTERRUPT_PENDING',
+        detail: '运行已有待处理的用户请求。',
+      });
     const interrupt: PendingInterruptSnapshot = {
       interruptId: crypto.randomUUID(),
       runId: this.runId,
@@ -333,7 +336,10 @@ export class RuntimeLifecycleController {
     }>;
   }): Promise<RuntimeInterruptResult> {
     if (this.activeInterrupt)
-      throw new ConflictException({ code: 'RUN_INTERRUPT_PENDING', detail: '运行已有待处理的用户请求。' });
+      throw new ConflictException({
+        code: 'RUN_INTERRUPT_PENDING',
+        detail: '运行已有待处理的用户请求。',
+      });
     const interrupt: PendingInterruptSnapshot = {
       interruptId: crypto.randomUUID(),
       runId: this.runId,
@@ -364,7 +370,10 @@ export class RuntimeLifecycleController {
     const active = this.requireInterrupt(interruptId, 'clarification');
     const normalized = answer.trim();
     if (!normalized)
-      throw new ConflictException({ code: 'CLARIFICATION_RESPONSE_INVALID', detail: '回答不能为空。' });
+      throw new ConflictException({
+        code: 'CLARIFICATION_RESPONSE_INVALID',
+        detail: '回答不能为空。',
+      });
     if (!active.payload.allowFreeText && !active.payload.options.includes(normalized))
       throw new ConflictException({
         code: 'CLARIFICATION_RESPONSE_INVALID',
@@ -405,16 +414,25 @@ export class RuntimeLifecycleController {
   ): Extract<PendingInterruptSnapshot, { kind: Kind }> {
     const active = this.activeInterrupt;
     if (!active || active.interruptId !== interruptId)
-      throw new ConflictException({ code: 'INTERRUPT_NOT_FOUND', detail: '待处理请求不存在或已结束。' });
+      throw new ConflictException({
+        code: 'INTERRUPT_NOT_FOUND',
+        detail: '待处理请求不存在或已结束。',
+      });
     if (active.kind !== kind)
-      throw new ConflictException({ code: 'INTERRUPT_RESPONSE_INVALID', detail: '响应类型与待处理请求不匹配。' });
+      throw new ConflictException({
+        code: 'INTERRUPT_RESPONSE_INVALID',
+        detail: '响应类型与待处理请求不匹配。',
+      });
     return active as Extract<PendingInterruptSnapshot, { kind: Kind }>;
   }
 
   private resolveInterrupt(result: RuntimeInterruptResult): RuntimeControlSnapshot {
     const resolved = this.activeInterrupt;
     if (!resolved)
-      throw new ConflictException({ code: 'INTERRUPT_NOT_FOUND', detail: '待处理请求不存在或已结束。' });
+      throw new ConflictException({
+        code: 'INTERRUPT_NOT_FOUND',
+        detail: '待处理请求不存在或已结束。',
+      });
     this.activeInterrupt = undefined;
     this.state = 'resuming';
     this.onInterrupt?.('resolved', { ...resolved, status: 'resolved' }, this.snapshot());

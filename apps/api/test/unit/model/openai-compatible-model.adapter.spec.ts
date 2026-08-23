@@ -32,7 +32,9 @@ describe('normalizeProviderUsage', () => {
   it('does not leak internal tool-control outcomes into provider messages', () => {
     const adapter = new OpenAICompatibleModelAdapter(new ConfigService());
     expect(
-      (adapter as unknown as { toProviderMessages: (messages: unknown[]) => unknown[] }).toProviderMessages([
+      (
+        adapter as unknown as { toProviderMessages: (messages: unknown[]) => unknown[] }
+      ).toProviderMessages([
         {
           role: 'tool',
           content: '{"ok":true}',

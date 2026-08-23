@@ -139,7 +139,7 @@ export function applyToolActivityEvent(
               ? '审批测试已完成'
               : event.toolName === 'get_current_time'
                 ? '当前时间已获取'
-              : `找到 ${event.result.results.length} 个结果`,
+                : `找到 ${event.result.results.length} 个结果`,
         completedAt: event.completedAt,
         durationMs: event.durationMs,
       };

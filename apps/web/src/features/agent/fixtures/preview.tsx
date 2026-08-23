@@ -180,7 +180,10 @@ export function makeToolCalls(
   sourceCount: number,
 ): ToolCallView[] {
   const currentStatus: ToolCallStatus =
-    status === 'cancelling' || status === 'pause_requested' || status === 'paused' || status === 'resuming'
+    status === 'cancelling' ||
+    status === 'pause_requested' ||
+    status === 'paused' ||
+    status === 'resuming'
       ? 'running'
       : status === 'waiting' || status === 'waiting_for_user'
         ? 'waiting'

@@ -135,7 +135,25 @@ export class RunCommandService {
             ? { activeInterrupt: control.activeInterrupt }
             : { activeInterrupt: undefined }),
         }
-      : live ?? snapshot;
+      : (live ?? snapshot);
+  }
+
+  async resumeFollowUpQueue(sessionId: string) {
+    const latest = await this.repository.latestTerminalProfile(sessionId);
+    if (!latest)
+      throw new ConflictException({ code: 'NO_TERMINAL_RUN', detail: '没有可恢复的已结束 Run。' });
+    const pending = await this.repository.claimFollowUp(sessionId);
+    if (!pending)
+      throw new ConflictException({
+        code: 'FOLLOW_UP_QUEUE_EMPTY',
+        detail: 'Follow-up 队列为空。',
+      });
+    return this.create(sessionId, {
+      content: pending.content,
+      idempotencyKey: `pending:${pending.id}`,
+      model: latest.model,
+      reasoningEffort: latest.reasoningEffort as ReasoningEffort,
+    });
   }
 
   async control(runId: string, command: RunControlCommand): Promise<RunControlResponse> {
@@ -158,16 +176,15 @@ export class RunCommandService {
         if (command.type === 'respond')
           this.executor.respond(runId, command.interruptId, command.payload.answer);
         else if (command.type === 'approve' || command.type === 'reject')
-          this.executor.decideApproval(
-            runId,
-            command.interruptId,
-            command.decisions,
-          );
+          this.executor.decideApproval(runId, command.interruptId, command.decisions);
         else throw new Error('INVALID_RUN_COMMAND');
       } catch (error) {
         if (error instanceof ConflictException) throw error;
         if (error instanceof Error && error.message === 'RUNTIME_NOT_FOUND')
-          throw new ConflictException({ code: 'RUNTIME_NOT_FOUND', detail: '当前 API 进程没有该 Run 的可控制 Runtime。' });
+          throw new ConflictException({
+            code: 'RUNTIME_NOT_FOUND',
+            detail: '当前 API 进程没有该 Run 的可控制 Runtime。',
+          });
         throw error;
       }
     }

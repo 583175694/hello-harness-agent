@@ -518,6 +518,20 @@ export const agentRunStatusSchema = z.enum([
   'failed',
   'cancelled',
 ]);
+export const pendingUserInputKindSchema = z.enum(['follow_up', 'steer']);
+export const pendingUserInputStatusSchema = z.enum([
+  'pending',
+  'consumed',
+  'rejected',
+  'cancelled',
+]);
+export const pendingUserInputViewSchema = z.object({
+  id: z.string().min(1),
+  kind: pendingUserInputKindSchema,
+  status: pendingUserInputStatusSchema,
+  content: z.string(),
+  sequence: z.number().int().positive(),
+});
 export const runtimeControlStateSchema = z.enum([
   'running',
   'pause_requested',
@@ -635,6 +649,7 @@ export const runSnapshotSchema = z.object({
   endedAt: z.string().datetime().optional(),
   control: runtimeControlSnapshotSchema.optional(),
   activeInterrupt: pendingInterruptSnapshotSchema.optional(),
+  pendingUserInputs: z.array(pendingUserInputViewSchema).optional(),
 });
 export const runEventPayloadSchema = z.union([
   chatStreamEventSchema,
@@ -658,6 +673,7 @@ export const runEventPayloadSchema = z.union([
       'interrupt.resolved',
       'interrupt.cancelled',
       'run.waiting_for_user',
+      'user_input.updated',
     ]),
     control: runtimeControlSnapshotSchema,
     interrupt: interruptSnapshotSchema,
@@ -694,6 +710,7 @@ export const runStreamEventSchema = z.object({
     'interrupt.resolved',
     'interrupt.cancelled',
     'run.waiting_for_user',
+    'user_input.updated',
   ]),
   occurredAt: z.string().datetime(),
   payload: runEventPayloadSchema,
@@ -763,6 +780,9 @@ export type AssistantReasoningBlock = z.infer<typeof assistantReasoningBlockSche
 export type AssistantToolActivityBlock = z.infer<typeof assistantToolActivityBlockSchema>;
 export type AssistantContentBlock = z.infer<typeof assistantContentBlockSchema>;
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
+export type PendingUserInputKind = z.infer<typeof pendingUserInputKindSchema>;
+export type PendingUserInputStatus = z.infer<typeof pendingUserInputStatusSchema>;
+export type PendingUserInputView = z.infer<typeof pendingUserInputViewSchema>;
 export type AssistantDeliveryStatus = z.infer<typeof assistantDeliveryStatusSchema>;
 export type CreateRunRequest = z.infer<typeof createRunRequestSchema>;
 export type CreateRunResponse = z.infer<typeof createRunResponseSchema>;

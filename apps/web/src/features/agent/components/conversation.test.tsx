@@ -20,7 +20,11 @@ describe('Conversation tool activity navigation', () => {
             createdAt: '2026-08-21T00:00:00.000Z',
             roundId: 'round-1',
             roundSequence: 1,
-            payload: { question: '使用哪个环境？', options: ['测试', '生产'], allowFreeText: false },
+            payload: {
+              question: '使用哪个环境？',
+              options: ['测试', '生产'],
+              allowFreeText: false,
+            },
           },
         }}
         error={null}
@@ -60,7 +64,13 @@ describe('Conversation tool activity navigation', () => {
             roundSequence: 1,
             payload: {
               items: [
-                { itemId: 'one', toolCallId: 'call-1', toolName: 'approval_test', input: { message: 'one' }, argumentsHash: 'h1' },
+                {
+                  itemId: 'one',
+                  toolCallId: 'call-1',
+                  toolName: 'approval_test',
+                  input: { message: 'one' },
+                  argumentsHash: 'h1',
+                },
               ],
             },
           },

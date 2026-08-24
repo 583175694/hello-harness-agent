@@ -86,6 +86,6 @@ const ok = true;
     expect(container.querySelector('hr')).toBeInTheDocument();
     expect(screen.getByRole('table')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: '示例图片' })).toHaveAttribute('title', '示例标题');
-    expect(container.querySelector('pre > code.language-ts')).toHaveTextContent('const ok = true;');
+    expect(container.querySelector('pre > code')).toHaveTextContent('const ok = true;');
   });
 });

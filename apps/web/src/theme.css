@@ -1,5 +1,9 @@
 @import 'tailwindcss';
 
+/* Streamdown/Mermaid 的交互控件和全屏层使用 Tailwind 工具类。 */
+@source '../node_modules/streamdown/dist/**/*.js';
+@source '../node_modules/@streamdown/mermaid/dist/*.js';
+
 @theme {
   --color-canvas: var(--theme-canvas);
   --color-sidebar: var(--theme-sidebar);

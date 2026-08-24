@@ -25,7 +25,7 @@ test('renders Markdown lists and the core content components', async ({ page }) 
   await expect(markdown.getByRole('heading', { name: 'Markdown 组件检查' })).toBeVisible();
   await expect(markdown.getByRole('blockquote')).toContainText('人工复核');
   await expect(markdown.getByRole('table')).toBeVisible();
-  await expect(markdown.locator('pre > code.language-ts')).toContainText('Hello, Markdown');
+  await expect(markdown.locator('pre > code')).toContainText('Hello, Markdown');
   await expect(markdown.getByRole('checkbox')).toHaveCount(2);
 
   const listStyles = await markdown.evaluate((root) => {

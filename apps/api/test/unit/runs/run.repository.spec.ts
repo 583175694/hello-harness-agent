@@ -221,11 +221,11 @@ describe('RunRepository reasoning transcript boundaries', () => {
             messages: [{ id: 'assistant-1', metadata: {} }],
           },
         ]),
-        update: vi.fn().mockResolvedValue({}),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       message: { update: vi.fn().mockResolvedValue({}) },
       modelTranscriptItem: { deleteMany },
-      $transaction: vi.fn((operations: Promise<unknown>[]) => Promise.all(operations)),
+      $transaction: vi.fn(async (callback) => callback(prisma)),
     };
     const repository = new RunRepository(prisma as unknown as PrismaService);
 

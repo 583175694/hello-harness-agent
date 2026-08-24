@@ -5,6 +5,7 @@ import { App, AppShell, applyToolEvent, workbenchFromPersistedMessage } from './
 import type { PersistedMessage, WebFetchResult } from '@harness/agent-protocol';
 import type { ToolStreamEvent } from './api/client';
 import { Composer } from './features/agent/components/conversation';
+import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
 
 function runFrame(
   type: string,
@@ -113,6 +114,25 @@ describe('R1 workbench shell', () => {
 
     fireEvent.compositionEnd(input);
     fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('submits Enter while a runtime follow-up is being queued', () => {
+    const onSubmit = vi.fn((event: React.FormEvent<HTMLFormElement>) => event.preventDefault());
+    render(
+      <Composer
+        prompt="重点关注科技板块"
+        submitting
+        serviceState="ready"
+        mode="steer"
+        onPromptChange={vi.fn()}
+        onSubmit={onSubmit}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole('textbox', { name: '任务输入' }), {
+      key: 'Enter',
+      code: 'Enter',
+    });
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
@@ -338,6 +358,40 @@ describe('R1 workbench shell', () => {
       'href',
       '/agent/preview?state=final-report',
     );
+  });
+
+  it('keeps the preview matrix aligned with runtime controls and queued input states', () => {
+    expect(PREVIEW_STATES.map((item) => item.id)).toEqual(
+      expect.arrayContaining([
+        'queued',
+        'pause-requested',
+        'paused',
+        'resuming',
+        'clarification',
+        'tool-approval',
+        'final-answer',
+        'cancel-requested',
+        'follow-up-pending',
+        'steer-pending',
+        'steer-accepted',
+      ]),
+    );
+    expect(makeFixture('follow-up-pending').pendingInputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'follow_up', status: 'pending' }),
+      ]),
+    );
+    expect(makeFixture('steer-pending').pendingInputs).toEqual([
+      expect.objectContaining({ kind: 'steer', status: 'pending' }),
+    ]);
+    expect(makeFixture('clarification').activeInterrupt).toMatchObject({
+      kind: 'clarification',
+      status: 'pending',
+    });
+    expect(makeFixture('tool-approval').activeInterrupt).toMatchObject({
+      kind: 'tool_approval',
+      status: 'pending',
+    });
   });
 
   it('renders fetched passages as unnumbered read sources', () => {
@@ -1002,6 +1056,82 @@ describe('R1 workbench shell', () => {
     fireEvent.click(screen.getByRole('button', { name: '搜索网页，已完成' }));
     expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
     expect(screen.getByText('持久化检索')).toBeInTheDocument();
+  });
+
+  it('recovers tools and legacy Steer blocks independently after refresh', async () => {
+    const restored = {
+      id: 'legacy-steer-session',
+      title: '兼容旧 Steer 数据',
+      status: 'active',
+      isPinned: false,
+      createdAt: '2026-08-05T04:00:00.000Z',
+      updatedAt: '2026-08-05T04:10:00.000Z',
+    };
+    window.history.replaceState({}, '', '/agent?session=legacy-steer-session');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/agent/config/public'))
+          return Promise.resolve(new Response(JSON.stringify(publicModelConfig)));
+        if (url.endsWith('/readyz'))
+          return Promise.resolve(
+            new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' })),
+          );
+        if (url.endsWith('/api/agent/sessions'))
+          return Promise.resolve(new Response(JSON.stringify({ sessions: [restored] })));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              session: {
+                ...restored,
+                messages: [
+                  {
+                    id: 'legacy-assistant',
+                    sessionId: restored.id,
+                    role: 'assistant',
+                    kind: 'assistant_delivery',
+                    content: '完整回答仍然存在。',
+                    createdAt: restored.updatedAt,
+                    metadata: {
+                      model: 'test-model',
+                      blocks: [
+                        {
+                          id: 'legacy-tool',
+                          type: 'tool_activity',
+                          toolCallId: 'call-1',
+                          toolName: 'web_search',
+                          status: 'completed',
+                          title: '搜索网页',
+                          startedAt: '2026-08-05T04:09:58.000Z',
+                          completedAt: '2026-08-05T04:09:59.000Z',
+                          durationMs: 1000,
+                        },
+                        {
+                          id: 'legacy-intervention',
+                          type: 'user.intervention',
+                          inputId: 'input-1',
+                          content: '重点关注科技板块',
+                          roundId: 'round-2',
+                          roundSequence: 2,
+                          blockSequence: 0,
+                        },
+                        { id: 'legacy-text', type: 'text', content: '完整回答仍然存在。' },
+                      ],
+                    },
+                  },
+                ],
+              },
+            }),
+          ),
+        );
+      }),
+    );
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('完整回答仍然存在。')).toBeInTheDocument());
+    expect(screen.getByText('重点关注科技板块')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '搜索网页，已完成' })).toBeInTheDocument();
   });
 
   it('renames and pins a session through the compact overflow menu', async () => {

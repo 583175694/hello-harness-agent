@@ -16,6 +16,7 @@ import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
 import { describeLogError, shortLogId } from '../shared/logging.utils';
 import { compareMessageOrder } from '../chat/message-order';
+import { RunRepository } from '../runs/run.repository';
 
 @Injectable()
 export class SessionsService {
@@ -23,6 +24,7 @@ export class SessionsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(SessionTitleService) private readonly titles: SessionTitleService,
     @Inject(Logger) private readonly logger: Logger,
+    @Inject(RunRepository) private readonly runs: RunRepository,
   ) {}
 
   // 创建属于固定本地用户的持久化会话。
@@ -90,6 +92,8 @@ export class SessionsService {
   // 删除空闲会话，消息由数据库外键级联清理。
   async delete(sessionId: string): Promise<{ deletedSessionId: string }> {
     await this.requireOwned(sessionId);
+    // 先清理已停止但数据库仍显示 active 的 Run，避免故障会话永久阻塞删除。
+    await this.runs.interruptStaleForSession(sessionId);
     const active = await this.prisma.agentRun.findFirst({
       where: { sessionId, status: { in: ['queued', 'running', 'cancel_requested'] } },
     });

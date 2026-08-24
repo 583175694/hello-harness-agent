@@ -298,11 +298,23 @@ export const assistantToolActivityBlockSchema = z.object({
   durationMs: z.number().int().nonnegative().optional(),
 });
 
+// 安全边界消费的 Steer，作为 assistant 流中的用户时间线节点保存。
+export const assistantUserInterventionBlockSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal('user_intervention'),
+  roundId: z.string().min(1),
+  roundSequence: z.number().int().positive(),
+  blockSequence: z.number().int().nonnegative(),
+  inputId: z.string().min(1),
+  content: z.string().min(1),
+});
+
 // 约束文本和工具活动按真实发生顺序组成 assistant 内容时间线。
 export const assistantContentBlockSchema = z.discriminatedUnion('type', [
   assistantTextBlockSchema,
   assistantReasoningBlockSchema,
   assistantToolActivityBlockSchema,
+  assistantUserInterventionBlockSchema,
 ]);
 
 // 定义 assistant 消息携带的轻量 Agent 与 Workbench 快照。
@@ -499,6 +511,16 @@ export const chatStreamEventSchema = z.union([
     delta: z.string().min(1),
   }),
   z.object({
+    type: z.literal('user.intervention'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    inputId: z.string().min(1),
+    content: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+  }),
+  z.object({
     type: z.literal('message.completed'),
     messageId: z.string().min(1),
     model: z.string().min(1),
@@ -673,10 +695,17 @@ export const runEventPayloadSchema = z.union([
       'interrupt.resolved',
       'interrupt.cancelled',
       'run.waiting_for_user',
-      'user_input.updated',
     ]),
     control: runtimeControlSnapshotSchema,
     interrupt: interruptSnapshotSchema,
+  }),
+  // Pending input updates currently carry the complete pending-input projection.
+  z.object({
+    type: z.literal('user_input.updated'),
+    pendingUserInputs: z.array(pendingUserInputViewSchema),
+    appliedSteerIds: z.array(z.string().min(1)).optional(),
+    demotedSteerIds: z.array(z.string().min(1)).optional(),
+    boundaryRoundSequence: z.number().int().positive().optional(),
   }),
 ]);
 // RunStreamEvent.seq 只负责传输去重、gap detection 与 Checkpoint 水位；
@@ -693,6 +722,7 @@ export const runStreamEventSchema = z.object({
     'model.round.completed',
     'reasoning.delta',
     'message.delta',
+    'user.intervention',
     'tool.started',
     'tool.completed',
     'tool.failed',
@@ -778,6 +808,9 @@ export type AssistantAgentMetadata = z.infer<typeof assistantAgentMetadataSchema
 export type AssistantTextBlock = z.infer<typeof assistantTextBlockSchema>;
 export type AssistantReasoningBlock = z.infer<typeof assistantReasoningBlockSchema>;
 export type AssistantToolActivityBlock = z.infer<typeof assistantToolActivityBlockSchema>;
+export type AssistantUserInterventionBlock = z.infer<
+  typeof assistantUserInterventionBlockSchema
+>;
 export type AssistantContentBlock = z.infer<typeof assistantContentBlockSchema>;
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
 export type PendingUserInputKind = z.infer<typeof pendingUserInputKindSchema>;

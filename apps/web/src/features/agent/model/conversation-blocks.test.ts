@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   appendTextDelta,
+  appendUserIntervention,
   applyToolActivityEvent,
   cloneAssistantBlocks,
   flattenAssistantText,
@@ -173,5 +174,28 @@ describe('conversation blocks reducer', () => {
     expect(applyToolActivityEvent(started, cancelledEvent)).toEqual([
       expect.objectContaining({ id: 'tool-1', status: 'cancelled', summary: '网页搜索已取消。' }),
     ]);
+  });
+
+  it('places a consumed steer before the following model round', () => {
+    const afterSteer = appendUserIntervention([], {
+      type: 'user.intervention',
+      messageId: 'message-1',
+      blockId: 'steer-1',
+      inputId: 'input-1',
+      content: '特别是科技相关的',
+      roundId: 'boundary',
+      roundSequence: 2,
+      blockSequence: 0,
+    });
+    const blocks = appendTextDelta(afterSteer, {
+      type: 'message.delta',
+      messageId: 'message-1',
+      blockId: 'text-2',
+      delta: '明白，我重点深挖科技板块',
+      roundId: 'round-2',
+      roundSequence: 2,
+      blockSequence: 1,
+    });
+    expect(blocks.map((block) => block.type)).toEqual(['user_intervention', 'text']);
   });
 });

@@ -138,7 +138,10 @@ export class ChatService {
       onBeforeModelRequest?: (
         roundSequence: number,
         finalResponseOnly: boolean,
-      ) => Promise<ModelMessage[]>;
+      ) => Promise<{
+        messages: ModelMessage[];
+        interventions?: Array<{ inputId: string; content: string }>;
+      }>;
     } = {},
   ): AsyncGenerator<ChatStreamEvent> {
     const model = prepared.model;
@@ -218,6 +221,21 @@ export class ChatService {
           messageId: prepared.assistantMessageId,
           blockId,
           delta: event.delta,
+          roundId: event.roundId,
+          roundSequence: event.roundSequence,
+          blockSequence: event.blockSequence,
+        };
+        continue;
+      }
+      if (event.type === 'user.intervention') {
+        const block = conversation.appendUserIntervention(event);
+        await notifyProjection();
+        yield {
+          type: 'user.intervention',
+          messageId: prepared.assistantMessageId,
+          blockId: block.id,
+          inputId: event.inputId,
+          content: event.content,
           roundId: event.roundId,
           roundSequence: event.roundSequence,
           blockSequence: event.blockSequence,

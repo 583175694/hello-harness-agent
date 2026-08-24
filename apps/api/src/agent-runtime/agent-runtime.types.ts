@@ -21,7 +21,10 @@ export type AgentRuntimeInput = {
   onBeforeModelRequest?: (
     roundSequence: number,
     finalResponseOnly: boolean,
-  ) => Promise<ModelMessage[]>;
+  ) => Promise<{
+    messages: ModelMessage[];
+    interventions?: Array<{ inputId: string; content: string }>;
+  }>;
 };
 
 // Runtime 事件只描述 Agent 语义和稳定业务位置，不携带 Run eventSequence；
@@ -41,6 +44,14 @@ export type AgentRuntimeEvent =
   | {
       type: 'text.delta';
       delta: string;
+      roundId: string;
+      roundSequence: number;
+      blockSequence: number;
+    }
+  | {
+      type: 'user.intervention';
+      inputId: string;
+      content: string;
       roundId: string;
       roundSequence: number;
       blockSequence: number;

@@ -2,6 +2,7 @@ import type {
   AssistantContentBlock,
   AssistantTextBlock,
   AssistantToolActivityBlock,
+  AssistantUserInterventionBlock,
   ChatStreamEvent,
 } from '@harness/agent-protocol';
 
@@ -72,6 +73,23 @@ export function appendTextDelta(
         : block,
     ),
   );
+}
+
+export function appendUserIntervention(
+  blocks: AssistantContentBlock[],
+  event: Extract<ChatStreamEvent, { type: 'user.intervention' }>,
+): AssistantContentBlock[] {
+  if (blocks.some((block) => block.type === 'user_intervention' && block.inputId === event.inputId))
+    return blocks;
+  return insertOrdered(blocks, {
+    id: event.blockId,
+    type: 'user_intervention',
+    inputId: event.inputId,
+    content: event.content,
+    roundId: event.roundId,
+    roundSequence: event.roundSequence,
+    blockSequence: event.blockSequence,
+  } as AssistantUserInterventionBlock);
 }
 
 // 将工具生命周期事件投影为一个稳定 Activity 块，完成或失败时只原位更新。
@@ -174,10 +192,7 @@ export function flattenAssistantText(blocks: AssistantContentBlock[]): string {
 export function cloneAssistantBlocks(blocks: AssistantContentBlock[]): AssistantContentBlock[] {
   return orderAssistantBlocks(
     blocks
-      .filter(
-        (block): block is AssistantTextBlock | AssistantToolActivityBlock =>
-          block.type !== 'reasoning',
-      )
+      .filter((block) => block.type !== 'reasoning')
       .map((block) => ({ ...block })),
   );
 }

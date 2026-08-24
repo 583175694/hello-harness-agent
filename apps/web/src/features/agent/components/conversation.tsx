@@ -4,6 +4,8 @@ import {
   CircleAlert,
   CircleUserRound,
   Copy,
+  CornerDownLeft,
+  Ellipsis,
   LoaderCircle,
   Pause,
   Play,
@@ -11,6 +13,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Square,
+  Trash2,
   X,
 } from 'lucide-react';
 import { memo, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
@@ -82,6 +85,46 @@ export function CopyButton({ text }: { text: string }) {
 type ConversationItem = AgentUiState['conversation'][number];
 type AssistantItem = Extract<ConversationItem, { kind: 'assistant' }>;
 
+type RenderedConversationItem =
+  | Extract<ConversationItem, { kind: 'user' }>
+  | AssistantItem;
+
+// 将一个包含 Steer 边界标记的 assistant draft 拆成可混排的顶层消息。
+// Steer 使用同一条 UserMessage 组件渲染，避免在 assistant 容器内维护第二套用户气泡。
+function expandConversationItem(item: ConversationItem): RenderedConversationItem[] {
+  if (item.kind !== 'assistant' || !item.blocks.some((block) => block.type === 'user_intervention'))
+    return [item];
+  const result: RenderedConversationItem[] = [];
+  let assistantBlocks: AssistantItem['blocks'] = [];
+  let segment = 0;
+  const flushAssistant = () => {
+    if (!assistantBlocks.length) return;
+    result.push({ ...item, id: `${item.id}:segment:${segment++}`, blocks: assistantBlocks });
+    assistantBlocks = [];
+  };
+  for (const block of item.blocks) {
+    if (block.type !== 'user_intervention') {
+      assistantBlocks.push(block);
+      continue;
+    }
+    flushAssistant();
+    result.push({
+      id: `${item.id}:intervention:${block.inputId}`,
+      kind: 'user',
+      content: block.content,
+      pendingInputId: block.inputId,
+      pendingState: 'steer_applied',
+      createdAt: item.createdAt,
+    });
+  }
+  flushAssistant();
+  return result;
+}
+
+function expandConversation(conversation: ConversationItem[]): RenderedConversationItem[] {
+  return conversation.flatMap(expandConversationItem);
+}
+
 // 流式事件只会改变当前 Assistant Item；隔离消息行可以避免每个 token 重建整条历史消息树。
 const UserMessage = memo(function UserMessage({
   item,
@@ -95,6 +138,9 @@ const UserMessage = memo(function UserMessage({
           <MarkdownContent>{item.content}</MarkdownContent>
         </div>
         <div className="message-actions">
+          {item.pendingState === 'steer_pending' ? <span>等待下一步骤应用</span> : null}
+          {item.pendingState === 'steer_applied' ? <span>已应用到当前任务</span> : null}
+          {item.pendingState === 'follow_up_pending' ? <span>等待下一轮处理</span> : null}
           <span>{formatMessageTime(item.createdAt, item.time)}</span>
           <CopyButton text={item.content} />
         </div>
@@ -134,9 +180,14 @@ const AssistantMessage = memo(
           ) : item.deliveryStatus === 'failed' ? (
             <div className="assistant-delivery-status">本次回答未完成</div>
           ) : null}
-          {showThinking && !hasVisibleBlocks ? (
-            <p className="assistant-thinking" role="status" aria-live="polite">
-              正在思考中…
+          {showThinking ? (
+            <p
+              className={hasVisibleBlocks ? 'sr-only' : 'assistant-thinking'}
+              role="status"
+              aria-label="AI 正在回复"
+              aria-live="polite"
+            >
+              {hasVisibleBlocks ? 'AI 正在回复' : '正在思考中…'}
             </p>
           ) : null}
           <div className="assistant-blocks">
@@ -171,6 +222,89 @@ const AssistantMessage = memo(
     previous.isAnimating === next.isAnimating,
 );
 
+// 展示运行中的 Follow-up 队列及其可用操作。
+function FollowUpQueue({
+  state,
+  pendingInputs,
+  submitting,
+  onPromotePending,
+  onCancelPending,
+  onResumeQueue,
+}: {
+  state: AgentUiState;
+  pendingInputs: PendingUserInputView[];
+  submitting: boolean;
+  onPromotePending?: (inputId: string) => void;
+  onCancelPending?: (inputId: string) => void;
+  onResumeQueue?: () => void;
+}) {
+  const queuedInputs = pendingInputs.filter(
+    (item) =>
+      item.status === 'pending' &&
+      item.kind === 'follow_up' &&
+      !state.conversation.some(
+        (entry) => entry.kind === 'user' && entry.pendingInputId === item.id,
+      ),
+  );
+  return (
+    <>
+      {queuedInputs.length ? (
+        <div className="pending-input-stack">
+          {queuedInputs.map((item, index) => (
+            <article className="pending-input-card" key={item.id}>
+              <div className="pending-input-card__content">
+                <CornerDownLeft size={16} aria-hidden="true" />
+                <span>{item.content}</span>
+              </div>
+              <div className="pending-input-card__actions">
+                {onPromotePending ? (
+                  <button
+                    className="pending-input-card__steer"
+                    type="button"
+                    onClick={() => onPromotePending(item.id)}
+                  >
+                    <CornerDownLeft size={15} aria-hidden="true" />
+                    调整方向
+                  </button>
+                ) : null}
+                {onCancelPending ? (
+                  <button
+                    className="pending-input-card__icon"
+                    type="button"
+                    aria-label="删除后续消息"
+                    title="删除后续消息"
+                    onClick={() => onCancelPending(item.id)}
+                  >
+                    <Trash2 size={15} aria-hidden="true" />
+                  </button>
+                ) : null}
+                <button
+                  className="pending-input-card__icon"
+                  type="button"
+                  aria-label="更多后续消息操作"
+                  title="更多操作"
+                  disabled
+                >
+                  <Ellipsis size={16} aria-hidden="true" />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : null}
+      {!submitting &&
+      onResumeQueue &&
+      pendingInputs.some((item) => item.kind === 'follow_up' && item.status === 'pending') &&
+      (state.workbench?.activityStatus === 'failed' ||
+        state.workbench?.activityStatus === 'cancelled') ? (
+        <button className="text-button mb-2" type="button" onClick={onResumeQueue}>
+          继续 Follow-up 队列
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 // 渲染消息时间线、内联工具活动、错误提示和 Composer。
 export function Conversation({
   state,
@@ -190,6 +324,7 @@ export function Conversation({
   onApprovalSubmit,
   pendingInputs = [],
   onPromotePending,
+  onCancelPending,
   onResumeQueue,
   onReconnect,
   reasoningEffort = 'high',
@@ -215,6 +350,7 @@ export function Conversation({
   onApprovalSubmit?: (interruptId: string, decisions: ToolApprovalDecision[]) => void;
   pendingInputs?: PendingUserInputView[];
   onPromotePending?: (inputId: string) => void;
+  onCancelPending?: (inputId: string) => void;
   onResumeQueue?: () => void;
   onReconnect?: () => void;
   reasoningEffort?: ReasoningEffort;
@@ -226,18 +362,19 @@ export function Conversation({
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const scrollFrameRef = useRef<number | null>(null);
-  const latestAssistantId = [...state.conversation]
+  const renderedConversation = expandConversation(state.conversation);
+  const latestAssistantId = [...renderedConversation]
     .reverse()
     .find((item) => item.kind === 'assistant')?.id;
   // 短会话保留普通 DOM，避免为少量消息引入虚拟化开销；长会话才启用窗口化渲染。
-  const shouldVirtualize = state.conversation.length > 40;
+  const shouldVirtualize = renderedConversation.length > 40;
   // TanStack Virtual 返回带内部状态的方法，不能交给 React Compiler 自动记忆。
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
-    count: state.conversation.length,
+    count: renderedConversation.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 120,
-    getItemKey: (index) => state.conversation[index]?.id ?? index,
+    getItemKey: (index) => renderedConversation[index]?.id ?? index,
     overscan: 6,
     paddingStart: 34,
     paddingEnd: 22,
@@ -248,8 +385,8 @@ export function Conversation({
       if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
       scrollFrameRef.current = requestAnimationFrame(() => {
         scrollFrameRef.current = null;
-        if (stickToBottomRef.current && state.conversation.length)
-          instance.scrollToIndex(state.conversation.length - 1, { align: 'end' });
+        if (stickToBottomRef.current && renderedConversation.length)
+          instance.scrollToIndex(renderedConversation.length - 1, { align: 'end' });
       });
     },
   });
@@ -269,8 +406,8 @@ export function Conversation({
     if (!stickToBottomRef.current || !scrollRef.current) return;
     const node = scrollRef.current;
     const scrollToBottom = () => {
-      if (shouldVirtualize && state.conversation.length)
-        virtualizer.scrollToIndex(state.conversation.length - 1, { align: 'end' });
+      if (shouldVirtualize && renderedConversation.length)
+        virtualizer.scrollToIndex(renderedConversation.length - 1, { align: 'end' });
       else node.scrollTop = node.scrollHeight;
     };
     scrollToBottom();
@@ -298,7 +435,7 @@ export function Conversation({
         onMouseEnter={(event) => event.currentTarget.classList.add('is-scroll-active')}
         onMouseLeave={(event) => event.currentTarget.classList.remove('is-scroll-active')}
       >
-        {state.conversation.length === 0 ? (
+        {renderedConversation.length === 0 ? (
           <div className="conversation-empty flex min-h-[500px] flex-col items-center justify-center gap-3 text-text-muted">
             <div className="empty-icon grid h-[50px] w-[50px] place-items-center rounded-xl border border-border bg-surface-subtle text-text-secondary">
               <Sparkles size={22} />
@@ -314,7 +451,7 @@ export function Conversation({
           >
             {shouldVirtualize
               ? virtualizer.getVirtualItems().map((virtualRow) => {
-                  const item = state.conversation[virtualRow.index];
+                  const item = renderedConversation[virtualRow.index];
                   if (!item) return null;
                   return (
                     <div
@@ -339,7 +476,7 @@ export function Conversation({
                     </div>
                   );
                 })
-              : state.conversation.map((item) => (
+              : renderedConversation.map((item) => (
                   <div className="message-list__row message-list__row--static" key={item.id}>
                     {item.kind === 'user' ? (
                       <UserMessage item={item} />
@@ -379,44 +516,15 @@ export function Conversation({
             </button>
           </div>
         ) : null}
-        {pendingInputs
-          .filter((item) => item.status === 'pending')
-          .map((item) => (
-            <div
-              key={item.id}
-              className="mb-2 flex items-center justify-between rounded-lg border border-border-subtle px-3 py-2 text-xs text-text-muted"
-            >
-              <span>后续消息：{item.content}</span>
-              {item.kind === 'follow_up' && onPromotePending ? (
-                <button
-                  className="text-button"
-                  type="button"
-                  onClick={() => onPromotePending(item.id)}
-                >
-                  引导模型
-                </button>
-              ) : (
-                <span>
-                  {item.kind === 'steer'
-                    ? '引导中'
-                    : state.workbench?.activityStatus === 'failed' ||
-                        state.workbench?.activityStatus === 'cancelled'
-                      ? '任务失败，队列已暂停'
-                      : '等待当前任务完成'}
-                </span>
-              )}
-            </div>
-          ))}
-        {!submitting &&
-        onResumeQueue &&
-        pendingInputs.some((item) => item.kind === 'follow_up' && item.status === 'pending') &&
-        (state.workbench?.activityStatus === 'failed' ||
-          state.workbench?.activityStatus === 'cancelled') ? (
-          <button className="text-button mb-2" type="button" onClick={onResumeQueue}>
-            继续 Follow-up 队列
-          </button>
-        ) : null}
         <div className={`composer-wrap ${submitting ? 'is-running' : ''}`}>
+          <FollowUpQueue
+            state={state}
+            pendingInputs={pendingInputs}
+            submitting={submitting}
+            onPromotePending={onPromotePending}
+            onCancelPending={onCancelPending}
+            onResumeQueue={onResumeQueue}
+          />
           <Composer
             prompt={prompt}
             submitting={submitting}
@@ -703,7 +811,8 @@ export function Composer({
               )
                 return;
               event.preventDefault();
-              if (prompt.trim() && !submitting && mode !== 'disabled')
+              // 新任务需要等待当前提交完成；运行中的 steer/follow-up 则允许直接入队。
+              if (prompt.trim() && (mode === 'steer' || !submitting) && mode !== 'disabled')
                 event.currentTarget.form?.requestSubmit();
             }
           }}

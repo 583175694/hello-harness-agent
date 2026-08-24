@@ -23,4 +23,20 @@ describe('ConversationBlockCollector user projection', () => {
 
     expect(collector.snapshot().map((block) => block.type)).toEqual(['text', 'tool_activity']);
   });
+
+  it('persists a consumed steer as a content block, not an event type', () => {
+    const collector = new ConversationBlockCollector('assistant-1');
+    collector.appendUserIntervention({
+      inputId: 'input-1',
+      content: '重点关注科技板块',
+      roundId: 'round-2',
+      roundSequence: 2,
+      blockSequence: 0,
+    });
+
+    expect(collector.snapshot()[0]).toMatchObject({
+      type: 'user_intervention',
+      inputId: 'input-1',
+    });
+  });
 });

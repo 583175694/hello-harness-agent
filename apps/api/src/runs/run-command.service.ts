@@ -33,6 +33,7 @@ export class RunCommandService {
     input: {
       content: string;
       idempotencyKey: string;
+      pendingInputId?: string;
       model: string;
       reasoningEffort?: ReasoningEffort;
     },
@@ -64,6 +65,7 @@ export class RunCommandService {
         sessionId,
         content: input.content,
         idempotencyKey: input.idempotencyKey,
+        pendingInputId: input.pendingInputId,
         payloadHash,
         runId,
         userMessageId,
@@ -127,7 +129,7 @@ export class RunCommandService {
     // Active Run 优先返回进程内 Latest Snapshot；Registry 不存在时退回 PostgreSQL Checkpoint。
     const live = this.registry.get(runId)?.liveSnapshot;
     const control = this.executor.controlSnapshot(runId);
-    return control
+    const effective = control
       ? {
           ...(live ?? snapshot),
           control,
@@ -136,6 +138,8 @@ export class RunCommandService {
             : { activeInterrupt: undefined }),
         }
       : (live ?? snapshot);
+    // Pending inputs are durable control-plane state; never let a stale live shell hide updates.
+    return { ...effective, pendingUserInputs: snapshot.pendingUserInputs };
   }
 
   async resumeFollowUpQueue(sessionId: string) {
@@ -151,6 +155,7 @@ export class RunCommandService {
     return this.create(sessionId, {
       content: pending.content,
       idempotencyKey: `pending:${pending.id}`,
+      pendingInputId: pending.id,
       model: latest.model,
       reasoningEffort: latest.reasoningEffort as ReasoningEffort,
     });

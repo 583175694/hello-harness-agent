@@ -248,7 +248,21 @@ export class RunExecutor implements OnModuleDestroy {
           },
           lifecycle,
           onBeforeModelRequest: async (_round, finalResponseOnly) => {
-            if (finalResponseOnly || _round <= 1) return [];
+            if (finalResponseOnly) {
+              const demoted = await this.pendingInputs.demotePendingSteers(stored.sessionId);
+              if (demoted.length) {
+                const snapshot = await this.repository.snapshot(runId);
+                if (snapshot)
+                  this.events.publish(runId, 'user_input.updated', {
+                    type: 'user_input.updated',
+                    pendingUserInputs: snapshot.pendingUserInputs ?? [],
+                    demotedSteerIds: demoted.map((item) => item.id),
+                    boundaryRoundSequence: _round,
+                  });
+              }
+              return { messages: [] };
+            }
+            if (_round <= 1) return { messages: [] };
             const steers = await this.pendingInputs.claimSteers(stored.sessionId);
             const additions = steers.map((item) => ({
               role: 'user' as const,
@@ -256,7 +270,20 @@ export class RunExecutor implements OnModuleDestroy {
             }));
             for (const message of additions)
               await this.repository.appendTranscriptItem(runId, message, { source: 'steer' });
-            return additions;
+            if (steers.length) {
+              const snapshot = await this.repository.snapshot(runId);
+              if (snapshot)
+                this.events.publish(runId, 'user_input.updated', {
+                  type: 'user_input.updated',
+                  pendingUserInputs: snapshot.pendingUserInputs ?? [],
+                  appliedSteerIds: steers.map((item) => item.id),
+                  boundaryRoundSequence: _round,
+                });
+            }
+            return {
+              messages: additions,
+              interventions: steers.map((item) => ({ inputId: item.id, content: item.content })),
+            };
           },
         },
       )) {
@@ -350,24 +377,36 @@ export class RunExecutor implements OnModuleDestroy {
       if (!terminal) return;
       this.updateLiveSnapshot(active.liveSnapshot, projection, terminal.seq, status, failure);
       draftVersion += 1;
-      const terminalCommitted = await this.repository.terminal({
-        runId,
-        assistantMessageId: stored.assistantMessageId,
-        status,
-        projection,
-        lastEventSequence: terminal.seq,
-        draftVersion,
-        context: active.liveSnapshot.context,
-        error: failure,
-      });
-      if (terminalCommitted) {
-        this.events.checkpointCommitted(runId, active.liveSnapshot, draftVersion);
-        this.events.broadcast(runId, terminal);
-        lifecycle.markTerminal(status);
-        active.liveSnapshot = { ...active.liveSnapshot, control: lifecycle.snapshot() };
-      } else {
+      try {
+        const terminalCommitted = await this.repository.terminal({
+          runId,
+          assistantMessageId: stored.assistantMessageId,
+          status,
+          projection,
+          lastEventSequence: terminal.seq,
+          draftVersion,
+          context: active.liveSnapshot.context,
+          error: failure,
+        });
+        if (terminalCommitted) {
+          this.events.checkpointCommitted(runId, active.liveSnapshot, draftVersion);
+          this.events.broadcast(runId, terminal);
+          lifecycle.markTerminal(status);
+          active.liveSnapshot = { ...active.liveSnapshot, control: lifecycle.snapshot() };
+        } else {
+          this.events.rollback(runId, terminal, previousSnapshot);
+          await this.repository.forceFail(runId, stored.assistantMessageId, failure);
+        }
+      } catch (terminalError) {
         this.events.rollback(runId, terminal, previousSnapshot);
-        throw new Error('TERMINAL_CHECKPOINT_CONFLICT');
+        await this.repository
+          .forceFail(runId, stored.assistantMessageId, failure)
+          .catch((fallbackError) => {
+            this.logger.error(
+              `Run终态兜底失败 | Run=${shortLogId(runId)} | 原始错误=${this.describeError(terminalError).code} | 兜底错误=${this.describeError(fallbackError).code}`,
+              RunExecutor.name,
+            );
+          });
       }
     } finally {
       clearInterval(heartbeat);
@@ -391,6 +430,7 @@ export class RunExecutor implements OnModuleDestroy {
       idempotencyKey: `pending:${pending.id}`,
       model,
       reasoningEffort,
+      pendingInputId: pending.id,
     });
   }
 

@@ -1253,6 +1253,88 @@ textarea:focus-visible {
 .composer-wrap.is-running {
   padding-top: 20px;
 }
+.pending-input-stack {
+  overflow: hidden;
+  width: calc(100% - 24px);
+  margin: 0 auto -1px;
+  border: 1px solid var(--theme-composer-border);
+  border-radius: 14px 14px 0 0;
+  background: var(--theme-surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 3%);
+}
+.pending-input-card {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 12px;
+  color: var(--theme-text-primary);
+}
+.pending-input-card__content {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+.pending-input-card__content svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--theme-text-muted);
+}
+.pending-input-card__content span {
+  overflow-wrap: anywhere;
+}
+.pending-input-card__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  color: var(--theme-text-muted);
+}
+.pending-input-card__steer {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 7px;
+  color: inherit;
+  background: transparent;
+  font-size: 13px;
+}
+.pending-input-card__steer:hover,
+.pending-input-card__steer:focus-visible {
+  color: var(--theme-text-primary);
+  background: var(--theme-surface-hover);
+}
+.pending-input-card__status {
+  padding: 0 8px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.pending-input-card__icon {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: inherit;
+  background: transparent;
+}
+.pending-input-card__icon:hover:not(:disabled),
+.pending-input-card__icon:focus-visible:not(:disabled) {
+  color: var(--theme-text-primary);
+  background: var(--theme-surface-hover);
+}
+.pending-input-card__icon:disabled {
+  opacity: 0.55;
+}
 .activity-bars {
   display: inline-flex;
   height: 12px;

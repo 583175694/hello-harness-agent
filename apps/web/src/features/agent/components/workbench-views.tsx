@@ -173,6 +173,7 @@ function ActivityView({
   const { title, subtitle } = ACTIVITY_STATUS_COPY[status];
   const isBusy =
     status === 'running' ||
+    status === 'final_answer' ||
     status === 'pause_requested' ||
     status === 'resuming' ||
     status === 'cancelling';
@@ -198,7 +199,7 @@ function ActivityView({
             <CircleAlert size={20} />
           ) : status === 'cancelled' ? (
             <X size={20} />
-          ) : status === 'waiting' || status === 'paused' || status === 'pause_requested' ? (
+          ) : status === 'queued' || status === 'waiting' || status === 'paused' || status === 'pause_requested' ? (
             <Clock3 size={20} />
           ) : status === 'completed' ? (
             <Check size={20} />

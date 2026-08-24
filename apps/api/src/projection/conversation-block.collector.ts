@@ -2,6 +2,7 @@ import type {
   AssistantContentBlock,
   AssistantTextBlock,
   AssistantToolActivityBlock,
+  AssistantUserInterventionBlock,
 } from '@harness/agent-protocol';
 
 // 将实时文本和工具生命周期折叠为可持久化的 assistant 有序内容块。
@@ -40,6 +41,27 @@ export class ConversationBlockCollector {
     };
     this.insert(block);
     return block.id;
+  }
+
+  appendUserIntervention(input: {
+    inputId: string;
+    content: string;
+    roundId: string;
+    roundSequence: number;
+    blockSequence: number;
+  }): AssistantUserInterventionBlock {
+    const existing = this.blocks.find(
+      (block): block is AssistantUserInterventionBlock =>
+        block.type === 'user_intervention' && block.inputId === input.inputId,
+    );
+    if (existing) return { ...existing };
+    const block: AssistantUserInterventionBlock = {
+      ...input,
+      id: `${this.messageId}-intervention-${input.inputId}`,
+      type: 'user_intervention',
+    };
+    this.insert(block);
+    return { ...block };
   }
 
   // 在模型声明的位置插入稳定的运行中工具活动块；重复 started 不会创建副本。

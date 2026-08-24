@@ -79,8 +79,17 @@ export class AgentRuntimeService {
       });
       if (beforeModelWait) await beforeModelWait;
       if (input.onBeforeModelRequest) {
-        const additions = await input.onBeforeModelRequest(modelRounds, finalResponseOnly);
-        if (additions.length) messages.push(...additions);
+        const result = await input.onBeforeModelRequest(modelRounds, finalResponseOnly);
+        if (result.messages.length) messages.push(...result.messages);
+        for (const intervention of result.interventions ?? []) {
+          yield {
+            type: 'user.intervention',
+            ...intervention,
+            roundId: crypto.randomUUID(),
+            roundSequence: modelRounds,
+            blockSequence: 0,
+          };
+        }
       }
       if (input.signal?.aborted) throw this.abortError();
       this.logger.log(

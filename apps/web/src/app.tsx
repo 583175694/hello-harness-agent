@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 import {
   ApiProblem,
   cancelRun,
+  cancelPendingInput,
   controlRun,
   createRun,
   createSession,
@@ -29,6 +30,7 @@ import {
 import type { MessageDeltaEvent, ModelRoundCompletedEvent, ToolStreamEvent } from './api/client';
 import {
   AGENT_PROTOCOL_LIMITS,
+  assistantContentBlockSchema,
   assistantAgentMetadataSchema,
   normalizeSourceUrl,
 } from '@harness/agent-protocol';
@@ -59,6 +61,7 @@ import {
   appendTextDelta,
   applyToolActivityEvent,
   cloneAssistantBlocks,
+  appendUserIntervention,
 } from './features/agent/model/conversation-blocks';
 import { nextSourceNumber } from './features/agent/model/source-identifiers';
 import { WorkbenchShell } from './features/agent/components/workbench-views';
@@ -526,21 +529,93 @@ function toConversationItem(message: PersistedMessage): ConversationItem {
       id: message.id,
       kind: 'user',
       content: message.content,
+      ...(typeof message.metadata?.pendingInputId === 'string'
+        ? { pendingInputId: message.metadata.pendingInputId }
+        : {}),
       createdAt: message.createdAt,
     };
-  const metadata = assistantAgentMetadataSchema.safeParse(message.metadata);
-  const blocks: AssistantContentBlock[] =
-    metadata.success && metadata.data.blocks?.length
-      ? cloneAssistantBlocks(metadata.data.blocks)
-      : [{ id: `${message.id}-text-1`, type: 'text', content: message.content }];
+  const metadata =
+    typeof message.metadata === 'object' && message.metadata !== null
+      ? (message.metadata as Record<string, unknown>)
+      : {};
+  const blocksValue = metadata.blocks;
+  const blocks = Array.isArray(blocksValue)
+    ? blocksValue.flatMap((value): AssistantContentBlock[] => {
+        // 兼容早期 Steer 持久化 bug：事件名被误写成内容块类型。
+        const candidate =
+          typeof value === 'object' && value !== null && !Array.isArray(value)
+            ? (value as Record<string, unknown>)
+            : value;
+        const normalized =
+          typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate) &&
+          candidate.type === 'user.intervention'
+            ? { ...candidate, type: 'user_intervention' }
+            : candidate;
+        const parsed = assistantContentBlockSchema.safeParse(normalized);
+        return parsed.success ? [parsed.data] : [];
+      })
+    : [];
+  const restoredBlocks = blocks.length ? cloneAssistantBlocks(blocks) : [];
+  const finalBlocks = restoredBlocks.length
+    ? restoredBlocks
+    : [{ id: `${message.id}-text-1`, type: 'text' as const, content: message.content }];
   return {
     id: message.id,
     kind: 'assistant',
-    blocks,
+    blocks: finalBlocks,
     ...(message.deliveryStatus ? { deliveryStatus: message.deliveryStatus } : {}),
     createdAt: message.createdAt,
     workbench: workbenchFromPersistedMessage(message),
   };
+}
+
+function pendingStateForInput(
+  input: PendingUserInputView | undefined,
+): 'steer_pending' | 'steer_applied' | 'follow_up_pending' | undefined {
+  if (!input) return undefined;
+  if (input.kind === 'steer' && input.status === 'consumed') return 'steer_applied';
+  if (input.kind === 'steer') return 'steer_pending';
+  if (input.status === 'consumed') return 'follow_up_pending';
+  return 'follow_up_pending';
+}
+
+function mergePendingSteerState(
+  conversation: ConversationItem[],
+  pendingInputs: PendingUserInputView[],
+): ConversationItem[] {
+  return conversation.map((item) => {
+    if (item.kind !== 'user' || !item.pendingInputId) return item;
+    const pending = pendingInputs.find((input) => input.id === item.pendingInputId);
+    return { ...item, pendingState: pendingStateForInput(pending) };
+  });
+}
+
+function uniquePendingInputs(items: PendingUserInputView[]): PendingUserInputView[] {
+  const merged = new Map<string, PendingUserInputView>();
+  for (const item of items) {
+    const previous = merged.get(item.id);
+    // A delayed full-list update must not roll an already promoted Steer back to Follow-up.
+    if (!previous || item.kind === 'steer' || previous.status !== 'pending') merged.set(item.id, item);
+  }
+  return [...merged.values()].sort((left, right) => left.sequence - right.sequence);
+}
+
+function preferRicherAssistant(
+  current: ConversationItem | undefined,
+  restored: ConversationItem,
+): ConversationItem {
+  if (
+    current?.kind === 'assistant' &&
+    restored.kind === 'assistant' &&
+    current.blocks.length > restored.blocks.length
+  ) {
+    return {
+      ...restored,
+      blocks: current.blocks,
+      workbench: current.workbench ?? restored.workbench,
+    };
+  }
+  return restored;
 }
 
 // 从首条用户输入构造创建会话时使用的临时标题。
@@ -655,7 +730,20 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     // Snapshot 是完整替换，但旧 HTTP/SSE 响应不能覆盖已经应用到更高 cursor 的 Live 状态。
     if (snapshot.lastEventSequence < (runSequencesRef.current[snapshot.runId] ?? 0)) return;
     runSequencesRef.current[snapshot.runId] = snapshot.lastEventSequence;
-    if (snapshot.pendingUserInputs) setPendingInputs(snapshot.pendingUserInputs);
+    if (snapshot.pendingUserInputs) {
+      setPendingInputs(uniquePendingInputs(snapshot.pendingUserInputs));
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            conversation: mergePendingSteerState(target.conversation, snapshot.pendingUserInputs!),
+          },
+        };
+      });
+    }
     const active = ['queued', 'running', 'cancel_requested'].includes(snapshot.status);
     const controlStatus = snapshot.control?.state;
     const activityStatus =
@@ -728,7 +816,14 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     setSessionStates((current) => {
       const target = current[sessionId];
       if (!target) return current;
-      const item = { ...restored, pending: active, ...(workbench ? { workbench } : {}) };
+      const existingAssistant = target.conversation.find(
+        (entry) => entry.kind === 'assistant' && entry.id === snapshot.assistantMessageId,
+      );
+      const item = {
+        ...preferRicherAssistant(existingAssistant, restored),
+        pending: active,
+        ...(workbench ? { workbench } : {}),
+      };
       const exists = target.conversation.some(
         (entry) => entry.kind === 'assistant' && entry.id === snapshot.assistantMessageId,
       );
@@ -768,6 +863,55 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     // 只有确认目标 Session/Message 存在且成功归约后，下面各分支才推进 cursor。
     const target = sessionStatesRef.current[sessionId];
     if (!target) throw new Error('RUN_EVENT_TARGET_MISSING');
+    if (event.type === 'user_input.updated') {
+      if (!('pendingUserInputs' in event.payload)) throw new Error('INVALID_USER_INPUT_UPDATE');
+      const update = event.payload;
+      const nextPending = uniquePendingInputs(update.pendingUserInputs ?? []);
+      setPendingInputs(nextPending);
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            conversation: mergePendingSteerState(target.conversation, nextPending),
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    if (event.type === 'user.intervention' && 'inputId' in event.payload) {
+      const intervention = event.payload;
+      if (
+        !target.conversation.some(
+          (item) => item.kind === 'assistant' && item.id === intervention.messageId,
+        )
+      )
+        throw new Error('RUN_EVENT_TARGET_MISSING');
+      setSessionStates((current) => {
+        const state = current[sessionId];
+        if (!state) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...state,
+            conversation: state.conversation
+              .filter(
+                (item) => !(item.kind === 'user' && item.pendingInputId === intervention.inputId),
+              )
+              .map((item) =>
+                item.kind === 'assistant' && item.id === intervention.messageId
+                  ? { ...item, blocks: appendUserIntervention(item.blocks, intervention) }
+                  : item,
+              ),
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
     if (event.type === 'message.delta') {
       const delta = event.payload as MessageDeltaEvent;
       if (
@@ -1085,6 +1229,27 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       if (pendingSessionsRef.current[sessionId]) return;
       setSessionStates((current) => {
         const conversation = session.messages.map(toConversationItem);
+        const existingPending = current[sessionId]?.conversation.filter(
+          (item): item is Extract<ConversationItem, { kind: 'user' }> =>
+            item.kind === 'user' && Boolean(item.pendingInputId),
+        ) ?? [];
+        const durableIds = new Set(
+          conversation
+            .filter((item): item is Extract<ConversationItem, { kind: 'user' }> => item.kind === 'user')
+            .map((item) => item.pendingInputId)
+            .filter((id): id is string => Boolean(id)),
+        );
+        const mergedConversation = [
+          ...conversation,
+          ...existingPending.filter((item) => item.pendingInputId && !durableIds.has(item.pendingInputId)),
+        ].sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
+        const currentConversation = current[sessionId]?.conversation ?? [];
+        const restoredConversation = mergedConversation.map((item) =>
+          preferRicherAssistant(
+            currentConversation.find((candidate) => candidate.id === item.id),
+            item,
+          ),
+        );
         const activeWorkbench = current[sessionId]?.workbench;
         const restoredItem =
           (activeWorkbench
@@ -1104,7 +1269,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           [sessionId]: {
             label: session.title,
             subtitle: '',
-            conversation,
+            conversation: restoredConversation,
             ...(restoredWorkbench
               ? {
                   workbench: {
@@ -1289,7 +1454,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         };
         if (result.input)
           setPendingInputs((current) =>
-            [...current, result.input!].sort((a, b) => a.sequence - b.sequence),
+            uniquePendingInputs([...current, result.input!]),
           );
       } catch (requestError) {
         setError(getErrorMessage(requestError));
@@ -1641,13 +1806,54 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
               onPromotePending={
                 submitting
                   ? async (inputId) => {
+                      const sessionId = selectedSessionIdRef.current;
                       const updated = (await promotePendingInput(inputId)) as PendingUserInputView;
                       setPendingInputs((current) =>
-                        current.map((item) => (item.id === inputId ? updated : item)),
+                        uniquePendingInputs(current.map((item) => (item.id === inputId ? updated : item))),
                       );
+                      if (!sessionId) return;
+                      setSessionStates((current) => {
+                        const target = current[sessionId];
+                        if (
+                          !target ||
+                          target.conversation.some(
+                            (item) => item.kind === 'user' && item.pendingInputId === inputId,
+                          )
+                        )
+                          return current;
+                        return {
+                          ...current,
+                          [sessionId]: {
+                            ...target,
+                            conversation: [
+                              ...target.conversation,
+                              {
+                                id: `pending-user-${inputId}`,
+                                kind: 'user' as const,
+                                content: updated.content,
+                                pendingInputId: inputId,
+                                pendingState: 'steer_pending' as const,
+                                createdAt: new Date().toISOString(),
+                              },
+                            ],
+                          },
+                        };
+                      });
                     }
                   : undefined
               }
+              onCancelPending={async (inputId) => {
+                try {
+                  const updated = (await cancelPendingInput(inputId)) as PendingUserInputView;
+                  setPendingInputs((current) =>
+                    uniquePendingInputs(
+                      current.map((item) => (item.id === inputId ? updated : item)),
+                    ),
+                  );
+                } catch (requestError) {
+                  setError(getErrorMessage(requestError));
+                }
+              }}
               onResumeQueue={async () => {
                 if (!selectedSessionId) return;
                 const run = await resumePendingQueue(selectedSessionId);
@@ -1784,7 +1990,7 @@ export function AppShell({
   );
   const [prompt, setPrompt] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState(Boolean(previewState?.previewSubmitting));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [uiState, setUiState] = useState<AgentUiState>(previewState ?? makeFixture('empty'));
 
@@ -1797,7 +2003,7 @@ export function AppShell({
     return () => controller.abort();
   }, [previewState]);
 
-  const composerMode = 'new-run' as const;
+  const composerMode = submitting && !uiState.activeInterrupt ? ('steer' as const) : ('new-run' as const);
 
   // 打开 Workbench 并记录用户是否固定了当前定位。
   function focusWorkbench(target: WorkbenchFocusTarget, pinned = true) {
@@ -1903,6 +2109,7 @@ export function AppShell({
               submitting={submitting}
               serviceState={serviceState}
               composerMode={composerMode}
+              pendingInputs={uiState.pendingInputs}
               onPromptChange={setPrompt}
               onSubmit={handleSubmit}
             />

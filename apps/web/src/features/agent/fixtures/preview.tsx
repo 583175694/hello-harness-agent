@@ -1,4 +1,9 @@
-import type { AssistantContentBlock, AssistantToolActivityBlock } from '@harness/agent-protocol';
+import type {
+  AssistantContentBlock,
+  AssistantToolActivityBlock,
+  InterruptSnapshot,
+  PendingUserInputView,
+} from '@harness/agent-protocol';
 
 import { AGENT_UI_COPY } from '../config/ui.constants';
 import type {
@@ -21,6 +26,16 @@ export const PREVIEW_STATES: Array<{ id: PreviewState; label: string }> = [
   { id: 'fetch-candidate', label: '已读网页' },
   { id: 'fetch-failed', label: '读取全部失败' },
   { id: 'waiting', label: '等待确认' },
+  { id: 'clarification', label: '澄清问题' },
+  { id: 'tool-approval', label: '工具审批' },
+  { id: 'queued', label: '排队中' },
+  { id: 'pause-requested', label: '即将暂停' },
+  { id: 'paused', label: '已暂停' },
+  { id: 'resuming', label: '恢复中' },
+  { id: 'final-answer', label: '撰写回答' },
+  { id: 'cancel-requested', label: '取消请求中' },
+  { id: 'follow-up-pending', label: 'Follow-up 排队' },
+  { id: 'steer-pending', label: 'Steer 待应用' },
   { id: 'steer-accepted', label: '已接受调整' },
   { id: 'cancelling', label: '取消中' },
   { id: 'cancelled', label: '已取消' },
@@ -185,6 +200,8 @@ export function makeToolCalls(
     status === 'paused' ||
     status === 'resuming'
       ? 'running'
+      : status === 'queued' || status === 'final_answer'
+        ? 'pending'
       : status === 'waiting' || status === 'waiting_for_user'
         ? 'waiting'
         : status;
@@ -278,11 +295,54 @@ function activityStatus(state: PreviewState): AssistantToolActivityBlock['status
   return 'running';
 }
 
+function runtimeStatus(state: PreviewState): ActivityStatus {
+  if (state === 'queued') return 'queued';
+  if (state === 'final-answer') return 'final_answer';
+  if (state === 'clarification' || state === 'tool-approval') return 'waiting_for_user';
+  if (state === 'waiting') return 'waiting';
+  if (state === 'pause-requested') return 'pause_requested';
+  if (state === 'paused') return 'paused';
+  if (state === 'resuming') return 'resuming';
+  if (state === 'cancel-requested') return 'cancelling';
+  if (state === 'cancelling') return 'cancelling';
+  if (state === 'cancelled') return 'cancelled';
+  if (state === 'failed') return 'failed';
+  if (state === 'final-report' || state === 'limited-report') return 'completed';
+  return 'running';
+}
+
+function makePendingInputs(state: PreviewState): PendingUserInputView[] | undefined {
+  if (state === 'follow-up-pending')
+    return [
+      { id: 'preview-follow-up-1', kind: 'follow_up', status: 'pending', content: '再补充制造业案例。', sequence: 1 },
+      { id: 'preview-follow-up-2', kind: 'follow_up', status: 'pending', content: '同时比较中美市场增速。', sequence: 2 },
+    ];
+  if (state === 'steer-pending')
+    return [{ id: 'preview-steer-1', kind: 'steer', status: 'pending', content: '优先关注产业应用案例。', sequence: 1 }];
+  return undefined;
+}
+
+function makeInterrupt(state: PreviewState, runId: string): InterruptSnapshot | undefined {
+  const createdAt = '2026-08-24T03:00:00.000Z';
+  if (state === 'clarification')
+    return {
+      interruptId: 'preview-clarification', runId, kind: 'clarification', status: 'pending', createdAt,
+      roundId: 'preview-round-1', roundSequence: 1,
+      payload: { question: '你希望重点关注近 12 个月还是近 3 年？', options: ['近 12 个月', '近 3 年'], allowFreeText: true },
+    };
+  if (state === 'tool-approval')
+    return {
+      interruptId: 'preview-approval', runId, kind: 'tool_approval', status: 'pending', createdAt,
+      roundId: 'preview-round-1', roundSequence: 1,
+      payload: { items: [{ itemId: 'preview-approval-item', toolCallId: `${runId}-tool-3`, toolName: 'approval_test', input: { message: '模拟需要确认的工具调用' }, argumentsHash: 'preview-hash' }] },
+    };
+  return undefined;
+}
+
 // 为不同预览状态创建统一 Workbench 外壳数据。
 function makeWorkbench(state: PreviewState, runId: string) {
   const status = activityStatus(state);
-  const executionStatus: ActivityStatus =
-    state === 'waiting' ? 'waiting' : state === 'cancelling' ? 'cancelling' : status;
+  const executionStatus = runtimeStatus(state);
   const executions = makeToolCalls(runId, executionStatus, sources.length);
   const reportState = state === 'final-report' || state === 'limited-report';
   const open = state !== 'tool-running';
@@ -296,6 +356,7 @@ function makeWorkbench(state: PreviewState, runId: string) {
         ? ('sources' as const)
         : ('activity' as const),
     activityStatus: executionStatus,
+    controlPhase: state === 'final-answer' ? ('final_answer' as const) : ('tool_loop' as const),
     executions,
     focusTarget: {
       kind: 'tool_call' as const,
@@ -394,8 +455,16 @@ const answer = 'Hello, Markdown';
   ];
   if (state === 'sources')
     blocks.push(text(`${runId}-text-2`, '已获得第一批结果，正在交叉验证关键结论。'));
-  if (state === 'waiting')
+  if (state === 'waiting' || state === 'clarification' || state === 'tool-approval')
     blocks.push(text(`${runId}-text-2`, '检索材料跨度较大，请确认关注近 12 个月还是近 3 年。'));
+  if (state === 'queued') blocks.push(text(`${runId}-text-2`, '任务已提交，正在等待执行资源。'));
+  if (state === 'pause-requested') blocks.push(text(`${runId}-text-2`, '已收到暂停请求，将在当前安全边界暂停。'));
+  if (state === 'paused') blocks.push(text(`${runId}-text-2`, '任务已暂停，可从同一个运行边界继续。'));
+  if (state === 'resuming') blocks.push(text(`${runId}-text-2`, '正在从暂停边界恢复任务。'));
+  if (state === 'final-answer') blocks.push(text(`${runId}-text-2`, '证据已整理完成，正在撰写最终回答。'));
+  if (state === 'cancel-requested') blocks.push(text(`${runId}-text-2`, '已收到取消请求，正在安全停止。'));
+  if (state === 'follow-up-pending') blocks.push(text(`${runId}-text-2`, '当前任务继续执行，后续消息会在完成后按顺序启动。'));
+  if (state === 'steer-pending') blocks.push(text(`${runId}-text-2`, '方向调整已进入队列，将在下一安全步骤应用。'));
   if (state === 'steer-accepted')
     blocks.push(text(`${runId}-text-2`, '已接受调整，接下来会重点补充中国市场的产业应用案例。'));
   if (state === 'cancelling') blocks.push(text(`${runId}-text-2`, '正在安全停止当前检索。'));
@@ -411,6 +480,7 @@ const answer = 'Hello, Markdown';
       ),
     );
   const workbench = makeWorkbench(state, runId);
+  const interrupt = makeInterrupt(state, runId);
   return {
     label: state === 'limited-report' ? '受限报告' : '中国 AI 市场调研',
     subtitle: '网页检索任务',
@@ -420,11 +490,27 @@ const answer = 'Hello, Markdown';
         id: runId,
         kind: 'assistant',
         blocks,
-        pending: activityStatus(state) === 'running',
+        pending: !['final-report', 'limited-report', 'cancelled', 'failed'].includes(state),
         workbench,
       },
     ],
     workbench,
+    activeRunId: !['final-report', 'limited-report', 'cancelled', 'failed'].includes(state) ? runId : undefined,
+    activeInterrupt: interrupt,
+    pendingInputs: makePendingInputs(state),
+    previewSubmitting: [
+      'queued',
+      'pause-requested',
+      'paused',
+      'resuming',
+      'clarification',
+      'tool-approval',
+      'final-answer',
+      'cancel-requested',
+      'follow-up-pending',
+      'steer-pending',
+      'cancelling',
+    ].includes(state),
     autoOpenSuppressedRunIds: state === 'tool-running' ? [runId] : [],
   };
 }

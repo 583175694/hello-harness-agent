@@ -4,6 +4,61 @@ import { describe, expect, it, vi } from 'vitest';
 import { Conversation } from './conversation';
 
 describe('Conversation tool activity navigation', () => {
+  it('renders a consumed steer as the regular user message', () => {
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [
+            {
+              id: 'assistant-1',
+              kind: 'assistant',
+              blocks: [
+                {
+                  id: 'text-1',
+                  type: 'text',
+                  content: '前文',
+                  roundId: 'round-1',
+                  roundSequence: 1,
+                  blockSequence: 0,
+                },
+                {
+                  id: 'intervention-1',
+                  type: 'user_intervention',
+                  inputId: 'input-1',
+                  content: '重点关注机器人板块',
+                  roundId: 'round-2',
+                  roundSequence: 2,
+                  blockSequence: 0,
+                },
+                {
+                  id: 'text-2',
+                  type: 'text',
+                  content: '后文',
+                  roundId: 'round-2',
+                  roundSequence: 2,
+                  blockSequence: 1,
+                },
+              ],
+            },
+          ],
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+    expect(screen.getByText('重点关注机器人板块')).toBeInTheDocument();
+    expect(screen.getByText('已应用到当前任务')).toBeInTheDocument();
+  });
+
   it('submits a clarification answer from the active interrupt', () => {
     const respond = vi.fn();
     render(

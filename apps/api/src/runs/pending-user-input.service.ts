@@ -92,6 +92,26 @@ export class PendingUserInputService {
     return this.prisma.pendingUserInput.findUniqueOrThrow({ where: { id } });
   }
 
+  // Final-answer boundary can no longer inject the steer into the current Run.
+  async demotePendingSteers(sessionId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.pendingUserInput.findMany({
+        where: { sessionId, kind: 'steer', status: 'pending' },
+        orderBy: { sequence: 'asc' },
+      });
+      if (!rows.length) return [];
+      const result = await tx.pendingUserInput.updateMany({
+        where: {
+          id: { in: rows.map((row) => row.id) },
+          kind: 'steer',
+          status: 'pending',
+        },
+        data: { kind: 'follow_up' },
+      });
+      return result.count === rows.length ? rows : [];
+    });
+  }
+
   async claimSteers(sessionId: string) {
     return this.prisma.$transaction(async (tx) => {
       const rows = await tx.pendingUserInput.findMany({

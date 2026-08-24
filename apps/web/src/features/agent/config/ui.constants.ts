@@ -39,6 +39,8 @@ export const SERVICE_STATE_LABELS: Record<ServiceState, string> = {
 
 // 将 Activity 状态映射为 Workbench 标题和说明。
 export const ACTIVITY_STATUS_COPY: Record<ActivityStatus, { title: string; subtitle: string }> = {
+  queued: { title: '排队中', subtitle: '任务已提交，正在等待执行资源' },
+  final_answer: { title: '正在撰写回答', subtitle: '证据已整理，正在生成最终交付内容' },
   // 工具循环正常执行时的标题和说明。
   running: { title: '正在执行网页检索', subtitle: '逐步寻找并验证可引用证据' },
   pause_requested: { title: '即将暂停', subtitle: '当前工具批次完成后将在安全位置暂停' },

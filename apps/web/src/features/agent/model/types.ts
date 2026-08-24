@@ -1,6 +1,7 @@
 import type {
   AssistantContentBlock,
   InterruptSnapshot,
+  PendingUserInputView,
   RunContextDebug,
   SourceProvenance,
   WebFetchPassage,
@@ -17,6 +18,16 @@ export type PreviewState =
   | 'final-report'
   | 'waiting'
   | 'steer-accepted'
+  | 'steer-pending'
+  | 'follow-up-pending'
+  | 'queued'
+  | 'pause-requested'
+  | 'paused'
+  | 'resuming'
+  | 'clarification'
+  | 'tool-approval'
+  | 'final-answer'
+  | 'cancel-requested'
   | 'cancelling'
   | 'cancelled'
   | 'limited-report'
@@ -26,6 +37,8 @@ export type PreviewState =
   | 'fetch-failed';
 export type WorkspaceView = 'activity' | 'context' | 'sources' | 'report';
 export type ActivityStatus =
+  | 'queued'
+  | 'final_answer'
   | 'running'
   | 'completed'
   | 'waiting'
@@ -46,7 +59,15 @@ export type WorkbenchFocusTarget =
   | { kind: 'report'; runId: string };
 
 export type ConversationItem =
-  | { id: string; kind: 'user'; content: string; time?: string; createdAt?: string }
+  | {
+      id: string;
+      kind: 'user';
+      content: string;
+      time?: string;
+      createdAt?: string;
+      pendingInputId?: string;
+      pendingState?: 'steer_pending' | 'steer_applied' | 'follow_up_pending';
+    }
   | {
       id: string;
       kind: 'assistant';
@@ -124,4 +145,6 @@ export type AgentUiState = {
   activeRunId?: string;
   activeInterrupt?: InterruptSnapshot;
   context?: RunContextDebug;
+  pendingInputs?: PendingUserInputView[];
+  previewSubmitting?: boolean;
 };

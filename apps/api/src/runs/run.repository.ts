@@ -30,13 +30,16 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     await this.interruptRuns({ status: { in: [...ACTIVE_STATUSES] } });
     this.reconciliationTimer = setInterval(() => {
       const staleBefore = new Date(Date.now() - 30_000);
-      void this.interruptRuns({
-        status: { in: [...ACTIVE_STATUSES] },
-        OR: [
-          { heartbeatAt: { lt: staleBefore } },
-          { heartbeatAt: null, createdAt: { lt: staleBefore } },
-        ],
-      });
+      void this.interruptRuns(
+        {
+          status: { in: [...ACTIVE_STATUSES] },
+          OR: [
+            { heartbeatAt: { lt: staleBefore } },
+            { heartbeatAt: null, createdAt: { lt: staleBefore } },
+          ],
+        },
+        false,
+      );
     }, 30_000);
     this.reconciliationTimer.unref();
   }
@@ -47,18 +50,26 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
   }
 
   // 将不属于当前实例或已失联的 Active Run 标记为中断失败。
-  private async interruptRuns(where: Prisma.AgentRunWhereInput): Promise<void> {
+  private async interruptRuns(
+    where: Prisma.AgentRunWhereInput,
+    excludeCurrentOwner = true,
+  ): Promise<void> {
     // 排除当前实例仍持有并持续 heartbeat 的 Run，避免 reconciliation 杀死本地正常执行。
     const interrupted = await this.prisma.agentRun.findMany({
-      where: { AND: [where, { NOT: { ownerInstanceId: this.instanceId } }] },
+      where: {
+        AND: [
+          where,
+          ...(excludeCurrentOwner ? [{ NOT: { ownerInstanceId: this.instanceId } }] : []),
+        ],
+      },
       include: { messages: { where: { role: 'assistant' } } },
     });
     for (const run of interrupted) {
       const message = run.messages.find((item) => item.id === run.assistantMessageId);
       const metadata = this.metadata(message?.metadata);
-      await this.prisma.$transaction([
-        this.prisma.agentRun.update({
-          where: { id: run.id },
+      await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.agentRun.updateMany({
+          where: { id: run.id, status: { in: [...ACTIVE_STATUSES] } },
           data: {
             status: 'failed',
             errorCode: 'RUN_INTERRUPTED',
@@ -66,26 +77,79 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
             endedAt: new Date(),
             version: { increment: 1 },
           },
-        }),
-        ...(message
-          ? [
-              this.prisma.message.update({
-                where: { id: message.id },
-                data: {
-                  metadata: {
-                    ...metadata,
-                    deliveryStatus: 'failed',
-                    runId: run.id,
-                  } as Prisma.InputJsonValue,
-                },
-              }),
-            ]
-          : []),
-        this.prisma.modelTranscriptItem.deleteMany({
+        });
+        if (updated.count !== 1) return;
+        if (message) {
+          await tx.message.update({
+            where: { id: message.id },
+            data: {
+              metadata: {
+                ...metadata,
+                deliveryStatus: 'failed',
+                runId: run.id,
+              } as Prisma.InputJsonValue,
+            },
+          });
+        }
+        await tx.modelTranscriptItem.deleteMany({
           where: { runId: run.id, state: 'active' },
-        }),
-      ]);
+        });
+      });
     }
+  }
+
+  // 立即收敛指定会话中已经失联的 Run，供删除等管理操作复用。
+  async interruptStaleForSession(sessionId: string): Promise<void> {
+    const staleBefore = new Date(Date.now() - 30_000);
+    await this.interruptRuns(
+      {
+        sessionId,
+        status: { in: [...ACTIVE_STATUSES] },
+        OR: [
+          { heartbeatAt: { lt: staleBefore } },
+          { heartbeatAt: null, createdAt: { lt: staleBefore } },
+        ],
+      },
+      false,
+    );
+  }
+
+  // 进程内 Executor 意外退出时的最后一道数据库兜底，避免 Run 永久停留在 active。
+  async forceFail(
+    runId: string,
+    assistantMessageId: string,
+    failure: { code: string; detail: string },
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.agentRun.updateMany({
+        where: { id: runId, status: { in: [...ACTIVE_STATUSES] } },
+        data: {
+          status: 'failed',
+          errorCode: failure.code,
+          errorDetail: failure.detail,
+          activeStepId: null,
+          endedAt: new Date(),
+          heartbeatAt: new Date(),
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count !== 1) return false;
+      const message = await tx.message.findUnique({ where: { id: assistantMessageId } });
+      if (message) {
+        await tx.message.update({
+          where: { id: assistantMessageId },
+          data: {
+            metadata: {
+              ...this.metadata(message.metadata),
+              deliveryStatus: 'failed',
+              runId,
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+      await tx.modelTranscriptItem.deleteMany({ where: { runId, state: 'active' } });
+      return true;
+    });
   }
 
   // 在一个事务中完成 Session 校验、幂等检查、并发检查和 Run 初始化。
@@ -97,6 +161,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     runId: string;
     userMessageId: string;
     assistantMessageId: string;
+    pendingInputId?: string;
     provider: string;
     model: string;
     reasoningEffort: string;
@@ -150,6 +215,9 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
                 role: 'user',
                 kind: 'user_message',
                 content: input.content,
+                ...(input.pendingInputId
+                  ? { metadata: { pendingInputId: input.pendingInputId } }
+                  : {}),
               },
               {
                 id: input.assistantMessageId,

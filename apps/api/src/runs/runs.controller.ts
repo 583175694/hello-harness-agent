@@ -82,7 +82,10 @@ export class RunsController {
     const runId = await this.pending.activeRunId(sessionId);
     if (!runId) return;
     const snapshot = await this.commands.snapshot(runId);
-    this.events.publish(runId, 'user_input.updated', snapshot as never);
+    this.events.publish(runId, 'user_input.updated', {
+      type: 'user_input.updated',
+      pendingUserInputs: snapshot.pendingUserInputs ?? [],
+    });
   }
 
   // 校验创建请求，并把合法请求交给命令服务。

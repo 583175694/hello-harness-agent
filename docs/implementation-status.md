@@ -387,9 +387,9 @@ K3  Release Control & Hardening                  K3.1/K3.2 已完成
       - tool_approval → approve / reject → 原 Dispatch Plan / Control Outcome
     K3.3 Steer & Follow-up Queue（K3.1/K3.2 完成后再讨论和冻结）
 
-K3.1 第一批已完成 Runtime Lifecycle 重构：以 `before_model_request`、`model_round_classified`、`tool_dispatch_ready`、`tool_batch_committed`、`final_answer` 和 `terminal` 建立强类型边界，Pause Hook 只在完整 Tool Batch 后或下一轮模型请求前等待；不新增数据库表/字段，不持久化 Interrupt、Checkpoint、Command 或幂等键，不引入多实例 Worker lease。详见 [28-interrupt-resume-control-plane.md](./28-interrupt-resume-control-plane.md)。
+K3.1 第一批已完成 Runtime Lifecycle 重构：以 `before_model_request`、`model_round_classified`、`tool_dispatch_ready`、`tool_batch_committed`、`final_answer` 和 `terminal` 建立强类型边界，Pause Hook 只在完整 Tool Batch 后或下一轮模型请求前等待；不新增数据库表/字段，不持久化 Interrupt、Checkpoint、Command 或幂等键，不引入多实例 Worker lease。详见 [28-release-control-and-hardening.md](./28-release-control-and-hardening.md)。
 
-K3.2 已实施并验证：完成 `clarification Interrupt → respond → 下一轮 Model Round` 与 `tool_approval Interrupt → approve / reject` 两条 HITL 路径，复用 K3.1 生命周期边界和进程内等待机制；Clarification 事实与 Tool Control Outcome 写入现有 Transcript，不包含 Steer 或 Follow-up Queue。持久化 Interrupt、Checkpoint、Command 和跨进程恢复仍需另行冻结。详见 [29-clarification-and-tool-approval.md](./29-clarification-and-tool-approval.md)。
+K3.2 已实施并验证：完成 `clarification Interrupt → respond → 下一轮 Model Round` 与 `tool_approval Interrupt → approve / reject` 两条 HITL 路径，复用 K3.1 生命周期边界和进程内等待机制；Clarification 事实与 Tool Control Outcome 写入现有 Transcript，不包含 Steer 或 Follow-up Queue。持久化 Interrupt、Checkpoint、Command 和跨进程恢复仍需另行冻结。详见 [28-release-control-and-hardening.md](./28-release-control-and-hardening.md)。
 
 实施顺序固定为 K3.1 → K3.2；两阶段端到端完成后再讨论 K3.3，不提前冻结 Steer 优先级、Queue 生命周期或前端交互。Retry Current Step、执行中自动接管、多实例 Worker、Provider/Search 韧性、系统性安全加固和完整评估/可观测平台移入后续 Backlog，不属于当前 K3 实施范围。
 

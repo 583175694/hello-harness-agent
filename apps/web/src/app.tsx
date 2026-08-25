@@ -547,7 +547,9 @@ function toConversationItem(message: PersistedMessage): ConversationItem {
             ? (value as Record<string, unknown>)
             : value;
         const normalized =
-          typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate) &&
+          typeof candidate === 'object' &&
+          candidate !== null &&
+          !Array.isArray(candidate) &&
           candidate.type === 'user.intervention'
             ? { ...candidate, type: 'user_intervention' }
             : candidate;
@@ -595,7 +597,8 @@ function uniquePendingInputs(items: PendingUserInputView[]): PendingUserInputVie
   for (const item of items) {
     const previous = merged.get(item.id);
     // A delayed full-list update must not roll an already promoted Steer back to Follow-up.
-    if (!previous || item.kind === 'steer' || previous.status !== 'pending') merged.set(item.id, item);
+    if (!previous || item.kind === 'steer' || previous.status !== 'pending')
+      merged.set(item.id, item);
   }
   return [...merged.values()].sort((left, right) => left.sequence - right.sequence);
 }
@@ -1229,19 +1232,24 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       if (pendingSessionsRef.current[sessionId]) return;
       setSessionStates((current) => {
         const conversation = session.messages.map(toConversationItem);
-        const existingPending = current[sessionId]?.conversation.filter(
-          (item): item is Extract<ConversationItem, { kind: 'user' }> =>
-            item.kind === 'user' && Boolean(item.pendingInputId),
-        ) ?? [];
+        const existingPending =
+          current[sessionId]?.conversation.filter(
+            (item): item is Extract<ConversationItem, { kind: 'user' }> =>
+              item.kind === 'user' && Boolean(item.pendingInputId),
+          ) ?? [];
         const durableIds = new Set(
           conversation
-            .filter((item): item is Extract<ConversationItem, { kind: 'user' }> => item.kind === 'user')
+            .filter(
+              (item): item is Extract<ConversationItem, { kind: 'user' }> => item.kind === 'user',
+            )
             .map((item) => item.pendingInputId)
             .filter((id): id is string => Boolean(id)),
         );
         const mergedConversation = [
           ...conversation,
-          ...existingPending.filter((item) => item.pendingInputId && !durableIds.has(item.pendingInputId)),
+          ...existingPending.filter(
+            (item) => item.pendingInputId && !durableIds.has(item.pendingInputId),
+          ),
         ].sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
         const currentConversation = current[sessionId]?.conversation ?? [];
         const restoredConversation = mergedConversation.map((item) =>
@@ -1453,9 +1461,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           input?: PendingUserInputView;
         };
         if (result.input)
-          setPendingInputs((current) =>
-            uniquePendingInputs([...current, result.input!]),
-          );
+          setPendingInputs((current) => uniquePendingInputs([...current, result.input!]));
       } catch (requestError) {
         setError(getErrorMessage(requestError));
       }
@@ -1625,30 +1631,6 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     }
   }
 
-  async function handlePause(): Promise<void> {
-    const sessionId = selectedSessionIdRef.current;
-    const runId = sessionId ? sessionStatesRef.current[sessionId]?.activeRunId : undefined;
-    if (!sessionId || !runId) return;
-    try {
-      const result = await controlRun(runId, { type: 'pause' });
-      applyRunSnapshot(sessionId, result.snapshot);
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    }
-  }
-
-  async function handleResume(): Promise<void> {
-    const sessionId = selectedSessionIdRef.current;
-    const runId = sessionId ? sessionStatesRef.current[sessionId]?.activeRunId : undefined;
-    if (!sessionId || !runId) return;
-    try {
-      const result = await controlRun(runId, { type: 'resume' });
-      applyRunSnapshot(sessionId, result.snapshot);
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    }
-  }
-
   async function handleClarificationResponse(interruptId: string, answer: string): Promise<void> {
     const sessionId = selectedSessionIdRef.current;
     const runId = sessionId ? sessionStatesRef.current[sessionId]?.activeRunId : undefined;
@@ -1809,7 +1791,9 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
                       const sessionId = selectedSessionIdRef.current;
                       const updated = (await promotePendingInput(inputId)) as PendingUserInputView;
                       setPendingInputs((current) =>
-                        uniquePendingInputs(current.map((item) => (item.id === inputId ? updated : item))),
+                        uniquePendingInputs(
+                          current.map((item) => (item.id === inputId ? updated : item)),
+                        ),
                       );
                       if (!sessionId) return;
                       setSessionStates((current) => {
@@ -1873,8 +1857,6 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
               onReasoningEffortChange={setReasoningEffort}
               onPromptChange={setPrompt}
               onSubmit={(event) => void handleSubmit(event)}
-              onPause={() => void handlePause()}
-              onResume={() => void handleResume()}
               onCancel={() => void handleCancel()}
               onClarificationRespond={(interruptId, answer) =>
                 void handleClarificationResponse(interruptId, answer)
@@ -2003,7 +1985,8 @@ export function AppShell({
     return () => controller.abort();
   }, [previewState]);
 
-  const composerMode = submitting && !uiState.activeInterrupt ? ('steer' as const) : ('new-run' as const);
+  const composerMode =
+    submitting && !uiState.activeInterrupt ? ('steer' as const) : ('new-run' as const);
 
   // 打开 Workbench 并记录用户是否固定了当前定位。
   function focusWorkbench(target: WorkbenchFocusTarget, pinned = true) {

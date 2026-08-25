@@ -1425,6 +1425,26 @@ textarea:focus-visible {
 .composer-hitl-header svg {
   color: var(--theme-warning);
 }
+.composer-hitl-cancel {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--theme-text-muted);
+  background: transparent;
+}
+.composer-hitl-cancel:hover:not(:disabled),
+.composer-hitl-cancel:focus-visible {
+  color: var(--theme-text-primary);
+  background: var(--theme-surface-hover);
+}
+.composer-hitl-cancel:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
 .composer-hitl-question {
   flex: 1 0 100%;
   margin: 0;
@@ -1657,6 +1677,23 @@ textarea:focus-visible {
   border-radius: 9px;
   color: #fff;
   background: var(--theme-accent);
+}
+.send-button.is-ready {
+  color: #fff;
+  border-color: var(--theme-accent);
+  background: var(--theme-accent);
+}
+.send-button.is-ready:hover:not(:disabled) {
+  background: #333;
+}
+.send-button.is-stop {
+  border-color: #d6d6d1;
+  color: #555551;
+  background: #f0f0ee;
+}
+.send-button.is-stop:hover:not(:disabled) {
+  border-color: #bdbdb8;
+  background: #e5e5e1;
 }
 .send-button:hover:not(:disabled) {
   background: #383836;

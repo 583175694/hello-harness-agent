@@ -101,8 +101,49 @@ describe('Conversation tool activity navigation', () => {
     expect(screen.getByRole('button', { name: '测试' })).toBeDisabled();
   });
 
+  it('cancels a clarification interrupt from the header close button', () => {
+    const cancel = vi.fn();
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [],
+          activeInterrupt: {
+            interruptId: 'interrupt-cancel-1',
+            runId: 'run-1',
+            kind: 'clarification',
+            status: 'pending',
+            createdAt: '2026-08-21T00:00:00.000Z',
+            roundId: 'round-1',
+            roundSequence: 1,
+            payload: {
+              question: '使用哪个环境？',
+              options: ['测试', '生产'],
+              allowFreeText: false,
+            },
+          },
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onCancel={cancel}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '取消当前任务' }));
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
   it('submits approval immediately from the aligned action group', () => {
     const submit = vi.fn();
+    const cancel = vi.fn();
     render(
       <Conversation
         state={{
@@ -140,8 +181,11 @@ describe('Conversation tool activity navigation', () => {
         onPromptChange={() => undefined}
         onSubmit={() => undefined}
         onApprovalSubmit={submit}
+        onCancel={cancel}
       />,
     );
+    fireEvent.click(screen.getByRole('button', { name: '取消当前任务' }));
+    expect(cancel).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: '批准' }));
     expect(submit).toHaveBeenCalledWith('interrupt-2', [
       expect.objectContaining({ itemId: 'one', decision: 'approve' }),

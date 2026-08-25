@@ -7,8 +7,6 @@ import {
   CornerDownLeft,
   Ellipsis,
   LoaderCircle,
-  Pause,
-  Play,
   Send,
   SlidersHorizontal,
   Sparkles,
@@ -85,9 +83,7 @@ export function CopyButton({ text }: { text: string }) {
 type ConversationItem = AgentUiState['conversation'][number];
 type AssistantItem = Extract<ConversationItem, { kind: 'assistant' }>;
 
-type RenderedConversationItem =
-  | Extract<ConversationItem, { kind: 'user' }>
-  | AssistantItem;
+type RenderedConversationItem = Extract<ConversationItem, { kind: 'user' }> | AssistantItem;
 
 // 将一个包含 Steer 边界标记的 assistant draft 拆成可混排的顶层消息。
 // Steer 使用同一条 UserMessage 组件渲染，避免在 assistant 容器内维护第二套用户气泡。
@@ -250,6 +246,15 @@ function FollowUpQueue({
     <>
       {queuedInputs.length ? (
         <div className="pending-input-stack">
+          {!submitting &&
+          onResumeQueue &&
+          pendingInputs.some((item) => item.kind === 'follow_up' && item.status === 'pending') &&
+          (state.workbench?.activityStatus === 'failed' ||
+            state.workbench?.activityStatus === 'cancelled') ? (
+            <button className="text-button mb-2" type="button" onClick={onResumeQueue}>
+              继续 Follow-up 队列
+            </button>
+          ) : null}
           {queuedInputs.map((item, index) => (
             <article className="pending-input-card" key={item.id}>
               <div className="pending-input-card__content">
@@ -292,15 +297,6 @@ function FollowUpQueue({
           ))}
         </div>
       ) : null}
-      {!submitting &&
-      onResumeQueue &&
-      pendingInputs.some((item) => item.kind === 'follow_up' && item.status === 'pending') &&
-      (state.workbench?.activityStatus === 'failed' ||
-        state.workbench?.activityStatus === 'cancelled') ? (
-        <button className="text-button mb-2" type="button" onClick={onResumeQueue}>
-          继续 Follow-up 队列
-        </button>
-      ) : null}
     </>
   );
 }
@@ -317,8 +313,6 @@ export function Conversation({
   composerMode,
   onPromptChange,
   onSubmit,
-  onPause,
-  onResume,
   onCancel,
   onClarificationRespond,
   onApprovalSubmit,
@@ -343,8 +337,6 @@ export function Conversation({
   composerMode: 'new-run' | 'steer' | 'clarification' | 'disabled';
   onPromptChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onPause?: () => void;
-  onResume?: () => void;
   onCancel?: () => void;
   onClarificationRespond?: (interruptId: string, answer: string) => void;
   onApprovalSubmit?: (interruptId: string, decisions: ToolApprovalDecision[]) => void;
@@ -532,14 +524,11 @@ export function Conversation({
             mode={composerMode}
             onPromptChange={onPromptChange}
             onSubmit={handleComposerSubmit}
-            onPause={onPause}
-            onResume={onResume}
             onCancel={onCancel}
             activeInterrupt={state.activeInterrupt ?? state.workbench?.activeInterrupt}
             onClarificationRespond={onClarificationRespond}
             onApprovalSubmit={onApprovalSubmit}
             controlState={state.workbench?.activityStatus}
-            controlPhase={state.workbench?.controlPhase}
             reasoningEffort={reasoningEffort}
             models={models}
             selectedModel={selectedModel}
@@ -620,14 +609,11 @@ export function Composer({
   mode,
   onPromptChange,
   onSubmit,
-  onPause,
-  onResume,
   onCancel,
   activeInterrupt,
   onClarificationRespond,
   onApprovalSubmit,
   controlState,
-  controlPhase,
   reasoningEffort = 'high',
   models = [],
   selectedModel = '',
@@ -640,14 +626,11 @@ export function Composer({
   mode: 'new-run' | 'steer' | 'clarification' | 'disabled';
   onPromptChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onPause?: () => void;
-  onResume?: () => void;
   onCancel?: () => void;
   activeInterrupt?: InterruptSnapshot;
   onClarificationRespond?: (interruptId: string, answer: string) => void;
   onApprovalSubmit?: (interruptId: string, decisions: ToolApprovalDecision[]) => void;
   controlState?: WorkbenchState['activityStatus'];
-  controlPhase?: WorkbenchState['controlPhase'];
   reasoningEffort?: ReasoningEffort;
   models?: PublicModelConfig[];
   selectedModel?: string;
@@ -691,6 +674,16 @@ export function Composer({
         <div className="composer-hitl-panel" role="group" aria-label="需要补充信息">
           <div className="composer-hitl-header">
             <strong>需要补充信息</strong>
+            <button
+              className="composer-hitl-cancel"
+              type="button"
+              aria-label="取消当前任务"
+              title="取消当前任务"
+              disabled={currentInterruptState.submitting || !onCancel}
+              onClick={onCancel}
+            >
+              <X size={16} />
+            </button>
           </div>
           <p className="composer-hitl-question">{activeInterrupt.payload.question}</p>
           {activeInterrupt.payload.options.map((option) => (
@@ -742,6 +735,16 @@ export function Composer({
         >
           <div className="composer-hitl-header">
             <strong>需要批准工具调用</strong>
+            <button
+              className="composer-hitl-cancel"
+              type="button"
+              aria-label="取消当前任务"
+              title="取消当前任务"
+              disabled={currentInterruptState.submitting || !onCancel}
+              onClick={onCancel}
+            >
+              <X size={16} />
+            </button>
           </div>
           {activeInterrupt.payload.items.slice(0, 1).map((item) => (
             <div className="approval-item" key={item.itemId}>
@@ -789,10 +792,7 @@ export function Composer({
           rows={3}
           value={prompt}
           disabled={
-            mode === 'disabled' ||
-            controlState === 'paused' ||
-            controlState === 'waiting_for_user' ||
-            Boolean(activeInterrupt)
+            mode === 'disabled' || controlState === 'waiting_for_user' || Boolean(activeInterrupt)
           }
           onChange={(event) => onPromptChange(event.target.value)}
           onCompositionStart={() => {
@@ -810,10 +810,11 @@ export function Composer({
                 event.nativeEvent.keyCode === 229
               )
                 return;
-              event.preventDefault();
               // 新任务需要等待当前提交完成；运行中的 steer/follow-up 则允许直接入队。
-              if (prompt.trim() && (mode === 'steer' || !submitting) && mode !== 'disabled')
+              if (prompt.trim() && mode !== 'disabled') {
+                event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
+              }
             }
           }}
         />
@@ -839,68 +840,36 @@ export function Composer({
                 onReasoningEffortChange={onReasoningEffortChange}
               />
             ) : null}
-            {submitting && controlState === 'paused' ? (
-              <button
-                className="send-button"
-                type="button"
-                aria-label="恢复任务"
-                title="恢复任务"
-                disabled={!onResume}
-                onClick={onResume}
-              >
-                <Play size={16} fill="currentColor" />
-              </button>
-            ) : (
-              <>
-                {submitting &&
-                controlState !== 'pause_requested' &&
-                controlState !== 'resuming' &&
-                controlState !== 'waiting_for_user' &&
-                !activeInterrupt &&
-                controlPhase !== 'final_answer' ? (
-                  <button
-                    className="icon-button"
-                    type="button"
-                    aria-label="暂停任务"
-                    title="暂停任务"
-                    disabled={!onPause}
-                    onClick={onPause}
-                  >
-                    <Pause size={16} fill="currentColor" />
-                  </button>
-                ) : null}
-                <button
-                  className="send-button"
-                  type={submitting && mode !== 'steer' ? 'button' : 'submit'}
-                  aria-label={
-                    submitting && mode !== 'steer'
-                      ? '停止任务'
-                      : mode === 'steer'
-                        ? '提交后续消息'
-                        : '发送任务'
-                  }
-                  title={
-                    submitting && mode !== 'steer'
-                      ? '停止任务'
-                      : mode === 'steer'
-                        ? '提交后续消息'
-                        : '发送任务'
-                  }
-                  disabled={
-                    submitting && mode !== 'steer'
-                      ? !onCancel
-                      : !prompt.trim() || serviceState !== 'ready' || mode === 'disabled'
-                  }
-                  onClick={submitting && mode !== 'steer' ? onCancel : undefined}
-                >
-                  {submitting && mode !== 'steer' ? (
-                    <Square size={14} fill="currentColor" />
-                  ) : (
-                    <Send size={18} />
-                  )}
-                </button>
-              </>
-            )}
+            <button
+              className={`send-button${submitting && prompt.trim() ? ' is-ready' : ''}${submitting && !prompt.trim() ? ' is-stop' : ''}`}
+              type={submitting && !prompt.trim() ? 'button' : 'submit'}
+              aria-label={
+                submitting && !prompt.trim()
+                  ? '停止任务'
+                  : mode === 'steer'
+                    ? '提交后续消息'
+                    : '发送任务'
+              }
+              title={
+                submitting && !prompt.trim()
+                  ? '停止任务'
+                  : mode === 'steer'
+                    ? '提交后续消息'
+                    : '发送任务'
+              }
+              disabled={
+                submitting && !prompt.trim()
+                  ? !onCancel
+                  : !prompt.trim() || serviceState !== 'ready' || mode === 'disabled'
+              }
+              onClick={submitting && !prompt.trim() ? onCancel : undefined}
+            >
+              {submitting && !prompt.trim() ? (
+                <Square size={14} fill="currentColor" />
+              ) : (
+                <Send size={18} />
+              )}
+            </button>
           </div>
         </div>
       ) : null}

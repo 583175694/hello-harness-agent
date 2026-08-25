@@ -136,6 +136,47 @@ describe('R1 workbench shell', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
+  it('uses the stop button only while runtime input is empty', () => {
+    const onSubmit = vi.fn((event: React.FormEvent<HTMLFormElement>) => event.preventDefault());
+    const onCancel = vi.fn();
+    const { rerender } = render(
+      <Composer
+        prompt=""
+        submitting
+        serviceState="ready"
+        mode="steer"
+        onPromptChange={vi.fn()}
+        onSubmit={onSubmit}
+        onCancel={onCancel}
+      />,
+    );
+    const input = screen.getByRole('textbox', { name: '任务输入' });
+    const stop = screen.getByRole('button', { name: '停止任务' });
+    expect(stop).toHaveClass('is-stop');
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+    fireEvent.click(stop);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <Composer
+        prompt="补充科技板块"
+        submitting
+        serviceState="ready"
+        mode="steer"
+        onPromptChange={vi.fn()}
+        onSubmit={onSubmit}
+        onCancel={onCancel}
+      />,
+    );
+    const followUp = screen.getByRole('button', { name: '提交后续消息' });
+    expect(followUp).toHaveClass('is-ready');
+    fireEvent.click(followUp);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it('renders sources and report in the development fixture preview', () => {
     render(
       <AppShell
@@ -377,9 +418,7 @@ describe('R1 workbench shell', () => {
       ]),
     );
     expect(makeFixture('follow-up-pending').pendingInputs).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ kind: 'follow_up', status: 'pending' }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ kind: 'follow_up', status: 'pending' })]),
     );
     expect(makeFixture('steer-pending').pendingInputs).toEqual([
       expect.objectContaining({ kind: 'steer', status: 'pending' }),

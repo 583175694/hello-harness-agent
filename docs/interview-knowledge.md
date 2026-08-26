@@ -4,7 +4,7 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering 第一阶段和 K3.1/K3.2 Runtime HITL。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering 第一阶段和已完成核心回归的 K3 Runtime Control/HITL/Steer/Follow-up。
 
 ## 1. 项目一句话介绍
 
@@ -765,11 +765,49 @@ Tool Approval 的关键不只是加一个确认按钮，而是保证审批前没
 
 ### 问：为什么 Follow-up 不需要用户点击“引导模型”？
 
-答：“引导模型”是 Steer 操作，不是普通队列调度按钮。Follow-up 的语义是下一轮普通对话，当前 Run 正常完成后由 terminal 路径自动领取队首并启动下一条普通 Run；如果 Run failed/cancelled，队列按设计暂停，用户需要显式点击“继续 Follow-up 队列”恢复。这样不会把 Steer 的安全边界语义和 Follow-up 的 FIFO 调度混在一起。
+答：“引导模型”是 Steer 操作，不是普通队列调度按钮。Follow-up 的语义是下一轮普通对话，当前 Run 正常完成后由 terminal 路径自动领取并启动下一条普通 Run；如果 Run failed/cancelled，队列按设计暂停，用户现在可以在具体队列项上点击“发送”，按指定 `pendingInputId` 创建下一条普通 Run。这样不会把 Steer 的安全边界语义和 Follow-up 的 FIFO 调度混在一起。
 
 ### 问：如何验证 Follow-up 交互没有依赖前端乐观猜测？
 
 答：队列列表、状态、消费结果和顺序以服务端 PendingUserInput/Snapshot/SSE 为 canonical source。前端提交时只显示 pending 队列卡片；user bubble 只有在 Session Detail 返回已创建的正式 Message 后才出现。真实浏览器验证覆盖运行中提交、连续多条 Follow-up、自动串行执行、无需刷新进入下一轮以及执行期间继续提交；单元测试和 TypeScript 编译负责 reducer/API 边界，浏览器黑盒负责真实模型、SSE 和 React 状态切换的组合时序。
+
+## K3 Runtime Control 竞态处理专题
+
+### 问：为什么 Interrupt、Steer 和 Follow-up 要共用一个 PendingUserInput 控制面？
+
+答：它们都存在“用户已经提交，但还不能立即写入当前模型上下文”的阶段。`PendingUserInput` 保存 `kind`、`status`、Session `sequence` 和幂等键，把用户意图与 Runtime 执行解耦：Follow-up 等待下一轮，Steer 等待安全边界，Clarification/Approval 则由 Runtime Interrupt 等待并通过独立 command 响应。这样前端断线或刷新不会决定一条输入是否已经被消费，数据库状态才是事实来源。
+
+### 问：Steer 的安全边界是什么？为什么不能收到消息就立刻改 Context？
+
+答：Steer 不应打断当前模型请求或正在执行的 Tool。Runtime 只在模型轮次之间、完整 Tool Batch 已提交之后领取 pending Steer，并把同一批内容作为下一轮 user additions 一次性加入 canonical transcript。领取使用 `pending -> consumed` 条件更新，重复事件或重复点击只能有一个执行者成功，因此不会出现同一条指导触发两次模型轮次。
+
+### 问：final_answer 阶段提交 Steer 的竞态如何处理？
+
+答：如果 Steer 在 final-answer 请求前到达，可以在 `onBeforeModelRequest(finalResponseOnly)` 边界直接降级为 Follow-up；如果最终回答已经开始流式输出，这个边界已经过去，不能再依赖前置回调。当前在 Run 终态、下一轮 dispatcher 启动前再做一次条件降级，作为第二道幂等保险。两次都只更新仍为 `kind=steer,status=pending` 的记录，所以重复执行安全，也不会伪装成“当前回答已应用”。
+
+### 问：Clarification 和 Tool Approval 的控制语义有什么不同？
+
+答：Clarification 解决“模型缺少用户语义”，回答会作为同一 Runtime 下一轮的 user 事实；Tool Approval 解决“工具副作用是否被授权”，审批前必须不执行 Tool，reject 则为原 Tool Call 写入 synthetic Tool Result，保持 assistant Tool Call 与 Tool Message 协议闭合。两者都由唯一 `interruptId` 关联，通过 Runtime command 响应，普通 Steer/Follow-up 不能绕过 pending Interrupt。
+
+### 问：取消、断线和重复命令为什么不会把状态弄乱？
+
+答：控制动作和 SSE 观察是分离的：断开 SSE 只停止观察，不取消 Runtime；取消通过独立 HTTP command 传播 AbortSignal。Run Event 使用严格递增 `seq`，客户端以 cursor 去重并在断档时回退 Snapshot。取消时服务端先把未完成 Tool 写成 cancelled Result，再关闭 Activity/Assistant Projection，最后用终态 CAS 提交 Run。重复取消、重复审批或重复消费遇到已改变的状态会被条件更新拒绝或幂等返回。
+
+### 问：为什么发送 Follow-up 采用“按条发送”，而不是队列顶部一个统一按钮？
+
+答：队列中的每条消息可能是不同意图，用户需要明确选择发送哪一条。服务端按 `pendingInputId` 做原子领取，创建 Run 后前端立即追加真实 `userMessageId` 对应的普通用户消息；其他 pending 条目保持不变。队列上限当前为 3 条，删除或发送后重新获得容量。
+
+### 问：为什么不引入 Runtime Checkpoint 来解决所有问题？
+
+答：当前目标是轻量控制面一致性，而不是跨进程恢复模型执行现场。Stop 只结束当前 Run，Continue/Follow-up 基于已持久化 canonical transcript 创建新 Run；工具执行现场、未完成模型请求和进程内 Interrupt 不承诺恢复。这样只增加 Session detail 恢复、条件更新、终态收尾和单项发送接口，不引入新的 Run 状态、跨表大事务或复杂兼容层。
+
+### 面试总结
+
+> 这套 Runtime 控制面的核心不是增加很多按钮，而是把“用户意图何时进入模型上下文”变成可持久化、可审计、可条件更新的状态。Interrupt 负责等待并恢复控制流，Steer 只在安全边界进入当前 Runtime，Follow-up 在终态后创建下一轮；SSE 只负责观察，数据库 transcript 和 pending input 才是事实。对于 final_answer、取消、断线和重复点击等竞态，我优先使用边界上的 CAS、幂等键、严格 sequence 和终态闭合，而不是引入重量级恢复机制。
+
+### 当前回归结论
+
+本轮已手动验证 K3 核心交互：`final_answer` 阶段 Steer 会自动降级并启动下一轮；Stop 后队列保留；Follow-up 支持按条发送；队列上限为 3 条且第 4 条明确拒绝；删除/发送会释放容量；刷新、断线和重复点击后状态保持一致。Continue 的上下文恢复仍归入后续 Context Engineering 阶段，不作为 K3 已验收能力。
 
 ## 17. 追加规则
 

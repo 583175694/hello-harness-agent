@@ -45,9 +45,9 @@ export function WorkbenchShell({
     const result: Array<{ id: WorkspaceView; label: string; icon: LucideIcon }> = [
       { id: 'activity', label: 'Activity', icon: LoaderCircle },
     ];
-    // Context 是调试入口，即使当前 Run 尚未产生 Model Round 也保持可见。
-    result.push({ id: 'context', label: 'Context', icon: Braces });
     if (state.sources.length) result.push({ id: 'sources', label: 'Sources', icon: Search });
+    // Context 是调试入口，即使当前 Run 尚未产生 Model Round 也保持可见，并固定放在最后。
+    result.push({ id: 'context', label: 'Context', icon: Braces });
     if (state.report) result.push({ id: 'report', label: 'Report', icon: FileText });
     return result;
   }, [state.report, state.sources.length]);
@@ -199,7 +199,10 @@ function ActivityView({
             <CircleAlert size={20} />
           ) : status === 'cancelled' ? (
             <X size={20} />
-          ) : status === 'queued' || status === 'waiting' || status === 'paused' || status === 'pause_requested' ? (
+          ) : status === 'queued' ||
+            status === 'waiting' ||
+            status === 'paused' ||
+            status === 'pause_requested' ? (
             <Clock3 size={20} />
           ) : status === 'completed' ? (
             <Check size={20} />

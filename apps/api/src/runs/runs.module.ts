@@ -24,6 +24,6 @@ import { PendingUserInputService } from './pending-user-input.service';
     RuntimeLifecycleRegistry,
     PendingUserInputService,
   ],
-  exports: [RunCommandService, RunRepository, ActiveRunRegistry],
+  exports: [RunCommandService, RunRepository, ActiveRunRegistry, PendingUserInputService],
 })
 export class RunsModule {}

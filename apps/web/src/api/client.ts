@@ -167,6 +167,13 @@ export async function resumePendingQueue(sessionId: string): Promise<CreateRunRe
   return createRunResponseSchema.parse(await parseResponse(response));
 }
 
+export async function sendPendingInput(inputId: string): Promise<CreateRunResponse> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/pending-inputs/${inputId}/send`, {
+    method: 'POST',
+  });
+  return createRunResponseSchema.parse(await parseResponse(response));
+}
+
 export async function getPublicAgentConfig(signal?: AbortSignal): Promise<PublicAgentConfig> {
   const response = await fetch(`${apiBaseUrl}/api/agent/config/public`, { signal });
   return publicAgentConfigSchema.parse(await parseResponse(response));

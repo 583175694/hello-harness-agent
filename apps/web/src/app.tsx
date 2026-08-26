@@ -25,7 +25,7 @@ import {
   updateSession,
   submitPendingInput,
   promotePendingInput,
-  resumePendingQueue,
+  sendPendingInput,
 } from './api/client';
 import type { MessageDeltaEvent, ModelRoundCompletedEvent, ToolStreamEvent } from './api/client';
 import {
@@ -1230,8 +1230,12 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     try {
       const { session } = await getSession(sessionId);
       if (pendingSessionsRef.current[sessionId]) return;
+      setPendingInputs(uniquePendingInputs(session.pendingUserInputs));
       setSessionStates((current) => {
-        const conversation = session.messages.map(toConversationItem);
+        const conversation = mergePendingSteerState(
+          session.messages.map(toConversationItem),
+          session.pendingUserInputs,
+        );
         const existingPending =
           current[sessionId]?.conversation.filter(
             (item): item is Extract<ConversationItem, { kind: 'user' }> =>
@@ -1838,11 +1842,40 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
                   setError(getErrorMessage(requestError));
                 }
               }}
-              onResumeQueue={async () => {
-                if (!selectedSessionId) return;
-                const run = await resumePendingQueue(selectedSessionId);
-                setSessionPending(selectedSessionId, true);
-                void observeRun(selectedSessionId, run.runId);
+              onSendPending={async (inputId) => {
+                const sessionId = selectedSessionIdRef.current;
+                const input = pendingInputs.find((item) => item.id === inputId);
+                if (!sessionId || !input) return;
+                try {
+                  const run = await sendPendingInput(inputId);
+                  setPendingInputs((current) => current.filter((item) => item.id !== inputId));
+                  setSessionStates((current) => {
+                    const target = current[sessionId];
+                    if (!target) return current;
+                    if (target.conversation.some((item) => item.id === run.userMessageId))
+                      return current;
+                    return {
+                      ...current,
+                      [sessionId]: {
+                        ...target,
+                        activeRunId: run.runId,
+                        conversation: [
+                          ...target.conversation,
+                          {
+                            id: run.userMessageId,
+                            kind: 'user' as const,
+                            content: input.content,
+                            createdAt: new Date().toISOString(),
+                          },
+                        ],
+                      },
+                    };
+                  });
+                  setSessionPending(sessionId, true);
+                  void observeRun(sessionId, run.runId);
+                } catch (requestError) {
+                  setError(getErrorMessage(requestError));
+                }
               }}
               reasoningEffort={reasoningEffort}
               models={models}

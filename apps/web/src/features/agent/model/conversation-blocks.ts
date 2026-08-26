@@ -1,7 +1,6 @@
 import type {
   AssistantContentBlock,
   AssistantTextBlock,
-  AssistantToolActivityBlock,
   AssistantUserInterventionBlock,
   ChatStreamEvent,
 } from '@harness/agent-protocol';

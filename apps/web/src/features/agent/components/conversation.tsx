@@ -1,4 +1,5 @@
 import {
+  ArrowUp,
   Check,
   ChevronRight,
   CircleAlert,
@@ -7,7 +8,6 @@ import {
   CornerDownLeft,
   Ellipsis,
   LoaderCircle,
-  Send,
   SlidersHorizontal,
   Sparkles,
   Square,
@@ -225,43 +225,46 @@ function FollowUpQueue({
   submitting,
   onPromotePending,
   onCancelPending,
-  onResumeQueue,
+  onSendPending,
 }: {
   state: AgentUiState;
   pendingInputs: PendingUserInputView[];
   submitting: boolean;
   onPromotePending?: (inputId: string) => void;
   onCancelPending?: (inputId: string) => void;
-  onResumeQueue?: () => void;
+  onSendPending?: (inputId: string) => void;
 }) {
   const queuedInputs = pendingInputs.filter(
-    (item) =>
-      item.status === 'pending' &&
-      item.kind === 'follow_up' &&
-      !state.conversation.some(
-        (entry) => entry.kind === 'user' && entry.pendingInputId === item.id,
-      ),
+    (item) => item.status === 'pending' && item.kind === 'follow_up',
   );
+  const canSendPending =
+    !submitting &&
+    Boolean(onSendPending) &&
+    !state.activeRunId &&
+    (state.workbench?.activityStatus === 'failed' ||
+      state.workbench?.activityStatus === 'cancelled' ||
+      state.workbench?.activityStatus === 'completed');
   return (
     <>
       {queuedInputs.length ? (
         <div className="pending-input-stack">
-          {!submitting &&
-          onResumeQueue &&
-          pendingInputs.some((item) => item.kind === 'follow_up' && item.status === 'pending') &&
-          (state.workbench?.activityStatus === 'failed' ||
-            state.workbench?.activityStatus === 'cancelled') ? (
-            <button className="text-button mb-2" type="button" onClick={onResumeQueue}>
-              继续 Follow-up 队列
-            </button>
-          ) : null}
-          {queuedInputs.map((item, index) => (
+          {queuedInputs.map((item) => (
             <article className="pending-input-card" key={item.id}>
               <div className="pending-input-card__content">
                 <CornerDownLeft size={16} aria-hidden="true" />
                 <span>{item.content}</span>
               </div>
               <div className="pending-input-card__actions">
+                {canSendPending ? (
+                  <button
+                    className="pending-input-card__steer"
+                    type="button"
+                    onClick={() => onSendPending?.(item.id)}
+                  >
+                    <ArrowUp size={15} strokeWidth={2.25} aria-hidden="true" />
+                    发送
+                  </button>
+                ) : null}
                 {onPromotePending ? (
                   <button
                     className="pending-input-card__steer"
@@ -319,7 +322,7 @@ export function Conversation({
   pendingInputs = [],
   onPromotePending,
   onCancelPending,
-  onResumeQueue,
+  onSendPending,
   onReconnect,
   reasoningEffort = 'high',
   models = [],
@@ -343,7 +346,7 @@ export function Conversation({
   pendingInputs?: PendingUserInputView[];
   onPromotePending?: (inputId: string) => void;
   onCancelPending?: (inputId: string) => void;
-  onResumeQueue?: () => void;
+  onSendPending?: (inputId: string) => void;
   onReconnect?: () => void;
   reasoningEffort?: ReasoningEffort;
   models?: PublicModelConfig[];
@@ -515,7 +518,7 @@ export function Conversation({
             submitting={submitting}
             onPromotePending={onPromotePending}
             onCancelPending={onCancelPending}
-            onResumeQueue={onResumeQueue}
+            onSendPending={onSendPending}
           />
           <Composer
             prompt={prompt}
@@ -841,7 +844,7 @@ export function Composer({
               />
             ) : null}
             <button
-              className={`send-button${submitting && prompt.trim() ? ' is-ready' : ''}${submitting && !prompt.trim() ? ' is-stop' : ''}`}
+              className={`send-button composer-send-button${submitting && prompt.trim() ? ' is-ready' : ''}${submitting && !prompt.trim() ? ' is-stop' : ''}`}
               type={submitting && !prompt.trim() ? 'button' : 'submit'}
               aria-label={
                 submitting && !prompt.trim()
@@ -867,7 +870,7 @@ export function Composer({
               {submitting && !prompt.trim() ? (
                 <Square size={14} fill="currentColor" />
               ) : (
-                <Send size={18} />
+                <ArrowUp size={18} strokeWidth={2.25} />
               )}
             </button>
           </div>

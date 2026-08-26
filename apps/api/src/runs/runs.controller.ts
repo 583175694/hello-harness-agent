@@ -57,6 +57,11 @@ export class RunsController {
     return this.commands.resumeFollowUpQueue(sessionId);
   }
 
+  @Post('pending-inputs/:inputId/send')
+  sendPending(@Param('inputId') inputId: string) {
+    return this.commands.sendFollowUp(inputId);
+  }
+
   @Post('pending-inputs/:inputId/steer')
   async promotePending(@Param('inputId') inputId: string) {
     const input = await this.pending.promote(inputId);

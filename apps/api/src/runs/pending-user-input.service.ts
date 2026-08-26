@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 
-const MAX_PENDING = 32;
+const MAX_PENDING = 3;
 
 @Injectable()
 export class PendingUserInputService {
@@ -14,6 +14,10 @@ export class PendingUserInputService {
       where: { sessionId },
       orderBy: { sequence: 'asc' },
     });
+  }
+
+  async findById(id: string) {
+    return this.prisma.pendingUserInput.findUnique({ where: { id } });
   }
 
   async activeRunId(sessionId: string): Promise<string | undefined> {
@@ -136,6 +140,20 @@ export class PendingUserInputService {
       if (!row) return undefined;
       const result = await tx.pendingUserInput.updateMany({
         where: { id: row.id, status: 'pending' },
+        data: { status: 'consumed' },
+      });
+      return result.count ? row : undefined;
+    });
+  }
+
+  async claimFollowUpById(id: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.pendingUserInput.findFirst({
+        where: { id, kind: 'follow_up', status: 'pending' },
+      });
+      if (!row) return undefined;
+      const result = await tx.pendingUserInput.updateMany({
+        where: { id, kind: 'follow_up', status: 'pending' },
         data: { status: 'consumed' },
       });
       return result.count ? row : undefined;

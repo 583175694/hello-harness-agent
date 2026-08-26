@@ -1678,6 +1678,9 @@ textarea:focus-visible {
   color: #fff;
   background: var(--theme-accent);
 }
+.composer-send-button {
+  border-radius: 50%;
+}
 .send-button.is-ready {
   color: #fff;
   border-color: var(--theme-accent);

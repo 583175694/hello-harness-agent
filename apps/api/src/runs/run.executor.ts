@@ -350,6 +350,9 @@ export class RunExecutor implements OnModuleDestroy {
       this.events.broadcast(runId, terminal);
       lifecycle.markTerminal('completed');
       active.liveSnapshot = { ...active.liveSnapshot, control: lifecycle.snapshot() };
+      // Steer 可能在 final_answer 已开始流出后才提交；此时 onBeforeModelRequest
+      // 已经执行完，不能再注入当前 Run。终态前最后一次条件降级确保它进入下一轮 Follow-up。
+      await this.demotePendingSteersAtTerminal(runId, stored.sessionId);
       await this.startPendingFollowUp(
         stored.sessionId,
         stored.model,
@@ -432,6 +435,19 @@ export class RunExecutor implements OnModuleDestroy {
       reasoningEffort,
       pendingInputId: pending.id,
     });
+  }
+
+  private async demotePendingSteersAtTerminal(runId: string, sessionId: string): Promise<void> {
+    const demoted = await this.pendingInputs.demotePendingSteers(sessionId);
+    if (!demoted.length) return;
+    const snapshot = await this.repository.snapshot(runId);
+    if (snapshot)
+      this.events.publish(runId, 'user_input.updated', {
+        type: 'user_input.updated',
+        pendingUserInputs: snapshot.pendingUserInputs ?? [],
+        demotedSteerIds: demoted.map((item) => item.id),
+        boundaryRoundSequence: snapshot.observability?.modelRounds.length ?? 0,
+      });
   }
 
   // 在工具开始或结束等语义边界写入诊断 Step。

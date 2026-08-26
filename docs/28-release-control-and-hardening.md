@@ -6,7 +6,6 @@
 
 # K3.1 Runtime Lifecycle & Interrupt/Resume Control
 
-
 > 阶段：K3.1 Release Control & Hardening
 >
 > 状态：第一批已实现并验证（2026-08-21）
@@ -446,7 +445,7 @@ K3.1 Runtime Lifecycle + In-process Pause/Resume（已完成）
   → K3.2 HITL：Typed Interrupt + Clarification + Tool Approval
   → K3.3 Steer + Follow-up Queue
   → 需要时再设计持久化 Control Plane
-  → K5 Side-effect Policy、权限、审批审计与完整 HITL
+  → K5 Side-effect Policy & Governance
 ```
 
 K3.2 必须复用这些生命周期边界和同一 Runtime 等待机制；不得回到 SSE 事件猜测暂停时机、Resume 重建 Runtime 或在未闭合 Tool Transcript 上继续请求模型的实现方式。
@@ -618,7 +617,6 @@ SSE disconnect/reconnect → no duplicate or missing sequence
 对应测试应覆盖 `runtime-lifecycle.spec.ts`、`run-event-hub.spec.ts`、`run-command.service` 和 Web 状态 reducer；新增状态行为时，必须同时验证 Command Response、SSE Event 和最终 Snapshot 三者收敛。
 
 # K3.2 Clarification & Tool Approval
-
 
 > Implementation status: implemented in protocol `0.13.0` (2026-08-21). HITL waits are in-process only; clarification facts use the transcript enum migration and tool-control outcomes use existing transcript metadata. Steer, durable Interrupt state, and restart recovery remain out of scope.
 
@@ -922,10 +920,10 @@ flowchart TD
 K3.1 Runtime Lifecycle
   → K3.2 Clarification & Tool Approval（本文）
   → K3.3 Steer & Follow-up Queue
-  → K5 Human-in-the-loop & Side-effect Control
+  → K5 Side-effect Policy & Governance
 ```
 
-K3.2 只交付 clarification 与 tool approval 两条 HITL 路径，不把它们包装成持久化 Control Plane。K3.3 再讨论 Steer、supersede、队列和跨边界竞态；K5 负责风险分级、用户权限、复杂审批、完整审计和副作用治理。
+K3.2 交付 clarification 与 tool approval 两条 HITL 路径，K3.3 在同一 Control Kernel 上交付 Steer、Follow-up Queue 和跨边界竞态处理。K5 负责可信风险分级、不可变授权绑定、真实写能力接入、审批失效、审计和副作用治理。持久化 Control Plane、跨进程恢复和 exactly-once 根据未来部署与能力需求另行冻结。
 
 ## 11. 已冻结的业务结论
 
@@ -1219,8 +1217,7 @@ K3.2 不另造一套控制状态机。Clarification 和 Tool Approval 都复用 
 
 # K3.3 Steer & Follow-up Queue
 
-
-> 状态：K3.3 MVP 方案，待实现
+> 状态：K3.3 MVP 已实现，正在进行缺陷回归与最终一致性收口
 >
 > 前置阶段：K3.1 Runtime Lifecycle、K3.2 Clarification & Tool Approval
 
@@ -1522,8 +1519,7 @@ K3.3 完成至少应满足：
 
 # K3.4 Current Issues & Release Hardening Ledger
 
-
-> 更新时间：2026-08-25
+> 更新时间：2026-08-26
 >
 > 范围：RC-18 及之后的真实运行、刷新、断线、HITL、Steer 和 Follow-up 验收问题。
 > 本文只记录问题和验证状态，不代表问题已经修复。
@@ -1537,7 +1533,7 @@ K3.3 完成至少应满足：
 - **复现**：启动长篇最终回答，在最终输出阶段提交一条消息并点击“引导模型”。
 - **初步原因**：`promote()` 将 `follow_up` 改为 `steer` 后，`demotePendingSteers()` 依赖下一次 `onBeforeModelRequest(finalResponseOnly=true)`；如果该边界已经经过，降级逻辑不会再执行。
 - **涉及区域**：`apps/api/src/runs/pending-user-input.service.ts`、`apps/api/src/runs/run.executor.ts`。
-- **状态**：未修复。
+- **状态**：已修复，手动验收通过。提交时和 Run 终态、Follow-up dispatcher 启动前都会做条件降级，覆盖 final_answer 边界前后提交的竞态。
 
 ### Follow-up 队列控制按钮在停止和刷新后消失
 
@@ -1546,7 +1542,7 @@ K3.3 完成至少应满足：
 - **重要澄清**：这不是 Follow-up 数据丢失，而是前端没有正确恢复或派生队列控制状态。
 - **初步原因**：Session detail 只恢复消息和 active Run，没有同步 pending inputs；前端 `loadSessionDetail()` 也没有在刷新/切换会话时重新加载 `/pending-inputs`。
 - **涉及区域**：`apps/api/src/sessions/sessions.service.ts`、`apps/web/src/app.tsx`、`apps/web/src/api/client.ts`。
-- **状态**：未修复。
+- **状态**：已修复。Session detail 返回 `pendingUserInputs`，前端刷新/切换会话时恢复队列，并按 `pendingInputId` 去重。
 
 ### 停止后继续 Follow-up 的上下文不完整
 
@@ -1554,7 +1550,7 @@ K3.3 完成至少应满足：
 - **预期**：Follow-up 仍应按当前产品约定恢复可用的 canonical transcript；模型至少应能基于此前已经持久化的用户消息、assistant 内容、Tool Call 和 Tool Result 正确继续。
 - **初步原因**：新 Run 使用普通持久化 transcript 编译 Context，但停止点的完整 runtime/tool transcript 可能没有作为可恢复事实闭合，且取消中的工具状态可能仍未落盘为终态。
 - **涉及区域**：`apps/api/src/chat/chat.service.ts`、`apps/api/src/runs/run.repository.ts`、`apps/api/src/runs/run-command.service.ts`。
-- **状态**：未修复。
+- **状态**：暂不处理。当前产品语义仍是 Stop 结束 Run、Follow-up 创建新 Run，不承诺恢复原 Runtime 执行现场；真正的 Runtime Resume/Checkpoint 另立需求。
 
 ### 取消后工具 Activity 状态未收敛
 
@@ -1562,7 +1558,7 @@ K3.3 完成至少应满足：
 - **预期**：取消后的工具调用应显示明确的“已取消”或其他终态，不能出现 Run 已结束但工具仍执行中的假状态。
 - **复现**：启动包含多次 Fetch 的长任务，在 Fetch 执行中点击“停止任务”，等待 Run 结束后刷新页面。
 - **涉及区域**：`apps/api/src/agent-runtime/agent-runtime.service.ts`、`apps/api/src/chat/chat.service.ts`、`apps/web/src/app.tsx`。
-- **状态**：未修复。
+- **状态**：已修复并纳入回归。取消路径会闭合未完成 Tool 的 cancelled Tool Result、Activity 和 Assistant Projection；仍需继续覆盖不同工具批次的真实取消时序。
 
 ### 取消后的会话恢复视图可能进入空白新任务
 
@@ -1570,15 +1566,15 @@ K3.3 完成至少应满足：
 - **预期**：刷新后应直接恢复 URL 指定会话，不需要用户再次点击侧边栏。
 - **补充**：重新点击原会话后，消息可以恢复，但取消中的工具 Activity 仍可能保持“执行中”，因此这不只是选中态问题。
 - **涉及区域**：`apps/web/src/app.tsx` 的初始化、`loadSessionDetail()` 和 active Run 恢复逻辑。
-- **状态**：未修复。
+- **状态**：部分修复。URL 会话恢复和持久化投影已修复；Continue 的完整上下文语义仍按“新 Run + canonical transcript”处理，真正的 Runtime 现场恢复暂不承诺。
 
 ### RC-35：Follow-up 队列控制和上限行为异常
 
 - **现象**：连续提交 4 条 pending input 请求，接口均返回 `201`；前端没有显示“继续 Follow-up 队列”，停止 Run 后也没有出现该按钮。队列消息以“调整方向 / 删除后续消息”卡片存在，但继续队列入口缺失。
 - **预期**：达到队列限制时应明确拒绝超限请求，不静默接受；未超限时应显示完整队列和继续入口；队列状态在停止、刷新后保持一致。
-- **当前结论**：无法证明队列上限是否生效，因为控制入口缺失；按当前可观察行为判定为失败。
+- **当前结论**：原控制入口问题已修复。现在每条 Follow-up 队列项都有独立“发送”按钮，按 `pendingInputId` 发送，成功后立即插入普通用户消息；队列上限调整为最多 3 条，第 4 条会明确拒绝。原按队首继续接口保留兼容，但新 UI 不再依赖统一顶部按钮。
 - **涉及区域**：Pending User Input 的数量限制、Follow-up resume API、Session detail/pending-inputs 恢复和前端队列投影。
-- **状态**：未修复。
+- **状态**：核心问题已修复，手动验收通过；完整组合场景仍需单独收口。
 
 ## 2. 综合验收阻塞项
 
@@ -1602,23 +1598,31 @@ K3.3 完成至少应满足：
 - RC-31：关闭并重新打开浏览器后，已完成会话内容恢复。
 - RC-32/33：取消和审批快速重复点击没有产生重复终态或重复工具执行。
 - RC-36：特殊字符、emoji、Markdown 能显示，刷新后仍保留，未观察到脚本执行。
+- Follow-up 单项发送：agent-browser 已验证队列项内出现独立“发送”按钮，点击后对应输入被消费并启动新 Run，其他 pending 项保持不变。
+- Follow-up 队列上限：服务端上限已调整为 3 条，第 4 条拒绝及删除/发送释放容量已手动验证。
+
+本轮手动回归确认以下核心场景均无异常：
+
+1. `final_answer` 阶段 Steer 自动降级并启动下一轮；
+2. Stop 后 Follow-up 队列保留；
+3. 每条 Follow-up 可独立发送；
+4. 队列最多 3 条，第 4 条明确拒绝；
+5. 删除或发送后队列容量释放；
+6. 刷新、断线和重复点击后的状态保持一致。
 
 ## 4. 问题优先级建议
 
 ### P0：先修复
 
-- 取消后工具 Activity 永久停留在“执行中”。
-- Follow-up 队列事实存在但“继续 Follow-up 队列”按钮在刷新后消失。
-- RC-18 final_answer 阶段 Steer 未降级为 Follow-up。
+- 继续回归取消后工具 Activity 是否永久停留在“执行中”。
+- 继续回归 final_answer 后提交 Steer 的下一轮自动启动。
 
 ### P1：随后修复
 
-- 停止后 Follow-up 上下文不完整。
-- 取消后刷新进入空白新任务视图。
-- RC-35 队列上限和队列控制入口异常。
+- Stop/刷新后的队列操作和单项发送仍需真实环境持续回归。
+- RC-35 第 4 条拒绝、删除/发送释放容量的浏览器回归。
 
 ### P2：完成收口
 
 - 清理测试环境后完成 RC-37/38 综合最终一致性验收。
 - 所有修复完成后重新执行 RC-24 至 RC-38 相关回归，重点覆盖停止、刷新、断线和重复命令竞态。
-

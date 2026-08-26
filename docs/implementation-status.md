@@ -2,13 +2,13 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-23（K3.3 Steer & Follow-up MVP 已完成并通过真实浏览器验证）
+> 最后更新：2026-08-26（K3 Control & HITL Kernel 基本完成；K5 收敛为副作用策略与治理）
 
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 20 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3.1 Runtime Lifecycle 和 K3.2 HITL 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject，控制等待仍只存在 API 进程内，业务事实写入 Transcript。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、steer、搜索 fallback 和 Delegation 仍未实现。
+当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段和 K3 Control & HITL Kernel 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer 和 Follow-up 均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
 评估体系当前暂缓建设。相关实现、配置、命令、数据和专题文档已于 2026-08-17 移除；普通 unit、integration、E2E 与 `agent-testkit` 回归测试继续保留。后续评估能力作为独立模块重新设计，不再阻塞当前 Context Engineering 或功能开发。
 
@@ -331,7 +331,7 @@ git diff --check
 - Artifact 持久化和正式 Report 恢复；Session/Message/Run/Step 和 assistant draft snapshot 已完成。
 - 服务端重启后自动接管执行中的 Run、多实例 Worker lease、Provider cursor 和通用 Tool 副作用幂等；重启遗留 active execution 仍收敛为 `RUN_INTERRUPTED`。K3.1 Pause/Resume 仅存在于 API 进程内，重启、多实例切换和 Runtime Registry 丢失后的控制恢复不在承诺范围内。
 - 搜索 fallback；正式 Evidence、引用校验和 Markdown Report Artifact 不属于当前范围，是否进入后续 Deep Research 由未来产品需求决定。
-- K3.1 Pause/Resume、Runtime Lifecycle Hook、统一 control command API 和控制 SSE 已实现；K3.2 Clarification、Tool Approval、统一 Interrupt Snapshot 和 Transcript 业务事实已实现。Steer、Follow-up Queue、完整副作用风险分级和跨进程 Human-in-the-loop 仍未实现。独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
+- K3.1 Pause/Resume、Runtime Lifecycle Hook、统一 control command API 和控制 SSE 已实现；K3.2 Clarification、Tool Approval、统一 Interrupt Snapshot 和 Transcript 业务事实已实现；K3.3 Steer 与 Follow-up Queue MVP 已实现。尚未完成的是面向真实写操作的副作用风险策略、能力接入、审批失效与完整审计，以及按未来部署需求另行设计的跨进程 Human-in-the-loop。独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
 - Skills、user Memory、`NOTES.md`、`TODO.md`、Delegation、Worker 和多用户认证。
 - 长 Agent Loop 的 Goal Reminder/Attention Refresh 尚未实现；当前只保留最近消息、当前任务和 Tool Call/Result 协议完整性，等多来源 Context 形成真实需求后再建设相关性选择、优先级和预算分配。
 - 评估体系尚未重新设计；当前不存在可运行的 Benchmark、Judge、Grader 或正式 Baseline。
@@ -378,20 +378,20 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 ```text
 K1  Connection-Durable Runtime                  已完成
 K2  Context Engineering 第一阶段                 已完成
-K3  Release Control & Hardening                  K3.1/K3.2 已完成
+K3  Control & HITL Kernel                        基本完成，K3.3 正在最终回归收口
     K3.1 Interrupt & Resume Kernel
       - 进程内 Runtime 生命周期安全边界与 Pause / Resume
       - Cancel 沿用现有 AbortController，并能唤醒 paused Runtime
     K3.2 HITL：Clarification & Tool Approval
       - clarification → respond → 下一轮 Model Round
       - tool_approval → approve / reject → 原 Dispatch Plan / Control Outcome
-    K3.3 Steer & Follow-up Queue（K3.1/K3.2 完成后再讨论和冻结）
+    K3.3 Steer & Follow-up Queue
 
 K3.1 第一批已完成 Runtime Lifecycle 重构：以 `before_model_request`、`model_round_classified`、`tool_dispatch_ready`、`tool_batch_committed`、`final_answer` 和 `terminal` 建立强类型边界，Pause Hook 只在完整 Tool Batch 后或下一轮模型请求前等待；不新增数据库表/字段，不持久化 Interrupt、Checkpoint、Command 或幂等键，不引入多实例 Worker lease。详见 [28-release-control-and-hardening.md](./28-release-control-and-hardening.md)。
 
-K3.2 已实施并验证：完成 `clarification Interrupt → respond → 下一轮 Model Round` 与 `tool_approval Interrupt → approve / reject` 两条 HITL 路径，复用 K3.1 生命周期边界和进程内等待机制；Clarification 事实与 Tool Control Outcome 写入现有 Transcript，不包含 Steer 或 Follow-up Queue。持久化 Interrupt、Checkpoint、Command 和跨进程恢复仍需另行冻结。详见 [28-release-control-and-hardening.md](./28-release-control-and-hardening.md)。
+K3.2 已实施并验证：完成 `clarification Interrupt → respond → 下一轮 Model Round` 与 `tool_approval Interrupt → approve / reject` 两条 HITL 路径，复用 K3.1 生命周期边界和进程内等待机制；Clarification 事实与 Tool Control Outcome 写入现有 Transcript。K3.3 已完成 Steer 安全边界消费、Follow-up FIFO 调度、pending input 持久化和 Workbench 交互，当前只做最终缺陷回归。持久化 Interrupt、Checkpoint、Command 和跨进程恢复仍需另行冻结。详见 [28-release-control-and-hardening.md](./28-release-control-and-hardening.md)。
 
-实施顺序固定为 K3.1 → K3.2；两阶段端到端完成后再讨论 K3.3，不提前冻结 Steer 优先级、Queue 生命周期或前端交互。Retry Current Step、执行中自动接管、多实例 Worker、Provider/Search 韧性、系统性安全加固和完整评估/可观测平台移入后续 Backlog，不属于当前 K3 实施范围。
+K3 已经提供后续能力使用的 Control & HITL Kernel。K5 聚焦真实副作用能力所需的可信风险策略、授权约束和审计。Retry Current Step、执行中自动接管、多实例 Worker、Provider/Search 韧性、系统性安全加固和完整评估/可观测平台移入后续 Backlog，不属于当前 K3 实施范围。
 
 K4  Agent Task Semantics                         核心智能阶段
     - Goal、Constraints、Success Criteria（明确任务目标、限制条件和完成标准）
@@ -400,11 +400,16 @@ K4  Agent Task Semantics                         核心智能阶段
     - Re-plan / no-progress 检测（发现计划失效或长时间没有进展时重新规划）
     - Task State 持久化并按预算注入 Context（保存任务状态，并在上下文预算内恢复给模型）
 
-K5  Human-in-the-loop & Side-effect Control       内核完成后的中高优先级
-    - 统一 ask user / approval 协议（统一提问和请求用户确认的消息格式与状态）
-    - Read-only、可逆写入、不可逆操作风险分级（按操作风险决定是否需要确认）
-    - 外部发送、文件删除、Code Execution、Browser Use 和 MCP 写操作确认（发送、删除和写入外部系统前先获得许可）
-    - 审批超时、拒绝、取消传播和审计记录（确认失效或被拒后安全停止，并保留操作记录）
+K5  Side-effect Policy & Governance               随写能力渐进实施
+    - 可信 Action 风险元数据与 Policy：区分 read-only、受任务意图授权的可逆写入、需确认写入和禁止操作；风险结论不能由模型自行声明
+    - 不可变审批绑定：展示目标、影响、canonical 参数和风险原因；批准只授权原 argumentsHash，参数或目标变化必须重新审批
+    - 真实副作用能力接入：本地文件覆盖/删除、外部发送、Code Execution、Browser Use 和 MCP 写操作逐项接入同一 Policy/Interrupt，不允许能力自行绕过
+    - 执行结果与审计：记录 policy version、风险级别、决策来源、操作者、时间、批准摘要和最终执行结果；拒绝、取消和过期保持不同语义
+    - 失效与竞态：审批超时/过期、审批后取消、重复响应、Tool 启动前状态变化和批量部分批准必须确定性收敛
+    - 可逆操作恢复契约：能力可撤销时记录 undo/compensation 信息；不可逆或外部发送必须采用更严格的显式确认
+    后续部署升级条件，不作为当前本地单实例 K5 门槛：
+    - durable Interrupt/Command 幂等、服务重启后继续等待、多实例命令路由
+    - Tool exactly-once、execution_unknown 对账和跨进程副作用恢复
 
 K6  Evidence / Citation / Completion Verification 横切内核能力
     - Passage -> Evidence -> Claim -> Citation（从原文片段提取证据，支撑具体结论并生成引用）
@@ -412,7 +417,7 @@ K6  Evidence / Citation / Completion Verification 横切内核能力
     - 最终交付前的任务完成检查与限制说明（交付前检查是否完成，并明确已知局限）
 ```
 
-K3、K4、K5 是当前 Agent 从“可靠工具循环”升级为“可控、可解释、可验证任务循环”的核心阶段。K6 会横切文件分析、研究回答和 Artifact 生成，不能等所有功能完成后才设计来源关联。
+K3 已经完成通用控制和 HITL 机制；K4 建设任务语义；K5 将 K3 机制应用到真实副作用并形成可审计的治理策略。K6 会横切文件分析、研究回答和 Artifact 生成，不能等所有功能完成后才设计来源关联。
 
 ### 7.2 Capability 主线
 
@@ -493,15 +498,16 @@ L7  Multi-user / Remote Storage / Operations      更后期
 ### 7.4 推荐执行顺序
 
 ```text
-K3 Release Control & Hardening
+K3 Control & HITL Kernel（基本完成）
   -> K4 Agent Task Semantics
   -> C1 File & Multimodal Foundation
-  -> C2 Artifact & Report Generation
-  -> K5 Human-in-the-loop & Side-effect Control
-  -> C3 Code Execution Sandbox
-  -> C4 MCP Client
+  -> K5-A Side-effect Policy Contract
+  -> C2 Artifact & Report Generation（接入本地写入策略）
+  -> C3 Code Execution Sandbox（接入执行与文件副作用策略）
+  -> C4 MCP Client（接入外部写操作策略）
   -> C5 Website Generation & Workbench Preview
-  -> C6 Browser Use（agent-browser）
+  -> C6 Browser Use（接入页面写操作策略）
+  -> K5-B Side-effect Governance 验收收口
   -> K6 Evidence / Citation / Verification 持续横切
   -> C7 Skills / Notes / TODO / Memory
   -> L1/L2/L3 低优先级扩展

@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { AGENT_PROTOCOL_LIMITS } from '../common/constants.js';
 
+const sessionPendingUserInputViewSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(['follow_up', 'steer']),
+  status: z.enum(['pending', 'consumed', 'rejected', 'cancelled']),
+  content: z.string(),
+  sequence: z.number().int().positive(),
+});
+
 // 定义数据库持久化后可由前端恢复的普通对话消息。
 export const persistedMessageSchema = z.object({
   id: z.string().min(1),
@@ -27,6 +35,7 @@ export const sessionSummarySchema = z.object({
 // 定义会话详情及其按时间排序的持久化消息。
 export const sessionDetailSchema = sessionSummarySchema.extend({
   messages: z.array(persistedMessageSchema),
+  pendingUserInputs: z.array(sessionPendingUserInputViewSchema).default([]),
   activeRun: z
     .object({
       runId: z.string().min(1),

@@ -14,6 +14,7 @@ import { RunRepository } from './run.repository';
 import { ModelAdapter } from '../model/model-adapter';
 import { getConfiguredModel } from '../model/model-catalog';
 import type { ReasoningEffort } from '@harness/agent-protocol';
+import { PendingUserInputService } from './pending-user-input.service';
 
 @Injectable()
 export class RunCommandService {
@@ -23,6 +24,7 @@ export class RunCommandService {
     @Inject(RunEventHub) private readonly events: RunEventHub,
     @Inject(RunExecutor) private readonly executor: RunExecutor,
     @Inject(ModelAdapter) private readonly modelAdapter: ModelAdapter,
+    @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
   ) {}
 
   // 校验请求并创建 Run；成功后注册初始 Snapshot，异步交给 Executor 执行。
@@ -156,6 +158,31 @@ export class RunCommandService {
       content: pending.content,
       idempotencyKey: `pending:${pending.id}`,
       pendingInputId: pending.id,
+      model: latest.model,
+      reasoningEffort: latest.reasoningEffort as ReasoningEffort,
+    });
+  }
+
+  async sendFollowUp(inputId: string) {
+    const pending = await this.pendingInputs.findById(inputId);
+    if (!pending || pending.kind !== 'follow_up' || pending.status !== 'pending')
+      throw new ConflictException({
+        code: 'FOLLOW_UP_NOT_FOUND',
+        detail: '该 Follow-up 已被发送、删除或不可发送。',
+      });
+    const latest = await this.repository.latestTerminalProfile(pending.sessionId);
+    if (!latest)
+      throw new ConflictException({ code: 'NO_TERMINAL_RUN', detail: '没有可发送的已结束 Run。' });
+    const claimed = await this.pendingInputs.claimFollowUpById(inputId);
+    if (!claimed)
+      throw new ConflictException({
+        code: 'FOLLOW_UP_NOT_FOUND',
+        detail: '该 Follow-up 已被发送、删除或不可发送。',
+      });
+    return this.create(pending.sessionId, {
+      content: claimed.content,
+      idempotencyKey: `pending:${claimed.id}`,
+      pendingInputId: claimed.id,
       model: latest.model,
       reasoningEffort: latest.reasoningEffort as ReasoningEffort,
     });

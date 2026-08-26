@@ -17,6 +17,7 @@ import { PrismaService } from '../database/prisma.service';
 import { describeLogError, shortLogId } from '../shared/logging.utils';
 import { compareMessageOrder } from '../chat/message-order';
 import { RunRepository } from '../runs/run.repository';
+import { PendingUserInputService } from '../runs/pending-user-input.service';
 
 @Injectable()
 export class SessionsService {
@@ -25,6 +26,7 @@ export class SessionsService {
     @Inject(SessionTitleService) private readonly titles: SessionTitleService,
     @Inject(Logger) private readonly logger: Logger,
     @Inject(RunRepository) private readonly runs: RunRepository,
+    @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
   ) {}
 
   // 创建属于固定本地用户的持久化会话。
@@ -71,12 +73,20 @@ export class SessionsService {
       },
     });
     if (!session) this.throwNotFound();
+    const pendingUserInputs = await this.pendingInputs.list(sessionId);
     return {
       session: {
         ...this.toSummary(session),
         messages: [...session.messages]
           .sort(compareMessageOrder)
           .map((message) => this.toMessage(message)),
+        pendingUserInputs: pendingUserInputs.map((input) => ({
+          id: input.id,
+          kind: input.kind,
+          status: input.status,
+          content: input.content,
+          sequence: input.sequence,
+        })),
         activeRun: session.runs[0]
           ? {
               runId: session.runs[0].id,

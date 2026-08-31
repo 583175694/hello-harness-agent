@@ -26,8 +26,6 @@ const markdownComponents: Components = {
     void _node;
     return <del {...props} />;
   },
-  // Streamdown owns code-block parsing, language handling, and rendering via
-  // the @streamdown/code plugin.
   a: ({ node: _node, ...props }) => {
     void _node;
     return <a {...props} target="_blank" rel="noopener noreferrer" />;
@@ -131,7 +129,6 @@ export function MarkdownContent({
         mode="streaming"
         parseIncompleteMarkdown
         isAnimating={isAnimating}
-        caret="block"
         plugins={{ code: codePlugin, mermaid, math }}
         mermaid={{ config: mermaidConfig }}
         controls={{

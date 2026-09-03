@@ -2,6 +2,7 @@ import type {
   AssistantContentBlock,
   AssistantToolActivityBlock,
   InterruptSnapshot,
+  PlanSnapshot,
   PendingUserInputView,
 } from '@harness/agent-protocol';
 
@@ -21,6 +22,9 @@ export const PREVIEW_STATES: Array<{ id: PreviewState; label: string }> = [
   { id: 'direct-answer', label: '直接回答' },
   { id: 'tool-running', label: '检索中（已收起）' },
   { id: 'tool-running-open', label: '首次调用自动打开' },
+  { id: 'plan-running', label: 'Plan 执行中' },
+  { id: 'plan-cleared', label: 'Plan 已清除' },
+  { id: 'plan-completed', label: 'Plan 已完成' },
   { id: 'sources', label: '来源视图' },
   { id: 'fetch-running', label: '读取网页中' },
   { id: 'fetch-candidate', label: '已读网页' },
@@ -185,6 +189,59 @@ function makeFetchFixture(
       { id: runId, kind: 'assistant', blocks: [toolBlock], pending: running, workbench },
     ],
     workbench,
+  };
+}
+
+// 创建计划浮标的开发预览，覆盖执行中、清除和全部完成三种状态。
+function makePlanFixture(state: 'plan-running' | 'plan-cleared' | 'plan-completed'): AgentUiState {
+  const runId = `run-${state}-preview`;
+  const plan: PlanSnapshot =
+    state === 'plan-cleared'
+      ? { plan: [] }
+      : {
+          explanation: '按资料收集、分析和交付三个阶段推进任务。',
+          plan:
+            state === 'plan-completed'
+              ? [
+                  { step: '收集并核实关键资料', status: 'completed' },
+                  { step: '分析资料并整理结论', status: 'completed' },
+                  { step: '输出最终结果', status: 'completed' },
+                ]
+              : [
+                  { step: '收集并核实关键资料', status: 'in_progress' },
+                  { step: '分析资料并整理结论', status: 'pending' },
+                  { step: '输出最终结果', status: 'pending' },
+                ],
+        };
+  const running = state !== 'plan-completed';
+  const workbench = {
+    ...makeWorkbench('tool-running-open', runId),
+    title: 'Plan and Execute 预览',
+    subtitle: running ? '正在按计划执行' : '计划已完成',
+    activityStatus: running ? ('running' as const) : ('completed' as const),
+    controlPhase: running ? ('tool_loop' as const) : ('terminal' as const),
+    plan,
+    open: true,
+  };
+  return {
+    label: 'Plan and Execute',
+    subtitle: '计划浮标状态预览',
+    conversation: [
+      { id: 'plan-user', kind: 'user', content: '请按计划完成一次多步骤资料整理。' },
+      {
+        id: runId,
+        kind: 'assistant',
+        blocks: [
+          text(`${runId}-text-1`, running ? '我正在按计划收集资料并整理结果。' : '计划步骤已全部完成，下面是最终结果。'),
+          activity(runId, running ? 'running' : 'completed'),
+        ],
+        pending: running,
+        workbench,
+      },
+    ],
+    workbench,
+    activeRunId: running ? runId : undefined,
+    previewSubmitting: running,
   };
 }
 
@@ -487,6 +544,9 @@ const answer = 'Hello, Markdown';
     };
   if (state === 'fetch-running' || state === 'fetch-candidate' || state === 'fetch-failed') {
     return makeFetchFixture(state);
+  }
+  if (state === 'plan-running' || state === 'plan-cleared' || state === 'plan-completed') {
+    return makePlanFixture(state);
   }
 
   const runId =

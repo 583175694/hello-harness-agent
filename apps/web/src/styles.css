@@ -1344,7 +1344,7 @@ textarea:focus-visible {
   color: var(--theme-success, #4f8a64);
 }
 .plan-floating__step--in_progress {
-  font-weight: 600;
+  font-weight: 400;
 }
 @media (max-width: 720px) {
   .plan-floating__details {

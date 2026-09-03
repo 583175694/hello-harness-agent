@@ -1250,6 +1250,107 @@ textarea:focus-visible {
 .composer-wrap {
   position: relative;
 }
+.plan-floating {
+  position: absolute;
+  z-index: 40;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  transform: translateX(-50%);
+  color: var(--theme-text-primary);
+}
+.plan-floating__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 15px;
+  border: 1px solid var(--theme-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface) 92%, transparent);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  font-size: 14px;
+  font-weight: 600;
+  backdrop-filter: blur(12px);
+}
+.plan-floating__indicator {
+  color: var(--theme-accent);
+  display: inline-flex;
+}
+.plan-floating__details {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  width: min(420px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border: 1px solid var(--theme-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, transparent);
+  box-shadow: 0 14px 36px rgb(0 0 0 / 18%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+  backdrop-filter: blur(16px);
+}
+.plan-floating:hover .plan-floating__details,
+.plan-floating:focus-within .plan-floating__details {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+.plan-floating__explanation {
+  margin: 0 0 10px;
+  color: var(--theme-text-muted);
+  font-size: 13px;
+}
+.plan-floating__details ol {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.plan-floating__step {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.plan-floating__step-icon {
+  display: inline-flex;
+  width: 16px;
+  min-width: 16px;
+  justify-content: center;
+  margin-top: 2px;
+  color: var(--theme-text-muted);
+}
+.plan-floating__step-icon > span {
+  width: 10px;
+  height: 10px;
+  margin-top: 2px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+.plan-floating__step--completed {
+  color: var(--theme-text-muted);
+}
+.plan-floating__step--completed .plan-floating__step-icon {
+  color: var(--theme-success, #4f8a64);
+}
+.plan-floating__step--in_progress {
+  font-weight: 600;
+}
+@media (max-width: 720px) {
+  .plan-floating__details {
+    width: min(360px, calc(100vw - 24px));
+  }
+}
 .composer-wrap.is-running {
   padding-top: 20px;
 }

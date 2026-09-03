@@ -14,6 +14,10 @@ export const envSchema = z.object({
     (value) => (value === '' ? undefined : value),
     z.string().min(1).optional(),
   ),
+  BAILIAN_API_KEY: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(1).optional(),
+  ),
   SEARCH_PROVIDER: z.preprocess(
     (value) => (value === '' ? undefined : value),
     z.enum(['bocha', 'serp']).optional(),

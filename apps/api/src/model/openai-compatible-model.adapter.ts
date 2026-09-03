@@ -311,9 +311,14 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
   private getClient(model?: string): OpenAI {
     const configured = model ? getConfiguredModel(model) : undefined;
     const baseUrl = configured?.baseUrl ?? 'https://api.openai.com/v1';
+    const apiKey =
+      configured?.provider === 'bailian'
+        ? (this.config.get<string>(ENV_KEYS.bailianApiKey) ??
+          this.config.getOrThrow<string>(ENV_KEYS.openAiApiKey))
+        : this.config.getOrThrow<string>(ENV_KEYS.openAiApiKey);
     if (!this.client || (this.clientBaseUrl && this.clientBaseUrl !== baseUrl)) {
       this.client = new OpenAI({
-        apiKey: this.config.getOrThrow<string>(ENV_KEYS.openAiApiKey),
+        apiKey,
         baseURL: baseUrl,
       });
       this.clientBaseUrl = baseUrl;

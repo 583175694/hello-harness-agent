@@ -4,6 +4,7 @@ import type {
   ReasoningEffort,
   RunContextDebug,
 } from '@harness/agent-protocol';
+import type { PlanSnapshot } from '@harness/agent-protocol';
 import type { ModelMessage } from '../model/model-adapter';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import type { RuntimeLifecycleController } from './runtime-lifecycle';
@@ -62,6 +63,14 @@ export type AgentRuntimeEvent =
       toolName: string;
       input: unknown;
       startedAt: string;
+      roundId: string;
+      roundSequence: number;
+      blockSequence: number;
+    }
+  | {
+      type: 'plan.updated';
+      explanation?: string;
+      plan: PlanSnapshot['plan'];
       roundId: string;
       roundSequence: number;
       blockSequence: number;

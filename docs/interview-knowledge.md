@@ -4,7 +4,7 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering 第一阶段和已完成核心回归的 K3 Runtime Control/HITL/Steer/Follow-up。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering 第一阶段、K3 Runtime Control/HITL/Steer/Follow-up 和 K4 Agent Task Semantics。
 
 ## 1. 项目一句话介绍
 
@@ -703,7 +703,45 @@ Tool Approval 的关键不只是加一个确认按钮，而是保证审批前没
 - 真实有头 `agent-browser`：approve、reject、clarification 三条模型路径；审批前无 Tool Activity，恢复后不重复模型或工具，最终 Run 为 completed。
 - 最终验证：`pnpm check`、`pnpm test:integration`、`pnpm test:e2e`、`git diff --check`。
 
-## 16. 面试表达模板
+## 16. K4 Agent Task Semantics：Plan and Execute
+
+### 问：还没做 K4 时，Agent 存在什么问题？
+
+答：K4 之前已经有 Model-led Function Calling，但只有“模型决定调用哪个 Business Tool，Runtime 执行并继续循环”的能力。复杂任务的规划没有结构化表示：用户看不到总步骤和当前进度，模型的计划只能隐藏在自然语言或工具调用顺序里；刷新或重连后，前端也无法从 Run Snapshot 恢复计划。更重要的是，如果直接把计划实现成普通工具，它会错误地进入审批、配额和普通 Tool Activity。
+
+### 问：K4 是怎么解决这个问题的？
+
+答：K4 引入 Codex 风格的 `update_plan` 内置控制工具。模型自主判断任务是否需要计划，简单任务直接回答，复杂任务提交完整 `PlanSnapshot`。Runtime 通过独立 `PlanHandler` 做 JSON、Schema、步骤数、文本长度、JSON 大小和单个 `in_progress` 校验；合法快照替换当前计划并发布 `plan.updated`，非法参数只返回 Tool Result，让模型继续修正。计划和普通工具仍属于同一个 Agent Loop，并按模型原始顺序处理。
+
+### 问：为什么 `update_plan` 不是普通 Business Tool？
+
+答：它没有外部副作用，不应该请求用户审批，也不应该占用 Business Tool 配额或生成普通工具卡片。它只更新 Runtime 的控制语义和用户可见进度，因此定义放在 `builtin-tool-definitions.ts`，执行分流放在 Runtime，校验放在 `PlanHandler`，而不是注册到 `ToolRegistryService`。
+
+### 问：一次 `update_plan` 调用的完整链路是什么？
+
+答：模型返回 Tool Call 后，`AgentRuntimeService` 按名称分流到 `PlanHandler.handle(call.arguments)`。校验成功后 Runtime 替换 `currentPlan`，发出 `plan.updated`，再生成 `{ status: "updated" }` Tool Result，并继续处理同一批其他调用。Tool Result 写入下一轮 Context，同时只保留最新的只读 Plan Context。ChatService、RunExecutor 和 EventHub 将事件投影到 SSE、Snapshot 和 assistant metadata，Web 再渲染输入框上方的“第 N / M 步”浮标。
+
+### 问：计划完成会不会决定 Run 是否完成？
+
+答：不会。Run 完成仍由普通 Agent Loop 是否生成最终 assistant 文本决定。计划只是进度投影；模型可以在最后一次工具调用后直接回答。只有当计划全部 `completed`、被清除或 Run 进入 completed/failed/cancelled 时，前端浮标隐藏。
+
+### 问：为什么每次提交完整计划，而不是只提交一步变化？
+
+答：完整快照替换更容易保证一致性，不需要 Plan ID、版本 CAS 或增量合并。服务端只保存最新一份计划，EventHub、Checkpoint、SSE 重放和刷新恢复都消费同一个快照。`plan: []` 表示清除计划，未知字段不会进入计划投影。
+
+### 问：Prompt 在 K4 中做了什么，为什么不在应用层强制创建计划？
+
+答：Prompt 只提供 Codex 风格的使用建议：简单任务直接回答；复杂、多步骤或需要多次工具调用时可以使用 `update_plan`；计划保持简洁并在完成后标记 `completed`。应用层不根据关键词或正则强制创建计划，因为是否规划属于模型对任务复杂度的判断；应用层只负责工具协议、校验、事件、持久化和展示。
+
+### 问：K4 的实现边界是什么？
+
+答：K4 是轻量的任务语义和进度投影，不是强一致任务编排器。当前不实现 Goal/Observation 自动评估、no-progress 检测、计划历史版本、服务重启后 Runtime 自动续跑、多实例 Worker lease 或 Tool exactly-once。真实模型验证表明复杂任务能自主规划，简单任务不会强制规划，但不承诺每个复杂任务 100% 调用 `update_plan`。
+
+### 16.1 面试口述版
+
+> K4 之前，我们有能调用工具的 Agent Loop，但没有结构化任务计划，用户看不到复杂任务的进度，刷新后也无法恢复计划状态。K4 把 `update_plan` 做成不带副作用的内置控制工具：模型自主决定是否规划，Runtime 用独立 Handler 校验完整快照，成功后发布 `plan.updated`，同步到 Snapshot、SSE 和 assistant metadata，Web 在输入框上方展示当前步骤。它不进入普通工具审批、不占配额，也不决定 Run 何时完成；最终回答仍由普通 Agent Loop 生成。
+
+## 17. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
@@ -809,7 +847,7 @@ Tool Approval 的关键不只是加一个确认按钮，而是保证审批前没
 
 本轮已手动验证 K3 核心交互：`final_answer` 阶段 Steer 会自动降级并启动下一轮；Stop 后队列保留；Follow-up 支持按条发送；队列上限为 3 条且第 4 条明确拒绝；删除/发送会释放容量；刷新、断线和重复点击后状态保持一致。Continue 的上下文恢复仍归入后续 Context Engineering 阶段，不作为 K3 已验收能力。
 
-## 17. 追加规则
+## 18. 追加规则
 
 每个阶段只追加四类内容：
 

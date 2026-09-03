@@ -8,6 +8,7 @@ export const ENV_KEYS = {
   webOrigin: 'WEB_ORIGIN',
   // OpenAI-compatible 供应商密钥对应的环境变量。
   openAiApiKey: 'OPENAI_API_KEY',
+  bailianApiKey: 'BAILIAN_API_KEY',
   // 当前搜索 Provider 名称对应的环境变量。
   searchProvider: 'SEARCH_PROVIDER',
   // Bocha 搜索 URL 对应的环境变量。

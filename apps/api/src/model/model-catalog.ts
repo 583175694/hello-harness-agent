@@ -42,12 +42,12 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     provider: 'deepseek',
     baseUrl: 'https://api.deepseek.com',
     reasoningFormat: 'deepseek.reasoning_content.v1',
-    reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'], default: 'high' },
+    reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'] as const, default: 'high' },
     context: {
       contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
       maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
       compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
-      tokenizer: 'deepseek-v3',
+      tokenizer: 'deepseek-v3' as const,
       source: DEEPSEEK_MODEL_PROFILE_SOURCE,
       verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
     },
@@ -59,20 +59,49 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     provider: 'deepseek',
     baseUrl: 'https://api.deepseek.com',
     reasoningFormat: 'deepseek.reasoning_content.v1',
-    reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'], default: 'high' },
+    reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'] as const, default: 'high' },
     context: {
       contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
       maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
       compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
-      tokenizer: 'deepseek-v3',
+      tokenizer: 'deepseek-v3' as const,
       source: DEEPSEEK_MODEL_PROFILE_SOURCE,
       verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
     },
     request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
   },
+  ...(
+    [
+      ['qwen3.8-max', 'Qwen 3.8 Max'],
+      ['qwen3.8-flash', 'Qwen 3.8 Flash'],
+      ['qwen3.7-plus', 'Qwen 3.7 Plus'],
+      ['qwen3.7-max', 'Qwen 3.7 Max'],
+      ['qwen-plus', 'Qwen Plus'],
+    ] as const
+  ).map(([id, label]) => ({
+    id,
+    label,
+    provider: 'bailian',
+    baseUrl: 'https://llm-l7m1kv09x0indqzv.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    reasoning: {
+      supported: true,
+      levels: ['off', 'low', 'high', 'max'] as ('off' | 'low' | 'high' | 'max')[],
+      default: 'high' as const,
+    },
+    context: {
+      contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
+      maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
+      compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
+      tokenizer: 'deepseek-v3' as const,
+      source: 'https://help.aliyun.com/zh/model-studio/',
+      verified: false,
+    },
+    request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
+  })),
 ];
 
-export const DEFAULT_MODEL_ID = 'deepseek-v4-flash';
+// 默认使用已通过百炼对话和 Function Calling 验证的轻量模型。
+export const DEFAULT_MODEL_ID = 'qwen3.8-flash';
 
 export function getConfiguredModel(modelId: string): ConfiguredModel | undefined {
   return MODEL_CATALOG.find((model) => model.id.toLowerCase() === modelId.toLowerCase());

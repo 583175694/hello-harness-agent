@@ -190,8 +190,6 @@ export function flattenAssistantText(blocks: AssistantContentBlock[]): string {
 // 将持久化块复制为前端可安全更新的独立对象。
 export function cloneAssistantBlocks(blocks: AssistantContentBlock[]): AssistantContentBlock[] {
   return orderAssistantBlocks(
-    blocks
-      .filter((block) => block.type !== 'reasoning')
-      .map((block) => ({ ...block })),
+    blocks.filter((block) => block.type !== 'reasoning').map((block) => ({ ...block })),
   );
 }

@@ -333,6 +333,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       toolCallCount: run.toolCallCount,
       lastEventSequence: Number(run.lastEventSequence),
       ...(value?.context ? { context: value.context } : {}),
+      ...(value?.plan ? { plan: value.plan } : {}),
       ...(observability.success ? { observability: observability.data } : {}),
       ...(run.errorCode && run.errorDetail
         ? { error: { code: run.errorCode, detail: run.errorDetail } }
@@ -673,6 +674,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
               executions: projection.executions,
               sources: projection.sources,
             },
+            ...(projection.plan ? { plan: projection.plan } : {}),
           } as Prisma.InputJsonValue,
         },
       });
@@ -816,6 +818,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
               executions: input.projection.executions,
               sources: input.projection.sources,
             },
+            ...(input.projection.plan ? { plan: input.projection.plan } : {}),
           } as Prisma.InputJsonValue,
         },
       });

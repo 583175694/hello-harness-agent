@@ -23,7 +23,16 @@ type RoundEvent =
       type: 'clarification.completed';
       request: { question: string; options: string[]; allowFreeText: boolean };
     }
-  | { type: 'round.completed'; finishReason: string | null };
+  | {
+      type: 'round.completed';
+      finishReason: string | null;
+      usage?: {
+        promptTokens: number | null;
+        completionTokens: number | null;
+        cachedTokens: number | null;
+        estimatedPromptTokens: number;
+      };
+    };
 
 // 从固定轮次数组构造供应商无关的模型测试替身。
 function modelFromRounds(rounds: RoundEvent[][]): ModelAdapter & {
@@ -60,6 +69,7 @@ async function collect(
   runtime: AgentRuntimeService,
   signal?: AbortSignal,
   lifecycle?: RuntimeLifecycleController,
+  reasoningEffort?: ModelRoundInput['reasoningEffort'],
 ) {
   const events = [];
   for await (const event of runtime.run({
@@ -70,6 +80,7 @@ async function collect(
     messages: [{ role: 'user', content: 'hello' }],
     signal,
     lifecycle,
+    ...(reasoningEffort ? { reasoningEffort } : {}),
   }))
     events.push(event);
   return events;

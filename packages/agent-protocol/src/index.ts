@@ -16,6 +16,23 @@ import {
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
 export const protocolVersion = '0.13.0';
 
+// 计划步骤的有限状态集合，前后端只使用这三种状态。
+export const planStepStatusSchema = z.enum(['pending', 'in_progress', 'completed']);
+// 单个计划步骤的共享协议校验。
+export const planStepSchema = z
+  .object({
+    step: z.string().trim().min(1).max(AGENT_PROTOCOL_LIMITS.planStepMaxLength),
+    status: planStepStatusSchema,
+  })
+  .strict();
+// 完整计划快照；每次 update_plan 调用都会整体替换旧快照。
+export const planSnapshotSchema = z.object({
+  explanation: z.string().trim().min(1).optional(),
+  plan: z.array(planStepSchema).max(AGENT_PROTOCOL_LIMITS.planStepsMax),
+});
+// update_plan 的输入与服务端计划快照使用同一协议。
+export const updatePlanInputSchema = planSnapshotSchema;
+
 export const reasoningEffortSchema = z.enum(['off', 'low', 'high', 'max']);
 export const reasoningCapabilitySchema = z.object({
   supported: z.boolean(),
@@ -329,6 +346,7 @@ export const assistantAgentMetadataSchema = z.object({
     .max(AGENT_PROTOCOL_LIMITS.assistantContentBlocksMax)
     .optional(),
   context: runContextDebugSchema.optional(),
+  plan: planSnapshotSchema.optional(),
   agent: z
     .object({
       toolCallCount: z.number().int().nonnegative().max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
@@ -456,6 +474,15 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
 
 // 定义 Web SSE 客户端消费的标准增量事件。
 export const chatStreamEventSchema = z.union([
+  z.object({
+    type: z.literal('plan.updated'),
+    messageId: z.string().min(1),
+    explanation: z.string().optional(),
+    plan: z.array(planStepSchema),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+  }),
   toolStartedEventSchema,
   toolCompletedEventSchema,
   z.object({
@@ -665,6 +692,7 @@ export const runSnapshotSchema = z.object({
   lastEventSequence: z.number().int().nonnegative(),
   observability: runObservabilitySchema.optional(),
   context: runContextDebugSchema.optional(),
+  plan: planSnapshotSchema.optional(),
   error: z.object({ code: z.string().min(1), detail: z.string().min(1) }).optional(),
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().optional(),
@@ -678,6 +706,14 @@ export const runEventPayloadSchema = z.union([
   runSnapshotSchema,
   z.object({ status: agentRunStatusSchema }),
   z.object({ code: z.string().min(1), detail: z.string().min(1) }),
+  z.object({
+    type: z.literal('plan.updated'),
+    explanation: z.string().optional(),
+    plan: z.array(planStepSchema),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+  }),
   z.object({
     type: z.enum([
       'run.pause_requested',
@@ -723,6 +759,7 @@ export const runStreamEventSchema = z.object({
     'reasoning.delta',
     'message.delta',
     'user.intervention',
+    'plan.updated',
     'tool.started',
     'tool.completed',
     'tool.failed',
@@ -741,6 +778,7 @@ export const runStreamEventSchema = z.object({
     'interrupt.cancelled',
     'run.waiting_for_user',
     'user_input.updated',
+    'plan.updated',
   ]),
   occurredAt: z.string().datetime(),
   payload: runEventPayloadSchema,
@@ -808,9 +846,7 @@ export type AssistantAgentMetadata = z.infer<typeof assistantAgentMetadataSchema
 export type AssistantTextBlock = z.infer<typeof assistantTextBlockSchema>;
 export type AssistantReasoningBlock = z.infer<typeof assistantReasoningBlockSchema>;
 export type AssistantToolActivityBlock = z.infer<typeof assistantToolActivityBlockSchema>;
-export type AssistantUserInterventionBlock = z.infer<
-  typeof assistantUserInterventionBlockSchema
->;
+export type AssistantUserInterventionBlock = z.infer<typeof assistantUserInterventionBlockSchema>;
 export type AssistantContentBlock = z.infer<typeof assistantContentBlockSchema>;
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
 export type PendingUserInputKind = z.infer<typeof pendingUserInputKindSchema>;
@@ -820,5 +856,8 @@ export type AssistantDeliveryStatus = z.infer<typeof assistantDeliveryStatusSche
 export type CreateRunRequest = z.infer<typeof createRunRequestSchema>;
 export type CreateRunResponse = z.infer<typeof createRunResponseSchema>;
 export type RunSnapshot = z.infer<typeof runSnapshotSchema>;
+export type PlanStepStatus = z.infer<typeof planStepStatusSchema>;
+export type PlanStep = z.infer<typeof planStepSchema>;
+export type PlanSnapshot = z.infer<typeof planSnapshotSchema>;
 export type RunStreamEvent = z.infer<typeof runStreamEventSchema>;
 export type CancelRunResponse = z.infer<typeof cancelRunResponseSchema>;

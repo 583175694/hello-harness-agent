@@ -6,6 +6,7 @@ import type {
   SourceProvenance,
   WebFetchPassage,
 } from '@harness/agent-protocol';
+import type { PlanSnapshot } from '@harness/agent-protocol';
 import type { ReactNode } from 'react';
 
 export type ServiceState = 'checking' | 'ready' | 'unavailable';
@@ -35,7 +36,7 @@ export type PreviewState =
   | 'fetch-running'
   | 'fetch-candidate'
   | 'fetch-failed';
-export type WorkspaceView = 'activity' | 'context' | 'sources' | 'report';
+export type WorkspaceView = 'activity' | 'context' | 'sources' | 'report' | 'plan';
 export type ActivityStatus =
   | 'queued'
   | 'final_answer'
@@ -132,6 +133,8 @@ export type WorkbenchState = {
   followMode: 'auto' | 'pinned';
   sources: SourceView[];
   context?: RunContextDebug;
+  // 服务端下发的最新计划；前端不从文本或工具活动推断此字段。
+  plan?: PlanSnapshot;
   report?: ReportView;
   open: boolean;
 };

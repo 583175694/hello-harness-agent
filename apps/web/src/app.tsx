@@ -38,6 +38,7 @@ import type {
   AssistantContentBlock,
   PersistedMessage,
   RunSnapshot,
+  PlanSnapshot,
   RunStreamEvent,
   SessionSummary,
   SourceProvenance,
@@ -167,7 +168,7 @@ export function workbenchFromPersistedMessage(
   const executions = metadata.data.agent?.executions ?? [];
   const sources = metadata.data.agent?.sources ?? [];
   const context = metadata.data.context;
-  if (!executions.length && !context) return undefined;
+  if (!executions.length && !context && !metadata.data.plan) return undefined;
   const completedCount = executions.filter((execution) => execution.status === 'completed').length;
   const cancelledCount = executions.filter((execution) => execution.status === 'cancelled').length;
   let clueIndex = 0;
@@ -274,7 +275,8 @@ export function workbenchFromPersistedMessage(
     followMode: 'auto',
     sources: sourceViews,
     ...(context ? { context } : {}),
-    open: Boolean(context && !executions.length),
+    ...(metadata.data.plan ? { plan: metadata.data.plan } : {}),
+    open: Boolean((context || metadata.data.plan) && !executions.length),
   };
 }
 
@@ -813,6 +815,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
             runId: snapshot.runId,
           })),
           ...(snapshot.context ? { context: snapshot.context } : {}),
+          ...(snapshot.plan ? { plan: snapshot.plan } : {}),
         }
       : undefined;
     // 只替换目标 Run 对应的 Assistant Message；其他历史轮次和其他 Session 缓存保持不变。
@@ -963,6 +966,32 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
             workbench,
           },
         };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    // 计划事件只替换计划投影，不影响文本、工具时间线或 Context。
+    if (event.type === 'plan.updated') {
+      const payload = event.payload as Extract<RunStreamEvent['payload'], { type: 'plan.updated' }>;
+      setSessionStates((current) => {
+        const state = current[sessionId];
+        if (!state) return current;
+        const plan = {
+          ...(payload.explanation ? { explanation: payload.explanation } : {}),
+          plan: payload.plan,
+        };
+        const workbench = state.workbench ?? {
+          runId: event.runId,
+          title: '执行计划',
+          subtitle: '正在按计划执行',
+          activeView: 'activity' as const,
+          activityStatus: 'running' as const,
+          executions: [],
+          followMode: 'auto' as const,
+          sources: [],
+          open: true,
+        };
+        return { ...current, [sessionId]: { ...state, workbench: { ...workbench, plan } } };
       });
       runSequencesRef.current[event.runId] = event.seq;
       return;

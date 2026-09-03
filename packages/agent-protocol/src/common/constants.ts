@@ -23,6 +23,12 @@ export const AGENT_PROTOCOL_LIMITS = {
   clarificationQuestionMaxLength: 2_000,
   clarificationOptionsMax: 12,
   clarificationOptionMaxLength: 500,
+  // 单个计划允许的最大步骤数，防止计划占满上下文或浮窗。
+  planStepsMax: 20,
+  // 单个步骤文本的最大长度，限制模型输出和持久化体积。
+  planStepMaxLength: 500,
+  // 计划快照序列化后的最大 UTF-8 字节数。
+  planJsonMaxBytes: 16_384,
 } as const;
 
 // 集中维护协议中稳定的工具标识。
@@ -34,6 +40,8 @@ export const AGENT_TOOL_NAMES = {
   // 无副作用的审批链路验证工具；生产工具策略保持不变。
   approvalTest: 'approval_test',
   getCurrentTime: 'get_current_time',
+  // Agent Loop 内置的计划控制工具，不属于 Business Tool。
+  updatePlan: 'update_plan',
 } as const;
 
 // 集中维护 API 与 SSE 共用的机器可读错误码。

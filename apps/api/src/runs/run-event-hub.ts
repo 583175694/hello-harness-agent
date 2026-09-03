@@ -204,6 +204,17 @@ export class RunEventHub {
         lastEventSequence: event.seq,
       };
     }
+    if (event.type === 'plan.updated' && 'plan' in payload) {
+      const planPayload = payload as Extract<RunStreamEvent['payload'], { type: 'plan.updated' }>;
+      return {
+        ...snapshot,
+        plan: {
+          ...(planPayload.explanation ? { explanation: planPayload.explanation } : {}),
+          plan: planPayload.plan,
+        },
+        lastEventSequence: event.seq,
+      };
+    }
     const createdInterrupt =
       (event.type === 'interrupt.created' || event.type === 'run.waiting_for_user') &&
       'interrupt' in payload

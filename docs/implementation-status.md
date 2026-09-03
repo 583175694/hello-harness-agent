@@ -2,13 +2,13 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-08-26（K3 Control & HITL Kernel 基本完成；K5 收敛为副作用策略与治理）
+> 最后更新：2026-09-03（K4 Agent Task Semantics Plan and Execute 已实施并完成真实模型验证）
 
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 20 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段和 K3 Control & HITL Kernel 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer 和 Follow-up 均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
+当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel 和 K4 Agent Task Semantics 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up 和 Plan Snapshot 均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
 评估体系当前暂缓建设。相关实现、配置、命令、数据和专题文档已于 2026-08-17 移除；普通 unit、integration、E2E 与 `agent-testkit` 回归测试继续保留。后续评估能力作为独立模块重新设计，不再阻塞当前 Context Engineering 或功能开发。
 
@@ -88,7 +88,7 @@ Connection-Durable 不引入 Redis，也不实现服务端重启后的自动续�
 
 **阶段结果**：客户端断线、刷新和切换会话不会取消后台 Run；重连时可以先读取 Snapshot，再按 cursor 精确 replay Event Tail，无法连续 replay 时回退到完整 Snapshot。实时流、历史恢复和持久化消息统一使用稳定的文本/工具块顺序，终态只有在数据库提交成功后才向客户端广播。8 月 13 日又将 Round/Block 字段收紧为必填，统一服务端与前端的 Block canonical sort，并补充顺序诊断日志和流式消息局部渲染优化。阶段六把原本依附请求的 Tool Loop 变成了具备后台生命周期、连接恢复、阶段性持久化和可诊断时序不变量的 Durable Run。
 
-**当前仍未解决**：这仍然是 Model-led Tool Loop，不包含显式 Goal/Plan/Observation/Progress/Completion Policy 等完整 Agent Loop 语义；没有服务端重启后的 Runtime 自动恢复、多实例 Worker lease、数据库 Event Log、Redis、Tool exactly-once 或跨进程接管。Event Tail 的软/绝对上限和 checkpoint 失败后的额外强制收敛移入后续 Reliability Backlog，不属于当前 K3.1/K3.2。Context Engineering 第一阶段已完成，Skills、Memory、文件化任务状态、Goal Reminder 和 Delegation 按后续阶段独立推进。
+**当前仍未解决**：没有服务端重启后的 Runtime 自动恢复、多实例 Worker lease、数据库 Event Log、Redis、Tool exactly-once 或跨进程接管。K4 的 Plan 是轻量 UI/Context 语义，不扩展为持久化任务编排器，也不包含自动 Goal/Observation 评估、no-progress 检测或强制完成闸门。Event Tail 的软/绝对上限和 checkpoint 失败后的额外强制收敛移入后续 Reliability Backlog。Skills、Memory、文件化任务状态、Goal Reminder 和 Delegation 按后续阶段独立推进。
 
 ### Reasoning Context Transcript（断代升级已实施）
 
@@ -393,7 +393,7 @@ K3.2 已实施并验证：完成 `clarification Interrupt → respond → 下一
 
 K3 已经提供后续能力使用的 Control & HITL Kernel。K5 聚焦真实副作用能力所需的可信风险策略、授权约束和审计。Retry Current Step、执行中自动接管、多实例 Worker、Provider/Search 韧性、系统性安全加固和完整评估/可观测平台移入后续 Backlog，不属于当前 K3 实施范围。
 
-K4  Agent Task Semantics                         核心智能阶段
+K4  Agent Task Semantics                         已完成：Plan and Execute、计划投影与恢复
     - Goal、Constraints、Success Criteria（明确任务目标、限制条件和完成标准）
     - Subgoal、Progress、Observation、Blocker（记录子目标、进度、观察结果和阻塞原因）
     - Completion Policy、轻量 Verification（定义何时算完成，并做基本结果检查）
@@ -417,7 +417,7 @@ K6  Evidence / Citation / Completion Verification 横切内核能力
     - 最终交付前的任务完成检查与限制说明（交付前检查是否完成，并明确已知局限）
 ```
 
-K3 已经完成通用控制和 HITL 机制；K4 建设任务语义；K5 将 K3 机制应用到真实副作用并形成可审计的治理策略。K6 会横切文件分析、研究回答和 Artifact 生成，不能等所有功能完成后才设计来源关联。
+K3 已经完成通用控制和 HITL 机制；K4 已完成轻量任务语义与计划投影；K5 将 K3 机制应用到真实副作用并形成可审计的治理策略。K6 会横切文件分析、研究回答和 Artifact 生成，不能等所有功能完成后才设计来源关联。
 
 ### 7.2 Capability 主线
 
@@ -499,7 +499,7 @@ L7  Multi-user / Remote Storage / Operations      更后期
 
 ```text
 K3 Control & HITL Kernel（基本完成）
-  -> K4 Agent Task Semantics
+  -> K4 Agent Task Semantics（已完成）
   -> C1 File & Multimodal Foundation
   -> K5-A Side-effect Policy Contract
   -> C2 Artifact & Report Generation（接入本地写入策略）
@@ -570,3 +570,51 @@ K3.3 已完成 Pending User Input 持久化事实层、Follow-up FIFO 调度、S
 - Web Vitest：33 tests passed。
 - 真实浏览器验证覆盖：运行中提交 Follow-up 不显示正式 user bubble；Follow-up 自动执行；多条 Follow-up 严格串行；第二条在前一条完成后无需刷新进入正式对话；运行中继续发送消息进入队列。
 - 已知边界：MVP 仍是单 API executor 实例；服务重启后的 active Runtime 不自动续跑，Follow-up 队列保留；没有 Redis、分布式 dispatcher 或 Steer 智能合并。
+
+## 11. K4 Agent Task Semantics：Plan and Execute（已实施）
+
+### 11.1 K4 之前的问题
+
+K4 之前，Runtime 虽然已经支持 Model-led Function Calling，但模型只能通过普通 Business Tool 逐步执行，缺少一份稳定、结构化、可展示的任务计划。复杂任务存在三个问题：用户无法知道 Agent 当前处于哪一步；模型的规划只能隐含在自然语言或工具调用顺序中；刷新、重连和 Run Snapshot 恢复时，前端无法可靠恢复计划状态。若把计划当成普通工具，还会错误地进入 Business Tool 审批、配额和 Activity 投影。
+
+### 11.2 K4 的解决方式
+
+- 在共享协议中增加 `PlanStepStatus`、`PlanStep`、`PlanSnapshot` 和 `plan.updated` 事件，并统一步骤数、文本长度和 JSON 大小限制。
+- 将 `update_plan` 作为内置 Function Calling 工具，与 Business Tool 定义分离；模型自主判断是否需要计划，简单任务不强制规划。
+- 新增独立 `PlanHandler`，只负责 JSON 解析和计划校验；合法调用整体替换 Runtime 当前计划，非法调用返回 Tool Result，不终止 Run。
+- Runtime 按模型返回的 `blockSequence/providerIndex` 继续处理计划、文本和 Business Tool，不改变原始顺序；计划不进入审批、不计入 Business Tool 配额，也不产生普通工具卡片。
+- `plan.updated` 进入 Chat Projection、Run Snapshot、Event Tail、SSE 和 assistant metadata；Web 只消费服务端计划投影，在输入框上方显示“第 N / M 步”浮标和悬停详情。
+- 计划状态不参与 Run 完成判定；模型仍通过普通 Agent Loop 生成最终回答。计划完成、清除或 Run 进入终态后，浮标自动隐藏。
+
+### 11.3 关键实现位置
+
+```text
+apps/api/src/tools/builtin-tool-definitions.ts
+  内置 Function Calling 声明
+
+apps/api/src/agent-runtime/plan.handler.ts
+  计划参数解析与业务校验
+
+apps/api/src/agent-runtime/agent-runtime.service.ts
+  工具分流、currentPlan、plan.updated 和下一轮 Plan Context
+
+apps/api/src/chat/chat.service.ts
+  计划 Projection 与 Chat SSE 转发
+
+apps/api/src/runs/run-event-hub.ts
+apps/api/src/runs/run.executor.ts
+apps/api/src/runs/run.repository.ts
+  Snapshot reducer、Checkpoint、持久化和恢复
+
+apps/web/src/app.tsx
+  Snapshot/Event 投影
+
+apps/web/src/features/agent/components/conversation.tsx
+  输入框上方计划浮标
+```
+
+### 11.4 验证结果与边界
+
+真实模型使用 DeepSeek V4 Flash 验证了简单任务不创建计划、明确计划任务创建计划、复杂任务自主创建计划、计划与多次 Search/Fetch 协同执行、计划浮标更新以及用户取消 Run。七组用例均能继续生成最终回答；30 步请求被模型归纳为 7 个阶段，没有机械生成大量步骤。
+
+API 类型检查、lint 和 100 个 API unit tests 通过；Web 类型检查通过，Web 测试仅保留一个既有的后台流重复详情请求失败，与 Plan 逻辑无关。K4 不承诺模型对每个复杂任务 100% 创建计划，也不实现服务端重启后的 Runtime 自动续跑、持久化 Plan 历史版本或 Goal/Observation 级自动评估。

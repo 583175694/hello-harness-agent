@@ -67,6 +67,16 @@ export function WorkbenchShell({
           </div>
           <h2>{state.title}</h2>
           <p>{state.subtitle}</p>
+          {state.plan &&
+          state.activityStatus !== 'completed' &&
+          state.activityStatus !== 'failed' &&
+          state.activityStatus !== 'cancelled' &&
+          state.plan.plan.some((step) => step.status !== 'completed') ? (
+            <span className="plan-badge">
+              第 {state.plan.plan.findIndex((step) => step.status === 'in_progress') + 1 || 1} /{' '}
+              {state.plan.plan.length} 步
+            </span>
+          ) : null}
         </div>
         <button
           className="icon-button"

@@ -202,9 +202,9 @@ export function makeToolCalls(
       ? 'running'
       : status === 'queued' || status === 'final_answer'
         ? 'pending'
-      : status === 'waiting' || status === 'waiting_for_user'
-        ? 'waiting'
-        : status;
+        : status === 'waiting' || status === 'waiting_for_user'
+          ? 'waiting'
+          : status;
   return [
     {
       toolCallId: `${runId}-tool-1`,
@@ -314,11 +314,31 @@ function runtimeStatus(state: PreviewState): ActivityStatus {
 function makePendingInputs(state: PreviewState): PendingUserInputView[] | undefined {
   if (state === 'follow-up-pending')
     return [
-      { id: 'preview-follow-up-1', kind: 'follow_up', status: 'pending', content: '再补充制造业案例。', sequence: 1 },
-      { id: 'preview-follow-up-2', kind: 'follow_up', status: 'pending', content: '同时比较中美市场增速。', sequence: 2 },
+      {
+        id: 'preview-follow-up-1',
+        kind: 'follow_up',
+        status: 'pending',
+        content: '再补充制造业案例。',
+        sequence: 1,
+      },
+      {
+        id: 'preview-follow-up-2',
+        kind: 'follow_up',
+        status: 'pending',
+        content: '同时比较中美市场增速。',
+        sequence: 2,
+      },
     ];
   if (state === 'steer-pending')
-    return [{ id: 'preview-steer-1', kind: 'steer', status: 'pending', content: '优先关注产业应用案例。', sequence: 1 }];
+    return [
+      {
+        id: 'preview-steer-1',
+        kind: 'steer',
+        status: 'pending',
+        content: '优先关注产业应用案例。',
+        sequence: 1,
+      },
+    ];
   return undefined;
 }
 
@@ -326,15 +346,39 @@ function makeInterrupt(state: PreviewState, runId: string): InterruptSnapshot | 
   const createdAt = '2026-08-24T03:00:00.000Z';
   if (state === 'clarification')
     return {
-      interruptId: 'preview-clarification', runId, kind: 'clarification', status: 'pending', createdAt,
-      roundId: 'preview-round-1', roundSequence: 1,
-      payload: { question: '你希望重点关注近 12 个月还是近 3 年？', options: ['近 12 个月', '近 3 年'], allowFreeText: true },
+      interruptId: 'preview-clarification',
+      runId,
+      kind: 'clarification',
+      status: 'pending',
+      createdAt,
+      roundId: 'preview-round-1',
+      roundSequence: 1,
+      payload: {
+        question: '你希望重点关注近 12 个月还是近 3 年？',
+        options: ['近 12 个月', '近 3 年'],
+        allowFreeText: true,
+      },
     };
   if (state === 'tool-approval')
     return {
-      interruptId: 'preview-approval', runId, kind: 'tool_approval', status: 'pending', createdAt,
-      roundId: 'preview-round-1', roundSequence: 1,
-      payload: { items: [{ itemId: 'preview-approval-item', toolCallId: `${runId}-tool-3`, toolName: 'approval_test', input: { message: '模拟需要确认的工具调用' }, argumentsHash: 'preview-hash' }] },
+      interruptId: 'preview-approval',
+      runId,
+      kind: 'tool_approval',
+      status: 'pending',
+      createdAt,
+      roundId: 'preview-round-1',
+      roundSequence: 1,
+      payload: {
+        items: [
+          {
+            itemId: 'preview-approval-item',
+            toolCallId: `${runId}-tool-3`,
+            toolName: 'approval_test',
+            input: { message: '模拟需要确认的工具调用' },
+            argumentsHash: 'preview-hash',
+          },
+        ],
+      },
     };
   return undefined;
 }
@@ -458,13 +502,19 @@ const answer = 'Hello, Markdown';
   if (state === 'waiting' || state === 'clarification' || state === 'tool-approval')
     blocks.push(text(`${runId}-text-2`, '检索材料跨度较大，请确认关注近 12 个月还是近 3 年。'));
   if (state === 'queued') blocks.push(text(`${runId}-text-2`, '任务已提交，正在等待执行资源。'));
-  if (state === 'pause-requested') blocks.push(text(`${runId}-text-2`, '已收到暂停请求，将在当前安全边界暂停。'));
-  if (state === 'paused') blocks.push(text(`${runId}-text-2`, '任务已暂停，可从同一个运行边界继续。'));
+  if (state === 'pause-requested')
+    blocks.push(text(`${runId}-text-2`, '已收到暂停请求，将在当前安全边界暂停。'));
+  if (state === 'paused')
+    blocks.push(text(`${runId}-text-2`, '任务已暂停，可从同一个运行边界继续。'));
   if (state === 'resuming') blocks.push(text(`${runId}-text-2`, '正在从暂停边界恢复任务。'));
-  if (state === 'final-answer') blocks.push(text(`${runId}-text-2`, '证据已整理完成，正在撰写最终回答。'));
-  if (state === 'cancel-requested') blocks.push(text(`${runId}-text-2`, '已收到取消请求，正在安全停止。'));
-  if (state === 'follow-up-pending') blocks.push(text(`${runId}-text-2`, '当前任务继续执行，后续消息会在完成后按顺序启动。'));
-  if (state === 'steer-pending') blocks.push(text(`${runId}-text-2`, '方向调整已进入队列，将在下一安全步骤应用。'));
+  if (state === 'final-answer')
+    blocks.push(text(`${runId}-text-2`, '证据已整理完成，正在撰写最终回答。'));
+  if (state === 'cancel-requested')
+    blocks.push(text(`${runId}-text-2`, '已收到取消请求，正在安全停止。'));
+  if (state === 'follow-up-pending')
+    blocks.push(text(`${runId}-text-2`, '当前任务继续执行，后续消息会在完成后按顺序启动。'));
+  if (state === 'steer-pending')
+    blocks.push(text(`${runId}-text-2`, '方向调整已进入队列，将在下一安全步骤应用。'));
   if (state === 'steer-accepted')
     blocks.push(text(`${runId}-text-2`, '已接受调整，接下来会重点补充中国市场的产业应用案例。'));
   if (state === 'cancelling') blocks.push(text(`${runId}-text-2`, '正在安全停止当前检索。'));
@@ -495,7 +545,9 @@ const answer = 'Hello, Markdown';
       },
     ],
     workbench,
-    activeRunId: !['final-report', 'limited-report', 'cancelled', 'failed'].includes(state) ? runId : undefined,
+    activeRunId: !['final-report', 'limited-report', 'cancelled', 'failed'].includes(state)
+      ? runId
+      : undefined,
     activeInterrupt: interrupt,
     pendingInputs: makePendingInputs(state),
     previewSubmitting: [

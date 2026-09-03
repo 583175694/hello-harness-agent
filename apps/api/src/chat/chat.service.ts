@@ -11,6 +11,7 @@ import type {
   SearchToolResult,
   WebFetchInput,
   WebFetchResult,
+  PlanSnapshot,
 } from '@harness/agent-protocol';
 import { ENV_KEYS } from '../bootstrap/env.constants';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
@@ -54,6 +55,7 @@ export type ChatProjectionSnapshot = {
   executions: import('@harness/agent-protocol').ToolExecutionSnapshot[];
   sources: ResearchSourceSnapshot[];
   observability: RunObservability;
+  plan?: PlanSnapshot;
 };
 
 @Injectable()
@@ -158,6 +160,8 @@ export class ChatService {
       this.extractHttpUrls(currentUserContent ?? ''),
     );
     const conversation = new ConversationBlockCollector(prepared.assistantMessageId);
+    // 当前 assistant Run 的最新计划投影；每次 plan.updated 都整体替换。
+    let plan: PlanSnapshot | undefined;
     let content = '';
     let toolCallCount = 0;
     const modelRounds: ModelRoundObservation[] = [];
@@ -174,6 +178,7 @@ export class ChatService {
         executions: snapshot.executions,
         sources: snapshot.sources,
         observability: this.observability(modelRounds),
+        ...(plan ? { plan: structuredClone(plan) } : {}),
       });
     };
 
@@ -203,6 +208,24 @@ export class ChatService {
       }
       if (event.type === 'transcript.fact') {
         await prepared.onTranscriptFact?.(event.fact);
+        continue;
+      }
+      // 计划事件只更新结构化投影并转发 SSE，不生成普通对话文本。
+      if (event.type === 'plan.updated') {
+        plan = {
+          ...(event.explanation ? { explanation: event.explanation } : {}),
+          plan: event.plan,
+        };
+        await notifyProjection();
+        yield {
+          type: 'plan.updated',
+          messageId: prepared.assistantMessageId,
+          explanation: event.explanation,
+          plan: event.plan,
+          roundId: event.roundId,
+          roundSequence: event.roundSequence,
+          blockSequence: event.blockSequence,
+        } as ChatStreamEvent;
         continue;
       }
       if (event.type === 'text.delta') {

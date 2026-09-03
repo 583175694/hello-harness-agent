@@ -190,6 +190,7 @@ export class RunExecutor implements OnModuleDestroy {
           modelRoundDurationMs: 0,
         },
       },
+      plan: undefined,
     };
     let draftVersion = 0;
     let lastFlushAt = Date.now();
@@ -292,6 +293,16 @@ export class RunExecutor implements OnModuleDestroy {
         if (event.type === 'model.round.completed' && event.context) {
           active.liveSnapshot.context = structuredClone(event.context);
         }
+        // 先更新内存 Snapshot，再提交和广播事件，保证重连看到最新计划。
+        if (event.type === 'plan.updated')
+          active.liveSnapshot.plan = structuredClone(
+            event.plan
+              ? {
+                  ...(event.explanation ? { explanation: event.explanation } : {}),
+                  plan: event.plan,
+                }
+              : undefined,
+          );
         // 用户可见变化统一遵循：分配 seq -> 更新 Live Snapshot -> 写 Tail -> 广播。
         // Projection 已由 onProjection 准备好，因此 Event 与 Snapshot 不会跨版本。
         const published = this.events.commit(runId, event.type, event);
@@ -513,6 +524,7 @@ export class RunExecutor implements OnModuleDestroy {
       sources: projection.sources,
       toolCallCount: projection.toolCallCount,
       observability: projection.observability,
+      ...(projection.plan ? { plan: structuredClone(projection.plan) } : {}),
       lastEventSequence: seq,
       ...(error ? { error } : {}),
     });

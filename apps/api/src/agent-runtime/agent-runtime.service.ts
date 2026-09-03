@@ -19,6 +19,9 @@ import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
 import { ContextEngineeringService } from '../context-engineering/context-engineering.service';
 import type { ToolResultCandidate } from '../context-engineering/context-engineering.types';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
+import { AGENT_TOOL_NAMES, type PlanSnapshot } from '@harness/agent-protocol';
+import { PlanHandler } from './plan.handler';
+import { builtinToolDefinitions } from '../tools/builtin-tool-definitions';
 import type {
   RuntimeLifecycleBoundary,
   RuntimeLifecycleContextMap,
@@ -45,6 +48,8 @@ export class AgentRuntimeService {
     private readonly context?: ContextEngineeringService,
   ) {}
 
+  private readonly planHandler = new PlanHandler();
+
   // 执行受通用调用上限约束的模型-工具循环，并输出供应商无关的 Runtime 事件。
   async *run(input: AgentRuntimeInput): AsyncGenerator<AgentRuntimeEvent> {
     const runtimeStartedAt = Date.now();
@@ -61,6 +66,8 @@ export class AgentRuntimeService {
     let visibleContent = '';
     let modelRounds = 0;
     let compactionState: CompactionState | undefined;
+    // Runtime 仅保留最新计划，用于事件发布和下一轮只读上下文。
+    let currentPlan: PlanSnapshot | undefined;
     // 将运行从可调用工具的调查阶段单向切换到无工具的最终回答阶段。
     const enterFinalAnswer = () => {
       // 同一批 Tool Call 必须先补齐全部 Tool Message，最终回答指令在批次结束后追加。
@@ -97,7 +104,10 @@ export class AgentRuntimeService {
         AgentRuntimeService.name,
       );
       // 最终回答阶段从请求参数层面移除工具，不能只依赖 Prompt 约束模型。
-      const definitions = finalResponseOnly ? undefined : this.tools.definitions();
+      // 最终回答阶段主动撤掉所有工具，防止模型在收尾时再次发起调用。
+      const definitions = finalResponseOnly
+        ? undefined
+        : [...(this.tools.definitions() ?? []), ...builtinToolDefinitions()];
       // 每次模型尝试都重新收集文本、工具调用和结束原因，污染重试不得混入上一轮内容。
       let compiled;
       try {
@@ -166,7 +176,9 @@ export class AgentRuntimeService {
             model: input.model,
             messages: roundMessages,
             tools: definitions,
-            reasoningEffort: input.reasoningEffort ?? 'off',
+            // 最终答案不需要新的思维链：保留输出
+            // 为用户可见内容预留预算。历史工具调用推理在协议需要时仍由模型适配器回放。
+            reasoningEffort: finalResponseOnly ? 'off' : (input.reasoningEffort ?? 'off'),
             signal: roundSignal,
             allowClarification: !finalResponseOnly,
           })) {
@@ -196,7 +208,7 @@ export class AgentRuntimeService {
             } else {
               // 结束原因用于区分正常完成、长度截断和其他供应商终态。
               finishReason = event.finishReason;
-              usage = event.usage;
+              usage = event.usage ?? usage;
             }
           }
         } catch (error) {
@@ -257,7 +269,7 @@ export class AgentRuntimeService {
           ),
         ].join(',');
         this.logger.log(
-          `模型轮次完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 尝试=${attempt}/${maxAttempts} | 原因=${finishReason ?? 'unknown'} | 文本=${roundContent.length} 字 | 工具调用=${calls.length} 个 | Block顺序=${blockOrder || '空'} | 耗时=${formatLogDuration(roundDurationMs)}`,
+          `模型轮次完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 尝试=${attempt}/${maxAttempts} | 原因=${finishReason ?? 'unknown'} | reasoning=${finalResponseOnly ? 'off' : (input.reasoningEffort ?? 'off')} | promptTokens=${usage.promptTokens ?? 'unknown'} | completionTokens=${usage.completionTokens ?? 'unknown'} | estimatedPromptTokens=${usage.estimatedPromptTokens} | cachedTokens=${usage.cachedTokens ?? 'unknown'} | 文本=${roundContent.length} 字 | reasoning文本=${reasoningDeltas.join('').length} 字 | 工具调用=${calls.length} 个 | Block顺序=${blockOrder || '空'} | 耗时=${formatLogDuration(roundDurationMs)}`,
           AgentRuntimeService.name,
         );
 
@@ -399,6 +411,7 @@ export class AgentRuntimeService {
       }
 
       // Round outcome 只在完整消费供应商流后确认：无 Tool Call 才是最终正文。
+      // 没有工具调用表示模型已经产出最终文本；计划状态不参与此判断。
       if (!normalizedCalls.length) {
         const roundContent = textDeltas.join('');
         // 普通调查轮同样不能把纯空白结果当作成功交付。
@@ -469,7 +482,11 @@ export class AgentRuntimeService {
 
       // Dispatch Plan 在任何工具开始前一次性完成，供生命周期策略安全审查。
       for (const call of normalizedCalls) {
-        if (toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
+        // 计划工具是控制工具，不占用 Business Tool 调用配额。
+        if (
+          call.name !== AGENT_TOOL_NAMES.updatePlan &&
+          toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls
+        ) {
           dispatchPlan.push({
             status: 'rejected',
             call,
@@ -486,11 +503,20 @@ export class AgentRuntimeService {
           );
           continue;
         }
-        toolCallCount += 1;
+        if (call.name !== AGENT_TOOL_NAMES.updatePlan) toolCallCount += 1;
 
         let toolInput: unknown;
         try {
-          toolInput = this.tools.parseInput(call.name, call.arguments);
+          // update_plan 使用独立 Handler；其他调用必须经过 Business Tool Schema。
+          if (call.name === AGENT_TOOL_NAMES.updatePlan) {
+            const result = this.planHandler.handle(call.arguments);
+            if (!result.ok) throw new Error(result.code);
+            this.logger.log(
+              `计划校验成功 | 调用=${shortLogId(call.id)} | 步骤=${result.snapshot.plan.length}`,
+              AgentRuntimeService.name,
+            );
+            toolInput = result.snapshot;
+          } else toolInput = this.tools.parseInput(call.name, call.arguments);
         } catch (error) {
           const code =
             error instanceof Error ? error.message : AGENT_ERROR_CODES.invalidToolArguments;
@@ -535,6 +561,8 @@ export class AgentRuntimeService {
         .filter(
           (item): item is Extract<PreparedDispatch, { status: 'ready' }> => item.status === 'ready',
         )
+        // 计划更新不需要审批，只对有副作用的 Business Tool 建立审批项。
+        .filter((item) => item.call.name !== AGENT_TOOL_NAMES.updatePlan)
         .filter((item) => this.approvalPolicy(item.call.name) === 'require_approval')
         .map((item) => ({
           itemId: `${roundId}:${item.call.id}`,
@@ -564,6 +592,7 @@ export class AgentRuntimeService {
 
       for (const dispatch of dispatchPlan) {
         const { call } = dispatch;
+        // 参数校验或配额失败转成模型可见 Tool Result，不直接终止整个 Run。
         if (dispatch.status === 'rejected') {
           pendingToolResults.push({
             candidate: {
@@ -582,6 +611,33 @@ export class AgentRuntimeService {
         }
 
         const toolInput = dispatch.input;
+        // 成功计划更新立即发布事件，但仍继续处理同一批后续调用。
+        if (call.name === AGENT_TOOL_NAMES.updatePlan) {
+          const plan = toolInput as PlanSnapshot;
+          currentPlan = structuredClone(plan);
+          this.logger.log(
+            `计划事件发布 | 调用=${shortLogId(call.id)} | 轮次=${modelRounds}`,
+            AgentRuntimeService.name,
+          );
+          yield {
+            type: 'plan.updated',
+            ...(plan.explanation ? { explanation: plan.explanation } : {}),
+            plan: plan.plan,
+            roundId,
+            roundSequence: modelRounds,
+            blockSequence: call.blockSequence,
+          };
+          pendingToolResults.push({
+            candidate: {
+              toolCallId: call.id,
+              toolName: call.name,
+              content: JSON.stringify({ status: 'updated' }),
+            },
+            enterFinalAnswer: false,
+            summary: { toolCallId: call.id, toolName: call.name, status: 'succeeded' },
+          });
+          continue;
+        }
         if (this.approvalPolicy(call.name) === 'direct_reject') {
           pendingToolResults.push({
             candidate: {
@@ -803,6 +859,19 @@ export class AgentRuntimeService {
         });
         yield { type: 'transcript.item', message: messages.at(-1)! };
         if (pending.enterFinalAnswer) enterFinalAnswer();
+      }
+      // 下一轮上下文只保留最新计划，删除旧标记后再追加当前快照。
+      if (currentPlan) {
+        const marker = '当前计划（只读）：';
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          const message = messages[index];
+          if (message?.role === 'system' && message.content.startsWith(marker))
+            messages.splice(index, 1);
+        }
+        messages.push({
+          role: 'system',
+          content: `${marker}\n${currentPlan.plan.map((step, index) => `${index + 1}. ${step.step} - ${step.status}`).join('\n')}`,
+        });
       }
       // assistant Tool Calls 与全部 Tool Messages 已由消费者按顺序提交，之后才允许控制策略等待。
       const batchCommittedWait = this.reachLifecycle(input, 'tool_batch_committed', {

@@ -35,6 +35,7 @@ import type {
 } from '../model/types';
 import type {
   InterruptSnapshot,
+  PlanSnapshot,
   PublicModelConfig,
   ReasoningEffort,
   ToolApprovalDecision,
@@ -512,6 +513,15 @@ export function Conversation({
           </div>
         ) : null}
         <div className={`composer-wrap ${submitting ? 'is-running' : ''}`}>
+          <PlanFloatingCard
+            plan={state.workbench?.plan}
+            visible={
+              submitting &&
+              ['running', 'queued', 'cancel_requested'].includes(
+                state.workbench?.activityStatus ?? 'running',
+              )
+            }
+          />
           <FollowUpQueue
             state={state}
             pendingInputs={pendingInputs}
@@ -605,6 +615,55 @@ function ToolActivity({
 }
 
 // 提供优先支持键盘操作的消息、调整和确认输入。
+function PlanFloatingCard({ plan, visible }: { plan?: PlanSnapshot; visible: boolean }) {
+  // 浮标只在运行中且计划未清空、未全部完成时显示。
+  if (!visible || !plan?.plan.length || plan.plan.every((step) => step.status === 'completed'))
+    return null;
+  // 没有 in_progress 时回退到第一步，保证入口仍显示稳定的 N / M。
+  const activeIndex = Math.max(
+    0,
+    plan.plan.findIndex((step) => step.status === 'in_progress'),
+  );
+  return (
+    <div
+      className="plan-floating"
+      role="status"
+      aria-label={`执行计划，第 ${activeIndex + 1} / ${plan.plan.length} 步`}
+    >
+      <div className="plan-floating__trigger" tabIndex={0}>
+        <span className="plan-floating__indicator" aria-hidden="true">
+          <LoaderCircle size={14} />
+        </span>
+        <span>
+          第 {activeIndex + 1} / {plan.plan.length} 步
+        </span>
+      </div>
+      <div className="plan-floating__details">
+        {plan.explanation ? <p className="plan-floating__explanation">{plan.explanation}</p> : null}
+        <ol>
+          {plan.plan.map((step, index) => (
+            <li
+              key={`${index}-${step.step}`}
+              className={`plan-floating__step plan-floating__step--${step.status}`}
+            >
+              <span className="plan-floating__step-icon" aria-hidden="true">
+                {step.status === 'completed' ? (
+                  <Check size={14} />
+                ) : step.status === 'in_progress' ? (
+                  <LoaderCircle className="spin" size={14} />
+                ) : (
+                  <span />
+                )}
+              </span>
+              <span>{step.step}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </div>
+  );
+}
+
 export function Composer({
   prompt,
   submitting,

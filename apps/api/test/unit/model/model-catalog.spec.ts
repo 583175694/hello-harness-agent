@@ -8,12 +8,21 @@ import {
 import { PublicModelConfigController } from '../../../src/model/public-model-config.controller';
 
 describe('model catalog', () => {
-  it('declares DeepSeek V4 Flash and Pro without storing credentials', () => {
+  it('declares supported conversation models without storing credentials', () => {
     expect(MODEL_CATALOG.map((model) => model.id)).toEqual([
       'deepseek-v4-flash',
       'deepseek-v4-pro',
+      'qwen3.8-max',
+      'qwen3.8-flash',
+      'qwen3.7-plus',
+      'qwen3.7-max',
+      'qwen-plus',
     ]);
-    expect(MODEL_CATALOG.every((model) => model.baseUrl === 'https://api.deepseek.com')).toBe(true);
+    expect(
+      MODEL_CATALOG.filter((model) => model.provider === 'bailian').every((model) =>
+        model.baseUrl.includes('aliyuncs.com'),
+      ),
+    ).toBe(true);
     expect(JSON.stringify(MODEL_CATALOG)).not.toMatch(/api.?key|secret/i);
   });
 

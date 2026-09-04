@@ -2699,3 +2699,113 @@ textarea:focus-visible {
     padding-bottom: 24px;
   }
 }
+
+/* Detail pass: preserve the existing composition and tune only rhythm,
+   type scale, and control density. */
+.brand-row {
+  padding-bottom: 24px;
+}
+.brand-row strong {
+  font-size: 14px;
+}
+.brand-row span {
+  margin-top: 3px;
+}
+.sidebar-heading,
+.sidebar-section {
+  padding-right: 18px;
+  padding-bottom: 8px;
+  font-size: 10px;
+}
+.sidebar-section {
+  margin-top: 20px;
+}
+.session-list {
+  padding-right: 8px;
+}
+.session-item {
+  min-height: 36px !important;
+  border-radius: 8px !important;
+}
+.topbar {
+  min-height: 62px;
+}
+.task-title__label {
+  font-size: 15px !important;
+  font-weight: 550;
+}
+.message-list--static {
+  padding-top: 30px;
+  padding-bottom: 18px;
+}
+.message-list__row--static .message,
+.message {
+  margin-bottom: 24px;
+}
+.message {
+  gap: 10px;
+}
+.message-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+.message-meta {
+  margin: 1px 0 6px;
+  font-size: 12px;
+}
+.user-bubble {
+  padding: 9px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.message-actions {
+  min-height: 22px;
+  font-size: 11px;
+}
+.tool-activity {
+  min-height: 30px;
+  padding: 4px 6px;
+}
+.composer textarea {
+  min-height: 72px;
+  padding: 12px 14px 7px;
+  font-size: 14px;
+}
+.composer-actions {
+  min-height: 44px;
+}
+.workspace-header {
+  min-height: 86px;
+  padding: 17px 18px 13px;
+}
+.workspace-header h2 {
+  font-size: 15px;
+}
+.workspace-tabs {
+  min-height: 44px;
+}
+.workspace-tab {
+  font-size: 12px;
+}
+.activity-view,
+.sources-view,
+.report-view {
+  padding: 18px;
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    min-height: 58px;
+  }
+  .message-list--static {
+    padding-top: 24px;
+  }
+  .message-list__row--static .message,
+  .message {
+    margin-bottom: 22px;
+  }
+  .composer textarea {
+    min-height: 68px;
+  }
+}

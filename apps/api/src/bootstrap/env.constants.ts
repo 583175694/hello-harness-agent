@@ -23,7 +23,6 @@ export const ENV_KEYS = {
   cosSecretKey: 'COS_SECRET_KEY',
   cosBucket: 'COS_BUCKET',
   cosRegion: 'COS_REGION',
-  cosEndpoint: 'COS_ENDPOINT',
 } as const;
 
 // 集中维护本地开发和外部 Provider 的默认配置。

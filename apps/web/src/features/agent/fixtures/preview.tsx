@@ -232,7 +232,10 @@ function makePlanFixture(state: 'plan-running' | 'plan-cleared' | 'plan-complete
         id: runId,
         kind: 'assistant',
         blocks: [
-          text(`${runId}-text-1`, running ? '我正在按计划收集资料并整理结果。' : '计划步骤已全部完成，下面是最终结果。'),
+          text(
+            `${runId}-text-1`,
+            running ? '我正在按计划收集资料并整理结果。' : '计划步骤已全部完成，下面是最终结果。',
+          ),
           activity(runId, running ? 'running' : 'completed'),
         ],
         pending: running,

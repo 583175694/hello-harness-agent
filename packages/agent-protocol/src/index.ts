@@ -676,6 +676,11 @@ export const createRunRequestSchema = z.object({
   model: z.string().min(1),
   reasoningEffort: reasoningEffortSchema.optional().default('high'),
   attachmentId: z.string().min(1).optional(),
+  attachmentIds: z
+    .array(z.string().min(1))
+    .max(AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax)
+    .optional()
+    .refine((ids) => !ids || new Set(ids).size === ids.length, '附件不能重复'),
 });
 export const createRunResponseSchema = z.object({
   sessionId: z.string().min(1),

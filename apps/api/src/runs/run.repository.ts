@@ -167,7 +167,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     model: string;
     reasoningEffort: string;
     reasoningFormat?: string;
-    attachmentId?: string;
+    attachmentIds?: string[];
   }) {
     // Session 校验、幂等判定、单 Session Active Run 限制和两条初始消息必须同事务完成。
     return this.prisma.$transaction(async (tx) => {
@@ -240,13 +240,13 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           },
         },
       });
-      if (input.attachmentId)
+      for (const [ordinal, fileId] of (input.attachmentIds ?? []).entries())
         await tx.messageAttachment.create({
           data: {
             id: crypto.randomUUID(),
             messageId: input.userMessageId,
-            fileId: input.attachmentId,
-            ordinal: 0,
+            fileId,
+            ordinal,
           },
         });
       await tx.modelTranscriptItem.create({
@@ -264,7 +264,9 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           model: input.model,
           reasoningEffort: input.reasoningEffort,
           reasoningFormat: input.reasoningFormat,
-          metadata: input.attachmentId ? { attachmentId: input.attachmentId } : undefined,
+          metadata: input.attachmentIds?.length
+            ? { attachmentIds: input.attachmentIds }
+            : undefined,
         },
       });
       await tx.session.update({ where: { id: input.sessionId }, data: { updatedAt: new Date() } });

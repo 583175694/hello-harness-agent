@@ -16,6 +16,7 @@ import { getConfiguredModel } from '../model/model-catalog';
 import type { ReasoningEffort } from '@harness/agent-protocol';
 import { PendingUserInputService } from './pending-user-input.service';
 import { FilesService } from '../files/files.service';
+import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
 
 @Injectable()
 export class RunCommandService {
@@ -42,6 +43,7 @@ export class RunCommandService {
       model: string;
       reasoningEffort?: ReasoningEffort;
       attachmentId?: string;
+      attachmentIds?: string[];
     },
   ): Promise<CreateRunResponse> {
     const runId = crypto.randomUUID();
@@ -58,14 +60,25 @@ export class RunCommandService {
         detail: '所选模型不可用，请刷新模型列表后重试。',
       });
     const model = configuredModel.id;
-    if (input.attachmentId && !configuredModel.supportsVision)
+    const attachmentIds = input.attachmentIds?.length
+      ? input.attachmentIds
+      : input.attachmentId
+        ? [input.attachmentId]
+        : [];
+    if (attachmentIds.length > AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax)
+      throw new ConflictException({
+        code: 'TOO_MANY_ATTACHMENTS',
+        detail: `一条消息最多支持 ${AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax} 张图片。`,
+      });
+    if (attachmentIds.length && !configuredModel.supportsVision)
       throw new ConflictException({
         code: 'MODEL_VISION_UNSUPPORTED',
         detail: '当前模型不支持图片，请切换到 DeepSeek Vision。',
       });
-    if (input.attachmentId) await this.files.findReadyForSession(sessionId, input.attachmentId);
+    for (const attachmentId of attachmentIds)
+      await this.files.findReadyForSession(sessionId, attachmentId);
     const reasoningEffort =
-      input.attachmentId || !configuredModel.reasoning.levels.includes(requestedReasoningEffort)
+      attachmentIds.length || !configuredModel.reasoning.levels.includes(requestedReasoningEffort)
         ? configuredModel.reasoning.default
         : requestedReasoningEffort;
     const capability = this.modelAdapter.profile(model);
@@ -80,7 +93,7 @@ export class RunCommandService {
           content: input.content,
           model,
           reasoningEffort,
-          attachmentId: input.attachmentId ?? null,
+          attachmentIds,
         }),
       )
       .digest('hex');
@@ -99,7 +112,7 @@ export class RunCommandService {
         model,
         reasoningEffort,
         reasoningFormat: capability.reasoningFormat,
-        attachmentId: input.attachmentId,
+        attachmentIds,
       });
     } catch (error) {
       if (

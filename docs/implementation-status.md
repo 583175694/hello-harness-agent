@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-03（K4 Agent Task Semantics Plan and Execute 已实施并完成真实模型验证）
+> 最后更新：2026-09-05（C1-A1 稳定图片能力已实现；真实 COS 删除失败补偿仍待集成验收）
 
 ## 1. 当前结论
 
@@ -11,6 +11,10 @@
 当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel 和 K4 Agent Task Semantics 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up 和 Plan Snapshot 均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
 评估体系当前暂缓建设。相关实现、配置、命令、数据和专题文档已于 2026-08-17 移除；普通 unit、integration、E2E 与 `agent-testkit` 回归测试继续保留。后续评估能力作为独立模块重新设计，不再阻塞当前 Context Engineering 或功能开发。
+
+### C1-A0 / C1-A1 状态
+
+C1-A0 图片闭环已完成真实 DeepSeek Vision 主链路验证。C1-A1 已实现最多四张图片有序绑定、旧单附件请求兼容、失败保留与手动重试、取消上传、未绑定文件删除、剪贴板图片粘贴、多图预览和 Session 删除后的 COS 清理补偿；数据库 migration 已部署，协议和 Composer 回归测试通过。真实 COS 删除失败后的重试流程和完整 E2E 仍待集成验收；普通文本粘贴保持原有输入框行为。
 
 Model-led Tool Boundary 已落地为协议 `0.8.0`：模型负责语义规划，Runtime 只执行模型决策和通用执行边界，Tool 只执行能力并返回 canonical 结构化结果，Runtime 统一序列化 Tool Message，Projection 派生 provenance 并按 URL/contentHash 归并 canonical source。`ToolRunState`、`WebResearchRunState`、Tool `modelContent/control` 和跨调用 URL allowlist 已删除；没有新增 Runtime Decision Policy、Web Research Policy 或 Tool observation 预算协议。详见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md)。
 
@@ -500,7 +504,8 @@ L7  Multi-user / Remote Storage / Operations      更后期
 ```text
 K3 Control & HITL Kernel（基本完成）
   -> K4 Agent Task Semantics（已完成）
-  -> C1 File & Multimodal Foundation
+  -> C1-A1 Stable Image Capability（失败恢复、多图、图片粘贴）
+  -> C1-B File & Multimodal Foundation（TXT/Markdown/CSV/JSON/PDF）
   -> K5-A Side-effect Policy Contract
   -> C2 Artifact & Report Generation（接入本地写入策略）
   -> C3 Code Execution Sandbox（接入执行与文件副作用策略）

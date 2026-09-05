@@ -43,6 +43,33 @@ describe('foundation protocol', () => {
     ).toThrow();
   });
 
+  it('limits image attachments and rejects duplicate IDs', () => {
+    expect(
+      createRunRequestSchema.parse({
+        content: '比较图片',
+        idempotencyKey: 'key',
+        model: 'vision',
+        attachmentIds: ['a', 'b', 'c', 'd'],
+      }).attachmentIds,
+    ).toHaveLength(4);
+    expect(() =>
+      createRunRequestSchema.parse({
+        content: '比较图片',
+        idempotencyKey: 'key',
+        model: 'vision',
+        attachmentIds: ['a', 'a'],
+      }),
+    ).toThrow();
+    expect(() =>
+      createRunRequestSchema.parse({
+        content: '比较图片',
+        idempotencyKey: 'key',
+        model: 'vision',
+        attachmentIds: ['a', 'b', 'c', 'd', 'e'],
+      }),
+    ).toThrow();
+  });
+
   it('allows resolved interrupt events but only pending active interrupts', () => {
     const resolved = {
       interruptId: 'interrupt-1',

@@ -91,15 +91,7 @@ type AssistantItem = Extract<ConversationItem, { kind: 'assistant' }>;
 type RenderedConversationItem = Extract<ConversationItem, { kind: 'user' }> | AssistantItem;
 
 // 将图片以顶层遮罩形式展示，并统一处理点击遮罩、关闭按钮和 Esc 退出。
-function ImageLightbox({
-  src,
-  alt,
-  onClose,
-}: {
-  src: string;
-  alt: string;
-  onClose: () => void;
-}) {
+function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
   // 挂载到 document.body，避免页面层叠上下文（尤其是 Composer）覆盖全屏预览。
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -181,7 +173,7 @@ const UserMessage = memo(function UserMessage({
   const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
   return (
     <div className="message message--user flex justify-end gap-3 text-text-primary">
-      <div>
+      <div className="user-message-content">
         {item.attachments?.length ? (
           <div className="user-attachment-stack">
             {item.attachments.map((attachment) => (
@@ -195,7 +187,11 @@ const UserMessage = memo(function UserMessage({
                   setPreview({ src: attachment.previewUrl, alt: attachment.fileName })
                 }
               >
-                <img src={attachment.previewUrl} alt={attachment.fileName} className="user-attachment-tile" />
+                <img
+                  src={attachment.previewUrl}
+                  alt={attachment.fileName}
+                  className="user-attachment-tile"
+                />
               </button>
             ))}
           </div>
@@ -402,10 +398,12 @@ export function Conversation({
   selectedModel = '',
   onModelChange = () => undefined,
   onReasoningEffortChange = () => undefined,
-  attachment,
+  attachments = [],
   attachmentUploading = false,
   onAttachmentSelected,
   onAttachmentRemove,
+  onAttachmentRetry,
+  onAttachmentCancel,
 }: {
   state: AgentUiState;
   error: string | null;
@@ -430,10 +428,12 @@ export function Conversation({
   selectedModel?: string;
   onModelChange?: (model: string) => void;
   onReasoningEffortChange?: (value: ReasoningEffort) => void;
-  attachment?: FileRef | null;
+  attachments?: FileRef[];
   attachmentUploading?: boolean;
-  onAttachmentSelected?: (file: File) => void;
-  onAttachmentRemove?: () => void;
+  onAttachmentSelected?: (files: File[]) => void;
+  onAttachmentRemove?: (fileId: string) => void;
+  onAttachmentRetry?: (fileId: string) => void;
+  onAttachmentCancel?: (fileId: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -627,10 +627,12 @@ export function Conversation({
             selectedModel={selectedModel}
             onModelChange={onModelChange}
             onReasoningEffortChange={onReasoningEffortChange}
-            attachment={attachment}
+            attachments={attachments}
             attachmentUploading={attachmentUploading}
             onAttachmentSelected={onAttachmentSelected}
             onAttachmentRemove={onAttachmentRemove}
+            onAttachmentRetry={onAttachmentRetry}
+            onAttachmentCancel={onAttachmentCancel}
           />
         </div>
       </div>
@@ -765,10 +767,12 @@ export function Composer({
   selectedModel = '',
   onModelChange = () => undefined,
   onReasoningEffortChange = () => undefined,
-  attachment,
+  attachments = [],
   attachmentUploading = false,
   onAttachmentSelected,
   onAttachmentRemove,
+  onAttachmentRetry,
+  onAttachmentCancel,
 }: {
   prompt: string;
   submitting: boolean;
@@ -786,10 +790,12 @@ export function Composer({
   selectedModel?: string;
   onModelChange?: (model: string) => void;
   onReasoningEffortChange?: (value: ReasoningEffort) => void;
-  attachment?: FileRef | null;
+  attachments?: FileRef[];
   attachmentUploading?: boolean;
-  onAttachmentSelected?: (file: File) => void;
-  onAttachmentRemove?: () => void;
+  onAttachmentSelected?: (files: File[]) => void;
+  onAttachmentRemove?: (fileId: string) => void;
+  onAttachmentRetry?: (fileId: string) => void;
+  onAttachmentCancel?: (fileId: string) => void;
 }) {
   const composingRef = useRef(false);
   const [interruptState, setInterruptState] = useState<{
@@ -801,7 +807,10 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
-  const [attachmentPreviewOpen, setAttachmentPreviewOpen] = useState(false);
+  const [attachmentPreview, setAttachmentPreview] = useState<{
+    src: string;
+    alt: string;
+  } | null>(null);
   const currentInterruptState =
     interruptState.interruptId === activeInterrupt?.interruptId
       ? interruptState
@@ -816,10 +825,11 @@ export function Composer({
     });
   };
   const attachmentModelUnsupported = Boolean(
-    attachment &&
-      selectedModel &&
-      !models.find((model) => model.id === selectedModel)?.supportsVision,
+    attachments.length > 0 &&
+    selectedModel &&
+    !models.find((model) => model.id === selectedModel)?.supportsVision,
   );
+  const canUseImageAttachments = mode === 'new-run' && !activeInterrupt;
   useEffect(() => {
     if (!attachmentMenuOpen) return undefined;
     const handleOutsidePointerDown = (event: PointerEvent) => {
@@ -956,40 +966,61 @@ export function Composer({
           ))}
         </div>
       ) : null}
-      {activeInterrupt?.kind !== 'clarification' ? (
+      {canUseImageAttachments ? (
         <div className="composer-attachments px-[15px] pt-3">
-          {attachment ? (
-            <div className="composer-attachment-preview">
-              {attachment.previewUrl ? (
+          {attachments.map((item) => (
+            <div className="composer-attachment-preview" key={item.fileId}>
+              {item.previewUrl ? (
                 <button
                   type="button"
                   className="composer-attachment-preview__open"
-                  aria-label={`预览${attachment.fileName}`}
-                  onClick={() => setAttachmentPreviewOpen(true)}
+                  aria-label={`预览${item.fileName}`}
+                  onClick={() =>
+                    setAttachmentPreview({ src: item.previewUrl ?? '', alt: item.fileName })
+                  }
                 >
-                  <img src={attachment.previewUrl} alt={attachment.fileName} />
-                  {attachment.status === 'processing' ? (
-                    <span className="composer-attachment-preview__processing" aria-label="图片上传中">
+                  <img src={item.previewUrl} alt={item.fileName} />
+                  {item.status === 'processing' ? (
+                    <span
+                      className="composer-attachment-preview__processing"
+                      aria-label="图片上传中"
+                    >
                       <LoaderCircle className="spin" size={18} />
                     </span>
                   ) : null}
                 </button>
               ) : (
                 <div className="composer-attachment-preview__loading">
-                  <LoaderCircle className="spin" size={16} />
+                  {item.status === 'failed' ? (
+                    <CircleAlert size={16} />
+                  ) : (
+                    <LoaderCircle className="spin" size={16} />
+                  )}
                 </div>
               )}
+              {item.status === 'failed' ? (
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => onAttachmentRetry?.(item.fileId)}
+                >
+                  重试
+                </button>
+              ) : null}
               <button
                 className="composer-attachment-preview__remove"
                 type="button"
-                aria-label="移除图片"
+                aria-label={`移除${item.fileName}`}
                 title="移除图片"
-                onClick={onAttachmentRemove}
+                onClick={() => {
+                  if (item.status === 'processing') onAttachmentCancel?.(item.fileId);
+                  else onAttachmentRemove?.(item.fileId);
+                }}
               >
                 <X size={14} />
               </button>
             </div>
-          ) : null}
+          ))}
           {attachmentModelUnsupported ? (
             <div className="composer-hints">当前模型不支持图片，请切换到 DeepSeek Vision。</div>
           ) : null}
@@ -997,20 +1028,21 @@ export function Composer({
             ref={fileInputRef}
             type="file"
             accept="image/png,image/jpeg,image/webp"
+            multiple
             hidden
             onChange={(event) => {
-              const file = event.target.files?.[0];
+              const files = Array.from(event.target.files ?? []);
               event.target.value = '';
-              if (file) onAttachmentSelected?.(file);
+              if (files.length) onAttachmentSelected?.(files);
             }}
           />
         </div>
       ) : null}
-      {attachmentPreviewOpen && attachment?.previewUrl ? (
+      {attachmentPreview ? (
         <ImageLightbox
-          src={attachment.previewUrl}
-          alt={attachment.fileName}
-          onClose={() => setAttachmentPreviewOpen(false)}
+          src={attachmentPreview.src}
+          alt={attachmentPreview.alt}
+          onClose={() => setAttachmentPreview(null)}
         />
       ) : null}
       {activeInterrupt?.kind !== 'clarification' ? (
@@ -1023,6 +1055,20 @@ export function Composer({
             mode === 'disabled' || controlState === 'waiting_for_user' || Boolean(activeInterrupt)
           }
           onChange={(event) => onPromptChange(event.target.value)}
+          onPaste={(event) => {
+            const imageFiles = Array.from(event.clipboardData.files).filter((file) =>
+              file.type.startsWith('image/'),
+            );
+            if (!imageFiles.length) return;
+            event.preventDefault();
+            onAttachmentSelected?.(
+              imageFiles.map((file, index) =>
+                file.name
+                  ? file
+                  : new File([file], `pasted-image-${index + 1}.png`, { type: file.type }),
+              ),
+            );
+          }}
           onCompositionStart={() => {
             composingRef.current = true;
           }}
@@ -1061,19 +1107,19 @@ export function Composer({
                 role="menu"
                 aria-hidden={!attachmentMenuOpen}
               >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    tabIndex={attachmentMenuOpen ? 0 : -1}
-                    disabled={attachmentUploading || submitting || serviceState !== 'ready'}
-                    onClick={() => {
-                      setAttachmentMenuOpen(false);
-                      fileInputRef.current?.click();
-                    }}
-                  >
-                    <Paperclip className="composer-add-menu__icon" size={16} aria-hidden="true" />
-                    <span>文件和图片</span>
-                  </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  tabIndex={attachmentMenuOpen ? 0 : -1}
+                  disabled={attachmentUploading || submitting || serviceState !== 'ready'}
+                  onClick={() => {
+                    setAttachmentMenuOpen(false);
+                    fileInputRef.current?.click();
+                  }}
+                >
+                  <Paperclip className="composer-add-menu__icon" size={16} aria-hidden="true" />
+                  <span>文件和图片</span>
+                </button>
               </div>
               <button
                 type="button"
@@ -1124,9 +1170,10 @@ export function Composer({
                   : !prompt.trim() ||
                     serviceState !== 'ready' ||
                     mode === 'disabled' ||
+                    (mode !== 'new-run' && attachments.length > 0) ||
                     attachmentUploading ||
                     attachmentModelUnsupported ||
-                    Boolean(attachment && attachment.status !== 'ready')
+                    attachments.some((item) => item.status !== 'ready')
               }
               onClick={submitting && !prompt.trim() ? onCancel : undefined}
             >

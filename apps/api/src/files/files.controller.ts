@@ -5,6 +5,7 @@ import {
   Inject,
   Param,
   Post,
+  Delete,
   Res,
   UploadedFile,
   UseInterceptors,
@@ -36,6 +37,11 @@ export class FilesController {
   async preview(@Param('fileId') fileId: string, @Res() response: Response) {
     const result = await this.files.preview(fileId);
     return response.redirect(302, result.url);
+  }
+
+  @Delete('files/:fileId')
+  delete(@Param('fileId') fileId: string) {
+    return this.files.deleteUnbound(fileId);
   }
 
   // 本地开发时为 LocalFileStorage 的地址提供内容路由；生产 COS 请求不会经过这里，

@@ -16,11 +16,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
     const request = context.getRequest<Request>();
-    const status = exception instanceof HttpException
-      ? exception.getStatus()
-      : this.isMulterLimitError(exception)
-        ? 400
-        : 500;
+    const status =
+      exception instanceof HttpException
+        ? exception.getStatus()
+        : this.isMulterLimitError(exception)
+          ? 400
+          : 500;
     const body = this.readBody(exception);
     const title =
       status === 500 ? 'Internal server error' : (HttpStatus[status] ?? 'Request failed');

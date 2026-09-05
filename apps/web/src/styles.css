@@ -512,6 +512,14 @@ textarea:focus-visible {
   justify-content: flex-end;
   text-align: left;
 }
+.user-message-content {
+  display: flex;
+  width: fit-content;
+  max-width: min(820px, calc(100vw - 72px));
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 0;
+}
 .message-avatar {
   display: grid;
   width: 28px;
@@ -543,6 +551,7 @@ textarea:focus-visible {
   font-weight: 400;
 }
 .user-bubble {
+  width: fit-content;
   max-width: min(820px, calc(100vw - 72px));
   min-width: 0;
   padding: 10px 13px;
@@ -1482,6 +1491,9 @@ textarea:focus-visible {
   line-height: 1.55;
 }
 .composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   min-height: 0;
 }
 .composer-attachment-preview {
@@ -2922,15 +2934,18 @@ textarea:focus-visible {
 }
 .user-attachment-stack {
   display: flex;
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 8px;
   margin-bottom: 7px;
 }
 .user-attachment-tile {
   display: block;
   width: 112px;
   height: 112px;
-  border: 1px solid var(--theme-border);
-  border-radius: 10px;
+  border-radius: 12px;
   object-fit: cover;
   background: var(--theme-surface-subtle);
 }
@@ -2938,8 +2953,8 @@ textarea:focus-visible {
   display: block;
   overflow: hidden;
   padding: 0;
-  border: 0;
-  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 82%, transparent);
+  border-radius: 12px;
   background: transparent;
   cursor: zoom-in;
 }
@@ -2992,12 +3007,22 @@ textarea:focus-visible {
   background: rgb(255 255 255 / 16%);
 }
 @keyframes image-lightbox-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes image-lightbox-image-in {
-  from { transform: scale(0.98); opacity: 0.8; }
-  to { transform: scale(1); opacity: 1; }
+  from {
+    transform: scale(0.98);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .image-lightbox,

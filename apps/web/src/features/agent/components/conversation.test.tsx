@@ -1,7 +1,108 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Conversation } from './conversation';
+import { Composer, Conversation } from './conversation';
+
+describe('Composer image paste', () => {
+  it('routes clipboard images through the attachment callback', () => {
+    const onAttachmentSelected = vi.fn();
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentSelected={onAttachmentSelected}
+      />,
+    );
+    const image = new File(['image'], 'clip.png', { type: 'image/png' });
+    fireEvent.paste(screen.getByRole('textbox', { name: '任务输入' }), {
+      clipboardData: { files: [image] },
+    });
+    expect(onAttachmentSelected).toHaveBeenCalledWith([image]);
+  });
+
+  it('routes multiple selected images in their input order', () => {
+    const onAttachmentSelected = vi.fn();
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentSelected={onAttachmentSelected}
+      />,
+    );
+    const first = new File(['one'], 'one.png', { type: 'image/png' });
+    const second = new File(['two'], 'two.png', { type: 'image/png' });
+    const input = document.querySelector('input[type="file"]');
+    expect(input).toHaveAttribute('multiple');
+    fireEvent.change(input as HTMLInputElement, { target: { files: [first, second] } });
+    expect(onAttachmentSelected).toHaveBeenCalledWith([first, second]);
+  });
+
+  it('opens the thumbnail that was selected', () => {
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        attachments={[
+          {
+            fileId: 'file-1',
+            fileName: 'one.png',
+            mediaType: 'image/png',
+            size: 1,
+            width: 1,
+            height: 1,
+            status: 'ready',
+            previewUrl: '/one.png',
+          },
+          {
+            fileId: 'file-2',
+            fileName: 'two.png',
+            mediaType: 'image/png',
+            size: 1,
+            width: 1,
+            height: 1,
+            status: 'ready',
+            previewUrl: '/two.png',
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '预览two.png' }));
+    expect(screen.getByRole('dialog', { name: '图片预览' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog').querySelector('img')).toHaveAttribute('src', '/two.png');
+  });
+
+  it('does not intercept plain text paste', () => {
+    const onAttachmentSelected = vi.fn();
+    const onPromptChange = vi.fn();
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={onPromptChange}
+        onSubmit={() => undefined}
+        onAttachmentSelected={onAttachmentSelected}
+      />,
+    );
+    fireEvent.paste(screen.getByRole('textbox', { name: '任务输入' }), {
+      clipboardData: { files: [], getData: () => '普通文本' },
+    });
+    expect(onAttachmentSelected).not.toHaveBeenCalled();
+  });
+});
 
 describe('Conversation tool activity navigation', () => {
   it('renders a consumed steer as the regular user message', () => {

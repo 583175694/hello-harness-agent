@@ -1,4 +1,10 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { FileStorage, LocalFileStorage, type FileVariant } from '../file-storage/file-storage';
@@ -110,6 +116,23 @@ export class FilesService {
     if (file.status !== 'ready')
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '附件尚未准备好。' });
     return file;
+  }
+
+  /** 删除尚未绑定消息的文件及其对象；已发送附件不可变且不能删除。 */
+  async deleteUnbound(fileId: string): Promise<{ deletedFileId: string }> {
+    const file = await this.prisma.file.findFirst({
+      where: { id: fileId, userId: LOCAL_USER_ID },
+      include: { attachments: { select: { id: true } } },
+    });
+    if (!file) throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件不存在。' });
+    if (file.attachments.length)
+      throw new ConflictException({
+        code: 'FILE_ALREADY_ATTACHED',
+        detail: '已发送的附件不能删除。',
+      });
+    await this.storage.deleteFile({ sessionId: file.sessionId, fileId: file.id });
+    await this.prisma.file.delete({ where: { id: file.id } });
+    return { deletedFileId: file.id };
   }
 
   /** 按稳定文件事实生成原图读取地址，供 Adapter 临时调用。 */

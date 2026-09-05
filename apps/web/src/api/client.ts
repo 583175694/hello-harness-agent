@@ -12,6 +12,7 @@ import {
   serviceStatusSchema,
   sessionDetailResponseSchema,
   updateSessionResponseSchema,
+  fileRefSchema,
 } from '@harness/agent-protocol';
 import type {
   CancelRunResponse,
@@ -131,7 +132,7 @@ export async function createRun(
   content: string,
   model: string,
   reasoningEffort: ReasoningEffort,
-  attachmentId?: string,
+  attachmentIds: string[] = [],
 ): Promise<CreateRunResponse> {
   const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/runs`, {
     method: 'POST',
@@ -141,20 +142,31 @@ export async function createRun(
       model,
       reasoningEffort,
       idempotencyKey: crypto.randomUUID(),
-      ...(attachmentId ? { attachmentId } : {}),
+      ...(attachmentIds.length ? { attachmentIds } : {}),
     }),
   });
   return createRunResponseSchema.parse(await parseResponse(response));
 }
 
-export async function uploadFile(sessionId: string, file: File): Promise<FileRef> {
+export async function uploadFile(
+  sessionId: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<FileRef> {
   const body = new FormData();
   body.append('file', file);
   const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/files`, {
     method: 'POST',
     body,
+    signal,
   });
-  return (await parseResponse(response)) as FileRef;
+  return fileRefSchema.parse(await parseResponse(response));
+}
+
+export async function deleteFile(fileId: string): Promise<{ deletedFileId: string }> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/files/${fileId}`, { method: 'DELETE' });
+  const data = await parseResponse(response);
+  return { deletedFileId: String((data as { deletedFileId?: unknown }).deletedFileId) };
 }
 
 export async function submitPendingInput(sessionId: string, content: string): Promise<unknown> {

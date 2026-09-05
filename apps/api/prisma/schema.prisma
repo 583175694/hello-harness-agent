@@ -148,6 +148,27 @@ model File {
   @@map("files")
 }
 
+enum FileCleanupStatus {
+  pending
+  completed
+  failed
+}
+
+model FileCleanupTask {
+  id          String            @id
+  sessionId   String            @map("session_id")
+  fileId      String            @map("file_id")
+  status      FileCleanupStatus @default(pending)
+  attempts    Int               @default(0)
+  lastError   String?           @map("last_error")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  @@unique([sessionId, fileId])
+  @@index([status, updatedAt])
+  @@map("file_cleanup_tasks")
+}
+
 model MessageAttachment {
   id        String   @id
   messageId String   @map("message_id")

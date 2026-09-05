@@ -160,7 +160,10 @@ export class ChatService {
       this.extractHttpUrls(
         typeof currentUserContent === 'string'
           ? currentUserContent
-          : currentUserContent?.filter((block) => block.type === 'text').map((block) => block.text).join(' ') ?? '',
+          : (currentUserContent
+              ?.filter((block) => block.type === 'text')
+              .map((block) => block.text)
+              .join(' ') ?? ''),
       ),
     );
     const conversation = new ConversationBlockCollector(prepared.assistantMessageId);

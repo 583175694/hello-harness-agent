@@ -4,6 +4,8 @@ export const AGENT_PROTOCOL_LIMITS = {
   sessionTitleMaxLength: 28,
   // 单次会话聊天请求允许提交的最大 Markdown 字符数。
   sessionChatContentMaxLength: 100_000,
+  // 单条消息允许绑定的最大图片数量。
+  sessionImageAttachmentsMax: 4,
   // 无状态 Chat 请求允许携带的最大历史消息数。
   chatHistoryMaxMessages: 40,
   // 单次 Agent 运行允许执行的工具调用总数。

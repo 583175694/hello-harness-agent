@@ -1,4 +1,10 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import type { Message, Session } from '@prisma/client';
 import { Logger } from 'nestjs-pino';
 
@@ -21,7 +27,7 @@ import { PendingUserInputService } from '../runs/pending-user-input.service';
 import { FileStorage } from '../file-storage/file-storage';
 
 @Injectable()
-export class SessionsService {
+export class SessionsService implements OnModuleInit {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(SessionTitleService) private readonly titles: SessionTitleService,
@@ -30,6 +36,10 @@ export class SessionsService {
     @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
     @Inject(FileStorage) private readonly fileStorage: FileStorage,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.retryFileCleanupTasks();
+  }
 
   // 创建属于固定本地用户的持久化会话。
   async create(title: string): Promise<{ session: SessionSummary }> {
@@ -124,22 +134,52 @@ export class SessionsService {
       where: { sessionId, userId: LOCAL_USER_ID },
       select: { id: true, sessionId: true },
     });
+    await this.prisma.fileCleanupTask.createMany({
+      data: files.map((file) => ({
+        id: crypto.randomUUID(),
+        sessionId: file.sessionId,
+        fileId: file.id,
+      })),
+      skipDuplicates: true,
+    });
     await this.prisma.session.delete({ where: { id: sessionId } });
-    // 数据库级联会立即删除关系；这里尽力清理 COS 对象，清理失败不能
-    // 让已经成功删除的会话重新出现。
+    await this.retryFileCleanupTasks(sessionId);
+    return { deletedSessionId: sessionId };
+  }
+
+  private async retryFileCleanupTasks(sessionId?: string): Promise<void> {
+    const tasks = await this.prisma.fileCleanupTask.findMany({
+      where: {
+        status: { in: ['pending', 'failed'] },
+        ...(sessionId ? { sessionId } : {}),
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: 100,
+    });
     await Promise.all(
-      files.map(async (file) => {
+      tasks.map(async (task) => {
         try {
-          await this.fileStorage.deleteFile({ sessionId: file.sessionId, fileId: file.id });
+          await this.fileStorage.deleteFile({ sessionId: task.sessionId, fileId: task.fileId });
+          await this.prisma.fileCleanupTask.update({
+            where: { id: task.id },
+            data: { status: 'completed', lastError: null },
+          });
         } catch (error) {
+          await this.prisma.fileCleanupTask.update({
+            where: { id: task.id },
+            data: {
+              status: 'failed',
+              attempts: { increment: 1 },
+              lastError: describeLogError(error).slice(0, 500),
+            },
+          });
           this.logger.warn(
-            `文件对象清理失败 | 文件=${shortLogId(file.id)} | 原因=${describeLogError(error)}`,
+            `文件对象清理失败 | 文件=${shortLogId(task.fileId)} | 原因=${describeLogError(error)}`,
             SessionsService.name,
           );
         }
       }),
     );
-    return { deletedSessionId: sessionId };
   }
 
   // 基于首轮问答生成标题，失败时保留已有临时标题。

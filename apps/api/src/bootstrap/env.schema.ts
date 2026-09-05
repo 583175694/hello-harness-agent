@@ -37,7 +37,6 @@ export const envSchema = z
     COS_SECRET_KEY: z.string().min(1).optional(),
     COS_BUCKET: z.string().min(1).optional(),
     COS_REGION: z.string().min(1).optional(),
-    COS_ENDPOINT: z.string().url().optional(),
   })
   .superRefine((value, context) => {
     if (value.NODE_ENV !== 'production') return;

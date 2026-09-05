@@ -27,6 +27,7 @@ import {
   promotePendingInput,
   sendPendingInput,
   uploadFile,
+  deleteFile,
 } from './api/client';
 import type { MessageDeltaEvent, ModelRoundCompletedEvent, ToolStreamEvent } from './api/client';
 import {
@@ -670,8 +671,11 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   const [draftPending, setDraftPending] = useState(false);
   const [draftState, setDraftState] = useState<AgentUiState>(() => makeFixture('empty'));
   const [prompt, setPrompt] = useState('');
-  const [attachment, setAttachment] = useState<FileRef | null>(null);
+  const [attachments, setAttachments] = useState<FileRef[]>([]);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const attachmentCountRef = useRef(0);
+  const attachmentControllersRef = useRef<Record<string, AbortController>>({});
+  const attachmentFilesRef = useRef<Record<string, File>>({});
   const [error, setError] = useState<string | null>(null);
   const [pendingInputs, setPendingInputs] = useState<PendingUserInputView[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
@@ -692,6 +696,10 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   useEffect(() => {
     pendingSessionsRef.current = pendingSessions;
   }, [pendingSessions]);
+
+  useEffect(() => {
+    attachmentCountRef.current = attachments.length;
+  }, [attachments.length]);
 
   useEffect(() => {
     sessionStatesRef.current = sessionStates;
@@ -1479,6 +1487,12 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   // 用户在生成期间切换到其他会话也不会让 Event 写入当前选中的错误目标。
   // 先显示本地临时缩略图，再上传图片并替换为服务端预览引用。
   async function handleAttachment(file: File): Promise<void> {
+    if (attachmentCountRef.current >= 4) {
+      setError('一条消息最多支持 4 张图片。');
+      return;
+    }
+    // 在异步上传开始前预占名额，避免一次多选/多图粘贴的连续回调读到旧 state。
+    attachmentCountRef.current += 1;
     // 选择图片后立即创建临时附件，让 UI 在上传请求期间也能显示 loading。
     if (!file.type.startsWith('image/')) {
       setError('C1-A0 仅支持图片文件。');
@@ -1486,16 +1500,23 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     }
     // 在 API 请求完成前先反馈给用户；临时地址只用于 UI，并在服务端预览接管后释放。
     const localPreviewUrl = URL.createObjectURL(file);
-    setAttachment({
-      fileId: `pending-${crypto.randomUUID()}`,
-      fileName: file.name,
-      mediaType: file.type,
-      size: file.size,
-      width: 1,
-      height: 1,
-      status: 'processing',
-      previewUrl: localPreviewUrl,
-    });
+    const pendingId = `pending-${crypto.randomUUID()}`;
+    attachmentFilesRef.current[pendingId] = file;
+    setAttachments((current) => [
+      ...current,
+      {
+        fileId: pendingId,
+        fileName: file.name,
+        mediaType: file.type,
+        size: file.size,
+        width: 1,
+        height: 1,
+        status: 'processing',
+        previewUrl: localPreviewUrl,
+      },
+    ]);
+    const controller = new AbortController();
+    attachmentControllersRef.current[pendingId] = controller;
     try {
       setAttachmentUploading(true);
       let sessionId = selectedSessionIdRef.current;
@@ -1507,15 +1528,47 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         updateSessionUrl(sessionId, true);
         await loadSessionDetail(sessionId);
       }
-      setAttachment(await uploadFile(sessionId, file));
+      const uploaded = await uploadFile(sessionId, file, controller.signal);
+      setAttachments((current) =>
+        current.map((item) => (item.fileId === pendingId ? uploaded : item)),
+      );
+      delete attachmentFilesRef.current[pendingId];
       setError(null);
     } catch (requestError) {
-      setAttachment(null);
-      setError(getErrorMessage(requestError));
+      if ((requestError as Error).name !== 'AbortError') {
+        setAttachments((current) =>
+          current.map((item) =>
+            item.fileId === pendingId
+              ? { ...item, status: 'failed', errorCode: 'UPLOAD_FAILED' }
+              : item,
+          ),
+        );
+        setError(getErrorMessage(requestError));
+      }
     } finally {
       URL.revokeObjectURL(localPreviewUrl);
+      delete attachmentControllersRef.current[pendingId];
       setAttachmentUploading(false);
     }
+  }
+
+  function removeAttachment(fileId: string): void {
+    attachmentControllersRef.current[fileId]?.abort();
+    delete attachmentFilesRef.current[fileId];
+    const item = attachments.find((candidate) => candidate.fileId === fileId);
+    if (item) attachmentCountRef.current = Math.max(0, attachmentCountRef.current - 1);
+    setAttachments((current) => current.filter((candidate) => candidate.fileId !== fileId));
+    if (item && !fileId.startsWith('pending-')) void deleteFile(fileId).catch(() => undefined);
+  }
+
+  async function retryAttachment(fileId: string): Promise<void> {
+    const file = attachmentFilesRef.current[fileId];
+    if (!file) {
+      setError('原图片已不可用，请重新选择图片。');
+      return;
+    }
+    setAttachments((current) => current.filter((item) => item.fileId !== fileId));
+    await handleAttachment(file);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -1560,7 +1613,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       kind: 'user',
       content: task,
       createdAt,
-      ...(attachment ? { attachments: [attachment] } : {}),
+      ...(attachments.length ? { attachments } : {}),
     };
     const optimisticAssistant: ConversationItem = {
       id: localAssistantId,
@@ -1615,9 +1668,9 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         task,
         selectedModel,
         reasoningEffort,
-        attachment?.fileId,
+        attachments.map((item) => item.fileId),
       );
-      setAttachment(null);
+      setAttachments([]);
       assistantMessageId = run.assistantMessageId;
       setSessionStates((current) => {
         const target = current[targetId];
@@ -1970,10 +2023,17 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
                   setReasoningEffort(model.reasoning.default);
               }}
               onReasoningEffortChange={setReasoningEffort}
-              attachment={attachment}
+              attachments={attachments}
               attachmentUploading={attachmentUploading}
-              onAttachmentSelected={(file) => void handleAttachment(file)}
-              onAttachmentRemove={() => setAttachment(null)}
+              onAttachmentSelected={(files) => {
+                void files.reduce(
+                  (chain, file) => chain.then(() => handleAttachment(file)),
+                  Promise.resolve(),
+                );
+              }}
+              onAttachmentRemove={removeAttachment}
+              onAttachmentRetry={(fileId) => void retryAttachment(fileId)}
+              onAttachmentCancel={removeAttachment}
               onPromptChange={setPrompt}
               onSubmit={(event) => void handleSubmit(event)}
               onCancel={() => void handleCancel()}

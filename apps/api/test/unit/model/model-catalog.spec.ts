@@ -12,6 +12,7 @@ describe('model catalog', () => {
     expect(MODEL_CATALOG.map((model) => model.id)).toEqual([
       'deepseek-v4-flash',
       'deepseek-v4-pro',
+      'deepseek-v4-flash-vision-exp',
       'qwen3.8-max',
       'qwen3.8-flash',
       'qwen3.7-plus',

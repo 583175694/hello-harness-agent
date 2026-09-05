@@ -6,6 +6,7 @@ import type {
   SourceProvenance,
   WebFetchPassage,
 } from '@harness/agent-protocol';
+import type { FileRef } from '@harness/agent-protocol';
 import type { PlanSnapshot } from '@harness/agent-protocol';
 import type { ReactNode } from 'react';
 
@@ -71,6 +72,7 @@ export type ConversationItem =
       createdAt?: string;
       pendingInputId?: string;
       pendingState?: 'steer_pending' | 'steer_applied' | 'follow_up_pending';
+      attachments?: FileRef[];
     }
   | {
       id: string;

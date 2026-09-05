@@ -2,6 +2,9 @@ import type { AgentToolDefinition } from '../tools/agent-tool.types';
 import type { ClarificationRequest } from '@harness/agent-protocol';
 import type { ReasoningCapability, ReasoningEffort } from '@harness/agent-protocol';
 
+export type UserContentBlock =
+  { type: 'text'; text: string } | { type: 'image_ref'; fileId: string; detail?: 'auto' };
+
 export type ModelToolCall = {
   id: string;
   name: string;
@@ -12,7 +15,8 @@ export type ModelToolCall = {
 
 // Runtime 和模型适配器之间使用的供应商无关消息协议。
 export type ModelMessage =
-  | { role: 'system' | 'user'; content: string }
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string | UserContentBlock[] }
   | {
       role: 'assistant';
       content: string | null;
@@ -60,6 +64,7 @@ export abstract class ModelAdapter {
     provider: string;
     reasoningFormat?: string;
     reasoning: ReasoningCapability;
+    supportsVision?: boolean;
   };
   abstract streamRound(input: ModelRoundInput): AsyncIterable<ModelRoundEvent>;
   abstract generateText(

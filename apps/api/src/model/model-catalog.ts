@@ -6,6 +6,7 @@ export type ConfiguredModel = {
   provider: string;
   baseUrl: string;
   reasoningFormat?: string;
+  supportsVision?: boolean;
   reasoning: ReasoningCapability;
   context: {
     contextWindowTokens: number;
@@ -70,6 +71,23 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     },
     request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
   },
+  {
+    id: 'deepseek-v4-flash-vision-exp',
+    label: 'DeepSeek V4 Flash Vision',
+    provider: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    supportsVision: true,
+    reasoning: { supported: false, levels: ['off'] as const, default: 'off' },
+    context: {
+      contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
+      maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
+      compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
+      tokenizer: 'deepseek-v3' as const,
+      source: DEEPSEEK_MODEL_PROFILE_SOURCE,
+      verified: false,
+    },
+    request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
+  },
   ...(
     [
       ['qwen3.8-max', 'Qwen 3.8 Max'],
@@ -100,13 +118,15 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
   })),
 ];
 
-// 默认使用已通过百炼对话和 Function Calling 验证的轻量模型。
-export const DEFAULT_MODEL_ID = 'qwen3.8-flash';
+// 默认使用 C1-A0 已完成图片识别闭环验证的 DeepSeek Vision 模型。
+export const DEFAULT_MODEL_ID = 'deepseek-v4-flash-vision-exp';
 
+// 按不区分大小写的 ID 查找受控模型目录配置。
 export function getConfiguredModel(modelId: string): ConfiguredModel | undefined {
   return MODEL_CATALOG.find((model) => model.id.toLowerCase() === modelId.toLowerCase());
 }
 
+// 返回当前产品默认模型，并在目录配置缺失时尽早失败。
 export function getDefaultModel(): ConfiguredModel {
   const model = getConfiguredModel(DEFAULT_MODEL_ID);
   if (!model) throw new Error(`Default model is missing from catalog: ${DEFAULT_MODEL_ID}`);

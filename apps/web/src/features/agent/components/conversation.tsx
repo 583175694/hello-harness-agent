@@ -8,13 +8,16 @@ import {
   CornerDownLeft,
   Ellipsis,
   LoaderCircle,
+  Paperclip,
+  Plus,
   SlidersHorizontal,
   Sparkles,
   Square,
   Trash2,
   X,
 } from 'lucide-react';
-import { memo, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 import { MarkdownContent } from '../../../components/markdown-content';
@@ -39,6 +42,7 @@ import type {
   PublicModelConfig,
   ReasoningEffort,
   ToolApprovalDecision,
+  FileRef,
 } from '@harness/agent-protocol';
 import type { PendingUserInputView } from '@harness/agent-protocol';
 import { flattenAssistantText } from '../model/conversation-blocks';
@@ -86,6 +90,50 @@ type AssistantItem = Extract<ConversationItem, { kind: 'assistant' }>;
 
 type RenderedConversationItem = Extract<ConversationItem, { kind: 'user' }> | AssistantItem;
 
+// 将图片以顶层遮罩形式展示，并统一处理点击遮罩、关闭按钮和 Esc 退出。
+function ImageLightbox({
+  src,
+  alt,
+  onClose,
+}: {
+  src: string;
+  alt: string;
+  onClose: () => void;
+}) {
+  // 挂载到 document.body，避免页面层叠上下文（尤其是 Composer）覆盖全屏预览。
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="image-lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label="图片预览"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <button
+        type="button"
+        className="image-lightbox__close"
+        aria-label="关闭图片预览"
+        title="关闭预览"
+        onClick={onClose}
+      >
+        <X size={22} />
+      </button>
+      <img src={src} alt={alt} onMouseDown={(event) => event.stopPropagation()} />
+    </div>,
+    document.body,
+  );
+}
+
 // 将一个包含 Steer 边界标记的 assistant draft 拆成可混排的顶层消息。
 // Steer 使用同一条 UserMessage 组件渲染，避免在 assistant 容器内维护第二套用户气泡。
 function expandConversationItem(item: ConversationItem): RenderedConversationItem[] {
@@ -123,14 +171,35 @@ function expandConversation(conversation: ConversationItem[]): RenderedConversat
 }
 
 // 流式事件只会改变当前 Assistant Item；隔离消息行可以避免每个 token 重建整条历史消息树。
+// 将用户附件作为独立媒体块展示，避免图片撑进文本消息气泡。
 const UserMessage = memo(function UserMessage({
   item,
 }: {
   item: Extract<ConversationItem, { kind: 'user' }>;
 }) {
+  // 用户消息将附件独立渲染在文本气泡上方，点击后打开全屏预览。
+  const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
   return (
     <div className="message message--user flex justify-end gap-3 text-text-primary">
       <div>
+        {item.attachments?.length ? (
+          <div className="user-attachment-stack">
+            {item.attachments.map((attachment) => (
+              <button
+                key={attachment.fileId}
+                type="button"
+                className="user-attachment-button"
+                aria-label={`预览${attachment.fileName}`}
+                onClick={() =>
+                  attachment.previewUrl &&
+                  setPreview({ src: attachment.previewUrl, alt: attachment.fileName })
+                }
+              >
+                <img src={attachment.previewUrl} alt={attachment.fileName} className="user-attachment-tile" />
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="user-bubble max-w-[min(820px,calc(100vw-72px))] rounded-[8px_8px_3px_8px] bg-surface-subtle text-text-primary">
           <MarkdownContent>{item.content}</MarkdownContent>
         </div>
@@ -145,6 +214,9 @@ const UserMessage = memo(function UserMessage({
       <div className="message-avatar user-avatar" aria-hidden="true">
         <CircleUserRound size={17} />
       </div>
+      {preview ? (
+        <ImageLightbox src={preview.src} alt={preview.alt} onClose={() => setPreview(null)} />
+      ) : null}
     </div>
   );
 });
@@ -330,6 +402,10 @@ export function Conversation({
   selectedModel = '',
   onModelChange = () => undefined,
   onReasoningEffortChange = () => undefined,
+  attachment,
+  attachmentUploading = false,
+  onAttachmentSelected,
+  onAttachmentRemove,
 }: {
   state: AgentUiState;
   error: string | null;
@@ -354,6 +430,10 @@ export function Conversation({
   selectedModel?: string;
   onModelChange?: (model: string) => void;
   onReasoningEffortChange?: (value: ReasoningEffort) => void;
+  attachment?: FileRef | null;
+  attachmentUploading?: boolean;
+  onAttachmentSelected?: (file: File) => void;
+  onAttachmentRemove?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -547,6 +627,10 @@ export function Conversation({
             selectedModel={selectedModel}
             onModelChange={onModelChange}
             onReasoningEffortChange={onReasoningEffortChange}
+            attachment={attachment}
+            attachmentUploading={attachmentUploading}
+            onAttachmentSelected={onAttachmentSelected}
+            onAttachmentRemove={onAttachmentRemove}
           />
         </div>
       </div>
@@ -681,6 +765,10 @@ export function Composer({
   selectedModel = '',
   onModelChange = () => undefined,
   onReasoningEffortChange = () => undefined,
+  attachment,
+  attachmentUploading = false,
+  onAttachmentSelected,
+  onAttachmentRemove,
 }: {
   prompt: string;
   submitting: boolean;
@@ -698,6 +786,10 @@ export function Composer({
   selectedModel?: string;
   onModelChange?: (model: string) => void;
   onReasoningEffortChange?: (value: ReasoningEffort) => void;
+  attachment?: FileRef | null;
+  attachmentUploading?: boolean;
+  onAttachmentSelected?: (file: File) => void;
+  onAttachmentRemove?: () => void;
 }) {
   const composingRef = useRef(false);
   const [interruptState, setInterruptState] = useState<{
@@ -706,6 +798,10 @@ export function Composer({
     decisions: Record<string, 'approve' | 'reject'>;
     submitting: boolean;
   }>({ answer: '', decisions: {}, submitting: false });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [attachmentPreviewOpen, setAttachmentPreviewOpen] = useState(false);
   const currentInterruptState =
     interruptState.interruptId === activeInterrupt?.interruptId
       ? interruptState
@@ -719,6 +815,19 @@ export function Composer({
       ...update,
     });
   };
+  const attachmentModelUnsupported = Boolean(
+    attachment &&
+      selectedModel &&
+      !models.find((model) => model.id === selectedModel)?.supportsVision,
+  );
+  useEffect(() => {
+    if (!attachmentMenuOpen) return undefined;
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      if (!addMenuRef.current?.contains(event.target as Node)) setAttachmentMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', handleOutsidePointerDown);
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
+  }, [attachmentMenuOpen]);
   const placeholder =
     mode === 'steer'
       ? AGENT_UI_COPY.composerPlaceholders.steer
@@ -848,6 +957,63 @@ export function Composer({
         </div>
       ) : null}
       {activeInterrupt?.kind !== 'clarification' ? (
+        <div className="composer-attachments px-[15px] pt-3">
+          {attachment ? (
+            <div className="composer-attachment-preview">
+              {attachment.previewUrl ? (
+                <button
+                  type="button"
+                  className="composer-attachment-preview__open"
+                  aria-label={`预览${attachment.fileName}`}
+                  onClick={() => setAttachmentPreviewOpen(true)}
+                >
+                  <img src={attachment.previewUrl} alt={attachment.fileName} />
+                  {attachment.status === 'processing' ? (
+                    <span className="composer-attachment-preview__processing" aria-label="图片上传中">
+                      <LoaderCircle className="spin" size={18} />
+                    </span>
+                  ) : null}
+                </button>
+              ) : (
+                <div className="composer-attachment-preview__loading">
+                  <LoaderCircle className="spin" size={16} />
+                </div>
+              )}
+              <button
+                className="composer-attachment-preview__remove"
+                type="button"
+                aria-label="移除图片"
+                title="移除图片"
+                onClick={onAttachmentRemove}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : null}
+          {attachmentModelUnsupported ? (
+            <div className="composer-hints">当前模型不支持图片，请切换到 DeepSeek Vision。</div>
+          ) : null}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (file) onAttachmentSelected?.(file);
+            }}
+          />
+        </div>
+      ) : null}
+      {attachmentPreviewOpen && attachment?.previewUrl ? (
+        <ImageLightbox
+          src={attachment.previewUrl}
+          alt={attachment.fileName}
+          onClose={() => setAttachmentPreviewOpen(false)}
+        />
+      ) : null}
+      {activeInterrupt?.kind !== 'clarification' ? (
         <textarea
           aria-label="任务输入"
           placeholder={placeholder}
@@ -888,6 +1054,39 @@ export function Composer({
               <SlidersHorizontal size={14} />
               <span>回答后继续当前任务</span>
             </div>
+          ) : mode === 'new-run' ? (
+            <div className="composer-add-wrap" ref={addMenuRef}>
+              <div
+                className={`composer-add-menu${attachmentMenuOpen ? ' is-open' : ''}`}
+                role="menu"
+                aria-hidden={!attachmentMenuOpen}
+              >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    tabIndex={attachmentMenuOpen ? 0 : -1}
+                    disabled={attachmentUploading || submitting || serviceState !== 'ready'}
+                    onClick={() => {
+                      setAttachmentMenuOpen(false);
+                      fileInputRef.current?.click();
+                    }}
+                  >
+                    <Paperclip className="composer-add-menu__icon" size={16} aria-hidden="true" />
+                    <span>文件和图片</span>
+                  </button>
+              </div>
+              <button
+                type="button"
+                className="composer-add-button"
+                aria-label="添加文件和图片"
+                aria-expanded={attachmentMenuOpen}
+                title="添加文件和图片"
+                disabled={attachmentUploading || submitting || serviceState !== 'ready'}
+                onClick={() => setAttachmentMenuOpen((open) => !open)}
+              >
+                <Plus size={18} />
+              </button>
+            </div>
           ) : (
             <span />
           )}
@@ -922,7 +1121,12 @@ export function Composer({
               disabled={
                 submitting && !prompt.trim()
                   ? !onCancel
-                  : !prompt.trim() || serviceState !== 'ready' || mode === 'disabled'
+                  : !prompt.trim() ||
+                    serviceState !== 'ready' ||
+                    mode === 'disabled' ||
+                    attachmentUploading ||
+                    attachmentModelUnsupported ||
+                    Boolean(attachment && attachment.status !== 'ready')
               }
               onClick={submitting && !prompt.trim() ? onCancel : undefined}
             >

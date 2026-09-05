@@ -200,6 +200,7 @@ describe('ChatService session persistence', () => {
     );
     const { service } = makeService(providerCreate);
     const prepared = await service.prepareSessionStream('session-1', 'new question');
+    prepared.model = 'deepseek-v4-pro';
     prepared.reasoningEffort = 'off';
     prepared.messages = [
       { role: 'user', content: '问题一' },

@@ -153,6 +153,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
   }
 
   // 在一个事务中完成 Session 校验、幂等检查、并发检查和 Run 初始化。
+  // 在单事务中创建 User Message、可选附件关系、AgentRun 和 transcript 首项。
   async create(input: {
     sessionId: string;
     content: string;
@@ -166,6 +167,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     model: string;
     reasoningEffort: string;
     reasoningFormat?: string;
+    attachmentId?: string;
   }) {
     // Session 校验、幂等判定、单 Session Active Run 限制和两条初始消息必须同事务完成。
     return this.prisma.$transaction(async (tx) => {
@@ -238,6 +240,15 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           },
         },
       });
+      if (input.attachmentId)
+        await tx.messageAttachment.create({
+          data: {
+            id: crypto.randomUUID(),
+            messageId: input.userMessageId,
+            fileId: input.attachmentId,
+            ordinal: 0,
+          },
+        });
       await tx.modelTranscriptItem.create({
         data: {
           id: crypto.randomUUID(),
@@ -253,6 +264,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           model: input.model,
           reasoningEffort: input.reasoningEffort,
           reasoningFormat: input.reasoningFormat,
+          metadata: input.attachmentId ? { attachmentId: input.attachmentId } : undefined,
         },
       });
       await tx.session.update({ where: { id: input.sessionId }, data: { updatedAt: new Date() } });
@@ -351,6 +363,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  // 从持久化 transcript 和 MessageAttachment 恢复供应商无关的模型消息。
   async loadTranscript(runId: string): Promise<ModelMessage[]> {
     const run = await this.prisma.agentRun.findUnique({ where: { id: runId } });
     if (!run) throw new Error('RUN_NOT_FOUND');
@@ -365,6 +378,25 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       throw new Error('MODEL_TRANSCRIPT_INTEGRITY_ERROR');
     }
     const committed = items.filter((item) => item.state === 'committed');
+    const messageIds = items
+      .map((item) => item.messageId)
+      .filter((id): id is string => Boolean(id));
+    // Resolve attachment relations in one query, then rebuild canonical image
+    // blocks while restoring the transcript. The transcript stores file IDs,
+    // never provider URLs or image bytes.
+    const attachments = this.prisma.messageAttachment
+      ? await this.prisma.messageAttachment.findMany({
+          where: { messageId: { in: messageIds } },
+          include: { file: true },
+          orderBy: { ordinal: 'asc' },
+        })
+      : [];
+    const attachmentsByMessage = new Map<string, typeof attachments>();
+    for (const attachment of attachments) {
+      const current = attachmentsByMessage.get(attachment.messageId) ?? [];
+      current.push(attachment);
+      attachmentsByMessage.set(attachment.messageId, current);
+    }
     const nativeReasoningItems = committed.filter(
       (item) =>
         item.kind === 'assistant' &&
@@ -381,8 +413,23 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     }
     this.assertCommittedTranscriptClosed(committed);
     return items.map((item): ModelMessage => {
-      if (item.kind === 'user' || item.kind === 'clarification_response')
-        return { role: 'user', content: item.content ?? '' };
+      if (item.kind === 'user' || item.kind === 'clarification_response') {
+        const fileAttachments = item.messageId
+          ? (attachmentsByMessage.get(item.messageId) ?? [])
+          : [];
+        if (!fileAttachments.length) return { role: 'user', content: item.content ?? '' };
+        return {
+          role: 'user',
+          content: [
+            { type: 'text' as const, text: item.content ?? '' },
+            ...fileAttachments.map((attachment) => ({
+              type: 'image_ref' as const,
+              fileId: attachment.fileId,
+              detail: 'auto' as const,
+            })),
+          ],
+        };
+      }
       if (item.kind === 'tool_result') {
         const controlOutcome = this.readToolControlOutcome(item.metadata);
         return {
@@ -456,7 +503,8 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
                 ? 'user'
                 : 'tool_result',
           state: 'active',
-          content: message.content,
+          content:
+            typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
           reasoning: message.role === 'assistant' ? message.reasoning : null,
           toolCalls:
             message.role === 'assistant' && message.toolCalls

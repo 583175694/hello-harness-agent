@@ -26,6 +26,7 @@ import {
   submitPendingInput,
   promotePendingInput,
   sendPendingInput,
+  uploadFile,
 } from './api/client';
 import type { MessageDeltaEvent, ModelRoundCompletedEvent, ToolStreamEvent } from './api/client';
 import {
@@ -38,11 +39,11 @@ import type {
   AssistantContentBlock,
   PersistedMessage,
   RunSnapshot,
-  PlanSnapshot,
   RunStreamEvent,
   SessionSummary,
   SourceProvenance,
   ReasoningEffort,
+  FileRef,
   PublicModelConfig,
   PendingUserInputView,
   ToolApprovalDecision,
@@ -534,6 +535,7 @@ function toConversationItem(message: PersistedMessage): ConversationItem {
       ...(typeof message.metadata?.pendingInputId === 'string'
         ? { pendingInputId: message.metadata.pendingInputId }
         : {}),
+      attachments: message.attachments,
       createdAt: message.createdAt,
     };
   const metadata =
@@ -668,6 +670,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   const [draftPending, setDraftPending] = useState(false);
   const [draftState, setDraftState] = useState<AgentUiState>(() => makeFixture('empty'));
   const [prompt, setPrompt] = useState('');
+  const [attachment, setAttachment] = useState<FileRef | null>(null);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingInputs, setPendingInputs] = useState<PendingUserInputView[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
@@ -1473,6 +1477,47 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
 
   // 提交消息；空白草稿先建会话，之后捕获稳定 targetId，异步流只更新该 Session。
   // 用户在生成期间切换到其他会话也不会让 Event 写入当前选中的错误目标。
+  // 先显示本地临时缩略图，再上传图片并替换为服务端预览引用。
+  async function handleAttachment(file: File): Promise<void> {
+    // 选择图片后立即创建临时附件，让 UI 在上传请求期间也能显示 loading。
+    if (!file.type.startsWith('image/')) {
+      setError('C1-A0 仅支持图片文件。');
+      return;
+    }
+    // 在 API 请求完成前先反馈给用户；临时地址只用于 UI，并在服务端预览接管后释放。
+    const localPreviewUrl = URL.createObjectURL(file);
+    setAttachment({
+      fileId: `pending-${crypto.randomUUID()}`,
+      fileName: file.name,
+      mediaType: file.type,
+      size: file.size,
+      width: 1,
+      height: 1,
+      status: 'processing',
+      previewUrl: localPreviewUrl,
+    });
+    try {
+      setAttachmentUploading(true);
+      let sessionId = selectedSessionIdRef.current;
+      if (!sessionId) {
+        const created = await createSession('图片任务');
+        sessionId = created.id;
+        setSessions((current) => [created, ...current]);
+        setSelectedSession(sessionId);
+        updateSessionUrl(sessionId, true);
+        await loadSessionDetail(sessionId);
+      }
+      setAttachment(await uploadFile(sessionId, file));
+      setError(null);
+    } catch (requestError) {
+      setAttachment(null);
+      setError(getErrorMessage(requestError));
+    } finally {
+      URL.revokeObjectURL(localPreviewUrl);
+      setAttachmentUploading(false);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const task = prompt.trim();
@@ -1515,6 +1560,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       kind: 'user',
       content: task,
       createdAt,
+      ...(attachment ? { attachments: [attachment] } : {}),
     };
     const optimisticAssistant: ConversationItem = {
       id: localAssistantId,
@@ -1564,7 +1610,14 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       setSessionPending(targetId, true);
 
       if (!selectedModel) throw new Error('模型配置尚未加载，请稍后重试。');
-      const run = await createRun(targetId, task, selectedModel, reasoningEffort);
+      const run = await createRun(
+        targetId,
+        task,
+        selectedModel,
+        reasoningEffort,
+        attachment?.fileId,
+      );
+      setAttachment(null);
       assistantMessageId = run.assistantMessageId;
       setSessionStates((current) => {
         const target = current[targetId];
@@ -1917,6 +1970,10 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
                   setReasoningEffort(model.reasoning.default);
               }}
               onReasoningEffortChange={setReasoningEffort}
+              attachment={attachment}
+              attachmentUploading={attachmentUploading}
+              onAttachmentSelected={(file) => void handleAttachment(file)}
+              onAttachmentRemove={() => setAttachment(null)}
               onPromptChange={setPrompt}
               onSubmit={(event) => void handleSubmit(event)}
               onCancel={() => void handleCancel()}

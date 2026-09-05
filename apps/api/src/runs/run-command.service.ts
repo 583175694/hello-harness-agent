@@ -15,6 +15,7 @@ import { ModelAdapter } from '../model/model-adapter';
 import { getConfiguredModel } from '../model/model-catalog';
 import type { ReasoningEffort } from '@harness/agent-protocol';
 import { PendingUserInputService } from './pending-user-input.service';
+import { FilesService } from '../files/files.service';
 
 @Injectable()
 export class RunCommandService {
@@ -25,11 +26,13 @@ export class RunCommandService {
     @Inject(RunExecutor) private readonly executor: RunExecutor,
     @Inject(ModelAdapter) private readonly modelAdapter: ModelAdapter,
     @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
+    @Inject(FilesService) private readonly files: FilesService,
   ) {}
 
   // 校验请求并创建 Run；成功后注册初始 Snapshot，异步交给 Executor 执行。
   // 在数据库事务中创建 Run、User Message 和空 Assistant Draft，再异步启动 Executor。
   // HTTP 请求只负责“可靠接单”，不会持有到模型生成结束。
+  // 校验模型和附件后，以同一幂等哈希创建用户消息、Run 和执行快照。
   async create(
     sessionId: string,
     input: {
@@ -38,13 +41,16 @@ export class RunCommandService {
       pendingInputId?: string;
       model: string;
       reasoningEffort?: ReasoningEffort;
+      attachmentId?: string;
     },
   ): Promise<CreateRunResponse> {
     const runId = crypto.randomUUID();
     const userMessageId = crypto.randomUUID();
     const assistantMessageId = crypto.randomUUID();
     // idempotencyKey 只能重放同一 payload；相同键搭配不同正文必须明确冲突。
-    const reasoningEffort = input.reasoningEffort ?? 'high';
+    // Vision A0 尚未验证开启思考的组合；这里在计算幂等哈希前统一生效值，
+    // 避免调用方沿用普通对话默认配置而提交无效的视觉请求。
+    const requestedReasoningEffort = input.reasoningEffort ?? 'high';
     const configuredModel = getConfiguredModel(input.model);
     if (!configuredModel)
       throw new ConflictException({
@@ -52,6 +58,16 @@ export class RunCommandService {
         detail: '所选模型不可用，请刷新模型列表后重试。',
       });
     const model = configuredModel.id;
+    if (input.attachmentId && !configuredModel.supportsVision)
+      throw new ConflictException({
+        code: 'MODEL_VISION_UNSUPPORTED',
+        detail: '当前模型不支持图片，请切换到 DeepSeek Vision。',
+      });
+    if (input.attachmentId) await this.files.findReadyForSession(sessionId, input.attachmentId);
+    const reasoningEffort =
+      input.attachmentId || !configuredModel.reasoning.levels.includes(requestedReasoningEffort)
+        ? configuredModel.reasoning.default
+        : requestedReasoningEffort;
     const capability = this.modelAdapter.profile(model);
     if (!capability.reasoning.levels.includes(reasoningEffort))
       throw new ConflictException({
@@ -59,7 +75,14 @@ export class RunCommandService {
         detail: '当前模型不支持所选推理强度。',
       });
     const payloadHash = createHash('sha256')
-      .update(JSON.stringify({ content: input.content, model, reasoningEffort }))
+      .update(
+        JSON.stringify({
+          content: input.content,
+          model,
+          reasoningEffort,
+          attachmentId: input.attachmentId ?? null,
+        }),
+      )
       .digest('hex');
     let result;
     try {
@@ -76,6 +99,7 @@ export class RunCommandService {
         model,
         reasoningEffort,
         reasoningFormat: capability.reasoningFormat,
+        attachmentId: input.attachmentId,
       });
     } catch (error) {
       if (

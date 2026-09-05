@@ -14,6 +14,7 @@ export class PublicModelConfigController {
         id: model.id,
         label: model.label,
         reasoning: this.adapter.profile(model.id).reasoning,
+        supportsVision: this.adapter.profile(model.id).supportsVision ?? false,
         context: model.context,
       })),
     };

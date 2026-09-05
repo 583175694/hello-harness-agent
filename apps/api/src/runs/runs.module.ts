@@ -10,9 +10,10 @@ import { RunRepository } from './run.repository';
 import { RunsController } from './runs.controller';
 import { RuntimeLifecycleRegistry } from '../agent-runtime/runtime-lifecycle';
 import { PendingUserInputService } from './pending-user-input.service';
+import { FilesModule } from '../files/files.module';
 
 @Module({
-  imports: [ChatModule, ModelModule],
+  imports: [ChatModule, ModelModule, FilesModule],
   controllers: [RunsController],
   providers: [
     ActiveRunRegistry,

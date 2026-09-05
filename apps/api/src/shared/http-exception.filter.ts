@@ -16,7 +16,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
     const request = context.getRequest<Request>();
-    const status = exception instanceof HttpException ? exception.getStatus() : 500;
+    const status = exception instanceof HttpException
+      ? exception.getStatus()
+      : this.isMulterLimitError(exception)
+        ? 400
+        : 500;
     const body = this.readBody(exception);
     const title =
       status === 500 ? 'Internal server error' : (HttpStatus[status] ?? 'Request failed');
@@ -34,6 +38,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
   }
 
   private readBody(exception: unknown): ExceptionBody {
+    if (this.isMulterLimitError(exception)) {
+      return exception.code === 'LIMIT_FILE_SIZE'
+        ? { code: 'FILE_TOO_LARGE', detail: '文件超过 20 MiB 限制。' }
+        : { code: 'FILE_TOO_MANY', detail: '一次只能上传一个图片文件。' };
+    }
     // 从 Nest 异常中提取可用的错误主体。
     if (!(exception instanceof HttpException)) {
       return {};
@@ -41,6 +50,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     const response = exception.getResponse();
     return typeof response === 'string' ? { detail: response } : (response as ExceptionBody);
+  }
+
+  private isMulterLimitError(exception: unknown): exception is { code: string } {
+    if (exception instanceof HttpException || typeof exception !== 'object' || !exception)
+      return false;
+    const value = exception as { code?: unknown; name?: unknown };
+    return (
+      value.name === 'MulterError' &&
+      (value.code === 'LIMIT_FILE_SIZE' || value.code === 'LIMIT_UNEXPECTED_FILE')
+    );
   }
 
   private readDetail(body: ExceptionBody, status: number): string {

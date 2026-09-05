@@ -29,9 +29,9 @@ describe('normalizeProviderUsage', () => {
     ).toEqual({ promptTokens: 100, completionTokens: 20, cachedTokens: 30 });
   });
 
-  it('does not leak internal tool-control outcomes into provider messages', () => {
+  it('does not leak internal tool-control outcomes into provider messages', async () => {
     const adapter = new OpenAICompatibleModelAdapter(new ConfigService());
-    expect(
+    await expect(
       (
         adapter as unknown as { toProviderMessages: (messages: unknown[]) => unknown[] }
       ).toProviderMessages([
@@ -42,6 +42,6 @@ describe('normalizeProviderUsage', () => {
           controlOutcome: 'approved_by_user',
         },
       ]),
-    ).toEqual([{ role: 'tool', content: '{"ok":true}', tool_call_id: 'call-1' }]);
+    ).resolves.toEqual([{ role: 'tool', content: '{"ok":true}', tool_call_id: 'call-1' }]);
   });
 });

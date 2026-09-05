@@ -19,6 +19,11 @@ export const ENV_KEYS = {
   serperSearchUrl: 'SERPER_SEARCH_URL',
   // Serper 搜索密钥对应的环境变量。
   serperSearchApiKey: 'SERPER_SEARCH_API_KEY',
+  cosSecretId: 'COS_SECRET_ID',
+  cosSecretKey: 'COS_SECRET_KEY',
+  cosBucket: 'COS_BUCKET',
+  cosRegion: 'COS_REGION',
+  cosEndpoint: 'COS_ENDPOINT',
 } as const;
 
 // 集中维护本地开发和外部 Provider 的默认配置。

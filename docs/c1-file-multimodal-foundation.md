@@ -4,6 +4,8 @@
 
 > **优先级调整（2026-09-04）**：C1 按“先图片、后文件”的顺序交付。第一波是图片上传与视觉输入（P0），原因是当前 DeepSeek、GLM 已具备多模态能力；第二波是文本、CSV、JSON、PDF 等通用文件处理（P1），不阻塞图片 MVP。
 
+> **本轮交付口径**：本轮只验收 C1-A0 图片闭环；C1-A0 只支持单图，C1-A1 才扩展到多图。TXT、Markdown、CSV、JSON、PDF 的解析、文本注入和页码/行号定位属于后续 C1-B，不进入本轮验收。
+
 ## 1. 一句话定义
 
 C1 让用户可以在本地任务工作台中安全地添加文件或图片，并让 Agent 在后续对话中可靠地理解这些材料、说明处理状态和引用原始文件位置。
@@ -45,18 +47,18 @@ C1 采用“先最小闭环，再稳定增强，最后扩展文件类型”的�
 
 | 层级               | 优先级 | 范围                      | 交付目标                                                                            |
 | ------------------ | ------ | ------------------------- | ----------------------------------------------------------------------------------- |
-| C1-A0 最小图片闭环 | P0     | PNG/JPEG/WebP             | 上传、服务端校验、COS 保存、缩略图、ready、单图视觉问答、附件恢复                   |
+| C1-A0 最小图片闭环 | P0     | PNG/JPEG/WebP             | 单图上传、服务端校验、COS 保存、缩略图、ready、单图视觉问答、附件恢复             |
 | C1-A1 稳定图片能力 | P0     | C1-A0 增强                | 多图同消息、取消/重试、失败状态、模型视觉能力提示、短期签名 URL、删除清理和安全回归 |
 | C1-B 文件基础      | P1     | TXT/Markdown/CSV/JSON/PDF | 文件解析、受限预览、文本上下文注入、页码/行号定位                                   |
 | C1-C 后续增强      | P2     | 非 MVP 能力               | 直传/分片上传、异步 Worker 恢复、OCR、复杂来源投影、更多格式和供应商 Files API      |
 
-C1-A0 完成真实模型验证后进入 C1-A1；C1-A1 稳定后再进入 C1-B。所有层共用 `fileId`、附件关系、COS 存储、权限和基础生命周期，但不提前实现后续层的复杂能力。
+C1-A0 完成真实模型验证后进入 C1-A1；C1-A1 稳定后再进入 C1-B。所有层共用 `fileId`、附件关系、COS 存储模块、权限和基础生命周期，但不提前实现后续层的复杂能力。
 
 ### 5.1 文件选择与生命周期
 
 - Web 端支持文件选择器、拖拽上传；移动端粘贴不作为 C1 必做项。
 - 附件状态：`selected -> uploading -> processing -> ready | failed | rejected`。
-- 支持在发送前移除附件；发送后附件与用户消息建立不可变关联。
+- 支持在发送前移除附件；发送后附件与用户消息建立不可变关联。C1-A0 中消息只允许绑定已进入 `ready` 的一张图片。
 - 会话历史展示附件卡片（名称、类型、大小、状态、失败原因）；不默认展示原始二进制。
 - 服务端保存文件元数据和内容引用，浏览器刷新后可恢复。
 
@@ -69,7 +71,7 @@ C1-A0 完成真实模型验证后进入 C1-A1；C1-A1 稳定后再进入 C1-B。
 - 文本类：保留 UTF-8 文本，必要时进行受控编码检测。
 - CSV/JSON：提供可读文本视图和基本结构元数据，不承诺表格计算或 schema 推断。
 - PDF：提取文本、页数和页码定位；扫描件 OCR 属于可选增强，未启用时明确提示。
-- 图片：保存原图元数据并作为 multimodal input；可生成受限尺寸的预览缩略图。P0 必须支持单图和多图同消息发送、预览、失败重试及模型能力提示。
+- 图片：保存原图元数据并作为 multimodal input；可生成受限尺寸的预览缩略图。C1-A0 支持单图发送和预览；多图同消息、失败重试及更完整的模型能力提示属于 C1-A1。
 
 不因扩展名直接信任类型，必须校验 MIME、文件签名和解析结果。
 
@@ -146,6 +148,43 @@ C1-A0 完成真实模型验证后进入 C1-A1；C1-A1 稳定后再进入 C1-B。
 
 数据库先实现 `File` 和 `MessageAttachment` 两类关系；二进制内容不进入消息正文或 SSE。
 
+附件关系沿用当前 Run 链路，不为 C1-A0 另造独立的 Run 输入模型：
+
+```text
+File（归属当前 Session）
+  -> MessageAttachment（发送时绑定 user Message）
+  -> inputMessageId
+  -> AgentRun
+  -> Context / Model Adapter
+```
+
+上传阶段文件尚未绑定消息，只记录 `sessionId` 和 `fileId`；创建用户消息时，在同一事务中写入 `MessageAttachment`。Run 通过 `inputMessageId` 获取附件。C1-A0 暂不建立独立的 Task/Run 文件关系，也不把图片二进制或签名 URL 写入 `Message`、transcript 或 SSE。
+
+这借鉴 Codex 的“草稿附件状态与正式用户输入分离”思路：附件先在 composer 中独立管理，提交时才进入用户输入；但 Web C1 不保存或传递本地路径，而是提交服务端生成的 `fileId`。因此当前实现的关系保持为 `MessageAttachment -> inputMessageId -> AgentRun`，而不是让 Run 直接持有客户端文件路径。
+
+同一消息在 C1-A0 中最多绑定一张图片；附件未 `ready`、已拒绝或已失败时，整条消息不能提交。C1-A0 中用户需要移除失败附件后再发送，重试上传属于 C1-A1。
+
+### 8.1.1 C1-A0 最小请求契约
+
+上传接口返回 `fileId` 和处理状态；创建 Run/用户消息时只提交 `fileId`，不提交二进制、COS object key 或签名 URL：
+
+```ts
+type UploadFileResponse = {
+  fileId: string;
+  status: 'processing' | 'ready' | 'failed' | 'rejected';
+  fileName: string;
+  mediaType: string;
+  size: number;
+};
+
+type CreateRunInput = {
+  content: string;
+  attachmentId?: string; // C1-A0 最多一个
+};
+```
+
+服务端在创建消息/Run 的事务中校验附件属于当前 Session、状态为 `ready` 且为允许的图片类型，然后创建 `MessageAttachment`。同一 `attachmentId` 的重复提交必须复用已有结果或返回明确冲突，不能创建重复绑定。
+
 ### 8.2 C1-A1 与 C1-B 对象
 
 确认最小图片闭环稳定后，再增加：
@@ -210,7 +249,7 @@ C1-A0 完成真实模型验证后进入 C1-A1；C1-A1 稳定后再进入 C1-B。
 
 1. `agent-protocol` 增加图片内容、`FileRef`、`AttachmentRef` 和最小处理状态。
 2. API 增加图片上传和会话归属校验；服务端完成 MIME/魔数/解码/大小/尺寸检查。
-3. COS 保存原图和缩略图；数据库保存文件事实和消息附件关系。
+3. 通过独立的 COS 存储模块保存原图和缩略图；数据库保存文件事实和消息附件关系。
 4. Model Adapter 支持 user 消息中的文本 + 图片 block，并使用短期签名 URL。
 5. Web 支持选择、上传状态、缩略图、预览、移除和会话恢复。
 
@@ -228,7 +267,7 @@ C1-A0 完成真实模型验证后进入 C1-A1；C1-A1 稳定后再进入 C1-B。
 
 按实际瓶颈再评估直传/分片上传、异步 Worker 恢复、OCR、复杂来源系统、更多格式和供应商 Files API。
 
-完成 C1-A 的判定条件是图片链路可在真实会话中稳定闭环；完成完整 C1 还需要 C1-B 的文件解析与定位能力。所有未支持能力必须显示为明确 unavailable，而不是伪造成功。
+本轮完成条件是 C1-A0 图片链路可在真实会话中稳定闭环；C1-A1 和 C1-B 另行验收。所有未支持能力必须显示为明确 unavailable，而不是伪造成功。
 
 ## 13. Codex 开源实现对照
 
@@ -396,7 +435,29 @@ DeepSeek 会在进入模型前自动缩放图片：小于约 `384 × 384` 的图
 
 ## 15. 腾讯云 COS 存储方案
 
-### 15.1 部署基线
+### 15.1 COS 独立模块边界
+
+COS 作为独立的 `FileStorage` 模块接入，文件领域服务不直接依赖腾讯云 SDK。C1 的其他模块只通过稳定接口访问对象存储：
+
+```ts
+interface FileStorage {
+  putOriginal(input: { fileId: string; content: Buffer; contentType: string }): Promise<{
+    objectKey: string;
+    etag?: string;
+  }>;
+  putPreview(input: { fileId: string; content: Buffer; contentType: string }): Promise<{
+    objectKey: string;
+  }>;
+  createReadUrl(input: { fileId: string; variant: 'original' | 'preview' }): Promise<string>;
+  deleteFile(input: { fileId: string }): Promise<void>;
+}
+```
+
+`FileStorage` 负责 COS 配置、object key 生成、上传、短期签名 URL 和删除；不负责 MIME/魔数校验、图片解码、文件状态、会话权限、消息绑定或模型请求。文件服务负责先校验并持久化文件事实，再调用该模块保存对象。签名 URL 只在模型请求或预览时临时生成，不写入数据库、消息、transcript、SSE 或普通日志。
+
+本地开发和测试可以提供 `LocalFileStorage` 实现，但生产 C1 必须使用 `CosFileStorage`。两者遵循同一接口，业务层不感知存储供应商。
+
+### 15.2 部署基线
 
 | 配置项   | 值                                                             |
 | -------- | -------------------------------------------------------------- |
@@ -418,7 +479,7 @@ COS_ENDPOINT=https://hello-agent-1256175414.cos.ap-guangzhou.myqcloud.com
 
 密钥必须使用最小权限策略，仅允许该 Bucket 的对象读写、列举和删除；开发、测试、生产环境使用不同密钥。密钥泄露后必须立即禁用并轮换，不能只修改文档或环境变量。
 
-### 15.2 Object Key 约定
+### 15.3 Object Key 约定
 
 COS 对象 key 不使用用户原始文件名作为路径，不接受客户端直接指定完整 key。建议由服务端生成：
 
@@ -430,7 +491,7 @@ sessions/{sessionId}/files/{fileId}/preview
 
 原始文件名只作为数据库元数据保存并做展示转义。`fileId` 使用服务端生成的不可猜测标识；对象 key 不作为用户权限判断依据。
 
-### 15.3 请求与生命周期
+### 15.4 请求与生命周期
 
 ```text
 浏览器 -> API：上传文件
@@ -450,7 +511,7 @@ API -> DB：标记 ready
 - 会话删除先删除数据库关联，再异步清理 COS 对象；清理失败记录明确的待清理状态并支持重试。
 - API 重启后，`uploading`/`processing` 文件不能直接恢复为 `ready`，必须通过校验任务重新确认。
 
-### 15.4 COS 方案的边界
+### 15.5 COS 方案的边界
 
 COS 只负责二进制对象存储和传输，不替代以下 C1 能力：
 

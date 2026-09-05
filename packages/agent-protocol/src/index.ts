@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import { AGENT_PROTOCOL_LIMITS } from './common/constants.js';
+import { userContentBlockSchema } from './files/contracts.js';
 export * from './common/problem.js';
 export * from './common/status.js';
 export * from './common/constants.js';
 export * from './common/source-url.js';
 export * from './sessions/contracts.js';
 export * from './web-fetch/contracts.js';
+export * from './files/contracts.js';
 import {
   webFetchInputSchema,
   webFetchPassageSchema,
@@ -94,6 +96,7 @@ export const publicModelConfigSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   reasoning: reasoningCapabilitySchema,
+  supportsVision: z.boolean().optional(),
   context: modelContextProfileSchema.optional(),
 });
 export const publicAgentConfigSchema = z.object({
@@ -124,7 +127,10 @@ export const toolResultSchema = z.object({
 
 // 约束模型上下文中四类消息及各自允许携带的字段。
 export const chatMessageSchema = z.discriminatedUnion('role', [
-  messageBaseSchema.extend({ role: z.literal('user'), content: z.string().min(1) }),
+  messageBaseSchema.extend({
+    role: z.literal('user'),
+    content: z.union([z.string().min(1), z.array(userContentBlockSchema).min(1)]),
+  }),
   messageBaseSchema.extend({
     role: z.literal('assistant'),
     content: z.string().optional(),
@@ -669,6 +675,7 @@ export const createRunRequestSchema = z.object({
   idempotencyKey: z.string().min(1).max(200),
   model: z.string().min(1),
   reasoningEffort: reasoningEffortSchema.optional().default('high'),
+  attachmentId: z.string().min(1).optional(),
 });
 export const createRunResponseSchema = z.object({
   sessionId: z.string().min(1),

@@ -15,6 +15,7 @@ model User {
   updatedAt   DateTime @updatedAt @map("updated_at")
   sessions    Session[]
   messages    Message[]
+  files       File[]
 
   @@map("users")
 }
@@ -43,6 +44,7 @@ model Session {
   transcriptItems ModelTranscriptItem[]
   compactionState ContextCompactionState?
   pendingUserInputs PendingUserInput[]
+  files     File[]
 
   @@index([userId, isPinned(sort: Desc), updatedAt(sort: Desc)])
   @@map("sessions")
@@ -106,10 +108,59 @@ model Message {
   session   Session     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   run       AgentRun?   @relation(fields: [runId], references: [id], onDelete: SetNull)
   transcriptItems ModelTranscriptItem[]
+  attachments MessageAttachment[]
 
   @@index([sessionId, createdAt])
   @@index([runId])
   @@map("messages")
+}
+
+enum FileStatus {
+  processing
+  ready
+  failed
+  rejected
+}
+
+model File {
+  id             String     @id
+  userId         String     @map("user_id")
+  sessionId      String     @map("session_id")
+  fileName       String     @map("file_name")
+  mediaType      String     @map("media_type")
+  size           Int
+  sha256         String
+  width          Int
+  height         Int
+  status         FileStatus @default(processing)
+  errorCode      String?    @map("error_code")
+  retryable      Boolean    @default(false)
+  originalKey    String?    @map("original_key")
+  previewKey     String?    @map("preview_key")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session        Session    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  attachments    MessageAttachment[]
+
+  @@unique([sessionId, id])
+  @@index([sessionId, status])
+  @@map("files")
+}
+
+model MessageAttachment {
+  id        String   @id
+  messageId String   @map("message_id")
+  fileId    String   @map("file_id")
+  ordinal   Int
+  createdAt DateTime @default(now()) @map("created_at")
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  file      File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, ordinal])
+  @@unique([messageId, fileId])
+  @@index([fileId])
+  @@map("message_attachments")
 }
 
 model AgentRun {

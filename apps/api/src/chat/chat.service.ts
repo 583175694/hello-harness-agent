@@ -157,7 +157,11 @@ export class ChatService {
       .reverse()
       .find((message) => message.role === 'user')?.content;
     const projection = new ResearchProjectionCollector(
-      this.extractHttpUrls(currentUserContent ?? ''),
+      this.extractHttpUrls(
+        typeof currentUserContent === 'string'
+          ? currentUserContent
+          : currentUserContent?.filter((block) => block.type === 'text').map((block) => block.text).join(' ') ?? '',
+      ),
     );
     const conversation = new ConversationBlockCollector(prepared.assistantMessageId);
     // 当前 assistant Run 的最新计划投影；每次 plan.updated 都整体替换。

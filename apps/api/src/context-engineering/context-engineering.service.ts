@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { getDeepSeekV3TokenEstimator } from '@harness/deepseek-v3-tokenizer';
+import { getDeepSeekV3TokenEstimator, type DeepSeekMessage } from '@harness/deepseek-v3-tokenizer';
 import { PrismaService } from '../database/prisma.service';
 import { getConfiguredModel } from '../model/model-catalog';
 import { ModelAdapter } from '../model/model-adapter';
@@ -361,7 +361,7 @@ export class ContextEngineeringService {
         ]
       : messages;
     return this.estimator.countMessages(
-      withTools.map((message) => this.toTokenizerMessage(message)),
+      withTools.map((message) => this.toTokenizerMessage(message)) as DeepSeekMessage[],
     );
   }
 
@@ -376,6 +376,15 @@ export class ContextEngineeringService {
           arguments: call.arguments,
           type: 'function',
         })),
+      };
+    }
+    if (message.role === 'user' && Array.isArray(message.content)) {
+      return {
+        role: 'user' as const,
+        content: message.content
+          .filter((block) => block.type === 'text')
+          .map((block) => block.text)
+          .join(' '),
       };
     }
     return message;

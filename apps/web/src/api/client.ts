@@ -29,6 +29,7 @@ import type {
   UpdateSessionRequest,
   ReasoningEffort,
   PublicAgentConfig,
+  FileRef,
 } from '@harness/agent-protocol';
 import { publicAgentConfigSchema } from '@harness/agent-protocol';
 
@@ -130,13 +131,30 @@ export async function createRun(
   content: string,
   model: string,
   reasoningEffort: ReasoningEffort,
+  attachmentId?: string,
 ): Promise<CreateRunResponse> {
   const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/runs`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ content, model, reasoningEffort, idempotencyKey: crypto.randomUUID() }),
+    body: JSON.stringify({
+      content,
+      model,
+      reasoningEffort,
+      idempotencyKey: crypto.randomUUID(),
+      ...(attachmentId ? { attachmentId } : {}),
+    }),
   });
   return createRunResponseSchema.parse(await parseResponse(response));
+}
+
+export async function uploadFile(sessionId: string, file: File): Promise<FileRef> {
+  const body = new FormData();
+  body.append('file', file);
+  const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/files`, {
+    method: 'POST',
+    body,
+  });
+  return (await parseResponse(response)) as FileRef;
 }
 
 export async function submitPendingInput(sessionId: string, content: string): Promise<unknown> {

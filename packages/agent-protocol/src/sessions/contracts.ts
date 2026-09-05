@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AGENT_PROTOCOL_LIMITS } from '../common/constants.js';
+import { fileRefSchema } from '../files/contracts.js';
 
 const sessionPendingUserInputViewSchema = z.object({
   id: z.string().min(1),
@@ -20,6 +21,7 @@ export const persistedMessageSchema = z.object({
   deliveryStatus: z.enum(['streaming', 'completed', 'failed', 'cancelled']).optional(),
   createdAt: z.string().datetime(),
   metadata: z.record(z.unknown()),
+  attachments: z.array(fileRefSchema).optional(),
 });
 
 // 定义侧栏展示所需的稳定会话摘要。

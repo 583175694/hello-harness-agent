@@ -18,6 +18,7 @@ import { describeLogError, shortLogId } from '../shared/logging.utils';
 import { compareMessageOrder } from '../chat/message-order';
 import { RunRepository } from '../runs/run.repository';
 import { PendingUserInputService } from '../runs/pending-user-input.service';
+import { FileStorage } from '../file-storage/file-storage';
 
 @Injectable()
 export class SessionsService {
@@ -27,6 +28,7 @@ export class SessionsService {
     @Inject(Logger) private readonly logger: Logger,
     @Inject(RunRepository) private readonly runs: RunRepository,
     @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
+    @Inject(FileStorage) private readonly fileStorage: FileStorage,
   ) {}
 
   // 创建属于固定本地用户的持久化会话。
@@ -60,11 +62,15 @@ export class SessionsService {
   }
 
   // 返回会话及按创建顺序排列的全部普通消息。
+  // 查询会话消息及附件元数据，生成可供 Web 恢复的会话详情。
   async detail(sessionId: string): Promise<SessionDetailResponse> {
     const session = await this.prisma.session.findFirst({
       where: { id: sessionId, userId: LOCAL_USER_ID },
       include: {
-        messages: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
+        messages: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          include: { attachments: { include: { file: true }, orderBy: { ordinal: 'asc' } } },
+        },
         runs: {
           where: { status: { in: ['queued', 'running', 'cancel_requested'] } },
           orderBy: { createdAt: 'desc' },
@@ -100,6 +106,7 @@ export class SessionsService {
   }
 
   // 删除空闲会话，消息由数据库外键级联清理。
+  // 删除空闲会话及数据库关系，并尽力清理对应的原图和预览对象。
   async delete(sessionId: string): Promise<{ deletedSessionId: string }> {
     await this.requireOwned(sessionId);
     // 先清理已停止但数据库仍显示 active 的 Run，避免故障会话永久阻塞删除。
@@ -113,7 +120,25 @@ export class SessionsService {
         detail: '该会话正在生成回复，请等待完成后再删除。',
       });
     }
+    const files = await this.prisma.file.findMany({
+      where: { sessionId, userId: LOCAL_USER_ID },
+      select: { id: true, sessionId: true },
+    });
     await this.prisma.session.delete({ where: { id: sessionId } });
+    // 数据库级联会立即删除关系；这里尽力清理 COS 对象，清理失败不能
+    // 让已经成功删除的会话重新出现。
+    await Promise.all(
+      files.map(async (file) => {
+        try {
+          await this.fileStorage.deleteFile({ sessionId: file.sessionId, fileId: file.id });
+        } catch (error) {
+          this.logger.warn(
+            `文件对象清理失败 | 文件=${shortLogId(file.id)} | 原因=${describeLogError(error)}`,
+            SessionsService.name,
+          );
+        }
+      }),
+    );
     return { deletedSessionId: sessionId };
   }
 
@@ -172,7 +197,23 @@ export class SessionsService {
   }
 
   // 将数据库消息转换为共享持久化消息协议。
-  private toMessage(message: Message): PersistedMessage {
+  private toMessage(
+    message: Message & {
+      attachments?: Array<{
+        file: {
+          id: string;
+          fileName: string;
+          mediaType: string;
+          size: number;
+          width: number;
+          height: number;
+          status: string;
+          errorCode: string | null;
+          previewKey: string | null;
+        };
+      }>;
+    },
+  ): PersistedMessage {
     const metadata =
       typeof message.metadata === 'object' && message.metadata
         ? (message.metadata as Record<string, unknown>)
@@ -193,6 +234,19 @@ export class SessionsService {
       ...(deliveryStatus ? { deliveryStatus } : {}),
       createdAt: message.createdAt.toISOString(),
       metadata,
+      attachments: (message.attachments ?? []).map(({ file }) => ({
+        fileId: file.id,
+        fileName: file.fileName,
+        mediaType: file.mediaType,
+        size: file.size,
+        width: file.width,
+        height: file.height,
+        status: file.status as 'processing' | 'ready' | 'failed' | 'rejected',
+        ...(file.errorCode ? { errorCode: file.errorCode } : {}),
+        ...(file.status === 'ready' && file.previewKey
+          ? { previewUrl: `/api/agent/files/${file.id}/preview` }
+          : {}),
+      })),
     };
   }
 

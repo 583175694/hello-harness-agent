@@ -10,6 +10,7 @@ import { SessionsModule } from './sessions/sessions.module';
 import { ToolsModule } from './tools/tools.module';
 import { RunsModule } from './runs/runs.module';
 import { ModelModule } from './model/model.module';
+import { FilesModule } from './files/files.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { ModelModule } from './model/model.module';
     RunsModule,
     ModelModule,
     SessionsModule,
+    FilesModule,
   ],
   controllers: [HealthController],
   providers: [HealthService],

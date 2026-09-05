@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import type {
@@ -19,6 +19,7 @@ import type {
   ModelToolCall,
 } from './model-adapter';
 import { clarificationRequestSchema } from '@harness/agent-protocol';
+import { FilesService } from '../files/files.service';
 
 const CLARIFICATION_CONTROL_NAME = 'request_clarification';
 const CLARIFICATION_CONTROL_TOOL: ChatCompletionTool = {
@@ -46,6 +47,7 @@ type ProviderUsage = NonNullable<ChatCompletionChunk['usage']> & {
   prompt_cache_miss_tokens?: number;
 };
 
+// 将供应商返回的 token 统计统一为运行时使用的字段，并保留未知值为空。
 export function normalizeProviderUsage(usage: ProviderUsage): {
   promptTokens: number | null;
   completionTokens: number | null;
@@ -66,14 +68,20 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
   private clientBaseUrl?: string;
   private readonly tokenEstimator = getDeepSeekV3TokenEstimator();
 
-  constructor(@Inject(ConfigService) private readonly config: ConfigService) {
+  // 可选注入 FilesService，便于纯文本调用和不带附件的测试环境运行。
+  constructor(
+    @Inject(ConfigService) private readonly config: ConfigService,
+    @Optional() @Inject(FilesService) private readonly files?: FilesService,
+  ) {
     super();
   }
 
+  // 返回模型目录中的能力声明，供 Run 和 Adapter 双重校验请求。
   profile(model: string): {
     provider: string;
     reasoningFormat?: string;
     reasoning: ReasoningCapability;
+    supportsVision?: boolean;
   } {
     const configured = getConfiguredModel(model);
     if (!configured) throw new Error(`MODEL_UNSUPPORTED:${model}`);
@@ -81,12 +89,14 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       provider: configured.provider,
       ...(configured.reasoningFormat ? { reasoningFormat: configured.reasoningFormat } : {}),
       reasoning: configured.reasoning,
+      supportsVision: configured.supportsVision,
     };
   }
 
   // 调用 OpenAI-compatible 流接口，并把供应商 chunk 归一化为一个 Model Round。
   // Chat Completions 没有 Content/Tool Call 共用的全局 index，因此按 Block 首次出现顺序
   // 分配 blockSequence；Tool Call 自身仍按 provider index 聚合和恢复声明顺序。
+  // 调用 OpenAI-compatible 流接口并归一化文本、思考和工具调用事件。
   async *streamRound(input: ModelRoundInput): AsyncIterable<ModelRoundEvent> {
     const profile = this.profile(input.model);
     const configured = getConfiguredModel(input.model);
@@ -103,7 +113,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       ...(configured?.request.maxTokens !== undefined
         ? { max_tokens: configured.request.maxTokens }
         : {}),
-      messages: this.toProviderMessages(input.messages),
+      messages: await this.toProviderMessages(input.messages, input.model),
       ...(input.tools || input.allowClarification
         ? {
             tools: [
@@ -205,6 +215,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
   }
 
   // 执行一次非流式文本生成，供标题等轻量任务复用。
+  // 执行非流式文本请求，主要供标题生成等内部调用使用。
   async generateText(
     model: string,
     messages: ModelMessage[],
@@ -214,7 +225,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     const response = await this.getClient(model).chat.completions.create(
       {
         model,
-        messages: this.toProviderMessages(messages),
+        messages: await this.toProviderMessages(messages, model),
         ...(configured?.request.temperature !== undefined
           ? { temperature: configured.request.temperature }
           : {}),
@@ -228,27 +239,46 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
   }
 
   // 将 canonical 消息转换为 OpenAI Chat Completions 消息。
-  private toProviderMessages(messages: ModelMessage[]): ChatCompletionMessageParam[] {
-    return messages.map((message): ChatCompletionMessageParam => {
-      if (message.role === 'tool') {
-        return { role: 'tool', content: message.content, tool_call_id: message.toolCallId };
-      }
-      if (message.role === 'assistant') {
-        return {
-          role: 'assistant',
-          content: message.content,
-          ...(message.reasoning && message.toolCalls?.length
-            ? { reasoning_content: message.reasoning }
-            : {}),
-          tool_calls: message.toolCalls?.map((call) => ({
-            id: call.id,
-            type: 'function' as const,
-            function: { name: call.name, arguments: call.arguments },
-          })),
-        } as DeepSeekAssistantMessage;
-      }
-      return { role: message.role, content: message.content };
-    });
+  private async toProviderMessages(
+    messages: ModelMessage[],
+    model: string,
+  ): Promise<ChatCompletionMessageParam[]> {
+    return Promise.all(
+      messages.map(async (message): Promise<ChatCompletionMessageParam> => {
+        if (message.role === 'tool') {
+          return { role: 'tool', content: message.content, tool_call_id: message.toolCallId };
+        }
+        if (message.role === 'assistant') {
+          return {
+            role: 'assistant',
+            content: message.content,
+            ...(message.reasoning && message.toolCalls?.length
+              ? { reasoning_content: message.reasoning }
+              : {}),
+            tool_calls: message.toolCalls?.map((call) => ({
+              id: call.id,
+              type: 'function' as const,
+              function: { name: call.name, arguments: call.arguments },
+            })),
+          } as DeepSeekAssistantMessage;
+        }
+        if (message.role === 'system') return { role: 'system', content: message.content };
+        if (typeof message.content === 'string') return { role: 'user', content: message.content };
+        if (!getConfiguredModel(model)?.supportsVision) throw new Error('MODEL_VISION_UNSUPPORTED');
+        const content = await Promise.all(
+          message.content.map(async (block) => {
+            if (block.type === 'text') return { type: 'text' as const, text: block.text };
+            if (!this.files) throw new Error('FILE_STORAGE_UNAVAILABLE');
+            const url = await this.files.readUrlById(block.fileId);
+            return {
+              type: 'image_url' as const,
+              image_url: { url, detail: block.detail ?? 'auto' },
+            };
+          }),
+        );
+        return { role: 'user', content } as ChatCompletionMessageParam;
+      }),
+    );
   }
 
   // 将应用工具声明转换为 OpenAI Function Calling 声明。

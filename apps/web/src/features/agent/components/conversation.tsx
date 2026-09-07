@@ -64,6 +64,26 @@ function formatMessageTime(createdAt?: string, fallback?: string): string {
   }).format(new Date());
 }
 
+const FILE_ERROR_MESSAGES: Record<string, string> = {
+  FILE_EMPTY: '文件为空',
+  FILE_TOO_LARGE: '文件超过 20 MiB 限制',
+  FILE_TYPE_UNSUPPORTED: '文件类型不受支持',
+  FILE_SIGNATURE_MISMATCH: '文件类型与实际内容不一致',
+  FILE_PARSE_FAILED: '文件格式无法解析',
+  FILE_PARSE_TIMEOUT: '文件解析超时',
+  FILE_CONTENT_TOO_LARGE: '解析内容超过 40,000 字符限制',
+  PDF_PAGE_LIMIT_EXCEEDED: 'PDF 页数超过 200 页限制',
+  PDF_TEXT_UNAVAILABLE: 'PDF 不包含可提取文本，当前不支持 OCR',
+  FILE_NOT_READY: '文件尚未准备好',
+  FILE_CONTEXT_TOO_LARGE: '文件内容超过当前模型上下文预算',
+  UPLOAD_FAILED: '文件上传失败',
+};
+
+// 将服务端稳定错误码转换为用户可读的简短提示。
+function fileErrorMessage(errorCode?: string): string {
+  return FILE_ERROR_MESSAGES[errorCode ?? ''] ?? '文件处理失败';
+}
+
 // 提供仅在悬停或键盘聚焦时出现的消息复制操作。
 export function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -176,24 +196,37 @@ const UserMessage = memo(function UserMessage({
       <div className="user-message-content">
         {item.attachments?.length ? (
           <div className="user-attachment-stack">
-            {item.attachments.map((attachment) => (
-              <button
-                key={attachment.fileId}
-                type="button"
-                className="user-attachment-button"
-                aria-label={`预览${attachment.fileName}`}
-                onClick={() =>
-                  attachment.previewUrl &&
-                  setPreview({ src: attachment.previewUrl, alt: attachment.fileName })
-                }
-              >
-                <img
-                  src={attachment.previewUrl}
-                  alt={attachment.fileName}
-                  className="user-attachment-tile"
-                />
-              </button>
-            ))}
+            {item.attachments.map((attachment) =>
+              // 图片沿用缩略图预览，文本类附件展示文件卡片。
+              attachment.fileKind === 'image' || attachment.mediaType.startsWith('image/') ? (
+                <button
+                  key={attachment.fileId}
+                  type="button"
+                  className="user-attachment-button"
+                  aria-label={`预览${attachment.fileName}`}
+                  onClick={() =>
+                    attachment.previewUrl &&
+                    setPreview({ src: attachment.previewUrl, alt: attachment.fileName })
+                  }
+                >
+                  <img
+                    src={attachment.previewUrl}
+                    alt={attachment.fileName}
+                    className="user-attachment-tile"
+                  />
+                </button>
+              ) : (
+                <div
+                  key={attachment.fileId}
+                  className="user-attachment-button user-attachment-document"
+                  role="img"
+                  aria-label={`文件${attachment.fileName}`}
+                >
+                  <span>{(attachment.fileName.split('.').pop() ?? 'FILE').toUpperCase()}</span>
+                  <small>{attachment.fileName}</small>
+                </div>
+              ),
+            )}
           </div>
         ) : null}
         <div className="user-bubble max-w-[min(820px,calc(100vw-72px))] rounded-[8px_8px_3px_8px] bg-surface-subtle text-text-primary">
@@ -825,7 +858,10 @@ export function Composer({
     });
   };
   const attachmentModelUnsupported = Boolean(
-    attachments.length > 0 &&
+    // 只有图片附件需要模型支持 Vision。
+    attachments.some(
+      (attachment) => attachment.fileKind === 'image' || attachment.mediaType.startsWith('image/'),
+    ) &&
     selectedModel &&
     !models.find((model) => model.id === selectedModel)?.supportsVision,
   );
@@ -969,8 +1005,14 @@ export function Composer({
       {canUseImageAttachments ? (
         <div className="composer-attachments px-[15px] pt-3">
           {attachments.map((item) => (
-            <div className="composer-attachment-preview" key={item.fileId}>
-              {item.previewUrl ? (
+            // 附件卡片同时展示解析状态、错误原因和可用操作。
+            <div
+              className={`composer-attachment-preview${item.fileKind !== 'image' && !item.mediaType.startsWith('image/') ? ' composer-attachment-preview--document' : ''}`}
+              key={item.fileId}
+              aria-label={`${item.fileName}，${item.status === 'ready' ? '已就绪' : item.status === 'processing' ? '解析中' : fileErrorMessage(item.errorCode)}`}
+            >
+              {item.previewUrl &&
+              (item.fileKind === 'image' || item.mediaType.startsWith('image/')) ? (
                 <button
                   type="button"
                   className="composer-attachment-preview__open"
@@ -990,18 +1032,35 @@ export function Composer({
                   ) : null}
                 </button>
               ) : (
-                <div className="composer-attachment-preview__loading">
+                <div className="composer-attachment-preview__loading" title={item.fileName}>
                   {item.status === 'failed' ? (
                     <CircleAlert size={16} />
+                  ) : item.status === 'rejected' ? (
+                    <CircleAlert size={16} />
+                  ) : item.status === 'ready' ? (
+                    <span className="composer-attachment-preview__file">
+                      {(item.fileName.split('.').pop() ?? 'FILE').toUpperCase()}
+                    </span>
                   ) : (
                     <LoaderCircle className="spin" size={16} />
                   )}
                 </div>
               )}
+              {item.status === 'failed' && item.errorCode ? (
+                <span className="composer-attachment-preview__error" role="status">
+                  {fileErrorMessage(item.errorCode)}
+                </span>
+              ) : item.status === 'rejected' && item.errorCode ? (
+                <span className="composer-attachment-preview__error" role="status">
+                  {fileErrorMessage(item.errorCode)}
+                </span>
+              ) : null}
               {item.status === 'failed' ? (
+                // failed 表示可恢复错误，允许用户重新触发解析。
                 <button
                   type="button"
                   className="text-button"
+                  aria-label={`重试${item.fileName}`}
                   onClick={() => onAttachmentRetry?.(item.fileId)}
                 >
                   重试
@@ -1011,7 +1070,7 @@ export function Composer({
                 className="composer-attachment-preview__remove"
                 type="button"
                 aria-label={`移除${item.fileName}`}
-                title="移除图片"
+                title={`移除${item.fileName}`}
                 onClick={() => {
                   if (item.status === 'processing') onAttachmentCancel?.(item.fileId);
                   else onAttachmentRemove?.(item.fileId);
@@ -1027,7 +1086,7 @@ export function Composer({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp"
+            accept="image/png,image/jpeg,image/webp,.txt,.md,.csv,.json,.pdf"
             multiple
             hidden
             onChange={(event) => {

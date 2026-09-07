@@ -29,6 +29,12 @@ export abstract class FileStorage {
   }): Promise<string>;
   /** 删除文件对应的原图和预览图对象。 */
   abstract deleteFile(input: { sessionId: string; fileId: string }): Promise<void>;
+  // 重试解析时读取原始对象，由本地存储和 COS 提供统一实现。
+  abstract readObject(input: {
+    sessionId: string;
+    fileId: string;
+    variant: FileVariant;
+  }): Promise<{ content: Buffer; contentType?: string }>;
 }
 
 @Injectable()
@@ -67,6 +73,7 @@ export class LocalFileStorage extends FileStorage {
 
   /** 从内存对象表读取本地预览或原图内容。 */
   async readObject(input: { sessionId: string; fileId: string; variant: FileVariant }) {
+    // 本地实现从内存对象表恢复原始字节。
     // 内存读取路径只服务本地预览和测试；生产 Adapter 使用 COS 签名 URL，
     // 不需要通过 Nest 读取文件字节。
     const key = `sessions/${input.sessionId}/files/${input.fileId}/${input.variant}`;
@@ -165,6 +172,21 @@ export class CosFileStorage extends FileStorage {
         }),
       ),
     );
+  }
+
+  async readObject(input: { sessionId: string; fileId: string; variant: FileVariant }) {
+    // COS 读取只返回字节，不向业务层暴露对象地址。
+    const result = await this.client.getObject({
+      Bucket: this.bucket,
+      Region: this.region,
+      Key: this.key(input.sessionId, input.fileId, input.variant),
+    });
+    const body = result.Body;
+    if (!body) throw new Error('CosFileNotFound');
+    return {
+      content: Buffer.isBuffer(body) ? body : Buffer.from(body as Uint8Array),
+      contentType: result.headers?.['Content-Type'],
+    };
   }
 
   /** 按 Session、文件和版本生成服务端控制的对象 key。 */

@@ -163,6 +163,18 @@ export async function uploadFile(
   return fileRefSchema.parse(await parseResponse(response));
 }
 
+// 查询文件处理状态，供上传后的轮询使用。
+export async function getFile(fileId: string, signal?: AbortSignal): Promise<FileRef> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/files/${fileId}`, { signal });
+  return fileRefSchema.parse(await parseResponse(response));
+}
+
+// 请求服务端重新处理可恢复失败的文件。
+export async function retryFile(fileId: string): Promise<FileRef> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/files/${fileId}/retry`, { method: 'POST' });
+  return fileRefSchema.parse(await parseResponse(response));
+}
+
 export async function deleteFile(fileId: string): Promise<{ deletedFileId: string }> {
   const response = await fetch(`${apiBaseUrl}/api/agent/files/${fileId}`, { method: 'DELETE' });
   const data = await parseResponse(response);

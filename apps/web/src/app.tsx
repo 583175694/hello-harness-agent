@@ -27,6 +27,8 @@ import {
   promotePendingInput,
   sendPendingInput,
   uploadFile,
+  getFile,
+  retryFile,
   deleteFile,
 } from './api/client';
 import type { MessageDeltaEvent, ModelRoundCompletedEvent, ToolStreamEvent } from './api/client';
@@ -1388,7 +1390,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     setPendingInputs([]);
     updateSessionUrl(sessionId);
     setMobileNavOpen(false);
-    void loadSessionDetail(sessionId);
+    if (!sessionStatesRef.current[sessionId]) void loadSessionDetail(sessionId);
   }
 
   // 新建按钮只进入本地空白草稿，不提前写数据库。
@@ -1487,17 +1489,13 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   // 用户在生成期间切换到其他会话也不会让 Event 写入当前选中的错误目标。
   // 先显示本地临时缩略图，再上传图片并替换为服务端预览引用。
   async function handleAttachment(file: File): Promise<void> {
+    // 上传前预占附件名额，避免多选文件并发回调使用旧状态。
     if (attachmentCountRef.current >= 4) {
       setError('一条消息最多支持 4 张图片。');
       return;
     }
-    // 在异步上传开始前预占名额，避免一次多选/多图粘贴的连续回调读到旧 state。
     attachmentCountRef.current += 1;
     // 选择图片后立即创建临时附件，让 UI 在上传请求期间也能显示 loading。
-    if (!file.type.startsWith('image/')) {
-      setError('C1-A0 仅支持图片文件。');
-      return;
-    }
     // 在 API 请求完成前先反馈给用户；临时地址只用于 UI，并在服务端预览接管后释放。
     const localPreviewUrl = URL.createObjectURL(file);
     const pendingId = `pending-${crypto.randomUUID()}`;
@@ -1521,7 +1519,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       setAttachmentUploading(true);
       let sessionId = selectedSessionIdRef.current;
       if (!sessionId) {
-        const created = await createSession('图片任务');
+        const created = await createSession('文件任务');
         sessionId = created.id;
         setSessions((current) => [created, ...current]);
         setSelectedSession(sessionId);
@@ -1529,11 +1527,23 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         await loadSessionDetail(sessionId);
       }
       const uploaded = await uploadFile(sessionId, file, controller.signal);
+      // 服务端接收成功不代表解析完成，文本类文件需要继续查询状态。
       setAttachments((current) =>
         current.map((item) => (item.fileId === pendingId ? uploaded : item)),
       );
       delete attachmentFilesRef.current[pendingId];
       setError(null);
+      if (uploaded.status === 'processing') {
+        // 覆盖 API 的 30 秒解析超时，并留出一次状态写回和网络往返时间。
+        for (let attempt = 0; attempt < 140; attempt += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+          const current = await getFile(uploaded.fileId, controller.signal);
+          setAttachments((items) =>
+            items.map((item) => (item.fileId === uploaded.fileId ? current : item)),
+          );
+          if (current.status !== 'processing') break;
+        }
+      }
     } catch (requestError) {
       if ((requestError as Error).name !== 'AbortError') {
         setAttachments((current) =>
@@ -1562,13 +1572,28 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   }
 
   async function retryAttachment(fileId: string): Promise<void> {
-    const file = attachmentFilesRef.current[fileId];
-    if (!file) {
-      setError('原图片已不可用，请重新选择图片。');
+    // 本地临时附件重新上传，已持久化附件调用服务端 retry 接口。
+    const localFile = attachmentFilesRef.current[fileId];
+    if (localFile) {
+      setAttachments((current) => current.filter((item) => item.fileId !== fileId));
+      await handleAttachment(localFile);
       return;
     }
-    setAttachments((current) => current.filter((item) => item.fileId !== fileId));
-    await handleAttachment(file);
+    try {
+      const retried = await retryFile(fileId);
+      // 重试接口返回 processing，完成前持续刷新附件卡片状态。
+      setAttachments((current) => current.map((item) => (item.fileId === fileId ? retried : item)));
+      for (let attempt = 0; attempt < 140; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+        const refreshed = await getFile(fileId);
+        setAttachments((current) =>
+          current.map((item) => (item.fileId === fileId ? refreshed : item)),
+        );
+        if (refreshed.status !== 'processing') break;
+      }
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {

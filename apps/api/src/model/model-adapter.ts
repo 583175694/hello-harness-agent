@@ -3,7 +3,10 @@ import type { ClarificationRequest } from '@harness/agent-protocol';
 import type { ReasoningCapability, ReasoningEffort } from '@harness/agent-protocol';
 
 export type UserContentBlock =
-  { type: 'text'; text: string } | { type: 'image_ref'; fileId: string; detail?: 'auto' };
+  | { type: 'text'; text: string }
+  | { type: 'image_ref'; fileId: string; detail?: 'auto' }
+  // 文件正文已由服务端加载，但仍作为不可信材料传递。
+  | { type: 'file_ref'; fileId: string; fileName: string; content: string };
 
 export type ModelToolCall = {
   id: string;

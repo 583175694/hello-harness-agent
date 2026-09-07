@@ -264,10 +264,16 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         }
         if (message.role === 'system') return { role: 'system', content: message.content };
         if (typeof message.content === 'string') return { role: 'user', content: message.content };
-        if (!getConfiguredModel(model)?.supportsVision) throw new Error('MODEL_VISION_UNSUPPORTED');
+        if (
+          message.content.some((block) => block.type === 'image_ref') &&
+          !getConfiguredModel(model)?.supportsVision
+        )
+          throw new Error('MODEL_VISION_UNSUPPORTED');
         const content = await Promise.all(
           message.content.map(async (block) => {
             if (block.type === 'text') return { type: 'text' as const, text: block.text };
+            // 文件引用在供应商请求中降级为受保护的文本材料。
+            if (block.type === 'file_ref') return { type: 'text' as const, text: block.content };
             if (!this.files) throw new Error('FILE_STORAGE_UNAVAILABLE');
             const url = await this.files.readUrlById(block.fileId);
             return {

@@ -111,6 +111,7 @@ export class AgentRuntimeService {
       // 每次模型尝试都重新收集文本、工具调用和结束原因，污染重试不得混入上一轮内容。
       let compiled;
       try {
+        // 将文件预算超限转换为前端可识别的稳定错误码。
         compiled = this.context
           ? await this.context.compileRound({
               sessionId: input.sessionId,
@@ -122,10 +123,20 @@ export class AgentRuntimeService {
             })
           : { messages, estimatedInputTokens: 0, promptBudget: null, compactionTriggered: false };
       } catch (error) {
-        if (error instanceof Error && error.message === 'CONTEXT_BUDGET_EXCEEDED') {
+        if (
+          error instanceof Error &&
+          (error.message === 'CONTEXT_BUDGET_EXCEEDED' ||
+            error.message === 'FILE_CONTEXT_TOO_LARGE')
+        ) {
           throw new ServiceUnavailableException({
-            code: AGENT_ERROR_CODES.contextBudgetExceeded,
-            detail: '当前上下文超过模型预算，无法在保留必要内容后继续执行。',
+            code:
+              error.message === 'FILE_CONTEXT_TOO_LARGE'
+                ? 'FILE_CONTEXT_TOO_LARGE'
+                : AGENT_ERROR_CODES.contextBudgetExceeded,
+            detail:
+              error.message === 'FILE_CONTEXT_TOO_LARGE'
+                ? '文件内容超过当前模型上下文预算，请移除附件或缩短问题后重试。'
+                : '当前上下文超过模型预算，无法在保留必要内容后继续执行。',
           });
         }
         throw error;

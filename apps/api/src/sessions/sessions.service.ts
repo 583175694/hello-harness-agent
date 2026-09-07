@@ -148,6 +148,7 @@ export class SessionsService implements OnModuleInit {
   }
 
   private async retryFileCleanupTasks(sessionId?: string): Promise<void> {
+    // 启动和会话删除后补偿清理遗留文件对象。
     const tasks = await this.prisma.fileCleanupTask.findMany({
       where: {
         status: { in: ['pending', 'failed'] },
@@ -160,6 +161,13 @@ export class SessionsService implements OnModuleInit {
       tasks.map(async (task) => {
         try {
           await this.fileStorage.deleteFile({ sessionId: task.sessionId, fileId: task.fileId });
+          const file = await this.prisma.file.findFirst({
+            where: { id: task.fileId, sessionId: task.sessionId },
+            select: { id: true, attachments: { select: { id: true }, take: 1 } },
+          });
+          // Session 级联删除可能已移除 File，找不到时视为已完成。
+          if (file && file.attachments.length === 0)
+            await this.prisma.file.delete({ where: { id: file.id } });
           await this.prisma.fileCleanupTask.update({
             where: { id: task.id },
             data: { status: 'completed', lastError: null },
@@ -245,8 +253,9 @@ export class SessionsService implements OnModuleInit {
           fileName: string;
           mediaType: string;
           size: number;
-          width: number;
-          height: number;
+          width: number | null;
+          height: number | null;
+          fileKind: 'image' | 'text' | 'markdown' | 'csv' | 'json' | 'pdf';
           status: string;
           errorCode: string | null;
           previewKey: string | null;
@@ -279,8 +288,9 @@ export class SessionsService implements OnModuleInit {
         fileName: file.fileName,
         mediaType: file.mediaType,
         size: file.size,
-        width: file.width,
-        height: file.height,
+        ...(file.width ? { width: file.width } : {}),
+        ...(file.height ? { height: file.height } : {}),
+        fileKind: file.fileKind,
         status: file.status as 'processing' | 'ready' | 'failed' | 'rejected',
         ...(file.errorCode ? { errorCode: file.errorCode } : {}),
         ...(file.status === 'ready' && file.previewKey

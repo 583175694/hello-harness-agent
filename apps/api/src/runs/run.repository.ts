@@ -420,14 +420,26 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           ? (attachmentsByMessage.get(item.messageId) ?? [])
           : [];
         if (!fileAttachments.length) return { role: 'user', content: item.content ?? '' };
+        const textFiles = fileAttachments.filter(
+          (attachment) => attachment.file.fileKind !== 'image',
+        );
+        const images = fileAttachments.filter((attachment) => attachment.file.fileKind === 'image');
+        // 按附件 ordinal 恢复图片和文本文件引用。
         return {
           role: 'user',
           content: [
             { type: 'text' as const, text: item.content ?? '' },
-            ...fileAttachments.map((attachment) => ({
+            ...images.map((attachment) => ({
               type: 'image_ref' as const,
               fileId: attachment.fileId,
               detail: 'auto' as const,
+            })),
+            ...textFiles.map((attachment) => ({
+              // 正文独立注入并标记为不可信，不能覆盖系统指令。
+              type: 'file_ref' as const,
+              fileId: attachment.fileId,
+              fileName: attachment.file.fileName,
+              content: `Untrusted file content (${attachment.file.fileName}, fileId=${attachment.fileId}). Preserve source locations when referring to it:\n${this.withFileLocations(attachment.file.normalizedContent ?? '', attachment.file.locations)}\nEnd of untrusted file content.`,
             })),
           ],
         };
@@ -448,6 +460,25 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         ...(Array.isArray(item.toolCalls) ? { toolCalls: item.toolCalls as ModelToolCall[] } : {}),
       };
     });
+  }
+
+  private withFileLocations(content: string, locations: Prisma.JsonValue | null): string {
+    // 将持久化的行号或页码重新附着到模型可见正文。
+    if (!Array.isArray(locations) || !locations.length) return content;
+    const markers = locations.filter(
+      (item): item is { startOffset: number; endOffset: number; line?: number; page?: number } =>
+        typeof item === 'object' &&
+        item !== null &&
+        typeof (item as { startOffset?: unknown }).startOffset === 'number' &&
+        typeof (item as { endOffset?: unknown }).endOffset === 'number',
+    );
+    if (!markers.length) return content;
+    return markers
+      .map((location) => {
+        const label = location.page ? `page:${location.page}` : `line:${location.line ?? 0}`;
+        return `[[${label}]]\n${content.slice(location.startOffset, location.endOffset)}`;
+      })
+      .join('\n');
   }
 
   private assertCommittedTranscriptClosed(

@@ -1505,6 +1505,36 @@ textarea:focus-visible {
   border-radius: 9px;
   background: var(--theme-surface-subtle);
 }
+.composer-attachment-preview--document {
+  display: grid;
+  width: 240px;
+  height: 64px;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 28px 6px 6px;
+  box-sizing: border-box;
+}
+.composer-attachment-preview--document .composer-attachment-preview__loading {
+  width: 52px;
+  height: 52px;
+}
+.composer-attachment-preview__error {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--theme-danger, #b42318);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: normal;
+}
+.composer-attachment-preview--document .text-button {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: -4px;
+  padding: 0;
+  font-size: 12px;
+}
 .composer-attachment-preview img {
   display: block;
   width: 100%;
@@ -1517,6 +1547,16 @@ textarea:focus-visible {
   height: 100%;
   place-items: center;
   color: var(--theme-text-muted);
+}
+.composer-attachment-preview__file {
+  display: block;
+  max-width: 52px;
+  overflow: hidden;
+  color: var(--theme-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .composer-attachment-preview__remove {
   position: absolute;
@@ -2957,6 +2997,29 @@ textarea:focus-visible {
   border-radius: 12px;
   background: transparent;
   cursor: zoom-in;
+}
+.user-attachment-document {
+  display: flex;
+  width: 180px;
+  min-height: 56px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: var(--theme-surface-subtle);
+  color: var(--theme-text-primary);
+  text-align: left;
+}
+.user-attachment-document span {
+  color: var(--theme-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+.user-attachment-document small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .user-attachment-button:focus-visible,
 .composer-attachment-preview__open:focus-visible {

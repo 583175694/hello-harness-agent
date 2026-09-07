@@ -65,18 +65,25 @@ export class RunCommandService {
       : input.attachmentId
         ? [input.attachmentId]
         : [];
+    // 图片和通用文件共用单消息附件数量限制。
     if (attachmentIds.length > AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax)
       throw new ConflictException({
         code: 'TOO_MANY_ATTACHMENTS',
-        detail: `一条消息最多支持 ${AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax} 张图片。`,
+        detail: `一条消息最多支持 ${AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax} 个附件。`,
       });
-    if (attachmentIds.length && !configuredModel.supportsVision)
+    const attachments = [];
+    // 绑定前逐个校验 Session 归属和 ready 状态。
+    for (const attachmentId of attachmentIds)
+      attachments.push(await this.files.findReadyForSession(sessionId, attachmentId));
+    // 只有图片附件要求模型支持 Vision，文本文件不受影响。
+    if (
+      attachments.some((attachment) => attachment.fileKind === 'image') &&
+      !configuredModel.supportsVision
+    )
       throw new ConflictException({
         code: 'MODEL_VISION_UNSUPPORTED',
         detail: '当前模型不支持图片，请切换到 DeepSeek Vision。',
       });
-    for (const attachmentId of attachmentIds)
-      await this.files.findReadyForSession(sessionId, attachmentId);
     const reasoningEffort =
       attachmentIds.length || !configuredModel.reasoning.levels.includes(requestedReasoningEffort)
         ? configuredModel.reasoning.default

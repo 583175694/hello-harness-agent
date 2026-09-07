@@ -1,0 +1,14 @@
+CREATE TYPE "FileKind" AS ENUM ('image', 'text', 'markdown', 'csv', 'json', 'pdf');
+ALTER TABLE "files" ADD COLUMN "file_kind" "FileKind" NOT NULL DEFAULT 'image';
+ALTER TABLE "files" ADD COLUMN "normalized_content" TEXT;
+ALTER TABLE "files" ADD COLUMN "content_hash" TEXT;
+ALTER TABLE "files" ADD COLUMN "parser_version" TEXT;
+ALTER TABLE "files" ADD COLUMN "page_count" INTEGER;
+ALTER TABLE "files" ADD COLUMN "line_count" INTEGER;
+ALTER TABLE "files" ADD COLUMN "character_count" INTEGER;
+ALTER TABLE "files" ADD COLUMN "overview" JSONB;
+ALTER TABLE "files" ADD COLUMN "locations" JSONB;
+ALTER TABLE "files" ADD COLUMN "processing_started_at" TIMESTAMP(3);
+ALTER TABLE "files" ADD COLUMN "processing_completed_at" TIMESTAMP(3);
+ALTER TABLE "files" ALTER COLUMN "width" DROP NOT NULL;
+ALTER TABLE "files" ALTER COLUMN "height" DROP NOT NULL;

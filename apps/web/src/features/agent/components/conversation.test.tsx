@@ -4,6 +4,61 @@ import { describe, expect, it, vi } from 'vitest';
 import { Composer, Conversation } from './conversation';
 
 describe('Composer image paste', () => {
+  it('shows a stable file error and routes retry for a failed document', () => {
+    const retry = vi.fn();
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentRetry={retry}
+        attachments={[
+          {
+            fileId: 'file-invalid-json',
+            fileName: 'bad.json',
+            mediaType: 'application/json',
+            fileKind: 'json',
+            size: 12,
+            status: 'failed',
+            errorCode: 'FILE_PARSE_FAILED',
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('文件格式无法解析');
+    fireEvent.click(screen.getByRole('button', { name: '重试bad.json' }));
+    expect(retry).toHaveBeenCalledWith('file-invalid-json');
+  });
+
+  it('shows rejected documents without a misleading loading indicator', () => {
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        attachments={[
+          {
+            fileId: 'file-no-text-pdf',
+            fileName: 'scan.pdf',
+            mediaType: 'application/pdf',
+            fileKind: 'pdf',
+            size: 12,
+            status: 'rejected',
+            errorCode: 'PDF_TEXT_UNAVAILABLE',
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('PDF 不包含可提取文本');
+    expect(screen.queryByText('重试')).not.toBeInTheDocument();
+  });
+
   it('routes clipboard images through the attachment callback', () => {
     const onAttachmentSelected = vi.fn();
     render(

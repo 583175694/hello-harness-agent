@@ -122,21 +122,43 @@ enum FileStatus {
   rejected
 }
 
+enum FileKind {
+  image
+  text
+  markdown
+  csv
+  json
+  pdf
+}
+
 model File {
   id             String     @id
   userId         String     @map("user_id")
   sessionId      String     @map("session_id")
   fileName       String     @map("file_name")
   mediaType      String     @map("media_type")
+  fileKind       FileKind   @map("file_kind")
   size           Int
   sha256         String
-  width          Int
-  height         Int
+  width          Int?
+  height         Int?
   status         FileStatus @default(processing)
   errorCode      String?    @map("error_code")
   retryable      Boolean    @default(false)
   originalKey    String?    @map("original_key")
   previewKey     String?    @map("preview_key")
+  // 规范化正文只供内部预览和模型上下文使用，不复制到 Message。
+  normalizedContent String? @map("normalized_content")
+  contentHash    String?    @map("content_hash")
+  parserVersion  String?    @map("parser_version")
+  pageCount      Int?       @map("page_count")
+  lineCount      Int?       @map("line_count")
+  characterCount Int?       @map("character_count")
+  // overview 保存格式摘要，locations 保存行号或页码定位。
+  overview       Json?      @map("overview")
+  locations      Json?      @map("locations")
+  processingStartedAt DateTime? @map("processing_started_at")
+  processingCompletedAt DateTime? @map("processing_completed_at")
   createdAt      DateTime   @default(now()) @map("created_at")
   updatedAt      DateTime   @updatedAt @map("updated_at")
   user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -155,6 +177,7 @@ enum FileCleanupStatus {
 }
 
 model FileCleanupTask {
+  // COS 删除失败时保留独立补偿任务，避免依赖 File 必须存在。
   id          String            @id
   sessionId   String            @map("session_id")
   fileId      String            @map("file_id")

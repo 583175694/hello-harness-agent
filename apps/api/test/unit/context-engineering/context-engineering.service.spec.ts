@@ -210,4 +210,37 @@ describe('ContextEngineeringService', () => {
     ).rejects.toThrow('CONTEXT_BUDGET_EXCEEDED');
     expect(model.generateText).toHaveBeenCalledTimes(2);
   });
+
+  it('keeps file content intact while compacting older history and counts it in the budget', async () => {
+    const { service, model } = createService();
+    const fileContent = '不可截断文件内容'.repeat(4_000);
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-v4-flash',
+      messages: [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: variedChinese(70_000) },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: '请分析附件' },
+            { type: 'file_ref', fileId: 'file-1', fileName: 'notes.txt', content: fileContent },
+          ],
+        },
+        ...Array.from({ length: 12 }, (_, index) => ({
+          role: 'user' as const,
+          content: `最近消息 ${index}`,
+        })),
+      ],
+    });
+    const fileMessage = compiled.messages.find(
+      (message) =>
+        message.role === 'user' &&
+        Array.isArray(message.content) &&
+        message.content.some((block) => block.type === 'file_ref'),
+    );
+    expect(fileMessage).toBeDefined();
+    expect(JSON.stringify(fileMessage)).toContain(fileContent);
+    expect(JSON.stringify(model.generateText.mock.calls)).not.toContain('不可截断文件内容');
+  }, 15_000);
 });

@@ -28,6 +28,7 @@ export class ContextEngineeringService {
   ) {}
 
   async compileRound(input: ContextCompileInput): Promise<CompiledContext> {
+    // 未验证上下文配置的模型保持原消息，不执行预算处理。
     const profile = getConfiguredModel(input.model)?.context;
     if (!profile?.verified) {
       return {
@@ -61,11 +62,18 @@ export class ContextEngineeringService {
     }
 
     if (estimatedInputTokens > promptBudget) {
+      // 文件正文不可静默丢弃，超限时返回文件专用错误。
       messages = this.clearOldToolResults(messages);
       estimatedInputTokens = await this.estimate(messages, input.tools);
     }
     if (estimatedInputTokens > promptBudget) {
-      throw new Error('CONTEXT_BUDGET_EXCEEDED');
+      const hasFile = messages.some(
+        (message) =>
+          message.role === 'user' &&
+          Array.isArray(message.content) &&
+          message.content.some((block) => block.type === 'file_ref'),
+      );
+      throw new Error(hasFile ? 'FILE_CONTEXT_TOO_LARGE' : 'CONTEXT_BUDGET_EXCEEDED');
     }
     return {
       messages,
@@ -82,6 +90,7 @@ export class ContextEngineeringService {
     candidates: ToolResultCandidate[],
     model: string,
   ): Promise<ContextToolResult[]> {
+    // 工具结果允许按预算裁剪，文件正文不走这条路径。
     const profile = getConfiguredModel(model)?.context;
     if (!profile?.verified || candidates.length === 0) {
       return Promise.all(
@@ -327,12 +336,24 @@ export class ContextEngineeringService {
 
   private findProtectedStart(history: ModelMessage[]): number {
     let start = Math.max(0, history.length - 12);
+    // 文件消息及之后的内容不能进入自动摘要前缀。
+    const firstFile = history.findIndex((message) => this.hasFileReference(message));
+    if (firstFile >= 0) start = Math.min(start, firstFile);
     while (start > 0 && history[start]?.role === 'tool') start -= 1;
     const boundary = history[start];
     if (boundary?.role === 'assistant' && boundary.toolCalls?.length) {
       start -= 1;
     }
     return start;
+  }
+
+  private hasFileReference(message: ModelMessage): boolean {
+    // 统一识别包含全文附件的用户消息。
+    return (
+      message.role === 'user' &&
+      Array.isArray(message.content) &&
+      message.content.some((block) => block.type === 'file_ref')
+    );
   }
 
   private clearOldToolResults(messages: ModelMessage[]): ModelMessage[] {
@@ -379,11 +400,13 @@ export class ContextEngineeringService {
       };
     }
     if (message.role === 'user' && Array.isArray(message.content)) {
+      // Token 估算必须包含文件正文，图片引用不计入文本字符。
       return {
         role: 'user' as const,
         content: message.content
-          .filter((block) => block.type === 'text')
-          .map((block) => block.text)
+          .map((block) =>
+            block.type === 'text' ? block.text : block.type === 'file_ref' ? block.content : '',
+          )
           .join(' '),
       };
     }

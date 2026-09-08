@@ -255,7 +255,8 @@ export class SessionsService implements OnModuleInit {
           size: number;
           width: number | null;
           height: number | null;
-          fileKind: 'image' | 'text' | 'markdown' | 'csv' | 'json' | 'pdf';
+          fileKind:
+            'image' | 'text' | 'markdown' | 'csv' | 'json' | 'pdf' | 'docx' | 'xlsx' | 'pptx';
           status: string;
           errorCode: string | null;
           previewKey: string | null;

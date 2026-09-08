@@ -129,6 +129,9 @@ enum FileKind {
   csv
   json
   pdf
+  docx
+  xlsx
+  pptx
 }
 
 model File {

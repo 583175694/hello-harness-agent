@@ -55,6 +55,25 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
   },
   {
+    id: 'deepseek-v4.1-flash-expires-on-0910',
+    label: 'DeepSeek V4.1 Flash (expires 0910)',
+    provider: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    supportsVision: true,
+    reasoningFormat: 'deepseek.reasoning_content.v1',
+    reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'] as const, default: 'high' },
+    context: {
+      contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
+      maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
+      compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
+      tokenizer: 'deepseek-v3' as const,
+      source: DEEPSEEK_MODEL_PROFILE_SOURCE,
+      // 图片标注该模型为内测/限时版本，单独保留为未完成权威确认的 profile。
+      verified: false,
+    },
+    request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
+  },
+  {
     id: 'deepseek-v4-pro',
     label: 'DeepSeek V4 Pro',
     provider: 'deepseek',

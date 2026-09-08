@@ -230,6 +230,40 @@
   color: var(--theme-text-primary);
 }
 
+:root[data-theme='dark'] .resource-workspace .activity-heading,
+:root[data-theme='dark'] .resource-workspace .execution-timeline,
+:root[data-theme='dark'] .resource-workspace .execution-detail dl > div,
+:root[data-theme='dark'] .resource-workspace .report-sources {
+  border-color: #303030;
+}
+
+:root[data-theme='dark'] .resource-workspace .execution-item:hover,
+:root[data-theme='dark'] .resource-workspace .execution-item.is-selected {
+  border-color: #383838;
+  background: #202020;
+}
+
+:root[data-theme='dark'] .resource-workspace .execution-item.is-selected {
+  box-shadow: inset 2px 0 0 #8a8a8a;
+}
+
+:root[data-theme='dark'] .resource-workspace .execution-detail,
+:root[data-theme='dark'] .resource-workspace .source-item {
+  border-color: #363636;
+  background: #1c1c1c;
+}
+
+:root[data-theme='dark'] .resource-workspace .execution-detail-heading h3,
+:root[data-theme='dark'] .resource-workspace .view-toolbar strong {
+  color: #eeeeee;
+}
+
+:root[data-theme='dark'] .resource-workspace .execution-detail > p,
+:root[data-theme='dark'] .resource-workspace .execution-detail dd,
+:root[data-theme='dark'] .resource-workspace .source-item p {
+  color: #b5b5b5;
+}
+
 :is(
   .session-list,
   .conversation-scroll,

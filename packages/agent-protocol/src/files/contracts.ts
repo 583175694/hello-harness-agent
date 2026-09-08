@@ -42,7 +42,9 @@ export const fileRefSchema = z.object({
   errorCode: z.string().min(1).optional(),
   previewUrl: z.string().min(1).optional(),
   // 兼容已有图片数据，因此文件类型允许缺省。
-  fileKind: z.enum(['image', 'text', 'markdown', 'csv', 'json', 'pdf']).optional(),
+  fileKind: z
+    .enum(['image', 'text', 'markdown', 'csv', 'json', 'pdf', 'docx', 'xlsx', 'pptx'])
+    .optional(),
   lineCount: z.number().int().nonnegative().optional(),
   pageCount: z.number().int().nonnegative().optional(),
   characterCount: z.number().int().nonnegative().optional(),

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PDFParse } from 'pdf-parse';
+import { OfficeParser } from 'officeparser';
 import { createHash } from 'node:crypto';
 
 // C1 文件大小、会话容量、正文字符数和 PDF 页数上限。
@@ -18,11 +19,14 @@ export const ALLOWED_DOCUMENT_TYPES = new Set([
   'text/csv',
   'application/json',
   'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 ]);
 // 防止压缩图片解码后占用过多内存。
 const MAX_DECODED_PIXELS = 40_000_000;
 
-type FileKind = 'image' | 'text' | 'markdown' | 'csv' | 'json' | 'pdf';
+type FileKind = 'image' | 'text' | 'markdown' | 'csv' | 'json' | 'pdf' | 'docx' | 'xlsx' | 'pptx';
 export type ParsedFile = {
   fileKind: FileKind;
   mediaType: string;
@@ -52,23 +56,25 @@ export class FileProcessingService {
     mimetype: string;
     originalname: string;
   }): Promise<ParsedFile> {
+    // Busboy 默认按 latin1 读取 multipart 文件名；浏览器上传中文名时先恢复 UTF-8。
+    const normalizedFile = { ...file, originalname: decodeMultipartFileName(file.originalname) };
     if (file.buffer.length === 0) throw this.reject('FILE_EMPTY', '文件为空。');
     if (file.buffer.length > MAX_FILE_BYTES)
       throw this.reject('FILE_TOO_LARGE', '文件超过 20 MiB 限制。');
     // 统一浏览器传入的 MIME，后续校验都使用归一化结果。
-    const mediaType = normalizeMediaType(file.mimetype, file.originalname);
+    const mediaType = normalizeMediaType(normalizedFile.mimetype, normalizedFile.originalname);
     if (!ALLOWED_IMAGE_TYPES.has(mediaType) && !ALLOWED_DOCUMENT_TYPES.has(mediaType))
       throw this.reject(
         'FILE_TYPE_UNSUPPORTED',
-        '仅支持图片、TXT、Markdown、CSV、JSON 和 PDF 文件。',
+        '仅支持图片、TXT、Markdown、CSV、JSON、PDF、DOCX、XLSX 和 PPTX 文件。',
       );
     if (!matchesMagic(file.buffer, mediaType))
       throw this.reject('FILE_SIGNATURE_MISMATCH', '文件类型与实际内容不一致。');
-    if (ALLOWED_IMAGE_TYPES.has(mediaType)) return this.processImage(file, mediaType);
+    if (ALLOWED_IMAGE_TYPES.has(mediaType)) return this.processImage(normalizedFile, mediaType);
     return {
       fileKind: kindFor(mediaType),
       mediaType,
-      fileName: file.originalname,
+      fileName: normalizedFile.originalname,
       size: file.buffer.length,
       sha256: sha256(file.buffer),
     };
@@ -119,6 +125,22 @@ export class FileProcessingService {
       }
       if (!normalizedContent.trim())
         throw this.reject('PDF_TEXT_UNAVAILABLE', 'PDF 不包含可提取文本，当前版本不支持 OCR。');
+    } else if (isOfficeKind(prepared.fileKind)) {
+      try {
+        const ast = await OfficeParser.parseOffice(buffer, {
+          fileType: prepared.fileKind,
+          extractAttachments: false,
+          ocr: false,
+        });
+        const markdown = (await ast.to('md')).value;
+        overview = officeOverview(ast, prepared.fileKind);
+        const sheetLabels = Array.isArray(overview.sheets)
+          ? overview.sheets.filter((value): value is string => typeof value === 'string')
+          : [];
+        normalizedContent = officeMarkdownWithBoundaries(markdown, prepared.fileKind, sheetLabels);
+      } catch (error) {
+        throw this.reject('FILE_PARSE_FAILED', 'Office 文件解析失败。');
+      }
     } else {
       const text = decodeUtf8(buffer);
       if (!text.trim()) throw this.reject('FILE_EMPTY', '文件内容为空。');
@@ -157,7 +179,7 @@ export class FileProcessingService {
       ...prepared,
       normalizedContent,
       contentHash: sha256(Buffer.from(normalizedContent)),
-      parserVersion: 'c1-b1-v1',
+      parserVersion: 'c1-b2-v1',
       pageCount,
       lineCount: normalizedContent ? normalizedContent.split('\n').length : 0,
       characterCount,
@@ -222,6 +244,9 @@ function normalizeMediaType(mediaType: string, name: string): string {
           csv: 'text/csv',
           json: 'application/json',
           pdf: 'application/pdf',
+          docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
         } as Record<string, string>
       )[ext ?? ''] ?? mediaType
     );
@@ -237,6 +262,9 @@ function kindFor(mediaType: string): FileKind {
       'text/csv': 'csv',
       'application/json': 'json',
       'application/pdf': 'pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
     } as Record<string, FileKind>
   )[mediaType]!;
 }
@@ -247,6 +275,12 @@ function sha256(input: Buffer): string {
 // 使用容错 UTF-8 解码文本，并移除文件开头的 BOM。
 function decodeUtf8(buffer: Buffer): string {
   return new TextDecoder('utf-8', { fatal: false }).decode(buffer).replace(/^\uFEFF/, '');
+}
+// 仅在出现典型 UTF-8 被误读为 latin1 的痕迹时转换，避免破坏本来就是 Unicode 的文件名。
+function decodeMultipartFileName(name: string): string {
+  if (!/[ÃÂÐÑæåäöü]|�/u.test(name)) return name;
+  const decoded = Buffer.from(name, 'latin1').toString('utf8');
+  return decoded.includes('\uFFFD') ? name : decoded;
 }
 // 解析 MVP 范围内的 CSV，并要求所有记录列数一致。
 function parseCsv(text: string): string[][] {
@@ -314,7 +348,66 @@ function matchesMagic(buffer: Buffer, mediaType: string): boolean {
       buffer.toString('ascii', 8, 12) === 'WEBP'
     );
   if (mediaType === 'application/pdf') return buffer.subarray(0, 5).toString('ascii') === '%PDF-';
+  if (mediaType.startsWith('application/vnd.openxmlformats-officedocument.'))
+    return (
+      buffer.length >= 4 && buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))
+    );
   return true;
+}
+
+function isOfficeKind(kind: FileKind): kind is 'docx' | 'xlsx' | 'pptx' {
+  return kind === 'docx' || kind === 'xlsx' || kind === 'pptx';
+}
+
+function officeMarkdownWithBoundaries(
+  markdown: string,
+  kind: 'docx' | 'xlsx' | 'pptx',
+  labels: string[] = [],
+): string {
+  const normalized = markdown.trim();
+  if (kind === 'xlsx' || kind === 'pptx') {
+    const sections = normalized
+      .split(/\n---\n+/)
+      .map((section) => section.trim())
+      .filter(Boolean);
+    return sections
+      .map((section, index) => {
+        const label =
+          kind === 'xlsx'
+            ? `[Sheet: ${labels[index] ?? `Sheet${index + 1}`}]`
+            : `[Slide ${index + 1}]`;
+        return `${label}\n\n${section}`;
+      })
+      .join('\n\n');
+  }
+  return normalized;
+}
+
+function officeOverview(
+  ast: { content?: Array<{ type?: string; metadata?: unknown }> },
+  kind: 'docx' | 'xlsx' | 'pptx',
+) {
+  const content = ast.content ?? [];
+  const overview: Record<string, unknown> = { format: kind };
+  if (kind === 'xlsx') {
+    const sheets = content.filter((node) => node.type === 'sheet');
+    overview.sheetCount = sheets.length;
+    overview.sheets = sheets
+      .map((sheet) => {
+        const metadata = sheet.metadata as { name?: unknown; sheetName?: unknown } | undefined;
+        const name = metadata?.sheetName ?? metadata?.name;
+        return typeof name === 'string' ? name : undefined;
+      })
+      .filter(Boolean);
+  } else if (kind === 'pptx') {
+    overview.slideCount = content.filter((node) => node.type === 'slide').length;
+  } else {
+    overview.paragraphCount = content.filter(
+      (node) => node.type === 'paragraph' || node.type === 'heading',
+    ).length;
+    overview.tableCount = content.filter((node) => node.type === 'table').length;
+  }
+  return overview;
 }
 // 将解析超时转换为稳定的业务错误码。
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

@@ -84,6 +84,23 @@ function fileErrorMessage(errorCode?: string): string {
   return FILE_ERROR_MESSAGES[errorCode ?? ''] ?? '文件处理失败';
 }
 
+function formatFileSize(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fileExtension(fileName: string): string {
+  return (fileName.split('.').pop() ?? 'FILE').toUpperCase();
+}
+
+function splitFileName(fileName: string): { prefix: string; suffix: string } {
+  const dot = fileName.lastIndexOf('.');
+  return dot > 0
+    ? { prefix: fileName.slice(0, dot), suffix: fileName.slice(dot) }
+    : { prefix: fileName, suffix: '' };
+}
+
 // 提供仅在悬停或键盘聚焦时出现的消息复制操作。
 export function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -222,8 +239,22 @@ const UserMessage = memo(function UserMessage({
                   role="img"
                   aria-label={`文件${attachment.fileName}`}
                 >
-                  <span>{(attachment.fileName.split('.').pop() ?? 'FILE').toUpperCase()}</span>
-                  <small>{attachment.fileName}</small>
+                  <span
+                    className={`file-card-icon file-card-icon--${fileExtension(attachment.fileName).toLowerCase()}`}
+                  >
+                    {fileExtension(attachment.fileName)}
+                  </span>
+                  <span className="user-attachment-document__details">
+                    <strong className="file-card-name">
+                      <span className="file-card-name__prefix">
+                        {splitFileName(attachment.fileName).prefix}
+                      </span>
+                      <span className="file-card-name__suffix">
+                        {splitFileName(attachment.fileName).suffix}
+                      </span>
+                    </strong>
+                    <small>{formatFileSize(attachment.size)}</small>
+                  </span>
                 </div>
               ),
             )}
@@ -1032,28 +1063,40 @@ export function Composer({
                   ) : null}
                 </button>
               ) : (
-                <div className="composer-attachment-preview__loading" title={item.fileName}>
+                <div
+                  className={`composer-attachment-preview__loading file-card-icon file-card-icon--${fileExtension(item.fileName).toLowerCase()}`}
+                  title={item.fileName}
+                >
                   {item.status === 'failed' ? (
                     <CircleAlert size={16} />
                   ) : item.status === 'rejected' ? (
                     <CircleAlert size={16} />
                   ) : item.status === 'ready' ? (
                     <span className="composer-attachment-preview__file">
-                      {(item.fileName.split('.').pop() ?? 'FILE').toUpperCase()}
+                      {fileExtension(item.fileName)}
                     </span>
                   ) : (
                     <LoaderCircle className="spin" size={16} />
                   )}
                 </div>
               )}
-              {item.status === 'failed' && item.errorCode ? (
-                <span className="composer-attachment-preview__error" role="status">
-                  {fileErrorMessage(item.errorCode)}
-                </span>
-              ) : item.status === 'rejected' && item.errorCode ? (
-                <span className="composer-attachment-preview__error" role="status">
-                  {fileErrorMessage(item.errorCode)}
-                </span>
+              {item.fileKind !== 'image' && !item.mediaType.startsWith('image/') ? (
+                <div className="composer-attachment-preview__details">
+                  <strong className="file-card-name" title={item.fileName}>
+                    <span className="file-card-name__prefix">
+                      {splitFileName(item.fileName).prefix}
+                    </span>
+                    <span className="file-card-name__suffix">
+                      {splitFileName(item.fileName).suffix}
+                    </span>
+                  </strong>
+                  <small>{formatFileSize(item.size)}</small>
+                  {item.status === 'failed' || item.status === 'rejected' ? (
+                    <span className="composer-attachment-preview__error" role="status">
+                      {fileErrorMessage(item.errorCode)}
+                    </span>
+                  ) : null}
+                </div>
               ) : null}
               {item.status === 'failed' ? (
                 // failed 表示可恢复错误，允许用户重新触发解析。
@@ -1086,7 +1129,7 @@ export function Composer({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp,.txt,.md,.csv,.json,.pdf"
+            accept="image/png,image/jpeg,image/webp,.txt,.md,.csv,.json,.pdf,.docx,.xlsx,.pptx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation"
             multiple
             hidden
             onChange={(event) => {

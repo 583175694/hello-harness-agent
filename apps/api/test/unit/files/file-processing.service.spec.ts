@@ -18,11 +18,20 @@ describe('FileProcessingService', () => {
     expect(result.normalizedContent).toBe('第一行\n第二行');
     expect(result.lineCount).toBe(2);
     expect(result.contentHash).toHaveLength(64);
-    expect(result.parserVersion).toBe('c1-b1-v1');
+    expect(result.parserVersion).toBe('c1-b2-v1');
     expect(result.locations).toEqual([
       { startOffset: 0, endOffset: 3, line: 1 },
       { startOffset: 4, endOffset: 7, line: 2 },
     ]);
+  });
+
+  it('repairs UTF-8 filenames decoded as latin1 by multipart parsing', async () => {
+    const result = await service.parse({
+      buffer: Buffer.from('中文文件内容'),
+      mimetype: 'text/plain',
+      originalname: 'æµè¯æä»¶.txt',
+    });
+    expect(result.fileName).toBe('测试文件.txt');
   });
 
   it('rejects blank text and inconsistent CSV rows', async () => {
@@ -76,5 +85,47 @@ describe('FileProcessingService', () => {
         originalname: 'bad.json',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('recognizes modern Office MIME types and rejects legacy Office formats', async () => {
+    const officeHeader = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+    for (const [extension, mediaType, fileKind] of [
+      ['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'docx'],
+      ['xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'xlsx'],
+      ['pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'pptx'],
+    ] as const) {
+      await expect(
+        service.validateAndPrepare({
+          buffer: officeHeader,
+          mimetype: 'application/octet-stream',
+          originalname: `中文.${extension}`,
+        }),
+      ).resolves.toMatchObject({ fileKind, mediaType, fileName: `中文.${extension}` });
+    }
+    await expect(
+      service.validateAndPrepare({
+        buffer: Buffer.from('legacy'),
+        mimetype: 'application/msword',
+        originalname: '旧文档.doc',
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'FILE_TYPE_UNSUPPORTED' }),
+    });
+  });
+
+  it('parses a Chinese DOCX buffer into normalized content', async () => {
+    const docx = Buffer.from(
+      'UEsDBBQAAAAIAJMQKV33S4B1wgAAAHYBAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbH2QuQ7CMAyGX6XKiqgRAwOiLMAKDLyAlbptRC7FLsfbk3INCBjt//gsLw7XSFxcnPVcqU4kzgFYd+SQyxDJZ6UJyaHkMbUQUR+xJZhOJjPQwQt5GcvQoZaLNTXYWyk2l7xmE3ylEllWxephHFiVwhit0ShZh5OvPyjjJ6HMybuHOxN5lA0KvhIG5TfgmdudKCVTU7HHJFt02QXnkGqog+5dTpb/a77cGZrGaHrnh7aYgiZm41tny7fi0PjX/XB/9/IGUEsDBBQAAAAIAJMQKV1hey9DiQAAAPIAAAALAAAAX3JlbHMvLnJlbHONzzsOAiEQBuCrEA6ws1pYGKCy2dZ4AQLDIy6PDBj19lJYrMbCcuaffH9GnHHVPZbcQqyNPdKam+Sh93oEaCZg0m0qFfNIXKGk+xjJQ9Xmqj3Cfp4PQFuDK7E12WIlp8XuOLs8K/5jF+eiwVMxt4S5/6j4uhiyJo9d8nshC/a9ngbLQQn4eFG9AFBLAwQUAAAACACTECldLXqblpAAAADLAAAAEQAAAHdvcmQvZG9jdW1lbnQueG1ssym3SslPLs1NzStRqMjNySu2KrdVyigpKbDS1y9OzkjNTSzWyy9IzQPKpeUX5SaWALlF6frl+UUpBUX5yanFxZl56bk5+kYGBmb6uYmZeUp2NuVWSfkplSC6AEQUgYgSuyc71j6b1v5sQfvLRTNs9EEiILIITBagK362djFQ8dO21qfrdmJRrA+zQh/hfDsAUEsBAhQDFAAAAAgAkxApXfdLgHXCAAAAdgEAABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAMUAAAACACTECldYXsvQ4kAAADyAAAACwAAAAAAAAAAAAAAgAHzAAAAX3JlbHMvLnJlbHNQSwECFAMUAAAACACTECldLXqblpAAAADLAAAAEQAAAAAAAAAAAAAAgAGlAQAAd29yZC9kb2N1bWVudC54bWxQSwUGAAAAAAMAAwC5AAAAZAIAAAAA',
+      'base64',
+    );
+    const result = await service.parse({
+      buffer: docx,
+      mimetype: 'application/octet-stream',
+      originalname: '中文文档.docx',
+    });
+    expect(result.fileKind).toBe('docx');
+    expect(result.normalizedContent).toContain('中文标题');
+    expect(result.normalizedContent).toContain('正文内容');
+    expect(result.overview).toMatchObject({ format: 'docx' });
   });
 });

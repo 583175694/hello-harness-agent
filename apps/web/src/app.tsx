@@ -161,11 +161,34 @@ function preferredProvenance(
   return left && priority[left] >= priority[right] ? left : right;
 }
 
+function workbenchHeader(executions: ReadonlyArray<{ toolName: string }>, sourceCount: number) {
+  // 根据当前调用集合选择 Workbench 标题和摘要。
+  const isFileTool = (toolName: string) =>
+    toolName === 'search_file' || toolName === 'read_file_lines';
+  const isWebTool = (toolName: string) => toolName === 'web_search' || toolName === 'web_fetch';
+  if (executions.length > 0 && executions.every((item) => isFileTool(item.toolName))) {
+    return { title: '文件读取', subtitle: `${executions.length} 次文件调用` };
+  }
+  if (executions.length > 0 && executions.every((item) => isWebTool(item.toolName))) {
+    return {
+      title: AGENT_UI_COPY.searchWorkbenchTitle,
+      subtitle: `${executions.length} 次调用 · ${sourceCount} 个来源`,
+    };
+  }
+  return {
+    title: '工具执行',
+    subtitle: sourceCount
+      ? `${executions.length} 次调用 · ${sourceCount} 个来源`
+      : `${executions.length} 次调用`,
+  };
+}
+
 // 将持久化 assistant metadata 投影为可恢复的轻量 Workbench。
 // eslint-disable-next-line react-refresh/only-export-components -- 导出纯投影函数供实时/恢复一致性单测复用。
 export function workbenchFromPersistedMessage(
   message: PersistedMessage,
 ): WorkbenchState | undefined {
+  // 从已持久化的 assistant metadata 恢复文件工具和来源投影。
   if (message.role !== 'assistant') return undefined;
   const metadata = assistantAgentMetadataSchema.safeParse(message.metadata);
   if (!metadata.success) return undefined;
@@ -217,13 +240,12 @@ export function workbenchFromPersistedMessage(
       toolCallIds: source.toolCallIds,
     };
   });
+  const header = workbenchHeader(executions, sourceViews.length);
   return {
     runId: message.runId ?? message.id,
-    title: context && !executions.length ? 'Context 调试' : AGENT_UI_COPY.searchWorkbenchTitle,
+    title: context && !executions.length ? 'Context 调试' : header.title,
     subtitle:
-      context && !executions.length
-        ? `Model Round ${context.roundSequence}`
-        : `${executions.length} 次调用 · ${sourceViews.length} 个来源`,
+      context && !executions.length ? `Model Round ${context.roundSequence}` : header.subtitle,
     activeView: sources.length ? 'sources' : context && !executions.length ? 'context' : 'activity',
     activityStatus: completedCount
       ? 'completed'
@@ -234,13 +256,19 @@ export function workbenchFromPersistedMessage(
       const isFetch = execution.toolName === 'web_fetch';
       const isApprovalTest = execution.toolName === 'approval_test';
       const isCurrentTime = execution.toolName === 'get_current_time';
+      const isFileSearch = execution.toolName === 'search_file';
+      const isFileReadLines = execution.toolName === 'read_file_lines';
       const inputSummary = isFetch
         ? `${execution.input.urls.length} 个网页${execution.input.query ? ` · ${execution.input.query}` : ''}`
         : isApprovalTest
           ? execution.input.message
           : isCurrentTime
             ? '获取当前日期和时间'
-            : execution.input.query;
+            : isFileSearch
+              ? `${execution.input.fileId} · ${execution.input.query}`
+              : isFileReadLines
+                ? `${execution.input.fileId} · ${execution.input.startLine}-${execution.input.endLine} 行`
+                : execution.input.query;
       return {
         toolCallId: execution.toolCallId,
         runId: message.runId ?? message.id,
@@ -252,14 +280,22 @@ export function workbenchFromPersistedMessage(
             ? '运行审批测试'
             : isCurrentTime
               ? '获取当前日期和时间'
-              : `搜索：${execution.input.query}`,
+              : isFileSearch
+                ? `搜索文件：${execution.input.query}`
+                : isFileReadLines
+                  ? `读取文件：${execution.input.startLine}-${execution.input.endLine} 行`
+                  : `搜索：${execution.input.query}`,
         detail:
           execution.status === 'completed'
             ? isFetch
               ? '网页原文读取已完成'
               : isApprovalTest
                 ? '审批测试已完成'
-                : '公开网页检索已完成'
+                : isFileSearch
+                  ? '文件关键词搜索已完成'
+                  : isFileReadLines
+                    ? '文件行读取已完成'
+                    : '公开网页检索已完成'
             : execution.status === 'cancelled'
               ? '工具调用已取消'
               : '工具调用未完成',
@@ -270,7 +306,11 @@ export function workbenchFromPersistedMessage(
           execution.status === 'completed'
             ? isFetch
               ? `成功 ${execution.succeededCount ?? 0} 个，失败 ${execution.failedCount ?? 0} 个，提取 ${execution.passageCount ?? 0} 段原文`
-              : `返回 ${execution.resultCount ?? 0} 条网页结果`
+              : isFileSearch
+                ? `返回 ${execution.resultCount ?? 0} 个文件命中`
+                : isFileReadLines
+                  ? `返回 ${execution.resultCount ?? 0} 行文件内容`
+                  : `返回 ${execution.resultCount ?? 0} 条网页结果`
             : execution.error?.detail,
         resultCount: execution.resultCount,
         sourceCount: isFetch ? execution.succeededCount : execution.resultCount,
@@ -292,6 +332,7 @@ export function applyToolEvent(
   open: boolean,
   currentUserUrls: ReadonlySet<string> = new Set(),
 ): WorkbenchState {
+  // 将实时工具事件归约为当前会话的 Workbench 状态。
   const base: WorkbenchState = current ?? {
     runId: event.messageId,
     title: AGENT_UI_COPY.searchWorkbenchTitle,
@@ -307,13 +348,19 @@ export function applyToolEvent(
     const isFetch = event.toolName === 'web_fetch';
     const isApprovalTest = event.toolName === 'approval_test';
     const isCurrentTime = event.toolName === 'get_current_time';
+    const isFileSearch = event.toolName === 'search_file';
+    const isFileReadLines = event.toolName === 'read_file_lines';
     const inputSummary = isFetch
       ? `${event.input.urls.length} 个网页${event.input.query ? ` · ${event.input.query}` : ''}`
       : isApprovalTest
         ? event.input.message
         : isCurrentTime
           ? '获取当前日期和时间'
-          : event.input.query;
+          : isFileSearch
+            ? `${event.input.fileId} · ${event.input.query}`
+            : isFileReadLines
+              ? `${event.input.fileId} · ${event.input.startLine}-${event.input.endLine} 行`
+              : event.input.query;
     const tool: ToolCallView = {
       toolCallId: event.toolCallId,
       runId: event.messageId,
@@ -325,14 +372,20 @@ export function applyToolEvent(
           ? '运行审批测试'
           : isCurrentTime
             ? '获取当前日期和时间'
-            : `搜索：${event.input.query}`,
+            : isFileSearch
+              ? `搜索文件：${event.input.query}`
+              : isFileReadLines
+                ? `读取文件：${event.input.startLine}-${event.input.endLine} 行`
+                : `搜索：${event.input.query}`,
       detail: isFetch
         ? '正在读取和过滤网页正文'
         : isApprovalTest
           ? '正在执行已批准的无副作用工具'
           : isCurrentTime
             ? '正在获取当前日期和时间'
-            : '正在搜索公开网页',
+            : isFileSearch || isFileReadLines
+              ? '正在读取用户文件'
+              : '正在搜索公开网页',
       status: 'running',
       elapsed: '进行中',
       inputSummary,
@@ -340,9 +393,12 @@ export function applyToolEvent(
     const executions = base.executions.some((item) => item.toolCallId === event.toolCallId)
       ? base.executions
       : [...base.executions, tool];
+    const header = workbenchHeader(executions, base.sources.length);
     return {
       ...base,
       open,
+      title: header.title,
+      subtitle: header.subtitle,
       activityStatus: 'running',
       executions,
       focusTarget: {
@@ -367,6 +423,10 @@ export function applyToolEvent(
     completedEvent?.toolName === 'approval_test' ? completedEvent : undefined;
   const completedCurrentTime =
     completedEvent?.toolName === 'get_current_time' ? completedEvent : undefined;
+  const completedFileSearch =
+    completedEvent?.toolName === 'search_file' ? completedEvent : undefined;
+  const completedFileReadLines =
+    completedEvent?.toolName === 'read_file_lines' ? completedEvent : undefined;
   const fetchSucceeded =
     completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
   const executions = base.executions.map((tool) =>
@@ -381,7 +441,11 @@ export function applyToolEvent(
                 ? '审批测试已完成'
                 : completedCurrentTime
                   ? '当前时间已获取'
-                  : '公开网页检索已完成'
+                  : completedFileSearch
+                    ? '文件关键词搜索已完成'
+                    : completedFileReadLines
+                      ? '文件行读取已完成'
+                      : '公开网页检索已完成'
             : (cancelledEvent?.detail ?? failedEvent?.detail ?? '工具执行失败'),
           elapsed: formatToolDuration(event.durationMs),
           outputSummary: completedEvent
@@ -391,20 +455,32 @@ export function applyToolEvent(
                 ? `返回：${completedApproval.result.echoed}`
                 : completedCurrentTime
                   ? '已返回当前时间'
-                  : `返回 ${completedEvent?.toolName === 'web_search' ? completedEvent.result.results.length : 0} 条网页结果`
+                  : completedFileSearch
+                    ? `返回 ${completedFileSearch.result.matches.length} 个文件命中`
+                    : completedFileReadLines
+                      ? `返回 ${completedFileReadLines.result.lines.length} 行文件内容`
+                      : `返回 ${completedEvent?.toolName === 'web_search' ? completedEvent.result.results.length : 0} 条网页结果`
             : (cancelledEvent?.detail ?? failedEvent?.detail),
           resultCount:
             completedEvent &&
             (completedEvent.toolName === 'web_search' || completedEvent.toolName === 'web_fetch')
               ? completedEvent.result.results.length
-              : undefined,
+              : completedFileSearch
+                ? completedFileSearch.result.matches.length
+                : completedFileReadLines
+                  ? completedFileReadLines.result.lines.length
+                  : undefined,
           sourceCount: completedFetch
             ? fetchSucceeded.length
             : completedEvent &&
                 (completedEvent.toolName === 'web_search' ||
                   completedEvent.toolName === 'web_fetch')
               ? completedEvent.result.results.length
-              : undefined,
+              : completedFileSearch
+                ? completedFileSearch.result.matches.length
+                : completedFileReadLines
+                  ? completedFileReadLines.result.lines.length
+                  : undefined,
         }
       : tool,
   );
@@ -517,11 +593,13 @@ export function applyToolEvent(
       }
     }
   }
+  const header = workbenchHeader(executions, sources.length);
   return {
     ...base,
     open,
+    title: header.title,
     activityStatus: cancelledEvent ? 'cancelled' : base.activityStatus,
-    subtitle: `${executions.length} 次调用 · ${sources.length} 个来源`,
+    subtitle: header.subtitle,
     activeView: event.type === 'tool.completed' && sources.length ? 'sources' : base.activeView,
     executions,
     sources,
@@ -530,6 +608,7 @@ export function applyToolEvent(
 
 // 将持久化消息转换为 Conversation 可直接渲染的项目。
 function toConversationItem(message: PersistedMessage): ConversationItem {
+  // 将后端消息转换为会话区域使用的用户或 assistant 项目。
   if (message.role === 'user')
     return {
       id: message.id,
@@ -600,10 +679,11 @@ function mergePendingSteerState(
 }
 
 function uniquePendingInputs(items: PendingUserInputView[]): PendingUserInputView[] {
+  // 合并重复的 Pending Input，并按服务端序号恢复稳定顺序。
   const merged = new Map<string, PendingUserInputView>();
   for (const item of items) {
     const previous = merged.get(item.id);
-    // A delayed full-list update must not roll an already promoted Steer back to Follow-up.
+    // 延迟到达的全量列表不能把已提升的 Steer 回滚成 Follow-up。
     if (!previous || item.kind === 'steer' || previous.status !== 'pending')
       merged.set(item.id, item);
   }
@@ -673,10 +753,14 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   const [draftPending, setDraftPending] = useState(false);
   const [draftState, setDraftState] = useState<AgentUiState>(() => makeFixture('empty'));
   const [prompt, setPrompt] = useState('');
+  // 当前待发送消息已上传或正在上传的附件。
   const [attachments, setAttachments] = useState<FileRef[]>([]);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
+  // 附件数量的即时值，供并发上传回调执行上限判断。
   const attachmentCountRef = useRef(0);
+  // 每个上传任务的取消控制器。
   const attachmentControllersRef = useRef<Record<string, AbortController>>({});
+  // 暂存失败或取消前的本地 File，供重新上传使用。
   const attachmentFilesRef = useRef<Record<string, File>>({});
   const [error, setError] = useState<string | null>(null);
   const [pendingInputs, setPendingInputs] = useState<PendingUserInputView[]>([]);
@@ -690,6 +774,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   const selectedSessionIdRef = useRef<string | null>(null);
   const pendingSessionsRef = useRef<Record<string, boolean>>({});
   const runControllersRef = useRef<Record<string, AbortController>>({});
+  // 每个 Run 最后成功归约的 SSE cursor。
   const runSequencesRef = useRef<Record<string, number>>({});
   const sessionStatesRef = useRef<Record<string, AgentUiState>>({});
   // 草稿提交在创建持久化 Session 前可能跨越一次导航；递增 token 让旧请求失去“抢回”当前视图的资格。
@@ -1082,13 +1167,19 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         const existing = target.workbench?.runId === event.runId ? target.workbench : undefined;
         const suppressed = target.autoOpenSuppressedRunIds?.includes(event.runId) ?? false;
         const hasNewResource =
-          toolEvent.type === 'tool.completed' &&
-          (toolEvent.toolName === 'web_search'
-            ? toolEvent.result.results.length > 0
-            : toolEvent.toolName === 'web_fetch' &&
-              toolEvent.result.results.some(
-                (item) => item.status === 'succeeded' && item.passages.length > 0,
-              ));
+          (toolEvent.type === 'tool.completed' &&
+            (toolEvent.toolName === 'web_search'
+              ? toolEvent.result.results.length > 0
+              : toolEvent.toolName === 'web_fetch' &&
+                toolEvent.result.results.some(
+                  (item) => item.status === 'succeeded' && item.passages.length > 0,
+                ))) ||
+          (toolEvent.type === 'tool.completed' &&
+            toolEvent.toolName === 'search_file' &&
+            toolEvent.result.matches.length > 0) ||
+          (toolEvent.type === 'tool.completed' &&
+            toolEvent.toolName === 'read_file_lines' &&
+            toolEvent.result.lines.length > 0);
         const currentUserUrls = new Set(
           [...task.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)].map((match) =>
             canonicalUrl(match[0].replace(/[.,;:!?，。；：！？]+$/gu, '')),
@@ -1262,7 +1353,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         setError(getErrorMessage(requestError));
       });
     return () => controller.abort();
-    // Initial bootstrap intentionally runs once; subsequent session loads are user or Run driven.
+    // 初始化只执行一次；后续会话加载由用户操作或 Run 驱动。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1488,6 +1579,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   // 提交消息；空白草稿先建会话，之后捕获稳定 targetId，异步流只更新该 Session。
   // 用户在生成期间切换到其他会话也不会让 Event 写入当前选中的错误目标。
   // 先显示本地临时缩略图，再上传图片并替换为服务端预览引用。
+  // 上传附件并等待文本解析完成后再允许绑定消息。
   async function handleAttachment(file: File): Promise<void> {
     // 上传前预占附件名额，避免多选文件并发回调使用旧状态。
     if (attachmentCountRef.current >= 4) {
@@ -1562,6 +1654,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     }
   }
 
+  // 从当前消息移除附件，并清理尚未发送的服务端文件。
   function removeAttachment(fileId: string): void {
     attachmentControllersRef.current[fileId]?.abort();
     delete attachmentFilesRef.current[fileId];

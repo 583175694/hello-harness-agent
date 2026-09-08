@@ -2,13 +2,16 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PDFParse } from 'pdf-parse';
 import { createHash } from 'node:crypto';
 
-// C1-B.1 的容量、页数、正文和解析时间上限集中在解析层定义。
+// C1 文件大小、会话容量、正文字符数和 PDF 页数上限。
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_SESSION_FILE_BYTES = 100 * 1024 * 1024;
 export const MAX_PARSED_CODE_POINTS = 40_000;
 export const MAX_PDF_PAGES = 200;
+// 单个文件解析任务的最长执行时间。
 export const FILE_PARSE_TIMEOUT_MS = 30_000;
+// 支持的图片 MIME 类型。
 export const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+// 支持解析为规范化正文的文档 MIME 类型。
 export const ALLOWED_DOCUMENT_TYPES = new Set([
   'text/plain',
   'text/markdown',
@@ -16,6 +19,7 @@ export const ALLOWED_DOCUMENT_TYPES = new Set([
   'application/json',
   'application/pdf',
 ]);
+// 防止压缩图片解码后占用过多内存。
 const MAX_DECODED_PIXELS = 40_000_000;
 
 type FileKind = 'image' | 'text' | 'markdown' | 'csv' | 'json' | 'pdf';
@@ -51,6 +55,7 @@ export class FileProcessingService {
     if (file.buffer.length === 0) throw this.reject('FILE_EMPTY', '文件为空。');
     if (file.buffer.length > MAX_FILE_BYTES)
       throw this.reject('FILE_TOO_LARGE', '文件超过 20 MiB 限制。');
+    // 统一浏览器传入的 MIME，后续校验都使用归一化结果。
     const mediaType = normalizeMediaType(file.mimetype, file.originalname);
     if (!ALLOWED_IMAGE_TYPES.has(mediaType) && !ALLOWED_DOCUMENT_TYPES.has(mediaType))
       throw this.reject(
@@ -82,6 +87,7 @@ export class FileProcessingService {
 
   // 将各类文档转换为可注入模型的规范化文本和定位信息。
   private async parseDocument(buffer: Buffer, prepared: ParsedFile): Promise<ParsedFile> {
+    // normalizedContent 是搜索和按行读取的唯一正文来源。
     let normalizedContent = '';
     let pageCount: number | undefined;
     let locations: ParsedFile['locations'];
@@ -161,6 +167,7 @@ export class FileProcessingService {
   }
 
   // 校验图片尺寸并生成受限尺寸的 WebP 预览。
+  // 解码图片、校验尺寸并生成供前端预览的 WebP 缩略图。
   private async processImage(
     file: { buffer: Buffer; mimetype: string; originalname: string },
     mediaType: string,
@@ -195,12 +202,14 @@ export class FileProcessingService {
     }
   }
 
+  // 创建带稳定错误码和用户提示的上传或解析异常。
   private reject(code: string, detail: string): BadRequestException {
     return new BadRequestException({ code, detail });
   }
 }
 
 // 对浏览器常见的通用 MIME 按扩展名做有限归一化。
+// 根据 MIME 和扩展名有限归一化文件类型，兼容浏览器常见上传结果。
 function normalizeMediaType(mediaType: string, name: string): string {
   if (mediaType === 'text/plain' && /\.md$/i.test(name)) return 'text/markdown';
   if (mediaType === 'application/octet-stream') {
@@ -219,6 +228,7 @@ function normalizeMediaType(mediaType: string, name: string): string {
   }
   return mediaType;
 }
+// 将规范化 MIME 映射到协议使用的文件种类。
 function kindFor(mediaType: string): FileKind {
   return (
     {
@@ -230,14 +240,17 @@ function kindFor(mediaType: string): FileKind {
     } as Record<string, FileKind>
   )[mediaType]!;
 }
+// 计算原文件或规范化正文的内容哈希。
 function sha256(input: Buffer): string {
   return createHash('sha256').update(input).digest('hex');
 }
+// 使用容错 UTF-8 解码文本，并移除文件开头的 BOM。
 function decodeUtf8(buffer: Buffer): string {
   return new TextDecoder('utf-8', { fatal: false }).decode(buffer).replace(/^\uFEFF/, '');
 }
 // 解析 MVP 范围内的 CSV，并要求所有记录列数一致。
 function parseCsv(text: string): string[][] {
+  // 逐行解析 MVP 支持的 CSV 语法，并在最后统一校验列数。
   const rows = text
     .trimEnd()
     .split(/\r?\n/)
@@ -274,6 +287,7 @@ function parseCsv(text: string): string[][] {
   return rows;
 }
 // 为规范化文本生成从 1 开始的行号和字符偏移。
+// 为规范化文本生成从 1 开始的行号和字符偏移。
 function lineLocations(text: string): ParsedFile['locations'] {
   const locations: NonNullable<ParsedFile['locations']> = [];
   let offset = 0;
@@ -284,6 +298,7 @@ function lineLocations(text: string): ParsedFile['locations'] {
   return locations;
 }
 // 校验具备稳定文件头的格式，降低伪造 MIME 风险。
+// 校验图片和 PDF 的文件头，避免只依赖客户端声明的 MIME。
 function matchesMagic(buffer: Buffer, mediaType: string): boolean {
   if (mediaType === 'image/png')
     return (
@@ -303,6 +318,7 @@ function matchesMagic(buffer: Buffer, mediaType: string): boolean {
 }
 // 将解析超时转换为稳定的业务错误码。
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  // 将底层解析超时转换为稳定的业务错误，并清理定时器。
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([

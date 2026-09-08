@@ -64,6 +64,28 @@ describe('ContextEngineeringService', () => {
     expect(result.every((item) => item.content.includes('搜索结果'))).toBe(true);
   }, 15_000);
 
+  it('replaces an oversized file Tool Result with an explicit context error', async () => {
+    const { service } = createService();
+    const [result] = await service.trimToolResults(
+      [{ role: 'system', content: variedChinese(115_000) }],
+      undefined,
+      [
+        {
+          toolCallId: 'file-one',
+          toolName: 'read_file_lines',
+          content: '文件'.repeat(6_000),
+          truncatable: false,
+        },
+      ],
+      'deepseek-v4-flash',
+    );
+
+    expect(result?.truncated).toBe(true);
+    expect(JSON.parse(result?.content ?? '{}')).toMatchObject({
+      error: { code: 'FILE_CONTEXT_RESULT_TOO_LARGE' },
+    });
+  }, 15_000);
+
   it('compacts a closed historical prefix and persists the coverage boundary', async () => {
     const { service, model } = createService();
     const largeHistory = variedChinese(100_000);

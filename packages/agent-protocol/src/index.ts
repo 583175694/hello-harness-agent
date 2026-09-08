@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { AGENT_PROTOCOL_LIMITS } from './common/constants.js';
-import { userContentBlockSchema } from './files/contracts.js';
+import {
+  userContentBlockSchema,
+  fileSearchInputSchema,
+  fileSearchResultSchema,
+  fileReadLinesInputSchema,
+  fileReadLinesResultSchema,
+} from './files/contracts.js';
 export * from './common/problem.js';
 export * from './common/status.js';
 export * from './common/constants.js';
@@ -236,6 +242,14 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
     toolName: z.literal('get_current_time'),
     input: z.object({}),
   }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal('search_file'),
+    input: fileSearchInputSchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal('read_file_lines'),
+    input: fileReadLinesInputSchema,
+  }),
 ]);
 
 // 标识来源 URL 在当前 assistant run 中如何进入模型规划范围。
@@ -416,6 +430,32 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     input: webFetchInputSchema,
     startedAt: z.string().datetime(),
   }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('search_file'),
+    title: z.string().min(1),
+    input: fileSearchInputSchema,
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('read_file_lines'),
+    title: z.string().min(1),
+    input: fileReadLinesInputSchema,
+    startedAt: z.string().datetime(),
+  }),
 ]);
 
 const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
@@ -475,6 +515,32 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
       time: z.string(),
       timezone: z.literal('Asia/Shanghai'),
     }),
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('search_file'),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: fileSearchResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('read_file_lines'),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: fileReadLinesResultSchema,
   }),
 ]);
 

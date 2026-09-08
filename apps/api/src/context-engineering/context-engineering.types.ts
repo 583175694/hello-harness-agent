@@ -13,6 +13,8 @@ export type ToolResultCandidate = {
   toolCallId: string;
   toolName: string;
   content: string;
+  // 文件工具结果不可由通用裁剪器静默截断。
+  truncatable?: boolean;
 };
 
 export type ContextCompileInput = {

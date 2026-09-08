@@ -5,7 +5,7 @@ type MessageOrderValue = {
   createdAt: Date;
 };
 
-// PostgreSQL's transaction timestamp is identical for a Run's user message and assistant draft.
+// PostgreSQL 的事务时间戳对同一 Run 的用户消息和 assistant 草稿可能相同。
 export function compareMessageOrder(left: MessageOrderValue, right: MessageOrderValue): number {
   const byTime = left.createdAt.getTime() - right.createdAt.getTime();
   if (byTime !== 0) return byTime;

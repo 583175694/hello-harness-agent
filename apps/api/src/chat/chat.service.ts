@@ -3,12 +3,15 @@ import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
+import { fileSearchInputSchema, fileReadLinesInputSchema } from '@harness/agent-protocol';
 import type {
   ChatStreamEvent,
   ModelRoundObservation,
   ResearchSourceSnapshot,
   RunObservability,
   SearchToolResult,
+  FileSearchResult,
+  FileReadLinesResult,
   WebFetchInput,
   WebFetchResult,
   PlanSnapshot,
@@ -276,9 +279,13 @@ export class ChatService {
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
         const isApprovalTest = event.toolName === AGENT_TOOL_NAMES.approvalTest;
         const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
+        const isFileSearch = event.toolName === AGENT_TOOL_NAMES.searchFile;
+        const isFileReadLines = event.toolName === AGENT_TOOL_NAMES.readFileLines;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput =
-          isFetch || isApprovalTest || isCurrentTime ? undefined : this.asSearchInput(event.input);
+          isFetch || isApprovalTest || isCurrentTime || isFileSearch || isFileReadLines
+            ? undefined
+            : this.asSearchInput(event.input);
         let toolSummary = searchInput?.query ?? '';
         if (fetchInput) {
           toolSummary = `读取 ${fetchInput.urls.length} 个网页`;
@@ -286,6 +293,14 @@ export class ChatService {
           toolSummary = String((event.input as { message?: unknown }).message ?? '');
         } else if (isCurrentTime) {
           toolSummary = '获取当前日期和时间';
+        } else if (isFileSearch) {
+          const parsed = fileSearchInputSchema.safeParse(event.input);
+          toolSummary = parsed.success ? `搜索文件 ${parsed.data.fileId}` : '搜索文件';
+        } else if (isFileReadLines) {
+          const parsed = fileReadLinesInputSchema.safeParse(event.input);
+          toolSummary = parsed.success
+            ? `读取文件 ${parsed.data.startLine}-${parsed.data.endLine} 行`
+            : '读取文件行';
         }
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
@@ -339,6 +354,34 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
+        } else if (isFileSearch) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.searchFile,
+            title: block.title,
+            input: fileSearchInputSchema.parse(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (isFileReadLines) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.readFileLines,
+            title: block.title,
+            input: fileReadLinesInputSchema.parse(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
         } else {
           yield {
             type: 'tool.started',
@@ -360,11 +403,17 @@ export class ChatService {
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
         const isApprovalTest = event.toolName === AGENT_TOOL_NAMES.approvalTest;
         const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
+        const isFileSearch = event.toolName === AGENT_TOOL_NAMES.searchFile;
+        const isFileReadLines = event.toolName === AGENT_TOOL_NAMES.readFileLines;
         const fetchResult = isFetch ? (event.output as WebFetchResult) : undefined;
         const searchResult =
-          isFetch || isApprovalTest || isCurrentTime
+          isFetch || isApprovalTest || isCurrentTime || isFileSearch || isFileReadLines
             ? undefined
             : (event.output as SearchToolResult);
+        const fileSearchResult = isFileSearch ? (event.output as FileSearchResult) : undefined;
+        const fileReadLinesResult = isFileReadLines
+          ? (event.output as FileReadLinesResult)
+          : undefined;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
         if (fetchResult && fetchInput) {
@@ -390,6 +439,22 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
           });
+        } else if (fileSearchResult) {
+          projection.recordFileSearchCompleted({
+            toolCallId: event.toolCallId,
+            toolInput: fileSearchInputSchema.parse(event.input),
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: fileSearchResult,
+          });
+        } else if (fileReadLinesResult) {
+          projection.recordFileReadLinesCompleted({
+            toolCallId: event.toolCallId,
+            toolInput: fileReadLinesInputSchema.parse(event.input),
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: fileReadLinesResult,
+          });
         }
         const blockId = conversation.completeTool({
           toolCallId: event.toolCallId,
@@ -401,7 +466,11 @@ export class ChatService {
               ? '审批测试已完成'
               : isCurrentTime
                 ? '当前时间已获取'
-                : `找到 ${searchResult?.results.length ?? 0} 个结果`,
+                : fileSearchResult
+                  ? `找到 ${fileSearchResult.matches.length} 个文件命中`
+                  : fileReadLinesResult
+                    ? `读取 ${fileReadLinesResult.lines.length} 行文件内容`
+                    : `找到 ${searchResult?.results.length ?? 0} 个结果`,
         });
         await notifyProjection();
         if (fetchResult) {
@@ -461,6 +530,34 @@ export class ChatService {
               time: string;
               timezone: 'Asia/Shanghai';
             },
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (fileSearchResult) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.searchFile,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: fileSearchResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (fileReadLinesResult) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.readFileLines,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: fileReadLinesResult,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -669,6 +766,18 @@ export class ChatService {
     }
     if (toolName === AGENT_TOOL_NAMES.webSearch) {
       return { toolName: AGENT_TOOL_NAMES.webSearch, input: this.asSearchInput(input) } as const;
+    }
+    if (toolName === AGENT_TOOL_NAMES.searchFile) {
+      const parsed = fileSearchInputSchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.searchFile, input: parsed.data }
+        : undefined;
+    }
+    if (toolName === AGENT_TOOL_NAMES.readFileLines) {
+      const parsed = fileReadLinesInputSchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.readFileLines, input: parsed.data }
+        : undefined;
     }
     if (
       toolName === AGENT_TOOL_NAMES.approvalTest &&

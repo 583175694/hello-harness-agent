@@ -10,7 +10,7 @@ function makeService(overrides: Record<string, unknown> = {}) {
       update: vi.fn(),
     },
   };
-  const storage = { readObject: vi.fn() };
+  const storage = { readObject: vi.fn(), putNormalized: vi.fn() };
   const processor = { parse: vi.fn() };
   const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
   Object.assign(prisma, overrides);
@@ -22,6 +22,7 @@ function makeService(overrides: Record<string, unknown> = {}) {
       logger as never,
     ),
     prisma,
+    processor,
     storage,
     logger,
   };
@@ -30,14 +31,16 @@ function makeService(overrides: Record<string, unknown> = {}) {
 describe('FilesService recovery', () => {
   it('converges processing files after restart and preserves storage distinction', async () => {
     const { service, prisma, logger } = makeService();
-    prisma.file.findMany.mockResolvedValue([
-      {
-        id: 'file-with-object',
-        sessionId: 'session-1',
-        originalKey: 'sessions/session-1/files/file-with-object/original',
-      },
-      { id: 'file-without-object', sessionId: 'session-1', originalKey: null },
-    ]);
+    prisma.file.findMany
+      .mockResolvedValueOnce([
+        {
+          id: 'file-with-object',
+          sessionId: 'session-1',
+          originalKey: 'sessions/session-1/files/file-with-object/original',
+        },
+        { id: 'file-without-object', sessionId: 'session-1', originalKey: null },
+      ])
+      .mockResolvedValueOnce([]);
 
     await service.onModuleInit();
 
@@ -64,6 +67,57 @@ describe('FilesService recovery', () => {
       }),
     );
     expect(logger.warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('rebuilds normalized COS objects for ready B.1 files during startup', async () => {
+    const { service, prisma, processor, storage } = makeService();
+    prisma.file.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: 'legacy-file',
+        sessionId: 'session-1',
+        fileName: 'legacy.txt',
+        mediaType: 'text/plain',
+      },
+    ]);
+    prisma.file.updateMany.mockResolvedValue({ count: 1 });
+    storage.readObject.mockResolvedValue({ content: Buffer.from('旧文件正文') });
+    storage.putNormalized.mockResolvedValue({
+      objectKey: 'sessions/session-1/files/legacy-file/normalized',
+    });
+    processor.parse.mockResolvedValue({
+      fileKind: 'text',
+      normalizedContent: '旧文件正文',
+      contentHash: 'normalized-hash',
+      parserVersion: 'c1-b1-v1',
+      pageCount: null,
+      lineCount: 1,
+      characterCount: 5,
+      overview: { format: 'text' },
+    });
+
+    await service.onModuleInit();
+
+    expect(storage.readObject).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      fileId: 'legacy-file',
+      variant: 'original',
+    });
+    expect(storage.putNormalized).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-1',
+        fileId: 'legacy-file',
+        content: Buffer.from('旧文件正文'),
+      }),
+    );
+    expect(prisma.file.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'legacy-file' },
+        data: expect.objectContaining({
+          normalizedKey: 'sessions/session-1/files/legacy-file/normalized',
+          status: 'ready',
+        }),
+      }),
+    );
   });
 
   it('logs and returns a stable error when retry cannot read COS', async () => {

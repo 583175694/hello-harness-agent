@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { getDeepSeekV3TokenEstimator, type DeepSeekMessage } from '@harness/deepseek-v3-tokenizer';
+import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
 import { getConfiguredModel } from '../model/model-catalog';
 import { ModelAdapter } from '../model/model-adapter';
@@ -20,6 +21,7 @@ const COMPACTION_PROMPT = `Summarize the closed historical transcript for contin
 
 @Injectable()
 export class ContextEngineeringService {
+  // 本地 tokenizer 用于在调用模型前估算上下文占用。
   private readonly estimator = getDeepSeekV3TokenEstimator();
 
   constructor(
@@ -27,6 +29,7 @@ export class ContextEngineeringService {
     @Inject(ModelAdapter) private readonly model: ModelAdapter,
   ) {}
 
+  // 编译单轮模型上下文，必要时压缩历史并严格检查输入预算。
   async compileRound(input: ContextCompileInput): Promise<CompiledContext> {
     // 未验证上下文配置的模型保持原消息，不执行预算处理。
     const profile = getConfiguredModel(input.model)?.context;
@@ -84,6 +87,7 @@ export class ContextEngineeringService {
     };
   }
 
+  // 按剩余上下文预算分配工具结果；不可裁剪的文件结果改为明确报错。
   async trimToolResults(
     messages: ModelMessage[],
     tools: AgentToolDefinition[] | undefined,
@@ -117,7 +121,16 @@ export class ContextEngineeringService {
       const content =
         target >= fullTokens
           ? candidate.content
-          : await this.trimText(candidate.content, target, fullTokens);
+          : candidate.truncatable === false
+            ? JSON.stringify({
+                error: {
+                  code: AGENT_ERROR_CODES.fileContextResultTooLarge,
+                  detail: '文件工具结果超过当前模型上下文预算，请缩小搜索或读取范围。',
+                  originalTokens: fullTokens,
+                  availableTokens: Math.max(0, target),
+                },
+              })
+            : await this.trimText(candidate.content, target, fullTokens);
       const retainedTokens = await this.estimator.countText(content);
       output.push({
         ...candidate,
@@ -139,6 +152,7 @@ export class ContextEngineeringService {
     } | null,
     promptBudget: number,
   ): Promise<CompactedContext | null> {
+    // 仅压缩已闭合的历史前缀，保留当前文件消息和最近交互不变。
     const system = input.messages[0]?.role === 'system' ? input.messages[0] : undefined;
     const history = input.messages.slice(system ? 1 : 0);
     const protectedStart = this.findProtectedStart(history);
@@ -169,6 +183,7 @@ export class ContextEngineeringService {
     previousSummary: string,
     promptBudget: number,
   ): Promise<string | null> {
+    // 按完整交互单元分批生成摘要，避免拆开 assistant Tool Call 与结果。
     let summary = previousSummary;
     let batch: ModelMessage[] = [];
 
@@ -205,6 +220,7 @@ export class ContextEngineeringService {
   }
 
   private groupClosedUnits(messages: ModelMessage[]): ModelMessage[][] {
+    // 将 assistant 的工具调用和对应结果归为一个不可拆分单元。
     const units: ModelMessage[][] = [];
     for (let index = 0; index < messages.length; index += 1) {
       const message = messages[index]!;
@@ -224,6 +240,7 @@ export class ContextEngineeringService {
   }
 
   private summaryMessages(previousSummary: string, transcript: string): ModelMessage[] {
+    // 构造只用于摘要模型的系统提示和历史输入。
     const previous = previousSummary ? `Previous summary:\n${previousSummary}\n\n` : '';
     return [
       { role: 'system', content: COMPACTION_PROMPT },
@@ -239,6 +256,7 @@ export class ContextEngineeringService {
     transcript: string,
     promptBudget: number,
   ): Promise<boolean> {
+    // 检查摘要输入连同已有摘要是否能放入当前模型预算。
     return (await this.estimate(this.summaryMessages(previousSummary, transcript))) <= promptBudget;
   }
 
@@ -247,6 +265,7 @@ export class ContextEngineeringService {
     transcript: string,
     promptBudget: number,
   ): Promise<string | null> {
+    // 使用二分法寻找仍能放入摘要预算的首尾片段。
     if (await this.summaryPayloadFits(previousSummary, transcript, promptBudget)) return transcript;
     const chars = Array.from(transcript);
     let low = 0;
@@ -272,6 +291,7 @@ export class ContextEngineeringService {
     previousSummary: string,
     transcript: string,
   ): Promise<string | null> {
+    // 优先使用完整摘要提示，失败时用精简提示重试一次。
     try {
       return (
         await this.model.generateText(
@@ -307,11 +327,13 @@ export class ContextEngineeringService {
   }
 
   private compactionSignal(external: AbortSignal | undefined): AbortSignal {
+    // 合并调用方取消信号和摘要任务自身的超时信号。
     const timeout = AbortSignal.timeout(COMPACTION_TIMEOUT_MS);
     return external ? AbortSignal.any([external, timeout]) : timeout;
   }
 
   private async limitSummary(summary: string): Promise<string> {
+    // 将摘要限制在固定 token 上限内，避免摘要反过来占满上下文。
     const tokenCount = await this.estimator.countText(summary);
     return tokenCount > SUMMARY_MAX_TOKENS
       ? this.trimText(summary, SUMMARY_MAX_TOKENS, tokenCount, 'Compaction Summary')
@@ -323,6 +345,7 @@ export class ContextEngineeringService {
     summary: string | null | undefined,
     coveredMessageCount: number | null | undefined,
   ): ModelMessage[] {
+    // 用系统摘要替换已覆盖的历史前缀，保留后续消息原顺序。
     const system = messages[0]?.role === 'system' ? messages[0] : undefined;
     const history = messages.slice(system ? 1 : 0);
     const suffix = summary && coveredMessageCount ? history.slice(coveredMessageCount) : history;
@@ -357,6 +380,7 @@ export class ContextEngineeringService {
   }
 
   private clearOldToolResults(messages: ModelMessage[]): ModelMessage[] {
+    // 只清理最早的工具结果，为当前文件引用和新消息释放预算。
     let cleared = false;
     return messages.map((message) => {
       if (!cleared && message.role === 'tool') {
@@ -372,6 +396,7 @@ export class ContextEngineeringService {
   }
 
   private async estimate(messages: ModelMessage[], tools?: AgentToolDefinition[]): Promise<number> {
+    // 将工具声明作为系统消息计入模型输入估算。
     const withTools = tools?.length
       ? [
           ...messages,
@@ -400,12 +425,16 @@ export class ContextEngineeringService {
       };
     }
     if (message.role === 'user' && Array.isArray(message.content)) {
-      // Token 估算必须包含文件正文，图片引用不计入文本字符。
+      // 文件引用只估算元数据，正文只在文件工具结果进入 Context 后计入。
       return {
         role: 'user' as const,
         content: message.content
           .map((block) =>
-            block.type === 'text' ? block.text : block.type === 'file_ref' ? block.content : '',
+            block.type === 'text'
+              ? block.text
+              : block.type === 'file_ref'
+                ? `[file_ref fileId=${block.fileId} fileName=${block.fileName} mediaType=${block.mediaType} size=${block.size} lines=${block.lineCount ?? 0} pages=${block.pageCount ?? 0}]`
+                : '',
           )
           .join(' '),
       };
@@ -414,6 +443,7 @@ export class ContextEngineeringService {
   }
 
   private promptBudget(contextWindowTokens: number, maxOutputTokens: number): number {
+    // 从上下文窗口扣除输出空间和安全余量，得到可用输入预算。
     return (
       contextWindowTokens -
       maxOutputTokens -
@@ -427,6 +457,7 @@ export class ContextEngineeringService {
     originalTokens: number,
     label = 'Tool Result',
   ): Promise<string> {
+    // 按首尾保留策略缩短可裁剪文本，并反复校验实际 token 数。
     if (targetTokens <= 0)
       return `[${label} truncated: originalTokens=${originalTokens}, retainedTokens=0]`;
     const chars = Array.from(text);

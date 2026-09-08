@@ -383,9 +383,8 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     const messageIds = items
       .map((item) => item.messageId)
       .filter((id): id is string => Boolean(id));
-    // Resolve attachment relations in one query, then rebuild canonical image
-    // blocks while restoring the transcript. The transcript stores file IDs,
-    // never provider URLs or image bytes.
+    // 一次查询恢复附件关系，再按消息重建 canonical 图片和文件引用。
+    // transcript 只保存 fileId，不保存供应商 URL 或图片字节。
     const attachments = this.prisma.messageAttachment
       ? await this.prisma.messageAttachment.findMany({
           where: { messageId: { in: messageIds } },
@@ -435,11 +434,18 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
               detail: 'auto' as const,
             })),
             ...textFiles.map((attachment) => ({
-              // 正文独立注入并标记为不可信，不能覆盖系统指令。
+              // 只恢复文件身份和元数据；正文必须由文件工具按需读取。
               type: 'file_ref' as const,
               fileId: attachment.fileId,
               fileName: attachment.file.fileName,
-              content: `Untrusted file content (${attachment.file.fileName}, fileId=${attachment.fileId}). Preserve source locations when referring to it:\n${this.withFileLocations(attachment.file.normalizedContent ?? '', attachment.file.locations)}\nEnd of untrusted file content.`,
+              mediaType: attachment.file.mediaType,
+              size: attachment.file.size,
+              ...(attachment.file.lineCount != null
+                ? { lineCount: attachment.file.lineCount }
+                : {}),
+              ...(attachment.file.pageCount != null
+                ? { pageCount: attachment.file.pageCount }
+                : {}),
             })),
           ],
         };
@@ -460,25 +466,6 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         ...(Array.isArray(item.toolCalls) ? { toolCalls: item.toolCalls as ModelToolCall[] } : {}),
       };
     });
-  }
-
-  private withFileLocations(content: string, locations: Prisma.JsonValue | null): string {
-    // 将持久化的行号或页码重新附着到模型可见正文。
-    if (!Array.isArray(locations) || !locations.length) return content;
-    const markers = locations.filter(
-      (item): item is { startOffset: number; endOffset: number; line?: number; page?: number } =>
-        typeof item === 'object' &&
-        item !== null &&
-        typeof (item as { startOffset?: unknown }).startOffset === 'number' &&
-        typeof (item as { endOffset?: unknown }).endOffset === 'number',
-    );
-    if (!markers.length) return content;
-    return markers
-      .map((location) => {
-        const label = location.page ? `page:${location.page}` : `line:${location.line ?? 0}`;
-        return `[[${label}]]\n${content.slice(location.startOffset, location.endOffset)}`;
-      })
-      .join('\n');
   }
 
   private assertCommittedTranscriptClosed(

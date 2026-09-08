@@ -64,8 +64,11 @@ export function normalizeProviderUsage(usage: ProviderUsage): {
 
 @Injectable()
 export class OpenAICompatibleModelAdapter extends ModelAdapter {
+  // 延迟初始化的供应商客户端。
   private client?: OpenAI;
+  // 当前客户端对应的基础地址，用于切换模型供应商时重建客户端。
   private clientBaseUrl?: string;
+  // 用于估算模型请求输入 token 的本地 tokenizer。
   private readonly tokenEstimator = getDeepSeekV3TokenEstimator();
 
   // 可选注入 FilesService，便于纯文本调用和不带附件的测试环境运行。
@@ -93,10 +96,8 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     };
   }
 
-  // 调用 OpenAI-compatible 流接口，并把供应商 chunk 归一化为一个 Model Round。
-  // Chat Completions 没有 Content/Tool Call 共用的全局 index，因此按 Block 首次出现顺序
-  // 分配 blockSequence；Tool Call 自身仍按 provider index 聚合和恢复声明顺序。
-  // 调用 OpenAI-compatible 流接口并归一化文本、思考和工具调用事件。
+  // 调用兼容 OpenAI 协议的流接口，并把供应商分片归一化为模型轮次事件。
+  // 文本和工具调用分别维护稳定顺序，工具参数完整聚合后再交给 Runtime。
   async *streamRound(input: ModelRoundInput): AsyncIterable<ModelRoundEvent> {
     const profile = this.profile(input.model);
     const configured = getConfiguredModel(input.model);
@@ -214,8 +215,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     };
   }
 
-  // 执行一次非流式文本生成，供标题等轻量任务复用。
-  // 执行非流式文本请求，主要供标题生成等内部调用使用。
+  // 执行一次非流式文本生成，供标题和摘要等轻量任务复用。
   async generateText(
     model: string,
     messages: ModelMessage[],
@@ -243,6 +243,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     messages: ModelMessage[],
     model: string,
   ): Promise<ChatCompletionMessageParam[]> {
+    // 并行解析消息中的图片引用，同时保持原消息顺序。
     return Promise.all(
       messages.map(async (message): Promise<ChatCompletionMessageParam> => {
         if (message.role === 'tool') {
@@ -272,8 +273,12 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         const content = await Promise.all(
           message.content.map(async (block) => {
             if (block.type === 'text') return { type: 'text' as const, text: block.text };
-            // 文件引用在供应商请求中降级为受保护的文本材料。
-            if (block.type === 'file_ref') return { type: 'text' as const, text: block.content };
+            // 文件引用只传递元数据；正文必须通过文件工具按需读取。
+            if (block.type === 'file_ref')
+              return {
+                type: 'text' as const,
+                text: `[Attached file metadata: ${block.fileName}, fileId=${block.fileId}, mediaType=${block.mediaType}, size=${block.size} bytes${block.lineCount !== undefined ? `, lines=${block.lineCount}` : ''}${block.pageCount !== undefined ? `, pages=${block.pageCount}` : ''}. Use search_file or read_file_lines to inspect content.]`,
+              };
             if (!this.files) throw new Error('FILE_STORAGE_UNAVAILABLE');
             const url = await this.files.readUrlById(block.fileId);
             return {
@@ -289,6 +294,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
 
   // 将应用工具声明转换为 OpenAI Function Calling 声明。
   private toProviderTools(tools: ModelRoundInput['tools']): ChatCompletionTool[] | undefined {
+    // 将内部工具声明转换为 OpenAI Function Calling 格式。
     return tools?.map((tool) => ({
       type: 'function',
       function: { name: tool.name, description: tool.description, parameters: tool.parameters },
@@ -299,6 +305,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     messages: ChatCompletionMessageParam[],
     tools?: ChatCompletionTool[],
   ): Promise<number> {
+    // 使用与 Context Engineering 一致的 tokenizer 估算供应商请求大小。
     const tokenizerMessages: DeepSeekMessage[] = messages.map((message) => {
       if (message.role === 'assistant') {
         return {
@@ -345,6 +352,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
 
   // 延迟创建客户端，保证未配置模型时 API 仍可启动并返回明确错误。
   private getClient(model?: string): OpenAI {
+    // 按模型配置懒加载并复用 OpenAI-compatible 客户端。
     const configured = model ? getConfiguredModel(model) : undefined;
     const baseUrl = configured?.baseUrl ?? 'https://api.openai.com/v1';
     const apiKey =

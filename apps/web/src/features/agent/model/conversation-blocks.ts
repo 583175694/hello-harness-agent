@@ -28,6 +28,7 @@ function insertOrdered(
   blocks: AssistantContentBlock[],
   block: AssistantContentBlock,
 ): AssistantContentBlock[] {
+  // 将新块插入按 Round 和 Block 序号排序后应处的位置。
   // 与服务端 Collector 使用相同排序规则，保证 Live SSE、Tail replay 和历史 Snapshot 同构。
   const roundSequence = block.roundSequence ?? Number.MAX_SAFE_INTEGER;
   const blockSequence = block.blockSequence ?? Number.MAX_SAFE_INTEGER;
@@ -133,7 +134,11 @@ export function applyToolActivityEvent(
             ? event.input.message
             : event.toolName === 'get_current_time'
               ? '获取当前日期和时间'
-              : event.input.query,
+              : event.toolName === 'search_file'
+                ? `${event.input.fileId} · ${event.input.query}`
+                : event.toolName === 'read_file_lines'
+                  ? `${event.input.fileId} · ${event.input.startLine}-${event.input.endLine} 行`
+                  : event.input.query,
       startedAt: event.startedAt,
     });
   }
@@ -156,7 +161,11 @@ export function applyToolActivityEvent(
               ? '审批测试已完成'
               : event.toolName === 'get_current_time'
                 ? '当前时间已获取'
-                : `找到 ${event.result.results.length} 个结果`,
+                : event.toolName === 'search_file'
+                  ? `找到 ${event.result.matches.length} 个文件命中`
+                  : event.toolName === 'read_file_lines'
+                    ? `读取 ${event.result.lines.length} 行文件内容`
+                    : `找到 ${event.result.results.length} 个结果`,
         completedAt: event.completedAt,
         durationMs: event.durationMs,
       };

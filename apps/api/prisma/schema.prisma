@@ -147,16 +147,15 @@ model File {
   retryable      Boolean    @default(false)
   originalKey    String?    @map("original_key")
   previewKey     String?    @map("preview_key")
-  // 规范化正文只供内部预览和模型上下文使用，不复制到 Message。
-  normalizedContent String? @map("normalized_content")
+  // 规范化正文保存在 COS，数据库只保留对象引用，不保存正文主存储。
+  normalizedKey  String?    @map("normalized_key")
   contentHash    String?    @map("content_hash")
   parserVersion  String?    @map("parser_version")
   pageCount      Int?       @map("page_count")
   lineCount      Int?       @map("line_count")
   characterCount Int?       @map("character_count")
-  // overview 保存格式摘要，locations 保存行号或页码定位。
+  // overview 保存格式摘要；行号/页码由规范化正文读取时确定性计算。
   overview       Json?      @map("overview")
-  locations      Json?      @map("locations")
   processingStartedAt DateTime? @map("processing_started_at")
   processingCompletedAt DateTime? @map("processing_completed_at")
   createdAt      DateTime   @default(now()) @map("created_at")

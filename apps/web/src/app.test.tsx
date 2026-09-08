@@ -390,6 +390,64 @@ describe('R1 workbench shell', () => {
     });
   });
 
+  it('labels file-only tool activity as file reading in streaming and recovery', () => {
+    const started: ToolStreamEvent = {
+      type: 'tool.started',
+      messageId: 'assistant-file',
+      blockId: 'file-tool-block',
+      toolCallId: 'file-call',
+      toolName: 'search_file',
+      title: '搜索文件',
+      input: { fileId: 'file-1', query: '错误' },
+      startedAt: '2026-09-08T04:00:00.000Z',
+      roundId: 'round-file',
+      roundSequence: 1,
+      blockSequence: 0,
+    };
+    const streamed = applyToolEvent(undefined, started, true);
+    expect(streamed).toMatchObject({ title: '文件读取', subtitle: '1 次文件调用' });
+
+    const restored = workbenchFromPersistedMessage({
+      id: 'assistant-file',
+      sessionId: 'session-file',
+      role: 'assistant',
+      kind: 'assistant_delivery',
+      content: '文件结论',
+      runId: 'run-file',
+      createdAt: '2026-09-08T04:00:01.000Z',
+      metadata: {
+        model: 'deepseek-v4-flash',
+        agent: {
+          toolCallCount: 2,
+          sources: [],
+          executions: [
+            {
+              toolCallId: 'file-search',
+              toolName: 'search_file',
+              input: { fileId: 'file-1', query: '错误' },
+              status: 'completed',
+              startedAt: '2026-09-08T04:00:00.000Z',
+              completedAt: '2026-09-08T04:00:00.100Z',
+              durationMs: 100,
+              resultCount: 2,
+            },
+            {
+              toolCallId: 'file-read',
+              toolName: 'read_file_lines',
+              input: { fileId: 'file-1', startLine: 1, endLine: 10 },
+              status: 'completed',
+              startedAt: '2026-09-08T04:00:00.200Z',
+              completedAt: '2026-09-08T04:00:00.300Z',
+              durationMs: 100,
+              resultCount: 10,
+            },
+          ],
+        },
+      },
+    });
+    expect(restored).toMatchObject({ title: '文件读取', subtitle: '2 次文件调用' });
+  });
+
   it('exposes a mock state switcher on the preview route', () => {
     window.history.replaceState({}, '', '/agent/preview?state=waiting');
     render(<App />);

@@ -22,6 +22,12 @@ export const AGENT_PROTOCOL_LIMITS = {
   webFetchQueryMaxLength: 500,
   // 单个网页读取结果允许保存的最大 Passage 数量。
   webFetchPassagesMax: 6,
+  // 单次文件搜索和行读取的输入、结果边界；正文按需进入 Context，不能无界返回。
+  fileSearchQueryMaxLength: 500,
+  fileSearchResultsMax: 8,
+  fileSearchContextLines: 1,
+  fileReadLinesMax: 50,
+  fileReadResultMaxCharacters: 12_000,
   clarificationQuestionMaxLength: 2_000,
   clarificationOptionsMax: 12,
   clarificationOptionMaxLength: 500,
@@ -39,6 +45,8 @@ export const AGENT_TOOL_NAMES = {
   webSearch: 'web_search',
   // 网页读取工具在 Function Calling 协议中的稳定名称。
   webFetch: 'web_fetch',
+  searchFile: 'search_file',
+  readFileLines: 'read_file_lines',
   // 无副作用的审批链路验证工具；生产工具策略保持不变。
   approvalTest: 'approval_test',
   getCurrentTime: 'get_current_time',
@@ -121,6 +129,14 @@ export const AGENT_ERROR_CODES = {
   fetchDuplicateSkipped: 'FETCH_DUPLICATE_SKIPPED',
   // 网页上游返回无法继续处理的错误。
   fetchUpstreamFailed: 'FETCH_UPSTREAM_FAILED',
+  fileNotReady: 'FILE_NOT_READY',
+  fileNotFound: 'FILE_NOT_FOUND',
+  fileSearchResultTooLarge: 'FILE_SEARCH_RESULT_TOO_LARGE',
+  fileReadRangeTooLarge: 'FILE_READ_RANGE_TOO_LARGE',
+  fileLineOutOfRange: 'FILE_LINE_OUT_OF_RANGE',
+  fileReadResultTooLarge: 'FILE_READ_RESULT_TOO_LARGE',
+  fileContextResultTooLarge: 'FILE_CONTEXT_RESULT_TOO_LARGE',
+  fileStorageFailed: 'FILE_STORAGE_FAILED',
 } as const;
 
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[keyof typeof AGENT_ERROR_CODES];

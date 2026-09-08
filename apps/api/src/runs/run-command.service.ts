@@ -184,7 +184,7 @@ export class RunCommandService {
             : { activeInterrupt: undefined }),
         }
       : (live ?? snapshot);
-    // Pending inputs are durable control-plane state; never let a stale live shell hide updates.
+    // Pending Input 是持久化控制面状态，不能被过期的内存运行态覆盖。
     return { ...effective, pendingUserInputs: snapshot.pendingUserInputs };
   }
 

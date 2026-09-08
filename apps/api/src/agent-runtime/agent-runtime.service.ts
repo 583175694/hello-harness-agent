@@ -821,6 +821,7 @@ export class AgentRuntimeService {
               result.status === 'succeeded'
                 ? this.serializeToolSuccess(result.output)
                 : this.serializeToolError(result.error),
+            ...(this.isFileTool(call.name) ? { truncatable: false } : {}),
           },
           event,
           ...(approvalDecisions.get(call.id) === 'approve'
@@ -957,6 +958,10 @@ export class AgentRuntimeService {
       approvalPolicy?: ToolRegistryService['approvalPolicy'];
     };
     return registry.approvalPolicy?.(toolName) ?? 'auto_execute';
+  }
+
+  private isFileTool(toolName: string): boolean {
+    return toolName === AGENT_TOOL_NAMES.searchFile || toolName === AGENT_TOOL_NAMES.readFileLines;
   }
 
   private clarificationRequestContent(

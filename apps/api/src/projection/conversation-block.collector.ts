@@ -170,6 +170,8 @@ export class ConversationBlockCollector {
   private toolTitle(toolName: string): string {
     if (toolName === 'web_search') return '搜索网页';
     if (toolName === 'web_fetch') return '读取网页';
+    if (toolName === 'search_file') return '搜索文件';
+    if (toolName === 'read_file_lines') return '读取文件';
     return `运行工具 ${toolName}`;
   }
 

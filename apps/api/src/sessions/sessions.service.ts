@@ -259,6 +259,9 @@ export class SessionsService implements OnModuleInit {
           status: string;
           errorCode: string | null;
           previewKey: string | null;
+          lineCount: number | null;
+          pageCount: number | null;
+          characterCount: number | null;
         };
       }>;
     },
@@ -293,6 +296,9 @@ export class SessionsService implements OnModuleInit {
         fileKind: file.fileKind,
         status: file.status as 'processing' | 'ready' | 'failed' | 'rejected',
         ...(file.errorCode ? { errorCode: file.errorCode } : {}),
+        ...(file.lineCount != null ? { lineCount: file.lineCount } : {}),
+        ...(file.pageCount != null ? { pageCount: file.pageCount } : {}),
+        ...(file.characterCount != null ? { characterCount: file.characterCount } : {}),
         ...(file.status === 'ready' && file.previewKey
           ? { previewUrl: `/api/agent/files/${file.id}/preview` }
           : {}),

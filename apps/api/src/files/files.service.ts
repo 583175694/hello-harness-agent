@@ -6,13 +6,18 @@ import {
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { FileStorage, LocalFileStorage, type FileVariant } from '../file-storage/file-storage';
 import { FileProcessingService, MAX_SESSION_FILE_BYTES } from './file-processing.service';
 import { Logger } from 'nestjs-pino';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
+import {
+  AGENT_ERROR_CODES,
+  AGENT_PROTOCOL_LIMITS,
+  type FileReadLinesInput,
+  type FileSearchInput,
+} from '@harness/agent-protocol';
 
 // 内容或格式本身不可恢复的错误进入 rejected，其余错误允许重试。
 const PERMANENT_PARSE_FAILURES = new Set([
@@ -37,11 +42,11 @@ export class FilesService implements OnModuleInit {
 
   // 启动时收敛进程重启遗留的 processing 文件，避免状态永久悬挂。
   async onModuleInit(): Promise<void> {
+    // 启动恢复时先收敛未完成解析，再补齐旧版本缺失的规范化正文。
     const processing = await this.prisma.file.findMany({
       where: { status: 'processing' },
       select: { id: true, sessionId: true, originalKey: true },
     });
-    if (!processing.length) return;
     for (const file of processing) {
       const code = file.originalKey ? 'FILE_PARSE_TIMEOUT' : 'FILE_STORAGE_FAILED';
       await this.prisma.file.updateMany({
@@ -58,6 +63,69 @@ export class FilesService implements OnModuleInit {
         FilesService.name,
       );
     }
+    await this.backfillMissingNormalizedFiles();
+  }
+
+  // B.1 的 ready 文件没有 normalized_key；升级后从仍保留的原文件重建 COS 正文。
+  private async backfillMissingNormalizedFiles(): Promise<void> {
+    // 通过条件更新抢占单个文件，避免多个实例重复回填同一正文。
+    const files = await this.prisma.file.findMany({
+      where: {
+        status: 'ready',
+        fileKind: { not: 'image' },
+        normalizedKey: null,
+        originalKey: { not: null },
+      },
+      select: {
+        id: true,
+        sessionId: true,
+        fileName: true,
+        mediaType: true,
+      },
+    });
+    for (const file of files) {
+      const claimed = await this.prisma.file.updateMany({
+        where: { id: file.id, status: 'ready', normalizedKey: null },
+        data: {
+          status: 'processing',
+          errorCode: null,
+          retryable: false,
+          processingStartedAt: new Date(),
+          processingCompletedAt: null,
+        },
+      });
+      if (claimed.count === 0) continue;
+      this.logger.log(
+        `升级回填文件正文 | 文件=${shortLogId(file.id)} | 会话=${shortLogId(file.sessionId)}`,
+        FilesService.name,
+      );
+      try {
+        const original = await this.storage.readObject({
+          sessionId: file.sessionId,
+          fileId: file.id,
+          variant: 'original',
+        });
+        await this.processInBackground(file.id, file.sessionId, {
+          buffer: original.content,
+          mimetype: file.mediaType,
+          originalname: file.fileName,
+        });
+      } catch (error) {
+        this.logger.warn(
+          `升级回填读取原文件失败 | 文件=${shortLogId(file.id)} | 会话=${shortLogId(file.sessionId)} | 原因=${describeLogError(error)}`,
+          FilesService.name,
+        );
+        await this.prisma.file.updateMany({
+          where: { id: file.id, status: 'processing' },
+          data: {
+            status: 'failed',
+            errorCode: AGENT_ERROR_CODES.fileStorageFailed,
+            retryable: true,
+            processingCompletedAt: new Date(),
+          },
+        });
+      }
+    }
   }
 
   // 创建文件记录、保存原文件，并异步触发文本解析。
@@ -65,6 +133,7 @@ export class FilesService implements OnModuleInit {
     sessionId: string,
     file: { buffer: Buffer; mimetype: string; originalname: string },
   ) {
+    // 先校验和落库文件身份，再写对象；文本解析不阻塞上传响应。
     const session = await this.prisma.session.findFirst({
       where: { id: sessionId, userId: LOCAL_USER_ID },
     });
@@ -130,7 +199,7 @@ export class FilesService implements OnModuleInit {
         data: { originalKey: original.objectKey },
       });
       // 先返回 processing，再由状态查询获取最终结果。
-      void this.processInBackground(fileId, file);
+      void this.processInBackground(fileId, sessionId, file);
       return this.toRef(saved, false);
     } catch (error) {
       this.logger.error(
@@ -171,27 +240,35 @@ export class FilesService implements OnModuleInit {
   // 在 API 进程内解析文件，并写回 ready、failed 或 rejected。
   private async processInBackground(
     fileId: string,
+    sessionId: string,
     file: { buffer: Buffer; mimetype: string; originalname: string },
   ): Promise<void> {
+    // 后台任务只根据当前 fileId 写回状态，失败时保留原文件供重试。
     const startedAt = Date.now();
     this.logger.log(
       `文件解析开始 | 文件=${shortLogId(fileId)} | 大小=${file.buffer.length}`,
       FilesService.name,
     );
     try {
+      // 解析得到规范化正文后单独保存，工具读取时不需要重新解析原文件。
       const parsed = await this.processor.parse(file);
+      const normalized = await this.storage.putNormalized({
+        sessionId,
+        fileId,
+        content: Buffer.from(parsed.normalizedContent ?? '', 'utf8'),
+        contentType: 'text/plain; charset=utf-8',
+      });
       await this.prisma.file.update({
         where: { id: fileId },
         data: {
           fileKind: parsed.fileKind,
-          normalizedContent: parsed.normalizedContent,
+          normalizedKey: normalized.objectKey,
           contentHash: parsed.contentHash,
           parserVersion: parsed.parserVersion,
           pageCount: parsed.pageCount,
           lineCount: parsed.lineCount,
           characterCount: parsed.characterCount,
-          overview: parsed.overview as Prisma.InputJsonValue,
-          locations: parsed.locations as Prisma.InputJsonValue,
+          overview: parsed.overview as never,
           status: 'ready',
           retryable: false,
           errorCode: null,
@@ -239,6 +316,7 @@ export class FilesService implements OnModuleInit {
 
   // 从原始对象重新进入解析流程。
   async retry(fileId: string) {
+    // 从原始对象恢复字节后重新进入后台解析，不信任上次失败时的临时状态。
     const file = await this.findOwned(fileId);
     if (!file.retryable || !file.originalKey)
       throw new BadRequestException({ code: 'FILE_NOT_RETRYABLE', detail: '该文件当前不可重试。' });
@@ -267,7 +345,7 @@ export class FilesService implements OnModuleInit {
       where: { id: file.id },
       data: { status: 'processing', errorCode: null, processingStartedAt: new Date() },
     });
-    void this.processInBackground(file.id, {
+    void this.processInBackground(file.id, file.sessionId, {
       buffer: object.content,
       mimetype: file.mediaType,
       originalname: file.fileName,
@@ -275,13 +353,16 @@ export class FilesService implements OnModuleInit {
     return this.toRef({ ...file, status: 'processing', errorCode: null }, false);
   }
 
-  // 图片返回短期地址，文本类文件返回规范化正文。
+  // 图片返回短期地址，文本类文件从 COS 读取规范化正文供受限预览。
   async preview(fileId: string) {
+    // 图片返回短期 URL，文本返回受限的规范化正文预览。
     const file = await this.findOwned(fileId);
     if (file.status !== 'ready')
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
-    if (file.fileKind !== 'image')
-      return { fileId, content: file.normalizedContent ?? '', contentType: 'text/plain' };
+    if (file.fileKind !== 'image') {
+      const content = await this.readNormalizedContent(file);
+      return { fileId, content, contentType: 'text/plain' };
+    }
     if (!file.previewKey)
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
     return {
@@ -295,18 +376,145 @@ export class FilesService implements OnModuleInit {
   }
 
   // 消息绑定前校验文件归属和 ready 状态。
-  async findReadyForSession(sessionId: string, fileId: string) {
+  async findReadyForSession(
+    sessionId: string,
+    fileId: string,
+    notFoundCode = 'ATTACHMENT_NOT_FOUND',
+  ) {
     const file = await this.prisma.file.findFirst({
       where: { id: fileId, sessionId, userId: LOCAL_USER_ID },
     });
     if (!file)
       throw new NotFoundException({
-        code: 'ATTACHMENT_NOT_FOUND',
+        code: notFoundCode,
         detail: '附件不存在或不属于当前会话。',
       });
     if (file.status !== 'ready')
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '附件尚未准备好。' });
     return file;
+  }
+
+  // 文件工具统一通过 Session 归属、ready 和规范化正文对象三层校验。
+  async searchFile(sessionId: string, input: FileSearchInput) {
+    const file = await this.findReadyForSession(
+      sessionId,
+      input.fileId,
+      AGENT_ERROR_CODES.fileNotFound,
+    );
+    if (file.fileKind === 'image' || !file.normalizedKey)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileNotReady,
+        detail: '该文件没有可搜索的规范化正文。',
+      });
+    const content = await this.readNormalizedContent(file);
+    const lines = content.split('\n');
+    const maxResults = input.maxResults ?? AGENT_PROTOCOL_LIMITS.fileSearchResultsMax;
+    const needle = input.query.toLocaleLowerCase();
+    const matches: Array<{ lineStart: number; lineEnd: number; page?: number; text: string }> = [];
+    let currentPage: number | undefined;
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index] ?? '';
+      const page = line.match(/^\[\[page:(\d+)\]\]$/u);
+      if (page) {
+        currentPage = Number(page[1]);
+        continue;
+      }
+      if (!line.toLocaleLowerCase().includes(needle)) continue;
+      const start = Math.max(0, index - AGENT_PROTOCOL_LIMITS.fileSearchContextLines);
+      const end = Math.min(lines.length - 1, index + AGENT_PROTOCOL_LIMITS.fileSearchContextLines);
+      const context = lines
+        .slice(start, end + 1)
+        .map((text, offset) => ({ text, index: start + offset }))
+        .filter(({ text }) => !/^\[\[page:(\d+)\]\]$/u.test(text));
+      matches.push({
+        lineStart: (context.at(0)?.index ?? index) + 1,
+        lineEnd: (context.at(-1)?.index ?? index) + 1,
+        ...(currentPage ? { page: currentPage } : {}),
+        text: context.map((item) => item.text).join('\n'),
+      });
+      if (matches.length >= maxResults) break;
+    }
+    const totalMatches = lines.reduce(
+      (count, line) =>
+        count +
+        (!/^\[\[page:(\d+)\]\]$/u.test(line) && line.toLocaleLowerCase().includes(needle) ? 1 : 0),
+      0,
+    );
+    if (
+      [...matches.map((match) => match.text).join('\n')].length >
+      AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters
+    )
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileSearchResultTooLarge,
+        detail: '搜索结果超过单次文件工具结果限制，请缩小关键词或结果数量。',
+      });
+    return {
+      fileId: file.id,
+      fileName: file.fileName,
+      mediaType: file.mediaType,
+      query: input.query,
+      incomplete: totalMatches > matches.length,
+      matches,
+    };
+  }
+
+  // 按行读取规范化正文，并为 PDF 行恢复最近的页码标记。
+  async readFileLines(sessionId: string, input: FileReadLinesInput) {
+    if (input.endLine - input.startLine + 1 > AGENT_PROTOCOL_LIMITS.fileReadLinesMax)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileReadRangeTooLarge,
+        detail: `单次最多读取 ${AGENT_PROTOCOL_LIMITS.fileReadLinesMax} 行。`,
+      });
+    const file = await this.findReadyForSession(
+      sessionId,
+      input.fileId,
+      AGENT_ERROR_CODES.fileNotFound,
+    );
+    if (file.fileKind === 'image' || !file.normalizedKey)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileNotReady,
+        detail: '该文件没有可读取的规范化正文。',
+      });
+    const content = await this.readNormalizedContent(file);
+    const lines = content.split('\n');
+    if (input.startLine > lines.length)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileLineOutOfRange,
+        detail: '请求的起始行超出文件范围。',
+      });
+    // 先截取请求范围，再过滤内部页码标记，避免把控制信息交给模型。
+    const selected = lines.slice(input.startLine - 1, Math.min(input.endLine, lines.length));
+    const outputLines: Array<{ line: number; page?: number; text: string }> = [];
+    // 读取范围可能从 PDF 页内中间行开始，先恢复范围起点之前最近的页标记。
+    let page: number | undefined;
+    for (let index = 0; index < input.startLine - 1; index += 1) {
+      const marker = lines[index]?.match(/^\[\[page:(\d+)\]\]$/u);
+      if (marker) page = Number(marker[1]);
+    }
+    for (const [offset, text] of selected.entries()) {
+      const absoluteLine = input.startLine + offset;
+      const marker = text.match(/^\[\[page:(\d+)\]\]$/u);
+      if (marker) {
+        page = Number(marker[1]);
+        continue;
+      }
+      outputLines.push({ line: absoluteLine, ...(page ? { page } : {}), text });
+    }
+    const characterCount = [...outputLines.map((line) => line.text).join('\n')].length;
+    if (characterCount > AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileReadResultTooLarge,
+        detail: '读取结果超过单次文件工具结果限制，请缩小行范围。',
+      });
+    return {
+      fileId: file.id,
+      fileName: file.fileName,
+      mediaType: file.mediaType,
+      startLine: input.startLine,
+      endLine: Math.min(input.endLine, lines.length),
+      incomplete: input.endLine > lines.length,
+      lines: outputLines,
+    };
   }
 
   // 只删除未绑定消息的文件，存储失败时登记补偿任务。
@@ -397,6 +605,36 @@ export class FilesService implements OnModuleInit {
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
     return file;
   }
+
+  private async readNormalizedContent(file: {
+    id: string;
+    sessionId: string;
+    normalizedKey: string | null;
+  }) {
+    // 只允许读取数据库已登记的 normalized 对象，并统一转换为 UTF-8 文本。
+    if (!file.normalizedKey)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileNotReady,
+        detail: '文件正文尚未准备好。',
+      });
+    try {
+      const result = await this.storage.readObject({
+        sessionId: file.sessionId,
+        fileId: file.id,
+        variant: 'normalized',
+      });
+      return new TextDecoder('utf-8', { fatal: false }).decode(result.content);
+    } catch (error) {
+      this.logger.warn(
+        `文件正文读取失败 | 文件=${shortLogId(file.id)} | 原因=${describeLogError(error)}`,
+        FilesService.name,
+      );
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileStorageFailed,
+        detail: '文件正文暂时不可读取。',
+      });
+    }
+  }
   // 移除 COS key 等内部字段，只返回协议允许的元数据。
   private toRef(
     file: {
@@ -409,6 +647,9 @@ export class FilesService implements OnModuleInit {
       height: number | null;
       status: 'processing' | 'ready' | 'failed' | 'rejected';
       errorCode: string | null;
+      lineCount?: number | null;
+      pageCount?: number | null;
+      characterCount?: number | null;
     },
     includePreview: boolean,
   ) {
@@ -422,6 +663,9 @@ export class FilesService implements OnModuleInit {
       ...(file.height ? { height: file.height } : {}),
       status: file.status,
       ...(file.errorCode ? { errorCode: file.errorCode } : {}),
+      ...(file.lineCount != null ? { lineCount: file.lineCount } : {}),
+      ...(file.pageCount != null ? { pageCount: file.pageCount } : {}),
+      ...(file.characterCount != null ? { characterCount: file.characterCount } : {}),
       ...(includePreview && file.status === 'ready'
         ? { previewUrl: `/api/agent/files/${file.id}/preview` }
         : {}),

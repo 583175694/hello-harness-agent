@@ -35,10 +35,12 @@ export class ToolRegistryService {
 
   // 返回工具声明的不可由模型覆盖的外层执行策略。
   executionPolicy(name: string): AgentTool['executionPolicy'] {
+    // 获取指定工具的超时和审批策略。
     return this.get(name).executionPolicy;
   }
 
   approvalPolicy(name: string): 'auto_execute' | 'require_approval' | 'direct_reject' {
+    // 获取指定工具的审批模式，未声明时默认自动执行。
     return this.executionPolicy(name).approval ?? 'auto_execute';
   }
 

@@ -96,7 +96,7 @@ export class PendingUserInputService {
     return this.prisma.pendingUserInput.findUniqueOrThrow({ where: { id } });
   }
 
-  // Final-answer boundary can no longer inject the steer into the current Run.
+  // final_answer 边界之后无法再把 Steer 注入当前 Run。
   async demotePendingSteers(sessionId: string) {
     return this.prisma.$transaction(async (tx) => {
       const rows = await tx.pendingUserInput.findMany({

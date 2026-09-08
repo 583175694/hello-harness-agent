@@ -2,6 +2,8 @@ import { AGENT_TOOL_NAMES, normalizeSourceUrl } from '@harness/agent-protocol';
 import type {
   ResearchSourceSnapshot,
   SearchToolResult,
+  FileSearchResult,
+  FileReadLinesResult,
   SourceProvenance,
   ToolExecutionSnapshot,
   WebFetchInput,
@@ -12,7 +14,15 @@ import type {
 type ToolProjectionInput =
   | { toolName: typeof AGENT_TOOL_NAMES.webSearch; input: { query: string } }
   | { toolName: typeof AGENT_TOOL_NAMES.webFetch; input: WebFetchInput }
-  | { toolName: typeof AGENT_TOOL_NAMES.approvalTest; input: { message: string } };
+  | { toolName: typeof AGENT_TOOL_NAMES.approvalTest; input: { message: string } }
+  | {
+      toolName: typeof AGENT_TOOL_NAMES.searchFile;
+      input: { fileId: string; query: string; maxResults?: number };
+    }
+  | {
+      toolName: typeof AGENT_TOOL_NAMES.readFileLines;
+      input: { fileId: string; startLine: number; endLine: number };
+    };
 
 const PROVENANCE_PRIORITY: Readonly<Record<SourceProvenance, number>> = {
   // 用户当前消息直接提供的 URL 拥有最高来源优先级。
@@ -91,6 +101,44 @@ export class ResearchProjectionCollector {
       startedAt: this.startedAt(input.completedAt, input.durationMs),
       completedAt: input.completedAt,
       durationMs: input.durationMs,
+    });
+  }
+
+  recordFileSearchCompleted(input: {
+    toolCallId: string;
+    toolInput: { fileId: string; query: string; maxResults?: number };
+    completedAt: string;
+    durationMs: number;
+    result: FileSearchResult;
+  }): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.searchFile,
+      input: input.toolInput,
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+      resultCount: input.result.matches.length,
+    });
+  }
+
+  recordFileReadLinesCompleted(input: {
+    toolCallId: string;
+    toolInput: { fileId: string; startLine: number; endLine: number };
+    completedAt: string;
+    durationMs: number;
+    result: FileReadLinesResult;
+  }): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.readFileLines,
+      input: input.toolInput,
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+      resultCount: input.result.lines.length,
     });
   }
 
@@ -259,7 +307,11 @@ export class ResearchProjectionCollector {
       ? { ...base, toolName: AGENT_TOOL_NAMES.webFetch, input: input.input }
       : input.toolName === AGENT_TOOL_NAMES.approvalTest
         ? { ...base, toolName: AGENT_TOOL_NAMES.approvalTest, input: input.input }
-        : { ...base, toolName: AGENT_TOOL_NAMES.webSearch, input: input.input };
+        : input.toolName === AGENT_TOOL_NAMES.searchFile
+          ? { ...base, toolName: AGENT_TOOL_NAMES.searchFile, input: input.input }
+          : input.toolName === AGENT_TOOL_NAMES.readFileLines
+            ? { ...base, toolName: AGENT_TOOL_NAMES.readFileLines, input: input.input }
+            : { ...base, toolName: AGENT_TOOL_NAMES.webSearch, input: input.input };
   }
 
   // 返回来源可参与 canonical 匹配的全部 URL。

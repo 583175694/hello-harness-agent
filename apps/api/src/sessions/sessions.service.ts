@@ -300,9 +300,7 @@ export class SessionsService implements OnModuleInit {
         ...(file.lineCount != null ? { lineCount: file.lineCount } : {}),
         ...(file.pageCount != null ? { pageCount: file.pageCount } : {}),
         ...(file.characterCount != null ? { characterCount: file.characterCount } : {}),
-        ...(file.status === 'ready' && file.previewKey
-          ? { previewUrl: `/api/agent/files/${file.id}/preview` }
-          : {}),
+        ...(file.status === 'ready' ? { previewUrl: `/api/agent/files/${file.id}/preview` } : {}),
       })),
     };
   }

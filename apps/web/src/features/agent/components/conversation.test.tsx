@@ -138,6 +138,72 @@ describe('Composer image paste', () => {
     expect(screen.getByRole('dialog').querySelector('img')).toHaveAttribute('src', '/two.png');
   });
 
+  it('opens the parsed preview for a ready document attachment', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('# Sheet: Summary\n\n| Name | Total |\n| --- | --- |\n| A | 1 |', {
+        status: 200,
+        headers: { 'content-type': 'text/plain' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        attachments={[
+          {
+            fileId: 'file-xlsx',
+            fileName: 'report.xlsx',
+            mediaType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            fileKind: 'xlsx',
+            size: 1024,
+            status: 'ready',
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '预览report.xlsx' }));
+    expect(await screen.findByRole('dialog', { name: 'report.xlsx预览' })).toBeInTheDocument();
+    expect(await screen.findByText('Sheet: Summary')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/agent/files/file-xlsx/preview',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps a document preview unavailable until the attachment is ready', () => {
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        attachments={[
+          {
+            fileId: 'file-processing',
+            fileName: 'slides.pptx',
+            mediaType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            fileKind: 'pptx',
+            size: 1024,
+            status: 'processing',
+            previewUrl: '/api/agent/files/file-processing/preview',
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '预览slides.pptx' })).toBeDisabled();
+  });
+
   it('does not intercept plain text paste', () => {
     const onAttachmentSelected = vi.fn();
     const onPromptChange = vi.fn();
@@ -157,9 +223,268 @@ describe('Composer image paste', () => {
     });
     expect(onAttachmentSelected).not.toHaveBeenCalled();
   });
+
+  it('keeps a short plain text paste as the browser default', () => {
+    const onAttachmentSelected = vi.fn();
+    const onPromptChange = vi.fn();
+    const onSubmit = vi.fn();
+    render(
+      <Composer
+        prompt="请分析这份材料"
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={onPromptChange}
+        onSubmit={onSubmit}
+        onAttachmentSelected={onAttachmentSelected}
+      />,
+    );
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: { files: [], getData: () => '普通文本' },
+    });
+    fireEvent(screen.getByRole('textbox', { name: '任务输入' }), event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(onAttachmentSelected).not.toHaveBeenCalled();
+    expect(onPromptChange).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('keeps exactly 4000 Unicode code points as a normal paste', () => {
+    const onAttachmentSelected = vi.fn();
+    const text = '😀'.repeat(4_000);
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: { files: [], getData: () => text },
+    });
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentSelected={onAttachmentSelected}
+      />,
+    );
+    fireEvent(screen.getByRole('textbox', { name: '任务输入' }), event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(onAttachmentSelected).not.toHaveBeenCalled();
+  });
+
+  it('uploads more than 4000 Unicode code points as a lossless TXT attachment', async () => {
+    const onAttachmentSelected = vi.fn();
+    const text = `任务\n${'😀'.repeat(3_998)}\n结束`;
+    expect([...text].length).toBe(4_004);
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: { files: [], getData: () => text },
+    });
+    render(
+      <Composer
+        prompt="请分析这份材料"
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentSelected={onAttachmentSelected}
+      />,
+    );
+    fireEvent(screen.getByRole('textbox', { name: '任务输入' }), event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(onAttachmentSelected).toHaveBeenCalledTimes(1);
+    const file = (onAttachmentSelected.mock.calls[0]![0] as File[])[0]!;
+    expect(file.name).toBe('pasted-text.txt');
+    expect(file.type).toBe('text/plain');
+    const content = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(file);
+    });
+    expect(content).toBe(text);
+  });
+
+  it('increments generated TXT names for repeated long text pastes', () => {
+    const onAttachmentSelected = vi.fn();
+    const text = 'a'.repeat(4_001);
+    const { rerender } = render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentSelected={(files) => {
+          onAttachmentSelected(files);
+        }}
+        attachments={[
+          {
+            fileId: 'pasted-one',
+            fileName: 'pasted-text.txt',
+            mediaType: 'text/plain',
+            size: text.length,
+            fileKind: 'text',
+            status: 'ready',
+          },
+        ]}
+      />,
+    );
+    const makePasteEvent = () => {
+      const event = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', {
+        value: { files: [], getData: () => text },
+      });
+      return event;
+    };
+    const textbox = screen.getByRole('textbox', { name: '任务输入' });
+    fireEvent(textbox, makePasteEvent());
+    rerender(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentSelected={onAttachmentSelected}
+        attachments={[
+          {
+            fileId: 'pasted-one',
+            fileName: 'pasted-text.txt',
+            mediaType: 'text/plain',
+            size: text.length,
+            fileKind: 'text',
+            status: 'ready',
+          },
+          {
+            fileId: 'pasted-two',
+            fileName: 'pasted-text-2.txt',
+            mediaType: 'text/plain',
+            size: text.length,
+            fileKind: 'text',
+            status: 'ready',
+          },
+        ]}
+      />,
+    );
+    fireEvent(textbox, makePasteEvent());
+    expect(onAttachmentSelected).toHaveBeenCalledTimes(2);
+    expect(
+      onAttachmentSelected.mock.calls.map(([files]) => (files as File[])[0]?.name),
+    ).toEqual(['pasted-text-2.txt', 'pasted-text-3.txt']);
+  });
+
+  it('prioritizes clipboard images over long text', () => {
+    const onAttachmentSelected = vi.fn();
+    const getData = vi.fn(() => 'a'.repeat(4_001));
+    const image = new File(['image'], '', { type: 'image/png' });
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: { files: [image], getData },
+    });
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentSelected={onAttachmentSelected}
+      />,
+    );
+    fireEvent(screen.getByRole('textbox', { name: '任务输入' }), event);
+    expect(getData).not.toHaveBeenCalled();
+    expect(onAttachmentSelected).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'pasted-image-1.png', type: 'image/png' }),
+    ]);
+  });
+
+  it.each([
+    ['steer mode', { mode: 'steer' as const }],
+    ['disabled mode', { mode: 'disabled' as const }],
+    ['waiting for user', { mode: 'new-run' as const, controlState: 'waiting_for_user' as const }],
+  ])('does not upload pasted content in %s', (_label, props) => {
+    const onAttachmentSelected = vi.fn();
+    const text = 'a'.repeat(4_001);
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        {...props}
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentSelected={onAttachmentSelected}
+      />,
+    );
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: { files: [], getData: () => text },
+    });
+    fireEvent(screen.getByRole('textbox', { name: '任务输入' }), event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(onAttachmentSelected).not.toHaveBeenCalled();
+  });
 });
 
 describe('Conversation tool activity navigation', () => {
+  it('opens the parsed preview for a historical document attachment', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('## Slides\n\n- Opening\n- Summary', {
+        status: 200,
+        headers: { 'content-type': 'text/plain' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [
+            {
+              id: 'user-file',
+              kind: 'user',
+              content: '请查看附件',
+              attachments: [
+                {
+                  fileId: 'file-pptx',
+                  fileName: 'slides.pptx',
+                  mediaType:
+                    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                  fileKind: 'pptx',
+                  size: 1024,
+                  status: 'ready',
+                  previewUrl: '/api/agent/files/file-pptx/preview',
+                },
+              ],
+            },
+          ],
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '预览slides.pptx' }));
+    expect(await screen.findByRole('dialog', { name: 'slides.pptx预览' })).toBeInTheDocument();
+    expect(await screen.findByText('Opening')).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it('renders a consumed steer as the regular user message', () => {
     render(
       <Conversation

@@ -6,6 +6,8 @@ export const AGENT_UI_BEHAVIOR = {
   copyFeedbackDurationMs: 1_400,
   // 用户距离滚动底部小于该值时继续吸底。
   stickToBottomThresholdPx: 32,
+  // 超过该数量的纯文本粘贴会作为 TXT 附件上传。
+  longPasteThresholdCodePoints: 2_000,
 } as const;
 
 // 集中维护跨页面重复使用的稳定界面文案。

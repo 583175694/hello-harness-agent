@@ -47,6 +47,7 @@ import type {
 import type { PendingUserInputView } from '@harness/agent-protocol';
 import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
+import { getFilePreview } from '../../../api/client';
 
 // 将消息创建时间格式化为当前本地时间。
 function formatMessageTime(createdAt?: string, fallback?: string): string {
@@ -88,6 +89,20 @@ function formatFileSize(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// 为当前草稿中的自动粘贴文本选择可读且不冲突的文件名。
+function nextPastedTextFileName(attachments: FileRef[]): string {
+  const usedNames = new Set(
+    attachments
+      .map((attachment) => attachment.fileName)
+      .filter((fileName) => /^pasted-text(?:-\d+)?\.txt$/u.test(fileName)),
+  );
+  if (!usedNames.has('pasted-text.txt')) return 'pasted-text.txt';
+  for (let index = 2; ; index += 1) {
+    const fileName = `pasted-text-${index}.txt`;
+    if (!usedNames.has(fileName)) return fileName;
+  }
 }
 
 function fileExtension(fileName: string): string {
@@ -163,6 +178,91 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
   );
 }
 
+// Office、PDF 和普通文本统一展示服务端生成的规范化正文。
+function FilePreviewDialog({
+  fileName,
+  fileId,
+  onClose,
+}: {
+  fileName: string;
+  fileId: string;
+  onClose: () => void;
+}) {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void getFilePreview(fileId, controller.signal)
+      .then((result) => setContent(result.content))
+      .catch((requestError: unknown) => {
+        if ((requestError as Error).name !== 'AbortError')
+          setError(requestError instanceof Error ? requestError.message : '文件预览不可用。');
+      });
+    return () => controller.abort();
+  }, [fileId]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="file-preview-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${fileName}预览`}
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section
+        className="file-preview-dialog__panel"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="file-preview-dialog__header">
+          <div>
+            <span
+              className={`file-card-icon file-card-icon--${fileExtension(fileName).toLowerCase()}`}
+            >
+              {fileExtension(fileName)}
+            </span>
+            <strong title={fileName}>{fileName}</strong>
+          </div>
+          <button
+            type="button"
+            className="file-preview-dialog__close"
+            aria-label="关闭文件预览"
+            title="关闭预览"
+            onClick={onClose}
+          >
+            <X size={19} />
+          </button>
+        </header>
+        <div className="file-preview-dialog__body">
+          {error ? <p className="file-preview-dialog__error">{error}</p> : null}
+          {content === null && !error ? (
+            <div
+              className="file-preview-dialog__loading"
+              role="status"
+              aria-label="正在加载文件预览"
+            >
+              <LoaderCircle className="spin" size={18} />
+              <span>正在加载预览</span>
+            </div>
+          ) : null}
+          {content !== null ? <MarkdownContent>{content}</MarkdownContent> : null}
+        </div>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
 // 将一个包含 Steer 边界标记的 assistant draft 拆成可混排的顶层消息。
 // Steer 使用同一条 UserMessage 组件渲染，避免在 assistant 容器内维护第二套用户气泡。
 function expandConversationItem(item: ConversationItem): RenderedConversationItem[] {
@@ -207,7 +307,11 @@ const UserMessage = memo(function UserMessage({
   item: Extract<ConversationItem, { kind: 'user' }>;
 }) {
   // 用户消息将附件独立渲染在文本气泡上方，点击后打开全屏预览。
-  const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
+  const [preview, setPreview] = useState<
+    | { kind: 'image'; src: string; alt: string }
+    | { kind: 'file'; fileId: string; fileName: string }
+    | null
+  >(null);
   return (
     <div className="message message--user flex justify-end gap-3 text-text-primary">
       <div className="user-message-content">
@@ -223,7 +327,11 @@ const UserMessage = memo(function UserMessage({
                   aria-label={`预览${attachment.fileName}`}
                   onClick={() =>
                     attachment.previewUrl &&
-                    setPreview({ src: attachment.previewUrl, alt: attachment.fileName })
+                    setPreview({
+                      kind: 'image',
+                      src: attachment.previewUrl,
+                      alt: attachment.fileName,
+                    })
                   }
                 >
                   <img
@@ -233,11 +341,20 @@ const UserMessage = memo(function UserMessage({
                   />
                 </button>
               ) : (
-                <div
+                <button
                   key={attachment.fileId}
+                  type="button"
                   className="user-attachment-button user-attachment-document"
-                  role="img"
-                  aria-label={`文件${attachment.fileName}`}
+                  aria-label={`预览${attachment.fileName}`}
+                  disabled={attachment.status !== 'ready'}
+                  onClick={() => {
+                    if (attachment.status !== 'ready') return;
+                    setPreview({
+                      kind: 'file',
+                      fileId: attachment.fileId,
+                      fileName: attachment.fileName,
+                    });
+                  }}
                 >
                   <span
                     className={`file-card-icon file-card-icon--${fileExtension(attachment.fileName).toLowerCase()}`}
@@ -255,7 +372,7 @@ const UserMessage = memo(function UserMessage({
                     </strong>
                     <small>{formatFileSize(attachment.size)}</small>
                   </span>
-                </div>
+                </button>
               ),
             )}
           </div>
@@ -274,8 +391,14 @@ const UserMessage = memo(function UserMessage({
       <div className="message-avatar user-avatar" aria-hidden="true">
         <CircleUserRound size={17} />
       </div>
-      {preview ? (
+      {preview?.kind === 'image' ? (
         <ImageLightbox src={preview.src} alt={preview.alt} onClose={() => setPreview(null)} />
+      ) : preview?.kind === 'file' ? (
+        <FilePreviewDialog
+          fileId={preview.fileId}
+          fileName={preview.fileName}
+          onClose={() => setPreview(null)}
+        />
       ) : null}
     </div>
   );
@@ -871,10 +994,11 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
-  const [attachmentPreview, setAttachmentPreview] = useState<{
-    src: string;
-    alt: string;
-  } | null>(null);
+  const [attachmentPreview, setAttachmentPreview] = useState<
+    | { kind: 'image'; src: string; alt: string }
+    | { kind: 'file'; fileId: string; fileName: string }
+    | null
+  >(null);
   const currentInterruptState =
     interruptState.interruptId === activeInterrupt?.interruptId
       ? interruptState
@@ -897,6 +1021,12 @@ export function Composer({
     !models.find((model) => model.id === selectedModel)?.supportsVision,
   );
   const canUseImageAttachments = mode === 'new-run' && !activeInterrupt;
+  const canPasteAttachments =
+    canUseImageAttachments &&
+    !submitting &&
+    !attachmentUploading &&
+    serviceState === 'ready' &&
+    controlState !== 'waiting_for_user';
   useEffect(() => {
     if (!attachmentMenuOpen) return undefined;
     const handleOutsidePointerDown = (event: PointerEvent) => {
@@ -1049,7 +1179,11 @@ export function Composer({
                   className="composer-attachment-preview__open"
                   aria-label={`预览${item.fileName}`}
                   onClick={() =>
-                    setAttachmentPreview({ src: item.previewUrl ?? '', alt: item.fileName })
+                    setAttachmentPreview({
+                      kind: 'image',
+                      src: item.previewUrl ?? '',
+                      alt: item.fileName,
+                    })
                   }
                 >
                   <img src={item.previewUrl} alt={item.fileName} />
@@ -1063,41 +1197,54 @@ export function Composer({
                   ) : null}
                 </button>
               ) : (
-                <div
-                  className={`composer-attachment-preview__loading file-card-icon file-card-icon--${fileExtension(item.fileName).toLowerCase()}`}
+                <button
+                  type="button"
+                  className="composer-attachment-preview__file-open"
                   title={item.fileName}
+                  aria-label={`预览${item.fileName}`}
+                  disabled={item.status !== 'ready'}
+                  onClick={() => {
+                    if (item.status !== 'ready') return;
+                    setAttachmentPreview({
+                      kind: 'file',
+                      fileId: item.fileId,
+                      fileName: item.fileName,
+                    });
+                  }}
                 >
-                  {item.status === 'failed' ? (
-                    <CircleAlert size={16} />
-                  ) : item.status === 'rejected' ? (
-                    <CircleAlert size={16} />
-                  ) : item.status === 'ready' ? (
-                    <span className="composer-attachment-preview__file">
-                      {fileExtension(item.fileName)}
-                    </span>
-                  ) : (
-                    <LoaderCircle className="spin" size={16} />
-                  )}
-                </div>
+                  <span
+                    className={`composer-attachment-preview__loading file-card-icon file-card-icon--${fileExtension(item.fileName).toLowerCase()}`}
+                  >
+                    {item.status === 'failed' ? (
+                      <CircleAlert size={16} />
+                    ) : item.status === 'rejected' ? (
+                      <CircleAlert size={16} />
+                    ) : item.status === 'ready' ? (
+                      <span className="composer-attachment-preview__file">
+                        {fileExtension(item.fileName)}
+                      </span>
+                    ) : (
+                      <LoaderCircle className="spin" size={16} />
+                    )}
+                  </span>
+                  <span className="composer-attachment-preview__details">
+                    <strong className="file-card-name" title={item.fileName}>
+                      <span className="file-card-name__prefix">
+                        {splitFileName(item.fileName).prefix}
+                      </span>
+                      <span className="file-card-name__suffix">
+                        {splitFileName(item.fileName).suffix}
+                      </span>
+                    </strong>
+                    <small>{formatFileSize(item.size)}</small>
+                    {item.status === 'failed' || item.status === 'rejected' ? (
+                      <span className="composer-attachment-preview__error" role="status">
+                        {fileErrorMessage(item.errorCode)}
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
               )}
-              {item.fileKind !== 'image' && !item.mediaType.startsWith('image/') ? (
-                <div className="composer-attachment-preview__details">
-                  <strong className="file-card-name" title={item.fileName}>
-                    <span className="file-card-name__prefix">
-                      {splitFileName(item.fileName).prefix}
-                    </span>
-                    <span className="file-card-name__suffix">
-                      {splitFileName(item.fileName).suffix}
-                    </span>
-                  </strong>
-                  <small>{formatFileSize(item.size)}</small>
-                  {item.status === 'failed' || item.status === 'rejected' ? (
-                    <span className="composer-attachment-preview__error" role="status">
-                      {fileErrorMessage(item.errorCode)}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
               {item.status === 'failed' ? (
                 // failed 表示可恢复错误，允许用户重新触发解析。
                 <button
@@ -1140,10 +1287,16 @@ export function Composer({
           />
         </div>
       ) : null}
-      {attachmentPreview ? (
+      {attachmentPreview?.kind === 'image' ? (
         <ImageLightbox
           src={attachmentPreview.src}
           alt={attachmentPreview.alt}
+          onClose={() => setAttachmentPreview(null)}
+        />
+      ) : attachmentPreview?.kind === 'file' ? (
+        <FilePreviewDialog
+          fileId={attachmentPreview.fileId}
+          fileName={attachmentPreview.fileName}
           onClose={() => setAttachmentPreview(null)}
         />
       ) : null}
@@ -1158,18 +1311,28 @@ export function Composer({
           }
           onChange={(event) => onPromptChange(event.target.value)}
           onPaste={(event) => {
+            if (!canPasteAttachments) return;
             const imageFiles = Array.from(event.clipboardData.files).filter((file) =>
               file.type.startsWith('image/'),
             );
-            if (!imageFiles.length) return;
+            if (imageFiles.length) {
+              event.preventDefault();
+              onAttachmentSelected?.(
+                imageFiles.map((file, index) =>
+                  file.name
+                    ? file
+                    : new File([file], `pasted-image-${index + 1}.png`, { type: file.type }),
+                ),
+              );
+              return;
+            }
+
+            const text = event.clipboardData.getData('text/plain');
+            if ([...text].length <= AGENT_UI_BEHAVIOR.longPasteThresholdCodePoints) return;
             event.preventDefault();
-            onAttachmentSelected?.(
-              imageFiles.map((file, index) =>
-                file.name
-                  ? file
-                  : new File([file], `pasted-image-${index + 1}.png`, { type: file.type }),
-              ),
-            );
+            onAttachmentSelected?.([
+              new File([text], nextPastedTextFileName(attachments), { type: 'text/plain' }),
+            ]);
           }}
           onCompositionStart={() => {
             composingRef.current = true;

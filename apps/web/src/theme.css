@@ -243,9 +243,6 @@
   background: #202020;
 }
 
-:root[data-theme='dark'] .resource-workspace .execution-item.is-selected {
-  box-shadow: inset 2px 0 0 #8a8a8a;
-}
 
 :root[data-theme='dark'] .resource-workspace .execution-detail,
 :root[data-theme='dark'] .resource-workspace .source-item {

@@ -1581,6 +1581,33 @@ textarea:focus-visible {
   place-items: center;
   color: var(--theme-text-muted);
 }
+.composer-attachment-preview__file-open {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  grid-column: 1 / -1;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+.composer-attachment-preview__file-open:enabled {
+  cursor: pointer;
+}
+.composer-attachment-preview__file-open:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+.composer-attachment-preview__file-open:enabled:hover,
+.composer-attachment-preview__file-open:enabled:focus-visible {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: 3px;
+}
 .composer-attachment-preview__file {
   display: block;
   max-width: 52px;
@@ -3044,6 +3071,15 @@ textarea:focus-visible {
   color: var(--theme-text-primary);
   text-align: left;
 }
+.user-attachment-document:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+.user-attachment-document:enabled:hover,
+.user-attachment-document:enabled:focus-visible {
+  border-color: var(--theme-text-muted);
+  background: var(--theme-surface-hover);
+}
 .file-card-icon {
   position: relative;
   display: grid;
@@ -3172,6 +3208,103 @@ textarea:focus-visible {
   box-shadow: 0 18px 60px rgb(0 0 0 / 32%);
   animation: image-lightbox-image-in 180ms ease both;
 }
+.file-preview-dialog {
+  position: fixed;
+  z-index: 210;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgb(0 0 0 / 58%);
+  animation: image-lightbox-in 160ms ease both;
+}
+.file-preview-dialog__panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(900px, 100%);
+  min-height: 0;
+  max-height: min(84vh, 760px);
+  overflow: hidden;
+  border: 1px solid var(--theme-border);
+  border-radius: 10px;
+  background: var(--theme-surface);
+  color: var(--theme-text-primary);
+  box-shadow: 0 18px 60px rgb(0 0 0 / 24%);
+  animation: image-lightbox-image-in 180ms ease both;
+}
+.file-preview-dialog__header {
+  display: flex;
+  min-height: 60px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px 10px 16px;
+  border-bottom: 1px solid var(--theme-border-subtle);
+}
+.file-preview-dialog__header > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+.file-preview-dialog__header strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-preview-dialog__close {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--theme-border);
+  border-radius: 50%;
+  color: var(--theme-text-secondary);
+  background: transparent;
+}
+.file-preview-dialog__close:hover,
+.file-preview-dialog__close:focus-visible {
+  color: var(--theme-text-primary);
+  background: var(--theme-surface-hover);
+}
+.file-preview-dialog__body {
+  min-height: 0;
+  min-height: 180px;
+  overflow: auto;
+  padding: 20px 24px 28px;
+}
+.file-preview-dialog__body .markdown-content {
+  max-width: none;
+}
+.file-preview-dialog__loading {
+  display: flex;
+  min-height: 180px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--theme-text-muted);
+}
+.file-preview-dialog__error {
+  margin: 0;
+  color: var(--theme-danger, #b42318);
+}
+.composer-attachment-preview__loading {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  cursor: default;
+}
+.composer-attachment-preview__loading:enabled {
+  cursor: pointer;
+}
+.composer-attachment-preview__loading:enabled:hover,
+.composer-attachment-preview__loading:enabled:focus-visible {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: 3px;
+}
 .image-lightbox__close {
   position: absolute;
   top: 18px;
@@ -3210,10 +3343,23 @@ textarea:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .image-lightbox,
   .image-lightbox img,
+  .file-preview-dialog,
+  .file-preview-dialog__panel,
   .composer-attachment-preview__open img,
   .user-attachment-button .user-attachment-tile {
     animation: none;
     transition: none;
+  }
+}
+@media (max-width: 640px) {
+  .file-preview-dialog {
+    padding: 16px;
+  }
+  .file-preview-dialog__panel {
+    max-height: 90vh;
+  }
+  .file-preview-dialog__body {
+    padding: 16px;
   }
 }
 .message-actions {

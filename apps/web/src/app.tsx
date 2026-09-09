@@ -1583,7 +1583,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   async function handleAttachment(file: File): Promise<void> {
     // 上传前预占附件名额，避免多选文件并发回调使用旧状态。
     if (attachmentCountRef.current >= 4) {
-      setError('一条消息最多支持 4 张图片。');
+      setError('一条消息最多支持 4 个附件。');
       return;
     }
     attachmentCountRef.current += 1;

@@ -170,6 +170,21 @@ export async function getFile(fileId: string, signal?: AbortSignal): Promise<Fil
   return fileRefSchema.parse(await parseResponse(response));
 }
 
+// 读取服务端生成的规范化正文，用于文件预览，不重新解析原始 Office/PDF 文件。
+export async function getFilePreview(
+  fileId: string,
+  signal?: AbortSignal,
+): Promise<{ fileId: string; content: string; contentType: string }> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/files/${fileId}/preview`, { signal });
+  const content = await response.text();
+  if (!response.ok) throw new Error(content || '文件预览不可用。');
+  return {
+    fileId,
+    content,
+    contentType: response.headers.get('content-type') ?? 'text/plain',
+  };
+}
+
 // 请求服务端重新处理可恢复失败的文件。
 export async function retryFile(fileId: string): Promise<FileRef> {
   const response = await fetch(`${apiBaseUrl}/api/agent/files/${fileId}/retry`, { method: 'POST' });

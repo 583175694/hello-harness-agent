@@ -2,19 +2,21 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-05（C1-A1 稳定图片能力已实现；真实 COS 删除失败补偿仍待集成验收）
+> 最后更新：2026-09-09（C1 文件与多模态基础已完整实现）
 
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 20 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel 和 K4 Agent Task Semantics 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up 和 Plan Snapshot 均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
+当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics 和 C1 File & Multimodal Foundation 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
 评估体系当前暂缓建设。相关实现、配置、命令、数据和专题文档已于 2026-08-17 移除；普通 unit、integration、E2E 与 `agent-testkit` 回归测试继续保留。后续评估能力作为独立模块重新设计，不再阻塞当前 Context Engineering 或功能开发。
 
-### C1-A0 / C1-A1 状态
+### C1 File & Multimodal Foundation 状态
 
-C1-A0 图片闭环已完成真实 DeepSeek Vision 主链路验证。C1-A1 已实现最多四张图片有序绑定、旧单附件请求兼容、失败保留与手动重试、取消上传、未绑定文件删除、剪贴板图片粘贴、多图预览和 Session 删除后的 COS 清理补偿；数据库 migration 已部署，协议和 Composer 回归测试通过。真实 COS 删除失败后的重试流程和完整 E2E 仍待集成验收；普通文本粘贴保持原有输入框行为。
+C1 已完整实现并收口。图片链路覆盖最多四个附件的有序绑定、旧单附件请求兼容、失败保留与手动重试、取消上传、未绑定文件删除、剪贴板图片粘贴、多图预览、视觉模型输入和 Session 删除后的 COS 清理补偿。文件链路覆盖 TXT、Markdown、CSV、JSON、PDF 以及现代 DOCX/XLSX 的类型校验、异步解析、状态恢复、受限预览、规范化正文保存和基础定位信息；模型通过 `search_file` 与 `read_file_lines` 按需读取有限材料，不默认把完整正文注入 Context。Composer 已支持文件选择、拖拽、图片优先的剪贴板分流、长文本粘贴自动生成 TXT 附件、附件重试/取消/移除和多种文件预览。
+
+C1 的数据库 migration、协议、FileStorage/COS、文件处理、Model Adapter、Run Context、Tool、Projection、Session 恢复和 Web Composer 均已接入。C1 的完成验证覆盖 API/Web/Protocol 单测、类型检查、lint、production build、数据库集成和真实浏览器交互；现代 Office 解析和 Office/PDF/TXT 文件预览已纳入本次完成范围并通过回归。C1 不包含 C2 Artifact/Report 生成，也不承诺 OCR、音视频转写、复杂 Office 版式、压缩包递归解析、密码保护文件、向量检索或全文索引。
 
 Model-led Tool Boundary 已落地为协议 `0.8.0`：模型负责语义规划，Runtime 只执行模型决策和通用执行边界，Tool 只执行能力并返回 canonical 结构化结果，Runtime 统一序列化 Tool Message，Projection 派生 provenance 并按 URL/contentHash 归并 canonical source。`ToolRunState`、`WebResearchRunState`、Tool `modelContent/control` 和跨调用 URL allowlist 已删除；没有新增 Runtime Decision Policy、Web Research Policy 或 Tool observation 预算协议。详见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md)。
 
@@ -133,6 +135,9 @@ Workbench 的 Context Tab 只保留当前 Run 最后一轮快照，Run 结束和
 - OpenAI 官方 SDK 和 OpenAI-compatible Chat Completions 已接入；模型 ID、Base URL、能力和请求参数由 `apps/api/src/model/model-catalog.ts` 管理，只有 `OPENAI_API_KEY` 从环境变量读取。
 - DeepSeek V4 Thinking + Tool Calling 已通过 Model Adapter 做上下文特化：解码 `reasoning_content` 分片并由 Runtime 聚合，仅对历史 Tool Call 原子单元做 native replay，最终回答 reasoning 不进入下一轮请求；provider/format 兼容检查、Run reasoning profile 和用户投影隐藏边界均已落地并有单测覆盖。
 - Context Engineering 第一阶段已接入每个 Model Round：本地 DeepSeek V3 tokenizer 统一估算 messages 与 Tool Definitions，按 Model Profile 预留最大输出和安全空间，支持 Tool Result 批次裁剪、封闭历史前缀压缩、Session 级摘要状态和明确的最终超限错误。
+- C1 文件与多模态基础已完成：支持图片、TXT、Markdown、CSV、JSON、PDF、DOCX、XLSX 附件的上传、校验、解析、状态恢复、预览、消息绑定和模型消费；原始文件与规范化正文通过 FileStorage/COS 保存，数据库只保存文件元数据、状态、哈希、解析器版本和对象引用。
+- C1 文件按需读取已完成：模型可通过 `search_file` 进行关键词搜索、通过 `read_file_lines` 读取有界行范围；工具结果带文件名、`fileId` 和行号/页码定位，并执行 Session 归属、`ready` 状态和结果预算校验。
+- C1 Composer 附件交互已完成：支持多附件有序管理、图片剪贴板粘贴、长文本粘贴自动外置为 TXT、失败重试、取消/移除、Office/PDF/TXT 等文件预览和无障碍附件操作。
 - Workbench 已增加当前 Run 的 Context 调试视图；Run 结束及刷新后保留最后一轮快照，JSON 分离展示模型输入 `messages` 与本轮输出 `response`，并支持主题色、长内容换行和复制。
 - 评估体系已从当前工作区移除；普通 unit、integration、E2E 与 `agent-testkit` 工程回归能力保留。
 - 已实现每个 assistant run 最多 20 次 Tool Call 的模型-工具循环，支持分片 arguments 聚合、参数校验、串行执行、错误回传和达到调用上限后的无工具最终回答。
@@ -219,6 +224,10 @@ pnpm check
 pnpm test:integration
 pnpm --filter @harness/web test:e2e
 ```
+
+2026-09-09 完成 C1 File & Multimodal Foundation 全量收口。代码与回归覆盖图片多附件、文件上传与解析、现代 DOCX/XLSX、PDF/TXT/Office 预览、COS 规范化正文、`search_file`/`read_file_lines` 按需读取、长文本粘贴外置为 TXT、失败重试/取消/移除、Session 恢复和消息附件绑定；对应完成提交为 `7f5a747`，后续补充提交为 `c2524b4` 与 `bec0e76`。本轮文档记录以这些已落地代码和测试为准；C1-C 的 OCR、复杂版式、压缩包、密码保护文件、向量检索和全文索引不计入已完成范围。
+
+本次 C1 相关验证包括 API 文件处理、COS 重建与失败重试、按需文件工具和 Context 编译单测，Web Composer/Conversation 附件与预览回归，以及既有的类型检查、lint、production build、数据库集成和真实浏览器验证。工作区中原有的 `docs/c1-file-multimodal-foundation.md` 删除、`docs/30-c1-file-multimodal-foundation.md` 和 `docs/31-c2-artifact-and-report-generation.md` 新增属于既有分支变更，本次只更新状态与面试知识文档。
 
 2026-08-18 完成 Context Engineering 第一阶段、Context Workbench 调试视图和最终 Round 输入/输出分离后执行：
 
@@ -335,6 +344,7 @@ git diff --check
 - Artifact 持久化和正式 Report 恢复；Session/Message/Run/Step 和 assistant draft snapshot 已完成。
 - 服务端重启后自动接管执行中的 Run、多实例 Worker lease、Provider cursor 和通用 Tool 副作用幂等；重启遗留 active execution 仍收敛为 `RUN_INTERRUPTED`。K3.1 Pause/Resume 仅存在于 API 进程内，重启、多实例切换和 Runtime Registry 丢失后的控制恢复不在承诺范围内。
 - 搜索 fallback；正式 Evidence、引用校验和 Markdown Report Artifact 不属于当前范围，是否进入后续 Deep Research 由未来产品需求决定。
+- C1 已完成；后续文件方向仅包括 OCR、更多格式、复杂版式和更强索引等明确的 C1-C 增强，不得再将 C1-A/C1-B 作为未完成项重复排入当前主线。
 - K3.1 Pause/Resume、Runtime Lifecycle Hook、统一 control command API 和控制 SSE 已实现；K3.2 Clarification、Tool Approval、统一 Interrupt Snapshot 和 Transcript 业务事实已实现；K3.3 Steer 与 Follow-up Queue MVP 已实现。尚未完成的是面向真实写操作的副作用风险策略、能力接入、审批失效与完整审计，以及按未来部署需求另行设计的跨进程 Human-in-the-loop。独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
 - Skills、user Memory、`NOTES.md`、`TODO.md`、Delegation、Worker 和多用户认证。
 - 长 Agent Loop 的 Goal Reminder/Attention Refresh 尚未实现；当前只保留最近消息、当前任务和 Tool Call/Result 协议完整性，等多来源 Context 形成真实需求后再建设相关性选择、优先级和预算分配。
@@ -426,12 +436,11 @@ K3 已经完成通用控制和 HITL 机制；K4 已完成轻量任务语义与�
 ### 7.2 Capability 主线
 
 ```text
-C1  File & Multimodal Foundation                  高优先级
-    - 上传并绑定 Session / Task / Run 的文件（让任务可以引用用户上传的文件）
-    - PDF、DOCX、XLSX、CSV、Markdown、TXT（先覆盖常见文档和数据格式）
-    - 图片上传、OCR、视觉理解、图表/截图/表格分析（读取图片文字并理解视觉内容）
-    - 页码、Sheet、行号、区域和 contentHash 定位（引用时能精确回到文件位置）
-    - 文件安全检查、大小限制、解析状态和 Context 引用（控制风险、容量和解析过程）
+C1  File & Multimodal Foundation                  已完成：图片、通用文件、按需读取与 Composer 附件能力
+    - 已交付：上传并绑定 Session / Run 的文件；图片、TXT、Markdown、CSV、JSON、PDF、DOCX、XLSX 解析与预览
+    - 已交付：图片视觉输入、文件安全检查、大小限制、解析状态、失败恢复和 Context 引用
+    - 已交付：PDF 页码、文本行号/字符范围、CSV/JSON/Office 基础结构和 contentHash 等定位元数据
+    - C1-C：OCR、音视频转写、复杂 Office 版式、压缩包递归解析、密码保护文件、向量检索和全文索引
 
 C2  Artifact & Report Generation                  高优先级
     - Markdown、HTML、DOCX、XLSX/CSV、PPTX、PDF（生成常见交付格式）
@@ -504,8 +513,7 @@ L7  Multi-user / Remote Storage / Operations      更后期
 ```text
 K3 Control & HITL Kernel（基本完成）
   -> K4 Agent Task Semantics（已完成）
-  -> C1-A1 Stable Image Capability（失败恢复、多图、图片粘贴）
-  -> C1-B File & Multimodal Foundation（TXT/Markdown/CSV/JSON/PDF）
+  -> C1 File & Multimodal Foundation（已完成）
   -> K5-A Side-effect Policy Contract
   -> C2 Artifact & Report Generation（接入本地写入策略）
   -> C3 Code Execution Sandbox（接入执行与文件副作用策略）

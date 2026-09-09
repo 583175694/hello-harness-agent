@@ -4,16 +4,16 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering 第一阶段、K3 Runtime Control/HITL/Steer/Follow-up 和 K4 Agent Task Semantics。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering 第一阶段、K3 Runtime Control/HITL/Steer/Follow-up、K4 Agent Task Semantics 和 C1 File & Multimodal Foundation。
 
 ## 1. 项目一句话介绍
 
-这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、Connection-Durable Run、可断线恢复的 Conversation/Workbench，以及 Model Round 级的 Context 编译、Token 预算、Tool Result 裁剪和历史压缩。
+这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、Connection-Durable Run、可断线恢复的 Conversation/Workbench、Model Round 级的 Context 编译/Token 预算/Tool Result 裁剪/历史压缩，以及 C1 文件与多模态输入闭环。
 
 面试时需要主动区分：
 
 ```text
-已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch、Workbench 恢复和 Context Engineering 第一阶段
+已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch、Workbench 恢复、Context Engineering 第一阶段，以及图片/文本/数据/Office 附件上传、解析、预览、按需读取和模型输入
 ```
 
 ## 2. 阶段一：工程基线
@@ -741,11 +741,77 @@ Tool Approval 的关键不只是加一个确认按钮，而是保证审批前没
 
 > K4 之前，我们有能调用工具的 Agent Loop，但没有结构化任务计划，用户看不到复杂任务的进度，刷新后也无法恢复计划状态。K4 把 `update_plan` 做成不带副作用的内置控制工具：模型自主决定是否规划，Runtime 用独立 Handler 校验完整快照，成功后发布 `plan.updated`，同步到 Snapshot、SSE 和 assistant metadata，Web 在输入框上方展示当前步骤。它不进入普通工具审批、不占配额，也不决定 Run 何时完成；最终回答仍由普通 Agent Loop 生成。
 
-## 17. 面试表达模板
+## 17. C1 File & Multimodal Foundation
+
+### 问：C1 解决了 Agent 的什么问题？
+
+答：C1 把 Agent 的输入从纯文本扩展为可恢复的文件和图片材料。用户可以在 Composer 中选择、拖拽或粘贴图片与文件，服务端完成类型、大小、魔数和内容解析校验，文件进入明确的 `uploading -> processing -> ready | failed | rejected` 生命周期；发送后附件与正式 user message 建立不可变关联，刷新或重新打开 Session 仍能恢复附件元数据和处理状态。
+
+### 问：为什么文件正文不直接放进 Message 或数据库？
+
+答：二进制文件和长正文不适合作为消息正文，也不应该让每次对话都默认消耗完整 Context。C1 使用 `FileStorage` 抽象隔离本地存储与腾讯云 COS：原始文件和规范化正文保存在对象存储，数据库只保存 `fileId`、原始文件名、MIME、大小、哈希、解析器版本、状态、对象引用和 Session 归属。消息只绑定附件身份，模型需要内容时再通过受限文件工具读取。
+
+这个边界同时解决了三个问题：文件事实不依赖浏览器内存，签名 URL 不会被持久化或写入普通日志，文件内容也不会在每轮 Context 中无界复制。生产模型请求使用短期签名地址或受控的文件内容适配；业务层不直接依赖 COS SDK，便于本地测试和后续替换存储实现。
+
+### 问：C1 的文件处理链路是怎样的？
+
+答：上传链路按以下顺序执行：
+
+```text
+Web Composer
+  -> API 上传与 Session 归属校验
+  -> MIME / 魔数 / 大小 / 图片解码校验
+  -> FileStorage 保存原始对象
+  -> FileProcessingService 异步解析
+       |- 图片：生成预览并保留视觉输入元数据
+       `- 文本/数据/文档：生成规范化正文、行数/页数等定位信息
+  -> ready 文件绑定 user message
+  -> Run Context 注入 file_ref
+  -> 模型按需调用 search_file / read_file_lines
+```
+
+当前 C1 覆盖图片、TXT、Markdown、CSV、JSON、PDF 以及现代 DOCX/XLSX。文件处理失败、超限或不支持时进入明确状态，不能把未处理文件静默当作已读材料，也不能上传前静默截断用户内容。
+
+### 问：为什么要增加 `search_file` 和 `read_file_lines`，而不是直接全文注入？
+
+答：全文注入会把文件大小直接转化为每轮 Context 成本，并且在多个附件、长日志或 PDF 场景下很快挤压模型输出空间。C1 让模型先看到带身份和元数据的 `file_ref`，需要内容时使用两个有界工具：`search_file` 做普通关键词搜索并返回少量上下文，`read_file_lines` 读取有限行范围。结果带文件名、`fileId` 和行号/页码范围，并校验 Session 归属、文件 `ready` 状态和单次结果预算。
+
+这不是向量检索系统：C1 不实现预分块、`FileChunk`、Embedding、自动摘要或复杂 JSONPath。这样可以先获得可解释、可定位、可测试的文件问答闭环，再根据真实数据规模决定是否建设更重的索引能力。
+
+### 问：图片输入和普通文件输入为什么不能完全走同一条模型路径？
+
+答：它们共享上传、权限、生命周期和对象存储，但模型消费语义不同。图片在 Context 编译时需要转换为 user message 中的 image block，并根据模型能力生成短期签名 URL；文本类文件只提供 `file_ref`，正文由 `search_file`/`read_file_lines` 的有限结果进入后续轮次。Model Adapter 负责把 canonical 文件/图片输入转换成供应商请求格式，Runtime 不直接依赖 `reasoning_content`、COS 字段或某个供应商的图片协议。
+
+C1-A 支持最多四个有序附件，并保留图片 detail、尺寸和模型能力校验边界。不能把“支持图片上传”误写成“所有模型都支持视觉输入”；不支持视觉的模型必须返回明确能力错误，而不是发送一个模型无法理解的图片 block。
+
+### 问：Composer 的图片粘贴和长文本粘贴如何避免互相干扰？
+
+答：粘贴处理有固定优先级：先检查剪贴板中的图片文件；存在图片时复用既有图片上传链路；没有图片时再读取 `text/plain`，超过前端阈值的长文本才阻止默认粘贴并生成 `pasted-text.txt` 附件。短文本仍保持浏览器默认行为，图片、文件选择、拖拽和自动生成的 TXT 都进入同一个附件状态机。
+
+长度判断使用 Unicode code points，而不是 UTF-16 code units，避免中文、emoji 或组合字符导致阈值误判。自动生成的 TXT 保留原始换行、代码和 JSON 文本，不在上传前改写或截断；附件数量、文件大小和解析上限仍由服务端统一强制。
+
+### 问：C1 实际遇到过哪些难点？
+
+答：主要有四类：
+
+- 早期图片链路只覆盖单图，扩展多附件后必须保持用户选择顺序、旧 `attachmentId` 请求兼容和 Tool/Transcript 不写入签名 URL。
+- 文件正文从数据库主存储迁移到 COS 后，ready 文件的历史数据需要重建规范化正文；COS 读取失败不能伪造成功，必须保留稳定失败状态并支持重试。
+- Composer 同时处理图片粘贴、普通文本粘贴、长文本外置和上传失败，处理顺序错误会导致短文本被吞掉或图片被当成文本；因此把分流规则和回归测试固定在输入入口。
+- Office、PDF、TXT 等附件的预览不能与模型上下文混为一谈。预览是用户界面能力，模型消费是 Context/Tool 能力，两者都只引用文件身份，不能把渲染后的 HTML 或预览组件结构发送给模型。
+
+### 问：C1 如何验证已经完成？
+
+答：验证不是只看上传接口返回 200，而是覆盖完整纵向链路：Protocol schema、API 文件服务和工具单测，文件解析和 COS 重建/失败重试测试，Web Composer/Conversation 附件预览与粘贴回归，数据库集成，真实浏览器中的多附件、失败重试、取消、预览、发送、刷新恢复和 Session 删除清理。代码历史中 `7f5a747` 标记 C1 文件与多模态基础完成，之后 `c2524b4` 补齐现代 Office 解析，`bec0e76` 补齐 Composer 预览、附件交互和长文本粘贴；因此当前记录口径是 C1 整体已完成，而不是只完成图片 MVP。
+
+### 17.1 C1 面试口述版
+
+> C1 的核心不是做一个上传按钮，而是把文件作为 Agent 的一种可恢复输入事实。上传后先做安全校验和异步解析，原始文件与规范化正文放在 COS，数据库只保存元数据、状态、哈希、解析器版本和对象引用；消息只绑定 `fileId`。图片走 Model Adapter 的视觉输入路径，文本文件通过 `file_ref` 进入 Context，再由模型按需调用 `search_file` 和 `read_file_lines` 获取有限、可定位的材料。Composer 还处理了多附件顺序、失败重试、取消、预览、图片优先粘贴和长文本外置为 TXT。这样既支持真实文件问答，又不会把长文件全文默认塞进每轮模型上下文。
+
+## 18. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
-答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、Activity/Sources 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、预算、裁剪和压缩。
+答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、C1 文件与多模态输入、Activity/Sources 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、预算、裁剪和压缩。
 
 ### 问：SSE 为什么没有直接使用 WebSocket？
 
@@ -847,7 +913,7 @@ Tool Approval 的关键不只是加一个确认按钮，而是保证审批前没
 
 本轮已手动验证 K3 核心交互：`final_answer` 阶段 Steer 会自动降级并启动下一轮；Stop 后队列保留；Follow-up 支持按条发送；队列上限为 3 条且第 4 条明确拒绝；删除/发送会释放容量；刷新、断线和重复点击后状态保持一致。Continue 的上下文恢复仍归入后续 Context Engineering 阶段，不作为 K3 已验收能力。
 
-## 18. 追加规则
+## 19. 追加规则
 
 每个阶段只追加四类内容：
 

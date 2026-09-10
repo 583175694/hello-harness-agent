@@ -2,6 +2,8 @@ import type {
   AssistantContentBlock,
   AssistantTextBlock,
   AssistantToolActivityBlock,
+  AssistantArtifactBlock,
+  ArtifactRef,
   AssistantUserInterventionBlock,
 } from '@harness/agent-protocol';
 
@@ -108,6 +110,29 @@ export class ConversationBlockCollector {
     return block.id;
   }
 
+  appendArtifact(input: {
+    artifact: ArtifactRef;
+    roundId: string;
+    roundSequence: number;
+    blockSequence: number;
+  }): AssistantArtifactBlock {
+    const existing = this.blocks.find(
+      (block): block is AssistantArtifactBlock =>
+        block.type === 'artifact' && block.artifactId === input.artifact.artifactId,
+    );
+    if (existing) return { ...existing };
+    const block: AssistantArtifactBlock = {
+      ...input.artifact,
+      id: `${this.messageId}-artifact-${input.artifact.artifactId}`,
+      type: 'artifact',
+      roundId: input.roundId,
+      roundSequence: input.roundSequence,
+      blockSequence: input.blockSequence,
+    };
+    this.insert(block);
+    return { ...block };
+  }
+
   // 按 toolCallId 原位标记工具失败，并保存安全的用户可见摘要。
   failTool(input: {
     toolCallId: string;
@@ -172,6 +197,7 @@ export class ConversationBlockCollector {
     if (toolName === 'web_fetch') return '读取网页';
     if (toolName === 'search_file') return '搜索文件';
     if (toolName === 'read_file_lines') return '读取文件';
+    if (toolName === 'create_file') return '生成文件';
     return `运行工具 ${toolName}`;
   }
 

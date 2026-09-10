@@ -8,7 +8,7 @@ import {
 import { createHash } from 'node:crypto';
 import { Logger } from 'nestjs-pino';
 
-import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
+import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import { ModelAdapter } from '../model/model-adapter';
 import type { ModelMessage, ModelToolCall } from '../model/model-adapter';
 import type { ToolExecutionContext, ToolExecutionResult } from '../tools/agent-tool.types';
@@ -19,7 +19,7 @@ import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
 import { ContextEngineeringService } from '../context-engineering/context-engineering.service';
 import type { ToolResultCandidate } from '../context-engineering/context-engineering.types';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
-import { AGENT_TOOL_NAMES, type PlanSnapshot } from '@harness/agent-protocol';
+import { type PlanSnapshot } from '@harness/agent-protocol';
 import { PlanHandler } from './plan.handler';
 import { builtinToolDefinitions } from '../tools/builtin-tool-definitions';
 import type {
@@ -697,7 +697,7 @@ export class AgentRuntimeService {
           type: 'tool.started',
           toolCallId: call.id,
           toolName: call.name,
-          input: toolInput,
+          input: this.publicToolInput(call.name, toolInput),
           startedAt: startedAt.toISOString(),
           roundId,
           roundSequence: modelRounds,
@@ -710,6 +710,7 @@ export class AgentRuntimeService {
             toolInput,
             {
               sessionId: input.sessionId,
+              runId: input.runId,
               messageId: input.messageId,
               toolCallId: call.id,
             },
@@ -723,7 +724,7 @@ export class AgentRuntimeService {
               type: 'tool.cancelled',
               toolCallId: call.id,
               toolName: call.name,
-              input: toolInput,
+              input: this.publicToolInput(call.name, toolInput),
               completedAt: completedAt.toISOString(),
               durationMs,
               code: AGENT_ERROR_CODES.toolCancelled,
@@ -758,7 +759,7 @@ export class AgentRuntimeService {
             type: 'tool.completed',
             toolCallId: call.id,
             toolName: call.name,
-            input: toolInput,
+            input: this.publicToolInput(call.name, toolInput),
             output: result.output,
             completedAt: completedAt.toISOString(),
             durationMs,
@@ -779,7 +780,7 @@ export class AgentRuntimeService {
             type: 'tool.cancelled',
             toolCallId: call.id,
             toolName: call.name,
-            input: toolInput,
+            input: this.publicToolInput(call.name, toolInput),
             completedAt: completedAt.toISOString(),
             durationMs,
             code: result.error.code,
@@ -801,7 +802,7 @@ export class AgentRuntimeService {
             type: 'tool.failed',
             toolCallId: call.id,
             toolName: call.name,
-            input: toolInput,
+            input: this.publicToolInput(call.name, toolInput),
             completedAt: completedAt.toISOString(),
             durationMs,
             code: result.error.code,
@@ -962,6 +963,19 @@ export class AgentRuntimeService {
 
   private isFileTool(toolName: string): boolean {
     return toolName === AGENT_TOOL_NAMES.searchFile || toolName === AGENT_TOOL_NAMES.readFileLines;
+  }
+
+  // create_file 的正文只进入工具执行，不进入 SSE、快照、日志或历史 metadata。
+  private publicToolInput(toolName: string, input: unknown): unknown {
+    if (toolName !== AGENT_TOOL_NAMES.createFile || typeof input !== 'object' || input === null)
+      return input;
+    const value = input as { fileName?: unknown; content?: unknown };
+    const content = typeof value.content === 'string' ? value.content : '';
+    return {
+      fileName: typeof value.fileName === 'string' ? value.fileName : '',
+      contentCharacterCount: [...content].length,
+      contentByteCount: Buffer.byteLength(content, 'utf8'),
+    };
   }
 
   private clarificationRequestContent(

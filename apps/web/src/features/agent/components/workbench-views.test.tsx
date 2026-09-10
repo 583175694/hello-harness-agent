@@ -4,6 +4,46 @@ import { describe, expect, it, vi } from 'vitest';
 import { WorkbenchShell } from './workbench-views';
 
 describe('Workbench context view', () => {
+  it('keeps artifact preview and download actions in the workbench', () => {
+    render(
+      <WorkbenchShell
+        state={{
+          runId: 'run-1',
+          title: '执行详情',
+          subtitle: '当前运行',
+          activeView: 'artifact',
+          activityStatus: 'completed',
+          executions: [],
+          followMode: 'auto',
+          sources: [],
+          artifacts: [
+            {
+              artifactId: 'artifact-1',
+              fileId: 'file-1',
+              fileName: 'result.md',
+              mediaType: 'text/markdown',
+              fileKind: 'markdown',
+              size: 1024,
+              status: 'ready',
+              createdAt: '2026-09-10T00:00:00.000Z',
+            },
+          ],
+          open: true,
+        }}
+        onClose={() => undefined}
+        onViewChange={() => undefined}
+        onExecutionSelect={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: '预览' })).toHaveAttribute(
+      'href',
+      '/api/agent/artifacts/artifact-1/preview',
+    );
+    expect(screen.getByRole('button', { name: '下载' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument();
+  });
+
   it('keeps the Context tab visible before the current Run has context data', () => {
     render(
       <WorkbenchShell

@@ -4,6 +4,8 @@ import type {
   SearchToolResult,
   FileSearchResult,
   FileReadLinesResult,
+  CreateFileInputSummary,
+  CreateFileResult,
   SourceProvenance,
   ToolExecutionSnapshot,
   WebFetchInput,
@@ -22,7 +24,8 @@ type ToolProjectionInput =
   | {
       toolName: typeof AGENT_TOOL_NAMES.readFileLines;
       input: { fileId: string; startLine: number; endLine: number };
-    };
+    }
+  | { toolName: typeof AGENT_TOOL_NAMES.createFile; input: CreateFileInputSummary };
 
 const PROVENANCE_PRIORITY: Readonly<Record<SourceProvenance, number>> = {
   // 用户当前消息直接提供的 URL 拥有最高来源优先级。
@@ -139,6 +142,24 @@ export class ResearchProjectionCollector {
       completedAt: input.completedAt,
       durationMs: input.durationMs,
       resultCount: input.result.lines.length,
+    });
+  }
+
+  recordCreateFileCompleted(input: {
+    toolCallId: string;
+    toolInput: CreateFileInputSummary;
+    completedAt: string;
+    durationMs: number;
+    result: CreateFileResult;
+  }): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.createFile,
+      input: input.toolInput,
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
     });
   }
 
@@ -303,15 +324,17 @@ export class ResearchProjectionCollector {
         ...(status === 'failed' ? { retryable: input.retryable ?? false } : {}),
       },
     };
-    return input.toolName === AGENT_TOOL_NAMES.webFetch
-      ? { ...base, toolName: AGENT_TOOL_NAMES.webFetch, input: input.input }
-      : input.toolName === AGENT_TOOL_NAMES.approvalTest
-        ? { ...base, toolName: AGENT_TOOL_NAMES.approvalTest, input: input.input }
-        : input.toolName === AGENT_TOOL_NAMES.searchFile
-          ? { ...base, toolName: AGENT_TOOL_NAMES.searchFile, input: input.input }
-          : input.toolName === AGENT_TOOL_NAMES.readFileLines
-            ? { ...base, toolName: AGENT_TOOL_NAMES.readFileLines, input: input.input }
-            : { ...base, toolName: AGENT_TOOL_NAMES.webSearch, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.webFetch)
+      return { ...base, toolName: AGENT_TOOL_NAMES.webFetch, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.approvalTest)
+      return { ...base, toolName: AGENT_TOOL_NAMES.approvalTest, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.searchFile)
+      return { ...base, toolName: AGENT_TOOL_NAMES.searchFile, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.readFileLines)
+      return { ...base, toolName: AGENT_TOOL_NAMES.readFileLines, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.createFile)
+      return { ...base, toolName: AGENT_TOOL_NAMES.createFile, input: input.input };
+    return { ...base, toolName: AGENT_TOOL_NAMES.webSearch, input: input.input };
   }
 
   // 返回来源可参与 canonical 匹配的全部 URL。

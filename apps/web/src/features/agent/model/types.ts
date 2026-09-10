@@ -7,6 +7,7 @@ import type {
   WebFetchPassage,
 } from '@harness/agent-protocol';
 import type { FileRef } from '@harness/agent-protocol';
+import type { ArtifactRef } from '@harness/agent-protocol';
 import type { PlanSnapshot } from '@harness/agent-protocol';
 import type { ReactNode } from 'react';
 
@@ -40,7 +41,7 @@ export type PreviewState =
   | 'fetch-running'
   | 'fetch-candidate'
   | 'fetch-failed';
-export type WorkspaceView = 'activity' | 'context' | 'sources' | 'report' | 'plan';
+export type WorkspaceView = 'activity' | 'context' | 'sources' | 'report' | 'plan' | 'artifact';
 export type ActivityStatus =
   | 'queued'
   | 'final_answer'
@@ -60,6 +61,7 @@ export type ToolCallStatus =
 export type WorkbenchFocusTarget =
   | { kind: 'activity'; runId: string; stepId?: string }
   | { kind: 'tool_call'; runId: string; stepId: string; toolCallId: string }
+  | { kind: 'artifact'; runId: string; artifactId: string }
   | { kind: 'source'; runId: string; sourceId: string }
   | { kind: 'report'; runId: string };
 
@@ -141,6 +143,7 @@ export type WorkbenchState = {
   // 服务端下发的最新计划；前端不从文本或工具活动推断此字段。
   plan?: PlanSnapshot;
   report?: ReportView;
+  artifacts?: ArtifactRef[];
   open: boolean;
 };
 

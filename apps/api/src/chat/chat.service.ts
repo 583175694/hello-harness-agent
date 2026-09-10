@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
-import { fileSearchInputSchema, fileReadLinesInputSchema } from '@harness/agent-protocol';
+import { fileSearchInputSchema, fileReadLinesInputSchema, createFileInputSummarySchema, createFileResultSchema } from '@harness/agent-protocol';
 import type {
   ChatStreamEvent,
   ModelRoundObservation,
@@ -281,9 +281,10 @@ export class ChatService {
         const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
         const isFileSearch = event.toolName === AGENT_TOOL_NAMES.searchFile;
         const isFileReadLines = event.toolName === AGENT_TOOL_NAMES.readFileLines;
+        const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput =
-          isFetch || isApprovalTest || isCurrentTime || isFileSearch || isFileReadLines
+          isFetch || isApprovalTest || isCurrentTime || isFileSearch || isFileReadLines || isCreateFile
             ? undefined
             : this.asSearchInput(event.input);
         let toolSummary = searchInput?.query ?? '';
@@ -301,6 +302,9 @@ export class ChatService {
           toolSummary = parsed.success
             ? `读取文件 ${parsed.data.startLine}-${parsed.data.endLine} 行`
             : '读取文件行';
+        } else if (isCreateFile) {
+          const parsed = createFileInputSummarySchema.safeParse(event.input);
+          toolSummary = parsed.success ? `生成 ${parsed.data.fileName}` : '生成文件';
         }
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
@@ -382,6 +386,20 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
+        } else if (isCreateFile) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.createFile,
+            title: block.title,
+            input: createFileInputSummarySchema.parse(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
         } else {
           yield {
             type: 'tool.started',
@@ -405,14 +423,18 @@ export class ChatService {
         const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
         const isFileSearch = event.toolName === AGENT_TOOL_NAMES.searchFile;
         const isFileReadLines = event.toolName === AGENT_TOOL_NAMES.readFileLines;
+        const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const fetchResult = isFetch ? (event.output as WebFetchResult) : undefined;
         const searchResult =
-          isFetch || isApprovalTest || isCurrentTime || isFileSearch || isFileReadLines
+          isFetch || isApprovalTest || isCurrentTime || isFileSearch || isFileReadLines || isCreateFile
             ? undefined
             : (event.output as SearchToolResult);
         const fileSearchResult = isFileSearch ? (event.output as FileSearchResult) : undefined;
         const fileReadLinesResult = isFileReadLines
           ? (event.output as FileReadLinesResult)
+          : undefined;
+        const createFileResult = isCreateFile
+          ? createFileResultSchema.parse(event.output)
           : undefined;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
@@ -455,6 +477,20 @@ export class ChatService {
             durationMs: event.durationMs,
             result: fileReadLinesResult,
           });
+        } else if (createFileResult) {
+          projection.recordCreateFileCompleted({
+            toolCallId: event.toolCallId,
+            toolInput: createFileInputSummarySchema.parse(event.input),
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: createFileResult,
+          });
+          conversation.appendArtifact({
+            artifact: createFileResult.artifact,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          });
         }
         const blockId = conversation.completeTool({
           toolCallId: event.toolCallId,
@@ -470,7 +506,9 @@ export class ChatService {
                   ? `找到 ${fileSearchResult.matches.length} 个文件命中`
                   : fileReadLinesResult
                     ? `读取 ${fileReadLinesResult.lines.length} 行文件内容`
-                    : `找到 ${searchResult?.results.length ?? 0} 个结果`,
+                    : createFileResult
+                      ? `已生成 ${createFileResult.file.fileName}`
+                      : `找到 ${searchResult?.results.length ?? 0} 个结果`,
         });
         await notifyProjection();
         if (fetchResult) {
@@ -558,6 +596,20 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: fileReadLinesResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (createFileResult) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.createFile,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: createFileResult,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -777,6 +829,12 @@ export class ChatService {
       const parsed = fileReadLinesInputSchema.safeParse(input);
       return parsed.success
         ? { toolName: AGENT_TOOL_NAMES.readFileLines, input: parsed.data }
+        : undefined;
+    }
+    if (toolName === AGENT_TOOL_NAMES.createFile) {
+      const parsed = createFileInputSummarySchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.createFile, input: parsed.data }
         : undefined;
     }
     if (

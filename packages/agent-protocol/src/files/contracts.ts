@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 // 文件从上传、解析到可用或失败的生命周期状态。
 export const fileProcessingStatusSchema = z.enum(['processing', 'ready', 'failed', 'rejected']);
+export const fileOriginSchema = z.enum(['user_uploaded', 'agent_generated']);
 // canonical 图片内容只携带服务端稳定的文件 ID，URL 和 object key 延迟到
 // Model Adapter 发送请求时再解析。
 export const userImageContentSchema = z.object({
@@ -48,7 +49,59 @@ export const fileRefSchema = z.object({
   lineCount: z.number().int().nonnegative().optional(),
   pageCount: z.number().int().nonnegative().optional(),
   characterCount: z.number().int().nonnegative().optional(),
+  origin: fileOriginSchema.optional(),
+  artifactId: z.string().min(1).optional(),
 });
+
+export const artifactStatusSchema = z.enum(['processing', 'ready', 'failed', 'deleted']);
+export const artifactRefSchema = z.object({
+  artifactId: z.string().min(1),
+  fileId: z.string().min(1),
+  fileName: z.string().min(1),
+  mediaType: z.string().min(1),
+  fileKind: z.enum(['text', 'markdown', 'json']),
+  size: z.number().int().nonnegative(),
+  status: artifactStatusSchema,
+  createdAt: z.string().datetime(),
+  errorCode: z.string().min(1).optional(),
+  lineCount: z.number().int().nonnegative().optional(),
+  characterCount: z.number().int().nonnegative().optional(),
+});
+
+export const createFileInputSchema = z
+  .object({ fileName: z.string().trim().min(1).max(255), content: z.string().min(1) })
+  .strict()
+  .superRefine((value, context) => {
+    if (/[\\/]/u.test(value.fileName) || value.fileName.includes(String.fromCharCode(0)) || value.fileName === '.' || value.fileName === '..') {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['fileName'], message: 'invalid file name' });
+      return;
+    }
+    if (!/\.(?:md|markdown|txt|json)$/iu.test(value.fileName)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['fileName'], message: 'unsupported file extension' });
+    }
+    if ([...value.content].length > 40_000) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['content'], message: 'content exceeds code point limit' });
+    }
+    if (new TextEncoder().encode(value.content).byteLength > 10 * 1024 * 1024) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['content'], message: 'content exceeds byte limit' });
+    }
+    if (/\.json$/iu.test(value.fileName)) {
+      try {
+        JSON.parse(value.content);
+      } catch {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['content'], message: 'invalid JSON content' });
+      }
+    }
+  });
+// 工具事件和持久化快照只保存生成请求摘要，绝不携带完整正文。
+export const createFileInputSummarySchema = z
+  .object({
+    fileName: z.string().min(1).max(255),
+    contentCharacterCount: z.number().int().nonnegative(),
+    contentByteCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export const createFileResultSchema = z.object({ artifact: artifactRefSchema, file: fileRefSchema });
 
 // 文件搜索工具的输入约束。
 export const fileSearchInputSchema = z
@@ -109,10 +162,16 @@ export const fileReadLinesResultSchema = z.object({
 });
 
 export type FileProcessingStatus = z.infer<typeof fileProcessingStatusSchema>;
+export type FileOrigin = z.infer<typeof fileOriginSchema>;
 export type UserImageContent = z.infer<typeof userImageContentSchema>;
 export type UserFileContent = z.infer<typeof userFileContentSchema>;
 export type UserContentBlock = z.infer<typeof userContentBlockSchema>;
 export type FileRef = z.infer<typeof fileRefSchema>;
+export type ArtifactStatus = z.infer<typeof artifactStatusSchema>;
+export type ArtifactRef = z.infer<typeof artifactRefSchema>;
+export type CreateFileInput = z.infer<typeof createFileInputSchema>;
+export type CreateFileInputSummary = z.infer<typeof createFileInputSummarySchema>;
+export type CreateFileResult = z.infer<typeof createFileResultSchema>;
 export type FileSearchInput = z.infer<typeof fileSearchInputSchema>;
 export type FileSearchResult = z.infer<typeof fileSearchResultSchema>;
 export type FileReadLinesInput = z.infer<typeof fileReadLinesInputSchema>;

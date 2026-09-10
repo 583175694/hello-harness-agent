@@ -43,11 +43,13 @@ import type {
   ReasoningEffort,
   ToolApprovalDecision,
   FileRef,
+  ArtifactRef,
+  AssistantArtifactBlock,
 } from '@harness/agent-protocol';
 import type { PendingUserInputView } from '@harness/agent-protocol';
 import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
-import { getFilePreview } from '../../../api/client';
+import { getArtifactPreview, getFilePreview } from '../../../api/client';
 
 // 将消息创建时间格式化为当前本地时间。
 function formatMessageTime(createdAt?: string, fallback?: string): string {
@@ -263,6 +265,83 @@ function FilePreviewDialog({
   );
 }
 
+function ArtifactPreviewDialog({
+  artifact,
+  onClose,
+}: {
+  artifact: ArtifactRef;
+  onClose: () => void;
+}) {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void getArtifactPreview(artifact.artifactId, controller.signal)
+      .then((result) => setContent(result.content))
+      .catch((requestError: unknown) => {
+        if ((requestError as Error).name !== 'AbortError')
+          setError(requestError instanceof Error ? requestError.message : '文件预览不可用。');
+      });
+    return () => controller.abort();
+  }, [artifact.artifactId]);
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+  return createPortal(
+    <div className="file-preview-dialog" role="dialog" aria-modal="true" aria-label={`${artifact.fileName}预览`} onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+      <section className="file-preview-dialog__panel" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="file-preview-dialog__header">
+          <div>
+            <span className={`file-card-icon file-card-icon--${fileExtension(artifact.fileName).toLowerCase()}`}>{fileExtension(artifact.fileName)}</span>
+            <strong title={artifact.fileName}>{artifact.fileName}</strong>
+          </div>
+          <button type="button" className="file-preview-dialog__close" aria-label="关闭文件预览" title="关闭预览" onClick={onClose}><X size={19} /></button>
+        </header>
+        <div className="file-preview-dialog__body">
+          {error ? <p className="file-preview-dialog__error">{error}</p> : null}
+          {content === null && !error ? <div className="file-preview-dialog__loading" role="status"><LoaderCircle className="spin" size={18} /><span>正在加载预览</span></div> : null}
+          {content !== null ? (
+            artifact.fileKind === 'json' ? <pre className="file-preview-dialog__code">{content}</pre> : <MarkdownContent>{content}</MarkdownContent>
+          ) : null}
+        </div>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+function ArtifactCard({
+  block,
+  runId,
+  onFocusWorkbench,
+}: {
+  block: AssistantArtifactBlock;
+  runId: string;
+  onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
+}) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const statusLabel = block.status === 'ready' ? '已就绪' : block.status === 'processing' ? '处理中' : block.status === 'failed' ? '生成失败' : '已删除';
+  return (
+    <div className="assistant-artifact-file">
+      <button type="button" className="user-attachment-button user-attachment-document" aria-label={`预览${block.fileName}`} disabled={block.status !== 'ready'} onClick={() => { setPreviewOpen(true); onFocusWorkbench({ kind: 'artifact', runId, artifactId: block.artifactId }); }}>
+        <span className={`file-card-icon file-card-icon--${fileExtension(block.fileName).toLowerCase()}`}>{fileExtension(block.fileName)}</span>
+        <span className="user-attachment-document__details">
+          <strong className="file-card-name" title={block.fileName}>
+            <span className="file-card-name__prefix">{splitFileName(block.fileName).prefix}</span>
+            <span className="file-card-name__suffix">{splitFileName(block.fileName).suffix}</span>
+          </strong>
+          <small>{formatFileSize(block.size)}{block.status === 'ready' ? '' : ` · ${statusLabel}`}</small>
+        </span>
+      </button>
+      {previewOpen ? <ArtifactPreviewDialog artifact={block} onClose={() => setPreviewOpen(false)} /> : null}
+    </div>
+  );
+}
+
 // 将一个包含 Steer 边界标记的 assistant draft 拆成可混排的顶层消息。
 // Steer 使用同一条 UserMessage 组件渲染，避免在 assistant 容器内维护第二套用户气泡。
 function expandConversationItem(item: ConversationItem): RenderedConversationItem[] {
@@ -417,9 +496,13 @@ const AssistantMessage = memo(
     onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
   }) {
     const text = flattenAssistantText(item.blocks);
-    const hasVisibleBlocks = item.blocks.some(
-      (block) => block.type === 'text' || block.type === 'tool_activity',
-    );
+    const terminal = !item.pending && item.deliveryStatus !== 'streaming';
+    const timelineBlocks = item.blocks.filter((block) => block.type !== 'artifact');
+    const artifactBlocks = terminal
+      ? item.blocks.filter((block): block is AssistantArtifactBlock => block.type === 'artifact')
+      : [];
+    const hasVisibleBlocks =
+      timelineBlocks.some((block) => block.type !== 'reasoning') || artifactBlocks.length > 0;
     return (
       <div className="message message--assistant flex gap-3 text-text-primary">
         <div className="message-avatar assistant-avatar">
@@ -443,7 +526,7 @@ const AssistantMessage = memo(
             </p>
           ) : null}
           <div className="assistant-blocks">
-            {item.blocks.map((block) =>
+            {timelineBlocks.map((block) =>
               block.type === 'text' ? (
                 <div className="assistant-text-block" key={block.id}>
                   <MarkdownContent isAnimating={isAnimating}>{block.content}</MarkdownContent>
@@ -458,6 +541,18 @@ const AssistantMessage = memo(
                 />
               ) : null,
             )}
+            {artifactBlocks.length ? (
+              <div className="assistant-artifact-list">
+                {artifactBlocks.map((block) => (
+                  <ArtifactCard
+                    key={block.id}
+                    block={block}
+                    runId={item.workbench?.runId ?? item.id}
+                    onFocusWorkbench={onFocusWorkbench}
+                  />
+                ))}
+              </div>
+            ) : null}
           </div>
           <div className="message-actions">
             <span>{formatMessageTime(item.createdAt, item.time)}</span>
@@ -684,7 +779,7 @@ export function Conversation({
       if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
       scrollFrameRef.current = null;
     };
-  }, [shouldVirtualize, state.conversation, virtualizer]);
+  }, [shouldVirtualize, state.conversation, renderedConversation.length, virtualizer]);
 
   return (
     <section

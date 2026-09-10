@@ -13,6 +13,7 @@ import {
   sessionDetailResponseSchema,
   updateSessionResponseSchema,
   fileRefSchema,
+  artifactRefSchema,
 } from '@harness/agent-protocol';
 import type {
   CancelRunResponse,
@@ -31,6 +32,7 @@ import type {
   ReasoningEffort,
   PublicAgentConfig,
   FileRef,
+  ArtifactRef,
 } from '@harness/agent-protocol';
 import { publicAgentConfigSchema } from '@harness/agent-protocol';
 
@@ -195,6 +197,54 @@ export async function deleteFile(fileId: string): Promise<{ deletedFileId: strin
   const response = await fetch(`${apiBaseUrl}/api/agent/files/${fileId}`, { method: 'DELETE' });
   const data = await parseResponse(response);
   return { deletedFileId: String((data as { deletedFileId?: unknown }).deletedFileId) };
+}
+
+export async function getArtifact(artifactId: string, signal?: AbortSignal): Promise<ArtifactRef> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}`, { signal });
+  return artifactRefSchema.parse(await parseResponse(response));
+}
+
+export async function getArtifactPreview(
+  artifactId: string,
+  signal?: AbortSignal,
+): Promise<{ artifactId: string; content: string; contentType: string }> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}/preview`, { signal });
+  const content = await response.text();
+  if (!response.ok) throw new Error(content || '文件预览不可用。');
+  return {
+    artifactId,
+    content,
+    contentType: response.headers.get('content-type') ?? 'text/plain',
+  };
+}
+
+export function getArtifactPreviewUrl(artifactId: string): string {
+  return `${apiBaseUrl}/api/agent/artifacts/${encodeURIComponent(artifactId)}/preview`;
+}
+
+export function getArtifactDownloadUrl(artifactId: string): string {
+  return `${apiBaseUrl}/api/agent/artifacts/${encodeURIComponent(artifactId)}/download`;
+}
+
+// 交给浏览器处理受权端点的 Content-Disposition，避免跨源 Blob 请求被 CORS 阻断。
+export function downloadArtifact(artifactId: string): void {
+  const anchor = document.createElement('a');
+  anchor.href = getArtifactDownloadUrl(artifactId);
+  anchor.download = '';
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+export async function deleteArtifact(
+  artifactId: string,
+): Promise<{ deletedArtifactId: string; deletedFileId: string }> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}`, { method: 'DELETE' });
+  const data = await parseResponse(response);
+  return {
+    deletedArtifactId: String((data as { deletedArtifactId?: unknown }).deletedArtifactId),
+    deletedFileId: String((data as { deletedFileId?: unknown }).deletedFileId),
+  };
 }
 
 export async function submitPendingInput(sessionId: string, content: string): Promise<unknown> {

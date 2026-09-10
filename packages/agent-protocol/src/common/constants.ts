@@ -28,6 +28,8 @@ export const AGENT_PROTOCOL_LIMITS = {
   fileSearchContextLines: 1,
   fileReadLinesMax: 50,
   fileReadResultMaxCharacters: 12_000,
+  generatedFileMaxBytes: 10 * 1024 * 1024,
+  generatedFileMaxCodePoints: 40_000,
   clarificationQuestionMaxLength: 2_000,
   clarificationOptionsMax: 12,
   clarificationOptionMaxLength: 500,
@@ -52,6 +54,7 @@ export const AGENT_TOOL_NAMES = {
   getCurrentTime: 'get_current_time',
   // Agent Loop 内置的计划控制工具，不属于 Business Tool。
   updatePlan: 'update_plan',
+  createFile: 'create_file',
 } as const;
 
 // 集中维护 API 与 SSE 共用的机器可读错误码。
@@ -137,6 +140,15 @@ export const AGENT_ERROR_CODES = {
   fileReadResultTooLarge: 'FILE_READ_RESULT_TOO_LARGE',
   fileContextResultTooLarge: 'FILE_CONTEXT_RESULT_TOO_LARGE',
   fileStorageFailed: 'FILE_STORAGE_FAILED',
+  generatedFileNameInvalid: 'GENERATED_FILE_NAME_INVALID',
+  generatedFileTypeUnsupported: 'GENERATED_FILE_TYPE_UNSUPPORTED',
+  generatedFileEmpty: 'GENERATED_FILE_EMPTY',
+  generatedFileTooLarge: 'GENERATED_FILE_TOO_LARGE',
+  generatedJsonInvalid: 'GENERATED_JSON_INVALID',
+  artifactNotFound: 'ARTIFACT_NOT_FOUND',
+  artifactDeleted: 'ARTIFACT_DELETED',
+  artifactDeleteConflict: 'ARTIFACT_DELETE_CONFLICT',
+  artifactStorageFailed: 'ARTIFACT_STORAGE_FAILED',
 } as const;
 
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[keyof typeof AGENT_ERROR_CODES];

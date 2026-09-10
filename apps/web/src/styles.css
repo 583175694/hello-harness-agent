@@ -599,6 +599,26 @@ textarea:focus-visible {
   gap: 10px;
   min-width: 0;
 }
+.assistant-artifact-file {
+  width: fit-content;
+  max-width: 100%;
+}
+.assistant-artifact-list {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.artifact-workbench-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.artifact-workbench-actions .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
 .tool-activity + .tool-activity {
   margin-top: -6px;
 }

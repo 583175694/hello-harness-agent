@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CircleAlert,
   Clock3,
+  Download,
   FileText,
   LoaderCircle,
   PanelRight,
@@ -27,7 +28,9 @@ import type {
   WorkbenchState,
   WorkspaceView,
 } from '../model/types';
+import type { ArtifactRef } from '@harness/agent-protocol';
 import { ACTIVITY_STATUS_COPY } from '../config/ui.constants';
+import { downloadArtifact, getArtifactPreviewUrl } from '../../../api/client';
 
 // 在统一 Workbench 容器中承载不同工具的视图。
 export function WorkbenchShell({
@@ -45,12 +48,13 @@ export function WorkbenchShell({
     const result: Array<{ id: WorkspaceView; label: string; icon: LucideIcon }> = [
       { id: 'activity', label: 'Activity', icon: LoaderCircle },
     ];
+    if (state.artifacts?.length) result.push({ id: 'artifact', label: 'Artifact', icon: FileText });
     if (state.sources.length) result.push({ id: 'sources', label: 'Sources', icon: Search });
     // Context 是调试入口，即使当前 Run 尚未产生 Model Round 也保持可见，并固定放在最后。
     result.push({ id: 'context', label: 'Context', icon: Braces });
     if (state.report) result.push({ id: 'report', label: 'Report', icon: FileText });
     return result;
-  }, [state.report, state.sources.length]);
+  }, [state.artifacts?.length, state.report, state.sources.length]);
 
   return (
     <aside
@@ -132,11 +136,32 @@ export function WorkbenchShell({
           <ContextView context={state.context} />
         ) : state.activeView === 'sources' ? (
           <SourcesView sources={state.sources} />
+        ) : state.activeView === 'artifact' ? (
+          <ArtifactView artifacts={state.artifacts ?? []} />
         ) : state.report ? (
           <ReportView report={state.report} sources={state.sources} />
         ) : null}
       </div>
     </aside>
+  );
+}
+
+function ArtifactView({ artifacts }: { artifacts: ArtifactRef[] }) {
+  return (
+    <div className="artifact-workbench-view">
+      {artifacts.map((artifact) => (
+        <article className="artifact-workbench-item" key={artifact.artifactId}>
+          <div className="view-toolbar">
+            <div><strong>{artifact.fileName}</strong><span>{artifact.fileKind} · {artifact.size.toLocaleString()} bytes</span></div>
+            <div className="artifact-workbench-actions">
+              <a className="secondary-button" href={getArtifactPreviewUrl(artifact.artifactId)} target="_blank" rel="noreferrer">预览</a>
+              <button className="secondary-button" type="button" onClick={() => downloadArtifact(artifact.artifactId)}><Download size={14} />下载</button>
+            </div>
+          </div>
+          <p>{artifact.status === 'ready' ? '文件已就绪。' : `当前状态：${artifact.status}`}</p>
+        </article>
+      ))}
+    </div>
   );
 }
 

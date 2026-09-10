@@ -50,6 +50,7 @@ import type {
   PublicModelConfig,
   PendingUserInputView,
   ToolApprovalDecision,
+  AssistantArtifactBlock,
 } from '@harness/agent-protocol';
 import type {
   AgentUiState,
@@ -195,7 +196,10 @@ export function workbenchFromPersistedMessage(
   const executions = metadata.data.agent?.executions ?? [];
   const sources = metadata.data.agent?.sources ?? [];
   const context = metadata.data.context;
-  if (!executions.length && !context && !metadata.data.plan) return undefined;
+  const artifactBlocks = (metadata.data.blocks ?? []).filter(
+    (block): block is AssistantArtifactBlock => block.type === 'artifact',
+  );
+  if (!executions.length && !context && !metadata.data.plan && !artifactBlocks.length) return undefined;
   const completedCount = executions.filter((execution) => execution.status === 'completed').length;
   const cancelledCount = executions.filter((execution) => execution.status === 'cancelled').length;
   let clueIndex = 0;
@@ -241,6 +245,19 @@ export function workbenchFromPersistedMessage(
     };
   });
   const header = workbenchHeader(executions, sourceViews.length);
+  const artifacts = artifactBlocks.map((block) => ({
+    artifactId: block.artifactId,
+    fileId: block.fileId,
+    fileName: block.fileName,
+    mediaType: block.mediaType,
+    fileKind: block.fileKind,
+    size: block.size,
+    status: block.status,
+    createdAt: block.createdAt,
+    ...(block.errorCode ? { errorCode: block.errorCode } : {}),
+    ...(block.lineCount !== undefined ? { lineCount: block.lineCount } : {}),
+    ...(block.characterCount !== undefined ? { characterCount: block.characterCount } : {}),
+  }));
   return {
     runId: message.runId ?? message.id,
     title: context && !executions.length ? 'Context 调试' : header.title,
@@ -266,9 +283,11 @@ export function workbenchFromPersistedMessage(
             ? '获取当前日期和时间'
             : isFileSearch
               ? `${execution.input.fileId} · ${execution.input.query}`
-              : isFileReadLines
-                ? `${execution.input.fileId} · ${execution.input.startLine}-${execution.input.endLine} 行`
-                : execution.input.query;
+            : isFileReadLines
+              ? `${execution.input.fileId} · ${execution.input.startLine}-${execution.input.endLine} 行`
+                : execution.toolName === 'create_file'
+                  ? execution.input.fileName
+                  : execution.input.query;
       return {
         toolCallId: execution.toolCallId,
         runId: message.runId ?? message.id,
@@ -282,9 +301,11 @@ export function workbenchFromPersistedMessage(
               ? '获取当前日期和时间'
               : isFileSearch
                 ? `搜索文件：${execution.input.query}`
-                : isFileReadLines
-                  ? `读取文件：${execution.input.startLine}-${execution.input.endLine} 行`
-                  : `搜索：${execution.input.query}`,
+              : isFileReadLines
+                ? `读取文件：${execution.input.startLine}-${execution.input.endLine} 行`
+                  : execution.toolName === 'create_file'
+                    ? `生成文件：${execution.input.fileName}`
+                    : `搜索：${execution.input.query}`,
         detail:
           execution.status === 'completed'
             ? isFetch
@@ -293,9 +314,11 @@ export function workbenchFromPersistedMessage(
                 ? '审批测试已完成'
                 : isFileSearch
                   ? '文件关键词搜索已完成'
-                  : isFileReadLines
-                    ? '文件行读取已完成'
-                    : '公开网页检索已完成'
+              : isFileReadLines
+                ? '文件行读取已完成'
+                : execution.toolName === 'create_file'
+                  ? '生成文件已完成'
+                  : '公开网页检索已完成'
             : execution.status === 'cancelled'
               ? '工具调用已取消'
               : '工具调用未完成',
@@ -308,8 +331,10 @@ export function workbenchFromPersistedMessage(
               ? `成功 ${execution.succeededCount ?? 0} 个，失败 ${execution.failedCount ?? 0} 个，提取 ${execution.passageCount ?? 0} 段原文`
               : isFileSearch
                 ? `返回 ${execution.resultCount ?? 0} 个文件命中`
-                : isFileReadLines
-                  ? `返回 ${execution.resultCount ?? 0} 行文件内容`
+              : isFileReadLines
+                ? `返回 ${execution.resultCount ?? 0} 行文件内容`
+                : execution.toolName === 'create_file'
+                  ? `已生成 ${execution.input.fileName}`
                   : `返回 ${execution.resultCount ?? 0} 条网页结果`
             : execution.error?.detail,
         resultCount: execution.resultCount,
@@ -318,6 +343,7 @@ export function workbenchFromPersistedMessage(
     }),
     followMode: 'auto',
     sources: sourceViews,
+    ...(artifacts.length ? { artifacts } : {}),
     ...(context ? { context } : {}),
     ...(metadata.data.plan ? { plan: metadata.data.plan } : {}),
     open: Boolean((context || metadata.data.plan) && !executions.length),
@@ -360,7 +386,9 @@ export function applyToolEvent(
             ? `${event.input.fileId} · ${event.input.query}`
             : isFileReadLines
               ? `${event.input.fileId} · ${event.input.startLine}-${event.input.endLine} 行`
-              : event.input.query;
+              : event.toolName === 'create_file'
+                ? event.input.fileName
+                : event.input.query;
     const tool: ToolCallView = {
       toolCallId: event.toolCallId,
       runId: event.messageId,
@@ -374,9 +402,11 @@ export function applyToolEvent(
             ? '获取当前日期和时间'
             : isFileSearch
               ? `搜索文件：${event.input.query}`
-              : isFileReadLines
-                ? `读取文件：${event.input.startLine}-${event.input.endLine} 行`
-                : `搜索：${event.input.query}`,
+            : isFileReadLines
+              ? `读取文件：${event.input.startLine}-${event.input.endLine} 行`
+                : event.toolName === 'create_file'
+                  ? `生成文件：${event.input.fileName}`
+                  : `搜索：${event.input.query}`,
       detail: isFetch
         ? '正在读取和过滤网页正文'
         : isApprovalTest
@@ -385,6 +415,8 @@ export function applyToolEvent(
             ? '正在获取当前日期和时间'
             : isFileSearch || isFileReadLines
               ? '正在读取用户文件'
+              : event.toolName === 'create_file'
+                ? '正在保存生成文件'
               : '正在搜索公开网页',
       status: 'running',
       elapsed: '进行中',
@@ -427,6 +459,8 @@ export function applyToolEvent(
     completedEvent?.toolName === 'search_file' ? completedEvent : undefined;
   const completedFileReadLines =
     completedEvent?.toolName === 'read_file_lines' ? completedEvent : undefined;
+  const completedCreateFile =
+    completedEvent?.toolName === 'create_file' ? completedEvent : undefined;
   const fetchSucceeded =
     completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
   const executions = base.executions.map((tool) =>
@@ -445,6 +479,8 @@ export function applyToolEvent(
                     ? '文件关键词搜索已完成'
                     : completedFileReadLines
                       ? '文件行读取已完成'
+                      : completedCreateFile
+                        ? '生成文件已完成'
                       : '公开网页检索已完成'
             : (cancelledEvent?.detail ?? failedEvent?.detail ?? '工具执行失败'),
           elapsed: formatToolDuration(event.durationMs),
@@ -457,9 +493,11 @@ export function applyToolEvent(
                   ? '已返回当前时间'
                   : completedFileSearch
                     ? `返回 ${completedFileSearch.result.matches.length} 个文件命中`
-                    : completedFileReadLines
-                      ? `返回 ${completedFileReadLines.result.lines.length} 行文件内容`
-                      : `返回 ${completedEvent?.toolName === 'web_search' ? completedEvent.result.results.length : 0} 条网页结果`
+                  : completedFileReadLines
+                    ? `返回 ${completedFileReadLines.result.lines.length} 行文件内容`
+                    : completedCreateFile
+                      ? `已生成 ${completedCreateFile.result.file.fileName}`
+                    : `返回 ${completedEvent?.toolName === 'web_search' ? completedEvent.result.results.length : 0} 条网页结果`
             : (cancelledEvent?.detail ?? failedEvent?.detail),
           resultCount:
             completedEvent &&
@@ -594,6 +632,10 @@ export function applyToolEvent(
     }
   }
   const header = workbenchHeader(executions, sources.length);
+  const artifacts =
+    completedCreateFile && !(base.artifacts ?? []).some((item) => item.artifactId === completedCreateFile.result.artifact.artifactId)
+      ? [...(base.artifacts ?? []), completedCreateFile.result.artifact]
+      : base.artifacts;
   return {
     ...base,
     open,
@@ -603,6 +645,7 @@ export function applyToolEvent(
     activeView: event.type === 'tool.completed' && sources.length ? 'sources' : base.activeView,
     executions,
     sources,
+    ...(artifacts?.length ? { artifacts } : {}),
   };
 }
 
@@ -773,7 +816,10 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   // ref 为异步 SSE 回调提供最新值，避免闭包读取过期 React state。
   const selectedSessionIdRef = useRef<string | null>(null);
   const pendingSessionsRef = useRef<Record<string, boolean>>({});
+  const sessionDetailRequestsRef = useRef<Set<string>>(new Set());
+  const loadedSessionDetailsRef = useRef<Set<string>>(new Set());
   const runControllersRef = useRef<Record<string, AbortController>>({});
+  const disposedRef = useRef(false);
   // 每个 Run 最后成功归约的 SSE cursor。
   const runSequencesRef = useRef<Record<string, number>>({});
   const sessionStatesRef = useRef<Record<string, AgentUiState>>({});
@@ -793,6 +839,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
   }, [sessionStates]);
 
   useEffect(() => {
+    disposedRef.current = false;
     const controller = new AbortController();
     void getPublicAgentConfig(controller.signal)
       .then((config) => {
@@ -805,7 +852,12 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         }
       })
       .catch(() => undefined);
-    return () => controller.abort();
+    return () => {
+      disposedRef.current = true;
+      controller.abort();
+      Object.values(runControllersRef.current).forEach((runController) => runController.abort());
+      runControllersRef.current = {};
+    };
   }, []);
 
   function setSessionStates(
@@ -1359,8 +1411,13 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
 
   // 从 API 覆盖指定会话缓存，以数据库结果作为最终事实。
   // Active Run 期间禁止旧详情覆盖本地 Live Projection，改由独立 Run Observer 负责增量恢复。
-  async function loadSessionDetail(sessionId: string): Promise<void> {
+  async function loadSessionDetail(sessionId: string, force = false): Promise<void> {
     if (pendingSessionsRef.current[sessionId]) return;
+    if (!force && (loadedSessionDetailsRef.current.has(sessionId) || sessionDetailRequestsRef.current.has(sessionId))) return;
+    sessionDetailRequestsRef.current.add(sessionId);
+    // Mark the session as loaded at request start so rapid navigation cannot
+    // schedule a second detail request during the initial response window.
+    if (!force) loadedSessionDetailsRef.current.add(sessionId);
     try {
       const { session } = await getSession(sessionId);
       if (pendingSessionsRef.current[sessionId]) return;
@@ -1437,6 +1494,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       }
     } catch (requestError) {
       setError(getErrorMessage(requestError));
+    } finally {
+      sessionDetailRequestsRef.current.delete(sessionId);
     }
   }
 
@@ -1448,6 +1507,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     const delays = [0, 150, 350, 700, 1200];
     for (const delay of delays) {
       if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay));
+      if (disposedRef.current) return;
       if (pendingSessionsRef.current[sessionId]) continue;
       try {
         const { session } = await getSession(sessionId);
@@ -1481,7 +1541,12 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     setPendingInputs([]);
     updateSessionUrl(sessionId);
     setMobileNavOpen(false);
-    if (!sessionStatesRef.current[sessionId]) void loadSessionDetail(sessionId);
+    if (
+      !sessionStatesRef.current[sessionId] &&
+      !sessionDetailRequestsRef.current.has(sessionId) &&
+      !loadedSessionDetailsRef.current.has(sessionId)
+    )
+      void loadSessionDetail(sessionId);
   }
 
   // 新建按钮只进入本地空白草稿，不提前写数据库。
@@ -1514,7 +1579,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       const workbench = state.workbench?.runId === target.runId ? state.workbench : historical;
       if (!workbench) return current;
       const activeView: WorkspaceView =
-        target.kind === 'source' ? 'sources' : target.kind === 'report' ? 'report' : 'activity';
+        target.kind === 'source' ? 'sources' : target.kind === 'report' ? 'report' : target.kind === 'artifact' ? 'artifact' : 'activity';
       return {
         ...current,
         [sessionId]: {
@@ -2290,7 +2355,7 @@ export function AppShell({
     setUiState((current) => {
       if (!current.workbench || current.workbench.runId !== target.runId) return current;
       const activeView: WorkspaceView =
-        target.kind === 'source' ? 'sources' : target.kind === 'report' ? 'report' : 'activity';
+        target.kind === 'source' ? 'sources' : target.kind === 'report' ? 'report' : target.kind === 'artifact' ? 'artifact' : 'activity';
       return {
         ...current,
         workbench: {

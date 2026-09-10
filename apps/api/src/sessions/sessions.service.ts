@@ -263,6 +263,7 @@ export class SessionsService implements OnModuleInit {
           lineCount: number | null;
           pageCount: number | null;
           characterCount: number | null;
+          origin: 'user_uploaded' | 'agent_generated';
         };
       }>;
     },
@@ -296,6 +297,7 @@ export class SessionsService implements OnModuleInit {
         ...(file.height ? { height: file.height } : {}),
         fileKind: file.fileKind,
         status: file.status as 'processing' | 'ready' | 'failed' | 'rejected',
+        origin: file.origin,
         ...(file.errorCode ? { errorCode: file.errorCode } : {}),
         ...(file.lineCount != null ? { lineCount: file.lineCount } : {}),
         ...(file.pageCount != null ? { pageCount: file.pageCount } : {}),

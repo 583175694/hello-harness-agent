@@ -138,7 +138,7 @@ export class FileProcessingService {
           ? overview.sheets.filter((value): value is string => typeof value === 'string')
           : [];
         normalizedContent = officeMarkdownWithBoundaries(markdown, prepared.fileKind, sheetLabels);
-      } catch (error) {
+      } catch {
         throw this.reject('FILE_PARSE_FAILED', 'Office 文件解析失败。');
       }
     } else {

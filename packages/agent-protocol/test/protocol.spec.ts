@@ -19,11 +19,42 @@ import {
   normalizeSourceUrl,
   webFetchInputSchema,
   webFetchResultSchema,
+  createFileInputSchema,
+  artifactRefSchema,
+  createFileInputSummarySchema,
+  assistantArtifactBlockSchema,
+  createFileResultSchema,
 } from '../src/index.js';
 
 describe('foundation protocol', () => {
+  it('validates C2-A generated artifact contracts strictly', () => {
+    expect(createFileInputSchema.parse({ fileName: 'report.md', content: '# Report' })).toEqual({
+      fileName: 'report.md',
+      content: '# Report',
+    });
+    expect(() => createFileInputSchema.parse({ fileName: '../report.md', content: 'x' })).toThrow();
+    expect(() => createFileInputSchema.parse({ fileName: 'report.pdf', content: 'x' })).toThrow();
+    expect(() => createFileInputSchema.parse({ fileName: 'report.md', content: '' })).toThrow();
+    expect(() => createFileInputSchema.parse({ fileName: 'report.json', content: '{broken' })).toThrow();
+    expect(() => createFileInputSchema.parse({ fileName: 'report.txt', content: 'x'.repeat(40_001) })).toThrow();
+    expect(() => createFileInputSchema.parse({ fileName: 'report.md', content: 'x', extra: true })).toThrow();
+    const artifact = {
+      artifactId: 'artifact-1',
+      fileId: 'file-1',
+      fileName: 'report.json',
+      mediaType: 'application/json',
+      fileKind: 'json' as const,
+      size: 42,
+      status: 'ready' as const,
+      createdAt: '2026-09-09T00:00:00.000Z',
+    };
+    expect(artifactRefSchema.parse(artifact)).toMatchObject({ artifactId: 'artifact-1' });
+    expect(assistantArtifactBlockSchema.parse({ ...artifact, id: 'block-1', type: 'artifact' })).toMatchObject({ type: 'artifact' });
+    expect(createFileResultSchema.parse({ artifact, file: { ...artifact, origin: 'agent_generated' } })).toMatchObject({ artifact, file: { fileId: 'file-1' } });
+    expect(createFileInputSummarySchema.parse({ fileName: 'report.md', contentCharacterCount: 7, contentByteCount: 7 })).toEqual({ fileName: 'report.md', contentCharacterCount: 7, contentByteCount: 7 });
+  });
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.13.0');
+    expect(protocolVersion).toBe('0.14.0');
   });
 
   it('validates HITL commands and rejects incomplete approval decisions', () => {
@@ -252,7 +283,7 @@ describe('foundation protocol', () => {
     });
     expect(
       runStreamEventSchema.parse({
-        version: '0.13.0',
+        version: '0.14.0',
         eventId: 'event-1',
         seq: 0,
         sessionId: 'session-1',

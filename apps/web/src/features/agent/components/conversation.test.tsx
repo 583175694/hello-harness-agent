@@ -433,6 +433,61 @@ describe('Composer image paste', () => {
 });
 
 describe('Conversation tool activity navigation', () => {
+  it('renders generated artifacts with the shared attachment card and no inline file actions', () => {
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [
+            {
+              id: 'assistant-1',
+              kind: 'assistant',
+              blocks: [
+                {
+                  id: 'artifact-block-1',
+                  type: 'artifact',
+                  artifactId: 'artifact-1',
+                  fileId: 'file-1',
+                  fileName: 'result.md',
+                  mediaType: 'text/markdown',
+                  fileKind: 'markdown',
+                  size: 1024,
+                  status: 'ready',
+                  createdAt: '2026-09-10T00:00:00.000Z',
+                },
+              ],
+              workbench: {
+                runId: 'run-1',
+                title: 'Artifact',
+                subtitle: '',
+                activeView: 'artifact',
+                executions: [],
+                followMode: 'auto',
+                sources: [],
+                open: false,
+              },
+            },
+          ],
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    const fileCard = screen.getByRole('button', { name: '预览result.md' });
+    expect(fileCard).toHaveClass('user-attachment-button', 'user-attachment-document');
+    expect(screen.queryByRole('button', { name: '下载result.md' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '删除result.md' })).not.toBeInTheDocument();
+  });
+
   it('opens the parsed preview for a historical document attachment', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response('## Slides\n\n- Opening\n- Summary', {

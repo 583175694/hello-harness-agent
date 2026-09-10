@@ -6,6 +6,9 @@ import {
   fileSearchResultSchema,
   fileReadLinesInputSchema,
   fileReadLinesResultSchema,
+  createFileInputSummarySchema,
+  createFileResultSchema,
+  artifactRefSchema,
 } from './files/contracts.js';
 export * from './common/problem.js';
 export * from './common/status.js';
@@ -22,7 +25,7 @@ import {
 } from './web-fetch/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.13.0';
+export const protocolVersion = '0.14.0';
 
 // 计划步骤的有限状态集合，前后端只使用这三种状态。
 export const planStepStatusSchema = z.enum(['pending', 'in_progress', 'completed']);
@@ -250,6 +253,10 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
     toolName: z.literal('read_file_lines'),
     input: fileReadLinesInputSchema,
   }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal('create_file'),
+    input: createFileInputSummarySchema,
+  }),
 ]);
 
 // 标识来源 URL 在当前 assistant run 中如何进入模型规划范围。
@@ -346,12 +353,21 @@ export const assistantUserInterventionBlockSchema = z.object({
   content: z.string().min(1),
 });
 
+export const assistantArtifactBlockSchema = artifactRefSchema.extend({
+  id: z.string().min(1),
+  type: z.literal('artifact'),
+  roundId: z.string().min(1).optional(),
+  roundSequence: z.number().int().positive().optional(),
+  blockSequence: z.number().int().nonnegative().optional(),
+});
+
 // 约束文本和工具活动按真实发生顺序组成 assistant 内容时间线。
 export const assistantContentBlockSchema = z.discriminatedUnion('type', [
   assistantTextBlockSchema,
   assistantReasoningBlockSchema,
   assistantToolActivityBlockSchema,
   assistantUserInterventionBlockSchema,
+  assistantArtifactBlockSchema,
 ]);
 
 // 定义 assistant 消息携带的轻量 Agent 与 Workbench 快照。
@@ -456,6 +472,19 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     input: fileReadLinesInputSchema,
     startedAt: z.string().datetime(),
   }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('create_file'),
+    title: z.string().min(1),
+    input: createFileInputSummarySchema,
+    startedAt: z.string().datetime(),
+  }),
 ]);
 
 const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
@@ -541,6 +570,19 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     completedAt: z.string().datetime(),
     durationMs: z.number().int().nonnegative(),
     result: fileReadLinesResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('create_file'),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: createFileResultSchema,
   }),
 ]);
 
@@ -825,7 +867,9 @@ export const runEventPayloadSchema = z.union([
 // RunStreamEvent.seq 只负责传输去重、gap detection 与 Checkpoint 水位；
 // Snapshot Event 使用所携 Snapshot 的水位，不代表又发生了一次新的业务变化。
 export const runStreamEventSchema = z.object({
-  version: z.literal(protocolVersion),
+  // C2-A keeps one-step read compatibility for streams emitted by a C1 server.
+  // New producers always emit the current protocolVersion.
+  version: z.union([z.literal(protocolVersion), z.literal('0.13.0')]),
   eventId: z.string().min(1),
   seq: z.number().int().nonnegative(),
   sessionId: z.string().min(1),
@@ -925,6 +969,7 @@ export type AssistantTextBlock = z.infer<typeof assistantTextBlockSchema>;
 export type AssistantReasoningBlock = z.infer<typeof assistantReasoningBlockSchema>;
 export type AssistantToolActivityBlock = z.infer<typeof assistantToolActivityBlockSchema>;
 export type AssistantUserInterventionBlock = z.infer<typeof assistantUserInterventionBlockSchema>;
+export type AssistantArtifactBlock = z.infer<typeof assistantArtifactBlockSchema>;
 export type AssistantContentBlock = z.infer<typeof assistantContentBlockSchema>;
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
 export type PendingUserInputKind = z.infer<typeof pendingUserInputKindSchema>;

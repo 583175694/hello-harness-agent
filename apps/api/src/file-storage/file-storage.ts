@@ -8,6 +8,8 @@ type ReadUrlVariant = Exclude<FileVariant, 'normalized'>;
 // 存储模块只负责对象读写和临时读取地址；校验、归属、消息绑定和文件状态
 // 仍由 files 模块负责。
 export abstract class FileStorage {
+  // 本地实现可以由 API 直接回传字节；远端实现必须返回受控地址。
+  canReadInline(): boolean { return false; }
   // 写入不可变的原始图片对象。
   abstract putOriginal(input: {
     sessionId: string;
@@ -49,6 +51,8 @@ export abstract class FileStorage {
 export class LocalFileStorage extends FileStorage {
   // 本地模式下以对象 key 为索引保存文件字节。
   private readonly objects = new Map<string, Buffer>();
+
+  override canReadInline(): boolean { return true; }
 
   // 将原图写入内存对象表，供本地开发和测试使用。
   async putOriginal(input: {

@@ -18,6 +18,7 @@ import {
   type FileReadLinesInput,
   type FileSearchInput,
 } from '@harness/agent-protocol';
+import { createHash } from 'node:crypto';
 
 // 内容或格式本身不可恢复的错误进入 rejected，其余错误允许重试。
 const PERMANENT_PARSE_FAILURES = new Set([
@@ -45,9 +46,33 @@ export class FilesService implements OnModuleInit {
     // 启动恢复时先收敛未完成解析，再补齐旧版本缺失的规范化正文。
     const processing = await this.prisma.file.findMany({
       where: { status: 'processing' },
-      select: { id: true, sessionId: true, originalKey: true },
+      select: { id: true, sessionId: true, originalKey: true, origin: true },
     });
     for (const file of processing) {
+      if (file.origin === 'agent_generated') {
+        try {
+          await this.storage.deleteFile({ sessionId: file.sessionId, fileId: file.id });
+        } catch (error) {
+          await this.prisma.fileCleanupTask.upsert({
+            where: { sessionId_fileId: { sessionId: file.sessionId, fileId: file.id } },
+            create: {
+              id: crypto.randomUUID(),
+              sessionId: file.sessionId,
+              fileId: file.id,
+              status: 'failed',
+              attempts: 1,
+              lastError: describeLogError(error).slice(0, 500),
+            },
+            update: {
+              status: 'failed',
+              attempts: { increment: 1 },
+              lastError: describeLogError(error).slice(0, 500),
+            },
+          });
+        }
+        await this.prisma.file.deleteMany({ where: { id: file.id, origin: 'agent_generated' } });
+        continue;
+      }
       const code = file.originalKey ? 'FILE_PARSE_TIMEOUT' : 'FILE_STORAGE_FAILED';
       await this.prisma.file.updateMany({
         where: { id: file.id, status: 'processing' },
@@ -64,6 +89,127 @@ export class FilesService implements OnModuleInit {
       );
     }
     await this.backfillMissingNormalizedFiles();
+  }
+
+  // 保存 Agent 一次性生成的文本文件；调用方负责随后建立 Artifact 关系。
+  async createGenerated(input: {
+    sessionId: string;
+    fileName: string;
+    content: string;
+    fileId?: string;
+  }) {
+    const session = await this.prisma.session.findFirst({
+      where: { id: input.sessionId, userId: LOCAL_USER_ID },
+    });
+    if (!session) throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
+    const prepared = this.prepareGenerated(input.fileName, input.content);
+    const fileId = input.fileId ?? crypto.randomUUID();
+    const now = new Date();
+    await this.prisma.file.create({
+      data: {
+        id: fileId,
+        userId: LOCAL_USER_ID,
+        sessionId: input.sessionId,
+        fileName: prepared.fileName,
+        mediaType: prepared.mediaType,
+        fileKind: prepared.fileKind,
+        origin: 'agent_generated',
+        size: prepared.buffer.length,
+        sha256: createHash('sha256').update(prepared.buffer).digest('hex'),
+        status: 'processing',
+        processingStartedAt: now,
+      },
+    });
+    try {
+      const original = await this.storage.putOriginal({
+        sessionId: input.sessionId,
+        fileId,
+        content: prepared.buffer,
+        contentType: prepared.mediaType,
+      });
+      const normalized = await this.storage.putNormalized({
+        sessionId: input.sessionId,
+        fileId,
+        content: Buffer.from(prepared.normalized, 'utf8'),
+        contentType: 'text/plain; charset=utf-8',
+      });
+      const file = await this.prisma.file.update({
+        where: { id: fileId },
+        data: {
+          originalKey: original.objectKey,
+          normalizedKey: normalized.objectKey,
+          contentHash: createHash('sha256').update(prepared.normalized, 'utf8').digest('hex'),
+          parserVersion: 'c2-a-v1',
+          lineCount: prepared.normalized.split('\n').length,
+          characterCount: [...prepared.normalized].length,
+          overview: { format: prepared.fileKind },
+          status: 'ready',
+          retryable: false,
+          processingCompletedAt: new Date(),
+        },
+      });
+      return this.toPublicRef(file, false);
+    } catch (error) {
+      try {
+        await this.storage.deleteFile({ sessionId: input.sessionId, fileId });
+      } catch (cleanupError) {
+        await this.prisma.fileCleanupTask.upsert({
+          where: { sessionId_fileId: { sessionId: input.sessionId, fileId } },
+          create: {
+            id: crypto.randomUUID(),
+            sessionId: input.sessionId,
+            fileId,
+            status: 'failed',
+            attempts: 1,
+            lastError: describeLogError(cleanupError).slice(0, 500),
+          },
+          update: {
+            status: 'failed',
+            attempts: { increment: 1 },
+            lastError: describeLogError(cleanupError).slice(0, 500),
+          },
+        });
+        this.logger.warn(`生成文件对象清理失败 | 文件=${shortLogId(fileId)} | 原因=${describeLogError(cleanupError)}`, FilesService.name);
+      }
+      // 未建立 Artifact 的失败 File 不对用户暴露；清理任务不依赖 File 记录存在。
+      await this.prisma.file.deleteMany({ where: { id: fileId, origin: 'agent_generated' } });
+      this.logger.warn(
+        `生成文件保存失败 | 文件=${shortLogId(fileId)} | 会话=${shortLogId(input.sessionId)} | 错误码=${AGENT_ERROR_CODES.fileStorageFailed} | 原因=${describeLogError(error)}`,
+        FilesService.name,
+      );
+      throw new BadRequestException({ code: AGENT_ERROR_CODES.fileStorageFailed, detail: '生成文件保存失败，请稍后重试。' });
+    }
+  }
+
+  // 生成文件只允许受控文本扩展名，并将 JSON 规范化为稳定正文。
+  private prepareGenerated(fileName: string, content: string) {
+    const normalizedName = fileName.trim();
+    if (!/^[^/\\\0]+$/u.test(normalizedName) || normalizedName === '.' || normalizedName === '..')
+      throw new BadRequestException({ code: AGENT_ERROR_CODES.generatedFileNameInvalid, detail: '生成文件名无效。' });
+    if ([...content].length === 0)
+      throw new BadRequestException({ code: AGENT_ERROR_CODES.generatedFileEmpty, detail: '生成文件内容不能为空。' });
+    const ext = normalizedName.toLowerCase().split('.').pop() ?? '';
+    const kinds = {
+      txt: ['text', 'text/plain'],
+      md: ['markdown', 'text/markdown'],
+      markdown: ['markdown', 'text/markdown'],
+      json: ['json', 'application/json'],
+    } as const;
+    const kind = kinds[ext as keyof typeof kinds];
+    if (!kind)
+      throw new BadRequestException({ code: AGENT_ERROR_CODES.generatedFileTypeUnsupported, detail: '仅支持 TXT、Markdown 和 JSON 生成文件。' });
+    const buffer = Buffer.from(content, 'utf8');
+    if (buffer.length > AGENT_PROTOCOL_LIMITS.generatedFileMaxBytes || [...content].length > AGENT_PROTOCOL_LIMITS.generatedFileMaxCodePoints)
+      throw new BadRequestException({ code: AGENT_ERROR_CODES.generatedFileTooLarge, detail: '生成文件超过当前版本的大小限制。' });
+    let normalized = content;
+    if (ext === 'json') {
+      try {
+        normalized = JSON.stringify(JSON.parse(content), null, 2);
+      } catch {
+        throw new BadRequestException({ code: AGENT_ERROR_CODES.generatedJsonInvalid, detail: '生成的 JSON 格式无效。' });
+      }
+    }
+    return { fileName: normalizedName, fileKind: kind[0] as 'text' | 'markdown' | 'json', mediaType: kind[1], buffer, normalized };
   }
 
   // B.1 的 ready 文件没有 normalized_key；升级后从仍保留的原文件重建 COS 正文。
@@ -192,7 +338,7 @@ export class FilesService implements OnModuleInit {
             processingCompletedAt: new Date(),
           },
         });
-        return this.toRef(saved, true);
+        return this.toPublicRef(saved, true);
       }
       const saved = await this.prisma.file.update({
         where: { id: fileId },
@@ -200,7 +346,7 @@ export class FilesService implements OnModuleInit {
       });
       // 先返回 processing，再由状态查询获取最终结果。
       void this.processInBackground(fileId, sessionId, file);
-      return this.toRef(saved, false);
+      return this.toPublicRef(saved, false);
     } catch (error) {
       this.logger.error(
         `文件保存失败 | 文件=${shortLogId(fileId)} | 会话=${shortLogId(sessionId)} | 原因=${describeLogError(error)}`,
@@ -311,7 +457,7 @@ export class FilesService implements OnModuleInit {
 
   // 返回脱敏后的公共文件引用。
   async get(fileId: string) {
-    return this.toRef(await this.findOwned(fileId), true);
+    return this.toPublicRef(await this.findOwned(fileId), true);
   }
 
   // 从原始对象重新进入解析流程。
@@ -350,7 +496,7 @@ export class FilesService implements OnModuleInit {
       mimetype: file.mediaType,
       originalname: file.fileName,
     });
-    return this.toRef({ ...file, status: 'processing', errorCode: null }, false);
+    return this.toPublicRef({ ...file, status: 'processing', errorCode: null }, false);
   }
 
   // 图片返回短期地址，文本类文件从 COS 读取规范化正文供受限预览。
@@ -388,6 +534,11 @@ export class FilesService implements OnModuleInit {
       throw new NotFoundException({
         code: notFoundCode,
         detail: '附件不存在或不属于当前会话。',
+      });
+    if (file.errorCode === AGENT_ERROR_CODES.artifactDeleted)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.artifactDeleted,
+        detail: '产物已删除。',
       });
     if (file.status !== 'ready')
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '附件尚未准备好。' });
@@ -565,6 +716,22 @@ export class FilesService implements OnModuleInit {
     return { deletedFileId: file.id };
   }
 
+  async deleteGeneratedFile(fileId: string): Promise<void> {
+    const file = await this.findOwned(fileId);
+    if (file.origin !== 'agent_generated') return;
+    try {
+      await this.storage.deleteFile({ sessionId: file.sessionId, fileId: file.id });
+      await this.prisma.file.delete({ where: { id: file.id } });
+    } catch (error) {
+      await this.prisma.fileCleanupTask.upsert({
+        where: { sessionId_fileId: { sessionId: file.sessionId, fileId: file.id } },
+        create: { id: crypto.randomUUID(), sessionId: file.sessionId, fileId: file.id, status: 'failed', attempts: 1, lastError: describeLogError(error).slice(0, 500) },
+        update: { status: 'failed', attempts: { increment: 1 }, lastError: describeLogError(error).slice(0, 500) },
+      });
+      throw error;
+    }
+  }
+
   // 为模型适配器生成原文件短期读取地址。
   async readUrl(file: { id: string; sessionId: string }) {
     return this.storage.createReadUrl({
@@ -596,6 +763,8 @@ export class FilesService implements OnModuleInit {
   private async findOwned(fileId: string) {
     const file = await this.prisma.file.findFirst({ where: { id: fileId, userId: LOCAL_USER_ID } });
     if (!file) throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件不存在。' });
+    if (file.errorCode === AGENT_ERROR_CODES.artifactDeleted)
+      throw new BadRequestException({ code: AGENT_ERROR_CODES.artifactDeleted, detail: '产物已删除。' });
     return file;
   }
   // 只有 ready 且存在原始对象的文件才能被读取。
@@ -636,12 +805,13 @@ export class FilesService implements OnModuleInit {
     }
   }
   // 移除 COS key 等内部字段，只返回协议允许的元数据。
-  private toRef(
+  toPublicRef(
     file: {
       id: string;
       fileName: string;
       mediaType: string;
       fileKind: string;
+      origin?: 'user_uploaded' | 'agent_generated';
       size: number;
       width: number | null;
       height: number | null;
@@ -650,14 +820,16 @@ export class FilesService implements OnModuleInit {
       lineCount?: number | null;
       pageCount?: number | null;
       characterCount?: number | null;
+      artifactId?: string;
     },
     includePreview: boolean,
+    overrides: { artifactId?: string } = {},
   ) {
     return {
       fileId: file.id,
       fileName: file.fileName,
       mediaType: file.mediaType,
-      fileKind: file.fileKind,
+      fileKind: file.fileKind as 'image' | 'text' | 'markdown' | 'csv' | 'json' | 'pdf' | 'docx' | 'xlsx' | 'pptx',
       size: file.size,
       ...(file.width ? { width: file.width } : {}),
       ...(file.height ? { height: file.height } : {}),
@@ -666,6 +838,10 @@ export class FilesService implements OnModuleInit {
       ...(file.lineCount != null ? { lineCount: file.lineCount } : {}),
       ...(file.pageCount != null ? { pageCount: file.pageCount } : {}),
       ...(file.characterCount != null ? { characterCount: file.characterCount } : {}),
+      origin: file.origin ?? 'user_uploaded',
+      ...(overrides.artifactId ?? file.artifactId
+        ? { artifactId: overrides.artifactId ?? file.artifactId }
+        : {}),
       ...(includePreview && file.status === 'ready'
         ? { previewUrl: `/api/agent/files/${file.id}/preview` }
         : {}),

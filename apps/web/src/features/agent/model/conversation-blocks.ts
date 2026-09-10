@@ -138,11 +138,36 @@ export function applyToolActivityEvent(
                 ? `${event.input.fileId} · ${event.input.query}`
                 : event.toolName === 'read_file_lines'
                   ? `${event.input.fileId} · ${event.input.startLine}-${event.input.endLine} 行`
-                  : event.input.query,
+                  : event.toolName === 'create_file'
+                    ? event.input.fileName
+                    : event.input.query,
       startedAt: event.startedAt,
     });
   }
   if (index < 0) return blocks;
+  if (event.type === 'tool.completed' && event.toolName === 'create_file') {
+    const updated = blocks.map((block, blockIndex) =>
+      blockIndex === index && block.type === 'tool_activity'
+        ? {
+            ...block,
+            status: 'completed' as const,
+            summary: `已生成 ${event.result.file.fileName}`,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+          }
+        : block,
+    );
+    if (updated.some((block) => block.type === 'artifact' && block.artifactId === event.result.artifact.artifactId))
+      return orderAssistantBlocks(updated);
+    return insertOrdered(updated, {
+      id: event.blockId.replace(/tool-/u, 'artifact-'),
+      type: 'artifact',
+      ...event.result.artifact,
+      roundId: event.roundId,
+      roundSequence: event.roundSequence,
+      blockSequence: event.blockSequence,
+    });
+  }
   return blocks.map((block, blockIndex) => {
     if (blockIndex !== index || block.type !== 'tool_activity') return block;
     if (event.type === 'tool.completed') {

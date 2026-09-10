@@ -13,9 +13,32 @@ test('renders the running search fixture and workbench sources', async ({ page }
   await page.goto('/agent/preview?state=tool-running-open');
   await expect(page.getByText('正在执行网页检索')).toBeVisible();
   await expect(page.getByRole('button', { name: '搜索网页，执行中' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '正在处理' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
   await expect(page.getByRole('complementary', { name: '工作区' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Sources' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: '预览状态' })).toBeVisible();
+});
+
+test('collapses process details without hiding the final response', async ({ page }) => {
+  await page.goto('/agent/preview?state=final-report');
+  const process = page.getByRole('button', { name: '处理过程' });
+  await expect(process).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('button', { name: '搜索网页，已完成' })).toBeVisible();
+  await process.click();
+  await expect(process).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('button', { name: '搜索网页，已完成' })).toHaveCount(0);
+  await expect(page.getByText('中国与美国 AI 市场对比')).toBeVisible();
+});
+
+test('shows context usage beside the prompt input', async ({ page }) => {
+  await page.goto('/agent/preview?state=direct-answer');
+  await page.getByRole('button', { name: '上下文已使用 21%' }).click();
+  await expect(page.getByText('24,680 tokens')).toBeVisible();
+  await expect(page.getByText('116,326 tokens')).toBeVisible();
+  await expect(page.locator('.ai-context__content')).toBeVisible();
 });
 
 test('renders Markdown lists and the core content components', async ({ page }) => {

@@ -1,7 +1,6 @@
 import {
   ArrowUp,
   Check,
-  ChevronRight,
   CircleAlert,
   CircleUserRound,
   Copy,
@@ -22,6 +21,32 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 
 import { MarkdownContent } from '../../../components/markdown-content';
 import {
+  Message,
+  MessageActions,
+  MessageContent,
+  MessageResponse,
+} from '../../../components/ai-elements/message';
+import {
+  Conversation as AiConversation,
+  ConversationContent,
+} from '../../../components/ai-elements/conversation';
+import { Attachments, Attachment } from '../../../components/ai-elements/attachments';
+import {
+  Artifact,
+  ArtifactDescription,
+  ArtifactHeader,
+  ArtifactTitle,
+} from '../../../components/ai-elements/artifact';
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputFooter,
+  PromptInputHeader,
+  PromptInputTextarea,
+  PromptInputTools,
+} from '../../../components/ai-elements/prompt-input';
+import { Context } from '../../../components/ai-elements/context';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
@@ -38,18 +63,20 @@ import type {
 } from '../model/types';
 import type {
   InterruptSnapshot,
-  PlanSnapshot,
   PublicModelConfig,
   ReasoningEffort,
   ToolApprovalDecision,
   FileRef,
   ArtifactRef,
   AssistantArtifactBlock,
+  RunContextDebug,
 } from '@harness/agent-protocol';
 import type { PendingUserInputView } from '@harness/agent-protocol';
 import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
 import { getArtifactPreview, getFilePreview } from '../../../api/client';
+import { presentAssistantBlocks } from '../elements/assistant-message-adapter';
+import { AgentChainOfThought } from '../elements/agent-chain-of-thought';
 
 // 将消息创建时间格式化为当前本地时间。
 function formatMessageTime(createdAt?: string, fallback?: string): string {
@@ -292,20 +319,52 @@ function ArtifactPreviewDialog({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
   return createPortal(
-    <div className="file-preview-dialog" role="dialog" aria-modal="true" aria-label={`${artifact.fileName}预览`} onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
-      <section className="file-preview-dialog__panel" onMouseDown={(event) => event.stopPropagation()}>
+    <div
+      className="file-preview-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${artifact.fileName}预览`}
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section
+        className="file-preview-dialog__panel"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <header className="file-preview-dialog__header">
           <div>
-            <span className={`file-card-icon file-card-icon--${fileExtension(artifact.fileName).toLowerCase()}`}>{fileExtension(artifact.fileName)}</span>
+            <span
+              className={`file-card-icon file-card-icon--${fileExtension(artifact.fileName).toLowerCase()}`}
+            >
+              {fileExtension(artifact.fileName)}
+            </span>
             <strong title={artifact.fileName}>{artifact.fileName}</strong>
           </div>
-          <button type="button" className="file-preview-dialog__close" aria-label="关闭文件预览" title="关闭预览" onClick={onClose}><X size={19} /></button>
+          <button
+            type="button"
+            className="file-preview-dialog__close"
+            aria-label="关闭文件预览"
+            title="关闭预览"
+            onClick={onClose}
+          >
+            <X size={19} />
+          </button>
         </header>
         <div className="file-preview-dialog__body">
           {error ? <p className="file-preview-dialog__error">{error}</p> : null}
-          {content === null && !error ? <div className="file-preview-dialog__loading" role="status"><LoaderCircle className="spin" size={18} /><span>正在加载预览</span></div> : null}
+          {content === null && !error ? (
+            <div className="file-preview-dialog__loading" role="status">
+              <LoaderCircle className="spin" size={18} />
+              <span>正在加载预览</span>
+            </div>
+          ) : null}
           {content !== null ? (
-            artifact.fileKind === 'json' ? <pre className="file-preview-dialog__code">{content}</pre> : <MarkdownContent>{content}</MarkdownContent>
+            artifact.fileKind === 'json' ? (
+              <pre className="file-preview-dialog__code">{content}</pre>
+            ) : (
+              <MarkdownContent>{content}</MarkdownContent>
+            )
           ) : null}
         </div>
       </section>
@@ -324,21 +383,48 @@ function ArtifactCard({
   onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
-  const statusLabel = block.status === 'ready' ? '已就绪' : block.status === 'processing' ? '处理中' : block.status === 'failed' ? '生成失败' : '已删除';
+  const statusLabel =
+    block.status === 'ready'
+      ? '已就绪'
+      : block.status === 'processing'
+        ? '处理中'
+        : block.status === 'failed'
+          ? '生成失败'
+          : '已删除';
   return (
-    <div className="assistant-artifact-file">
-      <button type="button" className="user-attachment-button user-attachment-document" aria-label={`预览${block.fileName}`} disabled={block.status !== 'ready'} onClick={() => { setPreviewOpen(true); onFocusWorkbench({ kind: 'artifact', runId, artifactId: block.artifactId }); }}>
-        <span className={`file-card-icon file-card-icon--${fileExtension(block.fileName).toLowerCase()}`}>{fileExtension(block.fileName)}</span>
-        <span className="user-attachment-document__details">
-          <strong className="file-card-name" title={block.fileName}>
-            <span className="file-card-name__prefix">{splitFileName(block.fileName).prefix}</span>
-            <span className="file-card-name__suffix">{splitFileName(block.fileName).suffix}</span>
-          </strong>
-          <small>{formatFileSize(block.size)}{block.status === 'ready' ? '' : ` · ${statusLabel}`}</small>
-        </span>
-      </button>
-      {previewOpen ? <ArtifactPreviewDialog artifact={block} onClose={() => setPreviewOpen(false)} /> : null}
-    </div>
+    <Artifact className="assistant-artifact-file">
+      <ArtifactHeader>
+        <button
+          type="button"
+          className="user-attachment-button user-attachment-document"
+          aria-label={`预览${block.fileName}`}
+          disabled={block.status !== 'ready'}
+          onClick={() => {
+            setPreviewOpen(true);
+            onFocusWorkbench({ kind: 'artifact', runId, artifactId: block.artifactId });
+          }}
+        >
+          <span
+            className={`file-card-icon file-card-icon--${fileExtension(block.fileName).toLowerCase()}`}
+          >
+            {fileExtension(block.fileName)}
+          </span>
+          <span className="user-attachment-document__details">
+            <ArtifactTitle className="file-card-name" title={block.fileName}>
+              <span className="file-card-name__prefix">{splitFileName(block.fileName).prefix}</span>
+              <span className="file-card-name__suffix">{splitFileName(block.fileName).suffix}</span>
+            </ArtifactTitle>
+            <ArtifactDescription>
+              {formatFileSize(block.size)}
+              {block.status === 'ready' ? '' : ` · ${statusLabel}`}
+            </ArtifactDescription>
+          </span>
+        </button>
+      </ArtifactHeader>
+      {previewOpen ? (
+        <ArtifactPreviewDialog artifact={block} onClose={() => setPreviewOpen(false)} />
+      ) : null}
+    </Artifact>
   );
 }
 
@@ -392,81 +478,83 @@ const UserMessage = memo(function UserMessage({
     | null
   >(null);
   return (
-    <div className="message message--user flex justify-end gap-3 text-text-primary">
-      <div className="user-message-content">
+    <Message from="user" className="message message--user flex justify-end gap-3 text-text-primary">
+      <MessageContent className="user-message-content">
         {item.attachments?.length ? (
-          <div className="user-attachment-stack">
+          <Attachments className="user-attachment-stack">
             {item.attachments.map((attachment) =>
               // 图片沿用缩略图预览，文本类附件展示文件卡片。
               attachment.fileKind === 'image' || attachment.mediaType.startsWith('image/') ? (
-                <button
-                  key={attachment.fileId}
-                  type="button"
-                  className="user-attachment-button"
-                  aria-label={`预览${attachment.fileName}`}
-                  onClick={() =>
-                    attachment.previewUrl &&
-                    setPreview({
-                      kind: 'image',
-                      src: attachment.previewUrl,
-                      alt: attachment.fileName,
-                    })
-                  }
-                >
-                  <img
-                    src={attachment.previewUrl}
-                    alt={attachment.fileName}
-                    className="user-attachment-tile"
-                  />
-                </button>
-              ) : (
-                <button
-                  key={attachment.fileId}
-                  type="button"
-                  className="user-attachment-button user-attachment-document"
-                  aria-label={`预览${attachment.fileName}`}
-                  disabled={attachment.status !== 'ready'}
-                  onClick={() => {
-                    if (attachment.status !== 'ready') return;
-                    setPreview({
-                      kind: 'file',
-                      fileId: attachment.fileId,
-                      fileName: attachment.fileName,
-                    });
-                  }}
-                >
-                  <span
-                    className={`file-card-icon file-card-icon--${fileExtension(attachment.fileName).toLowerCase()}`}
+                <Attachment key={attachment.fileId}>
+                  <button
+                    type="button"
+                    className="user-attachment-button"
+                    aria-label={`预览${attachment.fileName}`}
+                    onClick={() =>
+                      attachment.previewUrl &&
+                      setPreview({
+                        kind: 'image',
+                        src: attachment.previewUrl,
+                        alt: attachment.fileName,
+                      })
+                    }
                   >
-                    {fileExtension(attachment.fileName)}
-                  </span>
-                  <span className="user-attachment-document__details">
-                    <strong className="file-card-name">
-                      <span className="file-card-name__prefix">
-                        {splitFileName(attachment.fileName).prefix}
-                      </span>
-                      <span className="file-card-name__suffix">
-                        {splitFileName(attachment.fileName).suffix}
-                      </span>
-                    </strong>
-                    <small>{formatFileSize(attachment.size)}</small>
-                  </span>
-                </button>
+                    <img
+                      src={attachment.previewUrl}
+                      alt={attachment.fileName}
+                      className="user-attachment-tile"
+                    />
+                  </button>
+                </Attachment>
+              ) : (
+                <Attachment key={attachment.fileId}>
+                  <button
+                    type="button"
+                    className="user-attachment-button user-attachment-document"
+                    aria-label={`预览${attachment.fileName}`}
+                    disabled={attachment.status !== 'ready'}
+                    onClick={() => {
+                      if (attachment.status !== 'ready') return;
+                      setPreview({
+                        kind: 'file',
+                        fileId: attachment.fileId,
+                        fileName: attachment.fileName,
+                      });
+                    }}
+                  >
+                    <span
+                      className={`file-card-icon file-card-icon--${fileExtension(attachment.fileName).toLowerCase()}`}
+                    >
+                      {fileExtension(attachment.fileName)}
+                    </span>
+                    <span className="user-attachment-document__details">
+                      <strong className="file-card-name">
+                        <span className="file-card-name__prefix">
+                          {splitFileName(attachment.fileName).prefix}
+                        </span>
+                        <span className="file-card-name__suffix">
+                          {splitFileName(attachment.fileName).suffix}
+                        </span>
+                      </strong>
+                      <small>{formatFileSize(attachment.size)}</small>
+                    </span>
+                  </button>
+                </Attachment>
               ),
             )}
-          </div>
+          </Attachments>
         ) : null}
         <div className="user-bubble max-w-[min(820px,calc(100vw-72px))] rounded-[8px_8px_3px_8px] bg-surface-subtle text-text-primary">
-          <MarkdownContent>{item.content}</MarkdownContent>
+          <MessageResponse>{item.content}</MessageResponse>
         </div>
-        <div className="message-actions">
+        <MessageActions className="message-actions">
           {item.pendingState === 'steer_pending' ? <span>等待下一步骤应用</span> : null}
           {item.pendingState === 'steer_applied' ? <span>已应用到当前任务</span> : null}
           {item.pendingState === 'follow_up_pending' ? <span>等待下一轮处理</span> : null}
           <span>{formatMessageTime(item.createdAt, item.time)}</span>
           <CopyButton text={item.content} />
-        </div>
-      </div>
+        </MessageActions>
+      </MessageContent>
       <div className="message-avatar user-avatar" aria-hidden="true">
         <CircleUserRound size={17} />
       </div>
@@ -479,7 +567,7 @@ const UserMessage = memo(function UserMessage({
           onClose={() => setPreview(null)}
         />
       ) : null}
-    </div>
+    </Message>
   );
 });
 
@@ -497,18 +585,18 @@ const AssistantMessage = memo(
   }) {
     const text = flattenAssistantText(item.blocks);
     const terminal = !item.pending && item.deliveryStatus !== 'streaming';
-    const timelineBlocks = item.blocks.filter((block) => block.type !== 'artifact');
-    const artifactBlocks = terminal
-      ? item.blocks.filter((block): block is AssistantArtifactBlock => block.type === 'artifact')
-      : [];
+    const presentation = presentAssistantBlocks(item.blocks);
+    const artifactBlocks = terminal ? presentation.artifacts : [];
     const hasVisibleBlocks =
-      timelineBlocks.some((block) => block.type !== 'reasoning') || artifactBlocks.length > 0;
+      presentation.process.length > 0 ||
+      Boolean(presentation.finalText) ||
+      artifactBlocks.length > 0;
     return (
-      <div className="message message--assistant flex gap-3 text-text-primary">
+      <Message from="assistant" className="message message--assistant flex gap-3 text-text-primary">
         <div className="message-avatar assistant-avatar">
           <Sparkles size={15} />
         </div>
-        <div className="assistant-content w-full text-text-primary">
+        <MessageContent className="assistant-content w-full text-text-primary">
           <div className="message-meta">Harness</div>
           {item.deliveryStatus === 'cancelled' ? (
             <div className="assistant-delivery-status">本次回答已取消</div>
@@ -526,21 +614,19 @@ const AssistantMessage = memo(
             </p>
           ) : null}
           <div className="assistant-blocks">
-            {timelineBlocks.map((block) =>
-              block.type === 'text' ? (
-                <div className="assistant-text-block" key={block.id}>
-                  <MarkdownContent isAnimating={isAnimating}>{block.content}</MarkdownContent>
-                </div>
-              ) : block.type === 'tool_activity' ? (
-                <ToolActivity
-                  key={block.id}
-                  block={block}
-                  messageId={item.workbench?.runId ?? item.id}
-                  canOpenWorkbench={Boolean(item.workbench)}
-                  onFocusWorkbench={onFocusWorkbench}
-                />
-              ) : null,
-            )}
+            <AgentChainOfThought
+              process={presentation.process}
+              workbench={item.workbench}
+              running={Boolean(item.pending) || item.deliveryStatus === 'streaming'}
+              onFocusWorkbench={onFocusWorkbench}
+            />
+            {presentation.finalText ? (
+              <div className="assistant-text-block">
+                <MessageResponse isAnimating={isAnimating}>
+                  {presentation.finalText}
+                </MessageResponse>
+              </div>
+            ) : null}
             {artifactBlocks.length ? (
               <div className="assistant-artifact-list">
                 {artifactBlocks.map((block) => (
@@ -554,12 +640,12 @@ const AssistantMessage = memo(
               </div>
             ) : null}
           </div>
-          <div className="message-actions">
+          <MessageActions className="message-actions">
             <span>{formatMessageTime(item.createdAt, item.time)}</span>
             {text ? <CopyButton text={text} /> : null}
-          </div>
-        </div>
-      </div>
+          </MessageActions>
+        </MessageContent>
+      </Message>
     );
   },
   // 回调由上层渲染时重新创建，但它只通过 ref 定位当前会话，不影响消息内容。
@@ -782,11 +868,11 @@ export function Conversation({
   }, [shouldVirtualize, state.conversation, renderedConversation.length, virtualizer]);
 
   return (
-    <section
+    <AiConversation
       className="conversation flex min-h-0 min-w-0 flex-1 flex-col bg-surface text-text-primary"
       aria-label="对话"
     >
-      <div
+      <ConversationContent
         className="conversation-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
         ref={scrollRef}
         onScroll={handleConversationScroll}
@@ -852,7 +938,7 @@ export function Conversation({
                 ))}
           </div>
         )}
-      </div>
+      </ConversationContent>
       <div className="composer-area mx-auto w-[min(820px,calc(100%-72px))] bg-surface pb-6 max-[1180px]:w-[min(760px,calc(100%-48px))] max-[900px]:w-[min(720px,calc(100%-36px))] max-[720px]:w-[calc(100%-24px)]">
         {error ? (
           <div className="error-notice" role="alert">
@@ -875,15 +961,6 @@ export function Conversation({
           </div>
         ) : null}
         <div className={`composer-wrap ${submitting ? 'is-running' : ''}`}>
-          <PlanFloatingCard
-            plan={state.workbench?.plan}
-            visible={
-              submitting &&
-              ['running', 'queued', 'cancel_requested'].includes(
-                state.workbench?.activityStatus ?? 'running',
-              )
-            }
-          />
           <FollowUpQueue
             state={state}
             pendingInputs={pendingInputs}
@@ -915,120 +992,11 @@ export function Conversation({
             onAttachmentRemove={onAttachmentRemove}
             onAttachmentRetry={onAttachmentRetry}
             onAttachmentCancel={onAttachmentCancel}
+            context={state.context ?? state.workbench?.context}
           />
         </div>
       </div>
-    </section>
-  );
-}
-
-// 在 assistant 内容流中展示一次工具调用，并允许定位对应 Workbench 详情。
-function ToolActivity({
-  block,
-  messageId,
-  canOpenWorkbench,
-  onFocusWorkbench,
-}: {
-  block: Extract<AgentUiState['conversation'][number], { kind: 'assistant' }>['blocks'][number] & {
-    type: 'tool_activity';
-  };
-  messageId: string;
-  canOpenWorkbench: boolean;
-  onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
-}) {
-  const statusLabels = {
-    running: '执行中',
-    completed: '已完成',
-    failed: '失败',
-    cancelled: '已取消',
-  } as const;
-  const Icon =
-    block.status === 'completed'
-      ? Check
-      : block.status === 'failed'
-        ? CircleAlert
-        : block.status === 'cancelled'
-          ? X
-          : LoaderCircle;
-  const meta = block.status === 'completed' ? undefined : statusLabels[block.status];
-  return (
-    <button
-      className={`tool-activity tool-activity--${block.status}`}
-      type="button"
-      disabled={!canOpenWorkbench}
-      aria-label={`${block.title}，${statusLabels[block.status]}`}
-      title={canOpenWorkbench ? '在工作台查看详情' : undefined}
-      onClick={() =>
-        onFocusWorkbench({
-          kind: 'tool_call',
-          runId: messageId,
-          stepId: block.toolCallId,
-          toolCallId: block.toolCallId,
-        })
-      }
-    >
-      <span className="tool-activity__icon">
-        <Icon className={block.status === 'running' ? 'spin' : ''} size={14} />
-      </span>
-      <span className="tool-activity__body">
-        <strong>{block.title}</strong>
-        {block.summary ? <small>{block.summary}</small> : null}
-        {canOpenWorkbench ? (
-          <ChevronRight className="tool-activity__open-hint" size={14} aria-hidden="true" />
-        ) : null}
-      </span>
-      {meta ? <span className="tool-activity__meta">{meta}</span> : null}
-    </button>
-  );
-}
-
-// 提供优先支持键盘操作的消息、调整和确认输入。
-function PlanFloatingCard({ plan, visible }: { plan?: PlanSnapshot; visible: boolean }) {
-  // 浮标只在运行中且计划未清空、未全部完成时显示。
-  if (!visible || !plan?.plan.length || plan.plan.every((step) => step.status === 'completed'))
-    return null;
-  // 没有 in_progress 时回退到第一步，保证入口仍显示稳定的 N / M。
-  const activeIndex = Math.max(
-    0,
-    plan.plan.findIndex((step) => step.status === 'in_progress'),
-  );
-  return (
-    <div
-      className="plan-floating"
-      role="status"
-      aria-label={`执行计划，第 ${activeIndex + 1} / ${plan.plan.length} 步`}
-    >
-      <div className="plan-floating__trigger" tabIndex={0}>
-        <span className="plan-floating__indicator" aria-hidden="true">
-          <LoaderCircle size={14} />
-        </span>
-        <span>
-          第 {activeIndex + 1} / {plan.plan.length} 步
-        </span>
-      </div>
-      <div className="plan-floating__details">
-        {plan.explanation ? <p className="plan-floating__explanation">{plan.explanation}</p> : null}
-        <ol>
-          {plan.plan.map((step, index) => (
-            <li
-              key={`${index}-${step.step}`}
-              className={`plan-floating__step plan-floating__step--${step.status}`}
-            >
-              <span className="plan-floating__step-icon" aria-hidden="true">
-                {step.status === 'completed' ? (
-                  <Check size={14} />
-                ) : step.status === 'in_progress' ? (
-                  <LoaderCircle className="spin" size={14} />
-                ) : (
-                  <span />
-                )}
-              </span>
-              <span>{step.step}</span>
-            </li>
-          ))}
-        </ol>
-      </div>
-    </div>
+    </AiConversation>
   );
 }
 
@@ -1055,6 +1023,7 @@ export function Composer({
   onAttachmentRemove,
   onAttachmentRetry,
   onAttachmentCancel,
+  context,
 }: {
   prompt: string;
   submitting: boolean;
@@ -1078,6 +1047,7 @@ export function Composer({
   onAttachmentRemove?: (fileId: string) => void;
   onAttachmentRetry?: (fileId: string) => void;
   onAttachmentCancel?: (fileId: string) => void;
+  context?: RunContextDebug;
 }) {
   const composingRef = useRef(false);
   const [interruptState, setInterruptState] = useState<{
@@ -1139,7 +1109,7 @@ export function Composer({
           ? AGENT_UI_COPY.composerPlaceholders.disabled
           : AGENT_UI_COPY.composerPlaceholders.newRun;
   return (
-    <form
+    <PromptInput
       className="composer rounded-[14px] border border-[var(--theme-composer-border)] bg-surface shadow-[0_8px_24px_rgb(0_0_0_/_3%)]"
       onSubmit={onSubmit}
     >
@@ -1259,10 +1229,10 @@ export function Composer({
         </div>
       ) : null}
       {canUseImageAttachments ? (
-        <div className="composer-attachments px-[15px] pt-3">
+        <PromptInputHeader className="composer-attachments px-[15px] pt-3">
           {attachments.map((item) => (
             // 附件卡片同时展示解析状态、错误原因和可用操作。
-            <div
+            <Attachment
               className={`composer-attachment-preview${item.fileKind !== 'image' && !item.mediaType.startsWith('image/') ? ' composer-attachment-preview--document' : ''}`}
               key={item.fileId}
               aria-label={`${item.fileName}，${item.status === 'ready' ? '已就绪' : item.status === 'processing' ? '解析中' : fileErrorMessage(item.errorCode)}`}
@@ -1363,7 +1333,7 @@ export function Composer({
               >
                 <X size={14} />
               </button>
-            </div>
+            </Attachment>
           ))}
           {attachmentModelUnsupported ? (
             <div className="composer-hints">当前模型不支持图片，请切换到 DeepSeek Vision。</div>
@@ -1380,7 +1350,7 @@ export function Composer({
               if (files.length) onAttachmentSelected?.(files);
             }}
           />
-        </div>
+        </PromptInputHeader>
       ) : null}
       {attachmentPreview?.kind === 'image' ? (
         <ImageLightbox
@@ -1396,107 +1366,118 @@ export function Composer({
         />
       ) : null}
       {activeInterrupt?.kind !== 'clarification' ? (
-        <textarea
-          aria-label="任务输入"
-          placeholder={placeholder}
-          rows={3}
-          value={prompt}
-          disabled={
-            mode === 'disabled' || controlState === 'waiting_for_user' || Boolean(activeInterrupt)
-          }
-          onChange={(event) => onPromptChange(event.target.value)}
-          onPaste={(event) => {
-            if (!canPasteAttachments) return;
-            const imageFiles = Array.from(event.clipboardData.files).filter((file) =>
-              file.type.startsWith('image/'),
-            );
-            if (imageFiles.length) {
-              event.preventDefault();
-              onAttachmentSelected?.(
-                imageFiles.map((file, index) =>
-                  file.name
-                    ? file
-                    : new File([file], `pasted-image-${index + 1}.png`, { type: file.type }),
-                ),
+        <PromptInputBody>
+          <PromptInputTextarea
+            aria-label="任务输入"
+            placeholder={placeholder}
+            rows={3}
+            value={prompt}
+            disabled={
+              mode === 'disabled' || controlState === 'waiting_for_user' || Boolean(activeInterrupt)
+            }
+            onChange={(event) => onPromptChange(event.target.value)}
+            onPaste={(event) => {
+              if (!canPasteAttachments) return;
+              const imageFiles = Array.from(event.clipboardData.files).filter((file) =>
+                file.type.startsWith('image/'),
               );
-              return;
-            }
-
-            const text = event.clipboardData.getData('text/plain');
-            if ([...text].length <= AGENT_UI_BEHAVIOR.longPasteThresholdCodePoints) return;
-            event.preventDefault();
-            onAttachmentSelected?.([
-              new File([text], nextPastedTextFileName(attachments), { type: 'text/plain' }),
-            ]);
-          }}
-          onCompositionStart={() => {
-            composingRef.current = true;
-          }}
-          onCompositionEnd={() => {
-            composingRef.current = false;
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              // 中文等输入法正在确认候选词时，Enter 只结束组合输入，不提交消息。
-              if (
-                composingRef.current ||
-                event.nativeEvent.isComposing ||
-                event.nativeEvent.keyCode === 229
-              )
-                return;
-              // 新任务需要等待当前提交完成；运行中的 steer/follow-up 则允许直接入队。
-              if (prompt.trim() && mode !== 'disabled') {
+              if (imageFiles.length) {
                 event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
+                onAttachmentSelected?.(
+                  imageFiles.map((file, index) =>
+                    file.name
+                      ? file
+                      : new File([file], `pasted-image-${index + 1}.png`, { type: file.type }),
+                  ),
+                );
+                return;
               }
-            }
-          }}
-        />
+
+              const text = event.clipboardData.getData('text/plain');
+              if ([...text].length <= AGENT_UI_BEHAVIOR.longPasteThresholdCodePoints) return;
+              event.preventDefault();
+              onAttachmentSelected?.([
+                new File([text], nextPastedTextFileName(attachments), { type: 'text/plain' }),
+              ]);
+            }}
+            onCompositionStart={() => {
+              composingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              composingRef.current = false;
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                // 中文等输入法正在确认候选词时，Enter 只结束组合输入，不提交消息。
+                if (
+                  composingRef.current ||
+                  event.nativeEvent.isComposing ||
+                  event.nativeEvent.keyCode === 229
+                )
+                  return;
+                // 新任务需要等待当前提交完成；运行中的 steer/follow-up 则允许直接入队。
+                if (prompt.trim() && mode !== 'disabled') {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }
+            }}
+          />
+        </PromptInputBody>
       ) : null}
       {activeInterrupt?.kind !== 'clarification' ? (
-        <div className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
-          {mode === 'clarification' ? (
-            <div className="composer-hints">
-              <SlidersHorizontal size={14} />
-              <span>回答后继续当前任务</span>
-            </div>
-          ) : mode === 'new-run' ? (
-            <div className="composer-add-wrap" ref={addMenuRef}>
-              <div
-                className={`composer-add-menu${attachmentMenuOpen ? ' is-open' : ''}`}
-                role="menu"
-                aria-hidden={!attachmentMenuOpen}
-              >
+        <PromptInputFooter className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
+          <PromptInputTools>
+            {mode === 'clarification' ? (
+              <div className="composer-hints">
+                <SlidersHorizontal size={14} />
+                <span>回答后继续当前任务</span>
+              </div>
+            ) : mode === 'new-run' ? (
+              <div className="composer-add-wrap" ref={addMenuRef}>
+                <div
+                  className={`composer-add-menu${attachmentMenuOpen ? ' is-open' : ''}`}
+                  role="menu"
+                  aria-hidden={!attachmentMenuOpen}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    tabIndex={attachmentMenuOpen ? 0 : -1}
+                    disabled={attachmentUploading || submitting || serviceState !== 'ready'}
+                    onClick={() => {
+                      setAttachmentMenuOpen(false);
+                      fileInputRef.current?.click();
+                    }}
+                  >
+                    <Paperclip className="composer-add-menu__icon" size={16} aria-hidden="true" />
+                    <span>文件和图片</span>
+                  </button>
+                </div>
                 <button
                   type="button"
-                  role="menuitem"
-                  tabIndex={attachmentMenuOpen ? 0 : -1}
+                  className="composer-add-button"
+                  aria-label="添加文件和图片"
+                  aria-expanded={attachmentMenuOpen}
+                  title="添加文件和图片"
                   disabled={attachmentUploading || submitting || serviceState !== 'ready'}
-                  onClick={() => {
-                    setAttachmentMenuOpen(false);
-                    fileInputRef.current?.click();
-                  }}
+                  onClick={() => setAttachmentMenuOpen((open) => !open)}
                 >
-                  <Paperclip className="composer-add-menu__icon" size={16} aria-hidden="true" />
-                  <span>文件和图片</span>
+                  <Plus size={18} />
                 </button>
               </div>
-              <button
-                type="button"
-                className="composer-add-button"
-                aria-label="添加文件和图片"
-                aria-expanded={attachmentMenuOpen}
-                title="添加文件和图片"
-                disabled={attachmentUploading || submitting || serviceState !== 'ready'}
-                onClick={() => setAttachmentMenuOpen((open) => !open)}
-              >
-                <Plus size={18} />
-              </button>
-            </div>
-          ) : (
-            <span />
-          )}
+            ) : (
+              <span />
+            )}
+          </PromptInputTools>
           <div className="composer-submit-group">
+            {context?.promptBudget ? (
+              <Context
+                usedTokens={context.estimatedInputTokens}
+                budgetTokens={context.promptBudget}
+                compactionTriggered={context.compactionTriggered}
+              />
+            ) : null}
             {mode !== 'steer' && mode !== 'clarification' ? (
               <ModelSettingsMenu
                 modelId={selectedModel}
@@ -1544,9 +1525,9 @@ export function Composer({
               )}
             </button>
           </div>
-        </div>
+        </PromptInputFooter>
       ) : null}
-    </form>
+    </PromptInput>
   );
 }
 

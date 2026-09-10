@@ -373,9 +373,10 @@ describe('Composer image paste', () => {
     );
     fireEvent(textbox, makePasteEvent());
     expect(onAttachmentSelected).toHaveBeenCalledTimes(2);
-    expect(
-      onAttachmentSelected.mock.calls.map(([files]) => (files as File[])[0]?.name),
-    ).toEqual(['pasted-text-2.txt', 'pasted-text-3.txt']);
+    expect(onAttachmentSelected.mock.calls.map(([files]) => (files as File[])[0]?.name)).toEqual([
+      'pasted-text-2.txt',
+      'pasted-text-3.txt',
+    ]);
   });
 
   it('prioritizes clipboard images over long text', () => {
@@ -780,7 +781,7 @@ describe('Conversation tool activity navigation', () => {
     await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
   });
 
-  it('hides legacy reasoning and renders text/tool blocks in canonical order without folding', () => {
+  it('hides legacy reasoning and groups process blocks ahead of the final response', () => {
     const { container } = render(
       <Conversation
         state={{
@@ -849,13 +850,52 @@ describe('Conversation tool activity navigation', () => {
     expect(screen.queryByText('思考过程')).not.toBeInTheDocument();
     expect(screen.queryByText('这是已经完成的思考过程。')).not.toBeInTheDocument();
     expect(screen.getByText('这是最终回答。')).toBeInTheDocument();
-    const blocks = [...container.querySelectorAll('.assistant-blocks > *')];
-    expect(blocks.map((block) => block.textContent)).toEqual([
-      '我先搜索。',
-      expect.stringContaining('搜索网页'),
-      '这是最终回答。',
-    ]);
-    expect(container.querySelector('details')).toBeNull();
+    expect(
+      [...container.querySelectorAll('.ai-chain-step__label')].map((block) => block.textContent),
+    ).toEqual(['我先搜索。', expect.stringContaining('搜索网页')]);
+    const processToggle = screen.getByRole('button', { name: '处理过程' });
+    expect(processToggle).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(processToggle);
+    expect(processToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('我先搜索。')).not.toBeInTheDocument();
+    expect(screen.getByText('这是最终回答。')).toBeInTheDocument();
+  });
+
+  it('shows the latest context budget beside the composer', () => {
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [],
+          context: {
+            version: 1,
+            roundSequence: 2,
+            attempt: 1,
+            estimatedInputTokens: 2_500,
+            promptBudget: 10_000,
+            compactionTriggered: true,
+            finalResponseOnly: false,
+            messages: [],
+            tools: [],
+          },
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '上下文已使用 25%' }));
+    expect(screen.getByText('2,500 tokens')).toBeInTheDocument();
+    expect(screen.getByText('10,000 tokens')).toBeInTheDocument();
+    expect(screen.getByText('本轮已执行上下文压缩')).toBeInTheDocument();
   });
 
   it('hides the generic thinking status once a tool is visible', () => {

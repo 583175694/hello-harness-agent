@@ -181,50 +181,6 @@
   color: var(--theme-text-primary);
 }
 
-:root[data-theme='dark'] .tool-activity {
-  color: var(--theme-text-secondary);
-  background: transparent;
-}
-
-:root[data-theme='dark'] .tool-activity:not(:disabled):hover,
-:root[data-theme='dark'] .tool-activity:not(:disabled):focus-visible {
-  color: var(--theme-text-primary);
-  background: #242424;
-}
-
-:root[data-theme='dark'] .tool-activity__icon {
-  color: var(--theme-text-secondary);
-}
-
-:root[data-theme='dark'] .tool-activity--running .tool-activity__icon {
-  color: var(--theme-text-primary);
-}
-
-:root[data-theme='dark'] .tool-activity--failed .tool-activity__icon {
-  color: var(--theme-danger);
-}
-
-:root[data-theme='dark'] .tool-activity--cancelled .tool-activity__icon {
-  color: var(--theme-text-muted);
-}
-
-:root[data-theme='dark'] .tool-activity__body strong {
-  color: var(--theme-text-primary);
-}
-
-:root[data-theme='dark'] .tool-activity__body small,
-:root[data-theme='dark'] .tool-activity__meta {
-  color: var(--theme-text-secondary);
-}
-
-:root[data-theme='dark'] .tool-activity__body small::before {
-  color: var(--theme-text-muted);
-}
-
-:root[data-theme='dark'] .tool-activity__open-hint {
-  color: var(--theme-text-secondary);
-}
-
 :root[data-theme='dark'] .workspace-tab.is-active {
   border-bottom-color: #a8a8a8;
   color: var(--theme-text-primary);
@@ -351,7 +307,6 @@
 :root[data-theme='dark'] .execution-item,
 :root[data-theme='dark'] .tool-call-row,
 :root[data-theme='dark'] .message-meta,
-:root[data-theme='dark'] .tool-activity,
 :root[data-theme='dark'] .workspace-tab,
 :root[data-theme='dark'] .task-title__meta {
   color: var(--theme-text-secondary);
@@ -362,8 +317,6 @@
 :root[data-theme='dark'] .workspace-header p,
 :root[data-theme='dark'] .execution-item small,
 :root[data-theme='dark'] .view-toolbar span,
-:root[data-theme='dark'] .tool-activity__body small,
-:root[data-theme='dark'] .tool-activity__meta,
 :root[data-theme='dark'] .workspace-kicker,
 :root[data-theme='dark'] .sidebar-heading,
 :root[data-theme='dark'] .sidebar-section,

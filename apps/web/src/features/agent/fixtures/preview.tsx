@@ -544,6 +544,17 @@ const answer = 'Hello, Markdown';
           ],
         },
       ],
+      context: {
+        version: 1,
+        roundSequence: 1,
+        attempt: 1,
+        estimatedInputTokens: 24_680,
+        promptBudget: 116_326,
+        compactionTriggered: false,
+        finalResponseOnly: false,
+        messages: [],
+        tools: [],
+      },
     };
   if (state === 'fetch-running' || state === 'fetch-candidate' || state === 'fetch-failed') {
     return makeFetchFixture(state);

@@ -1,4 +1,4 @@
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Dot, type LucideIcon } from 'lucide-react';
 import {
   createContext,
   useContext,
@@ -81,6 +81,7 @@ export function ChainOfThoughtContent({ className, ...props }: HTMLAttributes<HT
 export type ChainStepStatus = 'complete' | 'active' | 'pending' | 'failed' | 'cancelled';
 
 export function ChainOfThoughtStep({
+  icon: Icon = Dot,
   label,
   description,
   status = 'complete',
@@ -88,12 +89,16 @@ export function ChainOfThoughtStep({
   children,
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
+  icon?: LucideIcon;
   label: ReactNode;
   description?: ReactNode;
   status?: ChainStepStatus;
 }) {
   return (
     <div className={classes('ai-chain-step', `ai-chain-step--${status}`, className)} {...props}>
+      <span className="ai-chain-step__rail" aria-hidden="true">
+        <Icon size={15} />
+      </span>
       <div className="ai-chain-step__body">
         <div className="ai-chain-step__label">{label}</div>
         {description ? <div className="ai-chain-step__description">{description}</div> : null}

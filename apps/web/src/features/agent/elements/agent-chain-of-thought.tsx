@@ -1,4 +1,16 @@
 import { useEffect, useState } from 'react';
+import {
+  Check,
+  CircleAlert,
+  Clock3,
+  FileSearch,
+  FileText,
+  LoaderCircle,
+  MessageSquareText,
+  Search,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 
 import {
   ChainOfThought,
@@ -11,6 +23,13 @@ import {
 } from '../../../components/ai-elements/chain-of-thought';
 import type { SourceView, WorkbenchFocusTarget, WorkbenchState } from '../model/types';
 import type { AssistantProcessItem } from './assistant-message-adapter';
+
+function toolIcon(toolName: string): LucideIcon {
+  if (toolName === 'web_search' || toolName === 'web_fetch') return Search;
+  if (toolName === 'search_file' || toolName === 'read_file_lines') return FileSearch;
+  if (toolName === 'create_file') return FileText;
+  return Clock3;
+}
 
 function formatElapsed(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -34,6 +53,13 @@ function stepStatus(
   if (status === 'failed') return 'failed';
   if (status === 'cancelled') return 'cancelled';
   return 'complete';
+}
+
+function statusIcon(status: Extract<AssistantProcessItem, { kind: 'tool' }>['block']['status']) {
+  if (status === 'running') return LoaderCircle;
+  if (status === 'failed') return CircleAlert;
+  if (status === 'cancelled') return X;
+  return Check;
 }
 
 function sourceDomains(sources: SourceView[], toolCallId: string): string[] {
@@ -70,6 +96,7 @@ export function AgentChainOfThought({
           if (item.kind === 'text') {
             return (
               <ChainOfThoughtStep
+                icon={MessageSquareText}
                 key={item.block.id}
                 label={item.block.content}
                 status="complete"
@@ -80,6 +107,7 @@ export function AgentChainOfThought({
             item.block.toolName === 'web_search' || item.block.toolName === 'web_fetch'
               ? sourceDomains(workbench?.sources ?? [], item.block.toolCallId)
               : [];
+          const StateIcon = statusIcon(item.block.status);
           return (
             <button
               className="agent-chain-tool"
@@ -98,9 +126,15 @@ export function AgentChainOfThought({
               }
             >
               <ChainOfThoughtStep
+                icon={toolIcon(item.block.toolName)}
                 label={
                   <span className="agent-chain-tool__label">
                     {item.block.title}
+                    <StateIcon
+                      className={item.block.status === 'running' ? 'spin' : ''}
+                      size={13}
+                      aria-hidden="true"
+                    />
                   </span>
                 }
                 description={item.block.summary}

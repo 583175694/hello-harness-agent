@@ -679,7 +679,7 @@ textarea:focus-visible {
 .ai-chain-step {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 22px minmax(0, 1fr);
   gap: 8px;
   min-height: 42px;
   padding: 4px 0 8px 4px;
@@ -688,7 +688,7 @@ textarea:focus-visible {
   position: absolute;
   top: 24px;
   bottom: -2px;
-  left: 3px;
+  left: 12px;
   width: 1px;
   background: var(--theme-border);
   content: '';

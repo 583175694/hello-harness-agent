@@ -1,4 +1,4 @@
-import { Brain, ChevronDown, Dot, type LucideIcon } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import {
   createContext,
   useContext,
@@ -60,7 +60,6 @@ export function ChainOfThoughtHeader({ children }: { children?: ReactNode }) {
       aria-expanded={open}
       onClick={() => setOpen(!open, true)}
     >
-      <Brain size={16} aria-hidden="true" />
       <span>{children ?? '处理过程'}</span>
       <ChevronDown className={open ? 'is-open' : ''} size={16} aria-hidden="true" />
     </button>
@@ -69,14 +68,19 @@ export function ChainOfThoughtHeader({ children }: { children?: ReactNode }) {
 
 export function ChainOfThoughtContent({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   const { open } = useChain();
-  if (!open) return null;
-  return <div className={classes('ai-chain__content', className)} {...props} />;
+  return (
+    <div
+      className={classes('ai-chain__content', open && 'is-open', className)}
+      aria-hidden={!open}
+    >
+      <div className="ai-chain__content-inner" {...props} />
+    </div>
+  );
 }
 
 export type ChainStepStatus = 'complete' | 'active' | 'pending' | 'failed' | 'cancelled';
 
 export function ChainOfThoughtStep({
-  icon: Icon = Dot,
   label,
   description,
   status = 'complete',
@@ -84,16 +88,12 @@ export function ChainOfThoughtStep({
   children,
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
-  icon?: LucideIcon;
   label: ReactNode;
   description?: ReactNode;
   status?: ChainStepStatus;
 }) {
   return (
     <div className={classes('ai-chain-step', `ai-chain-step--${status}`, className)} {...props}>
-      <span className="ai-chain-step__rail" aria-hidden="true">
-        <Icon size={15} />
-      </span>
       <div className="ai-chain-step__body">
         <div className="ai-chain-step__label">{label}</div>
         {description ? <div className="ai-chain-step__description">{description}</div> : null}

@@ -853,11 +853,11 @@ describe('Conversation tool activity navigation', () => {
     expect(
       [...container.querySelectorAll('.ai-chain-step__label')].map((block) => block.textContent),
     ).toEqual(['我先搜索。', expect.stringContaining('搜索网页')]);
-    const processToggle = screen.getByRole('button', { name: '处理过程' });
+    const processToggle = screen.getByRole('button', { name: '已用时 1 秒' });
     expect(processToggle).toHaveAttribute('aria-expanded', 'true');
     fireEvent.click(processToggle);
     expect(processToggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('我先搜索。')).not.toBeInTheDocument();
+    expect(container.querySelector('.ai-chain__content')).toHaveAttribute('aria-hidden', 'true');
     expect(screen.getByText('这是最终回答。')).toBeInTheDocument();
   });
 
@@ -1024,7 +1024,7 @@ describe('Conversation tool activity navigation', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: '搜索网页，执行中' }));
-    expect(screen.queryByText(/毫秒|秒$/)).not.toBeInTheDocument();
+    expect(screen.getByText(/已用时/)).toBeInTheDocument();
     expect(onFocusWorkbench).toHaveBeenCalledWith({
       kind: 'tool_call',
       runId: 'server-message-1',

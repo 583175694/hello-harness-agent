@@ -644,12 +644,7 @@ textarea:focus-visible {
   color: var(--theme-text-muted);
   background: transparent;
   font-size: 13px;
-  font-weight: 600;
   text-align: left;
-}
-.ai-chain__header:hover,
-.ai-chain__header:focus-visible {
-  color: var(--theme-text-primary);
 }
 .ai-chain__header > span {
   flex: 1;
@@ -662,12 +657,29 @@ textarea:focus-visible {
 }
 .ai-chain__content {
   display: grid;
-  padding: 4px 0 4px 2px;
+  grid-template-rows: 0fr;
+  padding-left: 2px;
+  opacity: 0;
+  overflow: hidden;
+  transition:
+    grid-template-rows 220ms ease,
+    opacity 160ms ease,
+    padding 220ms ease;
+}
+.ai-chain__content.is-open {
+  grid-template-rows: 1fr;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  opacity: 1;
+}
+.ai-chain__content-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 .ai-chain-step {
   position: relative;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   min-height: 42px;
   padding: 4px 0 8px 4px;
@@ -676,7 +688,7 @@ textarea:focus-visible {
   position: absolute;
   top: 24px;
   bottom: -2px;
-  left: 12px;
+  left: 3px;
   width: 1px;
   background: var(--theme-border);
   content: '';
@@ -1006,15 +1018,16 @@ textarea:focus-visible {
   box-shadow: 0 0 0 2px rgb(23 23 23 / 8%);
 }
 .markdown-content table {
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 0.93em;
 }
 .markdown-content th,
 .markdown-content td {
-  min-width: 112px;
+  min-width: 0;
   padding: 7px 9px;
   border-right: 1px solid var(--markdown-border);
   border-bottom: 1px solid var(--markdown-border);
@@ -1264,15 +1277,16 @@ textarea:focus-visible {
   background: var(--theme-surface);
 }
 .markdown-content [data-streamdown='table'] {
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 0.93em;
 }
 .markdown-content [data-streamdown='table-header-cell'],
 .markdown-content [data-streamdown='table-cell'] {
-  min-width: 112px;
+  min-width: 0;
   padding: 7px 9px;
   border-right: 1px solid var(--markdown-border);
   border-bottom: 1px solid var(--markdown-border);

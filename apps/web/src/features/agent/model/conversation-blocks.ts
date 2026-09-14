@@ -217,7 +217,9 @@ export function applyToolActivityEvent(
         ...block,
         status: 'completed',
         summary:
-          event.toolName === 'web_fetch'
+          event.toolName === 'web_search'
+            ? block.summary
+            : event.toolName === 'web_fetch'
             ? `成功 ${succeeded.length} 个，失败 ${event.result.results.length - succeeded.length} 个，提取 ${passageCount} 段原文`
             : event.toolName === 'approval_test'
               ? '审批测试已完成'

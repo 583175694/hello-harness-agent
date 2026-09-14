@@ -30,6 +30,7 @@ import {
   Conversation as AiConversation,
   ConversationContent,
 } from '../../../components/ai-elements/conversation';
+import { Shimmer } from '../../../components/ai-elements/shimmer';
 import { Attachments, Attachment } from '../../../components/ai-elements/attachments';
 import {
   Artifact,
@@ -605,14 +606,14 @@ const AssistantMessage = memo(
             <div className="assistant-delivery-status">本次回答未完成</div>
           ) : null}
           {showThinking ? (
-            <p
+            <Shimmer
               className={hasVisibleBlocks ? 'sr-only' : 'assistant-thinking'}
               role="status"
               aria-label="AI 正在回复"
               aria-live="polite"
             >
-              {hasVisibleBlocks ? 'AI 正在回复' : '正在思考中…'}
-            </p>
+              {hasVisibleBlocks ? 'AI 正在回复' : '正在思考中'}
+            </Shimmer>
           ) : null}
           <div className="assistant-blocks">
             <AgentChainOfThought

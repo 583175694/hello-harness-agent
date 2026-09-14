@@ -108,13 +108,21 @@ export function AgentChainOfThought({
               ? sourceDomains(workbench?.sources ?? [], item.block.toolCallId)
               : [];
           const StateIcon = statusIcon(item.block.status);
+          const workbenchTitle = workbench?.executions.find(
+            (execution) => execution.toolCallId === item.block.toolCallId,
+          )?.title;
+          const toolTitle =
+            item.block.toolName === 'web_search'
+              ? workbenchTitle ??
+                (item.block.summary ? `搜索：${item.block.summary}` : item.block.title)
+              : item.block.title;
           return (
             <button
               className="agent-chain-tool"
               type="button"
               key={item.block.id}
               disabled={!workbench}
-              aria-label={`${item.block.title}，${item.block.status === 'running' ? '执行中' : item.block.status === 'completed' ? '已完成' : item.block.status === 'failed' ? '失败' : '已取消'}`}
+              aria-label={`${toolTitle}，${item.block.status === 'running' ? '执行中' : item.block.status === 'completed' ? '已完成' : item.block.status === 'failed' ? '失败' : '已取消'}`}
               onClick={() =>
                 workbench &&
                 onFocusWorkbench({
@@ -129,7 +137,10 @@ export function AgentChainOfThought({
                 icon={toolIcon(item.block.toolName)}
                 label={
                   <span className="agent-chain-tool__label">
-                    {item.block.title}
+                    <span className="agent-chain-tool__title">{toolTitle}</span>
+                    {item.block.summary && item.block.toolName !== 'web_search' ? (
+                      <span className="agent-chain-tool__summary">{item.block.summary}</span>
+                    ) : null}
                     <StateIcon
                       className={item.block.status === 'running' ? 'spin' : ''}
                       size={13}
@@ -137,7 +148,6 @@ export function AgentChainOfThought({
                     />
                   </span>
                 }
-                description={item.block.summary}
                 status={stepStatus(item.block.status)}
               >
                 {domains.length ? (

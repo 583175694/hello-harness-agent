@@ -229,7 +229,7 @@ export function applyToolActivityEvent(
                   ? `找到 ${event.result.matches.length} 个文件命中`
                   : event.toolName === 'read_file_lines'
                     ? `读取 ${event.result.lines.length} 行文件内容`
-                    : `找到 ${event.result.results.length} 个结果`,
+                    : block.summary,
         completedAt: event.completedAt,
         durationMs: event.durationMs,
       };

@@ -143,7 +143,7 @@ describe('ChatService session persistence', () => {
         model: 'deepseek-v4-pro',
         reasoning_effort: 'max',
         temperature: 0,
-        max_tokens: 8_192,
+        max_tokens: 384_000,
       }),
       expect.anything(),
     );

@@ -549,7 +549,7 @@ const answer = 'Hello, Markdown';
         roundSequence: 1,
         attempt: 1,
         estimatedInputTokens: 24_680,
-        promptBudget: 116_326,
+        promptBudget: 566_000,
         compactionTriggered: false,
         finalResponseOnly: false,
         messages: [],

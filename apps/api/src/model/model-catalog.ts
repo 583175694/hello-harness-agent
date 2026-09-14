@@ -27,8 +27,10 @@ export type ConfiguredModel = {
 
 // Context Profile 是代码评审和正式 Baseline 的受控事实，不允许通过运行时环境变量覆盖。
 // 在填写供应商权威来源并完成确认前，verified 必须保持 false。
-export const DEEPSEEK_CONTEXT_WINDOW_TOKENS = 131_072;
-export const DEEPSEEK_MAX_OUTPUT_TOKENS = 8_192;
+// DeepSeek 官方模型表（DeepSeek-V4.1-Flash / V4-Pro-0813）标注：
+// Context Length 1M，Max Output 384K。
+export const DEEPSEEK_CONTEXT_WINDOW_TOKENS = 1_000_000;
+export const DEEPSEEK_MAX_OUTPUT_TOKENS = 384_000;
 export const DEEPSEEK_COMPACTION_TRIGGER_TOKENS = 100_000;
 export const DEEPSEEK_MODEL_PROFILE_SOURCE = 'https://api-docs.deepseek.com/quick_start/pricing/';
 export const DEEPSEEK_MODEL_PROFILE_VERIFIED = true;

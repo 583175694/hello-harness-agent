@@ -318,11 +318,11 @@ Tool Result Budget
 
 只有得到这个剩余预算后，才能对同轮多个 Tool Result 进行均分和回收。
 
-示例：若经验证的 Profile 为 `131072` Context Window 和 `8192` 最大输出：
+示例：若经验证的 Profile 为 `1,000,000` Context Window 和 `384,000` 最大输出：
 
 ```text
 Safety Margin       ≈ 6554
-Prompt Budget       ≈ 116326
+Prompt Budget       ≈ 566000
 Compaction Trigger  = 100000
 Compaction Target   ≤ 50000
 ```

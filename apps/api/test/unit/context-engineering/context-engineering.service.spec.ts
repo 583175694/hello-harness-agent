@@ -32,8 +32,8 @@ describe('ContextEngineeringService', () => {
       [{ role: 'system', content: 'system' }],
       undefined,
       [
-        { toolCallId: 'one', toolName: 'search', content: '甲'.repeat(70_000) },
-        { toolCallId: 'two', toolName: 'search', content: '乙'.repeat(70_000) },
+        { toolCallId: 'one', toolName: 'search', content: '甲'.repeat(350_000) },
+        { toolCallId: 'two', toolName: 'search', content: '乙'.repeat(350_000) },
       ],
       'deepseek-flash',
     );
@@ -67,7 +67,7 @@ describe('ContextEngineeringService', () => {
   it('replaces an oversized file Tool Result with an explicit context error', async () => {
     const { service } = createService();
     const [result] = await service.trimToolResults(
-      [{ role: 'system', content: variedChinese(115_000) }],
+      [{ role: 'system', content: variedChinese(600_000) }],
       undefined,
       [
         {
@@ -192,7 +192,7 @@ describe('ContextEngineeringService', () => {
           ],
         },
         { role: 'tool', toolCallId: 'call-1', content: toolPayload },
-        { role: 'user', content: variedChinese(70_000) },
+        { role: 'user', content: variedChinese(350_000) },
         ...Array.from({ length: 12 }, (_, index) => ({
           role: 'user' as const,
           content: `最近消息 ${index}`,
@@ -202,7 +202,7 @@ describe('ContextEngineeringService', () => {
 
     expect(model.generateText.mock.calls.length).toBeGreaterThan(1);
     const estimator = getDeepSeekV3TokenEstimator();
-    const promptBudget = 131_072 - 8_192 - Math.ceil(131_072 * 0.05);
+    const promptBudget = 1_000_000 - 384_000 - Math.ceil(1_000_000 * 0.05);
     for (const [, messages] of model.generateText.mock.calls) {
       expect(await estimator.countMessages(messages as never)).toBeLessThanOrEqual(promptBudget);
     }
@@ -222,7 +222,7 @@ describe('ContextEngineeringService', () => {
         model: 'deepseek-flash',
         messages: [
           { role: 'system', content: 'system' },
-          { role: 'user', content: variedChinese(100_000) },
+          { role: 'user', content: variedChinese(700_000) },
           ...Array.from({ length: 12 }, (_, index) => ({
             role: 'user' as const,
             content: `最近消息 ${index}`,
@@ -231,7 +231,7 @@ describe('ContextEngineeringService', () => {
       }),
     ).rejects.toThrow('CONTEXT_BUDGET_EXCEEDED');
     expect(model.generateText).toHaveBeenCalledTimes(2);
-  });
+  }, 60_000);
 
   it('keeps file content intact while compacting older history and counts it in the budget', async () => {
     const { service, model } = createService();

@@ -549,14 +549,14 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       .mockResolvedValueOnce({
         messages: compiledMessages,
         estimatedInputTokens: 43_000,
-        promptBudget: 116_326,
+        promptBudget: 566_000,
         compactionTriggered: true,
         compactionState,
       })
       .mockImplementation(async (input: { messages: ModelRoundInput['messages'] }) => ({
         messages: input.messages,
         estimatedInputTokens: 45_000,
-        promptBudget: 116_326,
+        promptBudget: 566_000,
         compactionTriggered: false,
       }));
     const context = {

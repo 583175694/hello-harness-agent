@@ -45,8 +45,8 @@ describe('model catalog', () => {
       }),
     } as never);
     expect(controller.getPublicConfig().models[0]?.context).toEqual({
-      contextWindowTokens: 131_072,
-      maxOutputTokens: 8_192,
+      contextWindowTokens: 1_000_000,
+      maxOutputTokens: 384_000,
       compactionTriggerTokens: 100_000,
       tokenizer: 'deepseek-v3',
       source: 'https://api-docs.deepseek.com/quick_start/pricing/',

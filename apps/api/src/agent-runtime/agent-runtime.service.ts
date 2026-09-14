@@ -151,6 +151,7 @@ export class AgentRuntimeService {
       // roundId 是稳定关联标识，roundSequence 才承担跨 Round 的排序职责。
       let roundId = crypto.randomUUID();
       let textBlockSequence = 0;
+      let textPhase: 'pending' | 'commentary' | 'final_answer' | null | undefined;
       // 普通调查轮只调用一次；最终回答遇到协议污染时允许有限重试。
       const maxAttempts = finalResponseOnly
         ? DEFAULT_RUNTIME_POLICY.finalAnswerProtocolRetries + 1
@@ -169,6 +170,7 @@ export class AgentRuntimeService {
         textDeltas = [];
         reasoningDeltas = [];
         calls = [];
+        textPhase = undefined;
         finishReason = null;
         let usage = {
           promptTokens: null as number | null,
@@ -180,6 +182,7 @@ export class AgentRuntimeService {
           `模型轮次开始 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 尝试=${attempt}/${maxAttempts} | 可用工具=${definitions?.length ?? 0} 个 | 仅最终回答=${finalResponseOnly ? '是' : '否'}`,
           AgentRuntimeService.name,
         );
+        const attemptVisibleStart = visibleContent.length;
 
         try {
           // Adapter 持续产出文本和聚合后的工具调用，Runtime 不依赖供应商 chunk 结构。
@@ -200,17 +203,26 @@ export class AgentRuntimeService {
             } else if (event.type === 'text.delta') {
               textDeltas.push(event.delta);
               textBlockSequence = event.blockSequence;
-              // 最终回答必须完整通过长度、空响应和协议污染校验后才能交付。
-              if (!finalResponseOnly) {
-                visibleContent += event.delta;
-                yield {
-                  type: 'text.delta',
-                  delta: event.delta,
-                  roundId,
-                  roundSequence: modelRounds,
-                  blockSequence: event.blockSequence,
-                };
-              }
+              if (event.phase !== undefined) textPhase = event.phase;
+              visibleContent += event.delta;
+              yield {
+                type: 'text.delta',
+                delta: event.delta,
+                roundId,
+                roundSequence: modelRounds,
+                blockSequence: event.blockSequence,
+                ...(event.phase !== undefined ? { phase: event.phase } : {}),
+              };
+            } else if (event.type === 'text.phase.completed') {
+              textBlockSequence = event.blockSequence;
+              textPhase = event.phase;
+              yield {
+                type: 'text.phase.completed',
+                roundId,
+                roundSequence: modelRounds,
+                blockSequence: event.blockSequence,
+                phase: event.phase,
+              };
             } else if (event.type === 'tool_calls.completed') {
               // Adapter 已聚合供应商的分片参数，Runtime 只消费完整 Tool Call。
               calls = event.calls;
@@ -223,6 +235,15 @@ export class AgentRuntimeService {
             }
           }
         } catch (error) {
+          if (textDeltas.length) {
+            visibleContent = visibleContent.slice(0, attemptVisibleStart);
+            yield {
+              type: 'text.discarded',
+              roundId,
+              roundSequence: modelRounds,
+              blockSequence: textBlockSequence,
+            };
+          }
           // 用户主动取消必须原样向上传播，不能包装成供应商故障。
           if (input.signal?.aborted) {
             this.logger.warn(
@@ -243,10 +264,21 @@ export class AgentRuntimeService {
         }
 
         const roundContent = textDeltas.join('');
+        if (roundContent && textPhase === 'pending') {
+          textPhase = calls.length ? 'commentary' : 'final_answer';
+          yield {
+            type: 'text.phase.completed',
+            roundId,
+            roundSequence: modelRounds,
+            blockSequence: textBlockSequence,
+            phase: textPhase,
+          };
+        }
         const roundDurationMs = Date.now() - attemptStartedAt;
         const roundResponse: ModelMessage = {
           role: 'assistant',
           content: roundContent || null,
+          ...(textPhase === 'commentary' || textPhase === 'final_answer' ? { phase: textPhase } : {}),
           ...(reasoningDeltas.length ? { reasoning: reasoningDeltas.join('') } : {}),
           ...(calls.length ? { toolCalls: structuredClone(calls) } : {}),
         };
@@ -286,6 +318,13 @@ export class AgentRuntimeService {
 
         // 最终回答被长度截断时不能作为完整消息交付或持久化。
         if (finalResponseOnly && finishReason === 'length') {
+          visibleContent = visibleContent.slice(0, attemptVisibleStart);
+          yield {
+            type: 'text.discarded',
+            roundId,
+            roundSequence: modelRounds,
+            blockSequence: textBlockSequence,
+          };
           throw new ServiceUnavailableException({
             code: AGENT_ERROR_CODES.modelLengthLimit,
             detail: '模型输出达到长度上限，本次回答未保存。',
@@ -306,6 +345,13 @@ export class AgentRuntimeService {
           );
           // 首次污染时丢弃整轮并追加纠偏指令，绝不把污染文本写入客户端或上下文。
           if (attempt < maxAttempts) {
+            visibleContent = visibleContent.slice(0, attemptVisibleStart);
+            yield {
+              type: 'text.discarded',
+              roundId,
+              roundSequence: modelRounds,
+              blockSequence: textBlockSequence,
+            };
             messages.push({
               role: 'system',
               content:
@@ -313,6 +359,13 @@ export class AgentRuntimeService {
             });
             continue;
           }
+          visibleContent = visibleContent.slice(0, attemptVisibleStart);
+          yield {
+            type: 'text.discarded',
+            roundId,
+            roundSequence: modelRounds,
+            blockSequence: textBlockSequence,
+          };
           // 达到重试上限仍被污染时终止交付，避免保存伪工具协议。
           throw new ServiceUnavailableException({
             code: AGENT_ERROR_CODES.modelStreamFailed,
@@ -320,19 +373,6 @@ export class AgentRuntimeService {
           });
         }
 
-        // 最终回答已通过全部校验，此时才按原 delta 边界向客户端交付。
-        if (finalResponseOnly) {
-          for (const delta of textDeltas) {
-            visibleContent += delta;
-            yield {
-              type: 'text.delta',
-              delta,
-              roundId,
-              roundSequence: modelRounds,
-              blockSequence: textBlockSequence,
-            };
-          }
-        }
         // 当前尝试已经成功完成，退出协议重试循环并进入本轮结果处理。
         break;
       }
@@ -442,6 +482,7 @@ export class AgentRuntimeService {
         const finalMessage: ModelMessage = {
           role: 'assistant',
           content: roundContent,
+          ...(textPhase === 'commentary' || textPhase === 'final_answer' ? { phase: textPhase } : {}),
           ...(reasoningDeltas.length ? { reasoning: reasoningDeltas.join('') } : {}),
         };
         messages.push(finalMessage);
@@ -460,6 +501,7 @@ export class AgentRuntimeService {
       const assistantToolCallMessage: ModelMessage = {
         role: 'assistant',
         content: textDeltas.join('') || null,
+        ...(textPhase === 'commentary' || textPhase === 'final_answer' ? { phase: textPhase } : {}),
         ...(reasoningDeltas.length ? { reasoning: reasoningDeltas.join('') } : {}),
         toolCalls: normalizedCalls,
       };

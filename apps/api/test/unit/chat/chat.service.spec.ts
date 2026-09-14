@@ -5,12 +5,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PrismaService } from '../../../src/database/prisma.service';
 import { OpenAICompatibleModelAdapter } from '../../../src/model/openai-compatible-model.adapter';
-import { DEFAULT_MODEL_ID } from '../../../src/model/model-catalog';
 import { AgentRuntimeService } from '../../../src/agent-runtime/agent-runtime.service';
 import { AssistantDeliveryRepository } from '../../../src/persistence/assistant-delivery.repository';
 import { SessionExecutionRegistry } from '../../../src/sessions/session-execution.registry';
 import { ChatService } from '../../../src/chat/chat.service';
 import { ToolRegistryService } from '../../../src/tools/tool-registry.service';
+
+const CHAT_COMPLETIONS_MODEL_ID = 'deepseek-v4-pro';
 
 // 创建不连接数据库和网络的 ChatService 测试环境。
 function makeService(
@@ -97,7 +98,7 @@ describe('ChatService session persistence', () => {
     const { service, messageCreate, executions } = makeService(providerCreate);
 
     const prepared = await service.prepareSessionStream('session-1', 'new question');
-    prepared.model = 'deepseek-v4-pro';
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     prepared.reasoningEffort = 'max';
     expect(prepared.messages).toHaveLength(20);
     expect(prepared.messages[0]).toMatchObject({ id: 'message-5', content: 'content-5' });
@@ -167,6 +168,7 @@ describe('ChatService session persistence', () => {
     const providerCreate = vi.fn().mockRejectedValue(new Error('provider unavailable'));
     const { service, messageCreate } = makeService(providerCreate);
     const prepared = await service.prepareSessionStream('session-1', 'new question');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await expect(collect(service.streamPrepared(prepared))).rejects.toThrow();
     service.releaseSession('session-1');
@@ -185,6 +187,7 @@ describe('ChatService session persistence', () => {
     );
     const { service, messageCreate } = makeService(providerCreate);
     const prepared = await service.prepareSessionStream('session-1', 'new question');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await expect(collect(service.streamPrepared(prepared))).rejects.toMatchObject({
       response: { code: 'MODEL_LENGTH_LIMIT' },
@@ -200,7 +203,7 @@ describe('ChatService session persistence', () => {
     );
     const { service } = makeService(providerCreate);
     const prepared = await service.prepareSessionStream('session-1', 'new question');
-    prepared.model = 'deepseek-v4-pro';
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     prepared.reasoningEffort = 'off';
     prepared.messages = [
       { role: 'user', content: '问题一' },
@@ -311,6 +314,7 @@ describe('ChatService session persistence', () => {
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'search the web');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const onTranscriptItem = vi.fn();
     prepared.onTranscriptItem = onTranscriptItem;
     const events = await collect(service.streamPrepared(prepared));
@@ -348,7 +352,7 @@ describe('ChatService session persistence', () => {
       data: {
         content: expect.stringContaining('我先检索。检索完成。'),
         metadata: {
-          model: DEFAULT_MODEL_ID,
+          model: CHAT_COMPLETIONS_MODEL_ID,
           blocks: [
             expect.objectContaining({ type: 'text', content: '我先检索。' }),
             expect.objectContaining({
@@ -415,6 +419,7 @@ describe('ChatService session persistence', () => {
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'search the web');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events = await collect(service.streamPrepared(prepared));
 
     expect(events).toEqual(
@@ -579,6 +584,7 @@ describe('ChatService session persistence', () => {
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'research AI');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events = await collect(service.streamPrepared(prepared));
 
     expect(events).toEqual(
@@ -651,6 +657,7 @@ describe('ChatService session persistence', () => {
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'stop search');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events = await collect(service.streamPrepared(prepared));
 
     const started = events.find(
@@ -714,6 +721,7 @@ describe('ChatService session persistence', () => {
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'stop search');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events: unknown[] = [];
 
     await expect(
@@ -803,6 +811,7 @@ describe('ChatService session persistence', () => {
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'compare sources');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await collect(service.streamPrepared(prepared));
 
@@ -872,6 +881,7 @@ describe('ChatService session persistence', () => {
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'research');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     const events = await collect(service.streamPrepared(prepared));
 
@@ -936,6 +946,7 @@ describe('ChatService session persistence', () => {
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'research');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await expect(collect(service.streamPrepared(prepared))).resolves.toEqual(
       expect.arrayContaining([
@@ -1008,6 +1019,7 @@ describe('ChatService session persistence', () => {
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
     const prepared = await service.prepareSessionStream('session-1', 'research extensively');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await collect(service.streamPrepared(prepared));
 

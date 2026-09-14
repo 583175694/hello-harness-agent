@@ -314,6 +314,7 @@ export const assistantTextBlockSchema = z.object({
   roundSequence: z.number().int().positive().optional(),
   blockSequence: z.number().int().nonnegative().optional(),
   content: z.string().min(1),
+  phase: z.enum(['pending', 'process', 'final']).optional(),
 });
 
 export const assistantReasoningBlockSchema = z.object({
@@ -650,6 +651,24 @@ export const chatStreamEventSchema = z.union([
     roundSequence: z.number().int().positive(),
     blockSequence: z.number().int().nonnegative(),
     delta: z.string().min(1),
+    phase: z.enum(['pending', 'commentary', 'final_answer']).nullable().optional(),
+  }),
+  z.object({
+    type: z.literal('message.phase.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    phase: z.enum(['commentary', 'final_answer']),
+  }),
+  z.object({
+    type: z.literal('message.discarded'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
   }),
   z.object({
     type: z.literal('user.intervention'),
@@ -880,6 +899,8 @@ export const runStreamEventSchema = z.object({
     'model.round.completed',
     'reasoning.delta',
     'message.delta',
+    'message.phase.completed',
+    'message.discarded',
     'user.intervention',
     'plan.updated',
     'tool.started',

@@ -5,6 +5,9 @@ export type ConfiguredModel = {
   label: string;
   provider: string;
   baseUrl: string;
+  /** Provider wire protocol. Defaults to Chat Completions for backwards compatibility. */
+  api?: 'chat_completions' | 'responses';
+  traceResponsesEvents?: boolean;
   reasoningFormat?: string;
   supportsVision?: boolean;
   reasoning: ReasoningCapability;
@@ -38,27 +41,12 @@ if (DEEPSEEK_MODEL_PROFILE_VERIFIED && !DEEPSEEK_MODEL_PROFILE_SOURCE)
 // 模型供应商配置集中在代码目录中；密钥仍由 OPENAI_API_KEY 注入，避免进入配置文件。
 export const MODEL_CATALOG: readonly ConfiguredModel[] = [
   {
-    id: 'deepseek-v4-flash',
-    label: 'DeepSeek V4 Flash',
+    id: 'deepseek-flash',
+    label: 'DeepSeek-Flash',
     provider: 'deepseek',
     baseUrl: 'https://api.deepseek.com',
-    reasoningFormat: 'deepseek.reasoning_content.v1',
-    reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'] as const, default: 'high' },
-    context: {
-      contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
-      maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
-      compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
-      tokenizer: 'deepseek-v3' as const,
-      source: DEEPSEEK_MODEL_PROFILE_SOURCE,
-      verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
-    },
-    request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
-  },
-  {
-    id: 'deepseek-v4.1-flash-expires-on-0910',
-    label: 'DeepSeek V4.1 Flash (expires 0910)',
-    provider: 'deepseek',
-    baseUrl: 'https://api.deepseek.com',
+    api: 'responses',
+    traceResponsesEvents: true,
     supportsVision: true,
     reasoningFormat: 'deepseek.reasoning_content.v1',
     reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'] as const, default: 'high' },
@@ -68,8 +56,7 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
       compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
       tokenizer: 'deepseek-v3' as const,
       source: DEEPSEEK_MODEL_PROFILE_SOURCE,
-      // 图片标注该模型为内测/限时版本，单独保留为未完成权威确认的 profile。
-      verified: false,
+      verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
     },
     request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
   },
@@ -78,6 +65,7 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     label: 'DeepSeek V4 Pro',
     provider: 'deepseek',
     baseUrl: 'https://api.deepseek.com',
+    api: 'chat_completions',
     reasoningFormat: 'deepseek.reasoning_content.v1',
     reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'] as const, default: 'high' },
     context: {
@@ -87,23 +75,6 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
       tokenizer: 'deepseek-v3' as const,
       source: DEEPSEEK_MODEL_PROFILE_SOURCE,
       verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
-    },
-    request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
-  },
-  {
-    id: 'deepseek-v4-flash-vision-exp',
-    label: 'DeepSeek V4 Flash Vision',
-    provider: 'deepseek',
-    baseUrl: 'https://api.deepseek.com',
-    supportsVision: true,
-    reasoning: { supported: false, levels: ['off'] as const, default: 'off' },
-    context: {
-      contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
-      maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
-      compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
-      tokenizer: 'deepseek-v3' as const,
-      source: DEEPSEEK_MODEL_PROFILE_SOURCE,
-      verified: false,
     },
     request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
   },
@@ -137,8 +108,8 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
   })),
 ];
 
-// 默认使用 C1-A0 已完成图片识别闭环验证的 DeepSeek Vision 模型。
-export const DEFAULT_MODEL_ID = 'deepseek-v4-flash-vision-exp';
+// 默认使用支持图片输入并通过 Responses API 调用的 DeepSeek V4.1 Flash。
+export const DEFAULT_MODEL_ID = 'deepseek-flash';
 
 // 按不区分大小写的 ID 查找受控模型目录配置。
 export function getConfiguredModel(modelId: string): ConfiguredModel | undefined {

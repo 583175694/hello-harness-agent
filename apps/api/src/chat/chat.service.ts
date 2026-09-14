@@ -257,7 +257,26 @@ export class ChatService {
           roundId: event.roundId,
           roundSequence: event.roundSequence,
           blockSequence: event.blockSequence,
+          ...(event.phase !== undefined ? { phase: event.phase } : {}),
         };
+        continue;
+      }
+      if (event.type === 'text.phase.completed' || event.type === 'text.discarded') {
+        const blockId =
+          event.type === 'text.phase.completed'
+            ? conversation.completeTextPhase(event)
+            : conversation.discardText(event);
+        if (!blockId) continue;
+        await notifyProjection();
+        yield {
+          type: event.type === 'text.phase.completed' ? 'message.phase.completed' : 'message.discarded',
+          messageId: prepared.assistantMessageId,
+          blockId,
+          roundId: event.roundId,
+          roundSequence: event.roundSequence,
+          blockSequence: event.blockSequence,
+          ...(event.type === 'text.phase.completed' ? { phase: event.phase } : {}),
+        } as ChatStreamEvent;
         continue;
       }
       if (event.type === 'user.intervention') {

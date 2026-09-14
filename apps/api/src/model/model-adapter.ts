@@ -26,6 +26,8 @@ export type ModelToolCall = {
   providerIndex: number;
 };
 
+export type ModelTextPhase = 'pending' | 'commentary' | 'final_answer' | null;
+
 // Runtime 和模型适配器之间使用的供应商无关消息协议。
 export type ModelMessage =
   | { role: 'system'; content: string }
@@ -34,6 +36,7 @@ export type ModelMessage =
       role: 'assistant';
       content: string | null;
       reasoning?: string;
+      phase?: 'commentary' | 'final_answer' | null;
       toolCalls?: ModelToolCall[];
     }
   | {
@@ -54,7 +57,17 @@ export type ModelRoundInput = {
 
 export type ModelRoundEvent =
   // blockSequence 是供应商无关的统一展示位置；Runtime 不使用 chunk 到达顺序排序。
-  | { type: 'text.delta'; delta: string; blockSequence: number }
+  | {
+      type: 'text.delta';
+      delta: string;
+      blockSequence: number;
+      phase?: ModelTextPhase;
+    }
+  | {
+      type: 'text.phase.completed';
+      blockSequence: number;
+      phase: 'commentary' | 'final_answer';
+    }
   | { type: 'reasoning.delta'; delta: string; blockSequence: number }
   // Tool Call 参数在 Adapter 内聚合完整后一次性交给 Runtime，避免执行半截 JSON。
   | { type: 'tool_calls.completed'; calls: ModelToolCall[] }

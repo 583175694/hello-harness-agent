@@ -10,6 +10,7 @@ export type AssistantProcessItem =
 
 export type AssistantMessagePresentation = {
   process: AssistantProcessItem[];
+  pendingText: string;
   finalText: string;
   artifacts: AssistantArtifactBlock[];
 };
@@ -35,11 +36,24 @@ export function presentAssistantBlocks(
   );
   const lastToolIndex = timeline.findLastIndex((block) => block.type === 'tool_activity');
   const process: AssistantProcessItem[] = [];
+  const pending: string[] = [];
   const final: string[] = [];
 
   timeline.forEach((block, index) => {
     if (block.type === 'tool_activity') {
       process.push({ kind: 'tool', block });
+      return;
+    }
+    if (block.phase === 'pending') {
+      pending.push(block.content);
+      return;
+    }
+    if (block.phase === 'process') {
+      process.push({ kind: 'text', block });
+      return;
+    }
+    if (block.phase === 'final') {
+      final.push(block.content);
       return;
     }
     const belongsToToolRound =
@@ -49,5 +63,5 @@ export function presentAssistantBlocks(
     else final.push(block.content);
   });
 
-  return { process, finalText: final.join(''), artifacts };
+  return { process, pendingText: pending.join(''), finalText: final.join(''), artifacts };
 }

@@ -35,7 +35,7 @@ describe('ContextEngineeringService', () => {
         { toolCallId: 'one', toolName: 'search', content: '甲'.repeat(70_000) },
         { toolCallId: 'two', toolName: 'search', content: '乙'.repeat(70_000) },
       ],
-      'deepseek-v4-flash',
+      'deepseek-flash',
     );
     expect(result).toHaveLength(2);
     expect(result.every((item) => item.truncated)).toBe(true);
@@ -56,7 +56,7 @@ describe('ContextEngineeringService', () => {
         { toolCallId: 'one', toolName: 'search', content: '搜索结果一'.repeat(1_000) },
         { toolCallId: 'two', toolName: 'search', content: '搜索结果二'.repeat(700) },
       ],
-      'deepseek-v4-flash',
+      'deepseek-flash',
     );
 
     expect(result.every((item) => item.truncated === false)).toBe(true);
@@ -77,7 +77,7 @@ describe('ContextEngineeringService', () => {
           truncatable: false,
         },
       ],
-      'deepseek-v4-flash',
+      'deepseek-flash',
     );
 
     expect(result?.truncated).toBe(true);
@@ -100,7 +100,7 @@ describe('ContextEngineeringService', () => {
     ];
     const compiled = await service.compileRound({
       sessionId: 'session-1',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages,
     });
     expect(compiled.compactionTriggered).toBe(true);
@@ -119,7 +119,7 @@ describe('ContextEngineeringService', () => {
     const { service, prisma } = createService();
     const first = await service.compileRound({
       sessionId: 'session-1',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [
         { role: 'system', content: 'system' },
         { role: 'user', content: variedChinese(100_000) },
@@ -133,7 +133,7 @@ describe('ContextEngineeringService', () => {
     expect(first.compactionState).toBeDefined();
     await service.compileRound({
       sessionId: 'session-1',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [
         { role: 'system', content: 'system' },
         { role: 'user', content: '下一轮' },
@@ -155,7 +155,7 @@ describe('ContextEngineeringService', () => {
     await expect(
       service.compileRound({
         sessionId: 'session-1',
-        model: 'deepseek-v4-flash',
+        model: 'deepseek-flash',
         signal: controller.signal,
         messages: [
           { role: 'system', content: 'system' },
@@ -175,7 +175,7 @@ describe('ContextEngineeringService', () => {
     const toolPayload = variedChinese(70_000);
     await service.compileRound({
       sessionId: 'session-1',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [
         { role: 'system', content: 'system' },
         {
@@ -219,7 +219,7 @@ describe('ContextEngineeringService', () => {
     await expect(
       service.compileRound({
         sessionId: 'session-1',
-        model: 'deepseek-v4-flash',
+        model: 'deepseek-flash',
         messages: [
           { role: 'system', content: 'system' },
           { role: 'user', content: variedChinese(100_000) },
@@ -238,7 +238,7 @@ describe('ContextEngineeringService', () => {
     const fileContent = '不可截断文件内容'.repeat(4_000);
     const compiled = await service.compileRound({
       sessionId: 'session-1',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [
         { role: 'system', content: 'system' },
         { role: 'user', content: variedChinese(70_000) },

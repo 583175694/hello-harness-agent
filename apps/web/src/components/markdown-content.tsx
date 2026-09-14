@@ -129,6 +129,7 @@ export function MarkdownContent({
         mode="streaming"
         parseIncompleteMarkdown
         isAnimating={isAnimating}
+        animated={{ animation: 'fadeIn' }}
         plugins={{ code: codePlugin, mermaid, math }}
         mermaid={{ config: mermaidConfig }}
         controls={{

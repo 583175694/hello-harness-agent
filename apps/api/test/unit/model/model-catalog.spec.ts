@@ -10,10 +10,8 @@ import { PublicModelConfigController } from '../../../src/model/public-model-con
 describe('model catalog', () => {
   it('declares supported conversation models without storing credentials', () => {
     expect(MODEL_CATALOG.map((model) => model.id)).toEqual([
-      'deepseek-v4-flash',
-      'deepseek-v4.1-flash-expires-on-0910',
+      'deepseek-flash',
       'deepseek-v4-pro',
-      'deepseek-v4-flash-vision-exp',
       'qwen3.8-max',
       'qwen3.8-flash',
       'qwen3.7-plus',
@@ -26,11 +24,15 @@ describe('model catalog', () => {
       ),
     ).toBe(true);
     expect(JSON.stringify(MODEL_CATALOG)).not.toMatch(/api.?key|secret/i);
-    expect(getConfiguredModel('deepseek-v4.1-flash-expires-on-0910')?.supportsVision).toBe(true);
+    expect(getConfiguredModel('deepseek-flash')).toMatchObject({
+      api: 'responses',
+      supportsVision: true,
+    });
   });
 
   it('resolves the selected default and model ids case-insensitively', () => {
     expect(getDefaultModel().id).toBe(DEFAULT_MODEL_ID);
+    expect(getConfiguredModel('deepseek-flash')?.id).toBe('deepseek-flash');
     expect(getConfiguredModel('DeepSeek-V4-Pro')?.id).toBe('deepseek-v4-pro');
     expect(getConfiguredModel('unknown-model')).toBeUndefined();
   });

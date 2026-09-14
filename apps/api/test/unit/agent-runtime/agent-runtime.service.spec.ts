@@ -13,7 +13,12 @@ import {
 } from '../../../src/agent-runtime/runtime-lifecycle';
 
 type RoundEvent =
-  | { type: 'text.delta'; delta: string }
+  | {
+      type: 'text.delta';
+      delta: string;
+      blockSequence?: number;
+      phase?: 'commentary' | 'final_answer' | null;
+    }
   | { type: 'reasoning.delta'; delta: string }
   | {
       type: 'tool_calls.completed';
@@ -92,6 +97,57 @@ function logger(): Logger {
 }
 
 describe('AgentRuntimeService model-led tool boundary', () => {
+  it('propagates Responses phases through tool commentary and the final answer', async () => {
+    const model = modelFromRounds([
+      [
+        {
+          type: 'text.delta',
+          delta: '我先查询。',
+          blockSequence: 1,
+          phase: 'commentary',
+        },
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'call-1',
+              name: AGENT_TOOL_NAMES.webSearch,
+              arguments: '{"query":"weather"}',
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        {
+          type: 'text.delta',
+          delta: '最终回答。',
+          blockSequence: 1,
+          phase: 'final_answer',
+        },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+
+    const events = await collect(new AgentRuntimeService(model, registry(), logger()));
+    expect(events.filter((event) => event.type === 'text.delta')).toEqual([
+      expect.objectContaining({ delta: '我先查询。', phase: 'commentary' }),
+      expect.objectContaining({ delta: '最终回答。', phase: 'final_answer' }),
+    ]);
+    expect(
+      events.filter(
+        (event) => event.type === 'transcript.item' && event.message.role === 'assistant',
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({ phase: 'commentary', toolCalls: expect.any(Array) }),
+      }),
+      expect.objectContaining({
+        message: expect.objectContaining({ phase: 'final_answer', content: '最终回答。' }),
+      }),
+    ]);
+  });
+
   it('persists clarification request and response facts with the same interrupt id', async () => {
     const model = modelFromRounds([
       [

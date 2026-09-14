@@ -589,6 +589,7 @@ const AssistantMessage = memo(
     const artifactBlocks = terminal ? presentation.artifacts : [];
     const hasVisibleBlocks =
       presentation.process.length > 0 ||
+      Boolean(presentation.pendingText) ||
       Boolean(presentation.finalText) ||
       artifactBlocks.length > 0;
     return (
@@ -620,6 +621,13 @@ const AssistantMessage = memo(
               running={Boolean(item.pending) || item.deliveryStatus === 'streaming'}
               onFocusWorkbench={onFocusWorkbench}
             />
+            {presentation.pendingText ? (
+              <div className="assistant-text-block assistant-text-block--pending" aria-live="polite">
+                <MessageResponse isAnimating={isAnimating}>
+                  {presentation.pendingText}
+                </MessageResponse>
+              </div>
+            ) : null}
             {presentation.finalText ? (
               <div className="assistant-text-block">
                 <MessageResponse isAnimating={isAnimating}>

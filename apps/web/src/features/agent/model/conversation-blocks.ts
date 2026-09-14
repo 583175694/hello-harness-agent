@@ -8,6 +8,11 @@ import type {
 import type { ToolStreamEvent } from '../../../api/client';
 
 type MessageDeltaEvent = Extract<ChatStreamEvent, { type: 'message.delta' }>;
+type MessagePhaseCompletedEvent = Extract<
+  ChatStreamEvent,
+  { type: 'message.phase.completed' }
+>;
+type MessageDiscardedEvent = Extract<ChatStreamEvent, { type: 'message.discarded' }>;
 
 function compareBlockOrder(left: AssistantContentBlock, right: AssistantContentBlock): number {
   const leftRound = left.roundSequence ?? Number.MAX_SAFE_INTEGER;
@@ -58,6 +63,13 @@ export function appendTextDelta(
       ...(event.roundId ? { roundId: event.roundId } : {}),
       ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
       ...(event.blockSequence !== undefined ? { blockSequence: event.blockSequence } : {}),
+      ...(event.phase === 'pending'
+        ? { phase: 'pending' as const }
+        : event.phase === 'commentary'
+        ? { phase: 'process' as const }
+        : event.phase === 'final_answer'
+          ? { phase: 'final' as const }
+          : {}),
     });
   }
   return orderAssistantBlocks(
@@ -69,10 +81,35 @@ export function appendTextDelta(
             ...(event.roundId ? { roundId: event.roundId } : {}),
             ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
             ...(event.blockSequence !== undefined ? { blockSequence: event.blockSequence } : {}),
+            ...(event.phase === 'pending'
+              ? { phase: 'pending' as const }
+              : event.phase === 'commentary'
+                ? { phase: 'process' as const }
+                : event.phase === 'final_answer'
+                  ? { phase: 'final' as const }
+                  : {}),
           }
         : block,
     ),
   );
+}
+
+export function completeTextPhase(
+  blocks: AssistantContentBlock[],
+  event: MessagePhaseCompletedEvent,
+): AssistantContentBlock[] {
+  return blocks.map((block) =>
+    block.type === 'text' && block.id === event.blockId
+      ? { ...block, phase: event.phase === 'commentary' ? 'process' : 'final' }
+      : block,
+  );
+}
+
+export function discardTextBlock(
+  blocks: AssistantContentBlock[],
+  event: MessageDiscardedEvent,
+): AssistantContentBlock[] {
+  return blocks.filter((block) => !(block.type === 'text' && block.id === event.blockId));
 }
 
 export function appendUserIntervention(

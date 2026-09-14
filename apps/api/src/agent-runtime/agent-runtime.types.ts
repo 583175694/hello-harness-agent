@@ -48,6 +48,20 @@ export type AgentRuntimeEvent =
       roundId: string;
       roundSequence: number;
       blockSequence: number;
+      phase?: 'pending' | 'commentary' | 'final_answer' | null;
+    }
+  | {
+      type: 'text.phase.completed';
+      roundId: string;
+      roundSequence: number;
+      blockSequence: number;
+      phase: 'commentary' | 'final_answer';
+    }
+  | {
+      type: 'text.discarded';
+      roundId: string;
+      roundSequence: number;
+      blockSequence: number;
     }
   | {
       type: 'user.intervention';

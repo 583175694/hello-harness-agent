@@ -44,6 +44,11 @@ export type ToolStreamEvent = Extract<
 >;
 // 文本增量单独导出，保证 Conversation Block 更新时保留稳定的 Round/Block 位置信息。
 export type MessageDeltaEvent = Extract<RunPayload, { type: 'message.delta' }>;
+export type MessagePhaseCompletedEvent = Extract<
+  RunPayload,
+  { type: 'message.phase.completed' }
+>;
+export type MessageDiscardedEvent = Extract<RunPayload, { type: 'message.discarded' }>;
 export type ReasoningDeltaEvent = Extract<RunPayload, { type: 'reasoning.delta' }>;
 export type ModelRoundCompletedEvent = Extract<RunPayload, { type: 'model.round.completed' }>;
 

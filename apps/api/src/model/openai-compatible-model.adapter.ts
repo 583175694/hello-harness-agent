@@ -1,11 +1,13 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PinoLogger } from 'nestjs-pino';
 import OpenAI from 'openai';
 import type {
   ChatCompletionChunk,
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
+import type { ResponseStreamEvent } from 'openai/resources/responses/responses';
 import type { ReasoningCapability } from '@harness/agent-protocol';
 import { getDeepSeekV3TokenEstimator, type DeepSeekMessage } from '@harness/deepseek-v3-tokenizer';
 
@@ -75,6 +77,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
   constructor(
     @Inject(ConfigService) private readonly config: ConfigService,
     @Optional() @Inject(FilesService) private readonly files?: FilesService,
+    @Optional() @Inject(PinoLogger) private readonly logger?: PinoLogger,
   ) {
     super();
   }
@@ -103,6 +106,10 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     const configured = getConfiguredModel(input.model);
     if (!profile.reasoning.levels.includes(input.reasoningEffort as never)) {
       throw new Error(`REASONING_EFFORT_UNSUPPORTED:${input.model}:${input.reasoningEffort}`);
+    }
+    if (configured?.api === 'responses') {
+      yield* this.streamResponsesRound(input, configured);
+      return;
     }
     const request = {
       model: input.model,
@@ -215,6 +222,172 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     };
   }
 
+  // DeepSeek Responses API 与 Chat Completions 使用不同的输入 item 和 SSE 事件；
+  // 这里将两者归一化为同一个 ModelRoundEvent，Runtime 无需感知供应商线协议。
+  private async *streamResponsesRound(
+    input: ModelRoundInput,
+    configured: NonNullable<ReturnType<typeof getConfiguredModel>>,
+  ): AsyncIterable<ModelRoundEvent> {
+    const responseInput = await this.toResponseInput(input.messages, input.model);
+    const request: Record<string, unknown> = {
+      model: input.model,
+      input: responseInput,
+      stream: true,
+      max_output_tokens: configured.request.maxTokens,
+      ...(configured.request.temperature !== undefined
+        ? { temperature: configured.request.temperature }
+        : {}),
+      ...(input.tools || input.allowClarification
+        ? {
+            tools: [
+              ...(this.toResponseTools(input.tools) ?? []),
+              ...(input.allowClarification ? [this.toResponseClarificationTool()] : []),
+            ],
+            tool_choice: 'auto',
+          }
+        : {}),
+      ...(input.reasoningEffort !== 'off'
+        ? { reasoning: { effort: input.reasoningEffort === 'max' ? 'high' : input.reasoningEffort } }
+        : {}),
+    };
+    // DeepSeek ignores stream_options; the OpenAI SDK accepts the request shape at runtime.
+    const stream = (await this.getClient(input.model).responses.create(
+      request as never,
+      input.signal ? { signal: input.signal } : undefined,
+    )) as unknown as AsyncIterable<ResponseStreamEvent>;
+    const calls = new Map<number, ModelToolCall>();
+    type MessageState = {
+      outputIndex: number;
+      phase: 'commentary' | 'final_answer' | null;
+      emittedText: boolean;
+    };
+    const messageStates = new Map<string, MessageState>();
+    let finishReason: string | null = null;
+    let promptTokens: number | null = null;
+    let completionTokens: number | null = null;
+    let cachedTokens: number | null = null;
+    for await (const event of stream) {
+      const value = event as unknown as Record<string, any>;
+      if (configured.traceResponsesEvents) this.logResponseEvent(value);
+      if (value.type === 'response.output_item.added' || value.type === 'response.output_item.done') {
+        const item = value.item as Record<string, any> | undefined;
+        if (!item) continue;
+        if (item.type === 'message') {
+          const id = String(item.id ?? '');
+          if (!id) continue;
+          const state = messageStates.get(id) ?? {
+            outputIndex: Number(value.output_index ?? 0),
+            phase: null,
+            emittedText: false,
+          };
+          // DeepSeek may advertise final_answer on `added` and correct it to
+          // commentary on `done`; the latter is authoritative.
+          if (value.type === 'response.output_item.done') {
+            state.phase = item.phase ?? state.phase;
+            if (
+              state.emittedText &&
+              (state.phase === 'commentary' || state.phase === 'final_answer')
+            ) {
+              yield {
+                type: 'text.phase.completed',
+                blockSequence: state.outputIndex,
+                phase: state.phase,
+              };
+            }
+          } else if (state.phase === null) {
+            state.phase = item.phase ?? null;
+          }
+          messageStates.set(id, state);
+        }
+        if (item.type === 'function_call') {
+          const index = Number(value.output_index ?? calls.size);
+          const current = calls.get(index);
+          calls.set(index, {
+            id: String(item.call_id ?? item.id ?? current?.id ?? ''),
+            name: String(item.name ?? current?.name ?? ''),
+            arguments:
+              value.type === 'response.output_item.done'
+                ? String(item.arguments ?? current?.arguments ?? '')
+                : (current?.arguments ?? String(item.arguments ?? '')),
+            blockSequence: index,
+            providerIndex: index,
+          });
+        }
+        continue;
+      }
+      if (value.type === 'response.reasoning_text.delta' || value.type === 'response.reasoning_summary_text.delta') {
+        if (typeof value.delta === 'string')
+          yield {
+            type: 'reasoning.delta',
+            delta: value.delta,
+            blockSequence: Number(value.output_index ?? 0),
+          };
+        continue;
+      }
+      if (value.type === 'response.output_text.delta') {
+        const itemId = value.item_id ? String(value.item_id) : '';
+        const delta = String(value.delta ?? '');
+        if (!delta) continue;
+        const state = messageStates.get(itemId) ?? {
+          outputIndex: Number(value.output_index ?? 0),
+          phase: null,
+          emittedText: false,
+        };
+        state.emittedText = true;
+        // DeepSeek's `added.phase` is provisional when tools are available: a
+        // tool preamble is initially labelled final_answer and corrected on
+        // output_item.done. Stream immediately in a neutral pending state.
+        const phase =
+          input.tools?.length || input.allowClarification ? 'pending' : state.phase ?? 'pending';
+        yield {
+          type: 'text.delta',
+          delta,
+          blockSequence: state.outputIndex,
+          phase,
+        };
+        messageStates.set(itemId, state);
+        continue;
+      }
+      if (value.type === 'response.function_call_arguments.delta') {
+        const index = Number(value.output_index ?? 0);
+        const call = calls.get(index);
+        if (call) call.arguments += String(value.delta ?? '');
+        continue;
+      }
+      if (value.type === 'response.completed' || value.type === 'response.incomplete') {
+        const response = value.response as Record<string, any> | undefined;
+        finishReason = value.type === 'response.incomplete' ? 'length' : 'stop';
+        const usage = response?.usage as Record<string, any> | undefined;
+        promptTokens = usage?.input_tokens ?? null;
+        completionTokens = usage?.output_tokens ?? null;
+        cachedTokens = usage?.input_tokens_details?.cached_tokens ?? null;
+      }
+      if (value.type === 'response.failed')
+        throw new Error(String(value.response?.error?.message ?? 'RESPONSES_API_FAILED'));
+    }
+    const allCalls = [...calls.values()].filter((call) => call.id && call.name);
+    const clarificationCalls = allCalls.filter((call) => call.name === CLARIFICATION_CONTROL_NAME);
+    const businessCalls = allCalls.filter((call) => call.name !== CLARIFICATION_CONTROL_NAME);
+    if (clarificationCalls.length > 1 || (clarificationCalls.length && businessCalls.length))
+      throw new Error('INVALID_CLARIFICATION_PROTOCOL');
+    if (clarificationCalls[0])
+      yield {
+        type: 'clarification.completed',
+        request: clarificationRequestSchema.parse(JSON.parse(clarificationCalls[0].arguments)),
+      };
+    if (businessCalls.length) yield { type: 'tool_calls.completed', calls: businessCalls };
+    yield {
+      type: 'round.completed',
+      finishReason,
+      usage: {
+        promptTokens,
+        completionTokens,
+        cachedTokens,
+        estimatedPromptTokens: await this.estimateResponsePromptTokens(responseInput),
+      },
+    };
+  }
+
   // 执行一次非流式文本生成，供标题和摘要等轻量任务复用。
   async generateText(
     model: string,
@@ -222,6 +395,20 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     signal?: AbortSignal,
   ): Promise<string> {
     const configured = getConfiguredModel(model);
+    if (configured?.api === 'responses') {
+      const response = await this.getClient(model).responses.create(
+        {
+          model,
+          input: (await this.toResponseInput(messages, model)) as never,
+          max_output_tokens: configured.request.maxTokens,
+          ...(configured.request.temperature !== undefined
+            ? { temperature: configured.request.temperature }
+            : {}),
+        },
+        signal ? { signal } : undefined,
+      );
+      return response.output_text;
+    }
     const response = await this.getClient(model).chat.completions.create(
       {
         model,
@@ -236,6 +423,111 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       signal ? { signal } : undefined,
     );
     return response.choices[0]?.message.content ?? '';
+  }
+
+  private async toResponseInput(messages: ModelMessage[], model: string): Promise<Record<string, unknown>[]> {
+    const items: Record<string, unknown>[] = [];
+    for (const message of messages) {
+      if (message.role === 'tool') {
+        items.push({ type: 'function_call_output', call_id: message.toolCallId, output: message.content });
+        continue;
+      }
+      if (message.role === 'assistant') {
+        if (message.reasoning && message.toolCalls?.length)
+          items.push({
+            type: 'reasoning',
+            content: [{ type: 'reasoning_text', text: message.reasoning }],
+          });
+        if (message.content)
+          items.push({
+            type: 'message',
+            role: 'assistant',
+            content: message.content,
+            ...(message.phase ? { phase: message.phase } : {}),
+          });
+        for (const call of message.toolCalls ?? [])
+          items.push({
+            type: 'function_call',
+            call_id: call.id,
+            name: call.name,
+            arguments: call.arguments,
+          });
+        continue;
+      }
+      if (typeof message.content === 'string') {
+        items.push({ type: 'message', role: message.role, content: message.content });
+        continue;
+      }
+      if (
+        message.content.some((block) => block.type === 'image_ref') &&
+        !getConfiguredModel(model)?.supportsVision
+      )
+        throw new Error('MODEL_VISION_UNSUPPORTED');
+      const content = await Promise.all(
+        message.content.map(async (block): Promise<Record<string, unknown>> => {
+          if (block.type === 'text') return { type: 'input_text', text: block.text };
+          if (block.type === 'file_ref')
+            return {
+              type: 'input_text',
+              text: `[Attached file metadata: ${block.fileName}, fileId=${block.fileId}, mediaType=${block.mediaType}, size=${block.size} bytes${block.lineCount !== undefined ? `, lines=${block.lineCount}` : ''}${block.pageCount !== undefined ? `, pages=${block.pageCount}` : ''}. Use search_file or read_file_lines to inspect content.]`,
+            };
+          if (!this.files) throw new Error('FILE_STORAGE_UNAVAILABLE');
+          return {
+            type: 'input_image',
+            image_url: await this.files.readUrlById(block.fileId),
+            detail: block.detail ?? 'auto',
+          };
+        }),
+      );
+      items.push({ type: 'message', role: 'user', content });
+    }
+    return items;
+  }
+
+  private toResponseTools(tools: ModelRoundInput['tools']): Record<string, unknown>[] | undefined {
+    return tools?.map((tool) => ({
+      type: 'function',
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    }));
+  }
+
+  private toResponseClarificationTool(): Record<string, unknown> {
+    return {
+      type: 'function',
+      name: CLARIFICATION_CONTROL_NAME,
+      description: '仅当缺少必须由用户提供且无法安全推断的信息时，请求用户澄清。',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          question: { type: 'string' },
+          options: { type: 'array', items: { type: 'string' } },
+          allowFreeText: { type: 'boolean' },
+        },
+        required: ['question', 'allowFreeText'],
+      },
+    };
+  }
+
+  private async estimateResponsePromptTokens(input: Record<string, unknown>[]): Promise<number> {
+    return this.tokenEstimator.countText(JSON.stringify(input));
+  }
+
+  private logResponseEvent(event: Record<string, any>): void {
+    const item = event.item as Record<string, any> | undefined;
+    const fields = [
+      `类型=${String(event.type ?? 'unknown')}`,
+      event.output_index !== undefined ? `输出序号=${String(event.output_index)}` : '',
+      item?.type ? `Item=${String(item.type)}` : '',
+      item?.id ? `ItemId=${String(item.id)}` : '',
+      item && 'phase' in item ? `Phase=${String(item.phase)}` : '',
+      event.item_id ? `ItemId=${String(event.item_id)}` : '',
+      event.delta !== undefined ? `Delta长度=${String(String(event.delta).length)}` : '',
+      `字段=${Object.keys(event).sort().join(',')}`,
+    ].filter(Boolean);
+    this.logger?.debug(`DeepSeek Responses SSE | ${fields.join(' | ')}`);
   }
 
   // 将 canonical 消息转换为 OpenAI Chat Completions 消息。

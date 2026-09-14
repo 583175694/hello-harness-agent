@@ -21,6 +21,7 @@ export class ConversationBlockCollector {
     roundId: string;
     roundSequence: number;
     blockSequence: number;
+    phase?: 'pending' | 'commentary' | 'final_answer' | null;
   }): string {
     const existing = this.blocks.find(
       (block) =>
@@ -30,6 +31,9 @@ export class ConversationBlockCollector {
     );
     if (existing?.type === 'text') {
       existing.content += input.delta;
+      if (input.phase === 'pending') existing.phase = 'pending';
+      if (input.phase === 'commentary') existing.phase = 'process';
+      if (input.phase === 'final_answer') existing.phase = 'final';
       return existing.id;
     }
     this.textBlockCount += 1;
@@ -40,9 +44,44 @@ export class ConversationBlockCollector {
       roundSequence: input.roundSequence,
       blockSequence: input.blockSequence,
       content: input.delta,
+      ...(input.phase === 'pending'
+        ? { phase: 'pending' as const }
+        : input.phase === 'commentary'
+        ? { phase: 'process' as const }
+        : input.phase === 'final_answer'
+          ? { phase: 'final' as const }
+          : {}),
     };
     this.insert(block);
     return block.id;
+  }
+
+  completeTextPhase(input: {
+    roundId: string;
+    blockSequence: number;
+    phase: 'commentary' | 'final_answer';
+  }): string | undefined {
+    const block = this.blocks.find(
+      (item): item is AssistantTextBlock =>
+        item.type === 'text' &&
+        item.roundId === input.roundId &&
+        item.blockSequence === input.blockSequence,
+    );
+    if (!block) return undefined;
+    block.phase = input.phase === 'commentary' ? 'process' : 'final';
+    return block.id;
+  }
+
+  discardText(input: { roundId: string; blockSequence: number }): string | undefined {
+    const index = this.blocks.findIndex(
+      (item) =>
+        item.type === 'text' &&
+        item.roundId === input.roundId &&
+        item.blockSequence === input.blockSequence,
+    );
+    if (index < 0) return undefined;
+    const [block] = this.blocks.splice(index, 1);
+    return block?.id;
   }
 
   appendUserIntervention(input: {

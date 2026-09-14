@@ -31,7 +31,13 @@ import {
   retryFile,
   deleteFile,
 } from './api/client';
-import type { MessageDeltaEvent, ModelRoundCompletedEvent, ToolStreamEvent } from './api/client';
+import type {
+  MessageDeltaEvent,
+  MessageDiscardedEvent,
+  MessagePhaseCompletedEvent,
+  ModelRoundCompletedEvent,
+  ToolStreamEvent,
+} from './api/client';
 import {
   AGENT_PROTOCOL_LIMITS,
   assistantContentBlockSchema,
@@ -67,6 +73,8 @@ import {
   appendTextDelta,
   applyToolActivityEvent,
   cloneAssistantBlocks,
+  completeTextPhase,
+  discardTextBlock,
   appendUserIntervention,
 } from './features/agent/model/conversation-blocks';
 import { nextSourceNumber } from './features/agent/model/source-identifiers';
@@ -1087,6 +1095,32 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
             conversation: target.conversation.map((item) =>
               item.kind === 'assistant' && item.id === delta.messageId
                 ? { ...item, blocks: appendTextDelta(item.blocks, delta) }
+                : item,
+            ),
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    if (event.type === 'message.phase.completed' || event.type === 'message.discarded') {
+      const update = event.payload as MessagePhaseCompletedEvent | MessageDiscardedEvent;
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' && item.id === update.messageId
+                ? {
+                    ...item,
+                    blocks:
+                      update.type === 'message.phase.completed'
+                        ? completeTextPhase(item.blocks, update)
+                        : discardTextBlock(item.blocks, update),
+                  }
                 : item,
             ),
           },

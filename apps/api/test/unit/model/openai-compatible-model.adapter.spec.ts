@@ -45,3 +45,143 @@ describe('normalizeProviderUsage', () => {
     ).resolves.toEqual([{ role: 'tool', content: '{"ok":true}', tool_call_id: 'call-1' }]);
   });
 });
+
+describe('OpenAICompatibleModelAdapter Responses API', () => {
+  function adapterWithEvents(events: unknown[]) {
+    const adapter = new OpenAICompatibleModelAdapter(
+      new ConfigService({ OPENAI_API_KEY: 'test-key' }),
+    );
+    const create = async () =>
+      (async function* () {
+        for (const event of events) yield event;
+      })();
+    (adapter as unknown as { client: unknown }).client = {
+      responses: { create },
+      chat: { completions: { create } },
+    };
+    return adapter;
+  }
+
+  async function collect(adapter: OpenAICompatibleModelAdapter) {
+    const events = [];
+    for await (const event of adapter.streamRound({
+      model: 'deepseek-flash',
+      messages: [{ role: 'user', content: '查询天气' }],
+      tools: [{ name: 'weather', description: '查询天气', parameters: { type: 'object' } }],
+      reasoningEffort: 'low',
+    }))
+      events.push(event);
+    return events;
+  }
+
+  it('preserves commentary phase and aggregates a Responses function call', async () => {
+    const events = await collect(
+      adapterWithEvents([
+        {
+          type: 'response.output_item.added',
+          output_index: 0,
+          item: { id: 'msg-1', type: 'message', role: 'assistant', phase: 'commentary' },
+        },
+        {
+          type: 'response.output_text.delta',
+          output_index: 0,
+          item_id: 'msg-1',
+          delta: '我先查询。',
+        },
+        {
+          type: 'response.output_item.done',
+          output_index: 0,
+          item: { id: 'msg-1', type: 'message', role: 'assistant', phase: 'commentary' },
+        },
+        {
+          type: 'response.output_item.added',
+          output_index: 1,
+          item: { id: 'fc-item', type: 'function_call', call_id: 'call-1', name: 'weather', arguments: '' },
+        },
+        {
+          type: 'response.function_call_arguments.delta',
+          output_index: 1,
+          delta: '{"city":"深圳"}',
+        },
+        {
+          type: 'response.output_item.done',
+          output_index: 1,
+          item: { id: 'fc-item', type: 'function_call', call_id: 'call-1', name: 'weather', arguments: '{"city":"深圳"}' },
+        },
+        {
+          type: 'response.completed',
+          response: { usage: { input_tokens: 20, output_tokens: 8, input_tokens_details: { cached_tokens: 4 } } },
+        },
+      ]),
+    );
+
+    expect(events).toEqual([
+      { type: 'text.delta', delta: '我先查询。', blockSequence: 0, phase: 'pending' },
+      { type: 'text.phase.completed', blockSequence: 0, phase: 'commentary' },
+      {
+        type: 'tool_calls.completed',
+        calls: [{ id: 'call-1', name: 'weather', arguments: '{"city":"深圳"}', blockSequence: 1, providerIndex: 1 }],
+      },
+      expect.objectContaining({
+        type: 'round.completed',
+        finishReason: 'stop',
+        usage: expect.objectContaining({ promptTokens: 20, completionTokens: 8, cachedTokens: 4 }),
+      }),
+    ]);
+  });
+
+  it('preserves final_answer on the first text delta', async () => {
+    const events = await collect(
+      adapterWithEvents([
+        {
+          type: 'response.output_item.added',
+          output_index: 0,
+          item: { id: 'msg-final', type: 'message', role: 'assistant', phase: 'final_answer' },
+        },
+        { type: 'response.output_text.delta', output_index: 0, item_id: 'msg-final', delta: '最终回答。' },
+        {
+          type: 'response.output_item.done',
+          output_index: 0,
+          item: { id: 'msg-final', type: 'message', role: 'assistant', phase: 'final_answer' },
+        },
+        { type: 'response.completed', response: { usage: { input_tokens: 10, output_tokens: 4 } } },
+      ]),
+    );
+    expect(events.slice(0, 2)).toEqual([{
+      type: 'text.delta',
+      delta: '最终回答。',
+      blockSequence: 0,
+      phase: 'pending',
+    }, {
+      type: 'text.phase.completed',
+      blockSequence: 0,
+      phase: 'final_answer',
+    }]);
+  });
+
+  it('uses output_item.done as authoritative when DeepSeek corrects the phase', async () => {
+    const events = await collect(
+      adapterWithEvents([
+        {
+          type: 'response.output_item.added',
+          output_index: 0,
+          item: { id: 'msg-1', type: 'message', role: 'assistant', phase: 'final_answer' },
+        },
+        { type: 'response.output_text.delta', output_index: 0, item_id: 'msg-1', delta: '前置文本' },
+        {
+          type: 'response.output_item.done',
+          output_index: 0,
+          item: { id: 'msg-1', type: 'message', role: 'assistant', phase: 'commentary' },
+        },
+        {
+          type: 'response.completed',
+          response: { usage: { input_tokens: 1, output_tokens: 1 } },
+        },
+      ]),
+    );
+    expect(events.slice(0, 2)).toEqual([
+      expect.objectContaining({ type: 'text.delta', phase: 'pending', delta: '前置文本' }),
+      { type: 'text.phase.completed', blockSequence: 0, phase: 'commentary' },
+    ]);
+  });
+});

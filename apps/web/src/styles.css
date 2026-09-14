@@ -886,7 +886,7 @@ textarea:focus-visible {
 }
 .markdown-content strong {
   color: var(--markdown-heading);
-  font-weight: 680;
+  font-weight: 500;
 }
 .markdown-content del {
   color: var(--markdown-muted);

@@ -2,9 +2,9 @@
 
 > 文档状态：C2 评审与实施规划稿。
 >
-> 最后更新：2026-09-09。
+> 最后更新：2026-09-14。
 >
-> 本文只记录 C2 产物与报告生成能力的阶段方向，以及当前已经明确的 C2-A 方案。它不替代总路线图、实际完成状态和其他能力专题文档。
+> 本文记录 C2 产物与报告生成能力的阶段方向、已落地的 C2-A 边界，以及已经冻结的 C2-B 完整实施方案。它不替代总路线图、实际完成状态和其他能力专题文档。
 
 ## 1. 规划原则
 
@@ -32,8 +32,9 @@ C2  Artifact & Report Generation
 
 | 阶段 | 状态 | 说明 |
 | --- | --- | --- |
-| C2-A | 当前已形成方向方案 | 本文记录当前确定的完整阶段范围，具体协议待实施前冻结 |
-| C2-B-C2-D | 待细化 | 只记录目标和阶段边界 |
+| C2-A | 已实现 | 通用生成文件、Artifact、预览、下载、删除和恢复闭环已落地 |
+| C2-B | 方案已冻结，待一次性实施 | 本文记录完整产品、协议、数据和验收边界 |
+| C2-C-C2-D | 待细化 | 只记录目标和阶段边界 |
 
 ## 3. C2 总体目标
 
@@ -267,17 +268,248 @@ Codex：模型 -> 工作区文件工具 -> 本地路径
 
 ## 5. C2-B 正式报告生成
 
-> 状态：待细化。
+> 状态：完整方案已冻结，下一阶段一次性实现，不再拆成基础设施、后端和 UI 子阶段。
 
-C2-B 在 C2-A 的通用 Artifact 能力之上，定义“报告”这种具体内容形态和正式交付语义。
+### 5.1 阶段目标
 
-当前确定的核心方向：
+C2-B 在 C2-A 的通用 Artifact 能力上增加“正式报告”这一明确的交付语义。完成后，用户提出调研、分析、总结或方案类任务时，模型可以把较长且可独立消费的最终成果交付为报告；报告具有稳定身份、清晰结构、材料关联和独立阅读界面，并能随 Session 恢复。
 
-- 报告具有明确标题、摘要、章节、结论、限制和来源等内容结构。
-- 报告作为一种 Artifact 保存、预览和下载，不另建重复的文件生命周期。
-- Conversation 展示报告交付摘要，完整报告进入 Report Workbench。
-- 报告与任务材料、网页来源和后续 Citation 能力建立关联。
-- 报告质量、证据覆盖和正式校验的边界需要后续细化。
+```text
+模型完成调查或材料分析
+-> 调用 create_report
+-> 服务端校验报告和材料引用
+-> 生成 canonical Markdown File
+-> 建立 Artifact + Report 关系
+-> Conversation 展示简短交付卡片
+-> Report Workbench 展示完整报告
+-> 用户预览、下载或在后续 Run 中继续处理
+```
+
+C2-B 一次性交付完整闭环，不把“先存数据、以后再做 UI”视为阶段完成。
+
+### 5.2 市场产品启示
+
+成熟 Agent 的实现细节并不完全公开，但公开产品行为已经呈现出几个稳定模式：
+
+- ChatGPT Deep Research 把多来源调查汇总为结构化、带来源的独立报告，允许用户在执行期间调整计划和来源，并支持将包含表格、图片、链接引用和来源的报告导出为 PDF。
+- Gemini Deep Research 先生成可编辑的调查计划，调查完成后在独立 Canvas 中打开报告；报告按关键发现组织，链接原始来源，并支持复制、分享和导出 Google Docs。
+- Claude Research 强调迭代搜索和易于检查的引用；Claude Artifacts 则把重要、独立、值得后续复用的长内容放到 Conversation 之外的专用窗口，并提供下载和后续修改入口。
+- Perplexity Research 将搜索、阅读、推理和报告写作区分为连续阶段，最终报告可以导出为 PDF/文档或转成可分享页面。
+
+这些产品值得借鉴的不是某个专有状态机，而是以下交付原则：
+
+1. **报告是独立交付物，不是超长聊天消息。** Conversation 负责说明结果和限制，专用工作区负责阅读完整内容。
+2. **调查事实和报告表现分离。** 来源先作为已读取材料存在，报告再引用这些事实；导出格式不是报告内容的唯一事实源。
+3. **可核查比“看起来正式”更重要。** 至少保留使用过的来源及原始链接；更强的逐主张引用校验可以后续增强，但不能伪装成已经验证。
+4. **报告完成后仍可继续工作。** 用户可以下载，也可以在后续对话中基于报告继续提问或要求修改；首版不必同时实现在线编辑器。
+5. **过程状态应少而真实。** 用户需要知道正在研究还是已经交付，不需要看到虚构的 review、validation 阶段。
+
+本项目采用这些原则，但不复制计划审批、后台通知、公开分享、在线协作和多格式导出；它们分别由现有 Plan/Run、后续产品阶段或 C2-C/C2-D 承担。
+
+### 5.3 报告与普通 Artifact 的判定
+
+不根据文件名、长度或 Markdown 标题推断报告。模型显式调用专用工具：
+
+```text
+实现类：ReportCreateTool
+模型工具名：create_report
+```
+
+适合调用 `create_report` 的内容：
+
+- 用户明确要求报告、调研结果、分析文档或正式方案；
+- 内容较长、自包含，离开 Conversation 仍可独立理解；
+- 用户很可能需要预览、下载、保存或继续修改。
+
+简短回答、普通代码片段、原始 JSON、临时笔记和用户仅要求创建普通文件的场景继续使用最终回答或 `create_file`。Runtime 不强制每个 Run 生成报告，服务端也不对模型的语义选择进行二次猜测。
+
+### 5.4 工具契约
+
+首版输入保持紧凑，不引入章节 AST：
+
+```ts
+type CreateReportInput = {
+  title: string;
+  summary: string;
+  fileName: string;             // 仅 .md，不包含路径
+  content: string;              // 完整 canonical Markdown
+  quality: 'standard' | 'limited';
+  limitationNote?: string;      // limited 时必填
+  sourceIds?: string[];         // 本次 Run 中成功读取的网页来源
+  fileIds?: string[];           // 当前 Session 中实际使用的材料文件
+};
+```
+
+工具结果返回：
+
+```ts
+type CreateReportResult = {
+  report: ReportRef;
+  artifact: ArtifactRef;
+  file: FileRef;
+};
+```
+
+其中 `ReportRef` 只包含展示与恢复所需的稳定字段：`reportId`、`artifactId`、`runId`、`title`、`summary`、`quality`、可选 `limitationNote`、`sourceIds`、`fileIds`、`status`、`createdAt` 和 `updatedAt`。工具结果、SSE、日志和 Message metadata 均不重复携带完整 `content`；完整正文继续由 File/COS 和预览接口负责。
+
+选择 Markdown 作为 C2-B canonical 内容，是因为它已经支持标题、段落、列表、表格、代码块和链接，并能直接复用现有安全预览、下载与文件读取链路。C2-B 不建立自定义文档 AST。C2-C 如需 DOCX/PDF/HTML，可从受控 Markdown 和 Report 元数据渲染；只有实际格式需求证明 Markdown 不足时，再引入更强的中间表示。
+
+### 5.5 内容结构与服务端处理
+
+工具描述要求模型生成一份可独立阅读的报告，通常包含：
+
+- 标题与简短摘要；
+- 与任务匹配的正文层级；
+- 清晰的关键发现、结论或建议；
+- 已知限制；
+- 使用过的材料与网页来源。
+
+这些是内容质量要求，不冻结所有报告必须共享同一模板。旅行方案、技术调查、市场分析和文件总结可以有不同章节，不为了形式完整强行生成空的“结论”或“限制”章节。
+
+服务端负责：
+
+- 校验标题、摘要、文件名、Markdown 总长度和引用数量；
+- 拒绝原始 HTML、脚本、iframe、data URL 和其他危险嵌入；
+- 根据已验证的 `sourceIds/fileIds` 生成统一的“参考来源/材料”尾部，避免模型伪造内部引用身份；
+- 保存 `.md` 原文并生成现有规范化正文；
+- 不改写模型正文中的普通外链，但预览继续执行现有安全渲染与外链策略。
+
+模型可以在正文中使用普通 Markdown 链接，但 C2-B 不把普通链接声称为已验证的逐主张 Citation。`sourceIds` 表示“报告使用了这些材料”，不表示来源必然支持报告中的每一句话。
+
+### 5.6 数据模型
+
+继续复用：
+
+```text
+File       内容、COS、规范化正文、预览、下载和 read_file
+Artifact   Agent 交付关系
+Report     Artifact 的报告语义和材料关联
+```
+
+新增轻量 `Report` 持久化关系，而不是把报告状态塞进 Message metadata：
+
+```text
+Report
+  id
+  artifactId       unique
+  runId            unique
+  title
+  summary
+  quality          standard | limited
+  limitationNote?
+  sourceIds        JSON string[]
+  fileIds          JSON string[]
+  status           ready | deleted
+  createdAt
+  updatedAt
+```
+
+`Artifact` 和 `File` 继续拥有存储及删除生命周期，Report 不重复保存正文、object key、MIME 或预览数据。一个 Run 最多创建一个主 Report，但仍可创建多个普通 Artifact。这个约束让 Conversation 和 Workbench 有唯一的主报告入口，也避免提前引入报告组、主附件或版本树。
+
+### 5.7 来源与材料关联
+
+C2-B 支持最小、诚实的可追溯性：
+
+- `sourceIds` 只能指向本次 Run 已成功 Fetch、且具有可用 Passage 的 canonical source；搜索 Clue 不能作为报告来源。
+- `fileIds` 只能指向当前 Session 中状态为 `ready` 的文件，包括用户上传文件和先前生成文件。
+- 服务端去重并按模型提交顺序保留；未知、越权、已删除或不可用引用使本次工具调用失败，不静默丢弃。
+- 没有网页来源是合法情况，例如报告完全基于用户文件或模型已有知识；UI 不显示空“来源”区域。
+- `standard` 不表示引用已经由 Citation Validator 验证，只表示模型认为任务材料足以正常交付。
+- 当关键材料缺失、结论只能部分确认或用户要求的范围未完全覆盖时，模型必须选择 `limited` 并给出简短 `limitationNote`。
+
+Report Workbench 的来源区复用现有 Source 卡片和文件元数据。C2-B 不引入 Evidence、Claim、`[Sx]`、锚点级 cited-by 或 Citation Validator；这些属于 K6。现有 Workbench 文档中依赖 Evidence/Citation Validator 的 `reviewing/revising/validating`、`[Sx]` 和逐句引用联动是后续目标，不作为 C2-B 已实现能力展示。
+
+### 5.8 生命周期、幂等与失败边界
+
+C2-B 不新增独立报告生成状态机。用户可见状态保持为：
+
+```text
+generating -> ready-standard | ready-limited
+           -> failed
+```
+
+`generating` 由正在运行的 `create_report` Tool Activity 表达，不持久化一个长期 draft Report。只有 Markdown File、Artifact 和 Report 关系全部成功后才投影 `ready`；此前不会展示可下载的正式报告。
+
+可靠性规则：
+
+- 同一 `runId + toolCallId` 重放返回同一结果，不重复创建 File、Artifact 或 Report。
+- 同一 Run 已有 ready Report 时，另一 `toolCallId` 再次创建报告返回确定性冲突；修改报告通过后续 Run 创建新报告，版本关系留给 C2-D。
+- 校验失败时不写 COS；File 写入成功但 Artifact/Report 事务失败时，沿用 C2-A 孤儿对象清理机制。
+- 工具失败、取消或超时不产生正式报告卡片；Runtime 可让模型修正参数后重试，但仍受“一 Run 一个成功报告”约束。
+- 删除报告沿用 Artifact 删除入口，同时把 Report 标记为 `deleted`；Conversation 历史不展示失效下载入口，重新读取稳定返回已删除语义。
+- Session 删除继续级联删除 File、Artifact 和 Report，并执行现有 COS 清理补偿。
+- Run 最终回答失败但 Report 已经原子创建成功时，报告仍作为已交付事实保留；Conversation 显示报告卡片和 Run 失败状态，不能把已存在的文件回滚成不存在。
+
+### 5.9 容量与安全边界
+
+沿用 C2-A 的文件名、路径隔离、归属校验和 Markdown 安全渲染，并增加少量报告级限制：
+
+- `title` 最多 200 个 Unicode 字符；`summary` 最多 1,000 个字符；
+- `content` 首版最多 40,000 个 Unicode 字符，与 `create_file` 保持一致；
+- `sourceIds` 和 `fileIds` 各最多 50 个，单个数组内不得重复；
+- `fileName` 必须是普通 `.md` 文件名，不能包含路径；
+- `standard` 不允许提供互相矛盾的 limitation 状态；`limited` 必须提供非空限制说明；
+- 超限或非法输入明确失败，不静默截断、移除引用或降级质量；
+- 不允许原始 HTML、可执行脚本、远程 iframe、内联 data URL 或模型指定 COS/object key。
+
+首版允许安全 Markdown 表格和代码块；不支持内嵌上传图片、远程图片代理、图表、脚注级引用语法和附件打包。它们不阻塞一份高质量文本报告的交付。
+
+### 5.10 Conversation 与 Report Workbench
+
+Conversation 在报告成功后展示：
+
+- 报告标题和一段简短摘要；
+- `标准报告` 或克制的 `内容受限` 标识；
+- 打开 Report Workbench 的主操作；
+- 下载 Markdown 的次要操作可继续放在 Workbench，避免卡片堆叠操作。
+
+完整 Markdown 不重复插入最终聊天文本。模型最终回答只需说明已完成、概括关键结论并提醒重要限制。
+
+Report Workbench 生产链路一次性完成：
+
+- 从后端 canonical Report projection 恢复，不再依赖 development fixture；
+- 展示标题、摘要、质量、更新时间、完整安全 Markdown；
+- 展示实际关联的网页来源和材料文件；
+- 提供 Markdown 下载与删除入口；
+- 支持从 Conversation 报告卡片精确打开；
+- 刷新、切换 Session 和 SSE 重连后保持相同内容和状态；
+- 删除后移除正式内容与操作，并显示稳定的已删除状态或回到无报告视图。
+
+当前 `Artifact` Tab 继续服务普通生成文件；正式报告进入 `Report` Tab，不在两个 Tab 中重复作为两份交付物展示。底层仍然是同一个 Artifact/File。
+
+### 5.11 明确不属于 C2-B
+
+- PDF、DOCX、HTML 等多格式渲染和格式模板，属于 C2-C；
+- 在线编辑、局部修改、版本选择、覆盖与回滚，属于 C2-D；
+- Evidence/Claim 模型、逐主张引用、`[Sx]`、Citation Validator 和自动事实复核，属于 K6；
+- 自动生成图表、执行数据分析代码和复杂表格处理，依赖 C3；
+- 公开分享链接、多人协作、评论、发布和全局报告管理器；
+- 报告模板市场、品牌主题、目录 AST、脚注引擎和后台通知；
+- 强制的 research plan 审批或专用 Deep Research Runtime。
+
+### 5.12 一次性实施范围与完成标准
+
+C2-B 只有在以下内容一起完成时才算完成：
+
+1. `create_report` 工具、输入输出协议、参数摘要和模型工具说明落地。
+2. Report migration、持久化关系、单 Run 唯一约束、归属校验和级联/删除语义落地。
+3. Markdown File、Artifact、Report 原子交付以及 `runId + toolCallId` 重放幂等通过测试。
+4. 网页 `sourceIds` 与材料 `fileIds` 校验、去重、顺序和越权/失效边界通过测试。
+5. Snapshot/SSE/Session 恢复包含轻量 ReportRef，不携带完整正文。
+6. Conversation 展示正式报告卡片，Report Workbench 使用真实生产数据展示全文、材料、来源、下载和删除。
+7. 标准、受限、失败、取消、重复调用、最终回答失败后报告保留、刷新恢复和 Session 删除均有自动化回归。
+8. 桌面和移动布局、键盘操作、危险 Markdown、超长内容和安全外链完成验证。
+9. README、implementation-status、protocol 和 Workbench 文档同步到真实能力，不再把 fixture 当成已实现状态。
+
+### 5.13 调研来源
+
+- [OpenAI：Deep research in ChatGPT](https://chatgpt.com/features/deep-research/)
+- [OpenAI：ChatGPT Release Notes（Deep Research PDF export）](https://help.openai.com/en/articles/6825453-chatgpt-release-notes)
+- [Google：Use Deep Research in Gemini Apps](https://support.google.com/gemini/answer/15719111?hl=en&co=GENIE.Platform%3DDesktop)
+- [Google：Try Deep Research in Gemini](https://blog.google/products-and-platforms/products/gemini/google-gemini-deep-research/)
+- [Anthropic：Use research on Claude](https://support.claude.com/en/articles/11088861-use-research-on-claude)
+- [Anthropic：What are artifacts and how do I use them?](https://support.claude.com/en/articles/9487310-what-are-artifacts-and-how-do-i-use-them)
+- [Perplexity：What is Research mode?](https://www.perplexity.ai/help-center/en/articles/10738684-what-is-research-mode)
 
 ## 6. C2-C 多格式输出
 

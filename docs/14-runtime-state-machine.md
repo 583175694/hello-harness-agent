@@ -59,13 +59,9 @@ type ResearchPhase =
 
 Phase 是 progress/recovery 信息，不替代 RunStatus。
 
-## 4. ReportQuality
+## 4. Report Delivery
 
-```ts
-type ReportQuality = 'standard' | 'limited';
-```
-
-只有 completed research run 才能有 reportQuality。证据不足但仍有可靠结果使用 `completed + limited`；零 eligible evidence 使用 `failed`。
+Runtime 不维护 `ReportQuality`。报告成功创建后仍使用普通 `completed` 语义；材料限制由报告正文表达，无法形成有效交付时使用 `failed`。
 
 ## 5. StepStatus
 

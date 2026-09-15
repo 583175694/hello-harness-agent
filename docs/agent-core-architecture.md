@@ -253,13 +253,7 @@ Run terminal status：
 completed / failed / cancelled / timeout / interrupted
 ```
 
-报告质量独立表达：
-
-```text
-standard / limited
-```
-
-零 eligible evidence 不允许 completed。`limited` 不新增 terminal status。
+报告没有独立的 `standard/limited` 状态。零 eligible evidence 不允许 completed；非阻断性材料限制由报告正文表达。
 
 ## 14. Framework Boundary
 

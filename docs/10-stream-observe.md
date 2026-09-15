@@ -131,7 +131,6 @@ Clue 必须有不同视觉/文字状态，不能伪装成可引用来源。
 ```ts
 type ReportProjection = {
   status: 'drafting' | 'reviewing' | 'revising' | 'validating' | 'completed' | 'failed';
-  quality?: 'standard' | 'limited';
   artifactId?: string;
   validation?: {
     passed: boolean;

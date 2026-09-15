@@ -1,6 +1,6 @@
 # Research Workbench
 
-> 文档状态：Greenfield R1 Workbench 交互规范。
+> 文档状态：未来 Workbench 重构参考，不代表当前 C2-B 生产界面。当前报告复用 Artifact Tab；Report Tab 尚未接入生产数据。
 
 ## 1. 定位
 
@@ -74,7 +74,6 @@ type ReportResource = {
   type: 'report';
   runId: string;
   status: 'drafting' | 'reviewing' | 'revising' | 'validating' | 'completed' | 'failed';
-  quality?: 'standard' | 'limited';
   artifactId?: string;
 };
 ```
@@ -161,7 +160,6 @@ Reviewing     检查覆盖度、证据和引用
 Revising      按 review 修订
 Validating    确定性验证 display IDs
 Completed     正式报告
-Limited       正式但证据受限的报告
 Failed        无可交付报告
 ```
 
@@ -179,18 +177,9 @@ Failed        无可交付报告
 
 来源列表中 URL 使用安全外链属性。
 
-## 8. Limited Report
+## 8. 报告限制说明
 
-Limited 是报告质量，不是失败或警告弹窗。
-
-Report header 展示：
-
-```text
-证据受限
-部分问题缺少足够的可引用来源，报告已明确标出未确认结论。
-```
-
-必须保留完整可验证引用，不能因为 limited 放宽 CitationValidator。
+当前协议不设置 `standard/limited` 质量枚举。材料不足或结论不确定时，由报告正文明确描述限制；这不改变 Report 状态，也不能放宽未来 CitationValidator 的校验规则。
 
 ## 9. Progress Projection
 
@@ -286,10 +275,9 @@ Open report / Artifact card         -> Report + artifact
 ## 11. Final Delivery Card
 
 ```text
-Research report ready / Evidence-limited report ready
+Research report ready
 short summary
 source count
-report quality
 [Open report]
 ```
 

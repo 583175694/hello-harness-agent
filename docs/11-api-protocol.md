@@ -140,7 +140,6 @@ type RunSnapshotResponse = {
     requestedReasoningEffort: 'off' | 'low' | 'high' | 'max';
     effectiveReasoningEffort: 'off' | 'low' | 'high' | 'max';
     phase?: ResearchPhase;
-    reportQuality?: 'standard' | 'limited';
     createdAt: string;
     updatedAt: string;
     terminalReason?: string;
@@ -280,7 +279,6 @@ type WorkbenchSnapshot = {
   report?: {
     status: 'drafting' | 'reviewing' | 'revising' | 'validating' | 'completed' | 'failed';
     artifactId?: string;
-    quality?: 'standard' | 'limited';
   };
   artifacts: ArtifactMetadata[];
   debugAvailable: boolean;

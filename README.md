@@ -32,7 +32,7 @@
 
 后续能力
   搜索 fallback
-  Markdown Report Artifact
+  Report Workbench 重构与多格式输出
   steer 和更完整的运行控制
   user Memory 与 Delegation
 ```

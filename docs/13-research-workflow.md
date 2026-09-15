@@ -272,22 +272,13 @@ Validator 不尝试确定性判断自然语言蕴含关系；语义支持度由 
 
 ## 14. 完成语义
 
-```ts
-type ReportQuality = 'standard' | 'limited';
-```
-
-`completed + standard`：
+`completed`：
 
 - 有足够证据回答主要问题。
 - citation validation 通过。
 - review 没有未处理的 blocking revision。
 
-`completed + limited`：
-
-- 至少存在一条可靠 evidence source。
-- 可以交付部分有价值结论。
-- 报告显式标记缺口和未确认结论。
-- citation validation 通过。
+当前协议不设置报告质量枚举。存在非阻断性材料缺口时，报告正文应显式标记缺口和未确认结论；无法形成有价值交付时进入 `failed`。
 
 `failed`：
 

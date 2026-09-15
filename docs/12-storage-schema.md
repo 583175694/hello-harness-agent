@@ -161,7 +161,6 @@ runs (
   effective_reasoning_effort text not null, -- Adapter 校验映射后的实际档位
   status            text not null,
   phase             text null,
-  report_quality    text null,       -- standard / limited
   active_step_id    text null,
   final_message_id  text null,
   report_artifact_id text null,

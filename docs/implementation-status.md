@@ -2,11 +2,11 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-09（C1 文件与多模态基础已完整实现）
+> 最后更新：2026-09-15（C2-B 当前范围已实现）
 
 ## 1. 当前结论
 
-项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
+项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 C2-A/C2-B 当前范围。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成一份或多份 Markdown Report Artifact。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
 
 当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics 和 C1 File & Multimodal Foundation 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
@@ -17,6 +17,12 @@
 C1 已完整实现并收口。图片链路覆盖最多四个附件的有序绑定、旧单附件请求兼容、失败保留与手动重试、取消上传、未绑定文件删除、剪贴板图片粘贴、多图预览、视觉模型输入和 Session 删除后的 COS 清理补偿。文件链路覆盖 TXT、Markdown、CSV、JSON、PDF 以及现代 DOCX/XLSX 的类型校验、异步解析、状态恢复、受限预览、规范化正文保存和基础定位信息；模型通过 `search_file` 与 `read_file_lines` 按需读取有限材料，不默认把完整正文注入 Context。Composer 已支持文件选择、拖拽、图片优先的剪贴板分流、长文本粘贴自动生成 TXT 附件、附件重试/取消/移除和多种文件预览。
 
 C1 的数据库 migration、协议、FileStorage/COS、文件处理、Model Adapter、Run Context、Tool、Projection、Session 恢复和 Web Composer 均已接入。C1 的完成验证覆盖 API/Web/Protocol 单测、类型检查、lint、production build、数据库集成和真实浏览器交互；现代 Office 解析和 Office/PDF/TXT 文件预览已纳入本次完成范围并通过回归。C1 不包含 C2 Artifact/Report 生成，也不承诺 OCR、音视频转写、复杂 Office 版式、压缩包递归解析、密码保护文件、向量检索或全文索引。
+
+### C2-B Report Artifact 状态
+
+C2-A 已提供通用生成文件、Artifact、预览、下载和 Session 恢复；C2-B 在此基础上新增 `create_report`、Report 表及轻量 ReportRef。工具输入为标题、摘要、Markdown 文件名、完整正文和可选 `sourceIds/fileIds`；不包含 `quality` 或 `limitationNote`。同一 Run 可以通过不同 `toolCallId` 创建多份报告，网页来源是否在本 Run 成功 Fetch 不再阻断创建，材料文件仍校验就绪状态和 Session 归属。
+
+当前用户界面把报告作为 Markdown Artifact 展示，在 Artifact Workbench 中预览和下载；删除 Session 时数据库关系级联删除并通过清理任务删除存储对象。专用 Report Workbench、单报告删除 UI、Session 恢复中的 reportId 投影和跨 File/Artifact/Report 的强事务回滚均明确延期，不作为当前 C2-B 完成条件。详细边界见 [31-c2-artifact-and-report-generation.md](./31-c2-artifact-and-report-generation.md)。
 
 Model-led Tool Boundary 已落地为协议 `0.8.0`：模型负责语义规划，Runtime 只执行模型决策和通用执行边界，Tool 只执行能力并返回 canonical 结构化结果，Runtime 统一序列化 Tool Message，Projection 派生 provenance 并按 URL/contentHash 归并 canonical source。`ToolRunState`、`WebResearchRunState`、Tool `modelContent/control` 和跨调用 URL allowlist 已删除；没有新增 Runtime Decision Policy、Web Research Policy 或 Tool observation 预算协议。详见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md)。
 
@@ -60,7 +66,7 @@ Connection-Durable 不引入 Redis，也不实现服务端重启后的自动续�
 
 **当时的问题**：模型返回的 Function Calling 参数可能跨 chunk、JSON 不完整、工具不存在或参数无效；同一响应还可能声明多个调用。只有 `tools` 参数而没有应用侧循环、权限、预算和生命周期，就不是可控 Agent。
 
-**解决方式**：实现 `AgentRuntimeService`、Tool Catalog、通用 Registry 和 `AgentTool` 契约。Runtime 聚合 tool-call chunk、解析并校验参数、串行执行工具、把 assistant tool-call message 与 canonical tool result 放回上下文，再让模型继续决策。加入 20 次通用工具调用上限、取消传播、工具生命周期事件和 Workbench Activity/Sources 投影；首个真实工具是统一 Provider 边界后的 `web_search`。历史中曾短暂引入通用领域状态和 Tool 控制意图，Model-led 迁移已经删除这些间接决策入口。
+**解决方式**：实现 `AgentRuntimeService`、Tool Catalog、通用 Registry 和 `AgentTool` 契约。Runtime 聚合 tool-call chunk、解析并校验参数、串行执行工具、把 assistant tool-call message 与 canonical tool result 放回上下文，再让模型继续决策。当前使用 40 次通用工具调用上限，并支持取消传播、工具生命周期事件和 Workbench Activity/Sources 投影；首个真实工具是统一 Provider 边界后的 `web_search`。历史中曾短暂引入通用领域状态和 Tool 控制意图，Model-led 迁移已经删除这些间接决策入口。
 
 **阶段结果**：系统从“模型生成文本”升级为“模型决定下一步、应用确定性执行并继续循环”的基础 Agent，用户可以看到真实工具进度和搜索 clue。该阶段先完成 Runtime 的工具名称中立化，后续 Model-led 迁移又删除了领域状态与控制意图构成的间接反向依赖。
 
@@ -72,7 +78,7 @@ Connection-Durable 不引入 Redis，也不实现服务端重启后的自动续�
 
 **解决方式**：实现 `web_fetch` 的 URL/DNS/redirect guard、Crawlee 有界获取、Readability 正文提取、canonical Markdown、Document Quality Gate、字符 n-gram 相关性筛选和可定位 Passage。单次调用内去重等价 URL，并用固定 24,000 code-point 输出上限控制返回材料；跨调用是否重试、换源或停止由模型决定。Workbench 区分 clue、fetched 和轻量 used 来源，Projection 记录 provenance 并归并 canonical source。
 
-**后续加固**：在能力闭环完成后，本阶段删除会误伤健康长任务的 Agent run 总截止时间，并完成 Model-led 边界迁移。当前保留普通模型单轮 120 秒、最终回答单轮 30 秒、Search 外层 10 秒、Fetch 整批外层 45 秒、Fetch 单 URL transport 20 秒和用户取消；用 20 次通用工具调用保证循环结构性收敛。达到调用上限后的最终回答完全省略工具定义，服务端整轮缓冲并校验空响应、长度截断、结构化工具调用和 DSML；上游失败日志保留脱敏后的真实原因。
+**后续加固**：在能力闭环完成后，本阶段删除会误伤健康长任务的 Agent run 总截止时间，并完成 Model-led 边界迁移。当前保留普通模型单轮 120 秒、最终回答单轮 30 秒、Search 外层 10 秒、Fetch 整批外层 45 秒、Fetch 单 URL transport 20 秒和用户取消；用 40 次通用工具调用保证循环结构性收敛。达到调用上限后的最终回答完全省略工具定义，服务端整轮缓冲并校验空响应、长度截断、结构化工具调用和 DSML；上游失败日志保留脱敏后的真实原因。
 
 **阶段结果**：形成了 `search -> fetch -> relevant passages -> answer` 的完整联网调查闭环。Agent 不只“搜到链接”，而是基于真正读取过的公开静态网页完成普通回答，并能在 Tool 失败后由模型决定重试、换源或受限交付。健康长任务不再被总时钟误杀，单操作故障仍能隔离；异常工具循环有确定上限；Tool 不共享或维护跨调用规划状态。
 
@@ -80,8 +86,8 @@ Connection-Durable 不引入 Redis，也不实现服务端重启后的自动续�
 
 - Runtime 仍属于一次 Chat 请求内的内存循环，没有持久化 Run/Step/Event、断线 replay、后台继续执行、真正的 steer 和可恢复 cancel。
 - 上下文仍主要使用最近消息和本轮完整 Tool Result，没有全局 Context Engineering、精确 Token 预算、材料选择/压缩/淘汰和最终回答空间预留；连续大结果可能触发模型上下文限制。
-- Search 仍是单 Provider，没有 fallback、运行内熔断或失败查询抑制；重复上游失败会安全地消耗 20 次额度，但不够高效。
-- `used` 只表示最终回答出现了来源 URL，不是逐句 Evidence/Citation；没有 Report Artifact、引用校验或独立复核。
+- Search 仍是单 Provider，没有 fallback、运行内熔断或失败查询抑制；重复上游失败会安全地消耗 40 次额度，但不够高效。
+- `used` 只表示最终回答出现了来源 URL，不是逐句 Evidence/Citation；当前 Report Artifact 不提供逐主张引用校验或独立复核。
 - Fetch 只覆盖公开静态网页；JavaScript 页面、PDF、登录态内容、浏览器操作和完整公网 SSRF/DNS rebinding 防护尚未实现。
 
 **下一阶段结论**：Connection-Durable Agent Loop 与 Reasoning Context Transcript 已完成。普通 Conversation 已隐藏 raw reasoning、恢复 text/tool 时序，并只回放 Tool Call 协议需要的 reasoning；下一阶段进入 Context Engineering，不横向增加工具。
@@ -181,7 +187,7 @@ Workbench 的 Context Tab 只保留当前 Run 最后一轮快照，Run 结束和
 - fetched Source 卡片展示来源元数据、缓存状态、截断状态、可展开 Markdown 原文、sectionPath 和 code-point 区间。
 - 最终 assistant metadata 保存有序内容块、工具执行与来源轻量快照；刷新、切换会话或点击历史 Tool Activity 均可恢复 Workbench。
 - `/agent/preview?state=...` 仅在开发环境启用。
-- Preview 已覆盖 empty、direct-answer、search running、fetch running、fetch candidate、fetch failed、waiting、steer、cancelling、cancelled、failed、sources、limited-report、final-report 等状态。
+- Preview 已覆盖 empty、direct-answer、search/fetch running、fetch candidate/failed、waiting、steer、cancelling、cancelled、failed、sources 和 legacy report fixture 等开发状态；Report fixture 不代表生产版专用 Report Workbench。
 - Conversation 已移除独立 RunCard，工具调用以紧凑 Tool Activity 穿插在 assistant 文本中展示，避免同一执行状态重复投影。
 - 点击内联 Tool Activity 可以打开 Workbench 并定位到对应 execution。
 - Activity 已实现 execution timeline、当前调用详情、auto-follow 和手动 pinned 行为。
@@ -341,9 +347,9 @@ git diff --check
 
 以下内容仍按 `docs/17-implementation-plan.md` 和相关契约文档执行，不能从 Preview 状态推断已经完成：
 
-- Artifact 持久化和正式 Report 恢复；Session/Message/Run/Step 和 assistant draft snapshot 已完成。
+- 专用 Report Workbench、单报告删除 UI、ReportRef/reportId 的 Session 恢复，以及报告版本和编辑能力；当前 Markdown Report Artifact 的预览、下载和 Session 恢复已完成。
 - 服务端重启后自动接管执行中的 Run、多实例 Worker lease、Provider cursor 和通用 Tool 副作用幂等；重启遗留 active execution 仍收敛为 `RUN_INTERRUPTED`。K3.1 Pause/Resume 仅存在于 API 进程内，重启、多实例切换和 Runtime Registry 丢失后的控制恢复不在承诺范围内。
-- 搜索 fallback；正式 Evidence、引用校验和 Markdown Report Artifact 不属于当前范围，是否进入后续 Deep Research 由未来产品需求决定。
+- 搜索 fallback；正式 Evidence、逐主张引用校验和独立报告复核仍不属于当前范围。
 - C1 已完成；后续文件方向仅包括 OCR、更多格式、复杂版式和更强索引等明确的 C1-C 增强，不得再将 C1-A/C1-B 作为未完成项重复排入当前主线。
 - K3.1 Pause/Resume、Runtime Lifecycle Hook、统一 control command API 和控制 SSE 已实现；K3.2 Clarification、Tool Approval、统一 Interrupt Snapshot 和 Transcript 业务事实已实现；K3.3 Steer 与 Follow-up Queue MVP 已实现。尚未完成的是面向真实写操作的副作用风险策略、能力接入、审批失效与完整审计，以及按未来部署需求另行设计的跨进程 Human-in-the-loop。独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
 - Skills、user Memory、`NOTES.md`、`TODO.md`、Delegation、Worker 和多用户认证。
@@ -380,7 +386,7 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 - Context Engineering 第一阶段已经覆盖 System Prompt、历史消息、用户输入、Assistant Tool Calls、Tool Results、Tool Definitions 和最终回答预留；当前冻结这一最小基线，不继续扩展通用 Fragment、Trace、审计或 Attention Engine。
 - Skills、Memory、`NOTES.md` 和 `TODO.md` 落地后，再基于真实来源增加相关性选择、优先级、预算分配与 Goal Reminder；不提前为尚不存在的数据源冻结抽象接口。
 - Connection-Durable Agent Loop 已按独立方案完成后台执行和客户端断线恢复；Delegation 再实现 Worker 独立上下文和大规模 Wide Research。这些能力都不属于当前 Web Fetch 模块本身。
-- 正式 `EvidenceSource`、report-scoped `[Sx]`、Report Artifact、同模型复核和 Citation Validator 不阻塞当前阶段，也不在本次架构中承诺实现。
+- 正式 `EvidenceSource`、report-scoped `[Sx]`、同模型复核和 Citation Validator 不阻塞当前阶段，也不在本次架构中承诺实现。
 - JavaScript Browser Fetch、PDF、登录态网页、页面操作和其他来源格式属于独立的工具能力扩展，不并入当前阶段。
 
 ## 7. 后续优先级计划
@@ -442,11 +448,11 @@ C1  File & Multimodal Foundation                  已完成：图片、通用文
     - 已交付：PDF 页码、文本行号/字符范围、CSV/JSON/Office 基础结构和 contentHash 等定位元数据
     - C1-C：OCR、音视频转写、复杂 Office 版式、压缩包递归解析、密码保护文件、向量检索和全文索引
 
-C2  Artifact & Report Generation                  高优先级
-    - Markdown、HTML、DOCX、XLSX/CSV、PPTX、PDF（生成常见交付格式）
-    - Structured Artifact -> Format Renderer（先生成统一结构，再渲染成具体格式）
-    - 预览、下载、多版本、局部修改和失败重试（支持查看、迭代和恢复）
-    - Artifact 与 Task / Run / Source / Citation 关联（保留产物、任务和来源之间的关系）
+C2  Artifact & Report Generation
+    - C2-A/C2-B 已完成：通用生成文件、正式 Markdown Report、多报告、预览、下载和恢复
+    - C2-C 待实施：HTML、DOCX、XLSX/CSV、PPTX、PDF 等常见交付格式
+    - C2-D 待实施：多版本、局部修改、覆盖、回滚和失败重试
+    - 后续 Workbench 重构：报告专用阅读体验、来源联动和单报告管理
 
 C3  Code Execution Sandbox                        高优先级
     - 临时文件系统、CPU/Memory/Time 限制、进程隔离（限制代码能使用的资源和环境）
@@ -515,7 +521,7 @@ K3 Control & HITL Kernel（基本完成）
   -> K4 Agent Task Semantics（已完成）
   -> C1 File & Multimodal Foundation（已完成）
   -> K5-A Side-effect Policy Contract
-  -> C2 Artifact & Report Generation（接入本地写入策略）
+  -> C2-C/C2-D Artifact 后续能力（接入本地写入策略）
   -> C3 Code Execution Sandbox（接入执行与文件副作用策略）
   -> C4 MCP Client（接入外部写操作策略）
   -> C5 Website Generation & Workbench Preview

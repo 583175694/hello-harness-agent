@@ -1,10 +1,10 @@
 # C2 Artifact & Report Generation / 产物与报告生成方案
 
-> 文档状态：C2 评审与实施规划稿。
+> 文档状态：C2-A 与当前范围的 C2-B 已实施，C2-C/C2-D 待后续推进。
 >
-> 最后更新：2026-09-14。
+> 最后更新：2026-09-15。
 >
-> 本文记录 C2 产物与报告生成能力的阶段方向、已落地的 C2-A 边界，以及已经冻结的 C2-B 完整实施方案。它不替代总路线图、实际完成状态和其他能力专题文档。
+> 本文记录 C2 产物与报告生成能力的阶段方向，以及已经落地的 C2-A/C2-B 当前边界。Workbench 后续将独立重构，因此当前 C2-B 复用 Artifact 查看与下载链路，不冻结专用 Report Workbench。
 
 ## 1. 规划原则
 
@@ -30,11 +30,11 @@ C2  Artifact & Report Generation
 
 当前细化程度：
 
-| 阶段      | 状态                     | 说明                                                     |
-| --------- | ------------------------ | -------------------------------------------------------- |
-| C2-A      | 已实现                   | 通用生成文件、Artifact、预览、下载、删除和恢复闭环已落地 |
-| C2-B      | 方案已冻结，待一次性实施 | 本文记录完整产品、协议、数据和验收边界                   |
-| C2-C-C2-D | 待细化                   | 只记录目标和阶段边界                                     |
+| 阶段      | 状态           | 说明                                                     |
+| --------- | -------------- | -------------------------------------------------------- |
+| C2-A      | 已实现         | 通用生成文件、Artifact、预览、下载、删除和恢复闭环已落地 |
+| C2-B      | 当前范围已实现 | 正式 Markdown 报告、多报告持久化、Artifact 交付与恢复    |
+| C2-C-C2-D | 待细化         | 只记录目标和阶段边界                                     |
 
 ## 3. C2 总体目标
 
@@ -268,11 +268,11 @@ Codex：模型 -> 工作区文件工具 -> 本地路径
 
 ## 5. C2-B 正式报告生成
 
-> 状态：完整方案已冻结，下一阶段一次性实现，不再拆成基础设施、后端和 UI 子阶段。
+> 状态：当前范围已实现。专用 Report Workbench、单报告删除 UI 和报告版本能力不属于本阶段完成条件。
 
 ### 5.1 阶段目标
 
-C2-B 在 C2-A 的通用 Artifact 能力上增加“正式报告”这一明确的交付语义。完成后，用户提出调研、分析、总结或方案类任务时，模型可以把较长且可独立消费的最终成果交付为报告；报告具有稳定身份、清晰结构、材料关联和独立阅读界面，并能随 Session 恢复。
+C2-B 在 C2-A 的通用 Artifact 能力上增加“正式报告”这一明确的交付语义。用户提出调研、分析、总结或方案类任务时，模型可以把较长且可独立消费的最终成果交付为 Markdown 报告；服务端保存 Report 关系，用户通过现有 Artifact 界面预览、下载，并能随 Session 恢复生成文件。
 
 ```text
 模型完成调查或材料分析
@@ -280,12 +280,12 @@ C2-B 在 C2-A 的通用 Artifact 能力上增加“正式报告”这一明确�
 -> 服务端校验报告和材料引用
 -> 生成 canonical Markdown File
 -> 建立 Artifact + Report 关系
--> Conversation 展示简短交付卡片
--> Report Workbench 展示完整报告
+-> Conversation 展示生成过程和报告 Artifact
+-> Artifact Workbench 提供预览与下载
 -> 用户预览、下载或在后续 Run 中继续处理
 ```
 
-C2-B 一次性交付完整闭环，不把“先存数据、以后再做 UI”视为阶段完成。
+当前阶段不建设独立 Report Workbench。报告首先是一类具有 Report 语义的 Artifact；未来 Workbench 重构可以基于现有 Report 表和接口重新设计报告阅读体验。
 
 ### 5.2 市场产品启示
 
@@ -298,7 +298,7 @@ C2-B 一次性交付完整闭环，不把“先存数据、以后再做 UI”视
 
 这些产品值得借鉴的不是某个专有状态机，而是以下交付原则：
 
-1. **报告是独立交付物，不是超长聊天消息。** Conversation 负责说明结果和限制，专用工作区负责阅读完整内容。
+1. **报告是独立交付物，不是超长聊天消息。** Conversation 负责说明结果，完整内容由 Artifact 预览和下载承载。
 2. **调查事实和报告表现分离。** 来源先作为已读取材料存在，报告再引用这些事实；导出格式不是报告内容的唯一事实源。
 3. **可核查比“看起来正式”更重要。** 至少保留使用过的来源及原始链接；更强的逐主张引用校验可以后续增强，但不能伪装成已经验证。
 4. **报告完成后仍可继续工作。** 用户可以下载，也可以在后续对话中基于报告继续提问或要求修改；首版不必同时实现在线编辑器。
@@ -348,7 +348,7 @@ type CreateReportResult = {
 };
 ```
 
-其中 `ReportRef` 只包含展示与恢复所需的稳定字段：`reportId`、`artifactId`、`runId`、`title`、`summary`、`sourceIds`、`fileIds`、`status`、`createdAt` 和 `updatedAt`。工具结果、SSE、日志和 Message metadata 均不重复携带完整 `content`；完整正文继续由 File/COS 和预览接口负责。
+其中 `ReportRef` 包含报告持久化所需的稳定字段：`reportId`、`artifactId`、`runId`、`title`、`summary`、`sourceIds`、`fileIds`、`status`、`createdAt` 和 `updatedAt`。工具结果和实时完成事件携带该引用，但当前 Session 恢复只需要 ArtifactRef，不额外恢复 ReportRef；完整正文继续由 File/COS 和预览接口负责。
 
 选择 Markdown 作为 C2-B canonical 内容，是因为它已经支持标题、段落、列表、表格、代码块和链接，并能直接复用现有安全预览、下载与文件读取链路。C2-B 不建立自定义文档 AST。C2-C 如需 DOCX/PDF/HTML，可从受控 Markdown 和 Report 元数据渲染；只有实际格式需求证明 Markdown 不足时，再引入更强的中间表示。
 
@@ -411,15 +411,15 @@ C2-B 支持最小、诚实的可追溯性：
 - 服务端对两类 ID 去重并按模型提交顺序保留；`fileIds` 中未知、越权、已删除或不可用的引用仍使本次工具调用失败。
 - 没有网页来源是合法情况，例如报告完全基于用户文件或模型已有知识；UI 不显示空“来源”区域。
 
-Report Workbench 的来源区复用现有 Source 卡片和文件元数据。C2-B 不引入 Evidence、Claim、`[Sx]`、锚点级 cited-by 或 Citation Validator；这些属于 K6。现有 Workbench 文档中依赖 Evidence/Citation Validator 的 `reviewing/revising/validating`、`[Sx]` 和逐句引用联动是后续目标，不作为 C2-B 已实现能力展示。
+当前 Workbench 分别展示 Artifact 和本次 Run 的来源投影，不建设 report-scoped 来源联动。C2-B 不引入 Evidence、Claim、`[Sx]`、锚点级 cited-by 或 Citation Validator；这些属于 K6。
 
 ### 5.8 生命周期、幂等与失败边界
 
 C2-B 不新增独立报告生成状态机。用户可见状态保持为：
 
 ```text
-generating -> ready-standard | ready-limited
-           -> failed
+generating -> ready
+           -> failed / cancelled
 ```
 
 `generating` 由正在运行的 `create_report` Tool Activity 表达，不持久化一个长期 draft Report。只有 Markdown File、Artifact 和 Report 关系全部成功后才投影 `ready`；此前不会展示可下载的正式报告。
@@ -428,11 +428,11 @@ generating -> ready-standard | ready-limited
 
 - 同一 `runId + toolCallId` 重放返回同一结果，不重复创建 File、Artifact 或 Report。
 - 同一 `runId + toolCallId` 重放返回同一 Report；同一 Run 使用新的 `toolCallId` 可以继续创建另一份独立 Report。修改既有报告仍通过后续 Run 创建新报告，版本关系留给 C2-D。
-- 校验失败时不写 COS；File 写入成功但 Artifact/Report 事务失败时，沿用 C2-A 孤儿对象清理机制。
-- 工具失败、取消或超时不产生正式报告卡片；Runtime 可让模型修正参数后重试，但仍受“一 Run 一个成功报告”约束。
-- 删除报告沿用 Artifact 删除入口，同时把 Report 标记为 `deleted`；Conversation 历史不展示失效下载入口，重新读取稳定返回已删除语义。
+- 输入校验在写入 COS 前完成。File/Artifact 创建成功而 Report 写入失败的极低概率跨存储异常，当前不提供强事务回滚；遗留对象会随 Session 删除进入统一清理流程。
+- 工具失败、取消或超时不产生正式报告 Artifact；Runtime 可让模型修正参数后重试。同一 Run 可使用不同 `toolCallId` 创建多份报告。
+- 当前不提供单报告删除 UI；用户删除 Session 时级联删除 File、Artifact 和 Report，并执行 COS 清理补偿。后端保留报告/Artifact 删除接口供后续 Workbench 使用。
 - Session 删除继续级联删除 File、Artifact 和 Report，并执行现有 COS 清理补偿。
-- Run 最终回答失败但 Report 已经原子创建成功时，报告仍作为已交付事实保留；Conversation 显示报告卡片和 Run 失败状态，不能把已存在的文件回滚成不存在。
+- Run 最终回答失败但 Report 已经创建成功时，报告仍作为已交付事实保留，不能把已存在的文件回滚成不存在。
 
 ### 5.9 容量与安全边界
 
@@ -442,34 +442,30 @@ generating -> ready-standard | ready-limited
 - `content` 首版最多 40,000 个 Unicode 字符，与 `create_file` 保持一致；
 - `sourceIds` 和 `fileIds` 各最多 50 个，单个数组内不得重复；
 - `fileName` 必须是普通 `.md` 文件名，不能包含路径；
-- `standard` 可以记录不影响正常交付的轻微局限；关键材料缺失或范围未完整覆盖时必须使用 `limited`，并提供非空限制说明；
-- 超限或非法输入明确失败，不静默截断、移除引用或降级质量；
+- 超限或非法输入明确失败，不静默截断或移除引用；
 - 不允许原始 HTML、可执行脚本、远程 iframe、内联 data URL 或模型指定 COS/object key。
 
 首版允许安全 Markdown 表格和代码块；不支持内嵌上传图片、远程图片代理、图表、脚注级引用语法和附件打包。它们不阻塞一份高质量文本报告的交付。
 
-### 5.10 Conversation 与 Report Workbench
+### 5.10 Conversation 与 Artifact Workbench
 
 Conversation 在报告成功后展示：
 
-- 报告标题和一段简短摘要；
-- `标准报告` 或克制的 `内容受限` 标识；
-- 打开 Report Workbench 的主操作；
-- 下载 Markdown 的次要操作可继续放在 Workbench，避免卡片堆叠操作。
+- `create_report` 工具活动及“生成报告：{标题}”摘要；
+- 报告对应的 Markdown Artifact 卡片；
+- 在 Artifact Workbench 中预览或下载 Markdown。
 
 完整 Markdown 不重复插入最终聊天文本。模型最终回答只需说明已完成、概括关键结论并提醒重要限制。
 
-Report Workbench 生产链路一次性完成：
+当前生产链路复用 Artifact Workbench：
 
-- 从后端 canonical Report projection 恢复，不再依赖 development fixture；
-- 展示标题、摘要、质量、更新时间、完整安全 Markdown；
-- 展示实际关联的网页来源和材料文件；
-- 提供 Markdown 下载与删除入口；
-- 支持从 Conversation 报告卡片精确打开；
-- 刷新、切换 Session 和 SSE 重连后保持相同内容和状态；
-- 删除后移除正式内容与操作，并显示稳定的已删除状态或回到无报告视图。
+- 从 assistant metadata 中恢复报告对应的 ArtifactRef；
+- 使用现有安全 Markdown 预览接口读取完整正文；
+- 提供 Markdown 预览和下载入口；
+- 刷新、切换 Session 和 SSE 重连后恢复相同 Artifact；
+- 删除 Session 后清理报告数据库关系和存储对象。
 
-当前 `Artifact` Tab 继续服务普通生成文件；正式报告进入 `Report` Tab，不在两个 Tab 中重复作为两份交付物展示。底层仍然是同一个 Artifact/File。
+专用 Report Tab、报告级来源/材料视图、单报告删除和编辑能力留给后续 Workbench/C2-D 重构。开发预览中的 Report fixture 不代表当前生产能力。
 
 ### 5.11 明确不属于 C2-B
 
@@ -481,19 +477,26 @@ Report Workbench 生产链路一次性完成：
 - 报告模板市场、品牌主题、目录 AST、脚注引擎和后台通知；
 - 强制的 research plan 审批或专用 Deep Research Runtime。
 
-### 5.12 一次性实施范围与完成标准
+### 5.12 当前实施范围与完成标准
 
-C2-B 只有在以下内容一起完成时才算完成：
+C2-B 当前范围以下列内容作为完成标准：
 
 1. `create_report` 工具、输入输出协议、参数摘要和模型工具说明落地。
-2. Report migration、持久化关系、多报告关联、归属校验和级联/删除语义落地。
-3. Markdown File、Artifact、Report 原子交付以及 `runId + toolCallId` 重放幂等通过测试。
-4. 网页 `sourceIds` 不因当前 Run 的 Fetch 状态阻断创建；材料 `fileIds` 校验、去重、顺序和越权/失效边界通过测试。
-5. Snapshot/SSE/Session 恢复包含轻量 ReportRef，不携带完整正文。
-6. Conversation 展示正式报告卡片，Report Workbench 使用真实生产数据展示全文、材料、来源、下载和删除。
-7. 标准、受限、失败、取消、重复调用、最终回答失败后报告保留、刷新恢复和 Session 删除均有自动化回归。
-8. 桌面和移动布局、键盘操作、危险 Markdown、超长内容和安全外链完成验证。
-9. README、implementation-status、protocol 和 Workbench 文档同步到真实能力，不再把 fixture 当成已实现状态。
+2. Report migration、持久化关系、同 Run 多报告和 Session 归属校验落地。
+3. 相同 `runId + toolCallId` 重放不重复创建；不同 `toolCallId` 可以创建多份报告。
+4. 网页 `sourceIds` 不因当前 Run 的 Fetch 状态阻断创建；`fileIds` 继续执行就绪状态和 Session 归属校验。
+5. Conversation 展示报告工具活动和 Markdown Artifact；刷新后可恢复 Artifact，并能预览和下载完整正文。
+6. 删除 Session 时级联删除 Report/File/Artifact，并通过清理任务删除存储对象。
+7. 标题、摘要、Markdown 长度、文件名、重复 ID 和危险内容继续使用协议及文件安全边界。
+8. 使用真实模型完成单报告、多报告、无来源、部分来源失败、刷新恢复和会话删除的人工端到端验收。
+9. README、implementation-status 和本文同步到真实能力。
+
+当前明确接受并延期处理：
+
+- 独立 Report Workbench 及报告专用查看、删除和来源联动；
+- Session 恢复中的 ReportRef/reportId 投影。当前 Artifact 预览下载不依赖它，未来若要调用报告专用接口，必须补充 reportId 恢复或按 artifactId 查询 Report 的能力；
+- File/Artifact 与 Report 跨步骤创建的强原子事务。当前失败可能留下无报告关系的隐藏 Artifact/File，随 Session 删除清理；
+- 报告版本、局部编辑、覆盖和回滚。
 
 ### 5.13 调研来源
 
@@ -562,6 +565,8 @@ type CreateFileInput = {
 - 工具描述必须明确：HTML、PDF 和 DOCX 的 `content` 是 Markdown，不是原始 HTML、XML 或 Base64；
 - JSON Schema 保持扁平，由 Zod `superRefine` 完成扩展名相关的条件校验，不为首版引入复杂工具 schema。
 
+首版规模上限冻结为：最多 10 个 Sheet、每个 Sheet 最多 5,000 行、单次总计最多 100,000 个单元格、单个字符串单元格最多 32,000 个 Unicode 字符、最终 XLSX 文件最多 10 MB。Sheet 名最长 31 个 Unicode 字符；超出输入边界直接拒绝，不截断工作簿内容。
+
 文档示例：
 
 ```json
@@ -607,9 +612,7 @@ type RenderedGeneratedFile = {
   normalizedContent: string;
 };
 
-async function renderGeneratedFile(
-  input: CreateFileInput,
-): Promise<RenderedGeneratedFile>;
+async function renderGeneratedFile(input: CreateFileInput): Promise<RenderedGeneratedFile>;
 ```
 
 生成链路从当前的 `content -> UTF-8 Buffer` 调整为：
@@ -624,7 +627,9 @@ create_file input
 
 `originalKey` 保存用户下载的真实 HTML、PDF、DOCX 或 XLSX；`normalizedKey` 保存后续 `read_file/search_file` 使用的可读文本。文档类格式保存输入 Markdown 作为规范化正文，XLSX 保存带 Sheet 边界的 Markdown 表格或稳定纯文本表示。
 
-数据库的 `FileKind` 已包含 PDF、DOCX、XLSX 和 PPTX；C2-C 只扩大 `create_file`、Artifact 协议和生成服务中的类型范围，不为多格式输出增加新表。
+数据库的 `FileKind` 已包含 PDF、DOCX、XLSX 和 PPTX，但尚未包含 HTML。C2-C 需要增加 `html` 枚举迁移，并同步扩大 `fileRefSchema`、`artifactRefSchema`、文件 MIME 映射、文件图标和生成服务类型范围；不为多格式输出增加新表。首版只接受 `.html`，不增加 `.htm` 别名。
+
+`createFileInputSummarySchema` 也必须覆盖两类输入：文档类记录文件名、内容字符数和字节数；工作簿类记录输入类型、Sheet 数、总行数和总单元格数。完整正文和完整 Sheet 数据不得进入工具事件、快照、日志或模型上下文。
 
 ### 6.4 各格式生成路线
 
@@ -643,7 +648,9 @@ Markdown
 -> UTF-8 HTML Buffer
 ```
 
-首版支持标题、段落、粗体、斜体、列表、链接、引用、代码块、分隔线和 GFM 表格。禁止原始 HTML、脚本、iframe、事件属性、模型自定义 CSS、`data:` 资源和自动远程资源加载。HTML 的规范化正文仍为输入 Markdown。
+首版支持标题、段落、粗体、斜体、删除线、列表、链接、引用、代码块、分隔线和 GFM 表格。首版不支持图片、原始 HTML、脚本、iframe、事件属性、数学公式、脚注、Mermaid、SVG、模型自定义 CSS、`data:` 资源和自动远程资源加载。普通 `https://` 超链接可以保留，但 HTML/PDF 生成不得自动访问链接目标。HTML 的规范化正文仍为输入 Markdown。
+
+`.html` 的 `content` 仍然是 Markdown，不是原始 HTML。服务端必须拒绝或转义原始 HTML，不能将模型提供的标签直接作为 HTML 文档执行。
 
 #### PDF
 
@@ -655,6 +662,8 @@ Markdown
 ```
 
 首版固定 A4 纵向、基础页边距和中文字体栈，不暴露页面尺寸、方向、页眉页脚和主题参数。Chromium 是该路线真实存在的生产依赖，需要在部署镜像中固定版本、字体和必要系统库，并限制单实例并发；本阶段不因此增加独立 PDF 服务。
+
+PDF 生成使用进程级复用的 Browser、每次调用新建 Page 的最小生命周期：并发初始限制为 1–2 个 Page，成功、失败和取消都必须关闭 Page。Chromium 启动失败返回明确的渲染不可用错误，不静默降级为 HTML。PDF 页面不得访问任意外部网络资源，避免 SSRF、结果不稳定和无界等待。
 
 #### DOCX
 
@@ -679,16 +688,30 @@ sheets[].rows
 
 首版不支持公式、图表、透视表、条件格式、图片、宏、外部链接、合并单元格或任意样式。普通字符串即使以 `= + - @` 开头也按文本处理，不自动推断为公式，避免公式注入和错误语义。
 
+Sheet 名称处理规则冻结为：移除 Excel 禁止字符 `\\ / ? * [ ] :`，空名称改为 `Sheet1`、`Sheet2`，超长名称截断到 31 个字符，重名按 `名称 (2)`、`名称 (3)` 方式去重；普通名称冲突不使整个生成失败。最终名称必须写入 XLSX normalized 内容。
+
+XLSX normalized 内容使用稳定的 Sheet 边界和 Markdown 表格：
+
+```md
+[Sheet: 销售汇总]
+
+| 区域 |  销售额 | 同比 |
+| ---- | ------: | ---: |
+| 华东 | 1200000 | 0.18 |
+```
+
+表格生成时必须转义单元格中的 `|` 和换行；不为了追求漂亮预览而静默丢弃超长单元格。
+
 ### 6.5 依赖选择
 
 首版优先保持在现有 Node/NestJS 运行时内：
 
-| 用途 | 首选方案 | 当前判断 |
-| --- | --- | --- |
-| Markdown 解析与 HTML | unified、remark、rehype | AST 可复用于 HTML 和 DOCX，安全边界清晰 |
-| PDF | Playwright/Chromium | 与 HTML 共用排版，但必须接受浏览器运行时成本 |
-| DOCX | `docx` | TypeScript 原生、MIT、无需 Pandoc/LibreOffice |
-| XLSX | `exceljs` | Node 原生、MIT，满足首版多 Sheet 和类型化单元格 |
+| 用途                 | 首选方案                | 当前判断                                        |
+| -------------------- | ----------------------- | ----------------------------------------------- |
+| Markdown 解析与 HTML | unified、remark、rehype | AST 可复用于 HTML 和 DOCX，安全边界清晰         |
+| PDF                  | Playwright/Chromium     | 与 HTML 共用排版，但必须接受浏览器运行时成本    |
+| DOCX                 | `docx`                  | TypeScript 原生、MIT、无需 Pandoc/LibreOffice   |
+| XLSX                 | `exceljs`               | Node 原生、MIT，满足首版多 Sheet 和类型化单元格 |
 
 Pandoc、WeasyPrint、LibreOffice、Gotenberg、Carbone 和 Docxtemplater 均不作为首版必需依赖：
 
@@ -723,6 +746,13 @@ C2-C 继续复用 C2-A 的 `runId + toolCallId` 幂等约束和 Artifact/File �
 
 首版保持同步工具调用，将 `create_file` 超时从当前 10 秒调整到适合文档渲染的有限值，初始建议 30 秒。只有线上数据证明渲染经常超过同步预算时，才考虑异步处理或任务队列。
 
+渲染必须承接现有 `ToolExecutionContext.signal`：
+
+- Playwright 在取消或超时时关闭当前 Page；
+- DOCX/XLSX 在开始和结束阶段检查取消信号，不能把已取消调用继续提交为成功 Artifact；
+- 工具超时、用户取消和渲染异常继续分别映射为现有 `timeout`、`cancelled` 和 `failed` 语义；
+- 所有成功、失败、取消路径都要释放 Browser/Page、临时 Buffer 和文件清理资源。
+
 ### 6.7 最低验证标准
 
 验证目标是避免损坏文件和伪成功，不在首版建设视觉质量评分系统：
@@ -735,6 +765,8 @@ C2-C 继续复用 C2-A 的 `runId + toolCallId` 幂等约束和 Artifact/File �
 - 失败路径：对象保存部分失败时执行现有补偿清理，不投影成功文件卡片。
 
 不要求首版完成逐页截图比对、跨 Office 版本兼容矩阵、像素级排版检查或自动质量打分。
+
+下载接口必须继续返回与扩展名匹配的 MIME 类型，并通过现有 `Content-Disposition` 处理中文文件名。HTML 作为独立 `fileKind` 处理，不把它归入普通 `text`，以便文件图标、预览和后续统计保持一致。
 
 ### 6.8 预览与前端范围
 
@@ -792,17 +824,70 @@ C2-C 只有在以下内容一起完成时才算完成：
 8. 前端文件卡片、文件类型、下载和刷新恢复对五种目标格式正确工作。
 9. 实现未引入新的格式专用模型工具、通用文档平台、模板系统或异步渲染基础设施。
 
+协议和运行时实现还必须覆盖：
+
+10. Markdown 不支持图片、原始 HTML、公式、Mermaid、SVG 和远程资源自动加载；
+11. XLSX 上限、Sheet 清理去重、normalized Markdown 边界和单元格转义行为通过测试；
+12. PDF Chromium 的 Page 生命周期、并发限制、取消清理和启动失败语义通过测试；
+13. `html` FileKind、MIME 映射、下载文件名和 `create_file` 摘要协议与数据库迁移保持一致。
+
 ### 6.12 后续升级触发条件
 
 后续能力不按理论完整性提前建设，只在出现可度量问题后升级：
 
-- DOCX 基础 Markdown 映射无法满足明确的高频排版需求时，再评估 Pandoc或模板引擎；
+- DOCX 基础 Markdown 映射无法满足明确的高频排版需求时，再评估 Pandoc 或模板引擎；
 - PDF 同步渲染频繁超过超时或 Chromium 资源成为瓶颈时，再评估进程池、异步队列或 Gotenberg；
 - 用户明确需要品牌一致性时，再增加少量服务端模板，不开放任意模板执行；
 - XLSX 出现稳定的公式或图表需求时，再通过显式结构扩展，不能从普通字符串隐式推断；
 - 多格式批量导出成为高频需求时，再设计产物组，不改变当前一次调用一个 Artifact 的语义。
 
-### 6.13 调研来源
+### 6.13 实施会话交接清单
+
+C2-C 方案已足够进入实现，不再等待新的产品或架构讨论。新实施会话应直接从以下前置确认和代码任务开始。
+
+#### 开工前必须确认
+
+1. 生产 API 镜像可以运行 Playwright/Chromium，并提供可用的中文字体和必要系统库；
+2. HTML 作为独立 `FileKind`，接受一次 Prisma 枚举迁移；
+3. `create_file` 继续使用 `fileName` 扩展名路由，不增加 `format` 字段；
+4. 文档类 `content` 严格为 Markdown，XLSX 严格使用 `sheets/rows`。
+
+如果第一项无法满足，必须在实现 PDF 前停下来重新选择 PDF 运行路线，不允许先生成一个不稳定的临时方案。除此之外，不应因为未来的模板、公式、图表或 PPTX 需求暂停 C2-C。
+
+#### 首批代码落点
+
+按以下顺序实施：
+
+1. 更新 `createFileInputSchema`、`createFileInputSummarySchema`、`artifactRefSchema` 和工具定义；
+2. 增加 `html` FileKind migration，并同步 MIME、文件引用、Artifact、文件图标和下载映射；
+3. 提取 `apps/api/src/files/generated-file.renderer.ts`，保持 TXT/Markdown/JSON 兼容；
+4. 实现 Markdown -> HTML；
+5. 复用 HTML -> PDF，并完成 Browser/Page 并发、取消和清理；
+6. 实现基础 Markdown AST -> DOCX；
+7. 实现 `sheets/rows` -> XLSX 及 normalized Markdown；
+8. 补充协议、渲染、存储、下载、恢复、幂等和失败清理测试。
+
+#### 开工前固定测试样例
+
+- 中文报告：标题、列表、GFM 表格、代码块和普通链接；
+- 长文档：长表格、分页边界和中文混排；
+- 多 Sheet 工作簿：空值、数字、布尔值、长字符串、非法 Sheet 字符和重名 Sheet。
+
+验收只关注真实文件可打开、中文不丢失、下载 MIME 正确、normalized 内容可读取，以及失败/取消不产生伪 Artifact；不把首版验收扩展成像素级排版评审。
+
+#### 实施会话的停止条件
+
+实现过程中如果发现以下任一情况，应先回到方案评审，而不是自行扩展范围：
+
+- 需要增加新的模型工具才能完成某个格式；
+- 需要引入通用 Document AST、模板数据库或异步渲染平台；
+- 需要让模型直接生成 HTML、OOXML、Base64 或文件路径；
+- 需要隐式把普通字符串识别为 XLSX 公式；
+- 需要为 PDF 生成访问任意外部网络资源。
+
+除上述情况外，优先在当前 MVP 边界内完成闭环，再用真实失败数据决定是否升级。
+
+### 6.14 调研来源
 
 - [Pandoc：通用文档转换能力](https://pandoc.org/)
 - [WeasyPrint：HTML/CSS 到 PDF](https://weasyprint.org/)

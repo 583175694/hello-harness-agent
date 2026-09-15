@@ -83,12 +83,12 @@ textarea:focus-visible {
   display: block;
 }
 .brand-row strong {
-  font-size: 15px;
+  font-size: 16px;
 }
 .brand-row span {
   margin-top: 2px;
   color: var(--theme-text-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .sidebar-heading,
 .sidebar-section {
@@ -97,7 +97,7 @@ textarea:focus-visible {
   justify-content: space-between;
   padding: 0 22px 9px 8px;
   color: #777;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -267,13 +267,13 @@ textarea:focus-visible {
 }
 .ui-dialog-title {
   margin: 0;
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 650;
 }
 .ui-dialog-description {
   margin: 10px 0 0;
   color: var(--theme-text-muted);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
 }
 .ui-dialog-footer {
@@ -341,7 +341,7 @@ textarea:focus-visible {
   border-radius: 8px;
   color: var(--theme-text-primary);
   background: var(--theme-surface-subtle);
-  font-size: 13px;
+  font-size: 14px;
 }
 .rename-dialog__actions {
   display: flex;
@@ -404,7 +404,7 @@ textarea:focus-visible {
   margin-top: auto;
   padding: 14px 8px 0;
   color: #777;
-  font-size: 11px;
+  font-size: 12px;
 }
 .status-dot {
   width: 7px;
@@ -438,7 +438,7 @@ textarea:focus-visible {
 
 .task-title__meta {
   color: #898986;
-  font-size: 13px;
+  font-size: 14px;
 }
 .workbench-grid {
   --workbench-width: clamp(480px, 39%, 720px);
@@ -527,7 +527,7 @@ textarea:focus-visible {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 8px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 .user-avatar {
@@ -542,7 +542,7 @@ textarea:focus-visible {
 .message-meta {
   margin: 2px 0 8px;
   color: #333;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 650;
 }
 .message-meta span {
@@ -558,7 +558,7 @@ textarea:focus-visible {
   border-radius: 8px 8px 3px 8px;
   color: var(--theme-text-primary);
   background: var(--theme-surface-subtle);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.55;
 }
 .message-actions {
@@ -628,7 +628,7 @@ textarea:focus-visible {
 }
 .ai-artifact__description {
   color: var(--theme-text-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .ai-chain {
   width: min(620px, 100%);
@@ -643,7 +643,7 @@ textarea:focus-visible {
   border: 0;
   color: var(--theme-text-muted);
   background: transparent;
-  font-size: 13px;
+  font-size: 14px;
   text-align: left;
 }
 .ai-chain__header > span {
@@ -715,7 +715,7 @@ textarea:focus-visible {
 .ai-chain-step__label {
   overflow-wrap: anywhere;
   color: var(--theme-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
 }
 .ai-chain-step__description {
@@ -747,7 +747,7 @@ textarea:focus-visible {
 .agent-chain-tool__label {
   display: flex;
   min-width: 0;
-  align-items: center;
+  align-items: flex-end;
   gap: 7px;
 }
 .agent-chain-tool__label {
@@ -769,7 +769,7 @@ textarea:focus-visible {
 .agent-chain-tool__summary {
   flex: 0 1 auto;
   color: var(--theme-text-muted);
-  font-size: 0.92em;
+  font-size: 12px;
   font-weight: 400;
 }
 .agent-chain-tool__label > svg {
@@ -789,7 +789,7 @@ textarea:focus-visible {
   border-radius: 999px;
   color: var(--theme-text-secondary);
   background: var(--theme-surface-subtle);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -798,7 +798,7 @@ textarea:focus-visible {
 .ai-reasoning {
   margin: 2px 0 10px 4px;
   color: var(--text-secondary, #a3a3a3);
-  font-size: 13px;
+  font-size: 14px;
 }
 .ai-reasoning__trigger {
   display: flex;
@@ -820,7 +820,7 @@ textarea:focus-visible {
 .ai-reasoning__content {
   overflow: hidden;
   padding: 4px 12px 8px 27px;
-  font-size: 13px;
+  font-size: 14px;
   animation-duration: 220ms;
   animation-timing-function: ease-out;
 }
@@ -907,7 +907,7 @@ textarea:focus-visible {
   --markdown-flow-space: 14px;
 
   color: #41413e;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.78;
 }
 .markdown-content > :first-child {
@@ -1028,24 +1028,24 @@ textarea:focus-visible {
 }
 .markdown-content h1 {
   margin: 22px 0 10px;
-  font-size: 1.42em;
+  font-size: 24px;
   letter-spacing: -0.025em;
 }
 .markdown-content h2 {
   margin: 20px 0 9px;
-  font-size: 1.22em;
+  font-size: 20px;
   letter-spacing: -0.018em;
 }
 .markdown-content h3 {
   margin: 18px 0 8px;
-  font-size: 1.08em;
+  font-size: 18px;
   letter-spacing: -0.01em;
 }
 .markdown-content h4,
 .markdown-content h5,
 .markdown-content h6 {
   margin: 16px 0 7px;
-  font-size: 1em;
+  font-size: 16px;
 }
 .markdown-content h5,
 .markdown-content h6 {
@@ -1070,7 +1070,7 @@ textarea:focus-visible {
   border-radius: 4px;
   color: #343432;
   background: var(--markdown-surface-strong);
-  font-size: 0.9em;
+  font-size: 16px;
   white-space: break-spaces;
 }
 .markdown-content pre {
@@ -1113,7 +1113,7 @@ textarea:focus-visible {
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 0.93em;
+  font-size: 16px;
 }
 .markdown-content th,
 .markdown-content td {
@@ -1178,7 +1178,7 @@ textarea:focus-visible {
   border-radius: 4px;
   color: #343432;
   background: var(--markdown-surface-strong);
-  font-size: 0.9em;
+  font-size: 16px;
   white-space: break-spaces;
 }
 .markdown-content [data-streamdown='blockquote'] {
@@ -1205,7 +1205,7 @@ textarea:focus-visible {
   border-radius: 8px;
   background: #ffffff;
   color: #24292f;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
 }
 .markdown-content [data-streamdown='code-block-header'] {
@@ -1372,7 +1372,7 @@ textarea:focus-visible {
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 0.93em;
+  font-size: 16px;
 }
 .markdown-content [data-streamdown='table-header-cell'],
 .markdown-content [data-streamdown='table-cell'] {
@@ -1393,7 +1393,7 @@ textarea:focus-visible {
 .assistant-content {
   max-width: 680px;
   color: #30302f;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.7;
 }
 .assistant-thinking {
@@ -1411,7 +1411,7 @@ textarea:focus-visible {
 .assistant-delivery-status {
   margin: 4px 0 8px;
   color: #8e3f35;
-  font-size: 13px;
+  font-size: 14px;
 }
 .assistant-failed {
   color: #8e3f35;
@@ -1465,7 +1465,7 @@ textarea:focus-visible {
   border-radius: 6px;
   color: var(--theme-text-muted);
   background: transparent;
-  font-size: 11px;
+  font-size: 12px;
 }
 .ai-context__trigger:hover,
 .ai-context__trigger:focus-visible,
@@ -1504,7 +1504,7 @@ textarea:focus-visible {
   align-items: center;
   justify-content: space-between;
   color: var(--theme-text-primary);
-  font-size: 13px;
+  font-size: 14px;
 }
 .ai-context__progress {
   height: 4px;
@@ -1597,7 +1597,7 @@ textarea:focus-visible {
   border-radius: 7px;
   color: inherit;
   background: transparent;
-  font-size: 13px;
+  font-size: 14px;
 }
 .pending-input-card__steer:hover,
 .pending-input-card__steer:focus-visible {
@@ -1606,7 +1606,7 @@ textarea:focus-visible {
 }
 .pending-input-card__status {
   padding: 0 8px;
-  font-size: 13px;
+  font-size: 14px;
   white-space: nowrap;
 }
 .pending-input-card__icon {
@@ -1669,7 +1669,7 @@ textarea:focus-visible {
   outline: 0;
   color: var(--theme-text-primary);
   background: transparent;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.55;
 }
 .composer-attachments {
@@ -1731,13 +1731,13 @@ textarea:focus-visible {
 }
 .composer-attachment-preview__details small {
   color: var(--theme-text-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .composer-attachment-preview__error {
   min-width: 0;
   overflow: hidden;
   color: var(--theme-danger, #b42318);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: normal;
@@ -1886,7 +1886,7 @@ textarea:focus-visible {
   border-radius: 7px;
   color: var(--theme-text-primary);
   background: transparent;
-  font-size: 13px;
+  font-size: 14px;
   text-align: left;
 }
 .composer-add-menu button:hover:not(:disabled),
@@ -1922,7 +1922,7 @@ textarea:focus-visible {
   margin: 0;
   padding: 18px 16px 20px;
   background: var(--theme-surface);
-  font-size: 13px;
+  font-size: 14px;
 }
 .composer:has(.composer-approval-overlay) {
   position: relative;
@@ -2059,7 +2059,7 @@ textarea:focus-visible {
 }
 .approval-item__summary strong {
   color: var(--theme-text-primary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 .approval-item__actions {
@@ -2206,7 +2206,7 @@ textarea:focus-visible {
   padding: 0 7px;
   border-radius: 5px;
   color: var(--theme-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 400;
   outline: 0;
   text-align: left;
@@ -2376,7 +2376,7 @@ textarea:focus-visible {
   border-bottom: 2px solid transparent;
   color: #8d8d89;
   background: transparent;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 650;
   transition:
     color 160ms ease,
@@ -2435,7 +2435,7 @@ textarea:focus-visible {
   padding: 0 6px 0 10px;
   border-bottom: 1px solid var(--theme-border);
   color: var(--theme-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2537,7 +2537,7 @@ textarea:focus-visible {
   gap: 7px;
   min-height: 31px;
   color: #999995;
-  font-size: 13px;
+  font-size: 14px;
 }
 .stage.is-done {
   color: #555;
@@ -2551,7 +2551,7 @@ textarea:focus-visible {
 }
 .stage small {
   color: #999995;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
 }
 .stage-dot {
@@ -2582,7 +2582,7 @@ textarea:focus-visible {
   border-radius: 999px;
   color: var(--theme-text-muted);
   background: var(--theme-surface);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .execution-timeline {
@@ -2642,7 +2642,7 @@ textarea:focus-visible {
 .tool-call-row small {
   margin-top: 3px;
   color: #92928e;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
 }
 .tool-call-status {
@@ -2687,19 +2687,19 @@ textarea:focus-visible {
 .execution-detail-heading h3 {
   margin: 4px 0 0;
   color: #292928;
-  font-size: 15px;
+  font-size: 16px;
 }
 .tool-name {
   color: #8b8b87;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: 12px;
 }
 .execution-status {
   padding: 4px 7px;
   border-radius: 999px;
   color: #555;
   background: #efefec;
-  font-size: 11px;
+  font-size: 12px;
   transition:
     color 180ms ease,
     background-color 180ms ease;
@@ -2716,7 +2716,7 @@ textarea:focus-visible {
 .execution-detail > p {
   margin: 13px 0;
   color: #62625e;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.55;
 }
 .execution-detail dl {
@@ -2730,7 +2730,7 @@ textarea:focus-visible {
 }
 .execution-detail dt {
   color: #92928e;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
@@ -2745,12 +2745,12 @@ textarea:focus-visible {
   flex-wrap: wrap;
   gap: 12px;
   color: #777773;
-  font-size: 11px;
+  font-size: 12px;
 }
 .execution-empty {
   padding: 28px 0;
   color: #999995;
-  font-size: 13px;
+  font-size: 14px;
   text-align: center;
 }
 .preview-switcher {
@@ -2799,7 +2799,7 @@ textarea:focus-visible {
   border-radius: 999px;
   color: var(--theme-text-secondary);
   background: var(--theme-surface);
-  font-size: 11px;
+  font-size: 12px;
   text-decoration: none;
 }
 .preview-chip:hover {
@@ -2821,7 +2821,7 @@ textarea:focus-visible {
 .section-label {
   margin-bottom: 10px;
   color: #888884;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2876,7 +2876,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 6px;
   color: #888884;
-  font-size: 11px;
+  font-size: 12px;
 }
 .source-item-top a {
   display: inline-flex;
@@ -2900,14 +2900,14 @@ textarea:focus-visible {
   overflow: hidden;
   margin: 0 0 9px;
   color: #666662;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.55;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
 .source-item small {
   color: #999995;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .candidate-meta {
@@ -2916,7 +2916,7 @@ textarea:focus-visible {
   gap: 5px 10px;
   margin-top: 10px;
   color: var(--theme-text-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .candidate-label {
@@ -2926,7 +2926,7 @@ textarea:focus-visible {
   border: 1px solid #d7d7d3;
   border-radius: 6px;
   color: var(--theme-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .candidate-passages {
@@ -2939,7 +2939,7 @@ textarea:focus-visible {
   width: fit-content;
   cursor: pointer;
   color: var(--theme-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .candidate-passages summary:focus-visible {
@@ -2993,7 +2993,7 @@ textarea:focus-visible {
 .report-sources h3 {
   margin: 0 0 9px;
   color: #333330;
-  font-size: 13px;
+  font-size: 14px;
 }
 .report-sources a {
   display: flex;
@@ -3186,7 +3186,7 @@ textarea:focus-visible {
   min-height: 62px;
 }
 .task-title__label {
-  font-size: 15px !important;
+  font-size: 16px !important;
   font-weight: 550;
 }
 .message-list--static {
@@ -3271,7 +3271,7 @@ textarea:focus-visible {
   place-items: center;
   border-radius: 4px;
   color: #fff;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1;
@@ -3311,7 +3311,7 @@ textarea:focus-visible {
 .file-card-icon--java {
   color: #1677ff;
   background: transparent;
-  font-size: 8px;
+  font-size: 10px;
 }
 .file-card-icon--js {
   color: #fab714;
@@ -3343,7 +3343,7 @@ textarea:focus-visible {
 .file-card-name {
   display: flex;
   max-width: 100%;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 .file-card-name__prefix {
@@ -3357,7 +3357,7 @@ textarea:focus-visible {
 }
 .user-attachment-document__details small {
   color: var(--theme-text-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .user-attachment-button:focus-visible,
 .composer-attachment-preview__open:focus-visible {
@@ -3546,7 +3546,7 @@ textarea:focus-visible {
 }
 .message-actions {
   min-height: 22px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .composer textarea {
   min-height: 72px;
@@ -3561,7 +3561,7 @@ textarea:focus-visible {
   padding: 17px 18px 13px;
 }
 .workspace-header h2 {
-  font-size: 15px;
+  font-size: 16px;
 }
 .workspace-tabs {
   min-height: 44px;

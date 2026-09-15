@@ -961,12 +961,12 @@ describe('ChatService session persistence', () => {
     });
   });
 
-  it('forces a tool-free final model round after the shared 20-call limit is reached', async () => {
+  it('forces a tool-free final model round after the shared 40-call limit is reached', async () => {
     // 模拟模型连续请求工具的轮次，用于验证跨轮共享的调用次数上限。
     let modelRound = 0;
     const providerCreate = vi.fn().mockImplementation(() => {
       modelRound += 1;
-      if (modelRound <= 20) {
+      if (modelRound <= 40) {
         const callId = `call-${modelRound}`;
         return Promise.resolve(
           (async function* () {
@@ -1023,15 +1023,15 @@ describe('ChatService session persistence', () => {
 
     await collect(service.streamPrepared(prepared));
 
-    expect(providerCreate).toHaveBeenCalledTimes(21);
+    expect(providerCreate).toHaveBeenCalledTimes(41);
     expect(providerCreate.mock.calls[0]?.[0]).toMatchObject({ tool_choice: 'auto' });
-    expect(providerCreate.mock.calls[20]?.[0]).not.toHaveProperty('tools');
-    expect(providerCreate.mock.calls[20]?.[0]).not.toHaveProperty('tool_choice');
-    expect(registry.execute).toHaveBeenCalledTimes(20);
+    expect(providerCreate.mock.calls[40]?.[0]).not.toHaveProperty('tools');
+    expect(providerCreate.mock.calls[40]?.[0]).not.toHaveProperty('tool_choice');
+    expect(registry.execute).toHaveBeenCalledTimes(40);
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
       data: {
         content: '已达到工具预算，基于现有资料回答。',
-        metadata: { agent: { toolCallCount: 20 } },
+        metadata: { agent: { toolCallCount: 40 } },
       },
     });
   });

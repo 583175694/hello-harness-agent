@@ -623,7 +623,10 @@ const AssistantMessage = memo(
               onFocusWorkbench={onFocusWorkbench}
             />
             {presentation.pendingText ? (
-              <div className="assistant-text-block assistant-text-block--pending" aria-live="polite">
+              <div
+                className="assistant-text-block assistant-text-block--pending"
+                aria-live="polite"
+              >
                 <MessageResponse isAnimating={isAnimating}>
                   {presentation.pendingText}
                 </MessageResponse>

@@ -38,12 +38,19 @@ function formatElapsed(ms: number): string {
 }
 
 function processTimeRange(process: AssistantProcessItem[]) {
-  const tools = process.filter((item): item is Extract<AssistantProcessItem, { kind: 'tool' }> => item.kind === 'tool');
-  const start = Math.min(...tools.map((item) => Date.parse(item.block.startedAt)).filter(Number.isFinite));
+  const tools = process.filter(
+    (item): item is Extract<AssistantProcessItem, { kind: 'tool' }> => item.kind === 'tool',
+  );
+  const start = Math.min(
+    ...tools.map((item) => Date.parse(item.block.startedAt)).filter(Number.isFinite),
+  );
   const completed = tools
     .map((item) => (item.block.completedAt ? Date.parse(item.block.completedAt) : NaN))
     .filter(Number.isFinite);
-  return { start: Number.isFinite(start) ? start : undefined, end: completed.length ? Math.max(...completed) : undefined };
+  return {
+    start: Number.isFinite(start) ? start : undefined,
+    end: completed.length ? Math.max(...completed) : undefined,
+  };
 }
 
 function stepStatus(
@@ -113,8 +120,8 @@ export function AgentChainOfThought({
           )?.title;
           const toolTitle =
             item.block.toolName === 'web_search'
-              ? workbenchTitle ??
-                (item.block.summary ? `搜索：${item.block.summary}` : item.block.title)
+              ? (workbenchTitle ??
+                (item.block.summary ? `搜索：${item.block.summary}` : item.block.title))
               : item.block.title;
           return (
             <button

@@ -402,7 +402,7 @@ Web Fetch V1 已实现静态网页批量获取、URL/DNS/redirect 安全校验�
 - URL/DNS/redirect/SSRF/MIME/二进制内容安全防护。
 - Readability、canonical Markdown、Document Quality Gate、Passage Ranker、Locator 与 LRU Cache。
 - 单次调用内的 URL 去重、部分成功语义和无控制含义的 `stats`。
-- Runtime 每个 assistant run 最多 20 次 Tool Call、模型单轮超时和最终回答协议校验。
+- Runtime 每个 assistant run 最多 40 次 Tool Call、模型单轮超时和最终回答协议校验。
 - Execution 完整记录，Projection 按 canonical URL/contentHash 归并 source 并派生 provenance。
 
 当前不新增 Tool observation 字符预算或注入状态。Tool Result 始终进入下一模型轮次；完整上下文的 Token 计量、选择、压缩和淘汰留给后续 Context Engineering。

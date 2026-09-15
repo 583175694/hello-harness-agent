@@ -323,7 +323,7 @@ model(tool_calls)
   -> model 继续决策或输出最终回答
 ```
 
-OpenAI-compatible 流中的函数名和 JSON arguments 都可能跨 chunk 返回，因此必须按 tool-call `index` 累加，等本轮结束后再解析，不能对单个 delta 直接 `JSON.parse`。同一模型响应含多个调用时按返回顺序串行执行，每个 assistant run 最多处理 20 次模型声明的 Tool Call，但不要求模型用满额度。
+OpenAI-compatible 流中的函数名和 JSON arguments 都可能跨 chunk 返回，因此必须按 tool-call `index` 累加，等本轮结束后再解析，不能对单个 delta 直接 `JSON.parse`。同一模型响应含多个调用时按返回顺序串行执行，每个 assistant run 最多处理 40 次模型声明的 Tool Call，但不要求模型用满额度。
 
 工具层拆成稳定的通用边界：
 
@@ -376,7 +376,7 @@ Passage 必须是 canonical Markdown 的连续直接子串，不由模型改写�
 
 进一步复盘发现，这只是把决策依赖从 `if (toolName)` 移进了通用契约。Tool 仍能决定何时停止，`WebResearchRunState` 实际上成了隐藏的领域 planner；如果每个新工具都增加自己的 run state 和控制意图，Runtime 最终会被多个领域策略共同驱动。再增加 Runtime Decision Policy 或 Web Research Policy，只会形成模型之外的第二套大脑。
 
-因此最终边界调整并实现为：模型是唯一语义规划者，Runtime 执行模型决策并维护 20 次 Tool Call、单操作超时、取消和协议安全等通用边界，Tool 只返回 canonical output、结构化错误和日志字段。Runtime 统一把 `output/error` 序列化为 Tool Message；`ToolRunState`、`WebResearchRunState`、Tool `modelContent`、Tool `forceFinalAnswer` 和 `disableTools` 已删除。SSRF、DNS、重定向、响应大小、正文提取、Passage 排序和 LRU 等能力内部约束继续留在 Fetch，因为它们属于安全与工程正确性，不属于任务决策。
+因此最终边界调整并实现为：模型是唯一语义规划者，Runtime 执行模型决策并维护 40 次 Tool Call、单操作超时、取消和协议安全等通用边界，Tool 只返回 canonical output、结构化错误和日志字段。Runtime 统一把 `output/error` 序列化为 Tool Message；`ToolRunState`、`WebResearchRunState`、Tool `modelContent`、Tool `forceFinalAnswer` 和 `disableTools` 已删除。SSRF、DNS、重定向、响应大小、正文提取、Passage 排序和 LRU 等能力内部约束继续留在 Fetch，因为它们属于安全与工程正确性，不属于任务决策。
 
 Tool Result 始终进入下一模型轮次；Context Engineering 面向完整模型上下文统一做 Token 计量、选择、压缩和淘汰，而不是让 Tool 决定模型能看到什么。
 
@@ -449,7 +449,7 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 
 复盘时采用了一个更严格的判断：Tool 是手脚，只应执行能力并返回结构化结果；模型是任务语义上的大脑；Runtime 是执行模型决策、传播事件并守住通用边界的编排器。若 Web Fetch 可以通过 `forceFinalAnswer` 结束工具阶段，或者通过 `WebResearchRunState` 决定“信息已无增益”，它就不再是纯 Tool，而拥有了一部分 planner 权力。
 
-最终批准的修正不是再增加一层 `RuntimeDecisionPolicy` 或 `WebResearchRuntimePolicy`，而是删除 `control`、`ToolRunState` 和 Web 跨调用规划状态。达到 20 次 Tool Call、单轮超时、取消或协议失败时，由 Runtime 确定性收敛；在这些边界之内，是否 Search、Fetch、重试、更换来源或回答，由模型下一轮输出决定。Web Fetch 继续确定性拒绝 SSRF、私网、非法重定向、超大响应和不支持内容，因为安全与资源隔离不能交给概率模型。URL provenance 改由 Projection 派生，只用于观测和来源归并，不再决定 Fetch 权限。
+最终批准的修正不是再增加一层 `RuntimeDecisionPolicy` 或 `WebResearchRuntimePolicy`，而是删除 `control`、`ToolRunState` 和 Web 跨调用规划状态。达到 40 次 Tool Call、单轮超时、取消或协议失败时，由 Runtime 确定性收敛；在这些边界之内，是否 Search、Fetch、重试、更换来源或回答，由模型下一轮输出决定。Web Fetch 继续确定性拒绝 SSRF、私网、非法重定向、超大响应和不支持内容，因为安全与资源隔离不能交给概率模型。URL provenance 改由 Projection 派生，只用于观测和来源归并，不再决定 Fetch 权限。
 
 这一修正接受模型可能重复读取来源或执行效率下降的代价。此类问题先由运行指标和人工检查观测，不再预置隐藏 planner；只有真实数据表明存在安全、成本或平台稳定性风险时，才增加工具无关、不可由模型覆盖的硬边界。
 
@@ -457,7 +457,7 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 
 当前运行使用 20 次通用 Tool Call 上限、单操作超时和用户取消传播来保证收敛；上游失败会进入结构化错误和脱敏日志。
 
-这里的设计取舍可以概括为：去掉会误伤正常复杂任务的全局时间限制，用单操作超时保证故障隔离，用 20 次 Tool Call 上限保证最终收敛，用无工具缓冲校验保证输出安全。
+这里的设计取舍可以概括为：去掉会误伤正常复杂任务的全局时间限制，用单操作超时保证故障隔离，用 40 次 Tool Call 上限保证最终收敛，用无工具缓冲校验保证输出安全。
 
 ### 12.6 历史结果与验证
 
@@ -827,7 +827,7 @@ C1-A 支持最多四个有序附件，并保留图片 detail、尺寸和模型�
 
 ### 问：Function Calling 是模型自己的 Agent Loop 吗？
 
-答：模型只决定“返回最终文本”还是“返回工具名称和参数”，真正的 Loop 由应用实现。后端聚合分片参数、校验、执行工具、把结果放回上下文，再请求下一轮模型。20 次 Tool Call 上限、超时、取消和安全校验都必须由应用强制。
+答：模型只决定“返回最终文本”还是“返回工具名称和参数”，真正的 Loop 由应用实现。后端聚合分片参数、校验、执行工具、把结果放回上下文，再请求下一轮模型。40 次 Tool Call 上限、超时、取消和安全校验都必须由应用强制。
 
 ### 问：为什么 Web Fetch 不直接把整个网页放进上下文？
 
@@ -835,7 +835,7 @@ C1-A 支持最多四个有序附件，并保留图片 detail、尺寸和模型�
 
 ### 问：为什么取消 Agent 总超时，不会导致工具无限调用？
 
-答：取消的是整个 run 的墙上时钟，不是取消所有边界。单次模型和 Tool 仍有独立超时，用户取消会立即传播；每个 assistant run 还有 20 次 Tool Call 上限。达到上限后，最终回答请求完全不发送工具定义，并在服务端缓冲校验。因此正常复杂任务不会被累计耗时误杀，异常循环也仍然确定收敛。历史版本中的 Web URL/Passage/无新增内容边界已经删除，不应再作为当前目标架构讲解。
+答：取消的是整个 run 的墙上时钟，不是取消所有边界。单次模型和 Tool 仍有独立超时，用户取消会立即传播；每个 assistant run 还有 40 次 Tool Call 上限。达到上限后，最终回答请求完全不发送工具定义，并在服务端缓冲校验。因此正常复杂任务不会被累计耗时误杀，异常循环也仍然确定收敛。历史版本中的 Web URL/Passage/无新增内容边界已经删除，不应再作为当前目标架构讲解。
 
 ### 问：DeepSeek V4 既然兼容 OpenAI API，为什么还需要专门的 Model Adapter 优化？
 

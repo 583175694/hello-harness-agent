@@ -155,10 +155,10 @@ EvidenceSource       can be cited as [Sx]
 - valid downstream action dispatched
 - waiting_for_user
 - runtime cancel/timeout
-- 20 次 Tool Call 上限或其他通用执行边界触发
+- 40 次 Tool Call 上限或其他通用执行边界触发
 - unrecoverable validation/model failure
 
-当前普通 Agent 是否继续调查或回答由模型决定；Runtime 只在取消、单次超时、协议失败或 20 次 Tool Call 上限时确定性改变流程。未来 durable workflow 的完成协议尚未冻结。
+当前普通 Agent 是否继续调查或回答由模型决定；Runtime 只在取消、单次超时、协议失败或 40 次 Tool Call 上限时确定性改变流程。未来 durable workflow 的完成协议尚未冻结。
 
 ## 13. Streaming
 

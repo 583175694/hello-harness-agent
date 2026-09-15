@@ -40,7 +40,7 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 - `steer`，从下一安全 step 生效
 - `cancel`
 - 主搜索供应商和 fallback 搜索供应商
-- 每个 assistant run 最多 20 次 Tool Call、Search/Fetch 单次能力边界，以及模型和工具各自独立的单操作超时与取消传播
+- 每个 assistant run 最多 40 次 Tool Call、Search/Fetch 单次能力边界，以及模型和工具各自独立的单操作超时与取消传播
 - 搜索摘要 Clue、已读取 Source 和最终采用 Source 的轻量区分
 - 正文可用性判断、单次调用内去重和模型主导的调查停止决策
 - query-aware 原文 Passage 筛选，外部内容不能改变 Agent 指令和执行边界

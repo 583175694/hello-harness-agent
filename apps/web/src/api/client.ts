@@ -14,6 +14,7 @@ import {
   updateSessionResponseSchema,
   fileRefSchema,
   artifactRefSchema,
+  reportRefSchema,
 } from '@harness/agent-protocol';
 import type {
   CancelRunResponse,
@@ -33,6 +34,7 @@ import type {
   PublicAgentConfig,
   FileRef,
   ArtifactRef,
+  ReportRef,
 } from '@harness/agent-protocol';
 import { publicAgentConfigSchema } from '@harness/agent-protocol';
 
@@ -44,10 +46,7 @@ export type ToolStreamEvent = Extract<
 >;
 // 文本增量单独导出，保证 Conversation Block 更新时保留稳定的 Round/Block 位置信息。
 export type MessageDeltaEvent = Extract<RunPayload, { type: 'message.delta' }>;
-export type MessagePhaseCompletedEvent = Extract<
-  RunPayload,
-  { type: 'message.phase.completed' }
->;
+export type MessagePhaseCompletedEvent = Extract<RunPayload, { type: 'message.phase.completed' }>;
 export type MessageDiscardedEvent = Extract<RunPayload, { type: 'message.discarded' }>;
 export type ReasoningDeltaEvent = Extract<RunPayload, { type: 'reasoning.delta' }>;
 export type ModelRoundCompletedEvent = Extract<RunPayload, { type: 'model.round.completed' }>;
@@ -209,11 +208,42 @@ export async function getArtifact(artifactId: string, signal?: AbortSignal): Pro
   return artifactRefSchema.parse(await parseResponse(response));
 }
 
+export async function getReport(
+  reportId: string,
+  signal?: AbortSignal,
+): Promise<{ report: ReportRef; artifact: ArtifactRef; file: FileRef }> {
+  const response = await fetch(
+    `${apiBaseUrl}/api/agent/artifacts/reports/${encodeURIComponent(reportId)}`,
+    { signal },
+  );
+  const data = (await parseResponse(response)) as {
+    report: unknown;
+    artifact: unknown;
+    file: unknown;
+  };
+  return {
+    report: reportRefSchema.parse(data.report),
+    artifact: artifactRefSchema.parse(data.artifact),
+    file: fileRefSchema.parse(data.file),
+  };
+}
+
+export async function deleteReport(reportId: string): Promise<{ deletedReportId: string }> {
+  const response = await fetch(
+    `${apiBaseUrl}/api/agent/artifacts/reports/${encodeURIComponent(reportId)}`,
+    { method: 'DELETE' },
+  );
+  const data = (await parseResponse(response)) as { deletedReportId?: unknown };
+  return { deletedReportId: String(data.deletedReportId) };
+}
+
 export async function getArtifactPreview(
   artifactId: string,
   signal?: AbortSignal,
 ): Promise<{ artifactId: string; content: string; contentType: string }> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}/preview`, { signal });
+  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}/preview`, {
+    signal,
+  });
   const content = await response.text();
   if (!response.ok) throw new Error(content || '文件预览不可用。');
   return {
@@ -244,7 +274,9 @@ export function downloadArtifact(artifactId: string): void {
 export async function deleteArtifact(
   artifactId: string,
 ): Promise<{ deletedArtifactId: string; deletedFileId: string }> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}`, { method: 'DELETE' });
+  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}`, {
+    method: 'DELETE',
+  });
   const data = await parseResponse(response);
   return {
     deletedArtifactId: String((data as { deletedArtifactId?: unknown }).deletedArtifactId),

@@ -6,7 +6,7 @@
 
 ## 1. 当前结论
 
-项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 20 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
+项目已经完成工程基线、持久化普通对话、General Web Research V1 和 Model-led Tool Boundary。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除 25 个跨调用唯一 URL、60,000 字符累计 Passage、连续无新增内容早停和 URL allowlist。
 
 当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics 和 C1 File & Multimodal Foundation 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
@@ -140,7 +140,7 @@ Workbench 的 Context Tab 只保留当前 Run 最后一轮快照，Run 结束和
 - C1 Composer 附件交互已完成：支持多附件有序管理、图片剪贴板粘贴、长文本粘贴自动外置为 TXT、失败重试、取消/移除、Office/PDF/TXT 等文件预览和无障碍附件操作。
 - Workbench 已增加当前 Run 的 Context 调试视图；Run 结束及刷新后保留最后一轮快照，JSON 分离展示模型输入 `messages` 与本轮输出 `response`，并支持主题色、长内容换行和复制。
 - 评估体系已从当前工作区移除；普通 unit、integration、E2E 与 `agent-testkit` 工程回归能力保留。
-- 已实现每个 assistant run 最多 20 次 Tool Call 的模型-工具循环，支持分片 arguments 聚合、参数校验、串行执行、错误回传和达到调用上限后的无工具最终回答。
+- 已实现每个 assistant run 最多 40 次 Tool Call 的模型-工具循环，支持分片 arguments 聚合、参数校验、串行执行、错误回传和达到调用上限后的无工具最终回答。
 - 模型调用已通过 `ModelAdapter` 与 OpenAI SDK 隔离；`AgentRuntimeService` 只依赖 canonical message、模型事件和工具契约。
 - 工具层已拆为 `AgentTool`、集中式 Tool Catalog 和通用 Registry；新增工具不再需要把业务逻辑写入 Registry。
 - Chat 链路已拆出 Runtime、搜索投影、assistant 交付仓库、标题服务和 SSE Writer，`ChatService` 只保留会话准备与兼容事件编排。
@@ -149,7 +149,7 @@ Workbench 的 Context Tab 只保留当前 Run 最后一轮快照，Run 结束和
 - 模型同时可以调用 `web_fetch({urls, query?})`，每次读取 1-5 个公开静态网页；批量结果支持逐项 `succeeded/failed/skipped` 的部分成功语义和无控制含义的单次 `stats`。
 - Runtime 不创建或传递领域 run state；Tool 上下文只包含 session/message/tool-call 标识和组合取消信号。
 - Search 与 Fetch 在可用时同时暴露；模型可以 Fetch 任意通过安全 Guard 的公开 URL，Projection 将来源派生为 `user_provided/search_clue/model_proposed/unknown`。
-- 每个 assistant run 最多执行 20 次 Tool Call。普通模型单轮最多 120 秒，最终回答单轮最多 30 秒，Search 外层 Tool timeout 为 10 秒，Fetch 整批外层 Tool timeout 为 45 秒，Fetch 单 URL transport timeout 为 20 秒。
+- 每个 assistant run 最多执行 40 次 Tool Call。普通模型单轮最多 120 秒，最终回答单轮最多 30 秒，Search 外层 Tool timeout 为 10 秒，Fetch 整批外层 Tool timeout 为 45 秒，Fetch 单 URL transport timeout 为 20 秒。
 - `DocumentQualityGate` 在写入 LRU 和 Passage Ranking 前拒绝过短正文、登录/付费墙/验证码、JavaScript 空壳和高度重复模板；query 无相关 Passage 返回稳定错误。
 - Web Fetch 使用无持久化 Crawlee `HttpCrawler`、最小 URL/DNS/逐跳重定向安全校验、5 MiB 流式响应上限、20 秒超时和一次有限重试；不携带 Cookie、Authorization、代理或用户 Header。
 - HTML 通过 JSDOM、Mozilla Readability、Turndown + GFM 转换为 canonical Markdown；字符 n-gram Ranker 只返回连续抽取式原文，Locator 同时保存 quote、Unicode code-point position 和 sectionPath。
@@ -365,9 +365,9 @@ git diff --check
 - [x] 用户直链 Fetch Prompt、普通模型单轮 120 秒超时、最终回答单轮 30 秒超时和用户 Abort 分离；Agent run 无总截止时间。
 - [x] Workbench 展示本次成功/失败/跳过、网络请求、相关 Passage 和采用/已读/线索数量。
 - [ ] 公网/多用户部署前的连接 IP pinning、网络出口隔离和完整 DNS rebinding 防护仍属后续安全加固。
-- [x] Model-led Tool Boundary：已删除 Tool 控制意图、`modelContent`、Web 跨调用规划状态和 URL allowlist；Runtime 统一序列化 `output/error`，保留 20 次 Tool Call、Tool 外层超时及 Fetch 能力安全，由 Projection 派生 provenance 和 canonical source。
+- [x] Model-led Tool Boundary：已删除 Tool 控制意图、`modelContent`、Web 跨调用规划状态和 URL allowlist；Runtime 统一序列化 `output/error`，保留 40 次 Tool Call、Tool 外层超时及 Fetch 能力安全，由 Projection 派生 provenance 和 canonical source。
 
-Model-led 迁移的完成标准已经满足：对需要联网的普通用户问题，Agent 能自主找到并读取公开静态网页，由模型根据 Tool Result 决定继续、换源或回答；Tool 失败不会自动终止 Runtime，达到 20 次 Tool Call 后能够基于已有材料平稳收尾。Fetch 继续过滤非法、无效和低质量内容，Execution 完整保留，Workbench 的重复来源由 Projection 归并。
+Model-led 迁移的完成标准已经满足：对需要联网的普通用户问题，Agent 能自主找到并读取公开静态网页，由模型根据 Tool Result 决定继续、换源或回答；Tool 失败不会自动终止 Runtime，达到 40 次 Tool Call 后能够基于已有材料平稳收尾。Fetch 继续过滤非法、无效和低质量内容，Execution 完整保留，Workbench 的重复来源由 Projection 归并。
 
 ### Runtime 工具名称中立化（历史步骤，Model-led 迁移已完成）
 

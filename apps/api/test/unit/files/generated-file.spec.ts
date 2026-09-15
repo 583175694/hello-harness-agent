@@ -28,17 +28,31 @@ function createService() {
     putNormalized: vi.fn().mockResolvedValue({ objectKey: 'normalized' }),
     deleteFile: vi.fn(),
   };
-  const service = new FilesService(prisma as never, {} as never, storage as never, { log: vi.fn(), warn: vi.fn(), error: vi.fn() } as never);
+  const service = new FilesService(
+    prisma as never,
+    {} as never,
+    storage as never,
+    { log: vi.fn(), warn: vi.fn(), error: vi.fn() } as never,
+  );
   return { service, prisma, storage };
 }
 
 describe('FilesService generated files', () => {
   it('accepts ordinary names containing u/0 and stores formatted JSON separately from the source', async () => {
     const { service, storage } = createService();
-    await service.createGenerated({ sessionId: 'session-1', fileId: 'file-1', fileName: 'summary0.json', content: '{"a":1}' });
+    await service.createGenerated({
+      sessionId: 'session-1',
+      fileId: 'file-1',
+      fileName: 'summary0.json',
+      content: '{"a":1}',
+    });
 
-    expect(storage.putOriginal).toHaveBeenCalledWith(expect.objectContaining({ content: Buffer.from('{"a":1}') }));
-    expect(storage.putNormalized).toHaveBeenCalledWith(expect.objectContaining({ content: Buffer.from('{\n  "a": 1\n}') }));
+    expect(storage.putOriginal).toHaveBeenCalledWith(
+      expect.objectContaining({ content: Buffer.from('{"a":1}') }),
+    );
+    expect(storage.putNormalized).toHaveBeenCalledWith(
+      expect.objectContaining({ content: Buffer.from('{\n  "a": 1\n}') }),
+    );
   });
 
   it('removes an unassociated File and schedules cleanup when partial storage cleanup fails', async () => {
@@ -46,9 +60,17 @@ describe('FilesService generated files', () => {
     storage.putNormalized.mockRejectedValue(new Error('write failed'));
     storage.deleteFile.mockRejectedValue(new Error('delete failed'));
 
-    await expect(service.createGenerated({ sessionId: 'session-1', fileId: 'file-1', fileName: 'a.txt', content: 'a' }))
-      .rejects.toMatchObject({ response: { code: 'FILE_STORAGE_FAILED' } });
+    await expect(
+      service.createGenerated({
+        sessionId: 'session-1',
+        fileId: 'file-1',
+        fileName: 'a.txt',
+        content: 'a',
+      }),
+    ).rejects.toMatchObject({ response: { code: 'FILE_STORAGE_FAILED' } });
     expect(prisma.fileCleanupTask.upsert).toHaveBeenCalled();
-    expect(prisma.file.deleteMany).toHaveBeenCalledWith({ where: { id: 'file-1', origin: 'agent_generated' } });
+    expect(prisma.file.deleteMany).toHaveBeenCalledWith({
+      where: { id: 'file-1', origin: 'agent_generated' },
+    });
   });
 });

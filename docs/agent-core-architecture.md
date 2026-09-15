@@ -153,7 +153,7 @@ Runtime 负责：
 - run/step lifecycle
 - safe-step scheduling
 - canonical action dispatch
-- 每个 assistant run 最多 20 次 Tool Call 和模型单轮超时
+- 每个 assistant run 最多 40 次 Tool Call 和模型单轮超时
 - steer inbox
 - cancel propagation
 - terminal handling

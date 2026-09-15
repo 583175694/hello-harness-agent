@@ -199,7 +199,6 @@
   background: #202020;
 }
 
-
 :root[data-theme='dark'] .resource-workspace .execution-detail,
 :root[data-theme='dark'] .resource-workspace .source-item {
   border-color: #363636;

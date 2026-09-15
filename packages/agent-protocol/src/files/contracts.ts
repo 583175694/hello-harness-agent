@@ -72,24 +72,49 @@ export const createFileInputSchema = z
   .object({ fileName: z.string().trim().min(1).max(255), content: z.string().min(1) })
   .strict()
   .superRefine((value, context) => {
-    if (/[\\/]/u.test(value.fileName) || value.fileName.includes(String.fromCharCode(0)) || value.fileName === '.' || value.fileName === '..') {
-      context.addIssue({ code: z.ZodIssueCode.custom, path: ['fileName'], message: 'invalid file name' });
+    if (
+      /[\\/]/u.test(value.fileName) ||
+      value.fileName.includes(String.fromCharCode(0)) ||
+      value.fileName === '.' ||
+      value.fileName === '..'
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fileName'],
+        message: 'invalid file name',
+      });
       return;
     }
     if (!/\.(?:md|markdown|txt|json)$/iu.test(value.fileName)) {
-      context.addIssue({ code: z.ZodIssueCode.custom, path: ['fileName'], message: 'unsupported file extension' });
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fileName'],
+        message: 'unsupported file extension',
+      });
     }
     if ([...value.content].length > 40_000) {
-      context.addIssue({ code: z.ZodIssueCode.custom, path: ['content'], message: 'content exceeds code point limit' });
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['content'],
+        message: 'content exceeds code point limit',
+      });
     }
     if (new TextEncoder().encode(value.content).byteLength > 10 * 1024 * 1024) {
-      context.addIssue({ code: z.ZodIssueCode.custom, path: ['content'], message: 'content exceeds byte limit' });
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['content'],
+        message: 'content exceeds byte limit',
+      });
     }
     if (/\.json$/iu.test(value.fileName)) {
       try {
         JSON.parse(value.content);
       } catch {
-        context.addIssue({ code: z.ZodIssueCode.custom, path: ['content'], message: 'invalid JSON content' });
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['content'],
+          message: 'invalid JSON content',
+        });
       }
     }
   });
@@ -101,7 +126,10 @@ export const createFileInputSummarySchema = z
     contentByteCount: z.number().int().nonnegative(),
   })
   .strict();
-export const createFileResultSchema = z.object({ artifact: artifactRefSchema, file: fileRefSchema });
+export const createFileResultSchema = z.object({
+  artifact: artifactRefSchema,
+  file: fileRefSchema,
+});
 
 // 文件搜索工具的输入约束。
 export const fileSearchInputSchema = z
@@ -172,6 +200,71 @@ export type ArtifactRef = z.infer<typeof artifactRefSchema>;
 export type CreateFileInput = z.infer<typeof createFileInputSchema>;
 export type CreateFileInputSummary = z.infer<typeof createFileInputSummarySchema>;
 export type CreateFileResult = z.infer<typeof createFileResultSchema>;
+
+export const reportStatusSchema = z.enum(['ready', 'deleted']);
+export const reportRefSchema = z.object({
+  reportId: z.string().min(1),
+  artifactId: z.string().min(1),
+  runId: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  sourceIds: z.array(z.string().min(1)),
+  fileIds: z.array(z.string().min(1)),
+  status: reportStatusSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export const createReportInputSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200),
+    summary: z.string().trim().min(1).max(1000),
+    fileName: z.string().trim().min(1).max(255),
+    content: z.string().min(1),
+    sourceIds: z.array(z.string().min(1)).max(50).optional(),
+    fileIds: z.array(z.string().min(1)).max(50).optional(),
+  })
+  .strict()
+  .superRefine((v, c) => {
+    if (!/^[^\\/\0]+\.md$/iu.test(v.fileName) || v.fileName === '.' || v.fileName === '..')
+      c.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fileName'],
+        message: 'invalid markdown file name',
+      });
+    if ([...v.content].length > 40_000)
+      c.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['content'],
+        message: 'content exceeds code point limit',
+      });
+    if (/<\/?(?:script|iframe|object|embed|style)\b|data:text\/html|javascript:/iu.test(v.content))
+      c.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['content'],
+        message: 'unsafe markdown content',
+      });
+    for (const key of ['sourceIds', 'fileIds'] as const)
+      if (new Set(v[key] ?? []).size !== (v[key] ?? []).length)
+        c.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: 'duplicate ids' });
+  });
+export const createReportResultSchema = z.object({
+  report: reportRefSchema,
+  artifact: artifactRefSchema,
+  file: fileRefSchema,
+});
+export const createReportInputSummarySchema = z.object({
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  fileName: z.string().min(1),
+  sourceIds: z.array(z.string()).optional(),
+  fileIds: z.array(z.string()).optional(),
+  contentCharacterCount: z.number().int().nonnegative(),
+  contentByteCount: z.number().int().nonnegative(),
+});
+export type ReportRef = z.infer<typeof reportRefSchema>;
+export type CreateReportInput = z.infer<typeof createReportInputSchema>;
+export type CreateReportResult = z.infer<typeof createReportResultSchema>;
+export type CreateReportInputSummary = z.infer<typeof createReportInputSummarySchema>;
 export type FileSearchInput = z.infer<typeof fileSearchInputSchema>;
 export type FileSearchResult = z.infer<typeof fileSearchResultSchema>;
 export type FileReadLinesInput = z.infer<typeof fileReadLinesInputSchema>;

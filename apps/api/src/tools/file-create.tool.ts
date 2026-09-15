@@ -49,7 +49,11 @@ export class FileCreateTool implements AgentTool<CreateFileInput, CreateFileResu
     if (!context.runId) {
       return {
         status: 'failed',
-        error: { code: AGENT_ERROR_CODES.toolUnavailable, detail: '生成文件缺少运行上下文。', retryable: false },
+        error: {
+          code: AGENT_ERROR_CODES.toolUnavailable,
+          detail: '生成文件缺少运行上下文。',
+          retryable: false,
+        },
       };
     }
     try {
@@ -73,7 +77,12 @@ export class FileCreateTool implements AgentTool<CreateFileInput, CreateFileResu
       const detail = this.responseField(response, 'detail') ?? '生成文件失败。';
       return {
         status: 'failed',
-        error: { code, detail, retryable: code === AGENT_ERROR_CODES.artifactStorageFailed, cause: error },
+        error: {
+          code,
+          detail,
+          retryable: code === AGENT_ERROR_CODES.artifactStorageFailed,
+          cause: error,
+        },
       };
     }
   }
@@ -81,8 +90,6 @@ export class FileCreateTool implements AgentTool<CreateFileInput, CreateFileResu
   private responseField(response: unknown, field: 'code' | 'detail'): string | undefined {
     if (typeof response !== 'object' || response === null) return undefined;
     const value = (response as Record<string, unknown>)[field];
-    return typeof value === 'string'
-      ? value
-      : undefined;
+    return typeof value === 'string' ? value : undefined;
   }
 }

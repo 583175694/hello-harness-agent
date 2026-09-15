@@ -229,7 +229,7 @@ type ToolExecutionResult<TOutput> =
     };
 ```
 
-`web_search` 和 `web_fetch` 使用同一 execution envelope，但分别返回自己的 canonical output。Runtime 统一把成功结果序列化为 `{ ok: true, untrustedToolData: true, output }`，把失败序列化为 `{ ok: false, error }`。诊断专用 `cause` 和 `logFields` 只进入脱敏日志，不进入模型上下文、SSE 或数据库；是否继续、重试、换来源或回答由模型决定。Runtime 只在用户取消、Tool 外层超时、协议错误和 20 次 Tool Call 上限等通用边界下确定性改变流程。
+`web_search` 和 `web_fetch` 使用同一 execution envelope，但分别返回自己的 canonical output。Runtime 统一把成功结果序列化为 `{ ok: true, untrustedToolData: true, output }`，把失败序列化为 `{ ok: false, error }`。诊断专用 `cause` 和 `logFields` 只进入脱敏日志，不进入模型上下文、SSE 或数据库；是否继续、重试、换来源或回答由模型决定。Runtime 只在用户取消、Tool 外层超时、协议错误和 40 次 Tool Call 上限等通用边界下确定性改变流程。
 
 ## 12. Tool Result 交付
 
@@ -253,7 +253,7 @@ ToolExecutionResult
 
 当前实现只保留：
 
-- Runtime 每个 assistant run 最多 20 次模型声明的 Tool Call。
+- Runtime 每个 assistant run 最多 40 次模型声明的 Tool Call。
 - 模型单轮超时、Tool 声明的外层执行超时和用户取消。
 - Tool 单次输入数量、Provider 单请求、有限 transport retry、响应大小和并发等能力内部边界。
 - Web Fetch 的 SSRF、DNS、重定向、MIME、正文大小和缓存容量等安全与工程边界。

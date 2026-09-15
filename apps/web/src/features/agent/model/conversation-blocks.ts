@@ -8,10 +8,7 @@ import type {
 import type { ToolStreamEvent } from '../../../api/client';
 
 type MessageDeltaEvent = Extract<ChatStreamEvent, { type: 'message.delta' }>;
-type MessagePhaseCompletedEvent = Extract<
-  ChatStreamEvent,
-  { type: 'message.phase.completed' }
->;
+type MessagePhaseCompletedEvent = Extract<ChatStreamEvent, { type: 'message.phase.completed' }>;
 type MessageDiscardedEvent = Extract<ChatStreamEvent, { type: 'message.discarded' }>;
 
 function compareBlockOrder(left: AssistantContentBlock, right: AssistantContentBlock): number {
@@ -66,10 +63,10 @@ export function appendTextDelta(
       ...(event.phase === 'pending'
         ? { phase: 'pending' as const }
         : event.phase === 'commentary'
-        ? { phase: 'process' as const }
-        : event.phase === 'final_answer'
-          ? { phase: 'final' as const }
-          : {}),
+          ? { phase: 'process' as const }
+          : event.phase === 'final_answer'
+            ? { phase: 'final' as const }
+            : {}),
     });
   }
   return orderAssistantBlocks(
@@ -177,7 +174,9 @@ export function applyToolActivityEvent(
                   ? `${event.input.fileId} · ${event.input.startLine}-${event.input.endLine} 行`
                   : event.toolName === 'create_file'
                     ? event.input.fileName
-                    : event.input.query,
+                    : event.toolName === 'create_report'
+                      ? `生成报告：${event.input.title}`
+                      : event.input.query,
       startedAt: event.startedAt,
     });
   }
@@ -194,7 +193,12 @@ export function applyToolActivityEvent(
           }
         : block,
     );
-    if (updated.some((block) => block.type === 'artifact' && block.artifactId === event.result.artifact.artifactId))
+    if (
+      updated.some(
+        (block) =>
+          block.type === 'artifact' && block.artifactId === event.result.artifact.artifactId,
+      )
+    )
       return orderAssistantBlocks(updated);
     return insertOrdered(updated, {
       id: event.blockId.replace(/tool-/u, 'artifact-'),
@@ -220,16 +224,18 @@ export function applyToolActivityEvent(
           event.toolName === 'web_search'
             ? block.summary
             : event.toolName === 'web_fetch'
-            ? `成功 ${succeeded.length} 个，失败 ${event.result.results.length - succeeded.length} 个，提取 ${passageCount} 段原文`
-            : event.toolName === 'approval_test'
-              ? '审批测试已完成'
-              : event.toolName === 'get_current_time'
-                ? '当前时间已获取'
-                : event.toolName === 'search_file'
-                  ? `找到 ${event.result.matches.length} 个文件命中`
-                  : event.toolName === 'read_file_lines'
-                    ? `读取 ${event.result.lines.length} 行文件内容`
-                    : block.summary,
+              ? `成功 ${succeeded.length} 个，失败 ${event.result.results.length - succeeded.length} 个，提取 ${passageCount} 段原文`
+              : event.toolName === 'approval_test'
+                ? '审批测试已完成'
+                : event.toolName === 'get_current_time'
+                  ? '当前时间已获取'
+                  : event.toolName === 'search_file'
+                    ? `找到 ${event.result.matches.length} 个文件命中`
+                    : event.toolName === 'read_file_lines'
+                      ? `读取 ${event.result.lines.length} 行文件内容`
+                      : event.toolName === 'create_report'
+                        ? `生成报告：${event.result.report.title}`
+                        : block.summary,
         completedAt: event.completedAt,
         durationMs: event.durationMs,
       };

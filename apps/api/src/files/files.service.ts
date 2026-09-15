@@ -101,7 +101,8 @@ export class FilesService implements OnModuleInit {
     const session = await this.prisma.session.findFirst({
       where: { id: input.sessionId, userId: LOCAL_USER_ID },
     });
-    if (!session) throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
+    if (!session)
+      throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
     const prepared = this.prepareGenerated(input.fileName, input.content);
     const fileId = input.fileId ?? crypto.randomUUID();
     const now = new Date();
@@ -169,7 +170,10 @@ export class FilesService implements OnModuleInit {
             lastError: describeLogError(cleanupError).slice(0, 500),
           },
         });
-        this.logger.warn(`生成文件对象清理失败 | 文件=${shortLogId(fileId)} | 原因=${describeLogError(cleanupError)}`, FilesService.name);
+        this.logger.warn(
+          `生成文件对象清理失败 | 文件=${shortLogId(fileId)} | 原因=${describeLogError(cleanupError)}`,
+          FilesService.name,
+        );
       }
       // 未建立 Artifact 的失败 File 不对用户暴露；清理任务不依赖 File 记录存在。
       await this.prisma.file.deleteMany({ where: { id: fileId, origin: 'agent_generated' } });
@@ -177,7 +181,10 @@ export class FilesService implements OnModuleInit {
         `生成文件保存失败 | 文件=${shortLogId(fileId)} | 会话=${shortLogId(input.sessionId)} | 错误码=${AGENT_ERROR_CODES.fileStorageFailed} | 原因=${describeLogError(error)}`,
         FilesService.name,
       );
-      throw new BadRequestException({ code: AGENT_ERROR_CODES.fileStorageFailed, detail: '生成文件保存失败，请稍后重试。' });
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileStorageFailed,
+        detail: '生成文件保存失败，请稍后重试。',
+      });
     }
   }
 
@@ -185,9 +192,15 @@ export class FilesService implements OnModuleInit {
   private prepareGenerated(fileName: string, content: string) {
     const normalizedName = fileName.trim();
     if (!/^[^/\\\0]+$/u.test(normalizedName) || normalizedName === '.' || normalizedName === '..')
-      throw new BadRequestException({ code: AGENT_ERROR_CODES.generatedFileNameInvalid, detail: '生成文件名无效。' });
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.generatedFileNameInvalid,
+        detail: '生成文件名无效。',
+      });
     if ([...content].length === 0)
-      throw new BadRequestException({ code: AGENT_ERROR_CODES.generatedFileEmpty, detail: '生成文件内容不能为空。' });
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.generatedFileEmpty,
+        detail: '生成文件内容不能为空。',
+      });
     const ext = normalizedName.toLowerCase().split('.').pop() ?? '';
     const kinds = {
       txt: ['text', 'text/plain'],
@@ -197,19 +210,37 @@ export class FilesService implements OnModuleInit {
     } as const;
     const kind = kinds[ext as keyof typeof kinds];
     if (!kind)
-      throw new BadRequestException({ code: AGENT_ERROR_CODES.generatedFileTypeUnsupported, detail: '仅支持 TXT、Markdown 和 JSON 生成文件。' });
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.generatedFileTypeUnsupported,
+        detail: '仅支持 TXT、Markdown 和 JSON 生成文件。',
+      });
     const buffer = Buffer.from(content, 'utf8');
-    if (buffer.length > AGENT_PROTOCOL_LIMITS.generatedFileMaxBytes || [...content].length > AGENT_PROTOCOL_LIMITS.generatedFileMaxCodePoints)
-      throw new BadRequestException({ code: AGENT_ERROR_CODES.generatedFileTooLarge, detail: '生成文件超过当前版本的大小限制。' });
+    if (
+      buffer.length > AGENT_PROTOCOL_LIMITS.generatedFileMaxBytes ||
+      [...content].length > AGENT_PROTOCOL_LIMITS.generatedFileMaxCodePoints
+    )
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.generatedFileTooLarge,
+        detail: '生成文件超过当前版本的大小限制。',
+      });
     let normalized = content;
     if (ext === 'json') {
       try {
         normalized = JSON.stringify(JSON.parse(content), null, 2);
       } catch {
-        throw new BadRequestException({ code: AGENT_ERROR_CODES.generatedJsonInvalid, detail: '生成的 JSON 格式无效。' });
+        throw new BadRequestException({
+          code: AGENT_ERROR_CODES.generatedJsonInvalid,
+          detail: '生成的 JSON 格式无效。',
+        });
       }
     }
-    return { fileName: normalizedName, fileKind: kind[0] as 'text' | 'markdown' | 'json', mediaType: kind[1], buffer, normalized };
+    return {
+      fileName: normalizedName,
+      fileKind: kind[0] as 'text' | 'markdown' | 'json',
+      mediaType: kind[1],
+      buffer,
+      normalized,
+    };
   }
 
   // B.1 的 ready 文件没有 normalized_key；升级后从仍保留的原文件重建 COS 正文。
@@ -725,8 +756,19 @@ export class FilesService implements OnModuleInit {
     } catch (error) {
       await this.prisma.fileCleanupTask.upsert({
         where: { sessionId_fileId: { sessionId: file.sessionId, fileId: file.id } },
-        create: { id: crypto.randomUUID(), sessionId: file.sessionId, fileId: file.id, status: 'failed', attempts: 1, lastError: describeLogError(error).slice(0, 500) },
-        update: { status: 'failed', attempts: { increment: 1 }, lastError: describeLogError(error).slice(0, 500) },
+        create: {
+          id: crypto.randomUUID(),
+          sessionId: file.sessionId,
+          fileId: file.id,
+          status: 'failed',
+          attempts: 1,
+          lastError: describeLogError(error).slice(0, 500),
+        },
+        update: {
+          status: 'failed',
+          attempts: { increment: 1 },
+          lastError: describeLogError(error).slice(0, 500),
+        },
       });
       throw error;
     }
@@ -764,7 +806,10 @@ export class FilesService implements OnModuleInit {
     const file = await this.prisma.file.findFirst({ where: { id: fileId, userId: LOCAL_USER_ID } });
     if (!file) throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件不存在。' });
     if (file.errorCode === AGENT_ERROR_CODES.artifactDeleted)
-      throw new BadRequestException({ code: AGENT_ERROR_CODES.artifactDeleted, detail: '产物已删除。' });
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.artifactDeleted,
+        detail: '产物已删除。',
+      });
     return file;
   }
   // 只有 ready 且存在原始对象的文件才能被读取。
@@ -829,7 +874,8 @@ export class FilesService implements OnModuleInit {
       fileId: file.id,
       fileName: file.fileName,
       mediaType: file.mediaType,
-      fileKind: file.fileKind as 'image' | 'text' | 'markdown' | 'csv' | 'json' | 'pdf' | 'docx' | 'xlsx' | 'pptx',
+      fileKind: file.fileKind as
+        'image' | 'text' | 'markdown' | 'csv' | 'json' | 'pdf' | 'docx' | 'xlsx' | 'pptx',
       size: file.size,
       ...(file.width ? { width: file.width } : {}),
       ...(file.height ? { height: file.height } : {}),
@@ -839,7 +885,7 @@ export class FilesService implements OnModuleInit {
       ...(file.pageCount != null ? { pageCount: file.pageCount } : {}),
       ...(file.characterCount != null ? { characterCount: file.characterCount } : {}),
       origin: file.origin ?? 'user_uploaded',
-      ...(overrides.artifactId ?? file.artifactId
+      ...((overrides.artifactId ?? file.artifactId)
         ? { artifactId: overrides.artifactId ?? file.artifactId }
         : {}),
       ...(includePreview && file.status === 'ready'

@@ -8,6 +8,15 @@ import type {
 } from './agent-tool.types';
 import { AGENT_TOOLS } from './tool-catalog';
 
+export class ToolInputValidationError extends Error {
+  constructor(
+    readonly code: string,
+    readonly detail: string,
+  ) {
+    super(code);
+  }
+}
+
 // 工具注册表只负责发现、校验和分派，不包含任何具体工具业务逻辑。
 @Injectable()
 export class ToolRegistryService {
@@ -51,12 +60,22 @@ export class ToolRegistryService {
     try {
       value = JSON.parse(rawArguments);
     } catch {
-      throw new Error(AGENT_ERROR_CODES.invalidToolArguments);
+      throw new ToolInputValidationError(
+        AGENT_ERROR_CODES.invalidToolArguments,
+        '工具参数不是有效的 JSON。',
+      );
     }
     // JSON 语法正确不代表业务参数有效，第二层交给工具自己的 Zod schema 校验。
     const parsed = tool.inputSchema.safeParse(value);
     if (!parsed.success) {
-      throw new Error(tool.inputErrorCode ?? AGENT_ERROR_CODES.invalidToolArguments);
+      const detail = parsed.error.issues
+        .slice(0, 3)
+        .map((issue) => `${issue.path.join('.') || 'input'}: ${issue.message}`)
+        .join('；');
+      throw new ToolInputValidationError(
+        tool.inputErrorCode ?? AGENT_ERROR_CODES.invalidToolArguments,
+        `工具参数校验失败：${detail}`,
+      );
     }
     return parsed.data;
   }

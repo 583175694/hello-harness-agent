@@ -96,7 +96,13 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
         {
           type: 'response.output_item.added',
           output_index: 1,
-          item: { id: 'fc-item', type: 'function_call', call_id: 'call-1', name: 'weather', arguments: '' },
+          item: {
+            id: 'fc-item',
+            type: 'function_call',
+            call_id: 'call-1',
+            name: 'weather',
+            arguments: '',
+          },
         },
         {
           type: 'response.function_call_arguments.delta',
@@ -106,11 +112,23 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
         {
           type: 'response.output_item.done',
           output_index: 1,
-          item: { id: 'fc-item', type: 'function_call', call_id: 'call-1', name: 'weather', arguments: '{"city":"深圳"}' },
+          item: {
+            id: 'fc-item',
+            type: 'function_call',
+            call_id: 'call-1',
+            name: 'weather',
+            arguments: '{"city":"深圳"}',
+          },
         },
         {
           type: 'response.completed',
-          response: { usage: { input_tokens: 20, output_tokens: 8, input_tokens_details: { cached_tokens: 4 } } },
+          response: {
+            usage: {
+              input_tokens: 20,
+              output_tokens: 8,
+              input_tokens_details: { cached_tokens: 4 },
+            },
+          },
         },
       ]),
     );
@@ -120,7 +138,15 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
       { type: 'text.phase.completed', blockSequence: 0, phase: 'commentary' },
       {
         type: 'tool_calls.completed',
-        calls: [{ id: 'call-1', name: 'weather', arguments: '{"city":"深圳"}', blockSequence: 1, providerIndex: 1 }],
+        calls: [
+          {
+            id: 'call-1',
+            name: 'weather',
+            arguments: '{"city":"深圳"}',
+            blockSequence: 1,
+            providerIndex: 1,
+          },
+        ],
       },
       expect.objectContaining({
         type: 'round.completed',
@@ -138,7 +164,12 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
           output_index: 0,
           item: { id: 'msg-final', type: 'message', role: 'assistant', phase: 'final_answer' },
         },
-        { type: 'response.output_text.delta', output_index: 0, item_id: 'msg-final', delta: '最终回答。' },
+        {
+          type: 'response.output_text.delta',
+          output_index: 0,
+          item_id: 'msg-final',
+          delta: '最终回答。',
+        },
         {
           type: 'response.output_item.done',
           output_index: 0,
@@ -147,16 +178,19 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
         { type: 'response.completed', response: { usage: { input_tokens: 10, output_tokens: 4 } } },
       ]),
     );
-    expect(events.slice(0, 2)).toEqual([{
-      type: 'text.delta',
-      delta: '最终回答。',
-      blockSequence: 0,
-      phase: 'pending',
-    }, {
-      type: 'text.phase.completed',
-      blockSequence: 0,
-      phase: 'final_answer',
-    }]);
+    expect(events.slice(0, 2)).toEqual([
+      {
+        type: 'text.delta',
+        delta: '最终回答。',
+        blockSequence: 0,
+        phase: 'pending',
+      },
+      {
+        type: 'text.phase.completed',
+        blockSequence: 0,
+        phase: 'final_answer',
+      },
+    ]);
   });
 
   it('uses output_item.done as authoritative when DeepSeek corrects the phase', async () => {
@@ -167,7 +201,12 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
           output_index: 0,
           item: { id: 'msg-1', type: 'message', role: 'assistant', phase: 'final_answer' },
         },
-        { type: 'response.output_text.delta', output_index: 0, item_id: 'msg-1', delta: '前置文本' },
+        {
+          type: 'response.output_text.delta',
+          output_index: 0,
+          item_id: 'msg-1',
+          delta: '前置文本',
+        },
         {
           type: 'response.output_item.done',
           output_index: 0,

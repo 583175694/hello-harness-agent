@@ -87,7 +87,7 @@ describe('Workbench context view', () => {
             roundSequence: 2,
             attempt: 1,
             estimatedInputTokens: 842,
-      promptBudget: 566_000,
+            promptBudget: 566_000,
             compactionTriggered: false,
             finalResponseOnly: true,
             messages: [{ role: 'user', content: '你好' }],

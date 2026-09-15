@@ -17,6 +17,7 @@ model User {
   messages    Message[]
   files       File[]
   artifacts   Artifact[]
+  reports     Report[]
 
   @@map("users")
 }
@@ -47,6 +48,7 @@ model Session {
   pendingUserInputs PendingUserInput[]
   files     File[]
   artifacts Artifact[]
+  reports Report[]
 
   @@index([userId, isPinned(sort: Desc), updatedAt(sort: Desc)])
   @@map("sessions")
@@ -203,11 +205,38 @@ model Artifact {
   user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   session    Session        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   run        AgentRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  report     Report?
 
   @@unique([runId, toolCallId])
   @@index([sessionId])
   @@index([runId])
   @@map("artifacts")
+}
+
+enum ReportStatus {
+  ready
+  deleted
+}
+model Report {
+  id String @id
+  artifactId String @unique @map("artifact_id")
+  runId String @map("run_id")
+  userId String @map("user_id")
+  sessionId String @map("session_id")
+  title String
+  summary String
+  sourceIds Json @map("source_ids")
+  fileIds Json @map("file_ids")
+  status ReportStatus @default(ready)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  artifact Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  @@index([sessionId])
+  @@index([runId])
+  @@map("reports")
 }
 
 enum FileCleanupStatus {
@@ -273,6 +302,7 @@ model AgentRun {
   steps              AgentRunStep[]
   transcriptItems    ModelTranscriptItem[]
   artifacts          Artifact[]
+  reports            Report[]
   provider           String
   model              String
   reasoningEffort    String          @map("reasoning_effort")

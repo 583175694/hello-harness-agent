@@ -6,6 +6,12 @@ import { ArtifactsService } from './artifacts.service';
 export class ArtifactsController {
   constructor(@Inject(ArtifactsService) private readonly artifacts: ArtifactsService) {}
 
+  @Get('reports/:reportId')
+  getReport(@Param('reportId') reportId: string) { return this.artifacts.getReport(reportId); }
+
+  @Delete('reports/:reportId')
+  deleteReport(@Param('reportId') reportId: string) { return this.artifacts.deleteReport(reportId); }
+
   @Get(':artifactId')
   get(@Param('artifactId') artifactId: string) { return this.artifacts.get(artifactId); }
 
@@ -27,4 +33,5 @@ export class ArtifactsController {
 
   @Delete(':artifactId')
   delete(@Param('artifactId') artifactId: string) { return this.artifacts.delete(artifactId); }
+
 }

@@ -51,12 +51,12 @@ Context Engineer（后续）
 
 - 模型轮次与消息上下文编排。
 - 工具定义暴露、注册表查找、参数解析、执行分派和 Tool Message 回填。
-- 每个 assistant run 最多 20 次模型声明的 Function Tool Call。
+- 每个 assistant run 最多 40 次模型声明的 Function Tool Call。
 - 模型单轮超时、Tool 声明超时的统一执行，以及用户取消传播。
 - Tool Call 与 Tool Message 的完整配对。
 - reasoning、Tool Call、Tool Result 的顺序、关联，以及 Tool Call 协议单元的完整回放。
 - 工具生命周期事件、执行历史、日志和持久化交付。
-- 达到 20 次 Tool Call 后停止暴露工具，并发起一次无工具最终回答。
+- 达到 40 次 Tool Call 后停止暴露工具，并发起一次无工具最终回答。
 - 最终回答的空内容、长度、DSML 和结构化 Tool Call 污染校验。
 
 Runtime 不判断研究材料是否充分，不根据 Web 领域状态决定停止、重试或更换来源，也不计算来源 provenance。
@@ -136,7 +136,7 @@ type ToolExecutionResult<TOutput> =
 
 ## 4. 通用 Tool Call 上限
 
-当前每个 assistant run 最多执行 20 次模型声明的 Function Tool Call：
+当前每个 assistant run 最多执行 40 次模型声明的 Function Tool Call：
 
 ```text
 成功调用                         = 1 次
@@ -147,7 +147,7 @@ type ToolExecutionResult<TOutput> =
 
 `web_fetch` 单次最多 5 个 URL 是 Tool 输入约束，不是跨调用研究预算。当前模型适配层能够接收同一 assistant 响应中的多个 Tool Call，Runtime 按模型声明顺序串行执行并为每个调用补齐 Tool Message。
 
-达到 20 次后，Runtime 不再执行新的 Tool Call，并进入一次不提供工具定义的最终回答。这个状态是 Runtime 的通用收敛机制，不是 Tool 的 `forceFinalAnswer`，也不表达某个领域已经“研究充分”。
+达到 40 次后，Runtime 不再执行新的 Tool Call，并进入一次不提供工具定义的最终回答。这个状态是 Runtime 的通用收敛机制，不是 Tool 的 `forceFinalAnswer`，也不表达某个领域已经“研究充分”。
 
 ## 5. URL provenance 与来源归并
 
@@ -209,7 +209,7 @@ Source snapshot / Workbench
 
 当前实现保留：
 
-- Runtime 每个 assistant run 最多 20 次 Tool Call 的通用上限。
+- Runtime 每个 assistant run 最多 40 次 Tool Call 的通用上限。
 - 模型轮次、消息、工具调用计数、取消状态和执行历史等通用 Runtime 状态。
 - 模型单轮超时与最终回答协议校验。
 - Tool 声明的外层执行超时，以及 Tool 内部更细的 transport timeout。
@@ -233,7 +233,7 @@ Source snapshot / Workbench
 - 模型可能重复 Search、重复 Fetch、低效重试或选择质量较低的 URL。
 - 完整 Tool Result 始终注入，长会话可能增加延迟、成本并触发供应商上下文限制。
 - 删除 URL allowlist 后，Fetch 目标不保证来自当前 Search clue；网络安全仍由 URL Guard 保证。
-- 删除领域早停后，执行效率更多依赖提示词、模型能力、运行观测和 20 次通用上限。
+- 删除领域早停后，执行效率更多依赖提示词、模型能力、运行观测和 40 次通用上限。
 
 这些属于当前阶段明确接受的质量与上下文风险。先通过真实运行观测和人工检查收集问题，再决定是否优化提示词、模型、Tool 输出契约或建设全局 Context Engineer。安全、成本和平台稳定性边界仍必须由确定性代码强制，但不能以 Tool 建议的形式重新引入隐藏 planner。
 
@@ -257,7 +257,7 @@ Source snapshot / Workbench
 - Tool 声明不可由模型扩大或关闭的外层执行超时，Runtime 统一强制执行。
 - Search 与 Fetch 只返回 canonical 结构化结果和结构化错误，不返回面向模型的第二份内容。
 - Tool 成功或失败后，相应 Tool Message 都交给模型继续决策。
-- 在未达到 20 次 Tool Call 且未取消时，是否继续调用工具完全由模型下一轮输出决定。
+- 在未达到 40 次 Tool Call 且未取消时，是否继续调用工具完全由模型下一轮输出决定。
 - provenance 只由 Projection 派生，不作为 Fetch 权限。
 - execution 完整保留，source snapshot 确定性归并。
 - 不新增 observation delivery 或 Tool Result 字符预算协议。

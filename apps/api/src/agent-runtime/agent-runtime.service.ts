@@ -12,7 +12,7 @@ import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import { ModelAdapter } from '../model/model-adapter';
 import type { ModelMessage, ModelToolCall } from '../model/model-adapter';
 import type { ToolExecutionContext, ToolExecutionResult } from '../tools/agent-tool.types';
-import { ToolRegistryService } from '../tools/tool-registry.service';
+import { ToolInputValidationError, ToolRegistryService } from '../tools/tool-registry.service';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import type { AgentRuntimeEvent, AgentRuntimeInput } from './agent-runtime.types';
 import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
@@ -278,7 +278,9 @@ export class AgentRuntimeService {
         const roundResponse: ModelMessage = {
           role: 'assistant',
           content: roundContent || null,
-          ...(textPhase === 'commentary' || textPhase === 'final_answer' ? { phase: textPhase } : {}),
+          ...(textPhase === 'commentary' || textPhase === 'final_answer'
+            ? { phase: textPhase }
+            : {}),
           ...(reasoningDeltas.length ? { reasoning: reasoningDeltas.join('') } : {}),
           ...(calls.length ? { toolCalls: structuredClone(calls) } : {}),
         };
@@ -482,7 +484,9 @@ export class AgentRuntimeService {
         const finalMessage: ModelMessage = {
           role: 'assistant',
           content: roundContent,
-          ...(textPhase === 'commentary' || textPhase === 'final_answer' ? { phase: textPhase } : {}),
+          ...(textPhase === 'commentary' || textPhase === 'final_answer'
+            ? { phase: textPhase }
+            : {}),
           ...(reasoningDeltas.length ? { reasoning: reasoningDeltas.join('') } : {}),
         };
         messages.push(finalMessage);
@@ -572,19 +576,27 @@ export class AgentRuntimeService {
           } else toolInput = this.tools.parseInput(call.name, call.arguments);
         } catch (error) {
           const code =
-            error instanceof Error ? error.message : AGENT_ERROR_CODES.invalidToolArguments;
+            error instanceof ToolInputValidationError
+              ? error.code
+              : error instanceof Error
+                ? error.message
+                : AGENT_ERROR_CODES.invalidToolArguments;
+          const detail =
+            error instanceof ToolInputValidationError
+              ? error.detail
+              : '工具参数无法通过 Schema 校验。';
           dispatchPlan.push({
             status: 'rejected',
             call,
             error: {
               code,
-              detail: '工具参数无法通过 Schema 校验。',
+              detail,
               retryable: false,
             },
             enterFinalAnswer: toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls,
           });
           this.logger.warn(
-            `工具参数无效 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 错误码=${code}`,
+            `工具参数无效 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 错误码=${code} | 原因=${detail}`,
             AgentRuntimeService.name,
           );
           continue;
@@ -1009,15 +1021,35 @@ export class AgentRuntimeService {
 
   // create_file 的正文只进入工具执行，不进入 SSE、快照、日志或历史 metadata。
   private publicToolInput(toolName: string, input: unknown): unknown {
-    if (toolName !== AGENT_TOOL_NAMES.createFile || typeof input !== 'object' || input === null)
+    if (
+      (toolName !== AGENT_TOOL_NAMES.createFile && toolName !== AGENT_TOOL_NAMES.createReport) ||
+      typeof input !== 'object' ||
+      input === null
+    )
       return input;
     const value = input as { fileName?: unknown; content?: unknown };
     const content = typeof value.content === 'string' ? value.content : '';
-    return {
+    const base = {
       fileName: typeof value.fileName === 'string' ? value.fileName : '',
       contentCharacterCount: [...content].length,
       contentByteCount: Buffer.byteLength(content, 'utf8'),
     };
+    if (toolName === AGENT_TOOL_NAMES.createReport) {
+      const report = input as {
+        title?: unknown;
+        summary?: unknown;
+        sourceIds?: unknown;
+        fileIds?: unknown;
+      };
+      return {
+        ...base,
+        title: report.title,
+        summary: report.summary,
+        sourceIds: report.sourceIds,
+        fileIds: report.fileIds,
+      };
+    }
+    return base;
   }
 
   private clarificationRequestContent(

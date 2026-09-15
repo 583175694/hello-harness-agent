@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { ArtifactRef, CreateFileResult } from '@harness/agent-protocol';
+import type { ArtifactRef, CreateFileResult, CreateReportInput, CreateReportResult, ReportRef } from '@harness/agent-protocol';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
@@ -99,6 +100,49 @@ export class ArtifactsService {
       }
       throw error;
     }
+  }
+
+  async createReport(input: CreateReportInput & { sessionId: string; runId: string; toolCallId: string }): Promise<CreateReportResult> {
+    const run = await this.prisma.agentRun.findFirst({ where: { id: input.runId, sessionId: input.sessionId, session: { userId: LOCAL_USER_ID } }, select: { id: true } });
+    if (!run) throw new NotFoundException({ code: AGENT_ERROR_CODES.runNotFound, detail: '运行不存在或不属于当前会话。' });
+    const existingReport = await this.prisma.report.findFirst({ where: { runId: input.runId, sessionId: input.sessionId, userId: LOCAL_USER_ID, artifact: { toolCallId: input.toolCallId } }, include: { artifact: { include: { file: true } } } });
+    if (existingReport) {
+      if (existingReport.status === 'deleted') throw new BadRequestException({ code: AGENT_ERROR_CODES.reportDeleted, detail: '报告已删除。' });
+      return { report: this.reportRef(existingReport), artifact: this.toRef(existingReport.artifact), file: this.files.toPublicRef(existingReport.artifact.file, false, { artifactId: existingReport.artifact.id }) };
+    }
+    const fileIds = [...new Set(input.fileIds ?? [])];
+    if (fileIds.length) {
+      const count = await this.prisma.file.count({ where: { id: { in: fileIds }, sessionId: input.sessionId, userId: LOCAL_USER_ID, status: 'ready' } });
+      if (count !== fileIds.length) throw new BadRequestException({ code: AGENT_ERROR_CODES.reportValidationFailed, detail: '报告引用了不存在、未就绪或越权的材料文件。' });
+    }
+    const sourceIds = [...new Set(input.sourceIds ?? [])];
+    const created = await this.create({ sessionId: input.sessionId, runId: input.runId, toolCallId: input.toolCallId, fileName: input.fileName, content: input.content });
+    try {
+      const report = await this.prisma.report.create({ data: { id: crypto.randomUUID(), artifactId: created.artifact.artifactId, runId: input.runId, userId: LOCAL_USER_ID, sessionId: input.sessionId, title: input.title, summary: input.summary, sourceIds, fileIds, status: 'ready' }, include: { artifact: { include: { file: true } } } });
+      return { report: this.reportRef(report), artifact: created.artifact, file: created.file };
+    } catch (error) {
+      if (this.isUniqueConflict(error)) {
+        const replay = await this.prisma.report.findUnique({ where: { artifactId: created.artifact.artifactId }, include: { artifact: { include: { file: true } } } });
+        if (replay) return { report: this.reportRef(replay), artifact: this.toRef(replay.artifact), file: this.files.toPublicRef(replay.artifact.file, false, { artifactId: replay.artifact.id }) };
+      }
+      throw error;
+    }
+  }
+
+  async getReport(reportId: string) {
+    const report = await this.prisma.report.findFirst({ where: { id: reportId, userId: LOCAL_USER_ID }, include: { artifact: { include: { file: true } } } });
+    if (!report) throw new NotFoundException({ code: AGENT_ERROR_CODES.reportNotFound, detail: '报告不存在。' });
+    if (report.status === 'deleted') throw new BadRequestException({ code: AGENT_ERROR_CODES.reportDeleted, detail: '报告已删除。' });
+    return { report: this.reportRef(report), artifact: this.toRef(report.artifact), file: this.files.toPublicRef(report.artifact.file, false, { artifactId: report.artifact.id }) };
+  }
+
+  async deleteReport(reportId: string) {
+    const report = await this.prisma.report.findFirst({ where: { id: reportId, userId: LOCAL_USER_ID } });
+    if (!report) throw new NotFoundException({ code: AGENT_ERROR_CODES.reportNotFound, detail: '报告不存在。' });
+    if (report.status === 'deleted') throw new BadRequestException({ code: AGENT_ERROR_CODES.reportDeleted, detail: '报告已删除。' });
+    await this.delete(report.artifactId);
+    await this.prisma.report.update({ where: { id: report.id }, data: { status: 'deleted' } });
+    return { deletedReportId: report.id, deletedArtifactId: report.artifactId };
   }
 
   async get(artifactId: string) {
@@ -213,6 +257,8 @@ export class ArtifactsService {
       ...(artifact.file.characterCount != null ? { characterCount: artifact.file.characterCount } : {}),
     };
   }
+
+  private reportRef(report: any): ReportRef { return { reportId: report.id, artifactId: report.artifactId, runId: report.runId, title: report.title, summary: report.summary, sourceIds: Array.isArray(report.sourceIds) ? report.sourceIds : [], fileIds: Array.isArray(report.fileIds) ? report.fileIds : [], status: report.status, createdAt: report.createdAt.toISOString(), updatedAt: report.updatedAt.toISOString() }; }
 
   private deleted(): BadRequestException {
     return new BadRequestException({ code: AGENT_ERROR_CODES.artifactDeleted, detail: '产物已删除。' });

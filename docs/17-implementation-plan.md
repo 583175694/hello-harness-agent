@@ -441,14 +441,14 @@ P8 首个架构收敛项 [Model-led Tool Boundary](./25-model-led-tool-boundary.
 - Search 与 Fetch 只返回结构化结果，不登记来源、不维护跨调用预算，也不请求结束工具阶段。
 - 删除 Web 运行级 URL/contentHash/Passage 去重、URL provenance allowlist 和连续无新增内容强制早停。
 - 允许模型 Fetch 任意通过 URL/DNS/redirect 安全 Guard 的公开 URL；由 Projection 派生 provenance 并归并 canonical source。
-- 保留 Runtime 每个 assistant run 最多 20 次 Tool Call、模型单轮超时、取消和最终回答协议校验。
+- 保留 Runtime 每个 assistant run 最多 40 次 Tool Call、模型单轮超时、取消和最终回答协议校验。
 - Tool 声明不可由模型覆盖的外层 `executionPolicy.timeoutMs`，Runtime 统一组合并执行；Tool 内部保留更细的 transport timeout。
 - 保留 Fetch 单次调用的 URL 数量、网络安全、响应大小、提取、Passage、Locator 与 LRU。
 - 删除 Tool Result 字符硬上限、独立 observation/delivery 和注入状态；当前 Tool Result 始终进入下一模型轮次。
 - 将 `WebFetchResult.budget` 改为只描述本次调用事实、不带控制语义的 `stats`。
 - 同步简化共享协议、SSE/metadata、Workbench 和回归测试。
 
-验收时 Tool 在类型层无法返回控制命令，Runtime 不含 Web 领域状态或停止条件；未达到 20 次 Tool Call 且未取消时，继续调用工具或回答完全由模型下一轮决定。重复调用、上下文大小和执行效率先通过运行观测与人工检查发现，不预先增加第二套 Runtime/Research Decision Policy，也不为未来 Context Engineering 冻结局部字符预算协议。
+验收时 Tool 在类型层无法返回控制命令，Runtime 不含 Web 领域状态或停止条件；未达到 40 次 Tool Call 且未取消时，继续调用工具或回答完全由模型下一轮决定。重复调用、上下文大小和执行效率先通过运行观测与人工检查发现，不预先增加第二套 Runtime/Research Decision Policy，也不为未来 Context Engineering 冻结局部字符预算协议。
 
 范围：
 

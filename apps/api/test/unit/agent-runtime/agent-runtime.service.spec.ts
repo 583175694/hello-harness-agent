@@ -776,8 +776,8 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     expect(order).toEqual([AGENT_TOOL_NAMES.webSearch, AGENT_TOOL_NAMES.webFetch]);
   });
 
-  it('counts every declared call, skips the 21st, then requires a tool-free answer', async () => {
-    const calls = Array.from({ length: 21 }, (_, index) => ({
+  it('counts every declared call, skips the 41st, then requires a tool-free answer', async () => {
+    const calls = Array.from({ length: 41 }, (_, index) => ({
       id: `call-${index + 1}`,
       name: AGENT_TOOL_NAMES.webSearch,
       arguments: '{"query":"x"}',
@@ -795,18 +795,18 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     const tools = registry();
     const events = await collect(new AgentRuntimeService(model, tools, logger()));
 
-    expect(tools.execute).toHaveBeenCalledTimes(20);
-    expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(20);
+    expect(tools.execute).toHaveBeenCalledTimes(40);
+    expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(40);
     expect(events.at(-1)).toEqual({
       type: 'run.completed',
       content: '达到调用上限后的最终回答',
-      toolCallCount: 20,
+      toolCallCount: 40,
     });
     const finalInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
     expect(finalInput.tools).toBeUndefined();
     expect(
       finalInput.messages.find(
-        (message) => message.role === 'tool' && message.toolCallId === 'call-21',
+        (message) => message.role === 'tool' && message.toolCallId === 'call-41',
       )?.content,
     ).toContain(AGENT_ERROR_CODES.toolCallLimitExceeded);
   });
@@ -829,7 +829,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         name: AGENT_TOOL_NAMES.webSearch,
         arguments: '{"query":"fail"}',
       },
-      ...Array.from({ length: 17 }, (_, index) => ({
+      ...Array.from({ length: 37 }, (_, index) => ({
         id: `call-extra-${index + 1}`,
         name: AGENT_TOOL_NAMES.webSearch,
         arguments: '{"query":"ok"}',
@@ -871,14 +871,14 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     const finalInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
     const toolMessages = finalInput.messages.filter((message) => message.role === 'tool');
 
-    expect(tools.execute).toHaveBeenCalledTimes(18);
-    expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(18);
+    expect(tools.execute).toHaveBeenCalledTimes(38);
+    expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(38);
     expect(events.at(-1)).toEqual({
       type: 'run.completed',
       content: '混合调用达到上限后的回答',
-      toolCallCount: 20,
+      toolCallCount: 40,
     });
-    expect(toolMessages).toHaveLength(21);
+    expect(toolMessages).toHaveLength(41);
     expect(
       toolMessages.find((message) => message.toolCallId === 'call-invalid')?.content,
     ).toContain(AGENT_ERROR_CODES.invalidToolArguments);
@@ -886,7 +886,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       toolMessages.find((message) => message.toolCallId === 'call-unknown')?.content,
     ).toContain(AGENT_ERROR_CODES.unknownTool);
     expect(
-      toolMessages.find((message) => message.toolCallId === 'call-extra-17')?.content,
+      toolMessages.find((message) => message.toolCallId === 'call-extra-37')?.content,
     ).toContain(AGENT_ERROR_CODES.toolCallLimitExceeded);
   });
 });

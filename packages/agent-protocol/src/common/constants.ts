@@ -9,9 +9,9 @@ export const AGENT_PROTOCOL_LIMITS = {
   // 无状态 Chat 请求允许携带的最大历史消息数。
   chatHistoryMaxMessages: 40,
   // 单次 Agent 运行允许执行的工具调用总数。
-  agentToolMaxCalls: 20,
+  agentToolMaxCalls: 40,
   // 单条 assistant 消息允许持久化的有序内容块总数。
-  assistantContentBlocksMax: 64,
+  assistantContentBlocksMax: 128,
   // 单次网页搜索允许提交的查询字符串最大长度。
   searchQueryMaxLength: 500,
   // 单次网页搜索向模型返回的最大结果数。
@@ -55,6 +55,7 @@ export const AGENT_TOOL_NAMES = {
   // Agent Loop 内置的计划控制工具，不属于 Business Tool。
   updatePlan: 'update_plan',
   createFile: 'create_file',
+  createReport: 'create_report',
 } as const;
 
 // 集中维护 API 与 SSE 共用的机器可读错误码。
@@ -149,6 +150,10 @@ export const AGENT_ERROR_CODES = {
   artifactDeleted: 'ARTIFACT_DELETED',
   artifactDeleteConflict: 'ARTIFACT_DELETE_CONFLICT',
   artifactStorageFailed: 'ARTIFACT_STORAGE_FAILED',
+  reportNotFound: 'REPORT_NOT_FOUND',
+  reportDeleted: 'REPORT_DELETED',
+  reportConflict: 'REPORT_CONFLICT',
+  reportValidationFailed: 'REPORT_VALIDATION_FAILED',
 } as const;
 
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[keyof typeof AGENT_ERROR_CODES];

@@ -42,7 +42,7 @@ Runtime 只使用项目内的 canonical `ModelMessage` 和 `ModelRoundEvent`。O
 
 ### 3. Agent Runtime
 
-Runtime 负责模型轮次、工具调用循环、参数解析、每个 assistant run 最多 20 次 Tool Call、达到上限后的无工具最终回答和标准事件输出。该上限按模型声明的 Function Tool Call 计数，不理解具体 Tool 的领域资源。
+Runtime 负责模型轮次、工具调用循环、参数解析、每个 assistant run 最多 40 次 Tool Call、达到上限后的无工具最终回答和标准事件输出。该上限按模型声明的 Function Tool Call 计数，不理解具体 Tool 的领域资源。
 
 本次结构重构已经完成第一阶段的工具名称中立化：Agent Runtime 不导入具体工具类型，也不按工具名称解释输入输出。这消除了显式的 `if (toolName === ...)` 业务分支，但还不是最终的 Tool 边界。
 

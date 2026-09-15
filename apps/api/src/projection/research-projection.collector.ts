@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { AGENT_TOOL_NAMES, normalizeSourceUrl } from '@harness/agent-protocol';
 import type {
   ResearchSourceSnapshot,
@@ -6,6 +7,7 @@ import type {
   FileReadLinesResult,
   CreateFileInputSummary,
   CreateFileResult,
+  CreateReportResult,
   SourceProvenance,
   ToolExecutionSnapshot,
   WebFetchInput,
@@ -25,7 +27,8 @@ type ToolProjectionInput =
       toolName: typeof AGENT_TOOL_NAMES.readFileLines;
       input: { fileId: string; startLine: number; endLine: number };
     }
-  | { toolName: typeof AGENT_TOOL_NAMES.createFile; input: CreateFileInputSummary };
+  | { toolName: typeof AGENT_TOOL_NAMES.createFile; input: CreateFileInputSummary }
+  | { toolName: typeof AGENT_TOOL_NAMES.createReport; input: any };
 
 const PROVENANCE_PRIORITY: Readonly<Record<SourceProvenance, number>> = {
   // 用户当前消息直接提供的 URL 拥有最高来源优先级。
@@ -155,6 +158,24 @@ export class ResearchProjectionCollector {
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.createFile,
+      input: input.toolInput,
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+    });
+  }
+
+  recordCreateReportCompleted(input: {
+    toolCallId: string;
+    toolInput: any;
+    completedAt: string;
+    durationMs: number;
+    result: CreateReportResult;
+  }): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.createReport,
       input: input.toolInput,
       status: 'completed',
       startedAt: this.startedAt(input.completedAt, input.durationMs),

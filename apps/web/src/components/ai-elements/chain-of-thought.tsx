@@ -69,10 +69,7 @@ export function ChainOfThoughtHeader({ children }: { children?: ReactNode }) {
 export function ChainOfThoughtContent({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   const { open } = useChain();
   return (
-    <div
-      className={classes('ai-chain__content', open && 'is-open', className)}
-      aria-hidden={!open}
-    >
+    <div className={classes('ai-chain__content', open && 'is-open', className)} aria-hidden={!open}>
       <div className="ai-chain__content-inner" {...props} />
     </div>
   );

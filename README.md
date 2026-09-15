@@ -13,10 +13,10 @@
   Web 工作台壳层与响应式布局
   API health/readiness 与统一错误响应
   OpenAI-compatible 持久化对话与 session-scoped Chat SSE
-  最多 20 次工具调用的简化 Agent Loop
+  最多 40 次工具调用的简化 Agent Loop
   Bocha 或 Serper 单 Provider 网页搜索（每次最多 10 条）
   公开静态网页批量读取与 query-aware Passage 筛选
-  每个 assistant run 最多 20 次模型声明的 Tool Call
+  每个 assistant run 最多 40 次模型声明的 Tool Call
   单次 Fetch URL/正文去重、正文质量门和安全处理边界
   真实工具 Activity、Clue/已读/采用来源 Workbench 与刷新恢复
   可配置模型、base URL 和 API key
@@ -69,7 +69,7 @@ pnpm dev
 
 `web_search` 和 `web_fetch` 在可用时同时暴露给模型，由模型决定调用顺序。`web_fetch` 可以读取任意通过 URL/DNS/redirect 安全 Guard 的公开 HTTP/HTTPS URL；来源是用户直链、搜索线索还是模型直接提出，由 Projection 作为 provenance 事实记录，不作为执行权限。
 
-当前 Runtime 每个 assistant run 最多执行 20 次模型声明的 Tool Call；达到上限后进入一次无工具最终回答。Search 与 Fetch 外层 Tool timeout 分别为 10 秒和 45 秒，Fetch 单 URL transport timeout 为 20 秒。Fetch 仍保留单次调用的安全、响应容量和 24,000 code-point Passage 输出限制，但不再维护跨调用 URL/Passage 预算或领域早停状态。
+当前 Runtime 每个 assistant run 最多执行 40 次模型声明的 Tool Call；达到上限后进入一次无工具最终回答。Search 与 Fetch 外层 Tool timeout 分别为 10 秒和 45 秒，Fetch 单 URL transport timeout 为 20 秒。Fetch 仍保留单次调用的安全、响应容量和 24,000 code-point Passage 输出限制，但不再维护跨调用 URL/Passage 预算或领域早停状态。
 
 Model-led Tool Boundary 已实现：模型负责是否继续调查，Runtime 只维护通用执行边界，Tool 只返回 canonical output/error，不再通过领域运行状态或控制意图改变主循环。Tool Result 当前始终注入模型上下文；全局上下文计量、选择、压缩和淘汰留给后续 Context Engineering。设计与落地边界见 [`docs/25-model-led-tool-boundary.md`](./docs/25-model-led-tool-boundary.md)。
 

@@ -152,10 +152,29 @@ function ArtifactView({ artifacts }: { artifacts: ArtifactRef[] }) {
       {artifacts.map((artifact) => (
         <article className="artifact-workbench-item" key={artifact.artifactId}>
           <div className="view-toolbar">
-            <div><strong>{artifact.fileName}</strong><span>{artifact.fileKind} · {artifact.size.toLocaleString()} bytes</span></div>
+            <div>
+              <strong>{artifact.fileName}</strong>
+              <span>
+                {artifact.fileKind} · {artifact.size.toLocaleString()} bytes
+              </span>
+            </div>
             <div className="artifact-workbench-actions">
-              <a className="secondary-button" href={getArtifactPreviewUrl(artifact.artifactId)} target="_blank" rel="noreferrer">预览</a>
-              <button className="secondary-button" type="button" onClick={() => downloadArtifact(artifact.artifactId)}><Download size={14} />下载</button>
+              <a
+                className="secondary-button"
+                href={getArtifactPreviewUrl(artifact.artifactId)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                预览
+              </a>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => downloadArtifact(artifact.artifactId)}
+              >
+                <Download size={14} />
+                下载
+              </button>
             </div>
           </div>
           <p>{artifact.status === 'ready' ? '文件已就绪。' : `当前状态：${artifact.status}`}</p>

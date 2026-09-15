@@ -41,6 +41,9 @@ function createService() {
   const prisma = {
     agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
     artifact: { findFirst: vi.fn(), create: vi.fn() },
+    report: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    file: { count: vi.fn() },
+    message: { findFirst: vi.fn() },
     fileCleanupTask: { upsert: vi.fn() },
     $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
   };
@@ -85,6 +88,73 @@ describe('ArtifactsService', () => {
     await expect(service.create({ sessionId: 'session-1', runId: 'run-1', toolCallId: 'call-1', fileName: 'a.txt', content: 'a' }))
       .resolves.toMatchObject({ artifact: { artifactId: 'artifact-1' }, file: { fileId: 'file-1' } });
     expect(files.createGenerated).not.toHaveBeenCalled();
+  });
+
+  it('allows one Run to create multiple Reports with different tool calls', async () => {
+    const { service, prisma, files } = createService();
+    prisma.report.findFirst.mockResolvedValue(null);
+    prisma.artifact.findFirst.mockResolvedValue(null);
+    files.createGenerated.mockImplementation(async ({ fileName }: { fileName: string }) => ({
+      fileId: `file-${fileName}`,
+    }));
+    prisma.artifact.create.mockImplementation(async ({ data }: { data: { id: string; fileId: string; toolCallId: string } }) => ({
+      ...artifact,
+      id: data.id,
+      fileId: data.fileId,
+      toolCallId: data.toolCallId,
+      file: { ...file, id: data.fileId, fileName: data.fileId.replace('file-', '') },
+    }));
+    prisma.report.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...data,
+      createdAt: new Date('2026-09-15T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-15T00:00:00.000Z'),
+      artifact: { ...artifact, id: String(data.artifactId) },
+    }));
+
+    const base = { sessionId: 'session-1', runId: 'run-1', summary: '摘要', content: '# 报告' };
+    await service.createReport({ ...base, toolCallId: 'report-call-1', title: '上证指数', fileName: 'sse.md' });
+    await service.createReport({ ...base, toolCallId: 'report-call-2', title: '创业板指', fileName: 'chinext.md' });
+
+    expect(prisma.report.create).toHaveBeenCalledTimes(2);
+    expect(prisma.report.create.mock.calls.map(([call]) => call.data.runId)).toEqual(['run-1', 'run-1']);
+    expect(prisma.report.create.mock.calls.map(([call]) => call.data.title)).toEqual(['上证指数', '创业板指']);
+  });
+
+  it('does not block Report creation when source ids are absent from fetched-source metadata', async () => {
+    const { service, prisma, files } = createService();
+    prisma.report.findFirst.mockResolvedValue(null);
+    prisma.artifact.findFirst.mockResolvedValue(null);
+    files.createGenerated.mockResolvedValue({ fileId: 'file-report' });
+    prisma.artifact.create.mockResolvedValue({
+      ...artifact,
+      id: 'artifact-report',
+      fileId: 'file-report',
+      toolCallId: 'report-call-1',
+      file: { ...file, id: 'file-report', fileName: 'report.md' },
+    });
+    prisma.report.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...data,
+      createdAt: new Date('2026-09-15T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-15T00:00:00.000Z'),
+      artifact: { ...artifact, id: String(data.artifactId) },
+    }));
+
+    await expect(
+      service.createReport({
+        sessionId: 'session-1',
+        runId: 'run-1',
+        toolCallId: 'report-call-1',
+        title: '研究报告',
+        summary: '摘要',
+        fileName: 'report.md',
+        content: '# 报告',
+        sourceIds: ['source-not-fetched'],
+      }),
+    ).resolves.toMatchObject({ report: { sourceIds: ['source-not-fetched'] } });
+    expect(prisma.message.findFirst).not.toHaveBeenCalled();
+    expect(prisma.report.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ sourceIds: ['source-not-fetched'] }) }),
+    );
   });
 
   it('streams the original bytes through the authorized download endpoint', async () => {

@@ -47,10 +47,10 @@ export class ConversationBlockCollector {
       ...(input.phase === 'pending'
         ? { phase: 'pending' as const }
         : input.phase === 'commentary'
-        ? { phase: 'process' as const }
-        : input.phase === 'final_answer'
-          ? { phase: 'final' as const }
-          : {}),
+          ? { phase: 'process' as const }
+          : input.phase === 'final_answer'
+            ? { phase: 'final' as const }
+            : {}),
     };
     this.insert(block);
     return block.id;

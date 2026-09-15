@@ -176,7 +176,7 @@ messages + tools
 
 这仍然可以在一次 HTTP 请求或一次 Chat SSE 内完成，不代表已经具备可恢复的 Agent Run。
 
-当前实现的 `web_search` 固定只接收 `query`，后端一次只启用 Bocha 或 Serper。每次搜索最多返回 10 条标准化结果，每个 assistant run 最多执行 20 次模型声明的 Function Tool Call；成功、失败、超时和参数校验失败都占用一次调用。工具事件用最终 assistant `messageId` 关联；最终 Message metadata 保存 Activity/Sources 轻量快照，但不等同于 canonical model transcript 或 Event Store。
+当前实现的 `web_search` 固定只接收 `query`，后端一次只启用 Bocha 或 Serper。每次搜索最多返回 10 条标准化结果，每个 assistant run 最多执行 40 次模型声明的 Function Tool Call；成功、失败、超时和参数校验失败都占用一次调用。工具事件用最终 assistant `messageId` 关联；最终 Message metadata 保存 Activity/Sources 轻量快照，但不等同于 canonical model transcript 或 Event Store。
 
 阶段二已经实现以下模型可见工具契约：
 

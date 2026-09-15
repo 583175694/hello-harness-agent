@@ -24,9 +24,26 @@ import {
   createFileInputSummarySchema,
   assistantArtifactBlockSchema,
   createFileResultSchema,
+  createReportInputSchema,
 } from '../src/index.js';
 
 describe('foundation protocol', () => {
+  it('keeps enough assistant timeline capacity for 40 tool calls with preambles', () => {
+    const blocks = Array.from({ length: 81 }, (_, index) => ({
+      id: `block-${index + 1}`,
+      type: 'text' as const,
+      content: `content-${index + 1}`,
+    }));
+
+    expect(assistantAgentMetadataSchema.parse({ model: 'test-model', blocks }).blocks).toHaveLength(
+      81,
+    );
+  });
+
+  it('validates create report input without quality fields', () => {
+    const base = { title: '报告', summary: '摘要', fileName: 'report.md', content: '# 报告' };
+    expect(createReportInputSchema.parse(base)).toEqual(base);
+  });
   it('validates C2-A generated artifact contracts strictly', () => {
     expect(createFileInputSchema.parse({ fileName: 'report.md', content: '# Report' })).toEqual({
       fileName: 'report.md',
@@ -35,9 +52,15 @@ describe('foundation protocol', () => {
     expect(() => createFileInputSchema.parse({ fileName: '../report.md', content: 'x' })).toThrow();
     expect(() => createFileInputSchema.parse({ fileName: 'report.pdf', content: 'x' })).toThrow();
     expect(() => createFileInputSchema.parse({ fileName: 'report.md', content: '' })).toThrow();
-    expect(() => createFileInputSchema.parse({ fileName: 'report.json', content: '{broken' })).toThrow();
-    expect(() => createFileInputSchema.parse({ fileName: 'report.txt', content: 'x'.repeat(40_001) })).toThrow();
-    expect(() => createFileInputSchema.parse({ fileName: 'report.md', content: 'x', extra: true })).toThrow();
+    expect(() =>
+      createFileInputSchema.parse({ fileName: 'report.json', content: '{broken' }),
+    ).toThrow();
+    expect(() =>
+      createFileInputSchema.parse({ fileName: 'report.txt', content: 'x'.repeat(40_001) }),
+    ).toThrow();
+    expect(() =>
+      createFileInputSchema.parse({ fileName: 'report.md', content: 'x', extra: true }),
+    ).toThrow();
     const artifact = {
       artifactId: 'artifact-1',
       fileId: 'file-1',
@@ -49,9 +72,19 @@ describe('foundation protocol', () => {
       createdAt: '2026-09-09T00:00:00.000Z',
     };
     expect(artifactRefSchema.parse(artifact)).toMatchObject({ artifactId: 'artifact-1' });
-    expect(assistantArtifactBlockSchema.parse({ ...artifact, id: 'block-1', type: 'artifact' })).toMatchObject({ type: 'artifact' });
-    expect(createFileResultSchema.parse({ artifact, file: { ...artifact, origin: 'agent_generated' } })).toMatchObject({ artifact, file: { fileId: 'file-1' } });
-    expect(createFileInputSummarySchema.parse({ fileName: 'report.md', contentCharacterCount: 7, contentByteCount: 7 })).toEqual({ fileName: 'report.md', contentCharacterCount: 7, contentByteCount: 7 });
+    expect(
+      assistantArtifactBlockSchema.parse({ ...artifact, id: 'block-1', type: 'artifact' }),
+    ).toMatchObject({ type: 'artifact' });
+    expect(
+      createFileResultSchema.parse({ artifact, file: { ...artifact, origin: 'agent_generated' } }),
+    ).toMatchObject({ artifact, file: { fileId: 'file-1' } });
+    expect(
+      createFileInputSummarySchema.parse({
+        fileName: 'report.md',
+        contentCharacterCount: 7,
+        contentByteCount: 7,
+      }),
+    ).toEqual({ fileName: 'report.md', contentCharacterCount: 7, contentByteCount: 7 });
   });
   it('exports a stable protocol version', () => {
     expect(protocolVersion).toBe('0.14.0');

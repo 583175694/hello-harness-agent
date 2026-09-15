@@ -9,6 +9,10 @@ import {
   createFileInputSummarySchema,
   createFileResultSchema,
   artifactRefSchema,
+  reportRefSchema,
+  createReportInputSchema,
+  createReportResultSchema,
+  createReportInputSummarySchema,
 } from './files/contracts.js';
 export * from './common/problem.js';
 export * from './common/status.js';
@@ -231,6 +235,10 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
   toolExecutionBaseSchema.extend({
     toolName: z.literal('web_search'),
     input: z.object({ query: z.string().min(1) }),
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal('create_report'),
+    input: createReportInputSummarySchema,
   }),
   toolExecutionBaseSchema.extend({
     toolName: z.literal('web_fetch'),
@@ -486,6 +494,19 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     input: createFileInputSummarySchema,
     startedAt: z.string().datetime(),
   }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('create_report'),
+    title: z.string().min(1),
+    input: createReportInputSummarySchema,
+    startedAt: z.string().datetime(),
+  }),
 ]);
 
 const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
@@ -584,6 +605,19 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     completedAt: z.string().datetime(),
     durationMs: z.number().int().nonnegative(),
     result: createFileResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('create_report'),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: createReportResultSchema,
   }),
 ]);
 

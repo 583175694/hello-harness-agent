@@ -3,7 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
-import { fileSearchInputSchema, fileReadLinesInputSchema, createFileInputSummarySchema, createFileResultSchema } from '@harness/agent-protocol';
+import {
+  fileSearchInputSchema,
+  fileReadLinesInputSchema,
+  createFileInputSummarySchema,
+  createFileResultSchema,
+  createReportInputSummarySchema,
+  createReportResultSchema,
+} from '@harness/agent-protocol';
 import type {
   ChatStreamEvent,
   ModelRoundObservation,
@@ -269,7 +276,8 @@ export class ChatService {
         if (!blockId) continue;
         await notifyProjection();
         yield {
-          type: event.type === 'text.phase.completed' ? 'message.phase.completed' : 'message.discarded',
+          type:
+            event.type === 'text.phase.completed' ? 'message.phase.completed' : 'message.discarded',
           messageId: prepared.assistantMessageId,
           blockId,
           roundId: event.roundId,
@@ -301,9 +309,16 @@ export class ChatService {
         const isFileSearch = event.toolName === AGENT_TOOL_NAMES.searchFile;
         const isFileReadLines = event.toolName === AGENT_TOOL_NAMES.readFileLines;
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
+        const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput =
-          isFetch || isApprovalTest || isCurrentTime || isFileSearch || isFileReadLines || isCreateFile
+          isFetch ||
+          isApprovalTest ||
+          isCurrentTime ||
+          isFileSearch ||
+          isFileReadLines ||
+          isCreateFile ||
+          isCreateReport
             ? undefined
             : this.asSearchInput(event.input);
         let toolSummary = searchInput?.query ?? '';
@@ -324,6 +339,9 @@ export class ChatService {
         } else if (isCreateFile) {
           const parsed = createFileInputSummarySchema.safeParse(event.input);
           toolSummary = parsed.success ? `生成 ${parsed.data.fileName}` : '生成文件';
+        } else if (isCreateReport) {
+          const parsed = createReportInputSummarySchema.safeParse(event.input);
+          toolSummary = parsed.success ? `生成报告：${parsed.data.title}` : '生成报告';
         }
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
@@ -419,6 +437,20 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
+        } else if (isCreateReport) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.createReport,
+            title: block.title,
+            input: createReportInputSummarySchema.parse(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
         } else {
           yield {
             type: 'tool.started',
@@ -443,9 +475,16 @@ export class ChatService {
         const isFileSearch = event.toolName === AGENT_TOOL_NAMES.searchFile;
         const isFileReadLines = event.toolName === AGENT_TOOL_NAMES.readFileLines;
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
+        const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
         const fetchResult = isFetch ? (event.output as WebFetchResult) : undefined;
         const searchResult =
-          isFetch || isApprovalTest || isCurrentTime || isFileSearch || isFileReadLines || isCreateFile
+          isFetch ||
+          isApprovalTest ||
+          isCurrentTime ||
+          isFileSearch ||
+          isFileReadLines ||
+          isCreateFile ||
+          isCreateReport
             ? undefined
             : (event.output as SearchToolResult);
         const fileSearchResult = isFileSearch ? (event.output as FileSearchResult) : undefined;
@@ -454,6 +493,9 @@ export class ChatService {
           : undefined;
         const createFileResult = isCreateFile
           ? createFileResultSchema.parse(event.output)
+          : undefined;
+        const createReportResult = isCreateReport
+          ? createReportResultSchema.parse(event.output)
           : undefined;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
@@ -510,6 +552,20 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           });
+        } else if (createReportResult) {
+          projection.recordCreateReportCompleted({
+            toolCallId: event.toolCallId,
+            toolInput: createReportInputSummarySchema.parse(event.input),
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: createReportResult,
+          });
+          conversation.appendArtifact({
+            artifact: createReportResult.artifact,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          });
         }
         const blockId = conversation.completeTool({
           toolCallId: event.toolCallId,
@@ -527,7 +583,9 @@ export class ChatService {
                     ? `读取 ${fileReadLinesResult.lines.length} 行文件内容`
                     : createFileResult
                       ? `已生成 ${createFileResult.file.fileName}`
-                      : `找到 ${searchResult?.results.length ?? 0} 个结果`,
+                      : createReportResult
+                        ? `生成报告：${createReportResult.report.title}`
+                        : `找到 ${searchResult?.results.length ?? 0} 个结果`,
         });
         await notifyProjection();
         if (fetchResult) {

@@ -247,7 +247,9 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
           }
         : {}),
       ...(input.reasoningEffort !== 'off'
-        ? { reasoning: { effort: input.reasoningEffort === 'max' ? 'high' : input.reasoningEffort } }
+        ? {
+            reasoning: { effort: input.reasoningEffort === 'max' ? 'high' : input.reasoningEffort },
+          }
         : {}),
     };
     // DeepSeek ignores stream_options; the OpenAI SDK accepts the request shape at runtime.
@@ -269,7 +271,10 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     for await (const event of stream) {
       const value = event as unknown as Record<string, any>;
       if (configured.traceResponsesEvents) this.logResponseEvent(value);
-      if (value.type === 'response.output_item.added' || value.type === 'response.output_item.done') {
+      if (
+        value.type === 'response.output_item.added' ||
+        value.type === 'response.output_item.done'
+      ) {
         const item = value.item as Record<string, any> | undefined;
         if (!item) continue;
         if (item.type === 'message') {
@@ -315,7 +320,10 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         }
         continue;
       }
-      if (value.type === 'response.reasoning_text.delta' || value.type === 'response.reasoning_summary_text.delta') {
+      if (
+        value.type === 'response.reasoning_text.delta' ||
+        value.type === 'response.reasoning_summary_text.delta'
+      ) {
         if (typeof value.delta === 'string')
           yield {
             type: 'reasoning.delta',
@@ -338,7 +346,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         // tool preamble is initially labelled final_answer and corrected on
         // output_item.done. Stream immediately in a neutral pending state.
         const phase =
-          input.tools?.length || input.allowClarification ? 'pending' : state.phase ?? 'pending';
+          input.tools?.length || input.allowClarification ? 'pending' : (state.phase ?? 'pending');
         yield {
           type: 'text.delta',
           delta,
@@ -425,11 +433,18 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     return response.choices[0]?.message.content ?? '';
   }
 
-  private async toResponseInput(messages: ModelMessage[], model: string): Promise<Record<string, unknown>[]> {
+  private async toResponseInput(
+    messages: ModelMessage[],
+    model: string,
+  ): Promise<Record<string, unknown>[]> {
     const items: Record<string, unknown>[] = [];
     for (const message of messages) {
       if (message.role === 'tool') {
-        items.push({ type: 'function_call_output', call_id: message.toolCallId, output: message.content });
+        items.push({
+          type: 'function_call_output',
+          call_id: message.toolCallId,
+          output: message.content,
+        });
         continue;
       }
       if (message.role === 'assistant') {

@@ -42,8 +42,7 @@ export class FileReadLinesTool implements AgentTool<FileReadLinesInput, FileRead
           endLine: {
             type: 'integer',
             minimum: 1,
-            description:
-              `结束行号，包含该行；endLine - startLine + 1 必须不超过 ${AGENT_PROTOCOL_LIMITS.fileReadLinesMax}。`,
+            description: `结束行号，包含该行；endLine - startLine + 1 必须不超过 ${AGENT_PROTOCOL_LIMITS.fileReadLinesMax}。`,
           },
         },
         required: ['fileId', 'startLine', 'endLine'],

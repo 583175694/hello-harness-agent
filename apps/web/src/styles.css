@@ -1480,6 +1480,7 @@ textarea:focus-visible {
 }
 .plan-floating__details {
   position: absolute;
+  left: 50%;
   bottom: calc(100% + 9px);
   width: min(360px, calc(100vw - 24px));
   padding: 13px;

@@ -5,6 +5,7 @@ import type {
   AssistantArtifactBlock,
   ArtifactRef,
   AssistantUserInterventionBlock,
+  AssistantReasoningBlock,
 } from '@harness/agent-protocol';
 
 // 将实时文本和工具生命周期折叠为可持久化的 assistant 有序内容块。
@@ -14,6 +15,20 @@ export class ConversationBlockCollector {
   private textBlockCount = 0;
 
   constructor(private readonly messageId: string) {}
+
+  appendReasoning(input: { delta: string; roundId: string; roundSequence: number; blockSequence: number }): string {
+    const existing = this.blocks.find((b): b is AssistantReasoningBlock => b.type === 'reasoning' && b.roundId === input.roundId && b.blockSequence === input.blockSequence);
+    if (existing) { existing.content += input.delta; return existing.id; }
+    const block: AssistantReasoningBlock = { id: `${this.messageId}-reasoning-${input.roundSequence}-${input.blockSequence}`, type: 'reasoning', roundId: input.roundId, roundSequence: input.roundSequence, blockSequence: input.blockSequence, content: input.delta, startedAt: new Date().toISOString() };
+    this.insert(block); return block.id;
+  }
+
+  completeReasoning(roundSequence: number, durationMs: number): void {
+    const completedAt = new Date().toISOString();
+    for (const block of this.blocks) if (block.type === 'reasoning' && block.roundSequence === roundSequence) {
+      block.completedAt = completedAt; block.durationMs = durationMs;
+    }
+  }
 
   // 按 Round 内稳定位置合并文本增量；重放同一位置时只更新原 Block。
   appendText(input: {

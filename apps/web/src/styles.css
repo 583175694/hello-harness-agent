@@ -794,6 +794,71 @@ textarea:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.ai-reasoning {
+  margin: 2px 0 10px 4px;
+  color: var(--text-secondary, #a3a3a3);
+  font-size: 13px;
+}
+.ai-reasoning__trigger {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 3px 0;
+  cursor: pointer;
+  font: inherit;
+}
+.ai-reasoning__trigger svg:last-child {
+  transition: transform 0.15s ease;
+}
+.ai-reasoning__trigger svg:last-child.is-open {
+  transform: rotate(180deg);
+}
+.ai-reasoning__content {
+  overflow: hidden;
+  padding: 4px 12px 8px 27px;
+  font-size: 13px;
+  animation-duration: 220ms;
+  animation-timing-function: ease-out;
+}
+.ai-reasoning__content[data-state='open'] {
+  animation-name: ai-reasoning-slide-down;
+}
+.ai-reasoning__content[data-state='closed'] {
+  animation-name: ai-reasoning-slide-up;
+}
+@keyframes ai-reasoning-slide-down {
+  from {
+    height: 0;
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes ai-reasoning-slide-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    height: 0;
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-reasoning__content {
+    animation: none;
+  }
+}
 .assistant-artifact-file {
   width: fit-content;
   max-width: 100%;

@@ -200,6 +200,13 @@ export class AgentRuntimeService {
             // Round 完成且存在 Tool Call 时，它自然被解释为工具前言而非最终正文。
             if (event.type === 'reasoning.delta') {
               reasoningDeltas.push(event.delta);
+              yield {
+                type: 'reasoning.delta',
+                delta: event.delta,
+                roundId,
+                roundSequence: modelRounds,
+                blockSequence: event.blockSequence,
+              };
             } else if (event.type === 'text.delta') {
               textDeltas.push(event.delta);
               textBlockSequence = event.blockSequence;

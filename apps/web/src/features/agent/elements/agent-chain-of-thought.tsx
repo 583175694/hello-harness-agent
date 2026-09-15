@@ -5,7 +5,6 @@ import {
   Clock3,
   FileSearch,
   FileText,
-  LoaderCircle,
   MessageSquareText,
   Search,
   X,
@@ -23,6 +22,12 @@ import {
 } from '../../../components/ai-elements/chain-of-thought';
 import type { SourceView, WorkbenchFocusTarget, WorkbenchState } from '../model/types';
 import type { AssistantProcessItem } from './assistant-message-adapter';
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from '../../../components/ai-elements/reasoning';
+import { Shimmer } from '../../../components/ai-elements/shimmer';
 
 function toolIcon(toolName: string): LucideIcon {
   if (toolName === 'web_search' || toolName === 'web_fetch') return Search;
@@ -38,12 +43,19 @@ function formatElapsed(ms: number): string {
 }
 
 function processTimeRange(process: AssistantProcessItem[]) {
-  const tools = process.filter((item): item is Extract<AssistantProcessItem, { kind: 'tool' }> => item.kind === 'tool');
-  const start = Math.min(...tools.map((item) => Date.parse(item.block.startedAt)).filter(Number.isFinite));
+  const tools = process.filter(
+    (item): item is Extract<AssistantProcessItem, { kind: 'tool' }> => item.kind === 'tool',
+  );
+  const start = Math.min(
+    ...tools.map((item) => Date.parse(item.block.startedAt)).filter(Number.isFinite),
+  );
   const completed = tools
     .map((item) => (item.block.completedAt ? Date.parse(item.block.completedAt) : NaN))
     .filter(Number.isFinite);
-  return { start: Number.isFinite(start) ? start : undefined, end: completed.length ? Math.max(...completed) : undefined };
+  return {
+    start: Number.isFinite(start) ? start : undefined,
+    end: completed.length ? Math.max(...completed) : undefined,
+  };
 }
 
 function stepStatus(
@@ -56,10 +68,9 @@ function stepStatus(
 }
 
 function statusIcon(status: Extract<AssistantProcessItem, { kind: 'tool' }>['block']['status']) {
-  if (status === 'running') return LoaderCircle;
   if (status === 'failed') return CircleAlert;
   if (status === 'cancelled') return X;
-  return Check;
+  return undefined;
 }
 
 function sourceDomains(sources: SourceView[], toolCallId: string): string[] {
@@ -93,10 +104,24 @@ export function AgentChainOfThought({
       <ChainOfThoughtHeader>{formatElapsed(elapsed)}</ChainOfThoughtHeader>
       <ChainOfThoughtContent>
         {process.map((item) => {
+          if (item.kind === 'reasoning') {
+            const streaming = !item.block.completedAt;
+            const label = streaming
+              ? 'Thinking...'
+              : item.block.durationMs !== undefined
+                ? `Thought for ${Math.max(0, Math.round(item.block.durationMs / 1000))} seconds`
+                : 'Thought';
+            return (
+              <Reasoning className='ai-reasoning' key={item.block.id} isStreaming={streaming}>
+                <ReasoningTrigger>{label}</ReasoningTrigger>
+                <ReasoningContent>{item.block.content}</ReasoningContent>
+              </Reasoning>
+            );
+          }
           if (item.kind === 'text') {
             return (
               <ChainOfThoughtStep
-                icon={MessageSquareText}
+                icon={undefined}
                 key={item.block.id}
                 label={item.block.content}
                 status="complete"
@@ -113,8 +138,8 @@ export function AgentChainOfThought({
           )?.title;
           const toolTitle =
             item.block.toolName === 'web_search'
-              ? workbenchTitle ??
-                (item.block.summary ? `搜索：${item.block.summary}` : item.block.title)
+              ? (workbenchTitle ??
+                (item.block.summary ? `搜索：${item.block.summary}` : item.block.title))
               : item.block.title;
           return (
             <button
@@ -137,15 +162,13 @@ export function AgentChainOfThought({
                 icon={toolIcon(item.block.toolName)}
                 label={
                   <span className="agent-chain-tool__label">
-                    <span className="agent-chain-tool__title">{toolTitle}</span>
+                    <span className="agent-chain-tool__title">
+                      {item.block.status === 'running' ? <Shimmer>{toolTitle}</Shimmer> : toolTitle}
+                    </span>
                     {item.block.summary && item.block.toolName !== 'web_search' ? (
                       <span className="agent-chain-tool__summary">{item.block.summary}</span>
                     ) : null}
-                    <StateIcon
-                      className={item.block.status === 'running' ? 'spin' : ''}
-                      size={13}
-                      aria-hidden="true"
-                    />
+                    {StateIcon ? <StateIcon size={13} aria-hidden="true" /> : null}
                   </span>
                 }
                 status={stepStatus(item.block.status)}

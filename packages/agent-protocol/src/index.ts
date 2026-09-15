@@ -324,6 +324,9 @@ export const assistantReasoningBlockSchema = z.object({
   roundSequence: z.number().int().positive(),
   blockSequence: z.number().int().nonnegative(),
   content: z.string().min(1),
+  startedAt: z.string().datetime().optional(),
+  completedAt: z.string().datetime().optional(),
+  durationMs: z.number().int().nonnegative().optional(),
 });
 
 // 定义 assistant turn 中可原位更新的透明工具活动块。
@@ -600,6 +603,15 @@ export const chatStreamEventSchema = z.union([
   }),
   toolStartedEventSchema,
   toolCompletedEventSchema,
+  z.object({
+    type: z.literal('reasoning.delta'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    delta: z.string().min(1),
+  }),
   z.object({
     type: z.literal('model.round.completed'),
     observation: modelRoundObservationSchema,

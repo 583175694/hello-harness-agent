@@ -66,6 +66,10 @@ export class AgentRuntimeService {
     let visibleContent = '';
     let modelRounds = 0;
     let compactionState: CompactionState | undefined;
+    // 某些供应商会先结束一个仅包含 reasoning 的响应，再在后续请求中产出正文。
+    // 这不应被当作空响应，但最终仍必须拿到普通文本才能完成 Run。
+    let reasoningOnlyFinalRetries = 0;
+    let reasoningOnlyRoundRetries = 0;
     // Runtime 仅保留最新计划，用于事件发布和下一轮只读上下文。
     let currentPlan: PlanSnapshot | undefined;
     // 将运行从可调用工具的调查阶段单向切换到无工具的最终回答阶段。
@@ -77,7 +81,7 @@ export class AgentRuntimeService {
 
     // 每次外层循环对应一次独立模型请求，也就是一个稳定的 Model Round。
     // 每一轮要么得到最终文本，要么执行工具并把结果追加到下一轮上下文。
-    while (modelRounds <= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
+    runtimeLoop: while (modelRounds <= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
       if (input.signal?.aborted) throw this.abortError();
       modelRounds += 1;
       const beforeModelWait = this.reachLifecycle(input, 'before_model_request', {
@@ -285,7 +289,9 @@ export class AgentRuntimeService {
         const roundResponse: ModelMessage = {
           role: 'assistant',
           content: roundContent || null,
-          ...(textPhase === 'commentary' || textPhase === 'final_answer' ? { phase: textPhase } : {}),
+          ...(textPhase === 'commentary' || textPhase === 'final_answer'
+            ? { phase: textPhase }
+            : {}),
           ...(reasoningDeltas.length ? { reasoning: reasoningDeltas.join('') } : {}),
           ...(calls.length ? { toolCalls: structuredClone(calls) } : {}),
         };
@@ -337,8 +343,31 @@ export class AgentRuntimeService {
             detail: '模型输出达到长度上限，本次回答未保存。',
           });
         }
-        // 无文本且无工具调用表示供应商没有产生任何可消费结果。
-        if (finalResponseOnly && !roundContent.trim() && calls.length === 0) {
+        // reasoning-only 不是最终答案，但也不是空响应：供应商可能把思考和正文拆成两次响应。
+        // 先继续一次无工具请求，只有完全没有任何输出时才立即报空响应。
+        if (
+          finalResponseOnly &&
+          !roundContent.trim() &&
+          calls.length === 0 &&
+          reasoningDeltas.length
+        ) {
+          if (reasoningOnlyFinalRetries < 1) {
+            reasoningOnlyFinalRetries += 1;
+            messages.push({
+              role: 'system',
+              content:
+                '上一轮仅返回了思考过程，尚未给出最终答案。请继续输出面向用户的普通文本最终回答。',
+            });
+            continue runtimeLoop;
+          }
+        }
+        // 无文本、无 reasoning 且无工具调用表示供应商没有产生任何可消费结果。
+        if (
+          finalResponseOnly &&
+          !roundContent.trim() &&
+          calls.length === 0 &&
+          !reasoningDeltas.length
+        ) {
           throw new ServiceUnavailableException({
             code: AGENT_ERROR_CODES.modelEmptyResponse,
             detail: '模型没有返回可显示的文本，请稍后重试。',
@@ -472,6 +501,15 @@ export class AgentRuntimeService {
       // 没有工具调用表示模型已经产出最终文本；计划状态不参与此判断。
       if (!normalizedCalls.length) {
         const roundContent = textDeltas.join('');
+        if (reasoningDeltas.length && reasoningOnlyRoundRetries < 1) {
+          reasoningOnlyRoundRetries += 1;
+          messages.push({
+            role: 'system',
+            content:
+              '上一轮仅返回了思考过程，尚未给出可交付内容。请继续输出面向用户的普通文本回答，或调用合适的工具。',
+          });
+          continue runtimeLoop;
+        }
         // 普通调查轮同样不能把纯空白结果当作成功交付。
         if (!roundContent.trim()) {
           throw new ServiceUnavailableException({
@@ -489,7 +527,9 @@ export class AgentRuntimeService {
         const finalMessage: ModelMessage = {
           role: 'assistant',
           content: roundContent,
-          ...(textPhase === 'commentary' || textPhase === 'final_answer' ? { phase: textPhase } : {}),
+          ...(textPhase === 'commentary' || textPhase === 'final_answer'
+            ? { phase: textPhase }
+            : {}),
           ...(reasoningDeltas.length ? { reasoning: reasoningDeltas.join('') } : {}),
         };
         messages.push(finalMessage);

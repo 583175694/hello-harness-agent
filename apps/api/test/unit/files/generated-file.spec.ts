@@ -73,4 +73,40 @@ describe('FilesService generated files', () => {
       where: { id: 'file-1', origin: 'agent_generated' },
     });
   });
+
+  it('does not create a File when document rendering is rejected', async () => {
+    const { service, prisma } = createService();
+    await expect(
+      service.createGenerated({
+        sessionId: 'session-1',
+        fileId: 'file-1',
+        fileName: 'unsafe.html',
+        content: '<iframe src="https://example.com"></iframe>',
+      }),
+    ).rejects.toMatchObject({ response: { code: 'GENERATED_FILE_RENDER_FAILED' } });
+    expect(prisma.file.create).not.toHaveBeenCalled();
+  });
+
+  it('cleans up a rendered File when cancellation arrives before it can be committed', async () => {
+    const { service, prisma, storage } = createService();
+    const controller = new AbortController();
+    storage.putNormalized.mockImplementation(async () => {
+      controller.abort();
+      return { objectKey: 'normalized' };
+    });
+
+    await expect(
+      service.createGenerated({
+        sessionId: 'session-1',
+        fileId: 'file-1',
+        fileName: 'cancel.xlsx',
+        sheets: [{ name: 'Sheet1', rows: [['value']] }],
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(storage.deleteFile).toHaveBeenCalled();
+    expect(prisma.file.deleteMany).toHaveBeenCalledWith({
+      where: { id: 'file-1', origin: 'agent_generated' },
+    });
+  });
 });

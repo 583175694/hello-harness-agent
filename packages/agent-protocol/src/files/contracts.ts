@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AGENT_PROTOCOL_LIMITS } from '../common/constants.js';
 
 // 文件从上传、解析到可用或失败的生命周期状态。
 export const fileProcessingStatusSchema = z.enum(['processing', 'ready', 'failed', 'rejected']);
@@ -44,7 +45,7 @@ export const fileRefSchema = z.object({
   previewUrl: z.string().min(1).optional(),
   // 兼容已有图片数据，因此文件类型允许缺省。
   fileKind: z
-    .enum(['image', 'text', 'markdown', 'csv', 'json', 'pdf', 'docx', 'xlsx', 'pptx'])
+    .enum(['image', 'text', 'markdown', 'csv', 'json', 'html', 'pdf', 'docx', 'xlsx', 'pptx'])
     .optional(),
   lineCount: z.number().int().nonnegative().optional(),
   pageCount: z.number().int().nonnegative().optional(),
@@ -59,7 +60,7 @@ export const artifactRefSchema = z.object({
   fileId: z.string().min(1),
   fileName: z.string().min(1),
   mediaType: z.string().min(1),
-  fileKind: z.enum(['text', 'markdown', 'json']),
+  fileKind: z.enum(['text', 'markdown', 'json', 'html', 'pdf', 'docx', 'xlsx']),
   size: z.number().int().nonnegative(),
   status: artifactStatusSchema,
   createdAt: z.string().datetime(),
@@ -69,7 +70,23 @@ export const artifactRefSchema = z.object({
 });
 
 export const createFileInputSchema = z
-  .object({ fileName: z.string().trim().min(1).max(255), content: z.string().min(1) })
+  .object({
+    fileName: z.string().trim().min(1).max(255),
+    content: z.string().min(1).optional(),
+    sheets: z
+      .array(
+        z
+          .object({
+            name: z.string().max(31),
+            rows: z.array(
+              z.array(z.union([z.string(), z.number().finite(), z.boolean(), z.null()])),
+            ),
+          })
+          .strict(),
+      )
+      .max(AGENT_PROTOCOL_LIMITS.generatedWorkbookMaxSheets)
+      .optional(),
+  })
   .strict()
   .superRefine((value, context) => {
     if (
@@ -85,28 +102,47 @@ export const createFileInputSchema = z
       });
       return;
     }
-    if (!/\.(?:md|markdown|txt|json)$/iu.test(value.fileName)) {
+    const ext = value.fileName.toLowerCase().split('.').pop() ?? '';
+    const workbook = ext === 'xlsx';
+    if (!/\.(?:md|markdown|txt|json|html|pdf|docx|xlsx)$/iu.test(value.fileName)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['fileName'],
         message: 'unsupported file extension',
       });
     }
-    if ([...value.content].length > 40_000) {
+    if (
+      workbook
+        ? !value.sheets?.length || value.content !== undefined
+        : !value.content || value.sheets !== undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [workbook ? 'sheets' : 'content'],
+        message: workbook
+          ? 'xlsx requires non-empty sheets and no content'
+          : 'document requires non-empty content and no sheets',
+      });
+    }
+    if (!workbook && value.content && [...value.content].length > 40_000) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['content'],
         message: 'content exceeds code point limit',
       });
     }
-    if (new TextEncoder().encode(value.content).byteLength > 10 * 1024 * 1024) {
+    if (
+      !workbook &&
+      value.content &&
+      new TextEncoder().encode(value.content).byteLength > 10 * 1024 * 1024
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['content'],
         message: 'content exceeds byte limit',
       });
     }
-    if (/\.json$/iu.test(value.fileName)) {
+    if (/\.json$/iu.test(value.fileName) && value.content) {
       try {
         JSON.parse(value.content);
       } catch {
@@ -117,15 +153,61 @@ export const createFileInputSchema = z
         });
       }
     }
+    if (workbook && value.sheets) {
+      let totalCells = 0;
+      for (const [sheetIndex, sheet] of value.sheets.entries()) {
+        if (sheet.rows.length > AGENT_PROTOCOL_LIMITS.generatedWorkbookMaxRowsPerSheet) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['sheets', sheetIndex, 'rows'],
+            message: 'sheet exceeds row limit',
+          });
+        }
+        for (const [rowIndex, row] of sheet.rows.entries()) {
+          totalCells += row.length;
+          for (const [cellIndex, cell] of row.entries()) {
+            if (
+              typeof cell === 'string' &&
+              [...cell].length > AGENT_PROTOCOL_LIMITS.generatedWorkbookMaxCellCodePoints
+            ) {
+              context.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['sheets', sheetIndex, 'rows', rowIndex, cellIndex],
+                message: 'cell exceeds code point limit',
+              });
+            }
+          }
+        }
+      }
+      if (totalCells > AGENT_PROTOCOL_LIMITS.generatedWorkbookMaxCells) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sheets'],
+          message: 'workbook exceeds cell limit',
+        });
+      }
+    }
   });
 // 工具事件和持久化快照只保存生成请求摘要，绝不携带完整正文。
-export const createFileInputSummarySchema = z
-  .object({
-    fileName: z.string().min(1).max(255),
-    contentCharacterCount: z.number().int().nonnegative(),
-    contentByteCount: z.number().int().nonnegative(),
-  })
-  .strict();
+export const createFileInputSummarySchema = z.union([
+  z
+    .object({
+      inputType: z.literal('document').default('document'),
+      fileName: z.string().min(1).max(255),
+      contentCharacterCount: z.number().int().nonnegative(),
+      contentByteCount: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      inputType: z.literal('workbook'),
+      fileName: z.string().min(1).max(255),
+      sheetCount: z.number().int().nonnegative(),
+      totalRowCount: z.number().int().nonnegative(),
+      totalCellCount: z.number().int().nonnegative(),
+    })
+    .strict(),
+]);
 export const createFileResultSchema = z.object({
   artifact: artifactRefSchema,
   file: fileRefSchema,

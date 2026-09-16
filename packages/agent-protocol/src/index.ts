@@ -9,8 +9,6 @@ import {
   createFileInputSummarySchema,
   createFileResultSchema,
   artifactRefSchema,
-  reportRefSchema,
-  createReportInputSchema,
   createReportResultSchema,
   createReportInputSummarySchema,
 } from './files/contracts.js';

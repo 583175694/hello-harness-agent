@@ -132,6 +132,7 @@ enum FileKind {
   markdown
   csv
   json
+  html
   pdf
   docx
   xlsx

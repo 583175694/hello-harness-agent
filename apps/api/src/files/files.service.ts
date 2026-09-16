@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  OnApplicationShutdown,
   OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
@@ -15,10 +16,16 @@ import { describeLogError, formatLogDuration, shortLogId } from '../shared/loggi
 import {
   AGENT_ERROR_CODES,
   AGENT_PROTOCOL_LIMITS,
+  type CreateFileInput,
   type FileReadLinesInput,
   type FileSearchInput,
 } from '@harness/agent-protocol';
 import { createHash } from 'node:crypto';
+import {
+  closeGeneratedFileRenderer,
+  GeneratedFileRenderError,
+  renderGeneratedFile,
+} from './generated-file.renderer';
 
 // 内容或格式本身不可恢复的错误进入 rejected，其余错误允许重试。
 const PERMANENT_PARSE_FAILURES = new Set([
@@ -33,7 +40,7 @@ const PERMANENT_PARSE_FAILURES = new Set([
 ]);
 
 @Injectable()
-export class FilesService implements OnModuleInit {
+export class FilesService implements OnModuleInit, OnApplicationShutdown {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(FileProcessingService) private readonly processor: FileProcessingService,
@@ -91,19 +98,33 @@ export class FilesService implements OnModuleInit {
     await this.backfillMissingNormalizedFiles();
   }
 
-  // 保存 Agent 一次性生成的文本文件；调用方负责随后建立 Artifact 关系。
-  async createGenerated(input: {
-    sessionId: string;
-    fileName: string;
-    content: string;
-    fileId?: string;
-  }) {
+  async onApplicationShutdown(): Promise<void> {
+    await closeGeneratedFileRenderer();
+  }
+
+  // 先在内存中完成确定性渲染，再保存原文件和规范化正文。
+  async createGenerated(
+    input: CreateFileInput & {
+      sessionId: string;
+      fileId?: string;
+      signal?: AbortSignal;
+    },
+  ) {
     const session = await this.prisma.session.findFirst({
       where: { id: input.sessionId, userId: LOCAL_USER_ID },
     });
     if (!session)
       throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
-    const prepared = this.prepareGenerated(input.fileName, input.content);
+    const normalizedName = input.fileName.trim();
+    let prepared: Awaited<ReturnType<typeof renderGeneratedFile>>;
+    try {
+      prepared = await renderGeneratedFile(input, input.signal);
+    } catch (error) {
+      if (error instanceof GeneratedFileRenderError) {
+        throw new BadRequestException({ code: error.code, detail: error.message });
+      }
+      throw error;
+    }
     const fileId = input.fileId ?? crypto.randomUUID();
     const now = new Date();
     await this.prisma.file.create({
@@ -111,7 +132,7 @@ export class FilesService implements OnModuleInit {
         id: fileId,
         userId: LOCAL_USER_ID,
         sessionId: input.sessionId,
-        fileName: prepared.fileName,
+        fileName: normalizedName,
         mediaType: prepared.mediaType,
         fileKind: prepared.fileKind,
         origin: 'agent_generated',
@@ -131,7 +152,7 @@ export class FilesService implements OnModuleInit {
       const normalized = await this.storage.putNormalized({
         sessionId: input.sessionId,
         fileId,
-        content: Buffer.from(prepared.normalized, 'utf8'),
+        content: Buffer.from(prepared.normalizedContent, 'utf8'),
         contentType: 'text/plain; charset=utf-8',
       });
       const file = await this.prisma.file.update({
@@ -139,16 +160,19 @@ export class FilesService implements OnModuleInit {
         data: {
           originalKey: original.objectKey,
           normalizedKey: normalized.objectKey,
-          contentHash: createHash('sha256').update(prepared.normalized, 'utf8').digest('hex'),
-          parserVersion: 'c2-a-v1',
-          lineCount: prepared.normalized.split('\n').length,
-          characterCount: [...prepared.normalized].length,
+          contentHash: createHash('sha256')
+            .update(prepared.normalizedContent, 'utf8')
+            .digest('hex'),
+          parserVersion: 'c2-c-v1',
+          lineCount: prepared.normalizedContent.split('\n').length,
+          characterCount: [...prepared.normalizedContent].length,
           overview: { format: prepared.fileKind },
           status: 'ready',
           retryable: false,
           processingCompletedAt: new Date(),
         },
       });
+      if (input.signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
       return this.toPublicRef(file, false);
     } catch (error) {
       try {
@@ -177,6 +201,9 @@ export class FilesService implements OnModuleInit {
       }
       // 未建立 Artifact 的失败 File 不对用户暴露；清理任务不依赖 File 记录存在。
       await this.prisma.file.deleteMany({ where: { id: fileId, origin: 'agent_generated' } });
+      if (input.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+        throw error;
+      }
       this.logger.warn(
         `生成文件保存失败 | 文件=${shortLogId(fileId)} | 会话=${shortLogId(input.sessionId)} | 错误码=${AGENT_ERROR_CODES.fileStorageFailed} | 原因=${describeLogError(error)}`,
         FilesService.name,
@@ -186,61 +213,6 @@ export class FilesService implements OnModuleInit {
         detail: '生成文件保存失败，请稍后重试。',
       });
     }
-  }
-
-  // 生成文件只允许受控文本扩展名，并将 JSON 规范化为稳定正文。
-  private prepareGenerated(fileName: string, content: string) {
-    const normalizedName = fileName.trim();
-    if (!/^[^/\\\0]+$/u.test(normalizedName) || normalizedName === '.' || normalizedName === '..')
-      throw new BadRequestException({
-        code: AGENT_ERROR_CODES.generatedFileNameInvalid,
-        detail: '生成文件名无效。',
-      });
-    if ([...content].length === 0)
-      throw new BadRequestException({
-        code: AGENT_ERROR_CODES.generatedFileEmpty,
-        detail: '生成文件内容不能为空。',
-      });
-    const ext = normalizedName.toLowerCase().split('.').pop() ?? '';
-    const kinds = {
-      txt: ['text', 'text/plain'],
-      md: ['markdown', 'text/markdown'],
-      markdown: ['markdown', 'text/markdown'],
-      json: ['json', 'application/json'],
-    } as const;
-    const kind = kinds[ext as keyof typeof kinds];
-    if (!kind)
-      throw new BadRequestException({
-        code: AGENT_ERROR_CODES.generatedFileTypeUnsupported,
-        detail: '仅支持 TXT、Markdown 和 JSON 生成文件。',
-      });
-    const buffer = Buffer.from(content, 'utf8');
-    if (
-      buffer.length > AGENT_PROTOCOL_LIMITS.generatedFileMaxBytes ||
-      [...content].length > AGENT_PROTOCOL_LIMITS.generatedFileMaxCodePoints
-    )
-      throw new BadRequestException({
-        code: AGENT_ERROR_CODES.generatedFileTooLarge,
-        detail: '生成文件超过当前版本的大小限制。',
-      });
-    let normalized = content;
-    if (ext === 'json') {
-      try {
-        normalized = JSON.stringify(JSON.parse(content), null, 2);
-      } catch {
-        throw new BadRequestException({
-          code: AGENT_ERROR_CODES.generatedJsonInvalid,
-          detail: '生成的 JSON 格式无效。',
-        });
-      }
-    }
-    return {
-      fileName: normalizedName,
-      fileKind: kind[0] as 'text' | 'markdown' | 'json',
-      mediaType: kind[1],
-      buffer,
-      normalized,
-    };
   }
 
   // B.1 的 ready 文件没有 normalized_key；升级后从仍保留的原文件重建 COS 正文。
@@ -875,7 +847,7 @@ export class FilesService implements OnModuleInit {
       fileName: file.fileName,
       mediaType: file.mediaType,
       fileKind: file.fileKind as
-        'image' | 'text' | 'markdown' | 'csv' | 'json' | 'pdf' | 'docx' | 'xlsx' | 'pptx',
+        'image' | 'text' | 'markdown' | 'csv' | 'json' | 'html' | 'pdf' | 'docx' | 'xlsx' | 'pptx',
       size: file.size,
       ...(file.width ? { width: file.width } : {}),
       ...(file.height ? { height: file.height } : {}),

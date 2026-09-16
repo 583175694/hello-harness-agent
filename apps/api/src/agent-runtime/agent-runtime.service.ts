@@ -1027,7 +1027,7 @@ export class AgentRuntimeService {
       input === null
     )
       return input;
-    const value = input as { fileName?: unknown; content?: unknown };
+    const value = input as { fileName?: unknown; content?: unknown; sheets?: unknown };
     const content = typeof value.content === 'string' ? value.content : '';
     const base = {
       fileName: typeof value.fileName === 'string' ? value.fileName : '',
@@ -1049,7 +1049,26 @@ export class AgentRuntimeService {
         fileIds: report.fileIds,
       };
     }
-    return base;
+    if (Array.isArray(value.sheets)) {
+      const rows = value.sheets.flatMap((sheet) =>
+        typeof sheet === 'object' &&
+        sheet !== null &&
+        Array.isArray((sheet as { rows?: unknown }).rows)
+          ? (sheet as { rows: unknown[] }).rows
+          : [],
+      );
+      return {
+        inputType: 'workbook',
+        fileName: base.fileName,
+        sheetCount: value.sheets.length,
+        totalRowCount: rows.length,
+        totalCellCount: rows.reduce<number>(
+          (total, row) => total + (Array.isArray(row) ? row.length : 0),
+          0,
+        ),
+      };
+    }
+    return { inputType: 'document', ...base };
   }
 
   private clarificationRequestContent(

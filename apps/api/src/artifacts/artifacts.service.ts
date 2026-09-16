@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { ArtifactRef, CreateFileResult, CreateReportInput, CreateReportResult, ReportRef } from '@harness/agent-protocol';
+import type { ArtifactRef, CreateFileInput, CreateFileResult, CreateReportInput, CreateReportResult, ReportRef } from '@harness/agent-protocol';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
@@ -17,12 +17,11 @@ export class ArtifactsService {
     @Inject(FileStorage) private readonly storage: FileStorage,
   ) {}
 
-  async create(input: {
+  async create(input: CreateFileInput & {
     sessionId: string;
     runId: string;
     toolCallId: string;
-    fileName: string;
-    content: string;
+    signal?: AbortSignal;
   }): Promise<CreateFileResult> {
     const run = await this.prisma.agentRun.findFirst({
       where: {
@@ -62,9 +61,13 @@ export class ArtifactsService {
     const file = await this.files.createGenerated({
       sessionId: input.sessionId,
       fileName: input.fileName,
-      content: input.content,
+      ...(input.content !== undefined ? { content: input.content } : {}),
+      ...(input.sheets !== undefined ? { sheets: input.sheets } : {}),
+      signal: input.signal,
     });
     try {
+      if (input.signal?.aborted)
+        throw new DOMException('The operation was aborted.', 'AbortError');
       const artifact = await this.prisma.artifact.create({
         data: {
           id: crypto.randomUUID(),
@@ -77,6 +80,10 @@ export class ArtifactsService {
         },
         include: { file: true },
       });
+      if (input.signal?.aborted) {
+        await this.files.deleteGeneratedFile(file.fileId);
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }
       return {
         artifact: this.toRef(artifact),
         file: this.files.toPublicRef(artifact.file, false, { artifactId: artifact.id }),
@@ -156,7 +163,14 @@ export class ArtifactsService {
     if (artifact.status === 'deleted') throw this.deleted();
     if (artifact.status !== 'ready') throw new BadRequestException({ code: AGENT_ERROR_CODES.fileNotReady, detail: '产物尚未准备好。' });
     const result = await this.files.preview(artifact.fileId);
-    if ('content' in result) return { content: result.content, contentType: artifact.file.mediaType };
+    if ('content' in result)
+      return {
+        content: result.content,
+        contentType:
+          artifact.file.fileKind === 'json'
+            ? 'application/json; charset=utf-8'
+            : 'text/markdown; charset=utf-8',
+      };
     return { url: result.url, contentType: artifact.file.mediaType };
   }
 
@@ -248,7 +262,7 @@ export class ArtifactsService {
       fileId: artifact.fileId,
       fileName: artifact.file.fileName,
       mediaType: artifact.file.mediaType,
-      fileKind: artifact.file.fileKind as 'text' | 'markdown' | 'json',
+      fileKind: artifact.file.fileKind as ArtifactRef['fileKind'],
       size: artifact.file.size,
       status: artifact.status as ArtifactRef['status'],
       createdAt: artifact.createdAt.toISOString(),

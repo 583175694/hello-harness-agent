@@ -3260,6 +3260,8 @@ textarea:focus-visible {
 }
 .file-card-icon--txt,
 .file-card-icon--md,
+.file-card-icon--markdown,
+.file-card-icon--html,
 .file-card-icon--csv,
 .file-card-icon--json {
   background: #8c8c8c;

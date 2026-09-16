@@ -8,10 +8,13 @@ import { configureHttpBodyParsing } from '../../src/bootstrap/http-body';
 import { HttpExceptionFilter } from '../../src/shared/http-exception.filter';
 import { PrismaService } from '../../src/database/prisma.service';
 import { getDefaultModel } from '../../src/model/model-catalog';
+import { ArtifactsService } from '../../src/artifacts/artifacts.service';
+import type { CreateFileInput, CreateFileResult } from '@harness/agent-protocol';
 
 describe('foundation API', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let artifacts: ArtifactsService;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -20,6 +23,7 @@ describe('foundation API', () => {
     app.useGlobalFilters(new HttpExceptionFilter());
     await app.init();
     prisma = app.get(PrismaService);
+    artifacts = app.get(ArtifactsService);
   });
 
   afterAll(async () => {
@@ -38,6 +42,113 @@ describe('foundation API', () => {
     const response = await request(app.getHttpServer()).get('/readyz').expect(200);
     expect(response.body.checks).toEqual({ database: 'ok', artifactStore: 'ok' });
   });
+
+  it('stores, previews, downloads, and restores all C2-C target formats', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/agent/sessions')
+      .send({ title: '__test__C2-C多格式恢复' })
+      .expect(201);
+    const sessionId = created.body.session.id as string;
+    const runId = crypto.randomUUID();
+    await prisma.agentRun.create({
+      data: {
+        id: runId,
+        sessionId,
+        inputMessageId: crypto.randomUUID(),
+        assistantMessageId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
+        payloadHash: 'c2-c-formats',
+        status: 'completed',
+        provider: getDefaultModel().provider,
+        model: getDefaultModel().id,
+        reasoningEffort: 'high',
+      },
+    });
+    const markdown = '# 中文报告\n\n- 恢复验证\n\n| 类型 | 状态 |\n| --- | --- |\n| C2-C | 正常 |';
+    const inputs: CreateFileInput[] = [
+      { fileName: '中文报告.md', content: markdown },
+      { fileName: '中文报告.html', content: markdown },
+      { fileName: '中文报告.pdf', content: markdown },
+      { fileName: '中文报告.docx', content: markdown },
+      {
+        fileName: '中文数据.xlsx',
+        sheets: [
+          {
+            name: '汇总/表',
+            rows: [
+              ['类型', '数值', '启用'],
+              ['C2-C', 42, true],
+            ],
+          },
+          { name: '汇总表', rows: [['备注'], [null]] },
+        ],
+      },
+    ];
+    const generated: CreateFileResult[] = [];
+    try {
+      for (const [index, input] of inputs.entries()) {
+        generated.push(
+          await artifacts.create({
+            sessionId,
+            runId,
+            toolCallId: `format-${index}`,
+            ...input,
+          }),
+        );
+      }
+      await prisma.message.create({
+        data: {
+          id: crypto.randomUUID(),
+          userId: 'local-user',
+          sessionId,
+          runId,
+          role: 'assistant',
+          kind: 'assistant_delivery',
+          content: '已生成五种格式。',
+          metadata: {
+            model: getDefaultModel().id,
+            blocks: generated.map(({ artifact }, index) => ({
+              id: `artifact-block-${index}`,
+              type: 'artifact',
+              ...artifact,
+            })),
+          },
+        },
+      });
+
+      for (const { artifact, file } of generated) {
+        const download = await request(app.getHttpServer())
+          .get(`/api/agent/artifacts/${artifact.artifactId}/download`)
+          .expect(200);
+        expect(download.headers['content-type']).toContain(file.mediaType.split(';')[0]);
+        expect(download.headers['content-disposition']).toMatch(/attachment/u);
+        expect(download.headers['content-disposition']).toMatch(/UTF-8''/u);
+        expect(Number(download.headers['content-length'])).toBe(file.size);
+
+        const preview = await request(app.getHttpServer())
+          .get(`/api/agent/artifacts/${artifact.artifactId}/preview`)
+          .expect(200);
+        expect(preview.text).toContain(file.fileKind === 'xlsx' ? '[Sheet:' : '# 中文报告');
+      }
+
+      const restored = await request(app.getHttpServer())
+        .get(`/api/agent/sessions/${sessionId}`)
+        .expect(200);
+      const restoredBlocks = restored.body.session.messages[0].metadata.blocks;
+      expect(restoredBlocks.map((block: { fileKind: string }) => block.fileKind)).toEqual([
+        'markdown',
+        'html',
+        'pdf',
+        'docx',
+        'xlsx',
+      ]);
+      expect(restoredBlocks.every((block: { status: string }) => block.status === 'ready')).toBe(
+        true,
+      );
+    } finally {
+      await request(app.getHttpServer()).delete(`/api/agent/sessions/${sessionId}`).expect(200);
+    }
+  }, 30_000);
 
   it('creates, sorts, restores, and cascade-deletes local sessions', async () => {
     const first = await request(app.getHttpServer())

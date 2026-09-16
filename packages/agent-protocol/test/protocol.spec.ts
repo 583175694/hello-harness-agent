@@ -44,13 +44,40 @@ describe('foundation protocol', () => {
     const base = { title: '报告', summary: '摘要', fileName: 'report.md', content: '# 报告' };
     expect(createReportInputSchema.parse(base)).toEqual(base);
   });
-  it('validates C2-A generated artifact contracts strictly', () => {
+  it('validates C2-C generated artifact contracts strictly', () => {
     expect(createFileInputSchema.parse({ fileName: 'report.md', content: '# Report' })).toEqual({
       fileName: 'report.md',
       content: '# Report',
     });
     expect(() => createFileInputSchema.parse({ fileName: '../report.md', content: 'x' })).toThrow();
-    expect(() => createFileInputSchema.parse({ fileName: 'report.pdf', content: 'x' })).toThrow();
+    expect(createFileInputSchema.parse({ fileName: 'report.pdf', content: '# 报告' })).toEqual({
+      fileName: 'report.pdf',
+      content: '# 报告',
+    });
+    expect(
+      createFileInputSchema.parse({
+        fileName: 'report.xlsx',
+        sheets: [
+          {
+            name: '汇总',
+            rows: [
+              ['项目', '数值'],
+              ['完成', 1, true, null],
+            ],
+          },
+        ],
+      }),
+    ).toMatchObject({ fileName: 'report.xlsx' });
+    expect(() =>
+      createFileInputSchema.parse({ fileName: 'report.xlsx', content: 'not rows' }),
+    ).toThrow();
+    expect(() =>
+      createFileInputSchema.parse({
+        fileName: 'report.pdf',
+        content: '# 报告',
+        sheets: [{ name: 'x', rows: [] }],
+      }),
+    ).toThrow();
     expect(() => createFileInputSchema.parse({ fileName: 'report.md', content: '' })).toThrow();
     expect(() =>
       createFileInputSchema.parse({ fileName: 'report.json', content: '{broken' }),
@@ -80,11 +107,33 @@ describe('foundation protocol', () => {
     ).toMatchObject({ artifact, file: { fileId: 'file-1' } });
     expect(
       createFileInputSummarySchema.parse({
+        inputType: 'document',
         fileName: 'report.md',
         contentCharacterCount: 7,
         contentByteCount: 7,
       }),
-    ).toEqual({ fileName: 'report.md', contentCharacterCount: 7, contentByteCount: 7 });
+    ).toEqual({
+      inputType: 'document',
+      fileName: 'report.md',
+      contentCharacterCount: 7,
+      contentByteCount: 7,
+    });
+    expect(
+      createFileInputSummarySchema.parse({
+        inputType: 'workbook',
+        fileName: 'report.xlsx',
+        sheetCount: 2,
+        totalRowCount: 4,
+        totalCellCount: 8,
+      }),
+    ).toMatchObject({ inputType: 'workbook', sheetCount: 2 });
+    expect(
+      createFileInputSummarySchema.parse({
+        fileName: 'legacy.md',
+        contentCharacterCount: 3,
+        contentByteCount: 3,
+      }),
+    ).toMatchObject({ inputType: 'document', fileName: 'legacy.md' });
   });
   it('exports a stable protocol version', () => {
     expect(protocolVersion).toBe('0.14.0');

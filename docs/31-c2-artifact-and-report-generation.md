@@ -431,7 +431,6 @@ generating -> ready
 - 输入校验在写入 COS 前完成。File/Artifact 创建成功而 Report 写入失败的极低概率跨存储异常，当前不提供强事务回滚；遗留对象会随 Session 删除进入统一清理流程。
 - 工具失败、取消或超时不产生正式报告 Artifact；Runtime 可让模型修正参数后重试。同一 Run 可使用不同 `toolCallId` 创建多份报告。
 - 当前不提供单报告删除 UI；用户删除 Session 时级联删除 File、Artifact 和 Report，并执行 COS 清理补偿。后端保留报告/Artifact 删除接口供后续 Workbench 使用。
-- Session 删除继续级联删除 File、Artifact 和 Report，并执行现有 COS 清理补偿。
 - Run 最终回答失败但 Report 已经创建成功时，报告仍作为已交付事实保留，不能把已存在的文件回滚成不存在。
 
 ### 5.9 容量与安全边界

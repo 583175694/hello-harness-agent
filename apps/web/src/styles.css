@@ -141,6 +141,17 @@ textarea:focus-visible {
 .session-row {
   position: relative;
 }
+.session-group + .session-group {
+  margin-top: 18px;
+}
+.session-group__heading {
+  padding: 0 18px 6px 8px;
+  color: var(--theme-text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
 .session-actions {
   position: absolute;
   top: 50%;
@@ -1491,7 +1502,9 @@ textarea:focus-visible {
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, 4px);
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
   backdrop-filter: blur(16px);
 }
 .plan-floating:hover .plan-floating__details,
@@ -1671,8 +1684,9 @@ textarea:focus-visible {
 }
 .pending-input-card__content {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   font-size: 14px;
   font-weight: 400;
@@ -1684,7 +1698,10 @@ textarea:focus-visible {
   color: var(--theme-text-muted);
 }
 .pending-input-card__content span {
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pending-input-card__actions {
   display: flex;

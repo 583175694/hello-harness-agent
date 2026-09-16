@@ -46,10 +46,15 @@ test('renders Markdown lists and the core content components', async ({ page }) 
 
   const markdown = page.locator('.assistant-content .markdown-content');
   await expect(markdown.getByRole('heading', { name: 'Markdown 组件检查' })).toBeVisible();
+  await expect(markdown.getByRole('heading', { level: 3, name: '三级标题' })).toBeVisible();
+  await expect(markdown.getByRole('heading', { level: 6, name: '六级标题' })).toBeVisible();
   await expect(markdown.getByRole('blockquote')).toContainText('人工复核');
   await expect(markdown.getByRole('table')).toBeVisible();
-  await expect(markdown.locator('pre > code')).toContainText('Hello, Markdown');
+  await expect(markdown.locator('pre > code')).toContainText(['Hello, Markdown', 'plain text']);
   await expect(markdown.getByRole('checkbox')).toHaveCount(2);
+  await expect(markdown.getByRole('img', { name: '占位图片' })).toBeVisible();
+  await expect(markdown.locator('.katex')).toHaveCount(2);
+  await expect(markdown).toContainText('生成回答');
 
   const listStyles = await markdown.evaluate((root) => {
     const unordered = root.querySelector('ul:not(.contains-task-list)');

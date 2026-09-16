@@ -4,6 +4,8 @@ import type {
   InterruptSnapshot,
   PlanSnapshot,
   PendingUserInputView,
+  ArtifactRef,
+  FileRef,
 } from '@harness/agent-protocol';
 
 import { AGENT_UI_COPY } from '../config/ui.constants';
@@ -23,8 +25,11 @@ export const PREVIEW_STATES: Array<{ id: PreviewState; label: string }> = [
   { id: 'tool-running', label: '检索中（已收起）' },
   { id: 'tool-running-open', label: '首次调用自动打开' },
   { id: 'plan-running', label: 'Plan 执行中' },
-  { id: 'plan-cleared', label: 'Plan 已清除' },
   { id: 'plan-completed', label: 'Plan 已完成' },
+  { id: 'reasoning', label: '模型推理' },
+  { id: 'artifacts', label: '生成文件' },
+  { id: 'attachments', label: '文件附件' },
+  { id: 'context-compacted', label: 'Context 已压缩' },
   { id: 'sources', label: '来源视图' },
   { id: 'fetch-running', label: '读取网页中' },
   { id: 'fetch-candidate', label: '已读网页' },
@@ -192,27 +197,24 @@ function makeFetchFixture(
   };
 }
 
-// 创建计划浮标的开发预览，覆盖执行中、清除和全部完成三种状态。
-function makePlanFixture(state: 'plan-running' | 'plan-cleared' | 'plan-completed'): AgentUiState {
+// 创建计划浮标的开发预览；空计划与完成计划都会隐藏浮标，因此只保留完成态。
+function makePlanFixture(state: 'plan-running' | 'plan-completed'): AgentUiState {
   const runId = `run-${state}-preview`;
-  const plan: PlanSnapshot =
-    state === 'plan-cleared'
-      ? { plan: [] }
-      : {
-          explanation: '按资料收集、分析和交付三个阶段推进任务。',
-          plan:
-            state === 'plan-completed'
-              ? [
-                  { step: '收集并核实关键资料', status: 'completed' },
-                  { step: '分析资料并整理结论', status: 'completed' },
-                  { step: '输出最终结果', status: 'completed' },
-                ]
-              : [
-                  { step: '收集并核实关键资料', status: 'in_progress' },
-                  { step: '分析资料并整理结论', status: 'pending' },
-                  { step: '输出最终结果', status: 'pending' },
-                ],
-        };
+  const plan: PlanSnapshot = {
+    explanation: '按资料收集、分析和交付三个阶段推进任务。',
+    plan:
+      state === 'plan-completed'
+        ? [
+            { step: '收集并核实关键资料', status: 'completed' },
+            { step: '分析资料并整理结论', status: 'completed' },
+            { step: '输出最终结果', status: 'completed' },
+          ]
+        : [
+            { step: '收集并核实关键资料', status: 'in_progress' },
+            { step: '分析资料并整理结论', status: 'pending' },
+            { step: '输出最终结果', status: 'pending' },
+          ],
+  };
   const running = state !== 'plan-completed';
   const workbench = {
     ...makeWorkbench('tool-running-open', runId),
@@ -245,6 +247,203 @@ function makePlanFixture(state: 'plan-running' | 'plan-cleared' | 'plan-complete
     workbench,
     activeRunId: running ? runId : undefined,
     previewSubmitting: running,
+  };
+}
+
+// 用一个已完成的推理轮展示可折叠 reasoning，而不依赖流式事件。
+function makeReasoningFixture(): AgentUiState {
+  const runId = 'run-reasoning-preview';
+  return {
+    label: '模型推理预览',
+    subtitle: 'Reasoning 内容块',
+    conversation: [
+      { id: 'reasoning-user', kind: 'user', content: '比较两种方案，并说明最终建议。' },
+      {
+        id: runId,
+        kind: 'assistant',
+        deliveryStatus: 'completed',
+        blocks: [
+          {
+            id: 'reasoning-block-1',
+            type: 'reasoning',
+            roundId: 'reasoning-round-1',
+            roundSequence: 1,
+            blockSequence: 0,
+            content:
+              '先比较交付速度、维护成本与扩展空间。方案 A 上线更快，但方案 B 的长期维护成本更低，且更适合后续增加数据源。',
+            startedAt: '2026-09-16T02:00:00.000Z',
+            completedAt: '2026-09-16T02:00:08.000Z',
+            durationMs: 8_000,
+          },
+          {
+            id: 'reasoning-final-1',
+            type: 'text',
+            phase: 'final',
+            content: '建议选择方案 B：初期投入略高，但维护成本和扩展风险更可控。',
+          },
+        ],
+      },
+    ],
+  };
+}
+
+const previewArtifacts: ArtifactRef[] = [
+  {
+    artifactId: 'artifact-report-preview',
+    fileId: 'file-report-preview',
+    fileName: '市场调研报告.pdf',
+    mediaType: 'application/pdf',
+    fileKind: 'pdf',
+    size: 284_320,
+    status: 'ready',
+    createdAt: '2026-09-16T02:10:00.000Z',
+  },
+  {
+    artifactId: 'artifact-data-preview',
+    fileId: 'file-data-preview',
+    fileName: '市场数据.xlsx',
+    mediaType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    fileKind: 'xlsx',
+    size: 96_512,
+    status: 'ready',
+    createdAt: '2026-09-16T02:10:01.000Z',
+  },
+  {
+    artifactId: 'artifact-doc-preview',
+    fileId: 'file-doc-preview',
+    fileName: '执行摘要.docx',
+    mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    fileKind: 'docx',
+    size: 51_204,
+    status: 'ready',
+    createdAt: '2026-09-16T02:10:02.000Z',
+  },
+];
+
+// 组合展示多格式 Artifact 的 Conversation 卡片和 Workbench 列表。
+function makeArtifactFixture(): AgentUiState {
+  const runId = 'run-artifact-preview';
+  const blocks: AssistantContentBlock[] = [
+    text('artifact-final-text', '报告、数据表和执行摘要已经生成，可分别预览或下载。'),
+    ...previewArtifacts.map((artifact, index) => ({
+      id: `artifact-block-${index + 1}`,
+      type: 'artifact' as const,
+      ...artifact,
+    })),
+  ];
+  const workbench = {
+    runId,
+    title: '交付文件',
+    subtitle: `${previewArtifacts.length} 个文件已就绪`,
+    activeView: 'artifact' as const,
+    activityStatus: 'completed' as const,
+    controlPhase: 'terminal' as const,
+    executions: [],
+    followMode: 'auto' as const,
+    sources: [],
+    artifacts: previewArtifacts,
+    open: true,
+  };
+  return {
+    label: '多格式交付物',
+    subtitle: 'PDF、XLSX 与 DOCX',
+    conversation: [
+      { id: 'artifact-user', kind: 'user', content: '请生成报告、数据表和执行摘要。' },
+      { id: runId, kind: 'assistant', deliveryStatus: 'completed', blocks, workbench },
+    ],
+    workbench,
+  };
+}
+
+const previewAttachments: FileRef[] = [
+  {
+    fileId: 'attachment-image-preview',
+    fileName: '产品草图.png',
+    mediaType: 'image/png',
+    fileKind: 'image',
+    size: 184_320,
+    width: 960,
+    height: 640,
+    status: 'ready',
+    previewUrl:
+      'data:image/svg+xml;charset=utf-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="960" height="640"%3E%3Crect width="960" height="640" fill="%23e8eef5"/%3E%3Crect x="100" y="90" width="760" height="460" rx="24" fill="%23ffffff" stroke="%2394a3b8" stroke-width="4"/%3E%3Ctext x="480" y="330" text-anchor="middle" font-family="sans-serif" font-size="42" fill="%23475569"%3E产品草图%3C/text%3E%3C/svg%3E',
+  },
+  {
+    fileId: 'attachment-document-preview',
+    fileName: '需求说明.pdf',
+    mediaType: 'application/pdf',
+    fileKind: 'pdf',
+    size: 428_032,
+    pageCount: 12,
+    status: 'ready',
+  },
+];
+
+// 历史用户消息直接携带附件，覆盖图片缩略图和文档卡片两种展示。
+function makeAttachmentFixture(): AgentUiState {
+  return {
+    label: '附件消息',
+    subtitle: '图片与文档',
+    conversation: [
+      {
+        id: 'attachment-user',
+        kind: 'user',
+        content: '请结合草图和需求说明给出实现建议。',
+        attachments: previewAttachments,
+      },
+      {
+        id: 'attachment-answer',
+        kind: 'assistant',
+        deliveryStatus: 'completed',
+        blocks: [text('attachment-answer-text', '已读取图片和 PDF，建议先统一信息层级，再补充交互状态说明。')],
+      },
+    ],
+  };
+}
+
+// 展示触发压缩后的 Context 预算提示和可检查的 Context 工作区。
+function makeContextFixture(): AgentUiState {
+  const context = {
+    version: 1 as const,
+    roundSequence: 6,
+    attempt: 1,
+    estimatedInputTokens: 508_400,
+    promptBudget: 566_000,
+    compactionTriggered: true,
+    finalResponseOnly: false,
+    messages: [],
+    tools: [],
+  };
+  const workbench = {
+    runId: 'run-context-preview',
+    title: 'Context 调试',
+    subtitle: 'Model Round 6',
+    activeView: 'context' as const,
+    activityStatus: 'running' as const,
+    controlPhase: 'tool_loop' as const,
+    executions: [],
+    followMode: 'auto' as const,
+    sources: [],
+    context,
+    open: true,
+  };
+  return {
+    label: '长会话 Context',
+    subtitle: '已触发上下文压缩',
+    conversation: [
+      { id: 'context-user', kind: 'user', content: '继续基于前面的长对话完成分析。' },
+      {
+        id: 'run-context-preview',
+        kind: 'assistant',
+        pending: true,
+        blocks: [text('context-process', '已压缩较早的对话内容，正在继续处理当前任务。')],
+        workbench,
+      },
+    ],
+    workbench,
+    context,
+    activeRunId: 'run-context-preview',
+    previewSubmitting: true,
   };
 }
 
@@ -358,12 +557,12 @@ function activityStatus(state: PreviewState): AssistantToolActivityBlock['status
 function runtimeStatus(state: PreviewState): ActivityStatus {
   if (state === 'queued') return 'queued';
   if (state === 'final-answer') return 'final_answer';
+  if (state === 'cancel-requested') return 'cancelling';
   if (state === 'clarification' || state === 'tool-approval') return 'waiting_for_user';
   if (state === 'waiting') return 'waiting';
   if (state === 'pause-requested') return 'pause_requested';
   if (state === 'paused') return 'paused';
   if (state === 'resuming') return 'resuming';
-  if (state === 'cancel-requested') return 'cancelling';
   if (state === 'cancelling') return 'cancelling';
   if (state === 'cancelled') return 'cancelled';
   if (state === 'failed') return 'failed';
@@ -509,11 +708,25 @@ export function makeFixture(state: PreviewState): AgentUiState {
               'a1-text-1',
               `# Markdown 组件检查
 
-生成式 AI 是能够生成**文本**、*图像*、~~过时内容~~、\`代码\`等新内容的人工智能系统。[了解更多](https://example.com)。
+这是一段普通文本，包含**粗体**、*斜体*、***粗斜体***、~~删除线~~、\`行内代码\`，以及 [外部链接](https://example.com)。
+
+![占位图片](https://placehold.co/640x180/e8eef5/475569?text=Markdown+Image "图片标题")
 
 > 生成结果仍然需要人工复核。
+>
+> 支持多段引用与换行。
 
-## 使用要点
+## 标题层级
+
+### 三级标题
+
+#### 四级标题
+
+##### 五级标题
+
+###### 六级标题
+
+## 列表与任务
 
 - 明确目标
   - 补充必要上下文
@@ -528,13 +741,37 @@ export function makeFixture(state: PreviewState): AgentUiState {
 - [x] 明确目标
 - [ ] 人工复核
 
-| 能力 | 示例 |
-| --- | --- |
-| 文本 | 摘要与问答 |
-| 代码 | 生成与解释 |
+## 表格与代码
+
+| 能力 | 示例 | 覆盖 |
+| :--- | :---: | ---: |
+| 文本 | 摘要与问答 | ✅ |
+| 代码 | 生成与解释 | ✅ |
 
 \`\`\`ts
 const answer = 'Hello, Markdown';
+console.log(answer);
+\`\`\`
+
+未标注语言的代码块也会保留：
+
+\`\`\`
+plain text
+\`\`\`
+
+## 数学与流程图
+
+行内公式 $E = mc^2$，块级公式：
+
+$$
+\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}
+$$
+
+\`\`\`mermaid
+flowchart LR
+  A[输入] --> B{校验}
+  B -->|通过| C[生成回答]
+  B -->|失败| D[提示修正]
 \`\`\`
 
 ---
@@ -559,9 +796,14 @@ const answer = 'Hello, Markdown';
   if (state === 'fetch-running' || state === 'fetch-candidate' || state === 'fetch-failed') {
     return makeFetchFixture(state);
   }
-  if (state === 'plan-running' || state === 'plan-cleared' || state === 'plan-completed') {
+  if (state === 'plan-running' || state === 'plan-completed') {
     return makePlanFixture(state);
   }
+
+  if (state === 'reasoning') return makeReasoningFixture();
+  if (state === 'artifacts') return makeArtifactFixture();
+  if (state === 'attachments') return makeAttachmentFixture();
+  if (state === 'context-compacted') return makeContextFixture();
 
   const runId =
     state === 'final-report' || state === 'limited-report'
@@ -589,8 +831,20 @@ const answer = 'Hello, Markdown';
     blocks.push(text(`${runId}-text-2`, '当前任务继续执行，后续消息会在完成后按顺序启动。'));
   if (state === 'steer-pending')
     blocks.push(text(`${runId}-text-2`, '方向调整已进入队列，将在下一安全步骤应用。'));
-  if (state === 'steer-accepted')
-    blocks.push(text(`${runId}-text-2`, '已接受调整，接下来会重点补充中国市场的产业应用案例。'));
+  if (state === 'steer-accepted') {
+    blocks.push({
+      id: `${runId}-intervention-1`,
+      type: 'user_intervention',
+      roundId: 'preview-round-2',
+      roundSequence: 2,
+      blockSequence: 0,
+      inputId: 'preview-steer-applied-1',
+      content: '优先关注产业应用案例。',
+    });
+    blocks.push(
+      text(`${runId}-text-2`, '已接受调整，接下来会重点补充中国市场的产业应用案例。'),
+    );
+  }
   if (state === 'cancelling') blocks.push(text(`${runId}-text-2`, '正在安全停止当前检索。'));
   if (state === 'cancelled')
     blocks.push(text(`${runId}-text-2`, '任务已取消，取消前的来源快照仍保留在工作台中。'));

@@ -1,8 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { App, AppShell, applyToolEvent, workbenchFromPersistedMessage } from './app';
-import type { PersistedMessage, WebFetchResult } from '@harness/agent-protocol';
+import {
+  App,
+  AppShell,
+  applyToolEvent,
+  groupSessionSummaries,
+  workbenchFromPersistedMessage,
+} from './app';
+import type { PersistedMessage, SessionSummary, WebFetchResult } from '@harness/agent-protocol';
 import type { ToolStreamEvent } from './api/client';
 import { Composer } from './features/agent/components/conversation';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
@@ -84,6 +90,44 @@ describe('R1 workbench shell', () => {
     vi.restoreAllMocks();
     window.history.replaceState({}, '', '/agent');
     mockReady();
+  });
+
+  it('groups sessions into exclusive local-time ranges and keeps pinned sessions first', () => {
+    const now = new Date(2026, 8, 16, 12);
+    const session = (id: string, daysAgo: number, isPinned = false, hour = 10): SessionSummary => {
+      const updatedAt = new Date(2026, 8, 16 - daysAgo, hour).toISOString();
+      return {
+        id,
+        title: id,
+        status: 'active',
+        isPinned,
+        createdAt: updatedAt,
+        updatedAt,
+      };
+    };
+    const groups = groupSessionSummaries(
+      [
+        session('older', 45),
+        session('this-month', 14),
+        session('this-week-older', 5),
+        session('today-older', 0, false, 8),
+        session('yesterday', 1),
+        session('today-latest', 0, false, 11),
+        session('pinned-old', 120, true),
+      ],
+      now,
+    );
+
+    expect(groups.map((group) => group.label)).toEqual([
+      '置顶',
+      '今天',
+      '昨天',
+      '过去 7 天',
+      '过去 30 天',
+      '更早',
+    ]);
+    expect(groups[1]?.sessions.map((item) => item.id)).toEqual(['today-latest', 'today-older']);
+    expect(groups.flatMap((group) => group.sessions)).toHaveLength(7);
   });
 
   it('renders the production empty state without an empty workbench', async () => {
@@ -469,10 +513,13 @@ describe('R1 workbench shell', () => {
         'clarification',
         'tool-approval',
         'final-answer',
-        'cancel-requested',
         'follow-up-pending',
         'steer-pending',
         'steer-accepted',
+        'reasoning',
+        'artifacts',
+        'attachments',
+        'context-compacted',
       ]),
     );
     expect(makeFixture('follow-up-pending').pendingInputs).toEqual(
@@ -489,6 +536,52 @@ describe('R1 workbench shell', () => {
       kind: 'tool_approval',
       status: 'pending',
     });
+    expect(
+      makeFixture('steer-accepted').conversation.some(
+        (item) =>
+          item.kind === 'assistant' &&
+          item.blocks.some((block) => block.type === 'user_intervention'),
+      ),
+    ).toBe(true);
+  });
+
+  it('covers reasoning, artifacts, attachments, and compacted context in preview fixtures', () => {
+    expect(makeFixture('reasoning').conversation).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'assistant',
+          blocks: expect.arrayContaining([expect.objectContaining({ type: 'reasoning' })]),
+        }),
+      ]),
+    );
+    expect(makeFixture('artifacts').workbench?.artifacts).toHaveLength(3);
+    expect(makeFixture('attachments').conversation[0]).toMatchObject({
+      kind: 'user',
+      attachments: expect.arrayContaining([
+        expect.objectContaining({ fileKind: 'image' }),
+        expect.objectContaining({ fileKind: 'pdf' }),
+      ]),
+    });
+    expect(makeFixture('context-compacted').context).toMatchObject({
+      compactionTriggered: true,
+    });
+    expect(PREVIEW_STATES.map((item) => item.id)).not.toContain('plan-cleared');
+  });
+
+  it.each([
+    ['reasoning', 'Thought for 8 seconds'],
+    ['artifacts', '市场调研报告.pdf'],
+    ['context-compacted', 'Model Round 6'],
+  ] as const)('renders the %s feature preview', (state, expectedText) => {
+    window.history.replaceState({}, '', `/agent/preview?state=${state}`);
+    render(<App />);
+    expect(screen.getAllByText(expectedText).length).toBeGreaterThan(0);
+  });
+
+  it('renders the attachments feature preview', () => {
+    window.history.replaceState({}, '', '/agent/preview?state=attachments');
+    render(<App />);
+    expect(screen.getByRole('button', { name: '预览需求说明.pdf' })).toBeInTheDocument();
   });
 
   it('renders fetched passages as unnumbered read sources', () => {

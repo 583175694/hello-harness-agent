@@ -807,6 +807,57 @@ function sortSessionSummaries(items: SessionSummary[]): SessionSummary[] {
   });
 }
 
+export type SessionTimeGroup = {
+  id: 'pinned' | 'today' | 'yesterday' | 'week' | 'month' | 'older';
+  label: '置顶' | '今天' | '昨天' | '过去 7 天' | '过去 30 天' | '更早';
+  sessions: SessionSummary[];
+};
+
+// 按用户本地自然日和最近活动时间分组；各时间区间互斥，置顶会话独立置于最前。
+export function groupSessionSummaries(
+  items: SessionSummary[],
+  now = new Date(),
+): SessionTimeGroup[] {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const boundary = (daysAgo: number) => {
+    const value = new Date(startOfToday);
+    value.setDate(value.getDate() - daysAgo);
+    return value.getTime();
+  };
+  const today = startOfToday.getTime();
+  const yesterday = boundary(1);
+  const week = boundary(7);
+  const month = boundary(30);
+  const pinned: SessionTimeGroup = { id: 'pinned', label: '置顶', sessions: [] };
+  const todayGroup: SessionTimeGroup = { id: 'today', label: '今天', sessions: [] };
+  const yesterdayGroup: SessionTimeGroup = { id: 'yesterday', label: '昨天', sessions: [] };
+  const weekGroup: SessionTimeGroup = { id: 'week', label: '过去 7 天', sessions: [] };
+  const monthGroup: SessionTimeGroup = { id: 'month', label: '过去 30 天', sessions: [] };
+  const older: SessionTimeGroup = { id: 'older', label: '更早', sessions: [] };
+  const groups = [pinned, todayGroup, yesterdayGroup, weekGroup, monthGroup, older];
+
+  for (const session of sortSessionSummaries(items)) {
+    if (session.isPinned) {
+      pinned.sessions.push(session);
+      continue;
+    }
+    const updatedAt = new Date(session.updatedAt).getTime();
+    const target =
+      updatedAt >= today
+        ? todayGroup
+        : updatedAt >= yesterday
+          ? yesterdayGroup
+          : updatedAt >= week
+            ? weekGroup
+            : updatedAt >= month
+              ? monthGroup
+              : older;
+    target.sessions.push(session);
+  }
+
+  return groups.filter((group) => group.sessions.length > 0);
+}
+
 function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }) {
   return (
     <button
@@ -1163,7 +1214,17 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       setSessionStates((current) => {
         const target = current[sessionId];
         if (!target) return current;
-        return { ...current, [sessionId]: { ...target, conversation: target.conversation.map((item) => item.kind === 'assistant' && item.id === reasoning.messageId ? { ...item, blocks: appendReasoningDelta(item.blocks, reasoning) } : item) } };
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' && item.id === reasoning.messageId
+                ? { ...item, blocks: appendReasoningDelta(item.blocks, reasoning) }
+                : item,
+            ),
+          },
+        };
       });
       runSequencesRef.current[event.runId] = event.seq;
       return;
@@ -1181,7 +1242,22 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           ...current,
           [sessionId]: {
             ...target,
-            conversation: target.conversation.map((item) => item.kind === 'assistant' && item.blocks.some((b) => b.type === 'reasoning' && b.roundSequence === round.observation.roundSequence) ? { ...item, blocks: completeReasoning(item.blocks, round.observation.roundSequence, round.observation.durationMs) } : item),
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' &&
+              item.blocks.some(
+                (b) =>
+                  b.type === 'reasoning' && b.roundSequence === round.observation.roundSequence,
+              )
+                ? {
+                    ...item,
+                    blocks: completeReasoning(
+                      item.blocks,
+                      round.observation.roundSequence,
+                      round.observation.durationMs,
+                    ),
+                  }
+                : item,
+            ),
             ...(round.context ? { context: round.context } : {}),
             workbench,
           },
@@ -1586,12 +1662,15 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       try {
         const { session } = await getSession(sessionId);
         if (session.activeRun) {
-          await loadSessionDetail(sessionId);
+          // This session was already loaded before the terminal Run. Force a
+          // detail refresh so the newly-created follow-up messages and Run are
+          // merged into the live UI instead of being hidden by the cache guard.
+          await loadSessionDetail(sessionId, true);
           return;
         }
         // 没有 active Run 时仍刷新一次，确保已消费的队列卡片被移除；
         // 后续重试负责覆盖 dispatcher 尚未完成的窗口。
-        if (delay === delays[delays.length - 1]) await loadSessionDetail(sessionId);
+        if (delay === delays[delays.length - 1]) await loadSessionDetail(sessionId, true);
       } catch {
         // 下一轮重试会重新读取 Durable 状态；终态本身已经可靠持久化。
       }
@@ -2621,6 +2700,7 @@ function Sidebar({
   const [editingSession, setEditingSession] = useState<SessionSummary | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [savingTitle, setSavingTitle] = useState(false);
+  const sessionGroups = sessions ? groupSessionSummaries(sessions) : [];
 
   // 在菜单外点击或按 Escape 时关闭临时操作界面。
   useEffect(() => {
@@ -2757,41 +2837,48 @@ function Sidebar({
             </div>
           ) : null}
           {sessions ? (
-            sessions.map((session) => (
-              <div className="session-row" key={session.id}>
-                <button
-                  className={`session-item mb-0.5 flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-transparent px-2.5 py-2 pr-12 text-left text-text-primary transition-colors hover:bg-surface-hover ${selectedSessionId === session.id ? 'is-active bg-surface-hover' : ''}`}
-                  type="button"
-                  onClick={() => onSelect?.(session.id)}
-                  aria-label={
-                    pendingSessions?.[session.id] ? `${session.title}，正在生成回复` : session.title
-                  }
-                >
-                  {pendingSessions?.[session.id] ? (
-                    <span className="activity-bars session-activity" aria-hidden="true">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                  ) : null}
-                  <span className="session-item__title min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-normal">
-                    {session.title}
-                  </span>
-                </button>
-                <div className="session-actions">
-                  <button
-                    className="session-more icon-button icon-button--small"
-                    type="button"
-                    aria-label={`更多操作 ${session.title}`}
-                    aria-haspopup="menu"
-                    aria-expanded={menuSessionId === session.id}
-                    title="更多操作"
-                    onClick={(event) => toggleSessionMenu(session.id, event)}
-                  >
-                    <Ellipsis size={16} />
-                  </button>
-                </div>
-              </div>
+            sessionGroups.map((group) => (
+              <section className="session-group" key={group.id} aria-label={group.label}>
+                <div className="session-group__heading">{group.label}</div>
+                {group.sessions.map((session) => (
+                  <div className="session-row" key={session.id}>
+                    <button
+                      className={`session-item mb-0.5 flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-transparent px-2.5 py-2 pr-12 text-left text-text-primary transition-colors hover:bg-surface-hover ${selectedSessionId === session.id ? 'is-active bg-surface-hover' : ''}`}
+                      type="button"
+                      onClick={() => onSelect?.(session.id)}
+                      aria-label={
+                        pendingSessions?.[session.id]
+                          ? `${session.title}，正在生成回复`
+                          : session.title
+                      }
+                    >
+                      {pendingSessions?.[session.id] ? (
+                        <span className="activity-bars session-activity" aria-hidden="true">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                      ) : null}
+                      <span className="session-item__title min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-normal">
+                        {session.title}
+                      </span>
+                    </button>
+                    <div className="session-actions">
+                      <button
+                        className="session-more icon-button icon-button--small"
+                        type="button"
+                        aria-label={`更多操作 ${session.title}`}
+                        aria-haspopup="menu"
+                        aria-expanded={menuSessionId === session.id}
+                        title="更多操作"
+                        onClick={(event) => toggleSessionMenu(session.id, event)}
+                      >
+                        <Ellipsis size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </section>
             ))
           ) : (
             <>

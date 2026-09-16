@@ -1,8 +1,8 @@
 # C2 Artifact & Report Generation / 产物与报告生成方案
 
-> 文档状态：C2-A 与当前范围的 C2-B 已实施，C2-C/C2-D 待后续推进。
+> 文档状态：C2-A、当前范围的 C2-B 与 C2-C 已实施；C2-D 方案已冻结，待实施。
 >
-> 最后更新：2026-09-15。
+> 最后更新：2026-09-16。
 >
 > 本文记录 C2 产物与报告生成能力的阶段方向，以及已经落地的 C2-A/C2-B 当前边界。Workbench 后续将独立重构，因此当前 C2-B 复用 Artifact 查看与下载链路，不冻结专用 Report Workbench。
 
@@ -34,7 +34,8 @@ C2  Artifact & Report Generation
 | --------- | -------------- | -------------------------------------------------------- |
 | C2-A      | 已实现         | 通用生成文件、Artifact、预览、下载、删除和恢复闭环已落地 |
 | C2-B      | 当前范围已实现 | 正式 Markdown 报告、多报告持久化、Artifact 交付与恢复    |
-| C2-C-C2-D | 待细化         | 只记录目标和阶段边界                                     |
+| C2-C      | 已实现         | Markdown、HTML、PDF、DOCX、XLSX 多格式输出闭环已落地    |
+| C2-D      | 方案已冻结     | 线性不可变版本、恢复、失败隔离与会话恢复，待实施         |
 
 ## 3. C2 总体目标
 
@@ -901,14 +902,213 @@ C2-C 方案已足够进入实现，不再等待新的产品或架构讨论。新
 
 ## 7. C2-D 产物版本与迭代
 
-> 状态：待细化。
+> 状态：方案已冻结，待实施。
 
-核心方向：
+### 7.1 阶段定位
 
-- 用户可以基于已有 Artifact 提出修改要求并生成新版本。
-- 旧版本不被静默覆盖。
-- 支持版本关系、恢复和失败重试。
-- 首选“新 Run 生成新版本”，不预设在线编辑器或复杂文档协作。
+C2-D 把现有“每次 `create_file` 创建一个独立 Artifact”的能力扩展为可追踪、可恢复的线性版本历史，但不把系统扩展成在线编辑器或完整版本控制平台。
+
+阶段目标：
+
+> 用户可以基于已有 Artifact 发起新的 Run 生成下一版本；所有成功版本保持不可变且可独立预览、下载和恢复；恢复旧版本本身也生成一个新的最新版本，不覆盖或删除任何历史事实。
+
+该方案采用市场上成熟 Agent 产品已经验证的共同语义：不可变版本、线性历史、恢复生成新版本、Artifact 历史与聊天历史分离。首版只实现满足用户闭环所需的最小版本模型，不预先引入分支、合并、Draft 或多人协作能力。
+
+### 7.2 核心原则
+
+1. 每次修改由新的 Run 驱动，并创建新的 `File` 和 `Artifact`；旧 File、Artifact、Run、消息和工具调用不被覆盖或删除。
+2. 同一个逻辑产物的版本组成单一线性时间线，首版不实现 Git 式 DAG、分支或合并。
+3. 恢复旧版本不是把当前指针倒退，而是复制指定旧版本的内容并创建一个新的最新版本。
+4. 只有 File 和 Artifact 均完整持久化并进入 `ready` 状态后，才能推进当前版本。
+5. 失败、取消、超时和并发冲突保留对应 Run 事实，但不得改变当前版本或产生伪成功 Artifact。
+6. `create_file` 仍是模型创建版本的唯一写入工具；C2-D 不新增 `edit_file`、局部 patch 或任意文件覆盖协议。
+7. Markdown、HTML、PDF、DOCX、XLSX 使用相同的版本语义；格式差异只属于已有渲染与预览链路。
+
+### 7.3 领域模型
+
+C2-D 增加轻量 `ArtifactSeries`，用于表示跨版本稳定的“同一个逻辑产物”。它只承担系列身份、展示名称和当前版本指针，不承载分支、权限、协作者或发布流程。
+
+```text
+ArtifactSeries
+- id
+- sessionId
+- logicalName
+- currentArtifactId nullable
+- createdAt
+- updatedAt
+```
+
+现有 `Artifact` 增加以下版本字段：
+
+```text
+Artifact
+- 现有字段
+- seriesId
+- versionNumber
+- parentArtifactId nullable
+- sourceArtifactId nullable
+- operation: create | revise | restore
+- changeSummary nullable
+```
+
+字段语义：
+
+- `seriesId`：同一个逻辑产物跨版本的稳定身份。
+- `versionNumber`：系列内单调递增的展示版本号，从 1 开始。
+- `parentArtifactId`：线性时间线中的直接上一版本。
+- `sourceArtifactId`：可选的内容来源。普通修改通常为空；恢复时指向被恢复的旧版本。
+- `operation`：区分首次创建、基于版本修改和恢复。
+- `changeSummary`：可选的人类可读摘要，不参与版本正确性判断。
+
+必须满足以下约束：
+
+```text
+unique(seriesId, versionNumber)
+unique(runId, toolCallId)  // 继续沿用现有工具重放幂等
+currentArtifactId 必须属于同一个 series
+currentArtifactId 只能指向 ready Artifact
+每个 Artifact 继续一对一关联自己的 File
+```
+
+`ArtifactSeries` 是有意保持轻量的聚合根。只使用 `parentArtifactId` 虽然可以勉强表达版本链，但会把当前版本查询、并发更新、系列级名称和生命周期隐含在排序规则中；为这些稳定需求引入一个小型 Series 实体，收益高于额外模型成本，不视为过度设计。
+
+### 7.4 创建和迭代流程
+
+首次生成：
+
+```text
+新 Run 调用 create_file
+-> 创建 File 并完成格式渲染、存储和 normalized content
+-> 创建 ArtifactSeries
+-> 创建 Artifact(versionNumber = 1, operation = create)
+-> Artifact ready
+-> 事务性设置 currentArtifactId = v1
+```
+
+基于已有版本修改：
+
+```text
+用户选择或明确引用 baseArtifactId
+-> 创建新 Run
+-> 通过现有文件读取能力取得该版本的 normalized content
+-> 模型调用现有 create_file 生成完整新文件
+-> 创建下一 versionNumber 的 File 和 Artifact
+-> 成功后事务性推进 currentArtifactId
+```
+
+修改请求必须解析为明确的 `seriesId`、`baseArtifactId` 和 `expectedCurrentArtifactId`。模型可以基于任意历史版本生成内容，但新版本始终追加到该系列的当前线性时间线，不创建隐式分支。
+
+不允许模型直接传入 `seriesId`、版本号、父节点或内部存储信息。Runtime/服务端根据用户选中的版本上下文、当前系列状态和工具调用事实建立关系，避免模型伪造版本拓扑。
+
+### 7.5 恢复语义
+
+恢复必须生成新版本。假设已有：
+
+```text
+v1 -> v2 -> v3 (current)
+```
+
+用户恢复 v1 后形成：
+
+```text
+v1 -> v2 -> v3 -> v4 (current)
+                  operation = restore
+                  parentArtifactId = v3
+                  sourceArtifactId = v1
+```
+
+v2、v3 仍然可以预览和下载，聊天、Run 和工具事件也全部保留。恢复前需要用户确认；恢复成功应在会话时间线中留下可理解的事件，并能关联到来源版本和产生新版本的 Run。
+
+恢复复用已持久化的原始文件内容，不重新要求模型复述或转换内容。恢复产生新的 File 和 Artifact，以保证新版本拥有独立、稳定的文件身份和下载语义。
+
+### 7.6 并发、失败与幂等
+
+推进当前版本必须在事务中执行，并使用最小乐观并发保护：
+
+```text
+UPDATE ArtifactSeries
+SET currentArtifactId = newArtifactId
+WHERE id = seriesId
+  AND currentArtifactId = expectedCurrentArtifactId
+```
+
+条件不匹配表示生成期间已有其他版本成为 current。系统返回明确、可重试的版本冲突，不静默覆盖，也不在 C2-D 中尝试自动合并。冲突生成的未发布文件和记录按现有失败清理边界处理，不成为正式版本。
+
+可靠性边界：
+
+- 版本号分配、Artifact 创建和 current 推进需要通过数据库约束与事务避免重复或跳号造成错误指向。
+- 同一 `runId + toolCallId` 重放返回同一结果，不重复创建版本。
+- File 写入或渲染失败时不创建 ready Artifact，不推进 current，并清理孤儿存储对象。
+- Artifact 已创建但 current 推进失败时，不得把它投影为当前成功版本；服务端应返回冲突并执行一致的失败清理或失败状态记录。
+- 重试创建新的 Run；除工具调用幂等重放外，不复用失败 Run 冒充新的版本操作。
+
+### 7.7 展示与交互范围
+
+C2-D 首版提供：
+
+- Artifact 卡片显示 `vN` 和当前版本标识；
+- Workbench 展示同一 Series 的版本列表、时间、操作类型、变更摘要和来源 Run；
+- 任一历史版本均可按其格式预览和下载；
+- 支持“基于此版本修改”和“恢复此版本”；
+- 恢复前明确确认，完成后显示新的恢复版本；
+- 刷新、重连和重新进入 Session 后恢复 Series、当前版本、完整版本列表及其 Run/消息关系；
+- Markdown 和 normalized text 可以使用已有文本能力展示基础差异，但 diff 不是首版完成条件。
+
+首版不要求 PDF、DOCX、XLSX 的二进制或视觉 diff。版本列表展示的是不可变的已完成 Artifact，不展示未完成文件为可用版本。
+
+### 7.8 明确不做
+
+C2-D 首版不包括：
+
+- 分支、合并、Draft 或 Git 式 DAG；
+- 多人实时协作和在线富文本编辑；
+- 任意局部 patch、覆盖写入或段落级编辑协议；
+- 跨格式无损版本转换；
+- 数据库或外部系统状态回滚；
+- PDF、DOCX、XLSX 的二进制或视觉 diff；
+- 复杂版本命名、书签、发布通道和版本删除恢复；
+- PPTX 生成或 PPTX 特有的页面级版本比较。
+
+这些能力只有在真实使用数据证明必要时才另行设计，不提前污染当前 Artifact 和工具协议。
+
+### 7.9 实施顺序
+
+按以下顺序实施，不并行扩张协议：
+
+1. 增加 `ArtifactSeries` 及 Artifact 版本字段、约束和迁移；
+2. 扩展服务层，使现有 `create_file` 成功路径能够创建 v1 或追加新版本；
+3. 实现 current 的事务推进、工具重放幂等、失败清理和乐观并发冲突；
+4. 实现恢复服务，以旧版本内容创建新的 File 和 Artifact；
+5. 扩展 canonical projection 和会话恢复数据，返回 Series、current 和版本列表；
+6. 实现版本标识、版本列表、预览、下载、恢复确认和基于版本修改入口；
+7. 补齐单元测试、集成测试、类型检查、构建和真实端到端测试。
+
+如果实施发现必须引入新模型工具、分支合并、通用文档 AST、局部 patch 协议或在线编辑器才能完成，应停止实施并回到方案评审，不得自行扩大 C2-D。
+
+### 7.10 完成标准
+
+C2-D 只有在以下行为全部通过自动化测试和真实端到端验证后才视为完成：
+
+1. 首次生成产物形成 v1，并正确成为 current；
+2. 基于 v1 修改形成 v2，v1 和 v2 均可预览、下载；
+3. 恢复 v1 形成新的 v3，v2 不被覆盖或删除；
+4. 恢复后继续修改可以形成 v4，版本号和线性父子关系正确；
+5. 失败、取消、超时不会改变 current，也不会展示伪成功版本；
+6. 相同 `runId + toolCallId` 重放保持幂等，不重复创建版本；
+7. 并发修改不会静默覆盖，冲突具有明确且可重试的错误语义；
+8. 刷新、重连和重新进入 Session 后，Series、current、版本链及关联 Run/消息完整恢复；
+9. 删除或清理行为不会留下可访问的孤儿版本或破坏其他历史版本；
+10. Markdown、HTML、PDF、DOCX、XLSX 均遵循相同版本语义，历史版本实际可打开和下载。
+
+### 7.11 方案依据
+
+- [v0 Versions](https://v0.app/docs/versions)：消息驱动生成新版本；恢复旧版本会创建新的最新版本并保持线性历史。
+- [Cursor Agent Checkpoints](https://cursor.com/cn/docs/agent/overview)：恢复文件状态但保留聊天事实，检查点与 Git 职责分离。
+- [Lovable Version History](https://docs.lovable.dev/features/projects/history.md)：自动版本、只读预览、diff、聊天定位和非破坏性恢复。
+- [Lovable Drafts](https://docs.lovable.dev/features/drafts.md)：分支式 Draft 有价值，但属于线性版本之后的独立能力。
+- [Bolt Version History](https://support.bolt.new/building/using-bolt/rollback-backup.md)：自动历史、时间线预览、确认恢复和聊天记录。
+- [GitHub Copilot Cloud Agent](https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent)：任务、修改、审阅和持久化事实分层，所有变更可追踪。
+- [Replit Agent](https://docs.replit.com/features/agent/overview)：Checkpoint、File History 和灾难恢复作为 Agent 迭代安全网。
 
 ## 8. C2 推荐开发顺序
 

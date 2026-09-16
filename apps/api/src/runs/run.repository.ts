@@ -168,6 +168,12 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     reasoningEffort: string;
     reasoningFormat?: string;
     attachmentIds?: string[];
+    artifactVersionContext?: {
+      seriesId: string;
+      baseArtifactId: string;
+      expectedCurrentArtifactId: string;
+      changeSummary?: string;
+    };
   }) {
     // Session 校验、幂等判定、单 Session Active Run 限制和两条初始消息必须同事务完成。
     return this.prisma.$transaction(async (tx) => {
@@ -208,6 +214,9 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           model: input.model,
           reasoningEffort: input.reasoningEffort,
           reasoningFormat: input.reasoningFormat,
+          ...(input.artifactVersionContext
+            ? { metadata: { artifactVersionContext: input.artifactVersionContext } }
+            : {}),
           messages: {
             create: [
               {
@@ -706,6 +715,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     // Run 水位和 Assistant Draft 在同一事务更新，禁止出现 seq 已前进但 Blocks 仍是旧版本。
     return this.prisma.$transaction(async (tx) => {
       const message = await tx.message.findUnique({ where: { id: assistantMessageId } });
+      const run = await tx.agentRun.findUnique({ where: { id: runId }, select: { metadata: true } });
       const currentMetadata = this.metadata(message?.metadata);
       const currentDraftVersion =
         typeof currentMetadata.draftVersion === 'number' ? currentMetadata.draftVersion : 0;
@@ -721,7 +731,10 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           toolCallCount: projection.toolCallCount,
           lastEventSequence: BigInt(lastEventSequence),
           heartbeatAt: new Date(),
-          metadata: { observability: projection.observability } as Prisma.InputJsonValue,
+          metadata: {
+            ...this.metadata(run?.metadata),
+            observability: projection.observability,
+          } as Prisma.InputJsonValue,
           version: { increment: 1 },
         },
       });
@@ -817,6 +830,10 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           : ['running', 'cancel_requested'];
     // Terminal Run 状态和最终 Assistant Snapshot 原子提交，成功返回后才允许广播 terminal SSE。
     return this.prisma.$transaction(async (tx) => {
+      const runMetadata = await tx.agentRun.findUnique({
+        where: { id: input.runId },
+        select: { metadata: true },
+      });
       const updated = await tx.agentRun.updateMany({
         where: {
           id: input.runId,
@@ -832,7 +849,10 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           activeStepId: null,
           endedAt: new Date(),
           heartbeatAt: new Date(),
-          metadata: { observability: input.projection.observability } as Prisma.InputJsonValue,
+          metadata: {
+            ...this.metadata(runMetadata?.metadata),
+            observability: input.projection.observability,
+          } as Prisma.InputJsonValue,
           version: { increment: 1 },
         },
       });

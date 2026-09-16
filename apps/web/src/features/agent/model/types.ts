@@ -7,7 +7,7 @@ import type {
   WebFetchPassage,
 } from '@harness/agent-protocol';
 import type { FileRef } from '@harness/agent-protocol';
-import type { ArtifactRef } from '@harness/agent-protocol';
+import type { ArtifactRef, ArtifactSeriesRef } from '@harness/agent-protocol';
 import type { PlanSnapshot } from '@harness/agent-protocol';
 import type { ReactNode } from 'react';
 
@@ -147,6 +147,7 @@ export type WorkbenchState = {
   plan?: PlanSnapshot;
   report?: ReportView;
   artifacts?: ArtifactRef[];
+  artifactSeries?: ArtifactSeriesRef[];
   open: boolean;
 };
 
@@ -161,4 +162,9 @@ export type AgentUiState = {
   context?: RunContextDebug;
   pendingInputs?: PendingUserInputView[];
   previewSubmitting?: boolean;
+  revisionContext?: {
+    seriesId: string;
+    baseArtifactId: string;
+    expectedCurrentArtifactId: string;
+  };
 };

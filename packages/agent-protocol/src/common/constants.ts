@@ -156,6 +156,8 @@ export const AGENT_ERROR_CODES = {
   artifactDeleted: 'ARTIFACT_DELETED',
   artifactDeleteConflict: 'ARTIFACT_DELETE_CONFLICT',
   artifactStorageFailed: 'ARTIFACT_STORAGE_FAILED',
+  artifactVersionConflict: 'ARTIFACT_VERSION_CONFLICT',
+  artifactRestoreConflict: 'ARTIFACT_RESTORE_CONFLICT',
   reportNotFound: 'REPORT_NOT_FOUND',
   reportDeleted: 'REPORT_DELETED',
   reportConflict: 'REPORT_CONFLICT',

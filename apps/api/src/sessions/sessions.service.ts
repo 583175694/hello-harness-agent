@@ -86,6 +86,16 @@ export class SessionsService implements OnModuleInit {
           orderBy: { createdAt: 'desc' },
           take: 1,
         },
+        artifactSeries: {
+          orderBy: { updatedAt: 'desc' },
+          include: {
+            artifacts: {
+              where: { status: 'ready' },
+              orderBy: { versionNumber: 'asc' },
+              include: { file: true, series: true },
+            },
+          },
+        },
       },
     });
     if (!session) this.throwNotFound();
@@ -102,6 +112,36 @@ export class SessionsService implements OnModuleInit {
           status: input.status,
           content: input.content,
           sequence: input.sequence,
+        })),
+        artifactSeries: session.artifactSeries.map((series) => ({
+          seriesId: series.id,
+          sessionId: series.sessionId,
+          logicalName: series.logicalName,
+          currentArtifactId: series.currentArtifactId,
+          createdAt: series.createdAt.toISOString(),
+          updatedAt: series.updatedAt.toISOString(),
+          versions: series.artifacts.map((artifact) => ({
+            artifactId: artifact.id,
+            fileId: artifact.fileId,
+            fileName: artifact.file.fileName,
+            mediaType: artifact.file.mediaType,
+            fileKind: artifact.file.fileKind as 'text' | 'markdown' | 'json' | 'html' | 'pdf' | 'docx' | 'xlsx',
+            size: artifact.file.size,
+            status: artifact.status,
+            createdAt: artifact.createdAt.toISOString(),
+            seriesId: artifact.seriesId,
+            logicalName: series.logicalName,
+            versionNumber: artifact.versionNumber,
+            runId: artifact.runId,
+            operation: artifact.operation,
+            isCurrent: series.currentArtifactId === artifact.id,
+            ...(artifact.parentArtifactId ? { parentArtifactId: artifact.parentArtifactId } : {}),
+            ...(artifact.sourceArtifactId ? { sourceArtifactId: artifact.sourceArtifactId } : {}),
+            ...(artifact.changeSummary ? { changeSummary: artifact.changeSummary } : {}),
+            ...(artifact.errorCode ? { errorCode: artifact.errorCode } : {}),
+            ...(artifact.file.lineCount != null ? { lineCount: artifact.file.lineCount } : {}),
+            ...(artifact.file.characterCount != null ? { characterCount: artifact.file.characterCount } : {}),
+          })),
         })),
         activeRun: session.runs[0]
           ? {

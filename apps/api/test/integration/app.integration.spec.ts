@@ -1,4 +1,5 @@
 import { type INestApplication } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -145,6 +146,261 @@ describe('foundation API', () => {
       expect(restoredBlocks.every((block: { status: string }) => block.status === 'ready')).toBe(
         true,
       );
+      expect(restored.body.session.artifactSeries).toHaveLength(5);
+      expect(
+        restored.body.session.artifactSeries.every(
+          (series: { currentArtifactId: string; versions: Array<{ artifactId: string; versionNumber: number; operation: string; isCurrent: boolean }> }) =>
+            series.versions.length === 1 &&
+            series.versions[0]?.versionNumber === 1 &&
+            series.versions[0]?.operation === 'create' &&
+            series.versions[0]?.isCurrent === true &&
+            series.currentArtifactId === series.versions[0]?.artifactId,
+        ),
+      ).toBe(true);
+    } finally {
+      await request(app.getHttpServer()).delete(`/api/agent/sessions/${sessionId}`).expect(200);
+    }
+  }, 30_000);
+
+  it('keeps an immutable linear chain across revise, restore, revise, replay, and session recovery', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/agent/sessions')
+      .send({ title: '__test__C2-D版本链' })
+      .expect(201);
+    const sessionId = created.body.session.id as string;
+    const createRun = async (suffix: string, metadata: Prisma.InputJsonObject = {}) => {
+      const runId = crypto.randomUUID();
+      await prisma.agentRun.create({
+        data: {
+          id: runId,
+          sessionId,
+          inputMessageId: crypto.randomUUID(),
+          assistantMessageId: crypto.randomUUID(),
+          idempotencyKey: `c2-d-${suffix}-${crypto.randomUUID()}`,
+          payloadHash: `c2-d-${suffix}`,
+          status: 'completed',
+          provider: getDefaultModel().provider,
+          model: getDefaultModel().id,
+          reasoningEffort: 'high',
+          metadata,
+        },
+      });
+      return runId;
+    };
+
+    try {
+      const v1RunId = await createRun('v1');
+      const v1 = await artifacts.create({
+        sessionId,
+        runId: v1RunId,
+        toolCallId: 'create-v1',
+        fileName: '版本报告.md',
+        content: '# v1\n\n初始内容',
+      });
+      expect(v1.artifact).toMatchObject({
+        versionNumber: 1,
+        operation: 'create',
+        isCurrent: true,
+      });
+      const seriesId = v1.artifact.seriesId;
+      if (!seriesId) throw new Error('v1 must belong to an artifact series');
+
+      const v2RunId = await createRun('v2', {
+        artifactVersionContext: {
+          seriesId,
+          baseArtifactId: v1.artifact.artifactId,
+          expectedCurrentArtifactId: v1.artifact.artifactId,
+          changeSummary: '基于 v1 补充第二节',
+        },
+      });
+      const v2 = await artifacts.create({
+        sessionId,
+        runId: v2RunId,
+        toolCallId: 'create-v2',
+        fileName: '版本报告.md',
+        content: '# v2\n\n初始内容\n\n第二节',
+      });
+      expect(v2.artifact).toMatchObject({
+        seriesId,
+        versionNumber: 2,
+        parentArtifactId: v1.artifact.artifactId,
+        operation: 'revise',
+        changeSummary: '基于 v1 补充第二节',
+        isCurrent: true,
+      });
+
+      const restoreKey = crypto.randomUUID();
+      const restored = await request(app.getHttpServer())
+        .post(`/api/agent/artifacts/${v1.artifact.artifactId}/restore`)
+        .send({ expectedCurrentArtifactId: v2.artifact.artifactId, idempotencyKey: restoreKey })
+        .expect(201);
+      expect(restored.body.artifact).toMatchObject({
+        seriesId,
+        versionNumber: 3,
+        parentArtifactId: v2.artifact.artifactId,
+        sourceArtifactId: v1.artifact.artifactId,
+        operation: 'restore',
+        isCurrent: true,
+      });
+      const v3ArtifactId = restored.body.artifact.artifactId as string;
+      expect(restored.body.file.fileId).not.toBe(v1.file.fileId);
+
+      const replay = await request(app.getHttpServer())
+        .post(`/api/agent/artifacts/${v1.artifact.artifactId}/restore`)
+        .send({ expectedCurrentArtifactId: v2.artifact.artifactId, idempotencyKey: restoreKey })
+        .expect(201);
+      expect(replay.body.artifact.artifactId).toBe(v3ArtifactId);
+
+      const v4RunId = await createRun('v4', {
+        artifactVersionContext: {
+          seriesId,
+          baseArtifactId: v3ArtifactId,
+          expectedCurrentArtifactId: v3ArtifactId,
+          changeSummary: '恢复后继续修改',
+        },
+      });
+      const v4 = await artifacts.create({
+        sessionId,
+        runId: v4RunId,
+        toolCallId: 'create-v4',
+        fileName: '版本报告.md',
+        content: '# v4\n\n恢复后的新内容',
+      });
+      expect(v4.artifact).toMatchObject({
+        versionNumber: 4,
+        parentArtifactId: v3ArtifactId,
+        operation: 'revise',
+        isCurrent: true,
+      });
+
+      const replayedV4 = await artifacts.create({
+        sessionId,
+        runId: v4RunId,
+        toolCallId: 'create-v4',
+        fileName: '版本报告.md',
+        content: '# ignored replay',
+      });
+      expect(replayedV4.artifact.artifactId).toBe(v4.artifact.artifactId);
+
+      for (const expected of [
+        [v1.artifact.artifactId, '# v1'],
+        [v2.artifact.artifactId, '# v2'],
+        [v3ArtifactId, '# v1'],
+        [v4.artifact.artifactId, '# v4'],
+      ] as const) {
+        const preview = await request(app.getHttpServer())
+          .get(`/api/agent/artifacts/${expected[0]}/preview`)
+          .expect(200);
+        expect(preview.text).toContain(expected[1]);
+        const download = await request(app.getHttpServer())
+          .get(`/api/agent/artifacts/${expected[0]}/download`)
+          .expect(200);
+        expect(download.text).toContain(expected[1]);
+      }
+
+      const series = await request(app.getHttpServer())
+        .get(`/api/agent/artifacts/series/${seriesId}`)
+        .expect(200);
+      expect(series.body.currentArtifactId).toBe(v4.artifact.artifactId);
+      expect(series.body.versions.map((version: { versionNumber: number }) => version.versionNumber)).toEqual([1, 2, 3, 4]);
+      expect(series.body.versions.map((version: { isCurrent: boolean }) => version.isCurrent)).toEqual([false, false, false, true]);
+
+      const detail = await request(app.getHttpServer())
+        .get(`/api/agent/sessions/${sessionId}`)
+        .expect(200);
+      const recovered = detail.body.session.artifactSeries.find(
+        (item: { seriesId: string }) => item.seriesId === seriesId,
+      );
+      expect(recovered).toMatchObject({ currentArtifactId: v4.artifact.artifactId });
+      expect(recovered.versions).toHaveLength(4);
+      expect(
+        detail.body.session.messages.some(
+          (message: { runId?: string; metadata?: { blocks?: Array<{ artifactId?: string }> } }) =>
+            message.runId === restored.body.artifact.runId &&
+            message.metadata?.blocks?.some((block) => block.artifactId === v3ArtifactId),
+        ),
+      ).toBe(true);
+
+      const deleteConflict = await request(app.getHttpServer())
+        .delete(`/api/agent/artifacts/${v1.artifact.artifactId}`)
+        .expect(409);
+      expect(deleteConflict.body.code).toBe('ARTIFACT_DELETE_CONFLICT');
+      expect(await prisma.artifact.count({ where: { seriesId, status: 'ready' } })).toBe(4);
+    } finally {
+      await request(app.getHttpServer()).delete(`/api/agent/sessions/${sessionId}`).expect(200);
+    }
+  }, 30_000);
+
+  it('rejects stale concurrent revisions without advancing or publishing the losing version', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/agent/sessions')
+      .send({ title: '__test__C2-D并发冲突' })
+      .expect(201);
+    const sessionId = created.body.session.id as string;
+    const makeRun = async (metadata: Prisma.InputJsonObject = {}) => {
+      const runId = crypto.randomUUID();
+      await prisma.agentRun.create({
+        data: {
+          id: runId,
+          sessionId,
+          inputMessageId: crypto.randomUUID(),
+          assistantMessageId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
+          payloadHash: crypto.randomUUID(),
+          status: 'completed',
+          provider: getDefaultModel().provider,
+          model: getDefaultModel().id,
+          reasoningEffort: 'high',
+          metadata,
+        },
+      });
+      return runId;
+    };
+
+    try {
+      const v1RunId = await makeRun();
+      const v1 = await artifacts.create({ sessionId, runId: v1RunId, toolCallId: 'v1', fileName: '并发.md', content: '# v1' });
+      const seriesId = v1.artifact.seriesId;
+      if (!seriesId) throw new Error('v1 must belong to an artifact series');
+      const context = {
+        artifactVersionContext: {
+          seriesId,
+          baseArtifactId: v1.artifact.artifactId,
+          expectedCurrentArtifactId: v1.artifact.artifactId,
+        },
+      };
+      const cancelledRunId = await makeRun(context);
+      const abortController = new AbortController();
+      abortController.abort();
+      await expect(
+        artifacts.create({
+          sessionId,
+          runId: cancelledRunId,
+          toolCallId: 'cancelled-revision',
+          fileName: '并发.md',
+          content: '# cancelled',
+          signal: abortController.signal,
+        }),
+      ).rejects.toMatchObject({ name: 'AbortError' });
+      expect(await artifacts.getSeries(seriesId)).toMatchObject({
+        currentArtifactId: v1.artifact.artifactId,
+        versions: [{ artifactId: v1.artifact.artifactId }],
+      });
+
+      const firstRunId = await makeRun(context);
+      const secondRunId = await makeRun(context);
+      const results = await Promise.allSettled([
+        artifacts.create({ sessionId, runId: firstRunId, toolCallId: 'race-a', fileName: '并发.md', content: '# race a' }),
+        artifacts.create({ sessionId, runId: secondRunId, toolCallId: 'race-b', fileName: '并发.md', content: '# race b' }),
+      ]);
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      const rejected = results.find((result) => result.status === 'rejected');
+      expect(rejected).toMatchObject({ reason: { response: { code: 'ARTIFACT_VERSION_CONFLICT' } } });
+
+      const series = await artifacts.getSeries(seriesId);
+      expect(series.versions).toHaveLength(2);
+      expect(series.currentArtifactId).toBe(series.versions[1]?.artifactId);
+      expect(await prisma.file.count({ where: { sessionId, origin: 'agent_generated' } })).toBe(2);
     } finally {
       await request(app.getHttpServer()).delete(`/api/agent/sessions/${sessionId}`).expect(200);
     }

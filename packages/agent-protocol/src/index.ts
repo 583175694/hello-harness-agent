@@ -27,7 +27,7 @@ import {
 } from './web-fetch/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.14.0';
+export const protocolVersion = '0.15.0';
 
 // 计划步骤的有限状态集合，前后端只使用这三种状态。
 export const planStepStatusSchema = z.enum(['pending', 'in_progress', 'completed']);
@@ -852,6 +852,15 @@ export const createRunRequestSchema = z.object({
     .max(AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax)
     .optional()
     .refine((ids) => !ids || new Set(ids).size === ids.length, '附件不能重复'),
+  artifactVersionContext: z
+    .object({
+      seriesId: z.string().min(1),
+      baseArtifactId: z.string().min(1),
+      expectedCurrentArtifactId: z.string().min(1),
+      changeSummary: z.string().trim().min(1).max(500).optional(),
+    })
+    .strict()
+    .optional(),
 });
 export const createRunResponseSchema = z.object({
   sessionId: z.string().min(1),
@@ -932,7 +941,11 @@ export const runEventPayloadSchema = z.union([
 export const runStreamEventSchema = z.object({
   // C2-A keeps one-step read compatibility for streams emitted by a C1 server.
   // New producers always emit the current protocolVersion.
-  version: z.union([z.literal(protocolVersion), z.literal('0.13.0')]),
+  version: z.union([
+    z.literal(protocolVersion),
+    z.literal('0.14.0'),
+    z.literal('0.13.0'),
+  ]),
   eventId: z.string().min(1),
   seq: z.number().int().nonnegative(),
   sessionId: z.string().min(1),

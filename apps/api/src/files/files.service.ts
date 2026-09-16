@@ -215,6 +215,93 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
+  // 恢复版本时逐字节复制已持久化的原文件和规范化正文，生成独立 File 身份。
+  async cloneGeneratedFile(sourceFileId: string) {
+    const source = await this.findOwned(sourceFileId);
+    if (
+      source.origin !== 'agent_generated' ||
+      source.status !== 'ready' ||
+      !source.originalKey ||
+      !source.normalizedKey
+    )
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileNotReady,
+        detail: '来源版本文件尚未准备好。',
+      });
+    const [original, normalized] = await Promise.all([
+      this.storage.readObject({
+        sessionId: source.sessionId,
+        fileId: source.id,
+        variant: 'original',
+      }),
+      this.storage.readObject({
+        sessionId: source.sessionId,
+        fileId: source.id,
+        variant: 'normalized',
+      }),
+    ]);
+    const fileId = crypto.randomUUID();
+    await this.prisma.file.create({
+      data: {
+        id: fileId,
+        userId: LOCAL_USER_ID,
+        sessionId: source.sessionId,
+        fileName: source.fileName,
+        mediaType: source.mediaType,
+        fileKind: source.fileKind,
+        origin: 'agent_generated',
+        size: source.size,
+        sha256: source.sha256,
+        status: 'processing',
+        processingStartedAt: new Date(),
+      },
+    });
+    try {
+      const [savedOriginal, savedNormalized] = await Promise.all([
+        this.storage.putOriginal({
+          sessionId: source.sessionId,
+          fileId,
+          content: original.content,
+          contentType: source.mediaType,
+        }),
+        this.storage.putNormalized({
+          sessionId: source.sessionId,
+          fileId,
+          content: normalized.content,
+          contentType: 'text/plain; charset=utf-8',
+        }),
+      ]);
+      const file = await this.prisma.file.update({
+        where: { id: fileId },
+        data: {
+          originalKey: savedOriginal.objectKey,
+          normalizedKey: savedNormalized.objectKey,
+          contentHash: source.contentHash,
+          parserVersion: source.parserVersion,
+          pageCount: source.pageCount,
+          lineCount: source.lineCount,
+          characterCount: source.characterCount,
+          overview: source.overview ?? undefined,
+          status: 'ready',
+          retryable: false,
+          processingCompletedAt: new Date(),
+        },
+      });
+      return this.toPublicRef(file, false);
+    } catch {
+      try {
+        await this.storage.deleteFile({ sessionId: source.sessionId, fileId });
+      } catch {
+        // deleteGeneratedFile 会在后续失败清理中补偿数据库记录。
+      }
+      await this.prisma.file.deleteMany({ where: { id: fileId } });
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileStorageFailed,
+        detail: '恢复版本文件保存失败，请稍后重试。',
+      });
+    }
+  }
+
   // B.1 的 ready 文件没有 normalized_key；升级后从仍保留的原文件重建 COS 正文。
   private async backfillMissingNormalizedFiles(): Promise<void> {
     // 通过条件更新抢占单个文件，避免多个实例重复回填同一正文。

@@ -17,6 +17,7 @@ model User {
   messages    Message[]
   files       File[]
   artifacts   Artifact[]
+  artifactSeries ArtifactSeries[]
   reports     Report[]
 
   @@map("users")
@@ -48,6 +49,7 @@ model Session {
   pendingUserInputs PendingUserInput[]
   files     File[]
   artifacts Artifact[]
+  artifactSeries ArtifactSeries[]
   reports Report[]
 
   @@index([userId, isPinned(sort: Desc), updatedAt(sort: Desc)])
@@ -191,6 +193,29 @@ model File {
   @@map("files")
 }
 
+enum ArtifactOperation {
+  create
+  revise
+  restore
+}
+
+model ArtifactSeries {
+  id                String     @id
+  userId            String     @map("user_id")
+  sessionId         String     @map("session_id")
+  logicalName       String     @map("logical_name")
+  currentArtifactId String?    @unique @map("current_artifact_id")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session           Session    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  artifacts         Artifact[] @relation("ArtifactSeriesVersions")
+  currentArtifact   Artifact?  @relation("ArtifactSeriesCurrent", fields: [currentArtifactId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, updatedAt(sort: Desc)])
+  @@map("artifact_series")
+}
+
 model Artifact {
   id         String         @id
   fileId     String         @unique @map("file_id")
@@ -198,6 +223,12 @@ model Artifact {
   sessionId  String         @map("session_id")
   runId      String         @map("run_id")
   toolCallId String         @map("tool_call_id")
+  seriesId   String         @map("series_id")
+  versionNumber Int         @map("version_number")
+  parentArtifactId String?  @map("parent_artifact_id")
+  sourceArtifactId String?  @map("source_artifact_id")
+  operation ArtifactOperation @default(create)
+  changeSummary String?     @map("change_summary")
   status     ArtifactStatus @default(processing)
   errorCode  String?        @map("error_code")
   createdAt  DateTime       @default(now()) @map("created_at")
@@ -206,11 +237,19 @@ model Artifact {
   user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   session    Session        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   run        AgentRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  series     ArtifactSeries @relation("ArtifactSeriesVersions", fields: [seriesId], references: [id], onDelete: Cascade)
+  currentFor ArtifactSeries? @relation("ArtifactSeriesCurrent")
+  parent     Artifact?      @relation("ArtifactParent", fields: [parentArtifactId], references: [id], onDelete: Restrict)
+  children   Artifact[]     @relation("ArtifactParent")
+  source     Artifact?      @relation("ArtifactSource", fields: [sourceArtifactId], references: [id], onDelete: Restrict)
+  restorations Artifact[]   @relation("ArtifactSource")
   report     Report?
 
   @@unique([runId, toolCallId])
+  @@unique([seriesId, versionNumber])
   @@index([sessionId])
   @@index([runId])
+  @@index([seriesId, createdAt])
   @@map("artifacts")
 }
 

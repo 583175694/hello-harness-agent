@@ -30,6 +30,7 @@ import {
   getFile,
   retryFile,
   deleteFile,
+  restoreArtifact,
 } from './api/client';
 import type {
   MessageDeltaEvent,
@@ -58,6 +59,7 @@ import type {
   PendingUserInputView,
   ToolApprovalDecision,
   AssistantArtifactBlock,
+  ArtifactRef,
 } from '@harness/agent-protocol';
 import type {
   AgentUiState,
@@ -791,6 +793,38 @@ function preferRicherAssistant(
 // 从首条用户输入构造创建会话时使用的临时标题。
 function makeProvisionalTitle(content: string): string {
   return content.replace(/\s+/g, ' ').trim().slice(0, AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength);
+}
+
+// 基于历史版本修改时，服务端会自动把基础 Artifact 追加到用户消息。
+// 乐观消息同步派生同一文件卡片，避免等待 Run 快照刷新后才出现。
+export function optimisticRevisionAttachments(
+  explicitAttachments: FileRef[],
+  revisionContext: AgentUiState['revisionContext'],
+  workbench?: WorkbenchState,
+): FileRef[] {
+  if (!revisionContext) return explicitAttachments;
+  const baseArtifact = workbench?.artifactSeries
+    ?.flatMap((series) => series.versions)
+    .find((artifact) => artifact.artifactId === revisionContext.baseArtifactId);
+  if (!baseArtifact || explicitAttachments.some((item) => item.fileId === baseArtifact.fileId))
+    return explicitAttachments;
+  return [
+    ...explicitAttachments,
+    {
+      fileId: baseArtifact.fileId,
+      fileName: baseArtifact.fileName,
+      mediaType: baseArtifact.mediaType,
+      size: baseArtifact.size,
+      status: 'ready',
+      fileKind: baseArtifact.fileKind,
+      origin: 'agent_generated',
+      artifactId: baseArtifact.artifactId,
+      ...(baseArtifact.lineCount === undefined ? {} : { lineCount: baseArtifact.lineCount }),
+      ...(baseArtifact.characterCount === undefined
+        ? {}
+        : { characterCount: baseArtifact.characterCount }),
+    },
+  ];
 }
 
 // 将当前会话选择同步到可刷新恢复的查询参数。
@@ -1627,6 +1661,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
               ? {
                   workbench: {
                     ...restoredWorkbench,
+                    artifactSeries: session.artifactSeries,
+                    artifacts: session.artifactSeries.flatMap((series) => series.versions),
                     open: activeWorkbench?.open ?? false,
                     activeView: activeWorkbench?.activeView ?? restoredWorkbench.activeView,
                     ...(cachedContext ? { context: cachedContext } : {}),
@@ -1950,12 +1986,17 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
     let assistantMessageId = localAssistantId;
     let sessionId = currentId;
     const draftSubmissionToken = currentId ? undefined : ++draftSubmissionTokenRef.current;
+    const optimisticAttachments = optimisticRevisionAttachments(
+      attachments,
+      uiState.revisionContext,
+      uiState.workbench,
+    );
     const optimisticUser: ConversationItem = {
       id: localUserId,
       kind: 'user',
       content: task,
       createdAt,
-      ...(attachments.length ? { attachments } : {}),
+      ...(optimisticAttachments.length ? { attachments: optimisticAttachments } : {}),
     };
     const optimisticAssistant: ConversationItem = {
       id: localAssistantId,
@@ -2011,8 +2052,16 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         selectedModel,
         reasoningEffort,
         attachments.map((item) => item.fileId),
+        uiState.revisionContext
+          ? { ...uiState.revisionContext, changeSummary: task.slice(0, 500) }
+          : undefined,
       );
       setAttachments([]);
+      if (uiState.revisionContext)
+        setSessionStates((current) => ({
+          ...current,
+          [targetId]: { ...current[targetId]!, revisionContext: undefined },
+        }));
       assistantMessageId = run.assistantMessageId;
       setSessionStates((current) => {
         const target = current[targetId];
@@ -2107,6 +2156,49 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
             }
           : current,
       );
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    }
+  }
+
+  function beginArtifactRevision(artifact: ArtifactRef): void {
+    if (!selectedSessionId || !artifact.seriesId || !artifact.versionNumber) return;
+    const seriesId = artifact.seriesId;
+    const expectedCurrentArtifactId = sessionStates[
+      selectedSessionId
+    ]?.workbench?.artifactSeries?.find((series) => series.seriesId === seriesId)?.currentArtifactId;
+    if (!expectedCurrentArtifactId) return;
+    setSessionStates((current) => ({
+      ...current,
+      [selectedSessionId]: {
+        ...current[selectedSessionId]!,
+        revisionContext: {
+          seriesId,
+          baseArtifactId: artifact.artifactId,
+          expectedCurrentArtifactId,
+        },
+      },
+    }));
+    setPrompt(
+      (current) =>
+        current ||
+        `请基于 ${artifact.logicalName ?? artifact.fileName} v${artifact.versionNumber} 修改：`,
+    );
+  }
+
+  async function restoreArtifactVersion(artifact: ArtifactRef): Promise<void> {
+    if (!selectedSessionId || !artifact.seriesId) return;
+    const expectedCurrentArtifactId = sessionStates[
+      selectedSessionId
+    ]?.workbench?.artifactSeries?.find(
+      (series) => series.seriesId === artifact.seriesId,
+    )?.currentArtifactId;
+    if (!expectedCurrentArtifactId) return;
+    setError(null);
+    try {
+      await restoreArtifact(artifact.artifactId, expectedCurrentArtifactId);
+      await loadSessionDetail(selectedSessionId, true);
+      await refreshSessions();
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     }
@@ -2390,6 +2482,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           {uiState.workbench ? (
             <WorkbenchShell
               state={uiState.workbench}
+              onReviseArtifact={beginArtifactRevision}
+              onRestoreArtifact={(artifact) => void restoreArtifactVersion(artifact)}
               onViewChange={(activeView) => {
                 if (!selectedSessionId) return;
                 setSessionStates((current) =>

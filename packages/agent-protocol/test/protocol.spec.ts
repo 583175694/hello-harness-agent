@@ -136,7 +136,7 @@ describe('foundation protocol', () => {
     ).toMatchObject({ inputType: 'document', fileName: 'legacy.md' });
   });
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.14.0');
+    expect(protocolVersion).toBe('0.15.0');
   });
 
   it('validates HITL commands and rejects incomplete approval decisions', () => {
@@ -365,7 +365,7 @@ describe('foundation protocol', () => {
     });
     expect(
       runStreamEventSchema.parse({
-        version: '0.14.0',
+        version: protocolVersion,
         eventId: 'event-1',
         seq: 0,
         sessionId: 'session-1',

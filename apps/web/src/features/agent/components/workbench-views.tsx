@@ -38,23 +38,28 @@ export function WorkbenchShell({
   onClose,
   onViewChange,
   onExecutionSelect,
+  onReviseArtifact,
+  onRestoreArtifact,
 }: {
   state: WorkbenchState;
   onClose: () => void;
   onViewChange: (view: WorkspaceView) => void;
   onExecutionSelect: (tool: ToolCallView) => void;
+  onReviseArtifact?: (artifact: ArtifactRef) => void;
+  onRestoreArtifact?: (artifact: ArtifactRef) => void;
 }) {
   const views = useMemo(() => {
     const result: Array<{ id: WorkspaceView; label: string; icon: LucideIcon }> = [
       { id: 'activity', label: 'Activity', icon: LoaderCircle },
     ];
-    if (state.artifacts?.length) result.push({ id: 'artifact', label: 'Artifact', icon: FileText });
+    if (state.artifacts?.length || state.artifactSeries?.length)
+      result.push({ id: 'artifact', label: 'Artifact', icon: FileText });
     if (state.sources.length) result.push({ id: 'sources', label: 'Sources', icon: Search });
     // Context 是调试入口，即使当前 Run 尚未产生 Model Round 也保持可见，并固定放在最后。
     result.push({ id: 'context', label: 'Context', icon: Braces });
     if (state.report) result.push({ id: 'report', label: 'Report', icon: FileText });
     return result;
-  }, [state.artifacts?.length, state.report, state.sources.length]);
+  }, [state.artifacts?.length, state.artifactSeries?.length, state.report, state.sources.length]);
 
   return (
     <aside
@@ -137,7 +142,13 @@ export function WorkbenchShell({
         ) : state.activeView === 'sources' ? (
           <SourcesView sources={state.sources} />
         ) : state.activeView === 'artifact' ? (
-          <ArtifactView artifacts={state.artifacts ?? []} />
+          <ArtifactView
+            artifacts={
+              state.artifactSeries?.flatMap((series) => series.versions) ?? state.artifacts ?? []
+            }
+            onRevise={onReviseArtifact}
+            onRestore={onRestoreArtifact}
+          />
         ) : state.report ? (
           <ReportView report={state.report} sources={state.sources} />
         ) : null}
@@ -146,38 +157,91 @@ export function WorkbenchShell({
   );
 }
 
-function ArtifactView({ artifacts }: { artifacts: ArtifactRef[] }) {
+const artifactOperationCopy = {
+  create: '创建',
+  revise: '修改',
+  restore: '恢复',
+} as const;
+
+function formatArtifactSize(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function ArtifactView({
+  artifacts,
+  onRevise,
+  onRestore,
+}: {
+  artifacts: ArtifactRef[];
+  onRevise?: (artifact: ArtifactRef) => void;
+  onRestore?: (artifact: ArtifactRef) => void;
+}) {
   return (
     <div className="artifact-workbench-view">
       {artifacts.map((artifact) => (
         <article className="artifact-workbench-item" key={artifact.artifactId}>
-          <div className="view-toolbar">
-            <div>
-              <strong>{artifact.fileName}</strong>
-              <span>
-                {artifact.fileKind} · {artifact.size.toLocaleString()} bytes
-              </span>
+          <div className="artifact-workbench-heading">
+            <div className="artifact-workbench-file-icon" aria-hidden="true">
+              <FileText size={20} />
             </div>
-            <div className="artifact-workbench-actions">
-              <a
-                className="secondary-button"
-                href={getArtifactPreviewUrl(artifact.artifactId)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                预览
-              </a>
+            <div className="artifact-workbench-title">
+              <div>
+                <strong>{artifact.logicalName ?? artifact.fileName}</strong>
+                {artifact.versionNumber ? (
+                  <span className="artifact-version">v{artifact.versionNumber}</span>
+                ) : null}
+                {artifact.isCurrent ? (
+                  <span className="artifact-current-badge">当前版本</span>
+                ) : null}
+              </div>
+              <p className="artifact-workbench-meta">
+                <span className="artifact-workbench-operation">
+                  {artifactOperationCopy[artifact.operation ?? 'create']}
+                </span>
+                <span>{artifact.fileKind.toUpperCase()}</span>
+                <span>{formatArtifactSize(artifact.size)}</span>
+                <span>{new Date(artifact.createdAt).toLocaleString('zh-CN')}</span>
+                {artifact.runId ? <span>Run {artifact.runId.slice(0, 8)}</span> : null}
+              </p>
+            </div>
+          </div>
+          <div className="artifact-workbench-actions">
+            <a
+              className="secondary-button"
+              href={getArtifactPreviewUrl(artifact.artifactId)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              预览
+            </a>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => downloadArtifact(artifact.artifactId)}
+            >
+              <Download size={14} />
+              下载
+            </button>
+            {onRevise && artifact.seriesId && artifact.versionNumber ? (
+              <button className="secondary-button" type="button" onClick={() => onRevise(artifact)}>
+                基于此版本修改
+              </button>
+            ) : null}
+            {onRestore && artifact.seriesId && artifact.versionNumber && !artifact.isCurrent ? (
               <button
                 className="secondary-button"
                 type="button"
-                onClick={() => downloadArtifact(artifact.artifactId)}
+                onClick={() => {
+                  if (window.confirm(`确认将 v${artifact.versionNumber} 恢复为新的最新版本？`))
+                    onRestore(artifact);
+                }}
               >
-                <Download size={14} />
-                下载
+                恢复此版本
               </button>
-            </div>
+            ) : null}
           </div>
-          <p>{artifact.status === 'ready' ? '文件已就绪。' : `当前状态：${artifact.status}`}</p>
         </article>
       ))}
     </div>

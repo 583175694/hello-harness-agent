@@ -55,6 +55,7 @@ export const fileRefSchema = z.object({
 });
 
 export const artifactStatusSchema = z.enum(['processing', 'ready', 'failed', 'deleted']);
+export const artifactOperationSchema = z.enum(['create', 'revise', 'restore']);
 export const artifactRefSchema = z.object({
   artifactId: z.string().min(1),
   fileId: z.string().min(1),
@@ -64,9 +65,42 @@ export const artifactRefSchema = z.object({
   size: z.number().int().nonnegative(),
   status: artifactStatusSchema,
   createdAt: z.string().datetime(),
+  // 兼容 C2-D 上线前已经持久化在消息 metadata 中的 Artifact block。
+  seriesId: z.string().min(1).optional(),
+  logicalName: z.string().min(1).optional(),
+  versionNumber: z.number().int().positive().optional(),
+  runId: z.string().min(1).optional(),
+  operation: artifactOperationSchema.optional(),
+  isCurrent: z.boolean().optional(),
+  parentArtifactId: z.string().min(1).optional(),
+  sourceArtifactId: z.string().min(1).optional(),
+  changeSummary: z.string().min(1).optional(),
   errorCode: z.string().min(1).optional(),
   lineCount: z.number().int().nonnegative().optional(),
   characterCount: z.number().int().nonnegative().optional(),
+});
+
+export const artifactSeriesRefSchema = z.object({
+  seriesId: z.string().min(1),
+  sessionId: z.string().min(1),
+  logicalName: z.string().min(1),
+  currentArtifactId: z.string().min(1).nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  versions: z.array(artifactRefSchema),
+});
+
+export const restoreArtifactRequestSchema = z
+  .object({
+    expectedCurrentArtifactId: z.string().min(1),
+    idempotencyKey: z.string().min(1).max(200),
+  })
+  .strict();
+
+export const restoreArtifactResultSchema = z.object({
+  artifact: artifactRefSchema,
+  file: fileRefSchema,
+  series: artifactSeriesRefSchema,
 });
 
 export const createFileInputSchema = z
@@ -278,7 +312,11 @@ export type UserFileContent = z.infer<typeof userFileContentSchema>;
 export type UserContentBlock = z.infer<typeof userContentBlockSchema>;
 export type FileRef = z.infer<typeof fileRefSchema>;
 export type ArtifactStatus = z.infer<typeof artifactStatusSchema>;
+export type ArtifactOperation = z.infer<typeof artifactOperationSchema>;
 export type ArtifactRef = z.infer<typeof artifactRefSchema>;
+export type ArtifactSeriesRef = z.infer<typeof artifactSeriesRefSchema>;
+export type RestoreArtifactRequest = z.infer<typeof restoreArtifactRequestSchema>;
+export type RestoreArtifactResult = z.infer<typeof restoreArtifactResultSchema>;
 export type CreateFileInput = z.infer<typeof createFileInputSchema>;
 export type CreateFileInputSummary = z.infer<typeof createFileInputSummarySchema>;
 export type CreateFileResult = z.infer<typeof createFileResultSchema>;

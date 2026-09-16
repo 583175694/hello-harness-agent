@@ -418,6 +418,7 @@ function ArtifactCard({
             </ArtifactTitle>
             <ArtifactDescription>
               {formatFileSize(block.size)}
+              {block.versionNumber ? ` · v${block.versionNumber}${block.isCurrent ? ' · 当前版本' : ''}` : ''}
               {block.status === 'ready' ? '' : ` · ${statusLabel}`}
             </ArtifactDescription>
           </span>

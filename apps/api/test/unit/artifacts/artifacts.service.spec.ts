@@ -29,18 +29,27 @@ const artifact = {
   status: 'ready',
   errorCode: null,
   createdAt: new Date('2026-09-09T00:00:00.000Z'),
+  seriesId: 'series-1',
+  versionNumber: 1,
+  parentArtifactId: null,
+  sourceArtifactId: null,
+  operation: 'create',
+  changeSummary: null,
+  series: { logicalName: 'result.md', currentArtifactId: 'artifact-1' },
   file,
 };
 
 function createService() {
   const tx = {
-    artifact: { update: vi.fn() },
+    artifact: { update: vi.fn(), create: vi.fn(), findUniqueOrThrow: vi.fn() },
+    artifactSeries: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     file: { update: vi.fn() },
     message: { findFirst: vi.fn(), update: vi.fn() },
   };
   const prisma = {
     agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
-    artifact: { findFirst: vi.fn(), create: vi.fn() },
+    artifact: { findFirst: vi.fn(), create: vi.fn(), count: vi.fn().mockResolvedValue(1) },
+    artifactSeries: { findFirst: vi.fn() },
     report: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     file: { count: vi.fn() },
     message: { findFirst: vi.fn() },
@@ -62,6 +71,17 @@ function createService() {
     })),
   };
   const storage = { deleteFile: vi.fn(), readObject: vi.fn() };
+  tx.artifact.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+    ...artifact,
+    ...data,
+    file: { ...file, id: String(data.fileId) },
+    series: { logicalName: 'result.md', currentArtifactId: String(data.id) },
+  }));
+  tx.artifact.findUniqueOrThrow.mockImplementation(async ({ where }: { where: { id: string } }) => ({
+    ...artifact,
+    id: where.id,
+    series: { logicalName: 'result.md', currentArtifactId: where.id },
+  }));
   return {
     service: new ArtifactsService(prisma as never, files as never, storage as never),
     prisma,
@@ -97,13 +117,6 @@ describe('ArtifactsService', () => {
     files.createGenerated.mockImplementation(async ({ fileName }: { fileName: string }) => ({
       fileId: `file-${fileName}`,
     }));
-    prisma.artifact.create.mockImplementation(async ({ data }: { data: { id: string; fileId: string; toolCallId: string } }) => ({
-      ...artifact,
-      id: data.id,
-      fileId: data.fileId,
-      toolCallId: data.toolCallId,
-      file: { ...file, id: data.fileId, fileName: data.fileId.replace('file-', '') },
-    }));
     prisma.report.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       ...data,
       createdAt: new Date('2026-09-15T00:00:00.000Z'),
@@ -125,13 +138,6 @@ describe('ArtifactsService', () => {
     prisma.report.findFirst.mockResolvedValue(null);
     prisma.artifact.findFirst.mockResolvedValue(null);
     files.createGenerated.mockResolvedValue({ fileId: 'file-report' });
-    prisma.artifact.create.mockResolvedValue({
-      ...artifact,
-      id: 'artifact-report',
-      fileId: 'file-report',
-      toolCallId: 'report-call-1',
-      file: { ...file, id: 'file-report', fileName: 'report.md' },
-    });
     prisma.report.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       ...data,
       createdAt: new Date('2026-09-15T00:00:00.000Z'),

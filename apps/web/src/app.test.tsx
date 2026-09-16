@@ -6,12 +6,19 @@ import {
   AppShell,
   applyToolEvent,
   groupSessionSummaries,
+  optimisticRevisionAttachments,
   workbenchFromPersistedMessage,
 } from './app';
-import type { PersistedMessage, SessionSummary, WebFetchResult } from '@harness/agent-protocol';
+import type {
+  FileRef,
+  PersistedMessage,
+  SessionSummary,
+  WebFetchResult,
+} from '@harness/agent-protocol';
 import type { ToolStreamEvent } from './api/client';
 import { Composer } from './features/agent/components/conversation';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
+import type { WorkbenchState } from './features/agent/model/types';
 
 function runFrame(
   type: string,
@@ -128,6 +135,74 @@ describe('R1 workbench shell', () => {
     ]);
     expect(groups[1]?.sessions.map((item) => item.id)).toEqual(['today-latest', 'today-older']);
     expect(groups.flatMap((group) => group.sessions)).toHaveLength(7);
+  });
+
+  it('adds the base artifact to an optimistic revision message without duplicating files', () => {
+    const explicit: FileRef[] = [
+      {
+        fileId: 'file-upload',
+        fileName: 'notes.txt',
+        mediaType: 'text/plain',
+        size: 12,
+        status: 'ready',
+        fileKind: 'text',
+        origin: 'user_uploaded',
+      },
+    ];
+    const workbench: WorkbenchState = {
+      runId: 'run-2',
+      title: '执行详情',
+      subtitle: '当前运行',
+      activeView: 'artifact',
+      activityStatus: 'completed',
+      executions: [],
+      followMode: 'auto',
+      sources: [],
+      artifactSeries: [
+        {
+          seriesId: 'series-1',
+          sessionId: 'session-1',
+          logicalName: 'result.md',
+          currentArtifactId: 'artifact-2',
+          createdAt: '2026-09-10T00:00:00.000Z',
+          updatedAt: '2026-09-10T01:00:00.000Z',
+          versions: [
+            {
+              artifactId: 'artifact-1',
+              fileId: 'file-base',
+              fileName: 'result.md',
+              mediaType: 'text/markdown',
+              fileKind: 'markdown',
+              size: 1024,
+              status: 'ready',
+              createdAt: '2026-09-10T00:00:00.000Z',
+              seriesId: 'series-1',
+              versionNumber: 1,
+            },
+          ],
+        },
+      ],
+      open: true,
+    };
+    const revisionContext = {
+      seriesId: 'series-1',
+      baseArtifactId: 'artifact-1',
+      expectedCurrentArtifactId: 'artifact-2',
+    };
+
+    const result = optimisticRevisionAttachments(explicit, revisionContext, workbench);
+
+    expect(result).toHaveLength(2);
+    expect(result[1]).toMatchObject({
+      fileId: 'file-base',
+      fileName: 'result.md',
+      status: 'ready',
+      fileKind: 'markdown',
+      origin: 'agent_generated',
+      artifactId: 'artifact-1',
+    });
+    expect(optimisticRevisionAttachments(result, revisionContext, workbench)).toBe(result);
+    expect(optimisticRevisionAttachments(explicit, undefined, workbench)).toBe(explicit);
   });
 
   it('renders the production empty state without an empty workbench', async () => {

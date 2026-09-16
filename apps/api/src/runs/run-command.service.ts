@@ -17,6 +17,8 @@ import type { ReasoningEffort } from '@harness/agent-protocol';
 import { PendingUserInputService } from './pending-user-input.service';
 import { FilesService } from '../files/files.service';
 import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
+import { PrismaService } from '../database/prisma.service';
+import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 
 @Injectable()
 export class RunCommandService {
@@ -28,6 +30,7 @@ export class RunCommandService {
     @Inject(ModelAdapter) private readonly modelAdapter: ModelAdapter,
     @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
     @Inject(FilesService) private readonly files: FilesService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
   ) {}
 
   // 校验请求并创建 Run；成功后注册初始 Snapshot，异步交给 Executor 执行。
@@ -44,6 +47,12 @@ export class RunCommandService {
       reasoningEffort?: ReasoningEffort;
       attachmentId?: string;
       attachmentIds?: string[];
+      artifactVersionContext?: {
+        seriesId: string;
+        baseArtifactId: string;
+        expectedCurrentArtifactId: string;
+        changeSummary?: string;
+      };
     },
   ): Promise<CreateRunResponse> {
     const runId = crypto.randomUUID();
@@ -60,11 +69,34 @@ export class RunCommandService {
         detail: '所选模型不可用，请刷新模型列表后重试。',
       });
     const model = configuredModel.id;
-    const attachmentIds = input.attachmentIds?.length
+    let attachmentIds = input.attachmentIds?.length
       ? input.attachmentIds
       : input.attachmentId
         ? [input.attachmentId]
         : [];
+    if (input.artifactVersionContext) {
+      const context = input.artifactVersionContext;
+      const series = await this.prisma.artifactSeries.findFirst({
+        where: { id: context.seriesId, sessionId, userId: LOCAL_USER_ID },
+        select: { currentArtifactId: true },
+      });
+      const base = await this.prisma.artifact.findFirst({
+        where: {
+          id: context.baseArtifactId,
+          seriesId: context.seriesId,
+          sessionId,
+          userId: LOCAL_USER_ID,
+          status: 'ready',
+        },
+        select: { fileId: true },
+      });
+      if (!series || !base || series.currentArtifactId !== context.expectedCurrentArtifactId)
+        throw new ConflictException({
+          code: AGENT_ERROR_CODES.artifactVersionConflict,
+          detail: '产物已产生新版本，请基于最新版本重试。',
+        });
+      attachmentIds = [...new Set([...attachmentIds, base.fileId])];
+    }
     // 图片和通用文件共用单消息附件数量限制。
     if (attachmentIds.length > AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax)
       throw new ConflictException({
@@ -101,6 +133,7 @@ export class RunCommandService {
           model,
           reasoningEffort,
           attachmentIds,
+          artifactVersionContext: input.artifactVersionContext,
         }),
       )
       .digest('hex');
@@ -120,6 +153,7 @@ export class RunCommandService {
         reasoningEffort,
         reasoningFormat: capability.reasoningFormat,
         attachmentIds,
+        artifactVersionContext: input.artifactVersionContext,
       });
     } catch (error) {
       if (

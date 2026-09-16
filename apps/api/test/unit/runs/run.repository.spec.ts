@@ -240,6 +240,55 @@ describe('RunRepository reasoning transcript boundaries', () => {
     });
   });
 
+  it('preserves artifact version context when flushing a run checkpoint', async () => {
+    const artifactVersionContext = {
+      seriesId: 'series-1',
+      baseArtifactId: 'artifact-1',
+      expectedCurrentArtifactId: 'artifact-1',
+    };
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const tx = {
+      agentRun: {
+        findUnique: vi.fn().mockResolvedValue({ metadata: { artifactVersionContext } }),
+        updateMany,
+      },
+      message: {
+        findUnique: vi.fn().mockResolvedValue({ metadata: { draftVersion: 0 } }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+    };
+    const prisma = { ...tx, $transaction: vi.fn(async (callback) => callback(tx)) };
+    const repository = new RunRepository(prisma as unknown as PrismaService);
+
+    await expect(
+      repository.flush(
+        'run-1',
+        'assistant-1',
+        {
+          model: 'deepseek-v4-flash',
+          blocks: [],
+          toolCallCount: 0,
+          executions: [],
+          sources: [],
+          observability: { modelRounds: [] },
+        } as never,
+        1,
+        1,
+      ),
+    ).resolves.toBe(true);
+
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          metadata: {
+            artifactVersionContext,
+            observability: { modelRounds: [] },
+          },
+        }),
+      }),
+    );
+  });
+
   it('atomically persists the in-memory compaction state when a run completes', async () => {
     const compactionState = {
       summary: 'summary',
@@ -251,7 +300,7 @@ describe('RunRepository reasoning transcript boundaries', () => {
     const tx = {
       agentRun: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-        findUnique: vi.fn().mockResolvedValue({ sessionId: 'session-1' }),
+        findUnique: vi.fn().mockResolvedValue({ sessionId: 'session-1', metadata: {} }),
       },
       contextCompactionState: { upsert: vi.fn().mockResolvedValue({}) },
       modelTranscriptItem: {
@@ -295,7 +344,10 @@ describe('RunRepository reasoning transcript boundaries', () => {
     'does not persist compaction state when a run ends as %s',
     async (status) => {
       const tx = {
-        agentRun: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        agentRun: {
+          findUnique: vi.fn().mockResolvedValue({ metadata: {} }),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
         contextCompactionState: { upsert: vi.fn() },
         modelTranscriptItem: {
           updateMany: vi.fn(),

@@ -1,5 +1,6 @@
-import { Controller, Delete, Get, Inject, Param, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Inject, Param, Post, Res } from '@nestjs/common';
 import type { Response } from 'express';
+import { restoreArtifactRequestSchema } from '@harness/agent-protocol';
 import { ArtifactsService } from './artifacts.service';
 
 @Controller('api/agent/artifacts')
@@ -11,6 +12,16 @@ export class ArtifactsController {
 
   @Delete('reports/:reportId')
   deleteReport(@Param('reportId') reportId: string) { return this.artifacts.deleteReport(reportId); }
+
+  @Get('series/:seriesId')
+  getSeries(@Param('seriesId') seriesId: string) { return this.artifacts.getSeries(seriesId); }
+
+  @Post(':artifactId/restore')
+  restore(@Param('artifactId') artifactId: string, @Body() body: unknown) {
+    const parsed = restoreArtifactRequestSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException({ code: 'INVALID_ARTIFACT_RESTORE_REQUEST', detail: '恢复请求不合法。' });
+    return this.artifacts.restore(artifactId, parsed.data.expectedCurrentArtifactId, parsed.data.idempotencyKey);
+  }
 
   @Get(':artifactId')
   get(@Param('artifactId') artifactId: string) { return this.artifacts.get(artifactId); }

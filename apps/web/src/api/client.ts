@@ -15,6 +15,8 @@ import {
   fileRefSchema,
   artifactRefSchema,
   reportRefSchema,
+  artifactSeriesRefSchema,
+  restoreArtifactResultSchema,
 } from '@harness/agent-protocol';
 import type {
   CancelRunResponse,
@@ -35,6 +37,8 @@ import type {
   FileRef,
   ArtifactRef,
   ReportRef,
+  ArtifactSeriesRef,
+  RestoreArtifactResult,
 } from '@harness/agent-protocol';
 import { publicAgentConfigSchema } from '@harness/agent-protocol';
 
@@ -140,6 +144,12 @@ export async function createRun(
   model: string,
   reasoningEffort: ReasoningEffort,
   attachmentIds: string[] = [],
+  artifactVersionContext?: {
+    seriesId: string;
+    baseArtifactId: string;
+    expectedCurrentArtifactId: string;
+    changeSummary?: string;
+  },
 ): Promise<CreateRunResponse> {
   const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/runs`, {
     method: 'POST',
@@ -150,9 +160,27 @@ export async function createRun(
       reasoningEffort,
       idempotencyKey: crypto.randomUUID(),
       ...(attachmentIds.length ? { attachmentIds } : {}),
+      ...(artifactVersionContext ? { artifactVersionContext } : {}),
     }),
   });
   return createRunResponseSchema.parse(await parseResponse(response));
+}
+
+export async function getArtifactSeries(seriesId: string): Promise<ArtifactSeriesRef> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/series/${encodeURIComponent(seriesId)}`);
+  return artifactSeriesRefSchema.parse(await parseResponse(response));
+}
+
+export async function restoreArtifact(
+  artifactId: string,
+  expectedCurrentArtifactId: string,
+): Promise<RestoreArtifactResult> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${encodeURIComponent(artifactId)}/restore`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedCurrentArtifactId, idempotencyKey: crypto.randomUUID() }),
+  });
+  return restoreArtifactResultSchema.parse(await parseResponse(response));
 }
 
 export async function uploadFile(

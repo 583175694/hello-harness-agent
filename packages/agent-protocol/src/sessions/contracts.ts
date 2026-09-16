@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AGENT_PROTOCOL_LIMITS } from '../common/constants.js';
-import { fileRefSchema } from '../files/contracts.js';
+import { artifactSeriesRefSchema, fileRefSchema } from '../files/contracts.js';
 
 const sessionPendingUserInputViewSchema = z.object({
   id: z.string().min(1),
@@ -37,6 +37,7 @@ export const sessionSummarySchema = z.object({
 // 定义会话详情及其按时间排序的持久化消息。
 export const sessionDetailSchema = sessionSummarySchema.extend({
   messages: z.array(persistedMessageSchema),
+  artifactSeries: z.array(artifactSeriesRefSchema).default([]),
   pendingUserInputs: z.array(sessionPendingUserInputViewSchema).default([]),
   activeRun: z
     .object({

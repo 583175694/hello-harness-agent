@@ -5,6 +5,14 @@
 @source '../node_modules/@streamdown/mermaid/dist/*.js';
 
 @theme {
+  /* Keep utility typography on the same even-pixel scale as component CSS. */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+
   --color-canvas: var(--theme-canvas);
   --color-sidebar: var(--theme-sidebar);
   --color-surface: var(--theme-surface);

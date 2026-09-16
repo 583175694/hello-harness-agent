@@ -212,6 +212,7 @@ export class ChatService {
       onBeforeModelRequest: options.onBeforeModelRequest,
     })) {
       if (event.type === 'model.round.completed') {
+        conversation.completeReasoning(event.observation.roundSequence, event.observation.durationMs);
         modelRounds.push(event.observation);
         await notifyProjection();
         yield event;
@@ -266,6 +267,12 @@ export class ChatService {
           blockSequence: event.blockSequence,
           ...(event.phase !== undefined ? { phase: event.phase } : {}),
         };
+        continue;
+      }
+      if (event.type === 'reasoning.delta') {
+        const blockId = conversation.appendReasoning(event);
+        await notifyProjection();
+        yield { type: 'reasoning.delta', messageId: prepared.assistantMessageId, blockId, delta: event.delta, roundId: event.roundId, roundSequence: event.roundSequence, blockSequence: event.blockSequence };
         continue;
       }
       if (event.type === 'text.phase.completed' || event.type === 'text.discarded') {

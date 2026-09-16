@@ -51,6 +51,13 @@ export type AgentRuntimeEvent =
       phase?: 'pending' | 'commentary' | 'final_answer' | null;
     }
   | {
+      type: 'reasoning.delta';
+      delta: string;
+      roundId: string;
+      roundSequence: number;
+      blockSequence: number;
+    }
+  | {
       type: 'text.phase.completed';
       roundId: string;
       roundSequence: number;

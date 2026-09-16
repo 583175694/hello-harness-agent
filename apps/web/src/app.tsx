@@ -36,6 +36,7 @@ import type {
   MessageDiscardedEvent,
   MessagePhaseCompletedEvent,
   ModelRoundCompletedEvent,
+  ReasoningDeltaEvent,
   ToolStreamEvent,
 } from './api/client';
 import {
@@ -71,6 +72,8 @@ import type {
 } from './features/agent/model/types';
 import {
   appendTextDelta,
+  appendReasoningDelta,
+  completeReasoning,
   applyToolActivityEvent,
   cloneAssistantBlocks,
   completeTextPhase,
@@ -1156,7 +1159,12 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       return;
     }
     if (event.type === 'reasoning.delta') {
-      // 协议 0.10 兼容：旧 Event Tail 中的 reasoning 只推进 cursor，不再进入用户投影。
+      const reasoning = event.payload as ReasoningDeltaEvent;
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return { ...current, [sessionId]: { ...target, conversation: target.conversation.map((item) => item.kind === 'assistant' && item.id === reasoning.messageId ? { ...item, blocks: appendReasoningDelta(item.blocks, reasoning) } : item) } };
+      });
       runSequencesRef.current[event.runId] = event.seq;
       return;
     }
@@ -1173,6 +1181,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           ...current,
           [sessionId]: {
             ...target,
+            conversation: target.conversation.map((item) => item.kind === 'assistant' && item.blocks.some((b) => b.type === 'reasoning' && b.roundSequence === round.observation.roundSequence) ? { ...item, blocks: completeReasoning(item.blocks, round.observation.roundSequence, round.observation.durationMs) } : item),
             ...(round.context ? { context: round.context } : {}),
             workbench,
           },

@@ -3,10 +3,11 @@ import type {
   AssistantContentBlock,
   AssistantTextBlock,
   AssistantToolActivityBlock,
+  AssistantReasoningBlock,
 } from '@harness/agent-protocol';
 
 export type AssistantProcessItem =
-  { kind: 'text'; block: AssistantTextBlock } | { kind: 'tool'; block: AssistantToolActivityBlock };
+  { kind: 'text'; block: AssistantTextBlock } | { kind: 'tool'; block: AssistantToolActivityBlock } | { kind: 'reasoning'; block: AssistantReasoningBlock };
 
 export type AssistantMessagePresentation = {
   process: AssistantProcessItem[];
@@ -19,14 +20,11 @@ export type AssistantMessagePresentation = {
 export function presentAssistantBlocks(
   blocks: AssistantContentBlock[],
 ): AssistantMessagePresentation {
-  const visible = blocks.filter((block) => block.type !== 'reasoning');
+  const visible = blocks;
   const artifacts = visible.filter(
     (block): block is AssistantArtifactBlock => block.type === 'artifact',
   );
-  const timeline = visible.filter(
-    (block): block is AssistantTextBlock | AssistantToolActivityBlock =>
-      block.type === 'text' || block.type === 'tool_activity',
-  );
+  const timeline = visible.filter((block): block is AssistantTextBlock | AssistantToolActivityBlock | AssistantReasoningBlock => block.type === 'text' || block.type === 'tool_activity' || block.type === 'reasoning');
   const toolRounds = new Set(
     timeline.flatMap((block) =>
       block.type === 'tool_activity' && block.roundSequence !== undefined
@@ -44,6 +42,7 @@ export function presentAssistantBlocks(
       process.push({ kind: 'tool', block });
       return;
     }
+    if (block.type === 'reasoning') { process.push({ kind: 'reasoning', block }); return; }
     if (block.phase === 'pending') {
       pending.push(block.content);
       return;

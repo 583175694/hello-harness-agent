@@ -91,6 +91,17 @@ export function appendTextDelta(
   );
 }
 
+export function appendReasoningDelta(blocks: AssistantContentBlock[], event: Extract<ChatStreamEvent, { type: 'reasoning.delta' }>): AssistantContentBlock[] {
+  const index = blocks.findIndex((b) => b.type === 'reasoning' && b.id === event.blockId);
+  if (index < 0) return insertOrdered(blocks, { id: event.blockId, type: 'reasoning', roundId: event.roundId, roundSequence: event.roundSequence, blockSequence: event.blockSequence, content: event.delta, startedAt: new Date().toISOString() });
+  return orderAssistantBlocks(blocks.map((b, i) => i === index && b.type === 'reasoning' ? { ...b, content: b.content + event.delta } : b));
+}
+
+export function completeReasoning(blocks: AssistantContentBlock[], roundSequence: number, durationMs: number): AssistantContentBlock[] {
+  const completedAt = new Date().toISOString();
+  return blocks.map((b) => b.type === 'reasoning' && b.roundSequence === roundSequence ? { ...b, completedAt, durationMs } : b);
+}
+
 export function completeTextPhase(
   blocks: AssistantContentBlock[],
   event: MessagePhaseCompletedEvent,
@@ -268,7 +279,5 @@ export function flattenAssistantText(blocks: AssistantContentBlock[]): string {
 
 // 将持久化块复制为前端可安全更新的独立对象。
 export function cloneAssistantBlocks(blocks: AssistantContentBlock[]): AssistantContentBlock[] {
-  return orderAssistantBlocks(
-    blocks.filter((block) => block.type !== 'reasoning').map((block) => ({ ...block })),
-  );
+  return orderAssistantBlocks(blocks.map((block) => ({ ...block })));
 }

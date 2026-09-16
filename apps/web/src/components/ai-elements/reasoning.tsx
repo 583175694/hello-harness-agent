@@ -5,6 +5,7 @@ import {
   memo,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -110,12 +111,25 @@ export const ReasoningContent = memo(function ReasoningContent({
   children,
   ...props
 }: ComponentProps<typeof Collapsible.Content> & { children: string }) {
+  const { isStreaming } = useReasoning();
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const scrollElement = scrollRef.current;
+    if (!isStreaming || !scrollElement) return;
+
+    // Keep the newest reasoning token visible while the model is streaming.
+    scrollElement.scrollTop = scrollElement.scrollHeight;
+  }, [children, isStreaming]);
+
   return (
     <Collapsible.Content
       className={`ai-reasoning__content${className ? ` ${className}` : ''}`}
       {...props}
     >
-      <MarkdownContent>{children}</MarkdownContent>
+      <div className="ai-reasoning__content-scroll" ref={scrollRef}>
+        <MarkdownContent>{children}</MarkdownContent>
+      </div>
     </Collapsible.Content>
   );
 });

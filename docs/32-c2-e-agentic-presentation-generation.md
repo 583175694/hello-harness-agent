@@ -1,310 +1,306 @@
 # C2-E Agentic Presentation Generation / Agent 演示文稿生成与编辑方案
 
-> 文档状态：方案评审稿。本文定义 C2-E 从需求理解、内容规划、视觉设计、幻灯片生成、Slides Workbench 编辑、Review 到 PPTX 交付的完整能力，并记录开源候选与 PoC 决策方法；在 PoC 完成前不冻结 GenOffice 为不可替换的最终底座。
+> 文档状态：方案评审稿。本文定义 C2-E 首版从需求理解、内容规划、结构化生成、有限协同修改到可编辑 PPTX 导出的能力边界，并记录后续演进方向。
 >
-> 最后更新：2026-09-16。
+> 最后更新：2026-09-17。
 >
-> Agent Runtime 的通用循环、模型适配和会话控制继续沿用现有架构。C2-E 在其上增加 Presentation Project、生成编排、Slides 领域工具、Review 与 Workbench，不另造一套 Agent Runtime。
+> 首版不以构建完整 PowerPoint 编辑器为目标，也不将 GenOffice 作为运行时底座。产品层、Presentation Model、Slides Ops、Revision 和 Export Adapter 由 Harness 自主掌握；高保真 PPTX 导入、往返编辑和完整画布能力按真实需求逐步增加。
 
 ## 1. 一句话定义
 
-C2-E 让 Agent 能把用户的主题、材料或已有 PPTX 转化为经过规划、设计、生成和 Review 的可编辑演示文稿，用户可以在 Slides Workbench 中与 Agent 共同修改，并最终获得可继续编辑的 PPTX Artifact。
+C2-E 首版让 Agent 将用户的主题或材料转化为结构清晰、视觉可接受、结构化可编辑的演示文稿；用户可以对生成结果进行有限但可靠的修改，并导出可继续编辑的 PPTX。
 
 核心链路：
 
 ```text
-用户需求 / 来源材料 / 已有 PPTX
+用户需求 / 来源材料
 -> Agent 理解目标并补齐必要约束
--> 规划 Storyline 与 Outline
--> 生成 Design Brief、Theme 与布局策略
--> 按页生成结构化 Slide
--> Slides Workbench 渐进展示
--> 自动 Layout Audit 与视觉 Review
--> 用户和 Agent 继续协同修改
--> 形成不可变版本
--> 导出可编辑 PPTX Artifact
+-> 规划 Brief 与 Outline
+-> 为每页选择受限布局并生成内容
+-> 写入 Presentation Model
+-> SVG/DOM Workbench 渐进展示
+-> 执行确定性 Layout Linter
+-> 用户或 Agent 进行有限修改
+-> 保存版本
+-> 通过 Export Adapter 导出可编辑 PPTX
 ```
 
-实现上采用“重内核、轻界面、Agent 原生”的方案：产品交互、生成编排与 Workbench 集成由 Harness 自己开发，优先复用 GenOffice 的 PPTX Engine、Render 和 Ops 能力，通过稳定 Adapter 与现有系统隔离，不从零重写 PPTX 引擎，也不直接嵌入 GenOffice 完整应用。
+首版要验证的不是“能否做一个 PowerPoint”，而是：
 
-这是一项有条件成立的候选决策：
+1. Agent 能否生成有用的叙事和页面。
+2. 用户能否快速完成常见局部修改。
+3. 导出的 PPTX 是否可打开、可继续编辑。
+4. 用户修改是否不会被 Agent 后台覆盖。
+5. 内部模型和导出边界是否足以支撑后续升级。
 
-- 产品层必须由 Harness 掌握。
-- GenOffice 首先作为候选引擎验证，而不是提前成为不可替换依赖。
-- 是否正式采用取决于隔离 PoC 对可拆分性、PPTX 保真、浏览器适配和维护成本的验证结果。
-- 如果 GenOffice Canvas 耦合过重，可以只复用 Engine、Render 和 Ops，自行实现 Slide Canvas。
-- 如果核心模型也无法稳定拆出，则退回其他候选或自研模型，不为迁就开源项目破坏产品边界。
+## 2. 首版目标与非目标
 
-## 2. 产品目标与范围
+### 2.1 首版目标
 
-### 2.1 产品目标
+- 从一句描述或上传材料创建演示文稿。
+- 先生成 Brief、Outline 和页面布局计划，再生成页面。
+- 使用有限布局族和结构化页面元素，保证生成结果可控。
+- 在 Workbench 中渐进展示生成中的页面。
+- 支持用户和 Agent 修改同一个 Presentation Model。
+- 支持标题、正文、图片、样式、位置、尺寸和页面顺序等常见修改。
+- 每批 Agent 修改可观察、可整体撤销，并进行 revision 冲突检查。
+- 执行确定性布局检查，给出可解释的问题和建议。
+- 导出文字、图片、形状、基础表格和基础图表仍可编辑的 PPTX。
+- 保存 Presentation Project、版本、来源和导出记录，并支持会话恢复。
 
-- 用户可以从一句描述、上传材料或已有 PPTX 开始创建演示文稿。
-- Agent 先规划内容和设计方向，再生成页面，不直接无计划堆叠页面。
-- 页面生成过程中持续出现在 Slides Workbench，而不是等待黑盒任务全部结束。
-- 人工编辑和 Agent 编辑作用于同一个 Presentation Model。
-- 用户可以要求修改当前页、指定元素、某一组页面或整个 Deck。
-- 每次 Agent 修改可观察、可审查、可整体撤销。
-- 生成后自动执行确定性布局检查和视觉 Review。
-- 最终交付为可继续编辑的 PPTX，而不是整页图片。
-- Presentation Project、版本和导出 Artifact 可以随会话恢复。
+### 2.2 首版明确不做
 
-### 2.2 首版非目标
-
-- 不复刻完整 PowerPoint。
-- 不建设独立于现有 Agent Kernel 的 Presentation Agent Runtime。
-- 不支持无限 HTML/CSS 表现力与完全 PPTX 保真同时成立。
-- 不在首版实现复杂动画时间轴、宏、OLE、完整母版编辑和实时多人协作。
+- 不复刻完整 PowerPoint 或完整自由画布编辑器。
+- 不承诺任意已有 PPTX 的完整导入、编辑和原样往返。
+- 不实现复杂母版、SmartArt、动画时间轴、宏、OLE 和复杂嵌入对象。
+- 不支持无限 HTML/CSS 表现力与 PPTX 可编辑性同时成立。
+- 不在首版实现实时多人协作。
 - 不让 Agent 通过模拟鼠标点击操作编辑器。
+- 不把自动视觉修复作为默认闭环；首版先检测、解释并提出建议。
+- 不把 GenOffice 作为首版运行时底座或不可替换依赖。
 
-## 3. 统一称呼
+## 3. 产品定位与取舍
 
-后续讨论和实现统一使用以下名称：
-
-- **Slides Workbench**：右侧完整幻灯片工作区，包括页面导航、编辑画布、属性面板、Review、修改状态和导出。
-- **Slide Canvas**：单页幻灯片的可视化编辑区域。
-- **Presentation Model**：人工编辑器和 Agent 共同操作的结构化演示文稿模型。
-- **Slides Ops**：对 Presentation Model 执行的结构化、可验证、可回滚编辑操作。
-- **PPTX Adapter**：PPTX 导入、导出及往返 Patch 的边界层。
-- **Slides Review**：确定性 Layout Linter、截图视觉检查和可回滚修复流程。
-- **Presentation Project**：演示文稿的持久化项目，包括模型、主题、素材、来源、版本和导出记录。
-- **Presentation Generation Pipeline**：从需求、Outline、Design Brief 到逐页生成和 Review 的领域编排。
-
-## 4. 产品基准与核心判断
-
-C2-E 以 Genspark AI Slides 的右侧工作区为主要产品基准，但不机械复制其界面或假设其内部实现。
-
-目标体验是：
+目标体验参考 Genspark 式 Agent Slides 工作台，但首版优先验证“生成后修改和交付”的价值，而非覆盖完整 Office 能力。
 
 ```text
 Agent 生成或修改演示文稿
--> Slides Workbench 实时展示结果
--> 用户可直接选择和微调元素
--> Agent 修改过程可见、可审查
--> 系统自动检查布局和视觉问题
--> 用户可撤销、重做或恢复整次 Agent 修改
--> 导出高质量、可继续编辑的 PPTX
+-> Workbench 实时展示
+-> 用户修改标题、图片、样式或布局
+-> 系统检查确定性布局问题
+-> 用户查看 Diff、撤销或保存版本
+-> 导出可编辑 PPTX
 ```
 
-Genspark 的表面交互很轻，但其底层能力并不轻。要让 Agent 稳定完成局部修改、Review 和回滚，系统至少需要可靠的元素身份、布局模型、结构化操作、事务 History、截图能力和 PPTX 转换能力。
+首版采用以下取舍：
 
-因此 C2-E 不采用“轻量 Slides Engine”。正确方向是：
+| 首版不追求 | 首版换取 |
+| --- | --- |
+| 任意 PPTX 导入和往返 | 大幅降低 OOXML、母版和兼容性复杂度 |
+| 完整自由画布 | 更稳定的布局质量和更简单的交互 |
+| 任意 HTML/CSS | 更可控的 PPTX 导出 |
+| 自动视觉修复 | 避免误修复和 Review 震荡 |
+| GenOffice 深度接入 | 避免早期绑定重型上游架构 |
+| 完整 Office 图表和动画 | 更快验证 Agent 内容和协同编辑价值 |
 
-> 能力重、界面轻；底层完整、前台渐进披露；Agent 优先，但不牺牲人工可编辑性。
+## 4. 用户链路
 
-## 5. 完整用户链路
-
-### 5.1 从主题创建
+### 4.1 从主题创建
 
 ```text
 用户描述主题、受众和目标
--> Agent 判断是否需要补充页数、风格或材料
--> 创建 Presentation Project
--> 输出 Outline 与 Design Brief 供用户快速确认
--> 逐页生成并实时写入 Presentation Model
--> Workbench 展示页面进度和已完成页面
--> 自动 Review
--> 用户继续对话或手动微调
+-> 形成最小 Presentation Brief
+-> 生成 Outline 和 Design Brief
+-> 用户快速确认或继续生成
+-> 每页选择 Layout 并生成结构化内容
+-> 页面完成后进入 Workbench
+-> Layout Linter 检查
+-> 用户或 Agent 进行有限修改
 -> 保存版本并导出 PPTX
 ```
 
-### 5.2 从材料创建
+是否询问用户遵循现有 Agent Runtime 的约束：只有缺失信息会实质改变结果时才询问，否则使用明确默认值继续执行。
+
+### 4.2 从材料创建
 
 ```text
 用户上传 PDF / DOCX / XLSX / 图片 / 网页材料
 -> 复用 C1 文件读取和来源定位
--> Agent 提取适合演示的事实、数据和图片
+-> 提取事实、数据、图片和限制条件
 -> 建立 Source References
--> 规划 Storyline 和页面证据分布
+-> 规划 Storyline、页面证据分布和引用
 -> 进入统一生成链路
 ```
 
-原始材料始终是不可信输入，不能通过文档内容改变系统指令、工具权限和生成边界。
+原始材料是不可信输入，不能通过文档内容改变系统指令、工具权限和生成边界。事实、数据和图片必须保留来源或生成信息，不能用占位图伪装最终素材。
 
-### 5.3 编辑已有 PPTX
+### 4.3 已有 PPTX 的首版处理
 
-```text
-用户上传 PPTX
--> PPTX Adapter 解析为 Presentation Model
--> Workbench 展示可编辑页面
--> Agent 读取页面结构、语义角色和截图
--> 执行结构化 Slides Ops
--> 保留未修改 OOXML 与资源
--> 保存新版本或导出新 PPTX
+首版不承诺任意 PPTX 的可编辑往返。可以支持以下渐进能力：
+
+- 读取文件元数据并生成缩略图或图片预览。
+- 提取可识别的文本、图片和页面顺序供 Agent 参考。
+- 基于提取结果重新生成一份 C2-E 原生 Presentation Model。
+- 对明确支持的 PPTX 子集提供实验性导入，能力和限制在界面中明确说明。
+
+高保真导入和 round-trip 进入后续阶段，不作为首版完成条件。
+
+## 5. 首版 Presentation Model
+
+Presentation Model 是 Workbench、Agent 和导出器共同使用的唯一结构化真源。首版不保存 HTML、React 源码或整页截图作为业务状态。
+
+```ts
+type Presentation = {
+  id: string;
+  revision: number;
+  size: { width: number; height: number };
+  theme: Theme;
+  slides: Slide[];
+  assets: Asset[];
+  sources: SourceReference[];
+};
+
+type Slide = {
+  id: string;
+  layout: LayoutType;
+  elements: SlideElement[];
+  notes?: string;
+};
+
+type SlideElement =
+  | TextElement
+  | ImageElement
+  | ShapeElement
+  | TableElement
+  | ChartElement;
 ```
 
-### 5.4 继续迭代
+每个元素至少包含：
 
-用户可以针对：
+- 稳定且持久的元素 ID。
+- 语义角色，例如 `title`、`body`、`hero-image`、`source`。
+- 内容、样式、位置和尺寸；首版位置主要由 Layout Engine 计算。
+- `user | agent | imported` 来源信息。
+- 最近修改 revision 和修改来源。
+- 可选的来源引用、素材身份和生成信息。
 
-- 当前选中元素。
-- 当前页。
-- 指定页码或页面范围。
-- 全局主题和配色。
-- 整个 Storyline。
+首版支持的元素子集：
 
-发起后续修改。选择状态通过受控 Workbench Context 提供给 Agent，不能依赖“这个”“右边那个”等未解析指代直接盲改。
+- 文本框。
+- 图片。
+- 基础矩形和圆角矩形。
+- 线条。
+- 基础表格。
+- 基础柱状图、折线图和饼图。
+- 背景色、字体、字号、颜色和对齐。
 
-## 6. 为什么不是完整自研或完整嵌入
+首版不把复杂组、母版继承、SmartArt、复杂路径、动画和嵌入对象纳入模型承诺。
 
-### 6.1 不从零开发全部能力
+## 6. 受限布局与生成策略
 
-以下问题是 Slides Workbench 最昂贵、最容易被低估的部分：
+首版不让模型直接决定每个元素的任意坐标。模型先选择布局，再填充布局槽位；确定性 Layout Engine 负责网格、边距、字号、换行、间距和溢出检测。
 
-- PPTX/OOXML 解析与保存。
-- 字体解析、回退和文本排版。
-- Shape、连接线、表格、图表及图片裁剪。
-- 主题、布局和母版继承。
-- PPTX 导入后的往返保真。
-- 可验证编辑操作、事务和 Undo/Redo。
-
-这些能力不构成 Harness 的核心产品差异，若已有合适开源实现，不应优先重复建设。
-
-### 6.2 不直接嵌入 GenOffice 完整应用
-
-GenOffice 是完整 Office 产品，不是专门提供给第三方的 Slides SDK。直接嵌入会引入：
-
-- Office/Ribbon 风格界面，与 Genspark 式轻工作台不一致。
-- Electron IPC、本地文件系统和 GenOffice 自身状态约定。
-- 与现有 WorkbenchShell、Agent Panel 和 History 的职责冲突。
-- 产品交互和视觉控制权不足。
-- 后续上游同步与本地修改相互缠绕。
-
-因此建议只复用有明确边界的能力，并由 Harness 自己实现产品层。
-
-## 7. 总体架构
+首版布局族建议包括：
 
 ```text
-现有 Agent Runtime
-├── Context Compiler / Model Adapter / Tool Loop
-└── Presentation Domain Tools
-    ├── 读取来源与演示文稿上下文
-    ├── 创建 Outline / Design Brief
-    ├── 生成或重做 Slide
-    ├── 执行 Slides Ops
-    ├── 截图与 Review
-    └── 保存版本与导出
-                 │
-                 ▼
-Presentation Generation Pipeline
-├── Intent & Constraint Resolution
-├── Storyline / Outline Planner
-├── Design Brief / Theme Planner
-├── Asset Resolver
-├── Slide Generator
-└── Review Orchestrator
-                 │
-                 ▼
-Presentation Runtime
-├── Presentation Model
-├── Slides Ops
-├── Selection / Layout Engine
-├── History / Transactions
-├── Theme / Asset Manager
-└── Rendering Engine
-        │                  │
-        ▼                  ▼
-Slides Workbench        PPTX Adapter
-├── Deck Navigator      ├── PPTX Import
-├── Slide Canvas        ├── PPTX Export
-├── Inspector           └── Round-trip Patch
-├── Agent Activity
-└── Review Panel
-        │                  │
-        └────────┬─────────┘
-                 ▼
-Presentation Project / C2-D Versions / Artifact Delivery
+title
+ title-content
+two-column
+image-text
+full-image
+quote
+comparison
+timeline
+data-highlight
+closing
 ```
 
-核心约束：
+每种布局定义有限区域，例如：
 
-1. Slides Workbench 和 Agent Tools 不得分别维护两套编辑逻辑。
-2. 人工操作与 Agent 操作统一进入 Slides Ops。
-3. Slide Canvas 只渲染和提交意图，不直接成为业务状态真源。
-4. PPTX 解析、保存与导出通过 Adapter 隔离，不向产品层泄漏 OOXML 细节。
-5. Agent 的一次逻辑修改必须形成可整体撤销的事务。
+```text
+title-content:
+- title
+- subtitle?
+- body
+- optional source
 
-## 8. Presentation Generation Pipeline
+image-text:
+- title
+- image
+- body
+- optional caption
+```
 
-Presentation Generation Pipeline 是 C2-E 的领域编排，不是第二套通用 Agent Loop。模型负责语义和设计决策，Runtime 与领域服务负责确定性执行、状态、预算、并发和失败恢复。
+生成路径：
 
-### 8.1 Intent 与约束
+```text
+Presentation Brief
+-> Outline
+-> 每页选择 Layout
+-> 生成页面语义内容和素材引用
+-> Layout Engine 计算坐标
+-> Presentation Model
+-> Render
+-> Layout Linter
+-> Export
+```
 
-在开始生成前形成最小 Presentation Brief：
+模型负责主题理解、叙事结构、页面类型、文案、图片选择和图表数据；确定性代码负责几何布局、排版约束、溢出检查和 PPTX 输出。这样可以减少页面随机性，并为后续增加布局族和高保真渲染保留空间。
 
-- 主题与目标。
-- 受众。
-- 使用场景。
-- 预计页数或篇幅。
-- 内容密度。
-- 视觉方向与品牌约束。
-- 是否需要引用来源或使用上传材料。
+## 7. Slides Ops、Revision 与事务
 
-只有缺失信息会实质改变结果时才询问用户；否则使用明确默认值继续执行。
+人工编辑和 Agent 编辑必须使用同一组结构化操作。首版操作种类可以有限，但入口和语义不能临时化。
 
-### 8.2 Storyline 与 Outline
+```ts
+applyOperations({
+  presentationId,
+  baseRevision,
+  transactionId,
+  source: 'user' | 'agent' | 'review',
+  operations,
+});
+```
 
-Outline 不是最终页面内容，而是 Deck 级叙事计划：
+首版建议支持：
 
-- 核心观点和叙事顺序。
-- 每页目的、标题、关键内容和证据。
-- 页面类型，例如封面、问题、数据、对比、流程、案例和结论。
-- 页面之间的承接关系。
-- 来源材料在页面中的分布。
+```text
+updateText
+replaceImage
+updateStyle
+moveElement
+resizeElement
+deleteElement
+addElement
+moveSlide
+applyTheme
+```
 
-Outline 必须持久化到 Presentation Project，后续增删或重排页面时同步更新。
+一次操作批次必须：
 
-### 8.3 Design Brief 与 Theme
+1. 校验参数、目标和权限。
+2. 检查 `baseRevision` 是否仍然有效。
+3. 原子执行整批操作。
+4. 任一步失败时恢复事务前状态。
+5. 记录结构化 before/after journal。
+6. 形成一个可整体撤销的 Undo 节点。
+7. 返回受影响的页面、元素和新 revision。
 
-在逐页生成前形成 Deck 级设计约束：
+生成过程中如果用户修改了已完成页面，后续 Agent 写入必须通过 revision 检查；不能静默覆盖用户修改。发生冲突时返回明确状态，由 Agent 重新读取上下文后重试或请求用户选择。
 
-- 配色角色与对比规则。
-- 字体与字号层级。
-- 网格、边距和间距。
-- 图片风格和图标风格。
-- 页面布局族。
-- 图表、表格和数据强调规则。
-- 不允许出现的视觉模式。
+History 服务于当前编辑会话内的 Undo/Redo，Version 是持久化、可恢复和可交付的项目状态，两者不能混为一谈。
 
-Design Brief 转换为结构化 Theme Tokens，供 Slide Generator、Workbench 和 Review 共用，避免每页独立随机设计。
+## 8. Workbench 与首版渲染
 
-### 8.4 Asset Resolver
+Slides Workbench 复用现有 WorkbenchShell、Agent 对话、任务状态、权限、会话恢复和 Artifact 交付链路；首版只增加必要的 Slides 视图。
 
-素材来源包括：
+推荐首版使用 SVG/DOM Renderer：
 
-- 用户上传图片和文件内嵌图片。
-- 已授权的网页图片搜索。
-- 图片生成能力。
-- 图标和 Logo 目录。
-- 数据生成的图表和信息图。
+- SVG 或 DOM 渲染文本、图片、形状、表格和图表。
+- CSS 和绝对定位表达页面布局。
+- 普通 DOM 负责文本原位编辑和输入法。
+- 选择框、操作手柄和属性面板使用 React/DOM。
+- 页面缩放使用容器变换，不让渲染器成为业务状态真源。
 
-每个 Asset 保存来源、版权或生成信息、尺寸、用途和引用页面。Agent 不得用占位图伪装为最终素材。
+SVG/DOM 对首版的页面数量和元素数量已经足够，且文本编辑、可访问性、截图、浏览器调试和自动化测试更简单。后续如果自由编辑、性能或复杂交互成为真实瓶颈，可以在不改变 Presentation Model 和 Slides Ops 的前提下替换为 Konva 或其他场景图 Renderer。
 
-### 8.5 Slide Generator
+首版 Workbench 只承诺有限编辑能力：
 
-Slide Generator 接收：
+- 修改标题和正文。
+- 替换图片。
+- 修改颜色、字号和基础样式。
+- 移动和调整尺寸。
+- 删除或新增简单元素。
+- 页面增删、复制和排序。
+- 应用主题或布局变体。
+- 查看 Agent 修改 Diff 并整体撤销。
 
-- 当前 Outline 项。
-- Deck Design Brief 与 Theme。
-- 相邻页面上下文。
-- 可用 Layout、Blocks 和 Assets。
-- Presentation Model Schema。
-
-输出结构化 Slide 或一批 Slides Ops，而不是不可控的截图。页面可以并行准备，但写入 Presentation Project 时必须保持确定顺序、稳定身份和独立失败状态。
-
-### 8.6 渐进生成与失败隔离
-
-- 页面完成后立即进入 Workbench。
-- 单页失败不丢弃已完成页面。
-- 失败页面可以单独重试或降级为基础布局。
-- 用户在生成过程中修改已完成页面时，后续写入不能覆盖该修改。
-- Deck 级主题变更通过显式事务应用，不在后台静默改写全部页面。
+不承诺完整自由画布、复杂富文本、任意旋转、复杂组合、复杂吸附、完整属性面板和所有 Office 编辑能力。
 
 ## 9. Agent Runtime 集成
 
-### 9.1 领域工具表面
+C2-E 继续复用现有 Agent Runtime、Model Adapter、Tool Registry、取消、超时、会话和事件投影能力，不另造 Presentation Agent Runtime。
 
-首版建议提供小而完整的领域工具，而不是把数十个底层字段直接暴露给模型：
+首版领域工具保持小而完整：
 
 ```text
 create_presentation_project
@@ -320,58 +316,107 @@ save_presentation_version
 export_presentation
 ```
 
-底层 `setText`、`setTransform`、`alignElements` 等原子操作属于 Slides Ops，可通过 `apply_slide_operations` 的严格 Schema 批量提交。
+模型不直接接触任意文件路径、OOXML、React 源码或底层数据库字段。完整 Deck、完整截图和所有元素 JSON 不默认注入上下文，按当前页面、相关页面、Theme Tokens、来源片段和受控 Workbench Context 按需读取。
 
-### 9.2 上下文控制
+选择状态必须解析为稳定 ID；页面排序改变后不能继续使用旧索引盲改。工具输出和 UI 状态来自同一 canonical 事务结果，前端不能根据流式文案推测修改事实。
 
-不把整个 Deck 的完整 JSON 和所有截图默认注入每一轮模型上下文。模型按需获得：
+页面可以并行准备，但写入 Presentation Project 时必须保持确定顺序、稳定身份和独立失败状态。单页失败不能丢弃已完成页面；失败页可以单独重试或降级为基础布局。
 
-- Presentation 摘要与 Outline。
-- 当前页或相关页面的元素清单。
-- 当前选择和用户可见上下文。
-- 必要的截图。
-- Theme Tokens。
-- 相关来源片段。
+## 10. Review：首版先检测和建议
 
-完整页面结构通过 `read_slide` 按需读取，截图通过 `render_slide` 获取。
+Review 首版分为确定性检查和模型建议，不默认自动提交模型修复。
 
-### 9.3 选择与指代
+### 10.1 Layout Linter
 
-Slides Workbench 将以下只读事实提供给 Runtime：
+确定性检查至少包括：
 
-- 当前 Presentation ID 和 revision。
-- 当前页面。
-- 当前选中的元素 ID、类型和语义角色。
-- 用户正在编辑的文本或属性状态。
+- 元素越界。
+- 文本溢出。
+- 非预期重叠。
+- 边距、间距和对齐异常。
+- 对比度不足。
+- 空页面或缺失必需布局槽位。
+- 未解析素材或字体缺失风险。
 
-Agent 必须把自然语言指代解析为稳定 ID 后再执行操作。页面排序改变后不能继续使用旧索引盲改。
+### 10.2 模型建议
 
-### 9.4 修改可观察性
+视觉模型可以读取页面结构和截图，提出以下建议：
 
-Agent 工具执行过程中，Workbench 展示：
+- 信息密度过高。
+- 页面层次不清。
+- 标题表达不准确。
+- 图片与文字关系不合理。
+- 页面之间重复或缺乏承接。
 
-- 当前处理的页面。
-- 新增、修改或删除的元素。
-- 操作批次状态。
-- Review 问题与修复状态。
-- 是否可以撤销或恢复到运行前版本。
+首版流程为：
 
-工具输出和 UI 状态都来自同一 canonical 事务结果，前端不根据流式文案推测修改事实。
+```text
+自动检测
+-> 展示问题和依据
+-> Agent 生成受限修复方案
+-> 用户确认或一键应用
+-> 以普通 Slides Ops 提交
+```
 
-## 10. Presentation Project、版本与 Artifact
+首版不把“问题数量减少”作为自动提交条件，也不允许 Review 无限触发 Review。自动批量修复、评分函数和回滚保护进入后续阶段。
 
-Presentation Project 建议持久化：
+## 11. PPTX 策略
 
-- Presentation Model 快照或内容引用。
-- Outline。
-- Design Brief 与 Theme Tokens。
-- Assets 和来源引用。
-- 原始 PPTX 引用与 OOXML Anchor 信息。
+首版采用单向 Export Adapter：
+
+```text
+Presentation Model
+        ↓
+PPTX Export Adapter
+        ↓
+PptxGenJS 或同类轻量生成器
+        ↓
+可编辑 PPTX
+```
+
+首版交付目标是：自己生成的演示文稿能够在 PowerPoint 中打开，文字、图片、形状、基础表格和基础图表保持可编辑；不以任意 PPTX 的原样往返为目标。
+
+导出器必须独立于生成逻辑、Workbench 和 Agent Tool：
+
+```ts
+interface PresentationExporter {
+  export(input: Presentation): Promise<Uint8Array>;
+}
+```
+
+首版必须验证：
+
+- PowerPoint 打开不出现修复提示。
+- 页面尺寸、文字、图片和基础形状视觉一致。
+- 导出元素在 PowerPoint 中仍可选择和编辑。
+- 中英文混排、缺失字体和图片裁剪有明确降级行为。
+- 导出失败不产生伪成功 Artifact。
+
+首版不支持或不保证：复杂母版、主题继承、SmartArt、动画、宏、OLE、复杂嵌入对象、复杂路径、任意 OOXML 保留、未修改 Part 原样保留和复杂组往返。
+
+后续如确有需求，再增加：
+
+```text
+PPTX Import Adapter
+Round-trip Patch Layer
+GenOffice Engine / Render / Ops Adapter
+```
+
+这些能力必须位于产品层和 Presentation Model 之外，不改变 Agent、Slides Ops 和版本边界。
+
+## 12. Presentation Project、版本与 Artifact
+
+Presentation Project 持久化：
+
+- Presentation Model 或内容引用。
+- Brief、Outline、Design Brief 和 Theme Tokens。
+- Assets、来源引用和版权/生成信息。
 - 当前 revision。
-- Review 结果。
-- 版本与导出记录。
+- Layout Linter 和 Review 建议。
+- 版本和导出记录。
+- 原始输入材料引用。
 
-C2-E 复用 C2-D 的线性不可变版本能力：
+版本沿用 C2-D 的线性不可变能力：
 
 ```text
 Project 当前版本
@@ -381,557 +426,144 @@ Project 当前版本
 -> 从指定版本导出 PPTX Artifact
 ```
 
-History 与 Version 不是同一概念：
-
-- History 服务于当前编辑会话内的 Undo/Redo。
-- Version 是持久化、可恢复、可交付的项目状态。
-
 PPTX 导出结果进入现有 File/Artifact 交付链路，关联 Presentation Project、Version、Session、Run 和导出任务；不把临时本地路径作为用户可见身份。
 
-## 11. Presentation Model
+## 13. GenOffice 与其他候选的定位
 
-运行时由 Presentation Model 作为人工编辑器与 Agent 的共同操作对象。
+GenOffice 不作为首版运行时底座。它的定位是：
 
-```ts
-type Presentation = {
-  id: string;
-  revision: number;
-  size: { width: number; height: number };
-  theme: Theme;
-  slides: Slide[];
-  assets: Asset[];
-};
+- 后续高保真 PPTX 引擎候选。
+- PPTX 兼容性和 round-trip 测试参考。
+- 在产品模型和 Export Adapter 稳定后评估的 Engine/Render/Ops 实现。
+- 如果真实需求证明完整导入和复杂编辑有足够价值，再通过 Adapter 接入的备选方案。
 
-type Slide = {
-  id: string;
-  background: Fill;
-  elements: SlideElement[];
-  notes?: string;
-  review?: ReviewResult;
-};
+首版不应先 fork 或 vendor GenOffice 的完整应用。只有隔离 PoC 证明其核心能力可在浏览器、无 Electron 依赖和稳定 Adapter 下运行时，才考虑复用其中的 Engine、Render 或 Ops。
 
-type SlideElement =
-  | TextElement
-  | ImageElement
-  | ShapeElement
-  | LineElement
-  | TableElement
-  | ChartElement
-  | GroupElement;
-```
+Presenton、pptx-viewer、PPTist、open-slide 等继续作为研究和对照对象，不在首版形成运行时依赖。其产品交互、Inspector、Design Tokens 和 Agent-native 反馈闭环可以借鉴，但必须以首版边界和许可证审查为前提。
 
-每个元素至少需要：
+## 14. 分阶段交付
 
-- 稳定且持久的元素 ID。
-- 位置、尺寸、旋转和层级。
-- 锁定、分组和选择约束。
-- 内容、样式与主题引用。
-- `title`、`body`、`hero-image` 等语义角色。
-- `user | agent | imported` 等来源信息。
-- 最近修改 revision 和修改来源。
-- 导入 PPTX 时对应的 OOXML Anchor 或原始标识。
+### C2-E0：生成模型和导出验证
 
-语义角色是 Agent 可靠编辑的关键。Agent 应能操作“第二页标题”或“当前页主图”，而不是只操作匿名坐标框。
+目标：证明 Agent 能生成结构化、可编辑的演示文稿。
 
-## 12. Slides Ops 与事务
+包括：
 
-人工编辑和 Agent 编辑统一转成 Operation：
-
-```ts
-type SlideOperation =
-  | AddElement
-  | UpdateElement
-  | DeleteElement
-  | MoveElement
-  | ResizeElement
-  | AlignElements
-  | DistributeElements
-  | GroupElements
-  | ReorderElement
-  | AddSlide
-  | MoveSlide
-  | SetTheme;
-```
-
-统一执行入口建议为：
-
-```ts
-applyOperations({
-  presentationId,
-  baseRevision,
-  transactionId,
-  source: 'user' | 'agent' | 'review',
-  operations,
-});
-```
-
-一次执行必须：
-
-1. 校验参数、目标和权限。
-2. 检查 revision 冲突。
-3. 原子执行整批操作。
-4. 任一步失败时恢复事务前状态。
-5. 记录结构化 before/after journal。
-6. 形成一个 Undo 节点。
-7. 返回受影响的页面、元素和新 revision。
-
-这样 Agent 一次调整多个元素时，用户可以一次撤销整次修改，而不是逐元素撤销。
-
-## 13. Slides Workbench 与 Slide Canvas
-
-Slides Workbench 是完整 Agentic Presentation Generation 的编辑与展示界面，不等于 C2-E 全部能力。
-
-首选实现方向：
-
-- React 19。
-- Konva / react-konva 负责场景图和选择交互。
-- DOM Overlay 负责富文本输入和复杂文本编辑。
-- Presentation Model 驱动渲染。
-
-Konva 负责：
-
-- 图形、图片、表格、图表渲染。
-- 选择框、多选、拖拽、缩放和旋转。
-- 吸附线、图层、组合和裁剪交互。
-
-DOM Overlay 负责：
-
-- 文本原位编辑。
-- 光标、选区和输入法。
-- 富文本与复杂字体编辑。
-
-标准元素必须进入 Presentation Model。可以在后续为特殊内容提供 HTML/React 扩展元素，但不能让任意 React 源码成为首版唯一真源，否则 PPTX 导入、结构化修改和可靠导出会失控。
-
-## 14. PPTX 策略
-
-C2-E 采用混合模式：
-
-```text
-运行时编辑真源：Presentation Model
-导入保真层：原始 PPTX + OOXML Anchors
-用户交付格式：PPTX
-```
-
-导入现有 PPTX 时：
-
-- 解析为 Presentation Model。
-- 元素保留原始 Part、稳定标识和必要继承信息。
-- 未修改内容尽可能原样保留。
-- 修改过的元素才重新生成或 Patch。
-
-新建演示文稿时：
-
-- 直接从 Presentation Model 生成 PPTX。
-- 导出结果必须保持文字、图形、图片、表格和图表的可编辑性。
-
-这一边界兼顾 Agent 易操作、Canvas 易渲染、导入往返保真和新生成文件的可编辑性。
-
-## 15. Slides Review
-
-Review 是 Slides Workbench 的内核能力，不是一次普通 Prompt。
-
-```text
-Presentation Model
-      │
-      ├── Layout Linter
-      │   ├── 越界
-      │   ├── 非预期重叠
-      │   ├── 文本溢出
-      │   ├── 间距和对齐异常
-      │   └── 对比度问题
-      │
-      └── Screenshot Reviewer
-          ├── 截取 Slide 当前渲染
-          ├── 视觉模型结合元素清单 Review
-          └── 生成受限修复 Operations
-```
-
-修复流程：
-
-```text
-Review 前快照
--> Agent 通过受限 Slides Ops 修复
--> 再次执行 Layout Linter
--> 问题减少：保留并展示修改
--> 问题增加或执行失败：自动回滚
-```
-
-视觉 Review 不应获得任意代码或文件写入能力。首版只允许读取页面结构、截图和执行布局相关 Slides Ops。
-
-## 16. 与现有 Workbench 的关系
-
-复用现有 WorkbenchShell：
-
-- 左侧 Agent 对话。
-- 顶部导航和通用布局。
-- 文件与 Artifact 状态。
-- 任务执行状态。
-- 权限、会话和恢复入口。
-
-Slides Workbench 独立维护：
-
+- Presentation Brief、Outline 和 Design Brief。
+- 5 至 10 种受限布局。
+- Theme Tokens 和素材引用。
 - Presentation Model。
-- Canvas 和 Selection State。
-- History 与事务。
-- Slides Assets。
-- Review 状态。
-- PPTX 导入和导出。
+- SVG/DOM Renderer。
+- 基本 Layout Linter。
+- PPTX Export Adapter。
+- 20 至 30 个真实测试 Deck。
 
-建议保留 Workbench 插件边界：
+退出条件：
 
-```ts
-interface WorkbenchPlugin {
-  type: 'slides';
-  open(resource: Resource): Promise<void>;
-  render(): React.ReactNode;
-  getContext(): WorkbenchContext;
-  getAgentTools(): AgentTool[];
-  save(): Promise<void>;
-  export(format: string): Promise<Artifact>;
-}
-```
+- 生成结果在结构和布局上可重复。
+- 代表性 Deck 在 PowerPoint 中打开无修复提示。
+- 文字、图片、形状和基础图表可继续编辑。
+- 关键布局问题可以被确定性检测。
+- 失败不会生成伪成功 Artifact。
 
-## 17. 开源候选排序
+不包括在线自由编辑、任意 PPTX 导入、自动视觉修复和 GenOffice 集成。
 
-排序以“接近 Genspark Slides Workbench、可编辑 PPTX、Agent 可操作、可嵌入和许可证”为主要标准。
+### C2-E1：有限协同编辑
 
-### 17.1 第一候选：GenOffice
+目标：证明用户和 Agent 可以共同修改同一个演示文稿。
 
-项目：<https://github.com/genspark-ai/genoffice>
+包括：
 
-适合复用：
+- 标题、正文、图片、颜色、字体和基础样式修改。
+- 元素移动、尺寸调整、删除和新增。
+- 页面增删、复制和排序。
+- Agent 修改高亮、Diff 和整批撤销。
+- revision 冲突检测。
+- 版本保存和会话恢复。
 
-- `pptx-engine`：PPTX 解析、元素模型和保存。
-- `pptx-render`：高保真渲染模型。
-- `pptx-ops`：可验证、可回滚的编辑操作。
-- Slides Review、事务和操作日志的实现思路。
+验收重点是用户修改不会被后台生成覆盖，且一次 Agent 修改可以可靠撤销。
 
-优势：
+### C2-E2：来源、Review 与成熟度增强
 
-- React、TypeScript、Konva，与当前前端方向接近。
-- 支持原生 PPTX 打开、编辑和保存。
-- 人工操作和 Agent 操作已经具有共享操作层。
-- 已实现确定性布局检查、截图视觉 Review 和失败回滚。
-- 主体采用 Apache-2.0；`ee/` 目录需单独排除和审查。
+目标：提升可信度、质量和复用能力。
 
-风险：
+包括：
 
-- 是完整 Electron Office 应用，不是嵌入式 SDK。
-- 部分包标记为 private，可能需要源码级 fork 或 vendor。
-- Canvas、字体、文件和 History 可能存在隐式应用耦合。
-- 项目公开时间较短，上游接口稳定性仍需观察。
+- Source References、引用和素材版权/生成信息。
+- 更完整的 Layout Linter。
+- 截图视觉 Review 建议。
+- 用户确认后的受限批量修复。
+- 品牌主题和模板。
+- 主题级重排。
+- PDF、图片等其他导出格式。
+- 明确限定范围的基础 PPTX 导入。
 
-### 17.2 第二候选：Presenton
+### C2-E3：高保真编辑和引擎升级
 
-项目：<https://github.com/presenton/presenton>
+只有真实用户需求和数据证明必要时才进入：
 
-优势：
+- 复杂 PPTX 导入和 round-trip。
+- 母版与主题继承。
+- 更完整的图表、组和富文本。
+- 高保真字体和排版。
+- 更强的 Canvas Renderer。
+- GenOffice Engine/Render/Ops Adapter。
+- 自动视觉修复和质量回退保护。
+- 实时多人协作。
 
-- React + Konva + 结构化 JSON 编辑器。
-- 已有 Agent Tools、模板、主题和生成链路。
-- Apache-2.0。
-- 产品方向接近 AI Slides，而非完整 Office。
+## 15. 质量指标与测试集
 
-不足：
+首版不能只用“功能已实现”验收，应同时建立质量指标：
 
-- PPTX 往返和原生编辑能力弱于 GenOffice。
-- Next.js/FastAPI 产品代码耦合较多。
-- Export Runtime 需要单独核实源码、部署和长期维护方式。
-
-### 17.3 第三候选：PPTist
-
-项目：<https://github.com/pipipi-pikachu/PPTist>
-
-优势：
-
-- 人工编辑功能成熟。
-- Presentation Model、缩略图、Canvas、图层、图表、表格和动画完整。
-- PPTX 导入导出能力经过较多社区使用。
-
-不足：
-
-- Vue 技术栈与现有 React 项目不同。
-- AGPL-3.0；闭源商业使用需要独立商业授权。
-- 商业授权不包含 API、SDK 或技术支持。
-
-主要定位是编辑交互和功能设计参考；只有在接受商业授权与技术栈隔离时才考虑作为直接底座。
-
-### 17.4 第四候选：pptx-viewer
-
-项目：<https://github.com/ChristopherVR/pptx-viewer>
-
-优势：
-
-- React 组件和框架无关 Core。
-- 声称支持 PPTX 解析、编辑、保存、场景图和 Agent/MCP Tools。
-- Apache-2.0。
-
-不足：
-
-- 项目很新，社区验证有限。
-- 功能声明范围极大，需要真实 PPTX、构建、测试和 round-trip 验真。
-
-主要定位是 PPTX 兼容层备选，而不是当前首选 Workbench UI。
-
-### 17.5 第五候选：open-slide
-
-项目：<https://github.com/1weiho/open-slide>
-
-open-slide 是 Agent-first 的 React Slides-as-Code 框架：每页是任意 React 组件，运行时负责固定画布、缩放、导航、热更新和演讲模式。
-
-值得借鉴：
-
-- Agent 直接编辑页面源码。
-- Inspector 将文字、样式和图片修改通过 Babel AST 写回 JSX。
-- 元素级 Comment 写入源码，Agent 执行 `apply-comments` 后清理标记。
-- Design Tokens、Assets、演讲者模式、备注、动画和 Morph。
-- MIT 协议，React/Vite 技术栈接入友好。
-
-不适合作为首版主底座：
-
-- 没有结构化 Presentation Model。
-- Inspector 不是完整拖拽、缩放、旋转、图层和 Shape 编辑器。
-- 不能导入并往返编辑现有 PPTX。
-- 官方可编辑 PPTX 仍为 Coming Soon；当前官方 PPTX 是整页图片。
-- 第三方 `slide-to-pptx` 虽可将 DOM 测量为可编辑形状和文本，但项目很新，不保留母版/主题，也不解决 PPTX 导入和往返编辑。
-
-open-slide 作为主 Workbench 排名靠后，但其 Agent-native Inspector、Comment 和源码反馈闭环是重要产品参考，后续可以作为 Creative Slide Mode 的候选。
-
-### 17.6 不作为核心候选
-
-- ONLYOFFICE / Collabora：适合嵌入完整 Office，部署、授权和深度定制成本高，不符合 Genspark 式轻工作台。
-- Slidev / DeckDeckGo：更偏 Slides-as-Code 或已归档，不提供目标级 WYSIWYG 和 PPTX 能力。
-- PptxGenJS：适合生成 PPTX，不是 Workbench 或 Presentation Model。
-- dom-to-pptx / pptx-automizer：可作为转换或模板辅助组件，不能承担核心编辑器。
-
-## 18. GenOffice 复用策略
-
-推荐边界：
-
-| 模块 | 策略 |
-| --- | --- |
-| Workbench 整体布局和交互 | Harness 自研 |
-| Slide Canvas UI | 先验证 GenOffice 可拆分性，必要时自研 |
-| Presentation Model | 复用并增加 Harness 语义字段 |
-| PPTX 解析与保存 | 优先复用 `pptx-engine` |
-| 渲染能力 | 优先复用 `pptx-render` |
-| 编辑操作与事务 | 优先复用 `pptx-ops` |
-| Agent Tools | 基于统一 Slides Ops 由 Harness 封装 |
-| Review | 借鉴 GenOffice，在 Harness 边界内实现 |
-| 生成、模板和设计策略 | Harness 开发，参考 Presenton/open-slide |
-
-建议建立防腐层，Workbench 和 Agent 不直接依赖 GenOffice 内部类型：
-
-```ts
-interface SlidesEngine {
-  open(input: ArrayBuffer): Promise<PresentationDocument>;
-  apply(transaction: SlideTransaction): Promise<TransactionResult>;
-  render(slideId: string): RenderTree;
-  save(): Promise<ArrayBuffer>;
-}
-```
-
-建议单独维护上游 fork：
-
-- 尽量保持上游核心代码不变。
-- Harness 改动优先留在 Adapter、Model Extension 和自有 UI。
-- 所有必要的上游修改形成小而清晰的 Patch。
-- 定期记录 fork 差异、同步成本和上游兼容情况。
-- 不复制散落源码到业务目录，避免失去来源和升级路径。
-
-## 19. 方案的辩证分析
-
-### 19.1 合理性
-
-- 将投入集中在 Harness 的产品差异，而不是重复实现 OOXML。
-- 保留对 UI、Agent Runtime、Review 和用户体验的控制权。
-- 通过共享 Slides Ops 让人工编辑和 Agent 编辑保持一致。
-- 可在较短路径内获得原生 PPTX 和完整编辑能力。
-
-### 19.2 主要矛盾
-
-#### 开源复用与长期控制
-
-复用可以降低首期成本，但深度 fork 会增加长期同步和维护成本。只有当核心能力可以通过 Adapter 隔离时，收益才持续成立。
-
-#### 设计自由度与 PPTX 保真
-
-```text
-设计自由度越高
--> 越难稳定映射为可编辑 PPTX
-
-PPTX 保真要求越高
--> 内部模型越受 PowerPoint 能力约束
-```
-
-C2-E 首版优先保证常用设计能力和可编辑 PPTX，不追求无限 HTML/CSS 表现力。特殊 Creative Mode 可以后续独立评估，不与首版标准模型混合。
-
-#### 快速采用与架构污染
-
-直接改造完整 GenOffice App 可以最快看到结果，但会把 Electron、文件系统、状态和 UI 约定带入现有系统。分层复用前期略慢，但更符合长期架构。
-
-### 19.3 可行性判断
-
-| 部分 | 当前判断 |
-| --- | --- |
-| `pptx-engine` 复用 | 高可行性，优先验证 |
-| `pptx-render` 复用 | 中高可行性 |
-| `pptx-ops` 复用 | 中高可行性，适合 Agent Tool 底层 |
-| Presentation Model 扩展 | 中高可行性 |
-| Slide Canvas 直接复用 | 中等，需要验证应用耦合 |
-| 完整 Slides App 嵌入 | 低，不建议 |
-| 完整自研 PPTX 引擎 | 技术可行但投入不合理，作为最终退路 |
-
-综合判断：方案合理性较高、可行性中高，但必须以“有限 fork、强 Adapter、可替换 Engine”为前提。
-
-## 20. 隔离 PoC
-
-正式选型前先建立最小隔离 PoC，不在现有产品代码中直接展开大规模集成。
-
-### 20.1 验证范围
-
-1. 在浏览器环境打开一批真实 PPTX。
-2. 渲染文字、图片、Shape、线条、表格和基础图表。
-3. 修改文字、位置、尺寸和样式。
-4. 通过 `pptx-ops` 执行多元素原子修改。
-5. 验证 Undo/Redo 和事务失败回滚。
-6. 保存并重新用 PowerPoint 打开，不能出现修复提示。
-7. 把独立 Slide Canvas 放入当前 WorkbenchShell。
-8. 去除或适配 Electron IPC、文件系统和 GenOffice Agent Panel。
-9. 记录修改的上游文件数量、Patch 规模和隐式依赖。
-10. 验证截图、Layout Linter 和最小 Review 修复闭环。
-
-### 20.2 测试材料
+- 生成成功率和单页失败率。
+- 生成耗时和用户等待时间。
+- 文本溢出、越界、非预期重叠比例。
+- PowerPoint 修复提示率。
+- 导出后可编辑元素覆盖率。
+- 用户首次修改成功率和撤销成功率。
+- Agent 修改覆盖用户修改的次数。
+- 来源缺失和素材版权信息缺失率。
 
 测试集至少覆盖：
 
 - 新建的简单演示文稿。
-- 用户真实业务 PPTX。
 - 中英文和混合字体。
-- 图片裁剪与透明度。
-- Shape、连接线和分组。
-- 表格和基础图表。
-- 主题、布局和母版继承。
-- 20 至 50 页的中型 Deck。
-- 缺失字体、异常媒体和部分损坏文件。
+- 图片裁剪、透明度和缺失素材。
+- 文本密集和数据密集页面。
+- 基础表格和基础图表。
+- 20 至 50 页中型 Deck 的渐进生成。
+- 网络、模型、导出和单页生成失败。
+- 生成过程中用户修改已完成页面。
+- PowerPoint、LibreOffice 或其他目标查看器的打开和编辑结果。
 
-### 20.3 决策结果
+## 16. 建议代码组织
 
-#### A：核心和 Canvas 均可独立使用
-
-采用：
-
-```text
-GenOffice Engine + Harness Slides Workbench UI
-```
-
-#### B：Engine 可用但 Canvas 耦合严重
-
-采用：
-
-```text
-GenOffice Engine / Render / Ops
-+ Harness 自研 Slide Canvas
-```
-
-#### C：核心模型高度耦合或 PPTX 保真不达标
-
-停止深度接入，保留设计参考，转向 Presenton、PPTist 商业方案、pptx-viewer 或自研模型。
-
-PoC 的退出条件不是“功能还不够多”，而是：
-
-- 必须修改大量 GenOffice 核心代码才能运行。
-- Adapter 无法形成稳定边界。
-- 保存结果频繁触发 PowerPoint 修复。
-- 常用元素无法保持可编辑和基本视觉一致。
-- 上游同步成本已经明显高于自行维护核心模型。
-
-## 21. 分阶段交付
-
-### 21.1 C2-E0 技术 PoC
-
-- 验证 GenOffice Engine、Render、Ops 和 Canvas 的可拆分性。
-- 验证 PPTX round-trip、浏览器运行和 Adapter 边界。
-- 不接入正式用户链路，不产生伪完成产品入口。
-
-### 21.2 C2-E1 Workbench 与结构化编辑闭环
-
-- Presentation Project。
-- Slides Workbench 基础 UI。
-- Presentation Model、Slides Ops 和 History。
-- PPTX 导入、编辑、保存和 Artifact 导出。
-- 人工编辑与最小 Agent 局部修改共用操作层。
-
-### 21.3 C2-E2 完整生成闭环
-
-- Presentation Brief、Outline 和 Design Brief。
-- 素材解析与来源引用。
-- 逐页生成、进度和失败隔离。
-- Agent 全局与局部修改。
-- 版本保存和可编辑 PPTX 交付。
-
-### 21.4 C2-E3 Review 与质量增强
-
-- Layout Linter。
-- 截图视觉 Review。
-- 自动修复与质量回退保护。
-- 模板、Blocks、品牌主题和更完整图表能力。
-
-## 22. 第一阶段功能边界
-
-首版目标是“真正可用的轻量 PowerPoint 编辑器”，不是完整复刻 PowerPoint。
-
-必须支持：
-
-- 页面增删、复制和排序。
-- 文本、图片、Shape、线条、表格和基础图表。
-- 移动、缩放、旋转和多选。
-- 对齐、分布、分组、锁定和图层顺序。
-- 文本原位编辑和图片裁剪。
-- 主题、字体和基础配色。
-- Undo/Redo。
-- Agent 修改高亮、Diff 和整次回滚。
-- Layout Review。
-- 高质量可编辑 PPTX 导出。
-
-后置能力：
-
-- 复杂动画时间轴。
-- SmartArt 深度编辑。
-- 完整母版编辑器。
-- 全部 Office 图表类型。
-- 宏、OLE 和复杂嵌入对象。
-- 实时多人协作。
-- 完整 Office Ribbon。
-
-首版功能可以克制，但 Presentation Model、Slides Ops、History 和 PPTX Adapter 不能采用临时设计。这四层一旦失去稳定边界，后续接入 Agent、Review 和版本能力时将产生结构性重构。
-
-## 23. 建议代码组织
+首版建议先建立逻辑边界，物理包可随实现规模逐步拆分：
 
 ```text
 packages/
-  slides-model/       Presentation Model 与领域类型
-  slides-ops/         统一编辑操作、验证和事务
-  slides-renderer/    RenderTree 与 Canvas 节点渲染
-  slides-pptx/        导入、导出和 OOXML Patch Adapter
-  slides-review/      Layout Linter 与视觉 Review
+  slides-model/       Presentation Model、Theme、Layout 和来源类型
+  slides-ops/         统一编辑操作、验证、revision 和事务
+  slides-renderer/    SVG/DOM RenderTree 和页面预览
+  slides-pptx/        PPTX Export Adapter
+  slides-review/      Layout Linter 与 Review 建议
   slides-agent-tools/ Agent Tool Schema 与领域上下文
-  slides-assets/      图片、字体和缩略图
-  presentation-gen/   Outline、Design Brief、生成与 Review 编排
+  slides-assets/      图片、字体、缩略图和来源信息
+  presentation-gen/   Brief、Outline、布局选择和生成编排
 
 apps/web/src/features/
   slides-workbench/   Harness 产品 UI 与 Workbench 插件
 ```
 
-实际目录是否一次拆成以上包，应根据 PoC 结果和当前 monorepo 约定决定；边界应先成立，物理包可以分阶段拆分。
+不要在首版一开始拆出大量独立服务或完整 Engine 包。先保持模块边界清晰，再根据 PoC、性能和真实用户需求决定是否物理拆包。
 
-## 24. 当前结论
+## 17. 当前结论
 
-1. C2-E 是完整的 Agent 演示文稿生成、编辑、Review、版本和 PPTX 交付能力，Slides Workbench 只是其中的核心交互子系统。
-2. 通用 Agent Runtime 继续复用现有 Kernel；C2-E 增加领域工具和生成编排，不另造 Runtime。
-3. Slides Workbench 应由 Harness 自己定义和开发产品层。
-4. 不应从零重写 PPTX Engine，也不应直接嵌入 GenOffice 完整应用。
-5. GenOffice 是当前最值得验证的底层候选，但采用必须经过隔离 PoC。
-6. Presenton、PPTist、pptx-viewer 保留为对照和替代候选。
-7. open-slide 不作为首版主底座，但其 Agent-native Inspector、Comment 和 Design Token 机制应进入产品设计参考。
-8. C2-E 的目标不是“功能很多的 Office 克隆”，而是“Agent 能规划和生成、用户能协同编辑、系统能 Review、最终 PPTX 可继续编辑”的完整产品闭环。
+1. C2-E 首版采用 Agent-first 的受限 Presentation Model，不以完整 PowerPoint 编辑能力为目标。
+2. 首版支持从主题和材料生成结构化演示文稿、有限协同修改、确定性布局检查和可编辑 PPTX 导出。
+3. 首版暂不承诺任意 PPTX 导入和 round-trip，也不把 GenOffice 作为运行时底座。
+4. 产品层、Presentation Model、Slides Ops、Revision、Version 和 Export Adapter 由 Harness 自主掌握。
+5. 首版优先使用 SVG/DOM Renderer 和轻量 PPTX Export Adapter；复杂 Canvas 和高保真引擎后置。
+6. Review 首版以检测和建议为主，自动视觉修复必须在后续有可靠评分、回滚和人工确认机制后引入。
+7. GenOffice、Presenton、PPTist、pptx-viewer 和 open-slide 作为后续候选或设计参考，不提前形成不可替换依赖。
+8. 后续所有增强都必须保持 Agent、Workbench、Presentation Model、Slides Ops 和导出边界稳定，避免为了首版速度牺牲升级路径。

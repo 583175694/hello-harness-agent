@@ -454,11 +454,11 @@ C2  Artifact & Report Generation
     - C2-D 待实施：多版本、局部修改、覆盖、回滚和失败重试
     - 后续 Workbench 重构：报告专用阅读体验、来源联动和单报告管理
 
-C3  Code Execution Sandbox                        高优先级
-    - 临时文件系统、CPU/Memory/Time 限制、进程隔离（限制代码能使用的资源和环境）
-    - 默认无网络或白名单网络（只有明确允许的地址才能访问）
-    - 数据清洗、图表、格式转换、文件处理和结果 Artifact 化（把计算结果保存为可交付文件）
-    - 可取消、可审计、输出可恢复（运行可停止，过程可追踪，结果可恢复）
+C3  Agent Sandbox & Cloud Execution Environment   高优先级
+    - 采用 Sandbox as a Tool：Agent Runtime、Tool Registry、Policy、Credential、Audit 和 Artifact 留在可信 Host
+    - 首个模型 Tool 为 execute_command；命令、Python、Node.js、agent-browser 和其他程序在任务级 Sandbox Session 中执行
+    - Run 内多次 Tool Call 共享受控 Workspace 和必要状态，输出文件经 Host 校验后进入 File / Artifact 链路
+    - 进程、CPU/Memory/Disk/Time、文件和网络隔离；可取消、可审计、可清理，Sandbox Provider 保持可替换
 
 C4  MCP Client & Tool Ecosystem                   中高优先级
     - 外部 MCP Server 发现、Tool Schema 校验和生命周期（接入外部工具并验证其契约）
@@ -468,11 +468,11 @@ C4  MCP Client & Tool Ecosystem                   中高优先级
 
 C5  Website Generation & Workbench Preview        中高优先级
     - HTML/CSS/JS Artifact 生成和版本迭代（生成可运行的网站并支持修改版本）
-    - 基于 Code Sandbox 的构建/校验（在隔离环境中构建并检查网站）
+    - 基于 C3 Agent Sandbox 的构建/校验（在隔离环境中构建并检查网站）
     - Workbench 沙箱预览、运行日志、源码下载和安全网络策略（在工作台安全预览和调试）
 
 C6  Browser Use                                   中期
-    - 使用 agent-browser 作为底层执行能力（用浏览器完成网页交互）
+    - 使用运行在 C3 Sandbox 中的 agent-browser 作为底层执行能力（用浏览器完成网页交互）
     - open/click/type/select/scroll/extract/screenshot/download（打开、点击、输入、提取和下载）
     - 先支持公开网页和受限流程，再扩展登录态和写操作（先做低风险场景）
     - 所有副作用动作接入 K5（可能修改外部状态的操作都需要权限控制）
@@ -483,7 +483,7 @@ C7  Skills / Notes / TODO / Memory                中期
     - Memory 写入需有来源、置信度、可见性和用户删除能力（记忆可追溯、可管理、可删除）
 ```
 
-文件和图片上传共享同一 Artifact/Source 底座；Artifact 生成依赖文件和结构化产物模型；Website Generation 依赖 Artifact、Code Sandbox 和 Workbench Preview；MCP 与 Browser Use 依赖 Action Boundary、权限和 Human-in-the-loop，不应提前把外部工具直接接入核心循环。
+文件和图片上传共享同一 Artifact/Source 底座；Artifact 生成依赖文件和结构化产物模型；Website Generation 依赖 Artifact、C3 Agent Sandbox 和 Workbench Preview；Browser Use 的执行引擎可以运行在 C3 Sandbox 中，但页面动作语义和副作用治理仍属于 C6/K5；MCP 与 Browser Use 依赖 Action Boundary、权限和 Human-in-the-loop，不应提前把外部工具直接接入核心循环。
 
 ### 7.3 低优先级扩展
 
@@ -522,7 +522,7 @@ K3 Control & HITL Kernel（基本完成）
   -> C1 File & Multimodal Foundation（已完成）
   -> K5-A Side-effect Policy Contract
   -> C2-C/C2-D Artifact 后续能力（接入本地写入策略）
-  -> C3 Code Execution Sandbox（接入执行与文件副作用策略）
+  -> C3 Agent Sandbox & Cloud Execution Environment（接入执行与文件副作用策略）
   -> C4 MCP Client（接入外部写操作策略）
   -> C5 Website Generation & Workbench Preview
   -> C6 Browser Use（接入页面写操作策略）
@@ -537,7 +537,7 @@ K3 Control & HITL Kernel（基本完成）
 
 其中 K6 虽在编号上列于后面，但应从 C1 文件分析和 C2 Artifact 生成开始同步建设来源引用关系；L5 只把指标展示放到最后，运行数据采集不得延后。第三方连接器和 Background Tasks 不作为当前 Agent Kernel 或首批功能的前置条件。
 
-本阶段的产品目标是建设 **AI Agent 工作台**：用户可以输入文字、文件和图片，Agent 在可控、可恢复、可验证的 Task Loop 中调用内置工具、Code Sandbox、MCP 和 Browser Use，最终生成回答、报告、表格、演示文稿或可预览网站；Web、桌面端和移动端在 Agent Kernel 完善后复用同一套 canonical protocol。
+本阶段的产品目标是建设 **AI Agent 工作台**：用户可以输入文字、文件和图片，Agent 在可控、可恢复、可验证的 Task Loop 中调用内置工具、Agent Sandbox、MCP 和 Browser Use，最终生成回答、报告、表格、演示文稿或可预览网站；Web、桌面端和移动端在 Agent Kernel 完善后复用同一套 canonical protocol。
 
 P8 的完成标准仍然不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Tool/Artifact -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败、用户可控和最小恢复能力。
 
@@ -553,6 +553,7 @@ P8 的完成标准仍然不是“再增加一个工具”，而是现有 `Chat -
 - 面试知识点：[docs/interview-knowledge.md](./interview-knowledge.md)
 - Web Fetch 设计：[docs/23-web-fetch-tool.md](./23-web-fetch-tool.md)
 - Connection-Durable Agent Loop：[docs/26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)
+- C3 Agent Sandbox 与云端执行环境：[docs/33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md)
 
 ## 9. 维护规则
 

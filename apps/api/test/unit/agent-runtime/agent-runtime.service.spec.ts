@@ -403,7 +403,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     const events = await collect(new AgentRuntimeService(model, registry(), logger()));
 
     expect(events.some((event) => (event as { type: string }).type === 'reasoning.delta')).toBe(
-      false,
+      true,
     );
     expect(events).toContainEqual({
       type: 'transcript.item',
@@ -422,6 +422,33 @@ describe('AgentRuntimeService model-led tool boundary', () => {
           }),
         }),
       ]),
+    );
+  });
+
+  it('recovers from consecutive reasoning-only rounds within the retry budget', async () => {
+    const model = modelFromRounds([
+      [
+        { type: 'reasoning.delta', delta: '第一段思考' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+      [
+        { type: 'reasoning.delta', delta: '第二段思考' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+      [
+        { type: 'text.delta', delta: '最终回答' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+
+    const events = await collect(new AgentRuntimeService(model, registry(), logger()));
+
+    expect(model.streamRound).toHaveBeenCalledTimes(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'transcript.item',
+        message: expect.objectContaining({ content: '最终回答' }),
+      }),
     );
   });
 

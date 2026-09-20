@@ -351,7 +351,7 @@ export class AgentRuntimeService {
           calls.length === 0 &&
           reasoningDeltas.length
         ) {
-          if (reasoningOnlyFinalRetries < 1) {
+          if (reasoningOnlyFinalRetries < DEFAULT_RUNTIME_POLICY.reasoningOnlyRetries) {
             reasoningOnlyFinalRetries += 1;
             messages.push({
               role: 'system',
@@ -501,7 +501,11 @@ export class AgentRuntimeService {
       // 没有工具调用表示模型已经产出最终文本；计划状态不参与此判断。
       if (!normalizedCalls.length) {
         const roundContent = textDeltas.join('');
-        if (reasoningDeltas.length && reasoningOnlyRoundRetries < 1) {
+        if (
+          !roundContent.trim() &&
+          reasoningDeltas.length &&
+          reasoningOnlyRoundRetries < DEFAULT_RUNTIME_POLICY.reasoningOnlyRetries
+        ) {
           reasoningOnlyRoundRetries += 1;
           messages.push({
             role: 'system',

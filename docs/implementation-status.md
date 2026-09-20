@@ -2,11 +2,11 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-15（C2-B 当前范围已实现）
+> 最后更新：2026-09-20（C3 前置 Provider / Cloud Execution PoC 已通过）
 
 ## 1. 当前结论
 
-项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 C2-A/C2-B 当前范围。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成一份或多份 Markdown Report Artifact。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
+项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 C2-A/C2-B 当前范围。C3 已完成 OpenSandbox + Docker 的本地与腾讯云基础执行 PoC，但尚未接入 Harness Agent Runtime，因此当前不能把 `execute_command` 视为已交付能力。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成一份或多份 Markdown Report Artifact。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
 
 当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics 和 C1 File & Multimodal Foundation 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
@@ -23,6 +23,12 @@ C1 的数据库 migration、协议、FileStorage/COS、文件处理、Model Adap
 C2-A 已提供通用生成文件、Artifact、预览、下载和 Session 恢复；C2-B 在此基础上新增 `create_report`、Report 表及轻量 ReportRef。工具输入为标题、摘要、Markdown 文件名、完整正文和可选 `sourceIds/fileIds`；不包含 `quality` 或 `limitationNote`。同一 Run 可以通过不同 `toolCallId` 创建多份报告，网页来源是否在本 Run 成功 Fetch 不再阻断创建，材料文件仍校验就绪状态和 Session 归属。
 
 当前用户界面把报告作为 Markdown Artifact 展示，在 Artifact Workbench 中预览和下载；删除 Session 时数据库关系级联删除并通过清理任务删除存储对象。专用 Report Workbench、单报告删除 UI、Session 恢复中的 reportId 投影和跨 File/Artifact/Report 的强事务回滚均明确延期，不作为当前 C2-B 完成条件。详细边界见 [31-c2-artifact-and-report-generation.md](./31-c2-artifact-and-report-generation.md)。
+
+### C3 Agent Sandbox 状态
+
+C3 前置 Provider / Cloud Execution PoC 已通过。当前首版选择 OpenSandbox + Docker：本地和腾讯云 x86_64 环境均已验证 Sandbox 创建、Shell/Python 执行、同一 Session 多次调用共享 Workspace、文件回传、Sandbox 销毁和容器清理。腾讯云 OpenSandbox 已启用 API Key、systemd 托管和 SDK server proxy；开发期通过 SSH 隧道访问，后续 Harness 云端实例通过 VPC 私网访问。C3-A 的实施设计见 [34-c3-sandbox-implementation-plan.md](./34-c3-sandbox-implementation-plan.md)。
+
+当前尚未实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`、Run-scoped Session 关联、`execute_command` Tool、Workspace Stage/Collect、Artifact 导入、timeout/cancel、动态 Policy/Approval、执行投影和遗留 Sandbox 回收。`agent-browser` 的安装方案已经确认，但 Chromium、snapshot、screenshot 和下载链路尚未在腾讯云 Sandbox 中完成验证。因此 C3 仍处于 PoC 与正式代码之间，不属于 production capability。详细边界见 [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md)。
 
 Model-led Tool Boundary 已落地为协议 `0.8.0`：模型负责语义规划，Runtime 只执行模型决策和通用执行边界，Tool 只执行能力并返回 canonical 结构化结果，Runtime 统一序列化 Tool Message，Projection 派生 provenance 并按 URL/contentHash 归并 canonical source。`ToolRunState`、`WebResearchRunState`、Tool `modelContent/control` 和跨调用 URL allowlist 已删除；没有新增 Runtime Decision Policy、Web Research Policy 或 Tool observation 预算协议。详见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md)。
 
@@ -455,6 +461,11 @@ C2  Artifact & Report Generation
     - 后续 Workbench 重构：报告专用阅读体验、来源联动和单报告管理
 
 C3  Agent Sandbox & Cloud Execution Environment   高优先级
+    - 前置 PoC 已通过：OpenSandbox + Docker 本地/腾讯云验证，Shell/Python、Workspace 状态、文件回传和清理闭环已确认
+    - C3-A 待实施：SandboxManager/Provider、Run-scoped Session、execute_command、Stage/Collect 和 Artifact 接入
+    - C3-B 待实施：资源、网络、文件、动态 Policy/Approval、遗留回收和安全收口
+    - C3-C 待实施：agent-browser、截图/下载、复杂 Artifact 与 C5/C6 接入
+    - C3-D 待实施：模板、预热、快照、多 Provider、容量、成本和规模化
     - 采用 Sandbox as a Tool：Agent Runtime、Tool Registry、Policy、Credential、Audit 和 Artifact 留在可信 Host
     - 首个模型 Tool 为 execute_command；命令、Python、Node.js、agent-browser 和其他程序在任务级 Sandbox Session 中执行
     - Run 内多次 Tool Call 共享受控 Workspace 和必要状态，输出文件经 Host 校验后进入 File / Artifact 链路

@@ -1,10 +1,58 @@
 # C3 Agent Sandbox & Cloud Execution Environment / Agent 云端沙箱与执行环境
 
-> 文档状态：方向方案稿。本文记录 C3 当前已经达成的产品定位、架构原则、能力边界和阶段建议；Sandbox Provider、持久化协议、网络策略细则、资源规格和完整安全模型仍待后续 PoC 与评审逐步冻结。
+> 文档状态：方向方案与 C3 前置 PoC 决策稿。C3 已完成 OpenSandbox + Docker 的本地及腾讯云基础执行闭环验证；Harness Provider 接入、持久化协议、网络策略细则、资源规格和完整安全模型仍待后续实施与评审逐步冻结。
 >
 > 最后更新：2026-09-20。
 >
 > C3 参考 OpenAI 官方 Cookbook 的 “Sandbox as a Tool” 架构思想：Agent Runtime、Tool Registry、权限、凭证、审计和 Artifact 留在可信 Host，命令、代码、浏览器和其他程序在任务级隔离 Sandbox 中执行。
+
+## 0. 当前进度与已冻结决策
+
+截至 2026-09-20，C3 已完成基础设施层 PoC，但尚未成为 Harness 可用的产品能力。
+
+前置基础设施 PoC 已通过，正式功能按字母阶段推进：
+
+```text
+前置 PoC  OpenSandbox + Docker / Cloud Execution   已通过
+C3-A      Sandbox 抽象与 execute_command 接入       待实施
+C3-B      首版安全通用 Agent Sandbox                待实施
+C3-C      Browser 与 Artifact 工作流                待实施
+C3-D      成熟度与规模化                            待实施
+```
+
+已冻结的首版技术选择：
+
+- C3-A/C3-B 使用 OpenSandbox 作为 Sandbox 控制面和 Provider 实现。
+- OpenSandbox 首版使用 Docker backend；它是当前执行 Runtime，不代表最终隔离强度上限。
+- 腾讯云 x86_64 CVM 承载开发期 OpenSandbox Server 和 Docker Sandbox。
+- Harness 通过项目内 `SandboxManager -> SandboxProvider -> OpenSandboxProvider` 使用 OpenSandbox，不允许 Agent Runtime 或 Tool 到处直接调用其 HTTP API。
+- 开发机当前通过 SSH 隧道访问；Harness 云端部署后通过 VPC 私网访问，不将 OpenSandbox 控制面作为公网产品 API。
+- SDK 使用 server proxy 模式转发命令和文件请求，开发机和 Harness 不直接访问每个 Sandbox 的动态端口。
+- Python、Shell、Workspace 状态复用、文件回传和 Sandbox 销毁已实际验证；`agent-browser`/Chromium 尚未完成云端能力验证。
+
+已通过的 PoC 闭环：
+
+```text
+本地 SDK
+-> OpenSandbox Server（腾讯云）
+-> Docker Sandbox
+-> Shell / Python
+-> 多次调用共享 /workspace
+-> 文件读取回 Host
+-> Sandbox 销毁和容器清理
+```
+
+尚未实现的产品链路：
+
+```text
+Agent Runtime
+-> execute_command Tool
+-> SandboxManager / OpenSandboxProvider
+-> Run-scoped Sandbox Session
+-> Workspace Stage / Collect
+-> Artifact 导入
+-> Policy / Approval / Audit / Projection
+```
 
 ## 1. 一句话定义
 
@@ -97,7 +145,7 @@ Sandbox 内当前任务可访问的受控文件区域。用户输入文件、任
 - 不让 Sandbox 直接访问 Harness 数据库、对象存储、内部凭证或宿主文件系统。
 - 不将 C3 限定为 Notebook、Python Runner 或数据分析功能。
 - 不要求所有领域能力永久通过 Shell 表达；成熟能力仍可封装为结构化 Tool。
-- 不在方向稿阶段冻结 Docker、E2B、Cloudflare、Kubernetes 或 MicroVM 等具体 Provider。
+- 不把 OpenSandbox + Docker 误称为生产级强隔离终态；后续仍可在 Provider 契约后切换 Kubernetes、gVisor、Kata 或 MicroVM 执行层。
 - 不在首版承诺任意长时间后台进程、完整交互式 PTY、跨任务永久机器或多 Agent 共享机器。
 - 不把 Sandbox 内路径、容器 ID 或 Provider ID 暴露为用户可见业务身份。
 
@@ -363,7 +411,15 @@ interface SandboxSession {
 - 云厂商容器或 MicroVM。
 - 后续自建 Kubernetes / Firecracker 执行层。
 
-Provider 选择应通过 PoC 比较启动时间、隔离强度、持久化、浏览器支持、网络策略、成本、并发、地域和运维复杂度后决定。
+当前首版 Provider 已选择 OpenSandbox，底层使用 Docker。选择原因是它已经提供 Sandbox 生命周期、命令执行、文件读写和可替换 Runtime 边界，适合先验证 Harness 自身的 Manager、Tool、Policy 和 Artifact 集成，而不需要先自建完整执行控制面。
+
+Provider 抽象仍然必须保留。后续可以在不改变模型 Tool 契约的前提下评估：
+
+- OpenSandbox + Kubernetes + gVisor/Kata，用于提高隔离和调度能力。
+- CubeSandbox 或 E2B Runtime / Firecracker，用于更强隔离、快照和规模化场景。
+- Hosted Sandbox，用于特定区域、弹性或降低运维成本的场景。
+
+OpenSandbox HTTP API、Sandbox ID、容器端口和 Docker 细节不得扩散到 Agent Runtime、协议或前端。
 
 ## 12. 与现有 Harness 架构的关系
 
@@ -415,37 +471,58 @@ MCP 与 Sandbox 是互补关系。高权限 MCP、Credential 和外部业务系�
 
 ## 14. 建议阶段
 
-### C3-0：Provider 与执行闭环 PoC
+### 前置 PoC：Provider 与云端执行闭环
 
-目标：验证任务级 Sandbox 能被现有 Tool Loop 调用。
+目标：验证 OpenSandbox + Docker 能否提供任务级 Sandbox 所需的基础执行能力。
+
+基础设施子阶段已经完成：
+
+- 创建、执行和销毁 Sandbox Session。
+- Run 内多次调用共享 Workspace。
+- Python 脚本执行。
+- stdout、stderr 和 exit code 返回。
+- Sandbox 文件回传 Host。
+- 本地 Docker 与腾讯云 x86_64 Docker 两种环境验证。
+- API Key、systemd 托管和 SDK server proxy 连接验证。
+
+以下内容进入 C3-A：
+
+- `SandboxManager`、`SandboxProvider` 和 `OpenSandboxProvider`。
+- 最小 `execute_command` Tool 接入真实 Tool Loop。
+- Run-scoped Session 复用和 terminal cleanup。
+- timeout、AbortSignal、完整进程树 cancel 和错误映射。
+- 输出文件 Collect、校验和 Artifact 创建。
+
+前置 PoC 已完成；它只证明基础设施链路可行，不代表 Harness 已经具备 Sandbox 产品能力。
+
+### C3-A：Sandbox 抽象与 execute_command 接入
+
+目标：把已验证的 OpenSandbox 基础设施接入 Harness Tool Loop，形成第一版可测试的 Run-scoped 命令执行能力。
 
 包括：
 
-- 创建、执行和销毁 Sandbox Session。
-- 最小 `execute_command` Tool。
-- Run 内多次调用共享 Workspace。
-- Python 脚本执行。
-- stdout、stderr、exit code、timeout 和 cancel。
-- 输出文件提取并创建 Artifact。
-- 至少一个 `agent-browser` 基础流程。
+- `SandboxManager`、`SandboxProvider` 和 `OpenSandboxProvider`。
+- 最小 `execute_command` Tool 接入真实 Tool Loop。
+- Run-scoped Session 懒创建、同 Run 复用、串行执行和 terminal cleanup。
+- Shell/Python 命令的 stdout、stderr、exit code、timeout、cancel 和错误映射。
+- 最小显式 Workspace Stage / Collect 和 Artifact 导入闭环。
+- Provider API、Sandbox ID、容器端口和 Docker 细节不泄漏到 Runtime 与公共协议。
 
-本阶段可以使用单一 Provider，但上层边界需避免直接泄漏 Provider API。
-
-### C3-1：首版通用 Agent Sandbox
+### C3-B：首版安全通用 Agent Sandbox
 
 目标：形成可以被真实任务使用的最小安全执行能力。
 
 包括：
 
-- Sandbox Manager 与稳定 Provider Adapter。
-- Workspace Stage / Collect。
+- 对 Sandbox Manager、Provider Adapter 和回收机制进行生产化加固。
+- 扩展 Workspace Stage / Collect 的类型、容量和恢复策略。
 - 资源、网络和文件边界。
 - 动态 Policy / Approval 接入。
 - 进程树取消和遗留实例清理。
 - 执行 Activity、日志和 Artifact 恢复。
 - Python、Node.js 和基础 CLI 环境。
 
-### C3-2：Browser 与 Artifact 工作流
+### C3-C：Browser 与 Artifact 工作流
 
 目标：让 Sandbox 支撑开放式浏览器和复杂文件任务。
 
@@ -457,7 +534,7 @@ MCP 与 Sandbox 是互补关系。高权限 MCP、Credential 和外部业务系�
 - 数据处理、格式转换、图表和 Office 文件流程。
 - C5 和 C6 的首批真实接入。
 
-### C3-3：成熟度与规模化
+### C3-D：成熟度与规模化
 
 按真实需求逐步增加：
 
@@ -497,18 +574,17 @@ Agent 调用 execute_command 或 browser_use
 
 以下问题不在方向稿中提前定死：
 
-1. 首个 Provider 选择和 PoC 对比指标。
-2. 一个 Run、Session、Follow-up 与 Sandbox Session 的精确映射。
-3. `execute_command` 使用 Shell 字符串还是结构化 argv，是否同时支持。
-4. 同步 Tool Call、长任务和后台进程的边界。
-5. stdout / stderr 截断、流式事件和完整日志存储。
-6. Workspace 文件 Diff、候选 Artifact 发现和显式输出声明。
-7. 默认镜像、预装工具和按任务安装依赖的策略。
-8. `agent-browser` 的显示环境、浏览器状态、下载和登录策略。
-9. 网络白名单、受控代理和 Secret Proxy 的具体实现。
-10. Sandbox 故障、Host 故障和执行结果未知时的恢复语义。
-11. 资源规格、并发、冷启动、缓存和成本控制。
-12. Workbench 是否以及何时提供用户可见 Terminal。
+1. 一个 Run、Session、Follow-up 与 Sandbox Session 的精确映射。
+2. `execute_command` 使用 Shell 字符串还是结构化 argv，是否同时支持。
+3. 同步 Tool Call、长任务和后台进程的边界。
+4. stdout / stderr 截断、流式事件和完整日志存储。
+5. Workspace 文件 Diff、候选 Artifact 发现和显式输出声明。
+6. 默认镜像、预装工具和按任务安装依赖的策略。
+7. `agent-browser` 的显示环境、浏览器状态、下载和登录策略。
+8. 网络白名单、受控代理和 Secret Proxy 的具体实现。
+9. Sandbox 故障、Host 故障和执行结果未知时的恢复语义。
+10. 资源规格、并发、冷启动、缓存和成本控制。
+11. Workbench 是否以及何时提供用户可见 Terminal。
 
 ## 17. 当前结论
 
@@ -521,9 +597,11 @@ Agent 调用 execute_command 或 browser_use
 7. 通用 Shell 与结构化领域 Tool 长期共存：前者负责开放式能力，后者负责稳定产品契约。
 8. 所有生成文件必须经过 Host 校验并进入正式 File / Artifact 链路，Sandbox 路径不是产品身份。
 9. C3 必须接入 K5 Side-effect Policy，安全边界不能依赖 Prompt、命令黑名单或模型自我判断。
-10. Provider 必须可替换；具体选型在 PoC 后冻结。
+10. Provider 必须可替换；C3-A/C3-B 首版已选择 OpenSandbox + Docker，后续通过稳定 Provider 契约演进到更强 Runtime。
 
 ## 18. 调研参考
+
+下一阶段实施设计见：[34-c3-sandbox-implementation-plan.md](./34-c3-sandbox-implementation-plan.md)
 
 - [OpenAI Codex Sandbox](https://learn.chatgpt.com/docs/sandboxing)
 - [OpenAI Codex Cloud](https://learn.chatgpt.com/docs/cloud)

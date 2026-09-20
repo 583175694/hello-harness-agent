@@ -152,7 +152,7 @@ Artifact.fileId -> 生成交付对应的 File
 以下内容不阻塞 C2-A：
 
 - 正式报告结构和报告质量判断。
-- DOCX、PDF、XLSX、PPTX 等格式渲染。
+- DOCX、PDF、XLSX 等格式渲染。
 - 在线编辑器和段落级修改。
 - 模板系统和复杂文档 AST。
 - 正式 Evidence/Citation Validator。
@@ -514,7 +514,7 @@ C2-B 当前范围以下列内容作为完成标准：
 
 ### 6.1 阶段目标与设计判断
 
-C2-C 在现有 File、Artifact、COS 和规范化正文链路上增加 Markdown、HTML、PDF、DOCX、XLSX 五种生成格式；PPTX 暂缓。对模型继续只暴露一个 `create_file`，不新增 `create_pdf`、`create_docx`、`create_xlsx` 等格式专用工具。
+C2-C 在现有 File、Artifact、COS 和规范化正文链路上增加 Markdown、HTML、PDF、DOCX、XLSX 五种生成格式。对模型继续只暴露一个 `create_file`，不新增 `create_pdf`、`create_docx`、`create_xlsx` 等格式专用工具。
 
 核心分工保持为：
 
@@ -627,7 +627,7 @@ create_file input
 
 `originalKey` 保存用户下载的真实 HTML、PDF、DOCX 或 XLSX；`normalizedKey` 保存后续 `read_file/search_file` 使用的可读文本。文档类格式保存输入 Markdown 作为规范化正文，XLSX 保存带 Sheet 边界的 Markdown 表格或稳定纯文本表示。
 
-数据库的 `FileKind` 已包含 PDF、DOCX、XLSX 和 PPTX，但尚未包含 HTML。C2-C 需要增加 `html` 枚举迁移，并同步扩大 `fileRefSchema`、`artifactRefSchema`、文件 MIME 映射、文件图标和生成服务类型范围；不为多格式输出增加新表。首版只接受 `.html`，不增加 `.htm` 别名。
+数据库的 `FileKind` 已包含 PDF、DOCX 和 XLSX，但尚未包含 HTML。C2-C 需要增加 `html` 枚举迁移，并同步扩大 `fileRefSchema`、`artifactRefSchema`、文件 MIME 映射、文件图标和生成服务类型范围；不为多格式输出增加新表。首版只接受 `.html`，不增加 `.htm` 别名。
 
 `createFileInputSummarySchema` 也必须覆盖两类输入：文档类记录文件名、内容字符数和字节数；工作簿类记录输入类型、Sheet 数、总行数和总单元格数。完整正文和完整 Sheet 数据不得进入工具事件、快照、日志或模型上下文。
 
@@ -779,7 +779,6 @@ C2-C 不新增预览工具。Conversation 和 Artifact Workbench 继续使用现
 
 ### 6.9 明确不属于 C2-C
 
-- PPTX 生成；
 - 模板上传、模板市场、品牌主题和自定义 CSS；
 - 通用 Document AST 或跨格式无损往返；
 - DOCX 批注、修订、脚注、复杂目录、多栏和精确分页；
@@ -852,7 +851,7 @@ C2-C 方案已足够进入实现，不再等待新的产品或架构讨论。新
 3. `create_file` 继续使用 `fileName` 扩展名路由，不增加 `format` 字段；
 4. 文档类 `content` 严格为 Markdown，XLSX 严格使用 `sheets/rows`。
 
-如果第一项无法满足，必须在实现 PDF 前停下来重新选择 PDF 运行路线，不允许先生成一个不稳定的临时方案。除此之外，不应因为未来的模板、公式、图表或 PPTX 需求暂停 C2-C。
+如果第一项无法满足，必须在实现 PDF 前停下来重新选择 PDF 运行路线，不允许先生成一个不稳定的临时方案。
 
 #### 首批代码落点
 
@@ -1067,7 +1066,6 @@ C2-D 首版不包括：
 - 数据库或外部系统状态回滚；
 - PDF、DOCX、XLSX 的二进制或视觉 diff；
 - 复杂版本命名、书签、发布通道和版本删除恢复；
-- PPTX 生成或 PPTX 特有的页面级版本比较。
 
 这些能力只有在真实使用数据证明必要时才另行设计，不提前污染当前 Artifact 和工具协议。
 

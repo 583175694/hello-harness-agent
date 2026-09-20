@@ -450,7 +450,7 @@ C1  File & Multimodal Foundation                  已完成：图片、通用文
 
 C2  Artifact & Report Generation
     - C2-A/C2-B 已完成：通用生成文件、正式 Markdown Report、多报告、预览、下载和恢复
-    - C2-C 待实施：HTML、DOCX、XLSX/CSV、PPTX、PDF 等常见交付格式
+    - C2-C 待实施：HTML、DOCX、XLSX/CSV、PDF 等常见交付格式
     - C2-D 待实施：多版本、局部修改、覆盖、回滚和失败重试
     - 后续 Workbench 重构：报告专用阅读体验、来源联动和单报告管理
 
@@ -537,7 +537,7 @@ K3 Control & HITL Kernel（基本完成）
 
 其中 K6 虽在编号上列于后面，但应从 C1 文件分析和 C2 Artifact 生成开始同步建设来源引用关系；L5 只把指标展示放到最后，运行数据采集不得延后。第三方连接器和 Background Tasks 不作为当前 Agent Kernel 或首批功能的前置条件。
 
-本阶段的产品目标是建设 **AI Agent 工作台**：用户可以输入文字、文件和图片，Agent 在可控、可恢复、可验证的 Task Loop 中调用内置工具、Agent Sandbox、MCP 和 Browser Use，最终生成回答、报告、表格、演示文稿或可预览网站；Web、桌面端和移动端在 Agent Kernel 完善后复用同一套 canonical protocol。
+本阶段的产品目标是建设 **AI Agent 工作台**：用户可以输入文字、文件和图片，Agent 在可控、可恢复、可验证的 Task Loop 中调用内置工具、Agent Sandbox、MCP 和 Browser Use，最终生成回答、报告、表格或可预览网站；Web、桌面端和移动端在 Agent Kernel 完善后复用同一套 canonical protocol。
 
 P8 的完成标准仍然不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Tool/Artifact -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败、用户可控和最小恢复能力。
 

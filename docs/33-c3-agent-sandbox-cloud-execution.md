@@ -196,8 +196,8 @@ browser_use
 run_python
   结构化 Python 输入输出、数据和图表能力
 
-render_presentation
-  运行 C2-E 的渲染、导出或校验程序
+render_document
+  运行文档、网页或其他交付物的渲染、导出或校验程序
 ```
 
 成熟、稳定和高频的能力应逐步封装为结构化 Tool，以获得更明确的参数、审批、可观察性和 UI；`execute_command` 保留为通用逃生口和能力探索入口。
@@ -397,23 +397,19 @@ C3 继续复用：
 
 ## 13. 与其他 Capability 的关系
 
-### 13.1 C2-E Presentation
-
-C2-E 保持 Presentation Model、Slides Ops、Revision 和 Export Adapter 为业务真源；C3 可负责运行渲染、截图、PPTX 导出验证、LibreOffice 检查和辅助脚本。Agent 不应长期通过任意命令绕过 Slides Ops 直接修改正式 Presentation 状态。
-
-### 13.2 C5 Website Generation
+### 13.1 C5 Website Generation
 
 C5 使用 C3 安装依赖、构建、启动临时服务、运行测试和生成预览。网站源码与构建结果最终进入 Artifact / Workbench，不以 Sandbox 路径作为交付身份。
 
-### 13.3 C6 Browser Use
+### 13.2 C6 Browser Use
 
 C6 的 `agent-browser` 和浏览器进程可以运行在 C3 Sandbox 中。C3 管理进程、文件、网络和隔离；C6 管理浏览器动作语义、页面副作用、登录、下载、截图和用户接管。
 
-### 13.4 C7 Skills
+### 13.3 C7 Skills
 
 Skills 可以把成熟的命令流程、输入约定和输出检查封装成可复用能力。Skill 不扩大 Sandbox 权限，也不能绕过 Tool Policy。
 
-### 13.5 C4 MCP
+### 13.4 C4 MCP
 
 MCP 与 Sandbox 是互补关系。高权限 MCP、Credential 和外部业务系统连接优先留在可信 Host；仅当 Server 明确适合运行在隔离环境中时，才考虑在 Sandbox 内启动。不能因为 Sandbox 能运行任意程序，就默认把所有 Credential 和 MCP Server 搬入其中。
 
@@ -459,7 +455,7 @@ MCP 与 Sandbox 是互补关系。高权限 MCP、Credential 和外部业务系�
 - 浏览器截图、下载和结果 Artifact 化。
 - 结构化 `browser_use` Tool 的必要性评估。
 - 数据处理、格式转换、图表和 Office 文件流程。
-- C2-E、C5 和 C6 的首批真实接入。
+- C5 和 C6 的首批真实接入。
 
 ### C3-3：成熟度与规模化
 
@@ -495,17 +491,6 @@ Agent 调用 execute_command 或 browser_use
 -> 生成截图、下载文件或结构化结果
 -> 返回 Tool Result
 -> Agent 判断下一步
-```
-
-### 15.3 C2-E 辅助流程
-
-```text
-Presentation Model
--> Sandbox 中运行导出或验证程序
--> 生成 PPTX / PDF / 截图
--> 执行布局和兼容性检查
--> Host 校验
--> 进入 Artifact Workbench
 ```
 
 ## 16. 仍待细化的问题

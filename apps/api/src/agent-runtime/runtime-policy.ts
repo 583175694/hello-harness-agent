@@ -10,4 +10,6 @@ export const DEFAULT_RUNTIME_POLICY = {
   finalAnswerTimeoutMs: 30_000,
   // 最终回答出现供应商协议污染后允许重试的次数。
   finalAnswerProtocolRetries: 1,
+  // 模型只返回 reasoning、没有普通文本时允许的纠偏重试次数。
+  reasoningOnlyRetries: 2,
 } as const;

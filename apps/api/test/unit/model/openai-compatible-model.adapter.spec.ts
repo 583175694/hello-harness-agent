@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ConfigService } from '@nestjs/config';
 import {
   normalizeProviderUsage,
@@ -73,6 +73,37 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
       events.push(event);
     return events;
   }
+
+  it('explicitly disables DeepSeek thinking with reasoning effort none', async () => {
+    const adapter = new OpenAICompatibleModelAdapter(
+      new ConfigService({ OPENAI_API_KEY: 'test-key' }),
+    );
+    const create = vi.fn(async () =>
+      (async function* () {
+        yield {
+          type: 'response.completed',
+          response: { usage: { input_tokens: 1, output_tokens: 1 } },
+        };
+      })(),
+    );
+    (adapter as unknown as { client: unknown }).client = {
+      responses: { create },
+      chat: { completions: { create } },
+    };
+
+    for await (const _event of adapter.streamRound({
+      model: 'deepseek-flash',
+      messages: [{ role: 'user', content: '直接回答' }],
+      reasoningEffort: 'off',
+    })) {
+      // Consume the complete stream so the adapter reaches its terminal event.
+    }
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoning: { effort: 'none' } }),
+      undefined,
+    );
+  });
 
   it('preserves commentary phase and aggregates a Responses function call', async () => {
     const events = await collect(

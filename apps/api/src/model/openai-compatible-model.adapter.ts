@@ -246,11 +246,16 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
             tool_choice: 'auto',
           }
         : {}),
-      ...(input.reasoningEffort !== 'off'
-        ? {
-            reasoning: { effort: input.reasoningEffort === 'max' ? 'high' : input.reasoningEffort },
-          }
-        : {}),
+      // DeepSeek 的 Responses API 默认启用思考模式；off 必须显式映射为 none，
+      // 省略 reasoning 字段会回退到供应商默认的 high。
+      reasoning: {
+        effort:
+          input.reasoningEffort === 'off'
+            ? 'none'
+            : input.reasoningEffort === 'max'
+              ? 'high'
+              : input.reasoningEffort,
+      },
     };
     // DeepSeek ignores stream_options; the OpenAI SDK accepts the request shape at runtime.
     const stream = (await this.getClient(input.model).responses.create(

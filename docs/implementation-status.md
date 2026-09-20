@@ -26,7 +26,7 @@ C2-A 已提供通用生成文件、Artifact、预览、下载和 Session 恢复�
 
 ### C3 Agent Sandbox 状态
 
-C3 前置 Provider / Cloud Execution PoC 已通过。当前首版选择 OpenSandbox + Docker：本地和腾讯云 x86_64 环境均已验证 Sandbox 创建、Shell/Python 执行、同一 Session 多次调用共享 Workspace、文件回传、Sandbox 销毁和容器清理。腾讯云 OpenSandbox 已启用 API Key、systemd 托管和 SDK server proxy；开发期通过 SSH 隧道访问，后续 Harness 云端实例通过 VPC 私网访问。C3-A 的实施设计见 [34-c3-sandbox-implementation-plan.md](./34-c3-sandbox-implementation-plan.md)。
+C3 前置 Provider / Cloud Execution PoC 已通过。当前首版选择 OpenSandbox + Docker：本地和腾讯云 x86_64 环境均已验证 Sandbox 创建、Shell/Python 执行、同一 Session 多次调用共享 Workspace、文件回传、Sandbox 销毁和容器清理。腾讯云 OpenSandbox 已启用 API Key、systemd 托管和 SDK server proxy；开发期通过 SSH 隧道访问，后续 Harness 云端实例通过 VPC 私网访问。C3 方向、C3-A 已冻结实施设计、实施切片和验收标准统一见 [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md)。
 
 当前尚未实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`、Run-scoped Session 关联、`execute_command` Tool、Workspace Stage/Collect、Artifact 导入、timeout/cancel、动态 Policy/Approval、执行投影和遗留 Sandbox 回收。`agent-browser` 的安装方案已经确认，但 Chromium、snapshot、screenshot 和下载链路尚未在腾讯云 Sandbox 中完成验证。因此 C3 仍处于 PoC 与正式代码之间，不属于 production capability。详细边界见 [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md)。
 

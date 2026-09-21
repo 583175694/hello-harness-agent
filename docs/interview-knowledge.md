@@ -4,16 +4,16 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering 第一阶段、K3 Runtime Control/HITL/Steer/Follow-up、K4 Agent Task Semantics 和 C1 File & Multimodal Foundation。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering（Tool Result 外置/指针/compaction trigger）、K3 Runtime Control/HITL/Steer/Follow-up、K4 Agent Task Semantics、C1 File & Multimodal Foundation，以及 C2 Artifact/Report 生成与多格式交付。
 
 ## 1. 项目一句话介绍
 
-这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答`、Connection-Durable Run、可断线恢复的 Conversation/Workbench、Model Round 级的 Context 编译/Token 预算/Tool Result 裁剪/历史压缩，以及 C1 文件与多模态输入闭环。
+这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答/正式报告`、Connection-Durable Run、可断线恢复的 Conversation/Workbench、Model Round 级的 Context 编译/Token 预算/Tool Result 外置与指针回收/历史压缩、C1 文件与多模态输入，以及 C2 生成文件/报告 Artifact 与多格式交付闭环。
 
 面试时需要主动区分：
 
 ```text
-已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch、Workbench 恢复、Context Engineering 第一阶段，以及图片/文本/数据/Office 附件上传、解析、预览、按需读取和模型输入
+已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch、Workbench 恢复、Context Engineering（Tool Result 外置/指针/40k compaction trigger）、C2 的 `create_file`/`create_report` 与 Artifact 预览下载及线性版本（C2-D），以及 C1 图片/文本/数据/Office 附件上传、解析、预览、按需读取和模型输入
 ```
 
 ## 2. 阶段一：工程基线
@@ -378,7 +378,7 @@ Passage 必须是 canonical Markdown 的连续直接子串，不由模型改写�
 
 因此最终边界调整并实现为：模型是唯一语义规划者，Runtime 执行模型决策并维护 40 次 Tool Call、单操作超时、取消和协议安全等通用边界，Tool 只返回 canonical output、结构化错误和日志字段。Runtime 统一把 `output/error` 序列化为 Tool Message；`ToolRunState`、`WebResearchRunState`、Tool `modelContent`、Tool `forceFinalAnswer` 和 `disableTools` 已删除。SSRF、DNS、重定向、响应大小、正文提取、Passage 排序和 LRU 等能力内部约束继续留在 Fetch，因为它们属于安全与工程正确性，不属于任务决策。
 
-Tool Result 始终进入下一模型轮次；Context Engineering 面向完整模型上下文统一做 Token 计量、选择、压缩和淘汰，而不是让 Tool 决定模型能看到什么。
+Tool Result 始终进入下一模型轮次；Context Engineering 面向完整模型上下文统一做 Token 计量、同轮裁剪/外置、历史指针折叠、压缩和淘汰，而不是让 Tool 决定模型能看到什么。
 
 这个案例的关键不是“所有状态都不好”，而是区分执行状态与规划状态：Runtime 可以记录 messages、rounds、tool-call count、cancel 和 execution history，但不能让某个 Tool 的领域状态成为主循环决策源。单操作超时与用户 Abort 同样继续保留；模型负责语义，不代表模型可以覆盖安全边界。
 
@@ -621,16 +621,37 @@ terminal 的要求更严格：先在内存提交 terminal Event 与 Projection�
 
 Agent Context 同时包含 System Prompt、用户与 assistant 历史、assistant Tool Calls、Tool Results、Tool Definitions 和最终回答空间。简单按消息条数或字符数截断会产生三个问题：Token 与字符不是固定比例；Tool Call 和 Tool Result 可能被拆散，破坏供应商协议；输入塞满窗口后没有空间生成最终回答。
 
-当前实现把编译放在 Agent Loop 的每个 Model Round 之前：
+当前实现把**编译**放在 Agent Loop 的每个 Model Round 之前，把**同轮 Tool Result 预算**放在 Tool Batch 提交之后、写入 transcript 之前。两条路径共用 DeepSeek V3 本地 tokenizer，但解决的问题不同：
 
 ```text
+【每轮 compileRound】
 canonical transcript + tool definitions
-  -> 注入已有 compaction summary
-  -> DeepSeek V3 tokenizer 估算
-  -> 达到 trigger 时压缩封闭历史前缀
-  -> 超过 prompt budget 时清理旧 Tool Result
-  -> 仍超限则明确失败
+  -> 注入 Session/Run 已有 compaction summary
+  -> 默认保留最近 2 个封闭 Tool Unit，更早 Tool Result 收成 fileId 指针
+  -> tokenizer 估算输入
+  -> estimatedInput >= compactionTriggerTokens 时压缩封闭历史前缀
+  -> 仍超 prompt budget 时把全部更早 Tool Result 收成指针（文件附件消息不参与静默丢弃）
+  -> 仍超限则 CONTEXT_BUDGET_EXCEEDED / FILE_CONTEXT_TOO_LARGE
   -> compiled messages 发送给模型
+  -> Runtime 将编译期指针写回 live messages（applyCollapsedToolPointers）
+
+【同轮 trimToolResults】
+Tool 返回完整 canonical 结果
+  -> Runtime 按 toolCallId 顺序收集候选
+  -> 在已编译 messages + 当前 assistant(tool_calls) 上分配本轮 Tool Result 预算
+  -> 超限：head-tail 预览 + 全文外置为 File（origin=tool_result）+ fileId 说明
+  -> search_file / read_file_lines 超限时不静默外置，返回结构化 FILE_CONTEXT 错误
+  -> 落库的 tool message 已是进入下一轮的最终形态
+```
+
+DeepSeek 官方 Profile 当前写入 `model-catalog.ts`（`verified=true` 后才启用上述逻辑）：
+
+```text
+contextWindowTokens = 1_000_000
+maxOutputTokens     = 384_000        // 仅用于 prompt budget 扣减，不等于 Runtime 默认请求 max_tokens
+compactionTriggerTokens = 40_000     // 远早于“顶满 1M 才压缩”，长 Run 更早进入摘要
+toolResultMaxTokens = 8_000          // 单条 Tool Result 进入模型的硬上限
+toolResultsRoundBudgetTokens = 16_000 // 同一 Tool Batch 内多条结果共享的本轮池
 ```
 
 Prompt Budget 使用：
@@ -641,34 +662,49 @@ contextWindowTokens
 - max(4096, contextWindowTokens * 5%)
 ```
 
-这使“最大输入”不再等同于“模型窗口”，为输出和 tokenizer/provider 差异保留了硬空间。
+这使“最大输入”不再等同于“模型窗口”，为输出和 tokenizer/provider 差异保留了硬空间。Runtime 实际请求的 `max_output_tokens`（工具轮/最终回答约 32k）与 Profile 里的 `maxOutputTokens` 是两层概念：前者是单次生成预算，后者是编译期必须为输出预留的窗口份额。
 
-### 14.2 为什么 Tool Result 在 Context Engineering 层裁剪
+### 14.2 为什么 Tool Result 在 Context Engineering 层处理，而不是在 Tool 里截断
 
-Tool Module 应返回完整 canonical 结果，不应该知道当前模型窗口、历史占用或同轮其他工具结果。Runtime 收集同一批 Tool Result 后，由 Context Engineering 扣除 messages 和 Tool Definitions 的固定成本，再对候选结果共享分配剩余预算；裁剪使用首尾保留并写入原始 token 数标记。
+Tool Module 应返回完整 canonical 结果，不应该知道当前模型窗口、历史占用或同轮其他工具结果。Runtime 只负责调用顺序和 `assistant(toolCalls)` 与 `tool(result)` 的协议配对；进入模型前的计量、裁剪、外置和指针化都在 Context Engineering。
 
 职责边界是：
 
 ```text
 Tool Module          负责能力执行和完整结果
-Agent Runtime        负责调用顺序和协议配对
-Context Engineering 负责进入模型前的预算与裁剪
+Agent Runtime        负责调用顺序、协议配对、指针写回 live transcript
+Context Engineering  负责 compileRound 与 trimToolResults
 Model Adapter        负责供应商请求编码
+Files (C1)           负责 tool_result 外置文件的持久化与 Session 归属
 ```
 
-Runtime 必须先保存 `assistant(toolCalls)`，再按相同声明顺序保存每个 `tool(result)`。Context Engineering 可以缩短 Tool Result 内容，但不能重排、删除配对关系或把 Tool Result 变成普通 assistant 文本。
+**同轮裁剪（trimToolResults）**：在 Tool Batch 刚结束、结果尚未进入 durable transcript 时执行。多个候选结果按 `toolResultsRoundBudgetTokens / N` 均分份额，再与 `toolResultMaxTokens` 取 min；某条未用完的份额可以回流给后续条目。普通 Web/Search 类结果超限时：优先 COS 落盘 + 模型上下文只保留 head-tail 预览和 `[Tool Result truncated: ... fileId=...]` 说明；落盘失败则 fail-open，保留原文 inline，避免无声丢证据。
+
+**历史折叠（collapseOldToolResults）**：在 `compileRound` 中执行。按封闭 Tool Unit 分组，默认保留最近 2 个单元完整 inline；更早单元把 tool message 替换为 `[Tool Result stored: ... fileId=...]`，并提示用已有 `search_file` / `read_file_lines` 按需回读。这与 C1 用户附件、`create_file` 交付物是不同语义：`FileOrigin.tool_result` 只表示“上下文外置的工具输出”，不是 Artifact/Report。
+
+Runtime 必须先保存 `assistant(toolCalls)`，再按相同声明顺序保存每个 `tool(result)`。Context Engineering 可以缩短 Tool Result 内容或换成指针，但不能重排、删除配对关系或把 Tool Result 变成普通 assistant 文本。`search_file` / `read_file_lines` 的结果是模型主动索取的有限窗口，若仍超预算，必须显式失败并提示缩小范围，不能偷偷外置后再让模型误以为已读完全文。
 
 ### 14.3 历史压缩为什么只处理封闭前缀
 
 当前压缩保留最近 12 条消息，并向前移动边界以避免从 Tool Result 中间切开工具协议。只把边界之前尚未覆盖的历史交给模型生成 continuation summary。Run 内的 `summary + coveredMessageCount + version + tokenCount` 由 Runtime 保存在内存，后续 Round 用一条 `<compaction_summary>` system message 替代已覆盖前缀；只有 Run 成功结束才在 terminal transaction 中保存为 Session 正式状态，失败、取消或进程中断时不写入。
 
-压缩可能在一个长 Agent Loop 中触发多次。每次只总结上次覆盖位置之后的新封闭前缀，并把旧摘要一并提供给摘要模型，因此不是不断重新总结完整历史。
+`compactionTriggerTokens=40_000` 的含义是：在 1M 窗口模型上，不必等到输入接近满窗才做第一次摘要；多轮 Search/Fetch 后 prompt 与 tokenizer 成本会先膨胀，提前触发 compaction 可以把“注意力稀释”和本地计量开销都压住。压缩可能在一个长 Agent Loop 中触发多次；每次只总结上次覆盖位置之后的新封闭前缀，并把旧摘要一并提供给摘要模型，因此不是不断重新总结完整历史。
 
-### 14.4 面试口述版
+若 compaction 摘要批次失败，不会推进 `coveredMessageCount`；Runtime 仍可使用上一轮有效摘要，避免半套状态污染后续 Round。
 
-> 我把 Context Engineering 放在每个 Model Round 之前，而不是只在会话开始时处理一次。系统用本地 DeepSeek V3 tokenizer 对消息和工具定义统一计量，先为最大输出和安全边界留空间，再决定是否压缩封闭历史；同轮大型 Tool Result 则由 Context 层共享分配剩余预算，Runtime 继续保证 Tool Call 与 Tool Result 的配对顺序。
->
-> Context Engineering 的职责是保证每个 Model Round 的输入容量安全和协议正确：统一估算 Messages、Tools 和 Tool Results，必要时压缩封闭历史，并保证 Tool Call/Result 配对不被破坏。压缩状态在 Run 内存中即时生效，成功终态才与 Transcript 一起写入 Session 正式状态。
+### 14.4 指针写回：避免每轮重复外置
+
+`compileRound` 每次都会基于**当前** live messages 重新编译，若历史 Tool Result 仍以全文留在 transcript 中，长 Run 会对同一段内容反复尝试 spill、反复落盘、fileId 漂移。因此在编译成功后，Runtime 调用 `applyCollapsedToolPointers(live, compiled.messages)`：凡编译结果里已是 `[Tool Result stored:` 的 tool message，按 `toolCallId` 写回 Run 内存中的 messages 数组。
+
+这样下一轮 compile 看到的是指针而不是原文，外置文件只创建一次，模型仍可通过 C1 工具按 fileId 拉取中间段落。这与 UI/Workbench 展示无关，纯粹是 Agent Loop 内的上下文一致性优化。
+
+### 14.5 与长 reasoning 流式性能的关系（边界说明）
+
+Context Engineering 解决的是**进入模型的 prompt 体积与结构**；长 reasoning 模式下用户感知的“吐字变慢”，还可能来自 Durable Run 对 `reasoning.delta` 的 Checkpoint 策略。当前 Executor 对 `message.delta` 与 `reasoning.delta` 同等对待：语义边界（Tool 生命周期等）立即 flush，纯文本/推理增量按 **≥1s 或累计 ≥1KB** 批量落库，避免每个 token 触发一次 PostgreSQL 写。两者叠加才是长 Run 体验优化的完整图景，面试时应分开讲清职责。
+
+### 14.6 面试口述版
+
+> 我把 Context Engineering 放在每个 Model Round 之前，并在每个 Tool Batch 之后做同轮结果预算。Tool 只返回完整结果；Context 层用 DeepSeek V3 tokenizer 统一计量，在 verified Profile 下用 40k trigger 提前做历史 compaction，用 8k/16k 控制单条和同轮 Tool Result。超大 Web/Fetch 结果不是简单删中间，而是 head-tail 预览 + 全文外置到 `tool_result` 文件，上下文里留可恢复的 fileId，并复用已有 `search_file` / `read_file_lines` 按需读回。更早的历史 Tool Unit 在 compile 时收成指针，Runtime 再把指针写回 live messages，避免每轮重复 spill。文件工具结果和用户附件不能静默丢弃，超预算就明确报错。压缩状态在 Run 内存即时生效，成功终态才写入 Session。
 
 ## 15. K3 Runtime Lifecycle 与 HITL
 
@@ -807,11 +843,73 @@ C1-A 支持最多四个有序附件，并保留图片 detail、尺寸和模型�
 
 > C1 的核心不是做一个上传按钮，而是把文件作为 Agent 的一种可恢复输入事实。上传后先做安全校验和异步解析，原始文件与规范化正文放在 COS，数据库只保存元数据、状态、哈希、解析器版本和对象引用；消息只绑定 `fileId`。图片走 Model Adapter 的视觉输入路径，文本文件通过 `file_ref` 进入 Context，再由模型按需调用 `search_file` 和 `read_file_lines` 获取有限、可定位的材料。Composer 还处理了多附件顺序、失败重试、取消、预览、图片优先粘贴和长文本外置为 TXT。这样既支持真实文件问答，又不会把长文件全文默认塞进每轮模型上下文。
 
-## 18. 面试表达模板
+## 18. C2 Artifact & Report Generation
+
+> 详细契约与阶段边界见 [31-c2-artifact-and-report-generation.md](./31-c2-artifact-and-report-generation.md)。面试口径以当前代码为准：C2-A/B/C 与 C2-D 线性版本能力已落地；专用 Report Workbench、逐主张 Citation Validator 和在线编辑器仍不在范围内。
+
+### 问：C2 相对 C1 解决什么问题？
+
+答：C1 是“用户提供文件，Agent 按需读取”；C2 是“Agent 生成文件，用户消费”。Conversation 只承担过程说明和简短结论，完整交付物通过 `create_file` 或 `create_report` 变成可预览、可下载、可随 Session 恢复的 Artifact，而不是把长 Markdown 或二进制正文重复塞进聊天流和每轮模型上下文。
+
+```text
+C1：user_uploaded / tool_result File -> 模型按需 search_file / read_file_lines
+C2：agent_generated File + Artifact (+ Report) -> 用户 Workbench 预览/下载/迭代
+```
+
+### 问：File 和 Artifact 为什么分层？
+
+答：`File` 统一负责 COS 对象、规范化正文、预览、下载和 `read_file_lines` 读取；`Artifact` 只表达“这份 File 是本次 Agent 生成交付物”的业务关系，保存 `sessionId`、`runId`、`toolCallId` 和（C2-D 起）系列/版本字段，不重复存正文或 storage key。模型和读取工具只认 `fileId`；UI 和 API 交付投影使用 `artifactId`。用户上传的文件不会自动变成 Artifact，只有 `create_file` / `create_report`（及 Sandbox Collect 等受控导入）才建立交付关系。
+
+### 问：C2-A `create_file` 的核心链路是什么？
+
+答：模型提供受控文件名和内容（或 XLSX 的 `sheets/rows`），服务端推导 MIME、渲染/保存、创建 `agent_generated` File，再在事务中创建 `ArtifactSeries`（v1）或追加版本，最后返回 `artifact` + `file` 引用。工具不能指定路径、object key 或覆盖用户文件；同一 `runId + toolCallId` 重放返回同一结果，不重复落盘。Conversation 展示工具活动与 Artifact 卡片，Workbench 提供预览和下载；刷新后从 assistant metadata 中的 `artifact` block 恢复。
+
+首版文本格式（TXT/Markdown/JSON）走 UTF-8 直写；C2-C 在同一工具上扩展 HTML/PDF/DOCX（Markdown 源）和 XLSX（结构化 rows），由 `renderGeneratedFile` 在内存渲染后再走既有 FilesService 存储链路。
+
+### 问：`create_file` 和 `create_report` 如何分工？
+
+答：不由文件名或长度推断，而由模型显式选择工具：
+
+| 工具 | 适用场景 | 持久化 |
+| --- | --- | --- |
+| `create_file` | 普通生成文件、数据表、多格式交付物 | File + Artifact（+ Series 版本） |
+| `create_report` | 用户意图为正式、可独立阅读/保存的调研、分析、方案类 Markdown 报告 | 在上述基础上增加 `Report` 行与 `ReportRef` |
+
+`create_report` 输入为 `title`、`summary`、`.md` 文件名、完整 Markdown 正文，以及可选的 `sourceIds`（网页来源 ID）和 `fileIds`（本会话材料文件）。协议当前限制报告正文最多 16,000 个 Unicode 字符（与工具轮输出预算对齐）；`create_file` 文档类内容仍按生成文件上限（40,000 code points）校验。工具成功后，最终聊天回复只概括结论并提示打开报告，不在 assistant 正文重复全文。
+
+Runtime 对两类工具的 SSE/快照/日志使用 `publicToolInput`：只暴露标题、文件名、字符/字节计数和引用 ID 摘要，不把完整 `content` 或 Sheet 数据写入 Event Tail，避免巨型 tool-call JSON 撑爆投影、Checkpoint 和后续 Context。
+
+### 问：C2-B 报告与来源/material 如何关联？
+
+答：`Report` 表保存 `artifactId`、`runId`、标题、摘要、`sourceIds`、`fileIds` 和状态，不重复存 Markdown 正文。`sourceIds` 由模型声明，当前不以“本 Run 是否成功 Fetch 该 URL”阻断创建；`fileIds` 必须指向当前 Session 内 `ready` 的文件，未知/越权/未就绪会直接使工具失败。同一 Run 可用不同 `toolCallId` 创建多份独立报告。UI 把报告当作 Markdown Artifact 展示；专用 Report Tab、Session 恢复中的 `reportId` 投影和跨 File/Artifact/Report 强事务仍明确延期。
+
+### 问：C2-C 多格式输出如何避免“伪 PDF/伪 DOCX”？
+
+答：模型仍只调用一个 `create_file`，格式完全由 `fileName` 扩展名决定：HTML/PDF/DOCX 的 `content` 必须是 Markdown 源，XLSX 必须使用 `sheets/rows`，禁止 Base64、原始 HTML/XML 或路径。服务端 `renderGeneratedFile` 完成 remark/rehype HTML、Playwright PDF、`docx` 包 DOCX、`exceljs` XLSX，再保存 **original**（真实下载格式）和 **normalized**（供 `search_file`/`read_file_lines` 的文本）。渲染失败、取消或超时时不投影成功卡片，不静默降级成另一种格式；工具超时预算已提高到适合文档渲染的 30 秒量级。
+
+### 问：C2-D 版本语义是什么？和 Git 有何不同？
+
+答：C2-D 为同一逻辑产物引入 `ArtifactSeries` 和单调递增的 `versionNumber`，每次修改或恢复都创建**新的** File 和 Artifact，旧版本不可变、可预览下载。用户从 Workbench 发起“基于此版本修改”时，Run metadata 携带 `artifactVersionContext`（`seriesId`、`baseArtifactId`、`expectedCurrentArtifactId`）；模型仍只调用 `create_file` 写出完整新文件，服务端在事务里校验 current 指针、分配下一版本号（`operation=revise`），并用 `UPDATE ... WHERE currentArtifactId = expected` 做乐观并发；冲突返回可重试的版本冲突错误，不静默覆盖。
+
+“恢复”不是把指针指回旧版本，而是复制旧版本内容生成新的 File/Artifact（`operation=restore`，`sourceArtifactId` 指向被恢复版本），历史 v1…vN 全部保留。首版不做分支/合并、在线编辑、局部 patch 或 PDF/DOCX 二进制 diff。
+
+### 问：C2 与 Context Engineering / 输出预算如何配合？
+
+答：生成交付物的正文只应出现在 File/COS 和工具执行路径里，不应默认进入 compileRound 的 messages。Tool Result 外置（`FileOrigin.tool_result`）解决的是 Search/Fetch 等材料过大；C2 解决的是用户可见交付物。两者都复用 C1 读文件工具回读，但语义不同：前者是上下文指针，后者是 Artifact/Report。长报告还通过收紧 `create_report` 正文上限、Runtime 对 `max_output_tokens` 截断的 JSON 抢救（如补全 `create_report` 参数）和交付提示，降低“工具 JSON 被截断导致报告未落盘”的概率。
+
+### 问：C2 如何验证已经完成？
+
+答：分层验证：Protocol 对 `create_file`/`create_report` 输入摘要与结果 schema；`generated-file.renderer` 与 ArtifactsService 单测覆盖渲染、幂等、版本推进与 restore；集成测试覆盖 revise/restore 线性链与并发冲突；Web 覆盖 Artifact 卡片、Workbench 预览下载、基于版本修改与恢复确认；真实模型链路验收单报告、多报告、多格式文件与 Session 删除级联清理。不能把开发 Preview 里的 legacy Report fixture 当作生产专用 Report Workbench。
+
+### 18.1 C2 面试口述版
+
+> C2 把 Agent 输出从聊天文本升级成可持久化的交付物。C1 管读，C2 管写：模型通过 `create_file` 或 `create_report` 触发受控写入，File 层统一存 COS 和规范化正文，Artifact 层表达交付关系，报告再多一张 Report 表存标题、摘要和材料引用。多格式不增加新工具，只在 `create_file` 里按扩展名走 `renderGeneratedFile`。SSE 和快照里不 inline 巨型正文，Conversation 只展示工具活动和 Artifact 卡片，完整内容在 Workbench 预览下载。C2-D 在此基础上用 ArtifactSeries 做线性不可变版本：修改和恢复都追加新版本，current 指针用乐观并发更新，避免多 Run 静默覆盖。这样调研类任务可以 `web_search -> web_fetch -> create_report` 闭环，又不会把 Passage 和报告正文反复堆进 prompt。
+
+## 19. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
-答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、C1 文件与多模态输入、Activity/Sources 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、预算、裁剪和压缩。
+答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、C1 文件与多模态输入、C2 生成文件/报告 Artifact 与多格式交付、Activity/Sources/Artifact 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、Tool Result 外置与历史压缩。
 
 ### 问：SSE 为什么没有直接使用 WebSocket？
 
@@ -831,7 +929,7 @@ C1-A 支持最多四个有序附件，并保留图片 detail、尺寸和模型�
 
 ### 问：为什么 Web Fetch 不直接把整个网页放进上下文？
 
-答：整页 HTML 同时包含脚本、导航、模板噪声和大量无关文本，直接注入会浪费上下文并放大 Prompt Injection。当前先提取 canonical Markdown，再做质量门、结构切块和 query-aware 排序，只返回可定位的抽取式 Passage。这是来源侧的安全阀；进入 Agent Loop 后，Context Engineering 还会统一计算 messages、Tool Definitions、Tool Results 和输出预留。
+答：整页 HTML 同时包含脚本、导航、模板噪声和大量无关文本，直接注入会浪费上下文并放大 Prompt Injection。当前先提取 canonical Markdown，再做质量门、结构切块和 query-aware 排序，只返回可定位的抽取式 Passage。这是来源侧的安全阀；进入 Agent Loop 后，Context Engineering 还会统一计算 messages、Tool Definitions、Tool Results 和输出预留。若多轮 Fetch 后 Passage 仍撑爆预算，会 head-tail 预览 + 外置全文到 `tool_result` 文件，模型通过 C1 文件工具按 fileId 继续读。
 
 ### 问：为什么取消 Agent 总超时，不会导致工具无限调用？
 
@@ -843,7 +941,19 @@ C1-A 支持最多四个有序附件，并保留图片 detail、尺寸和模型�
 
 ### 问：为什么 Context Engineering 要在每个 Model Round 执行？
 
-答：Agent Loop 每轮都会新增 assistant Tool Call 和 Tool Result，输入规模和结构持续变化，只在 Run 开始时计算一次预算会失真。当前每轮先注入已有摘要，再统一估算 messages 与 Tool Definitions；需要时压缩历史，保证 Tool Call/Result 协议完整，并为最终输出保留固定空间。
+答：Agent Loop 每轮都会新增 assistant Tool Call 和 Tool Result，输入规模和结构持续变化，只在 Run 开始时计算一次预算会失真。当前每轮 `compileRound` 先注入已有 compaction 摘要，再折叠更早 Tool Result 指针、估算 messages 与 Tool Definitions，达到 40k trigger 时压缩封闭历史；Tool Batch 结束后另走 `trimToolResults` 处理**本轮**结果的外置与 head-tail。编译完成后 Runtime 把指针写回 live transcript，避免重复落盘。全程保证 Tool Call/Result 配对完整，并为输出预留固定 prompt budget 份额。
+
+### 问：Tool Result 被裁剪后，模型怎么拿到“被删掉”的部分？
+
+答：普通 Search/Fetch 类结果超限时，Context 层把全文写入 Session 内的 `tool_result` 文件，模型上下文只保留预览和带 `fileId` 的说明，并明确提示用 `search_file` / `read_file_lines` 回读。历史轮次在 compile 时则直接收成 `[Tool Result stored: ...]` 指针。这不是新的 spill 工具，而是复用 C1 已有按需读文件能力，避免把外置内容和用户交付物（Artifact/Report）混为一谈。
+
+### 问：为什么长报告要用 `create_report`，而不是在最终回答里写全文？
+
+答：Conversation 和 Checkpoint 都按流式增量持久化，把整份报告写进 assistant 正文会同时伤害 UI、数据库和后续 Context。正式交付物应走工具：正文进入 File/COS，投影层只展示工具活动、Artifact 卡片和简短结论。`create_report` 还持久化 Report 元数据和可选来源/材料引用，便于 Workbench 预览下载和 Session 恢复；Chat 里重复全文对用户也没有独立文档的体验。
+
+### 问：C2 的 Artifact 和 Context 里的 `tool_result` 外置文件有什么区别？
+
+答：两者都落在 File 存储上，但 `FileOrigin` 和 UI 语义不同。`tool_result` 是 Context Engineering 为过大 Tool Result 做的内部外置，模型上下文里是指针说明，不是用户交付物。`agent_generated` + Artifact 是用户可见的生成结果，有 Workbench 卡片、下载和（C2-D）版本历史。模型回读都可以走 `search_file`/`read_file_lines`，但面试和架构讲解时必须分开，否则会把“省 prompt”和“交报告”混成一件事。
 
 ## K3.3 Steer & Follow-up 面试专题
 
@@ -913,7 +1023,7 @@ C1-A 支持最多四个有序附件，并保留图片 detail、尺寸和模型�
 
 本轮已手动验证 K3 核心交互：`final_answer` 阶段 Steer 会自动降级并启动下一轮；Stop 后队列保留；Follow-up 支持按条发送；队列上限为 3 条且第 4 条明确拒绝；删除/发送会释放容量；刷新、断线和重复点击后状态保持一致。Continue 的上下文恢复仍归入后续 Context Engineering 阶段，不作为 K3 已验收能力。
 
-## 19. 追加规则
+## 20. 追加规则
 
 每个阶段只追加四类内容：
 

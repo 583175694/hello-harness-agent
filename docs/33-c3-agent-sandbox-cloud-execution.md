@@ -2,9 +2,15 @@
 
 > 文档状态：C3 统一方向与实施方案；C3-A 工程边界已冻结，可以开始实施。
 >
-> 最后更新：2026-09-20。
+> 最后更新：2026-09-21。
 >
 > 本文是 C3 的唯一权威文档，同时包含已完成的基础设施 PoC、C3-A 实施方案、冻结契约、后续阶段和验收标准。
+
+阅读顺序：
+
+- 要开始实施 C3-A：先读第 0、1 节；这里给出当前基础、目标模块、实施顺序和完成标准。
+- 要实现或评审具体代码：再读第 2–5 节；这里集中说明架构依据、冻结契约、安全、观测和清理约束。
+- 要判断 C3-A 之外的范围：读第 6–10 节；这里记录后续阶段、关联能力和开放问题。
 
 ## 0. 当前结论
 
@@ -109,6 +115,29 @@ Agent Runtime 只依赖 `ToolRegistryService`，不依赖 OpenSandbox SDK、Dock
 
 ### 1.3 实施切片
 
+实施关键路径：
+
+```text
+Step 1  canonical protocol + fake Provider + Manager
+   ↓ 协议、生命周期和错误语义在本地测试中成立
+Step 2  OpenSandbox adapter + cancellation contract
+   ↓ 真实 Provider 的执行、文件和终止语义通过 contract test
+Step 3  execute_command + Runtime / Approval / Projection
+   ↓ 模型可通过普通 Tool Loop 稳定执行命令
+Step 4  Stage / Collect + File / Artifact
+   ↓ 输入文件到输出 Artifact 的完整闭环通过
+C3-A 验收
+```
+
+| 切片 | 主要产出 | 进入下一步的条件 |
+| --- | --- | --- |
+| Step 1 | 公共协议、Sandbox 抽象、fake Provider、Manager | 不依赖远端环境的协议和生命周期单测通过 |
+| Step 2 | OpenSandbox Provider、配置、取消能力验证 | 腾讯云 Provider contract test 通过，并确定 cancel 使用命令级终止还是销毁 Session |
+| Step 3 | 模型可见 `execute_command`、审批、Activity、Projection | 真实 Tool Loop 覆盖成功、失败、非零退出、timeout 和 cancel |
+| Step 4 | File Stage、单输出 Collect、Artifact 导入 | 至少一个真实输入到正式 Artifact 的端到端场景通过 |
+
+四个切片按依赖顺序推进。Step 1 不连接 OpenSandbox；Step 2 不提前暴露模型 Tool；Step 3 可以先不 Collect Artifact；只有 Step 4 和全部验收条件完成后，C3-A 才算交付。
+
 #### Step 1：公共协议、契约和 fake Provider
 
 - 在 `packages/agent-protocol` 增加 `execute_command` 名称、输入 Schema、公共结果摘要、Activity、Snapshot 和错误码。
@@ -162,7 +191,7 @@ C3-A 只有在以下条件全部满足后才标记完成：
 - `SANDBOX_ENABLED` 默认关闭；命令需要审批；固定非 root 镜像、资源上限和默认 deny 网络不能被模型覆盖。
 - `agent-browser`/Chromium 不阻塞 C3-A，但必须在 C3-C 前完成云端验证。
 
-## 2. 架构基线：Sandbox as a Tool
+## 2. 实现约束：Sandbox as a Tool 架构
 
 ### 2.1 总体架构
 
@@ -225,7 +254,7 @@ C3 直接采用 OpenAI 官方 Cookbook [Migrate a Legacy Codebase with Sandbox A
 
 Cookbook 示例以代码迁移 shard、repo manifest 和 patch bundle 为中心；Harness 面向通用对话 Run，因此使用懒创建的 Run-scoped Session、`fileId` Stage 和 Artifact Collect。这是同一架构的产品映射，不是 Agent-in-Sandbox 架构。
 
-## 3. C3-A 冻结契约
+## 3. 实现约束：C3-A 冻结契约
 
 ### 3.1 `execute_command` 输入
 
@@ -384,7 +413,7 @@ C3-A 必须修改 `packages/agent-protocol`：
 | Session 被销毁 | 原 `timeout` / `cancelled`，记录 `session_invalidated` | 后续创建新 Session |
 | 请求断开、结果未知 | `failed`，记录 `execution_unknown` | 不自动重试 |
 
-## 4. 安全与运行约束
+## 4. 实现约束：安全与运行
 
 C3-A 是 development-only integration：
 
@@ -417,7 +446,7 @@ Collect               20 MiB / 1 file
 
 这些数值是首版配置默认值，不是未来所有 Provider 的永久产品规格。
 
-## 5. 可观察性与清理
+## 5. 实现约束：可观察性与清理
 
 每次执行至少关联：
 

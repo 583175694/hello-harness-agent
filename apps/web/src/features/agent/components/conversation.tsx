@@ -620,9 +620,8 @@ const AssistantMessage = memo(
     onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
   }) {
     const text = flattenAssistantText(item.blocks);
-    const terminal = !item.pending && item.deliveryStatus !== 'streaming';
     const presentation = presentAssistantBlocks(item.blocks);
-    const artifactBlocks = terminal ? presentation.artifacts : [];
+    const artifactBlocks = presentation.artifacts;
     const hasVisibleBlocks =
       presentation.process.length > 0 ||
       Boolean(presentation.pendingText) ||

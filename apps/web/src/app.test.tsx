@@ -567,6 +567,79 @@ describe('R1 workbench shell', () => {
     expect(restored).toMatchObject({ title: '文件读取', subtitle: '2 次文件调用' });
   });
 
+  it('opens the artifact workbench as soon as create_report completes', () => {
+    const started: ToolStreamEvent = {
+      type: 'tool.started',
+      messageId: 'assistant-report',
+      blockId: 'tool-report',
+      toolCallId: 'call-report',
+      toolName: 'create_report',
+      title: '生成报告：走势复盘',
+      input: {
+        title: '走势复盘',
+        summary: '摘要',
+        fileName: 'report.md',
+        contentCharacterCount: 12,
+        contentByteCount: 12,
+      },
+      startedAt: '2026-09-21T09:00:00.000Z',
+      roundId: 'round-10',
+      roundSequence: 10,
+      blockSequence: 1,
+    };
+    const completed: ToolStreamEvent = {
+      type: 'tool.completed',
+      messageId: 'assistant-report',
+      blockId: 'tool-report',
+      toolCallId: 'call-report',
+      toolName: 'create_report',
+      completedAt: '2026-09-21T09:00:01.000Z',
+      durationMs: 80,
+      result: {
+        report: {
+          reportId: 'report-1',
+          artifactId: 'artifact-report',
+          runId: 'run-1',
+          title: '走势复盘',
+          summary: '摘要',
+          sourceIds: [],
+          fileIds: [],
+          status: 'ready',
+          createdAt: '2026-09-21T09:00:01.000Z',
+          updatedAt: '2026-09-21T09:00:01.000Z',
+        },
+        artifact: {
+          artifactId: 'artifact-report',
+          fileId: 'file-report',
+          fileName: 'report.md',
+          mediaType: 'text/markdown',
+          fileKind: 'markdown',
+          size: 12,
+          status: 'ready',
+          createdAt: '2026-09-21T09:00:01.000Z',
+        },
+        file: {
+          fileId: 'file-report',
+          fileName: 'report.md',
+          mediaType: 'text/markdown',
+          size: 12,
+          status: 'ready',
+          fileKind: 'markdown',
+        },
+      },
+      roundId: 'round-10',
+      roundSequence: 10,
+      blockSequence: 1,
+    };
+    const streamed = applyToolEvent(applyToolEvent(undefined, started, false), completed, true);
+    expect(streamed).toMatchObject({
+      open: true,
+      activeView: 'artifact',
+      artifacts: [expect.objectContaining({ artifactId: 'artifact-report', fileName: 'report.md' })],
+      focusTarget: { kind: 'artifact', artifactId: 'artifact-report' },
+    });
+  });
+
   it('exposes a mock state switcher on the preview route', () => {
     window.history.replaceState({}, '', '/agent/preview?state=waiting');
     render(<App />);

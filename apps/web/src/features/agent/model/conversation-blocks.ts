@@ -42,6 +42,7 @@ function toolActivityCompletedSummary(
   if (event.toolName === 'get_current_time') return '当前时间已获取';
   if (event.toolName === 'search_file') return `找到 ${event.result.matches.length} 个文件命中`;
   if (event.toolName === 'read_file_lines') return `读取 ${event.result.lines.length} 行文件内容`;
+  if (event.toolName === 'create_file') return `已生成 ${event.result.file.fileName}`;
   if (event.toolName === 'create_report') return `生成报告：${event.result.report.title}`;
   return currentSummary;
 }
@@ -201,13 +202,16 @@ export function applyToolActivityEvent(
     });
   }
   if (index < 0) return blocks;
-  if (event.type === 'tool.completed' && event.toolName === 'create_file') {
+  if (
+    event.type === 'tool.completed' &&
+    (event.toolName === 'create_file' || event.toolName === 'create_report')
+  ) {
     const updated = blocks.map((block, blockIndex) =>
       blockIndex === index && block.type === 'tool_activity'
         ? {
             ...block,
             status: 'completed' as const,
-            summary: `已生成 ${event.result.file.fileName}`,
+            summary: toolActivityCompletedSummary(event, block.summary ?? ''),
             completedAt: event.completedAt,
             durationMs: event.durationMs,
           }

@@ -489,6 +489,60 @@ describe('Conversation tool activity navigation', () => {
     expect(screen.queryByRole('button', { name: '删除result.md' })).not.toBeInTheDocument();
   });
 
+  it('renders generated artifacts while the assistant reply is still streaming', () => {
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [
+            {
+              id: 'assistant-1',
+              kind: 'assistant',
+              pending: true,
+              deliveryStatus: 'streaming',
+              blocks: [
+                {
+                  id: 'artifact-block-1',
+                  type: 'artifact',
+                  artifactId: 'artifact-1',
+                  fileId: 'file-1',
+                  fileName: 'report.md',
+                  mediaType: 'text/markdown',
+                  fileKind: 'markdown',
+                  size: 1024,
+                  status: 'ready',
+                  createdAt: '2026-09-10T00:00:00.000Z',
+                },
+              ],
+              workbench: {
+                runId: 'run-1',
+                title: 'Artifact',
+                subtitle: '',
+                activeView: 'artifact',
+                executions: [],
+                followMode: 'auto',
+                sources: [],
+                open: true,
+              },
+            },
+          ],
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '预览report.md' })).toBeInTheDocument();
+  });
+
   it('opens the parsed preview for a historical document attachment', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response('## Slides\n\n- Opening\n- Summary', {

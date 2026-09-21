@@ -543,12 +543,13 @@ export function applyToolEvent(
     }
   }
   const header = workbenchHeader(executions, sources.length);
+  const completedArtifact = completedCreateFile ?? completedCreateReport;
   const artifacts =
-    completedCreateFile &&
+    completedArtifact &&
     !(base.artifacts ?? []).some(
-      (item) => item.artifactId === completedCreateFile.result.artifact.artifactId,
+      (item) => item.artifactId === completedArtifact.result.artifact.artifactId,
     )
-      ? [...(base.artifacts ?? []), completedCreateFile.result.artifact]
+      ? [...(base.artifacts ?? []), completedArtifact.result.artifact]
       : base.artifacts;
   return {
     ...base,
@@ -556,9 +557,22 @@ export function applyToolEvent(
     title: header.title,
     activityStatus: cancelledEvent ? 'cancelled' : base.activityStatus,
     subtitle: header.subtitle,
-    activeView: event.type === 'tool.completed' && sources.length ? 'sources' : base.activeView,
+    activeView: completedArtifact
+      ? 'artifact'
+      : event.type === 'tool.completed' && sources.length
+        ? 'sources'
+        : base.activeView,
     executions,
     sources,
+    ...(completedArtifact
+      ? {
+          focusTarget: {
+            kind: 'artifact' as const,
+            runId: base.runId,
+            artifactId: completedArtifact.result.artifact.artifactId,
+          },
+        }
+      : {}),
     ...(artifacts?.length ? { artifacts } : {}),
   };
 }
@@ -1336,7 +1350,9 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
             toolEvent.result.matches.length > 0) ||
           (toolEvent.type === 'tool.completed' &&
             toolEvent.toolName === 'read_file_lines' &&
-            toolEvent.result.lines.length > 0);
+            toolEvent.result.lines.length > 0) ||
+          (toolEvent.type === 'tool.completed' &&
+            (toolEvent.toolName === 'create_file' || toolEvent.toolName === 'create_report'));
         const currentUserUrls = new Set(
           [...task.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)].map((match) =>
             canonicalUrl(match[0].replace(/[.,;:!?，。；：！？]+$/gu, '')),

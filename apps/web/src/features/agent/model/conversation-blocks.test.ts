@@ -179,6 +179,84 @@ describe('conversation blocks reducer', () => {
     ]);
   });
 
+  it('inserts a report artifact as soon as create_report completes', () => {
+    const started = applyToolActivityEvent([], {
+      type: 'tool.started',
+      messageId: 'message-1',
+      blockId: 'tool-report',
+      toolCallId: 'call-report',
+      toolName: 'create_report',
+      title: '生成报告：走势复盘',
+      input: {
+        title: '走势复盘',
+        summary: '摘要',
+        fileName: 'report.md',
+        contentCharacterCount: 12,
+        contentByteCount: 12,
+      },
+      startedAt: '2026-09-21T09:00:00.000Z',
+      roundId: 'round-10',
+      roundSequence: 10,
+      blockSequence: 1,
+    });
+    const blocks = applyToolActivityEvent(started, {
+      type: 'tool.completed',
+      messageId: 'message-1',
+      blockId: 'tool-report',
+      toolCallId: 'call-report',
+      toolName: 'create_report',
+      completedAt: '2026-09-21T09:00:01.000Z',
+      durationMs: 80,
+      result: {
+        report: {
+          reportId: 'report-1',
+          artifactId: 'artifact-report',
+          runId: 'run-1',
+          title: '走势复盘',
+          summary: '摘要',
+          sourceIds: [],
+          fileIds: [],
+          status: 'ready',
+          createdAt: '2026-09-21T09:00:01.000Z',
+          updatedAt: '2026-09-21T09:00:01.000Z',
+        },
+        artifact: {
+          artifactId: 'artifact-report',
+          fileId: 'file-report',
+          fileName: 'report.md',
+          mediaType: 'text/markdown',
+          fileKind: 'markdown',
+          size: 12,
+          status: 'ready',
+          createdAt: '2026-09-21T09:00:01.000Z',
+        },
+        file: {
+          fileId: 'file-report',
+          fileName: 'report.md',
+          mediaType: 'text/markdown',
+          size: 12,
+          status: 'ready',
+          fileKind: 'markdown',
+        },
+      },
+      roundId: 'round-10',
+      roundSequence: 10,
+      blockSequence: 1,
+    });
+
+    expect(blocks.map((block) => block.type)).toEqual(['tool_activity', 'artifact']);
+    expect(blocks[0]).toMatchObject({
+      type: 'tool_activity',
+      status: 'completed',
+      summary: '生成报告：走势复盘',
+    });
+    expect(blocks[1]).toMatchObject({
+      type: 'artifact',
+      artifactId: 'artifact-report',
+      fileName: 'report.md',
+    });
+  });
+
   it('places a consumed steer before the following model round', () => {
     const afterSteer = appendUserIntervention([], {
       type: 'user.intervention',

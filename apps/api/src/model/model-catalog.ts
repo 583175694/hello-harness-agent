@@ -15,6 +15,8 @@ export type ConfiguredModel = {
     contextWindowTokens: number;
     maxOutputTokens: number;
     compactionTriggerTokens: number;
+    toolResultMaxTokens: number;
+    toolResultsRoundBudgetTokens: number;
     tokenizer: 'deepseek-v3';
     source: string;
     verified: boolean;
@@ -32,7 +34,9 @@ export type ConfiguredModel = {
 // Context Length 1M，Max Output 384K。
 export const DEEPSEEK_CONTEXT_WINDOW_TOKENS = 1_000_000;
 export const DEEPSEEK_MAX_OUTPUT_TOKENS = 384_000;
-export const DEEPSEEK_COMPACTION_TRIGGER_TOKENS = 100_000;
+export const DEEPSEEK_COMPACTION_TRIGGER_TOKENS = 40_000;
+export const DEEPSEEK_TOOL_RESULT_MAX_TOKENS = 8_000;
+export const DEEPSEEK_TOOL_RESULTS_ROUND_BUDGET_TOKENS = 16_000;
 export const DEEPSEEK_MODEL_PROFILE_SOURCE = 'https://api-docs.deepseek.com/quick_start/pricing/';
 export const DEEPSEEK_MODEL_PROFILE_VERIFIED = true;
 
@@ -57,6 +61,8 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
       contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
       maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
       compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
+      toolResultMaxTokens: DEEPSEEK_TOOL_RESULT_MAX_TOKENS,
+      toolResultsRoundBudgetTokens: DEEPSEEK_TOOL_RESULTS_ROUND_BUDGET_TOKENS,
       tokenizer: 'deepseek-v3' as const,
       source: DEEPSEEK_MODEL_PROFILE_SOURCE,
       verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
@@ -75,6 +81,8 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
       contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
       maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
       compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
+      toolResultMaxTokens: DEEPSEEK_TOOL_RESULT_MAX_TOKENS,
+      toolResultsRoundBudgetTokens: DEEPSEEK_TOOL_RESULTS_ROUND_BUDGET_TOKENS,
       tokenizer: 'deepseek-v3' as const,
       source: DEEPSEEK_MODEL_PROFILE_SOURCE,
       verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
@@ -103,6 +111,8 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
       contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
       maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
       compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
+      toolResultMaxTokens: DEEPSEEK_TOOL_RESULT_MAX_TOKENS,
+      toolResultsRoundBudgetTokens: DEEPSEEK_TOOL_RESULTS_ROUND_BUDGET_TOKENS,
       tokenizer: 'deepseek-v3' as const,
       source: 'https://help.aliyun.com/zh/model-studio/',
       verified: false,

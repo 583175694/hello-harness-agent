@@ -9,7 +9,13 @@ function variedChinese(length: number): string {
   );
 }
 
-function createService(overrides: { state?: unknown; summary?: string } = {}) {
+function createService(
+  overrides: {
+    state?: unknown;
+    summary?: string;
+    files?: { createToolResultFile: ReturnType<typeof vi.fn> };
+  } = {},
+) {
   const prisma = {
     contextCompactionState: {
       findUnique: vi.fn().mockResolvedValue(overrides.state ?? null),
@@ -18,29 +24,72 @@ function createService(overrides: { state?: unknown; summary?: string } = {}) {
   const model = {
     generateText: vi.fn().mockResolvedValue(overrides.summary ?? 'summary of completed work'),
   };
+  const files = overrides.files ?? {
+    createToolResultFile: vi.fn().mockImplementation(async (input: { toolCallId: string }) => {
+      const suffix = input.toolCallId
+        .replace(/[^a-f0-9]/gi, 'a')
+        .toLowerCase()
+        .padEnd(12, 'a')
+        .slice(0, 12);
+      return {
+        fileId: `aaaaaaaa-bbbb-4ccc-8ddd-${suffix}`,
+        fileName: `${input.toolCallId}.txt`,
+        lineCount: 12,
+        characterCount: 24,
+        size: 24,
+      };
+    }),
+  };
   return {
-    service: new ContextEngineeringService(prisma as never, model as unknown as ModelAdapter),
+    service: new ContextEngineeringService(
+      prisma as never,
+      model as unknown as ModelAdapter,
+      files as never,
+    ),
     prisma,
     model,
+    files,
   };
 }
 
 describe('ContextEngineeringService', () => {
-  it('allocates a shared Tool Result budget and trims oversized results', async () => {
-    const { service } = createService();
+  it('spills oversized Tool Results to a file and keeps a recoverable preview', async () => {
+    const { service, files } = createService();
     const result = await service.trimToolResults(
       [{ role: 'system', content: 'system' }],
       undefined,
       [
-        { toolCallId: 'one', toolName: 'search', content: '甲'.repeat(350_000) },
-        { toolCallId: 'two', toolName: 'search', content: '乙'.repeat(350_000) },
+        { toolCallId: 'one', toolName: 'web_search', content: '甲'.repeat(20_000) },
+        { toolCallId: 'two', toolName: 'web_search', content: '乙'.repeat(20_000) },
       ],
       'deepseek-flash',
+      'session-1',
     );
     expect(result).toHaveLength(2);
     expect(result.every((item) => item.truncated)).toBe(true);
-    expect(result.every((item) => item.content).toString()).not.toBe('');
-    expect(result.every((item) => item.retainedTokens < item.originalTokens)).toBe(true);
+    expect(result.every((item) => item.content.includes('fileId='))).toBe(true);
+    expect(result.every((item) => item.content.includes('search_file'))).toBe(true);
+    expect(files.createToolResultFile).toHaveBeenCalledTimes(2);
+    expect(result[0]?.content).toContain('aaaaaaaa-bbbb-4ccc-8ddd-');
+  }, 15_000);
+
+  it('keeps the original Tool Result inline when file persistence fails', async () => {
+    const { service, files } = createService({
+      files: {
+        createToolResultFile: vi.fn().mockRejectedValue(new Error('storage unavailable')),
+      },
+    });
+    const content = '甲'.repeat(20_000);
+    const [result] = await service.trimToolResults(
+      [{ role: 'system', content: 'system' }],
+      undefined,
+      [{ toolCallId: 'one', toolName: 'web_search', content }],
+      'deepseek-flash',
+      'session-1',
+    );
+    expect(files.createToolResultFile).toHaveBeenCalledOnce();
+    expect(result?.truncated).toBe(false);
+    expect(result?.content).toBe(content);
   }, 15_000);
 
   it('retains substantive Tool Results when a compiled round still has ample budget', async () => {
@@ -57,6 +106,7 @@ describe('ContextEngineeringService', () => {
         { toolCallId: 'two', toolName: 'search', content: '搜索结果二'.repeat(700) },
       ],
       'deepseek-flash',
+      'session-1',
     );
 
     expect(result.every((item) => item.truncated === false)).toBe(true);
@@ -64,8 +114,8 @@ describe('ContextEngineeringService', () => {
     expect(result.every((item) => item.content.includes('搜索结果'))).toBe(true);
   }, 15_000);
 
-  it('replaces an oversized file Tool Result with an explicit context error', async () => {
-    const { service } = createService();
+  it('does not spill file Tool Results and returns an explicit context error instead', async () => {
+    const { service, files } = createService();
     const [result] = await service.trimToolResults(
       [{ role: 'system', content: variedChinese(600_000) }],
       undefined,
@@ -73,13 +123,15 @@ describe('ContextEngineeringService', () => {
         {
           toolCallId: 'file-one',
           toolName: 'read_file_lines',
-          content: '文件'.repeat(6_000),
+          content: '文件'.repeat(20_000),
           truncatable: false,
         },
       ],
       'deepseek-flash',
+      'session-1',
     );
 
+    expect(files.createToolResultFile).not.toHaveBeenCalled();
     expect(result?.truncated).toBe(true);
     expect(JSON.parse(result?.content ?? '{}')).toMatchObject({
       error: { code: 'FILE_CONTEXT_RESULT_TOO_LARGE' },
@@ -265,4 +317,76 @@ describe('ContextEngineeringService', () => {
     expect(JSON.stringify(fileMessage)).toContain(fileContent);
     expect(JSON.stringify(model.generateText.mock.calls)).not.toContain('不可截断文件内容');
   }, 15_000);
+
+  it('collapses older Tool Results to file pointers while keeping the latest units', async () => {
+    const { service, files } = createService();
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: '请分析' },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'old',
+              name: 'web_search',
+              arguments: '{}',
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          toolCallId: 'old',
+          content:
+            '[Tool Result truncated: originalTokens=9000, retainedTokens=800, strategy=head-tail, fileId=aaaaaaaa-bbbb-4ccc-8ddd-111111111111, fileName=web_search_old.txt, lineCount=40]\n预览正文不要进入下一轮',
+        },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'mid',
+              name: 'web_search',
+              arguments: '{}',
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        { role: 'tool', toolCallId: 'mid', content: '中间结果仍保留' },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'new',
+              name: 'web_search',
+              arguments: '{}',
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        { role: 'tool', toolCallId: 'new', content: '最新结果仍保留' },
+      ],
+    });
+    const old = compiled.messages.find(
+      (message) => message.role === 'tool' && message.toolCallId === 'old',
+    );
+    const latest = compiled.messages.find(
+      (message) => message.role === 'tool' && message.toolCallId === 'new',
+    );
+    expect(old).toMatchObject({
+      role: 'tool',
+      content: expect.stringContaining('[Tool Result stored:'),
+    });
+    expect(old && 'content' in old ? old.content : '').not.toContain('预览正文不要进入下一轮');
+    expect(latest).toMatchObject({ role: 'tool', content: '最新结果仍保留' });
+    expect(files.createToolResultFile).not.toHaveBeenCalled();
+  });
 });

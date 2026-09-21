@@ -56,6 +56,8 @@ export const modelContextProfileSchema = z.object({
   contextWindowTokens: z.number().int().positive(),
   maxOutputTokens: z.number().int().positive(),
   compactionTriggerTokens: z.number().int().positive(),
+  toolResultMaxTokens: z.number().int().positive(),
+  toolResultsRoundBudgetTokens: z.number().int().positive(),
   tokenizer: z.literal('deepseek-v3'),
   source: z.string().min(1),
   verified: z.boolean(),

@@ -10,7 +10,11 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { FileStorage, LocalFileStorage, type FileVariant } from '../file-storage/file-storage';
-import { FileProcessingService, MAX_SESSION_FILE_BYTES } from './file-processing.service';
+import {
+  FileProcessingService,
+  MAX_FILE_BYTES,
+  MAX_SESSION_FILE_BYTES,
+} from './file-processing.service';
 import { Logger } from 'nestjs-pino';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import {
@@ -56,7 +60,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
       select: { id: true, sessionId: true, originalKey: true, origin: true },
     });
     for (const file of processing) {
-      if (file.origin === 'agent_generated') {
+      if (file.origin === 'agent_generated' || file.origin === 'tool_result') {
         try {
           await this.storage.deleteFile({ sessionId: file.sessionId, fileId: file.id });
         } catch (error) {
@@ -77,7 +81,9 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
             },
           });
         }
-        await this.prisma.file.deleteMany({ where: { id: file.id, origin: 'agent_generated' } });
+        await this.prisma.file.deleteMany({
+          where: { id: file.id, origin: { in: ['agent_generated', 'tool_result'] } },
+        });
         continue;
       }
       const code = file.originalKey ? 'FILE_PARSE_TIMEOUT' : 'FILE_STORAGE_FAILED';
@@ -211,6 +217,131 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
       throw new BadRequestException({
         code: AGENT_ERROR_CODES.fileStorageFailed,
         detail: '生成文件保存失败，请稍后重试。',
+      });
+    }
+  }
+
+  // 将超大 Tool Result 全文写成 Session 内 File，供 search_file / read_file_lines 回读。
+  // 不走用户上传解析或 create_file 的 4 万字上限，避免回读时拿不到原文。
+  async createToolResultFile(input: {
+    sessionId: string;
+    toolName: string;
+    toolCallId: string;
+    content: string;
+  }): Promise<{
+    fileId: string;
+    fileName: string;
+    lineCount: number;
+    characterCount: number;
+    size: number;
+  }> {
+    const session = await this.prisma.session.findFirst({
+      where: { id: input.sessionId, userId: LOCAL_USER_ID },
+    });
+    if (!session)
+      throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
+    const buffer = Buffer.from(input.content, 'utf8');
+    if (buffer.length === 0 || buffer.length > MAX_FILE_BYTES)
+      throw new BadRequestException({
+        code: 'FILE_TOO_LARGE',
+        detail: '工具结果超过文件存储上限，无法外置。',
+      });
+    const total = await this.prisma.file.aggregate({
+      where: { sessionId: input.sessionId },
+      _sum: { size: true },
+    });
+    if ((total._sum.size ?? 0) + buffer.length > MAX_SESSION_FILE_BYTES)
+      throw new BadRequestException({
+        code: 'SESSION_FILES_TOO_LARGE',
+        detail: '当前会话文件总量超过 100 MiB 限制。',
+      });
+    const kind = detectToolResultKind(input.content);
+    const fileName = toolResultFileName(input.toolName, input.toolCallId, kind.extension);
+    const fileId = crypto.randomUUID();
+    const now = new Date();
+    const lineCount = input.content.split('\n').length;
+    const characterCount = [...input.content].length;
+    await this.prisma.file.create({
+      data: {
+        id: fileId,
+        userId: LOCAL_USER_ID,
+        sessionId: input.sessionId,
+        fileName,
+        mediaType: kind.mediaType,
+        fileKind: kind.fileKind,
+        origin: 'tool_result',
+        size: buffer.length,
+        sha256: createHash('sha256').update(buffer).digest('hex'),
+        status: 'processing',
+        processingStartedAt: now,
+      },
+    });
+    try {
+      const original = await this.storage.putOriginal({
+        sessionId: input.sessionId,
+        fileId,
+        content: buffer,
+        contentType: kind.mediaType,
+      });
+      const normalized = await this.storage.putNormalized({
+        sessionId: input.sessionId,
+        fileId,
+        content: buffer,
+        contentType: 'text/plain; charset=utf-8',
+      });
+      await this.prisma.file.update({
+        where: { id: fileId },
+        data: {
+          originalKey: original.objectKey,
+          normalizedKey: normalized.objectKey,
+          contentHash: createHash('sha256').update(input.content, 'utf8').digest('hex'),
+          parserVersion: 'tool-result-v1',
+          lineCount,
+          characterCount,
+          overview: { format: kind.fileKind, sourceTool: input.toolName },
+          status: 'ready',
+          retryable: false,
+          processingCompletedAt: new Date(),
+        },
+      });
+      this.logger.log(
+        `工具结果已外置为文件 | 文件=${shortLogId(fileId)} | 会话=${shortLogId(input.sessionId)} | 工具=${input.toolName} | 大小=${buffer.length} | 行数=${lineCount}`,
+        FilesService.name,
+      );
+      return { fileId, fileName, lineCount, characterCount, size: buffer.length };
+    } catch (error) {
+      try {
+        await this.storage.deleteFile({ sessionId: input.sessionId, fileId });
+      } catch (cleanupError) {
+        await this.prisma.fileCleanupTask.upsert({
+          where: { sessionId_fileId: { sessionId: input.sessionId, fileId } },
+          create: {
+            id: crypto.randomUUID(),
+            sessionId: input.sessionId,
+            fileId,
+            status: 'failed',
+            attempts: 1,
+            lastError: describeLogError(cleanupError).slice(0, 500),
+          },
+          update: {
+            status: 'failed',
+            attempts: { increment: 1 },
+            lastError: describeLogError(cleanupError).slice(0, 500),
+          },
+        });
+        this.logger.warn(
+          `工具结果文件对象清理失败 | 文件=${shortLogId(fileId)} | 原因=${describeLogError(cleanupError)}`,
+          FilesService.name,
+        );
+      }
+      await this.prisma.file.deleteMany({ where: { id: fileId, origin: 'tool_result' } });
+      this.logger.warn(
+        `工具结果外置失败 | 文件=${shortLogId(fileId)} | 会话=${shortLogId(input.sessionId)} | 原因=${describeLogError(error)}`,
+        FilesService.name,
+      );
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileStorageFailed,
+        detail: '工具结果外置失败。',
       });
     }
   }
@@ -915,7 +1046,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
       fileName: string;
       mediaType: string;
       fileKind: string;
-      origin?: 'user_uploaded' | 'agent_generated';
+      origin?: 'user_uploaded' | 'agent_generated' | 'tool_result';
       size: number;
       width: number | null;
       height: number | null;
@@ -952,4 +1083,30 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         : {}),
     };
   }
+}
+
+function detectToolResultKind(content: string): {
+  fileKind: 'json' | 'text';
+  mediaType: string;
+  extension: string;
+} {
+  const trimmed = content.trim();
+  if (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  ) {
+    try {
+      JSON.parse(trimmed);
+      return { fileKind: 'json', mediaType: 'application/json', extension: 'json' };
+    } catch {
+      // 非合法 JSON 仍按纯文本保存，避免外置失败。
+    }
+  }
+  return { fileKind: 'text', mediaType: 'text/plain; charset=utf-8', extension: 'txt' };
+}
+
+function toolResultFileName(toolName: string, toolCallId: string, extension: string): string {
+  const safeTool = toolName.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 40) || 'tool';
+  const safeCall = toolCallId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 16) || 'result';
+  return `${safeTool}_${safeCall}.${extension}`;
 }

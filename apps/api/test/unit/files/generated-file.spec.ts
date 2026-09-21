@@ -20,6 +20,7 @@ function createService() {
         errorCode: null,
       })),
       deleteMany: vi.fn(),
+      aggregate: vi.fn().mockResolvedValue({ _sum: { size: 0 } }),
     },
     fileCleanupTask: { upsert: vi.fn() },
   };
@@ -108,5 +109,59 @@ describe('FilesService generated files', () => {
     expect(prisma.file.deleteMany).toHaveBeenCalledWith({
       where: { id: 'file-1', origin: 'agent_generated' },
     });
+  });
+});
+
+describe('FilesService tool result files', () => {
+  it('stores formatted tool output as original and normalized text without the generated-file cap', async () => {
+    const { service, prisma, storage } = createService();
+    const content = `${'行情'.repeat(50)}\n{"close": 10}`;
+    const result = await service.createToolResultFile({
+      sessionId: 'session-1',
+      toolName: 'web_search',
+      toolCallId: 'call-1',
+      content,
+    });
+
+    expect(result.fileName).toBe('web_search_call-1.txt');
+    expect(storage.putOriginal).toHaveBeenCalledWith(
+      expect.objectContaining({ content: Buffer.from(content, 'utf8') }),
+    );
+    expect(storage.putNormalized).toHaveBeenCalledWith(
+      expect.objectContaining({ content: Buffer.from(content, 'utf8') }),
+    );
+    expect(prisma.file.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ origin: 'tool_result', status: 'processing' }),
+      }),
+    );
+    expect(prisma.file.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          parserVersion: 'tool-result-v1',
+          status: 'ready',
+        }),
+      }),
+    );
+  });
+
+  it('persists valid JSON tool output as a json file', async () => {
+    const { service, prisma } = createService();
+    const result = await service.createToolResultFile({
+      sessionId: 'session-1',
+      toolName: 'web_fetch',
+      toolCallId: 'call-json',
+      content: '{"items":[1,2,3]}',
+    });
+    expect(result.fileName).toBe('web_fetch_call-json.json');
+    expect(prisma.file.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          fileKind: 'json',
+          mediaType: 'application/json',
+          origin: 'tool_result',
+        }),
+      }),
+    );
   });
 });

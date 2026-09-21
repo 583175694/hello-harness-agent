@@ -3,7 +3,7 @@ import { AGENT_PROTOCOL_LIMITS } from '../common/constants.js';
 
 // 文件从上传、解析到可用或失败的生命周期状态。
 export const fileProcessingStatusSchema = z.enum(['processing', 'ready', 'failed', 'rejected']);
-export const fileOriginSchema = z.enum(['user_uploaded', 'agent_generated']);
+export const fileOriginSchema = z.enum(['user_uploaded', 'agent_generated', 'tool_result']);
 // canonical 图片内容只携带服务端稳定的文件 ID，URL 和 object key 延迟到
 // Model Adapter 发送请求时再解析。
 export const userImageContentSchema = z.object({

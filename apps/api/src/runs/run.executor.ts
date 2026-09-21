@@ -303,10 +303,9 @@ export class RunExecutor implements OnModuleDestroy {
         }
         await this.persistSemanticBoundary(runId, event, toolSteps, () => stepSequence++);
         const length = this.contentLength(projection);
-        // Tool 生命周期等语义边界立即 Checkpoint；纯文本按时间或增量大小批量落库，
-        // 在首字速度、数据库写放大和刷新恢复粒度之间取平衡。
+        // Tool 生命周期等语义边界立即 Checkpoint；文本和 reasoning 增量按时间或大小批量落库。
         if (
-          event.type !== 'message.delta' ||
+          !this.isBufferedStreamDelta(event.type) ||
           Date.now() - lastFlushAt >= 1_000 ||
           length - lastFlushLength >= 1_024
         ) {
@@ -512,10 +511,14 @@ export class RunExecutor implements OnModuleDestroy {
     });
   }
 
-  // 计算当前文本 Projection 的总长度，用于控制 Draft 刷新频率。
+  private isBufferedStreamDelta(type: ChatStreamEvent['type']): boolean {
+    return type === 'message.delta' || type === 'reasoning.delta';
+  }
+
+  // 计算当前文本和 reasoning Projection 的总长度，用于控制 Draft 刷新频率。
   private contentLength(projection: ChatProjectionSnapshot): number {
     return projection.blocks
-      .filter((block) => block.type === 'text')
+      .filter((block) => block.type === 'text' || block.type === 'reasoning')
       .reduce((total, block) => total + block.content.length, 0);
   }
 
@@ -600,7 +603,8 @@ export class RunExecutor implements OnModuleDestroy {
 
   private runFailure(cancelled: boolean, error: unknown): { code: string; detail: string } {
     if (cancelled) return { code: 'RUN_CANCELLED', detail: '用户已取消本次运行。' };
-    if (this.shuttingDown) return { code: 'RUN_INTERRUPTED', detail: '服务已停止，本次运行未自动恢复。' };
+    if (this.shuttingDown)
+      return { code: 'RUN_INTERRUPTED', detail: '服务已停止，本次运行未自动恢复。' };
     return this.describeError(error);
   }
 

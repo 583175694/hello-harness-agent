@@ -144,6 +144,7 @@ enum FileKind {
 enum FileOrigin {
   user_uploaded
   agent_generated
+  tool_result
 }
 
 enum ArtifactStatus {

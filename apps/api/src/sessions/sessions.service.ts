@@ -312,7 +312,7 @@ export class SessionsService implements OnModuleInit {
           lineCount: number | null;
           pageCount: number | null;
           characterCount: number | null;
-          origin: 'user_uploaded' | 'agent_generated';
+          origin: 'user_uploaded' | 'agent_generated' | 'tool_result';
         };
       }>;
     },

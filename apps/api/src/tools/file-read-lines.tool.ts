@@ -26,14 +26,15 @@ export class FileReadLinesTool implements AgentTool<FileReadLinesInput, FileRead
     return {
       name: this.name,
       description:
-        `读取用户已附加文件的指定行范围，返回文件名、fileId、行号和 PDF 页码。` +
+        `读取当前会话中已准备好的文件的指定行范围，返回文件名、fileId、行号和 PDF 页码。` +
+        ` 包括用户附件、Agent 生成文件，以及外置的超大工具结果。` +
         ` startLine 和 endLine 都是包含边界；单次最多读取 ${AGENT_PROTOCOL_LIMITS.fileReadLinesMax} 行。` +
         ` 如果需要更大范围，必须拆成多次调用，例如读取第 1-100 行时调用 1-50、51-100；不要提交超过上限的单次范围。`,
       parameters: {
         type: 'object',
         additionalProperties: false,
         properties: {
-          fileId: { type: 'string', minLength: 1, description: '要读取的附件 fileId。' },
+          fileId: { type: 'string', minLength: 1, description: '要读取的文件 fileId。' },
           startLine: {
             type: 'integer',
             minimum: 1,

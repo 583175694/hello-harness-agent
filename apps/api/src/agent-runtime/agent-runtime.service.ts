@@ -976,6 +976,7 @@ export class AgentRuntimeService {
             definitions,
             pendingToolResults.map(({ candidate }) => candidate),
             input.model,
+            input.sessionId,
           )
         : pendingToolResults.map(({ candidate }) => ({
             ...candidate,

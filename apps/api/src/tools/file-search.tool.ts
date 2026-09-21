@@ -25,12 +25,13 @@ export class FileSearchTool implements AgentTool<FileSearchInput, FileSearchResu
   definition() {
     return {
       name: this.name,
-      description: '在用户已附加且已准备好的文件中搜索普通关键词，返回有限命中和行号/页码上下文。',
+      description:
+        '在当前会话中已准备好的文件里搜索普通关键词，返回有限命中和行号/页码上下文。包括用户附件、Agent 生成文件，以及外置的超大工具结果。',
       parameters: {
         type: 'object',
         additionalProperties: false,
         properties: {
-          fileId: { type: 'string', minLength: 1, description: '要搜索的附件 fileId。' },
+          fileId: { type: 'string', minLength: 1, description: '要搜索的文件 fileId。' },
           query: {
             type: 'string',
             minLength: 1,

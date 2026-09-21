@@ -26,6 +26,12 @@ export function useReasoning() {
   if (!context) throw new Error('Reasoning components must be used within Reasoning');
   return context;
 }
+function defaultThinkingMessage(isStreaming: boolean, duration?: number): string {
+  if (isStreaming) return 'Thinking...';
+  if (duration === undefined) return 'Thought';
+  return `Thought for ${duration} seconds`;
+}
+
 const AUTO_CLOSE_DELAY = 1000;
 export type ReasoningProps = ComponentProps<typeof Collapsible.Root> & {
   isStreaming?: boolean;
@@ -88,13 +94,7 @@ export const ReasoningTrigger = memo(function ReasoningTrigger({
   ...props
 }: ReasoningTriggerProps) {
   const { isStreaming, isOpen, duration } = useReasoning();
-  const label =
-    getThinkingMessage?.(isStreaming, duration) ??
-    (isStreaming
-      ? 'Thinking...'
-      : duration === undefined
-        ? 'Thought'
-        : `Thought for ${duration} seconds`);
+  const label = getThinkingMessage?.(isStreaming, duration) ?? defaultThinkingMessage(isStreaming, duration);
   return (
     <Collapsible.Trigger
       className={`ai-reasoning__trigger${className ? ` ${className}` : ''}`}

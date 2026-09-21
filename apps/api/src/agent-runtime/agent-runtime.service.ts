@@ -652,12 +652,7 @@ export class AgentRuntimeService {
             toolInput = result.snapshot;
           } else toolInput = this.tools.parseInput(call.name, call.arguments);
         } catch (error) {
-          const code =
-            error instanceof ToolInputValidationError
-              ? error.code
-              : error instanceof Error
-                ? error.message
-                : AGENT_ERROR_CODES.invalidToolArguments;
+          const code = this.toolValidationCode(error);
           const detail =
             error instanceof ToolInputValidationError
               ? error.detail
@@ -964,12 +959,7 @@ export class AgentRuntimeService {
           summary: {
             toolCallId: call.id,
             toolName: call.name,
-            status:
-              result.status === 'succeeded'
-                ? 'succeeded'
-                : result.status === 'cancelled'
-                  ? 'cancelled'
-                  : 'failed',
+            status: this.toolResultStatus(result.status),
           },
         });
       }
@@ -1245,5 +1235,19 @@ export class AgentRuntimeService {
     const error = new Error('Tool execution cancelled');
     error.name = 'AbortError';
     return error;
+  }
+
+  private toolValidationCode(error: unknown): string {
+    if (error instanceof ToolInputValidationError) return error.code;
+    if (error instanceof Error) return error.message;
+    return AGENT_ERROR_CODES.invalidToolArguments;
+  }
+
+  private toolResultStatus(
+    status: 'succeeded' | 'failed' | 'cancelled' | 'timeout',
+  ): 'succeeded' | 'cancelled' | 'failed' {
+    if (status === 'succeeded') return 'succeeded';
+    if (status === 'cancelled') return 'cancelled';
+    return 'failed';
   }
 }

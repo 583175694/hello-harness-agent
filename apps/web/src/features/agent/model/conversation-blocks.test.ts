@@ -67,7 +67,7 @@ describe('conversation blocks reducer', () => {
     expect(blocks.map((block) => block.id)).toEqual(['preamble', 'final']);
   });
 
-  it('filters legacy reasoning blocks from restored snapshots', () => {
+  it('keeps reasoning blocks when restoring snapshots', () => {
     const blocks = cloneAssistantBlocks([
       {
         id: 'reasoning',
@@ -87,7 +87,10 @@ describe('conversation blocks reducer', () => {
       },
     ]);
 
-    expect(blocks).toEqual([expect.objectContaining({ id: 'answer', type: 'text' })]);
+    expect(blocks).toEqual([
+      expect.objectContaining({ id: 'reasoning', type: 'reasoning' }),
+      expect.objectContaining({ id: 'answer', type: 'text' }),
+    ]);
   });
 
   it('preserves text-tool-text order and updates one tool block in place', () => {

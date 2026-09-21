@@ -116,6 +116,54 @@ function fileErrorMessage(errorCode?: string): string {
   return FILE_ERROR_MESSAGES[errorCode ?? ''] ?? '文件处理失败';
 }
 
+type AttachmentPreviewState =
+  | { kind: 'image'; src: string; alt: string }
+  | { kind: 'file'; fileId: string; fileName: string };
+
+function artifactStatusLabel(status: string): string {
+  if (status === 'ready') return '已就绪';
+  if (status === 'processing') return '处理中';
+  if (status === 'failed') return '生成失败';
+  return '已删除';
+}
+
+function attachmentStatusLabel(status: string, errorCode?: string): string {
+  if (status === 'ready') return '已就绪';
+  if (status === 'processing') return '解析中';
+  return fileErrorMessage(errorCode);
+}
+
+function composerPlaceholder(mode: string): string {
+  if (mode === 'steer') return AGENT_UI_COPY.composerPlaceholders.steer;
+  if (mode === 'clarification') return AGENT_UI_COPY.composerPlaceholders.clarification;
+  if (mode === 'disabled') return AGENT_UI_COPY.composerPlaceholders.disabled;
+  return AGENT_UI_COPY.composerPlaceholders.newRun;
+}
+
+function sendActionLabel(submitting: boolean, prompt: string, mode: string): string {
+  if (submitting && !prompt.trim()) return '停止任务';
+  if (mode === 'steer') return '提交后续消息';
+  return '发送任务';
+}
+
+function AttachmentPreviewOverlay({
+  preview,
+  onClose,
+}: {
+  preview: AttachmentPreviewState | null;
+  onClose: () => void;
+}) {
+  if (preview?.kind === 'image') {
+    return <ImageLightbox src={preview.src} alt={preview.alt} onClose={onClose} />;
+  }
+  if (preview?.kind === 'file') {
+    return (
+      <FilePreviewDialog fileId={preview.fileId} fileName={preview.fileName} onClose={onClose} />
+    );
+  }
+  return null;
+}
+
 function formatFileSize(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
@@ -385,14 +433,7 @@ function ArtifactCard({
   onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
-  const statusLabel =
-    block.status === 'ready'
-      ? '已就绪'
-      : block.status === 'processing'
-        ? '处理中'
-        : block.status === 'failed'
-          ? '生成失败'
-          : '已删除';
+  const statusLabel = artifactStatusLabel(block.status);
   return (
     <Artifact className="assistant-artifact-file">
       <ArtifactHeader>
@@ -561,15 +602,7 @@ const UserMessage = memo(function UserMessage({
       <div className="message-avatar user-avatar" aria-hidden="true">
         <CircleUserRound size={17} />
       </div>
-      {preview?.kind === 'image' ? (
-        <ImageLightbox src={preview.src} alt={preview.alt} onClose={() => setPreview(null)} />
-      ) : preview?.kind === 'file' ? (
-        <FilePreviewDialog
-          fileId={preview.fileId}
-          fileName={preview.fileName}
-          onClose={() => setPreview(null)}
-        />
-      ) : null}
+      <AttachmentPreviewOverlay preview={preview} onClose={() => setPreview(null)} />
     </Message>
   );
 });
@@ -1172,14 +1205,7 @@ export function Composer({
     document.addEventListener('pointerdown', handleOutsidePointerDown);
     return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
   }, [attachmentMenuOpen]);
-  const placeholder =
-    mode === 'steer'
-      ? AGENT_UI_COPY.composerPlaceholders.steer
-      : mode === 'clarification'
-        ? AGENT_UI_COPY.composerPlaceholders.clarification
-        : mode === 'disabled'
-          ? AGENT_UI_COPY.composerPlaceholders.disabled
-          : AGENT_UI_COPY.composerPlaceholders.newRun;
+  const placeholder = composerPlaceholder(mode);
   return (
     <PromptInput
       className="composer rounded-[14px] border border-[var(--theme-composer-border)] bg-surface shadow-[0_8px_24px_rgb(0_0_0_/_3%)]"
@@ -1307,7 +1333,7 @@ export function Composer({
             <Attachment
               className={`composer-attachment-preview${item.fileKind !== 'image' && !item.mediaType.startsWith('image/') ? ' composer-attachment-preview--document' : ''}`}
               key={item.fileId}
-              aria-label={`${item.fileName}，${item.status === 'ready' ? '已就绪' : item.status === 'processing' ? '解析中' : fileErrorMessage(item.errorCode)}`}
+              aria-label={`${item.fileName}，${attachmentStatusLabel(item.status, item.errorCode)}`}
             >
               {item.previewUrl &&
               (item.fileKind === 'image' || item.mediaType.startsWith('image/')) ? (
@@ -1424,19 +1450,10 @@ export function Composer({
           />
         </PromptInputHeader>
       ) : null}
-      {attachmentPreview?.kind === 'image' ? (
-        <ImageLightbox
-          src={attachmentPreview.src}
-          alt={attachmentPreview.alt}
-          onClose={() => setAttachmentPreview(null)}
-        />
-      ) : attachmentPreview?.kind === 'file' ? (
-        <FilePreviewDialog
-          fileId={attachmentPreview.fileId}
-          fileName={attachmentPreview.fileName}
-          onClose={() => setAttachmentPreview(null)}
-        />
-      ) : null}
+      <AttachmentPreviewOverlay
+        preview={attachmentPreview}
+        onClose={() => setAttachmentPreview(null)}
+      />
       {activeInterrupt?.kind !== 'clarification' ? (
         <PromptInputBody>
           <PromptInputTextarea
@@ -1563,20 +1580,8 @@ export function Composer({
             <button
               className={`send-button composer-send-button${submitting && prompt.trim() ? ' is-ready' : ''}${submitting && !prompt.trim() ? ' is-stop' : ''}`}
               type={submitting && !prompt.trim() ? 'button' : 'submit'}
-              aria-label={
-                submitting && !prompt.trim()
-                  ? '停止任务'
-                  : mode === 'steer'
-                    ? '提交后续消息'
-                    : '发送任务'
-              }
-              title={
-                submitting && !prompt.trim()
-                  ? '停止任务'
-                  : mode === 'steer'
-                    ? '提交后续消息'
-                    : '发送任务'
-              }
+              aria-label={sendActionLabel(submitting, prompt, mode)}
+              title={sendActionLabel(submitting, prompt, mode)}
               disabled={
                 submitting && !prompt.trim()
                   ? !onCancel

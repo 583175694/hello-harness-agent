@@ -318,16 +318,17 @@ async function markdownToDocx(content: string, signal?: AbortSignal): Promise<Bu
   return buffer;
 }
 
+function markdownHeadingLevel(depth: number) {
+  if (depth === 1) return HeadingLevel.HEADING_1;
+  if (depth === 2) return HeadingLevel.HEADING_2;
+  return HeadingLevel.HEADING_3;
+}
+
 function markdownBlocks(nodes: MarkdownNode[]): Array<Paragraph | Table> {
   const result: Array<Paragraph | Table> = [];
   for (const node of nodes) {
     if (node.type === 'heading') {
-      const heading =
-        node.depth === 1
-          ? HeadingLevel.HEADING_1
-          : node.depth === 2
-            ? HeadingLevel.HEADING_2
-            : HeadingLevel.HEADING_3;
+      const heading = markdownHeadingLevel(node.depth ?? 3);
       result.push(new Paragraph({ heading, children: inlineChildren(node.children ?? []) }));
     } else if (node.type === 'paragraph') {
       result.push(new Paragraph({ children: inlineChildren(node.children ?? []) }));

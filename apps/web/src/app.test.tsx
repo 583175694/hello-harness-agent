@@ -676,7 +676,7 @@ describe('R1 workbench shell', () => {
     render(<App />);
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
     expect(document.querySelector('[aria-label="工作区"]')).toHaveAttribute('aria-hidden', 'true');
-    fireEvent.click(screen.getByRole('button', { name: '搜索网页，执行中' }));
+    fireEvent.click(screen.getByRole('button', { name: '交叉验证关键结论，执行中' }));
     expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
     expect(screen.getByText('已固定')).toBeInTheDocument();
     expect(screen.getByText('业务输入')).toBeInTheDocument();
@@ -944,7 +944,7 @@ describe('R1 workbench shell', () => {
     expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
     expect(screen.getByText('市场数据来源')).toBeInTheDocument();
     expect(screen.queryByText('思考过程')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '搜索网页，已完成' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '搜索：两个市场最新数据，已完成' })).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(
       '/api/agent/sessions/session-test/runs',
       expect.objectContaining({
@@ -1318,7 +1318,7 @@ describe('R1 workbench shell', () => {
     expect(window.location.search).toBe('?session=restored-session');
     expect(screen.queryByText('思考过程')).not.toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '搜索网页，已完成' }));
+    fireEvent.click(screen.getByRole('button', { name: '搜索：持久化检索，已完成' }));
     expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
     expect(screen.getByText('持久化检索')).toBeInTheDocument();
   });

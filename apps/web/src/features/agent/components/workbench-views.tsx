@@ -129,32 +129,60 @@ export function WorkbenchShell({
         ))}
       </div>
       <div className="workspace-content min-h-0 flex-1 overflow-y-auto bg-surface">
-        {state.activeView === 'activity' ? (
-          <ActivityView
-            executions={state.executions}
-            focusTarget={state.focusTarget}
-            followMode={state.followMode}
-            status={state.activityStatus ?? 'running'}
-            onSelect={onExecutionSelect}
-          />
-        ) : state.activeView === 'context' ? (
-          <ContextView context={state.context} />
-        ) : state.activeView === 'sources' ? (
-          <SourcesView sources={state.sources} />
-        ) : state.activeView === 'artifact' ? (
-          <ArtifactView
-            artifacts={
-              state.artifactSeries?.flatMap((series) => series.versions) ?? state.artifacts ?? []
-            }
-            onRevise={onReviseArtifact}
-            onRestore={onRestoreArtifact}
-          />
-        ) : state.report ? (
-          <ReportView report={state.report} sources={state.sources} />
-        ) : null}
+        <WorkbenchActiveView
+          state={state}
+          onExecutionSelect={onExecutionSelect}
+          onReviseArtifact={onReviseArtifact}
+          onRestoreArtifact={onRestoreArtifact}
+        />
       </div>
     </aside>
   );
+}
+
+function sourceCaption(source: SourceView): string {
+  if (source.kind === 'clue') return '搜索线索，尚未读取正文';
+  if (source.used) return '回答采用的已读来源';
+  return '已读取并保存相关原文';
+}
+
+function WorkbenchActiveView({
+  state,
+  onExecutionSelect,
+  onReviseArtifact,
+  onRestoreArtifact,
+}: {
+  state: WorkbenchState;
+  onExecutionSelect: (tool: ToolCallView) => void;
+  onReviseArtifact?: (artifact: ArtifactRef) => void;
+  onRestoreArtifact?: (artifact: ArtifactRef) => void;
+}) {
+  if (state.activeView === 'activity') {
+    return (
+      <ActivityView
+        executions={state.executions}
+        focusTarget={state.focusTarget}
+        followMode={state.followMode}
+        status={state.activityStatus ?? 'running'}
+        onSelect={onExecutionSelect}
+      />
+    );
+  }
+  if (state.activeView === 'context') return <ContextView context={state.context} />;
+  if (state.activeView === 'sources') return <SourcesView sources={state.sources} />;
+  if (state.activeView === 'artifact') {
+    return (
+      <ArtifactView
+        artifacts={
+          state.artifactSeries?.flatMap((series) => series.versions) ?? state.artifacts ?? []
+        }
+        onRevise={onReviseArtifact}
+        onRestore={onRestoreArtifact}
+      />
+    );
+  }
+  if (state.report) return <ReportView report={state.report} sources={state.sources} />;
+  return null;
 }
 
 const artifactOperationCopy = {
@@ -474,11 +502,7 @@ function SourcesView({ sources: items }: { sources: SourceView[] }) {
             <small>
               {source.provider ? `${source.provider} · ` : ''}
               {source.time} ·{' '}
-              {source.kind === 'clue'
-                ? '搜索线索，尚未读取正文'
-                : source.used
-                  ? '回答采用的已读来源'
-                  : '已读取并保存相关原文'}
+              {sourceCaption(source)}
             </small>
           </article>
         ))}

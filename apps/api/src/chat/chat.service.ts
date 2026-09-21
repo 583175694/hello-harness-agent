@@ -34,7 +34,7 @@ import { AssistantDeliveryRepository } from '../persistence/assistant-delivery.r
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import { CHAT_CONTEXT_MESSAGE_LIMIT, CHAT_SYSTEM_PROMPT } from './chat.constants';
 import { compareMessageOrder } from './message-order';
-import type { ModelMessage } from '../model/model-adapter';
+import type { ModelMessage, UserContentBlock } from '../model/model-adapter';
 import type { ReasoningEffort } from '@harness/agent-protocol';
 import { getDefaultModel } from '../model/model-catalog';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
@@ -167,14 +167,7 @@ export class ChatService {
       .reverse()
       .find((message) => message.role === 'user')?.content;
     const projection = new ResearchProjectionCollector(
-      this.extractHttpUrls(
-        typeof currentUserContent === 'string'
-          ? currentUserContent
-          : (currentUserContent
-              ?.filter((block) => block.type === 'text')
-              .map((block) => block.text)
-              .join(' ') ?? ''),
-      ),
+      this.extractHttpUrls(this.userContentText(currentUserContent)),
     );
     const conversation = new ConversationBlockCollector(prepared.assistantMessageId);
     // 当前 assistant Run 的最新计划投影；每次 plan.updated 都整体替换。
@@ -578,21 +571,16 @@ export class ChatService {
           toolCallId: event.toolCallId,
           completedAt: event.completedAt,
           durationMs: event.durationMs,
-          summary: fetchResult
-            ? `成功 ${fetchResult.stats.succeededCount} 个，失败 ${fetchResult.stats.failedCount} 个，跳过 ${fetchResult.stats.skippedCount} 个，网络请求 ${fetchResult.stats.networkAttemptCount} 次，提取 ${fetchResult.stats.passageCount} 段原文`
-            : isApprovalTest
-              ? '审批测试已完成'
-              : isCurrentTime
-                ? '当前时间已获取'
-                : fileSearchResult
-                  ? `找到 ${fileSearchResult.matches.length} 个文件命中`
-                  : fileReadLinesResult
-                    ? `读取 ${fileReadLinesResult.lines.length} 行文件内容`
-                    : createFileResult
-                      ? `已生成 ${createFileResult.file.fileName}`
-                      : createReportResult
-                        ? `生成报告：${createReportResult.report.title}`
-                        : `找到 ${searchResult?.results.length ?? 0} 个结果`,
+          summary: this.completedToolSummary({
+            fetchResult,
+            isApprovalTest,
+            isCurrentTime,
+            fileSearchResult,
+            fileReadLinesResult,
+            createFileResult,
+            createReportResult,
+            searchResult,
+          }),
         });
         await notifyProjection();
         if (fetchResult) {
@@ -979,5 +967,39 @@ export class ChatService {
         modelRoundDurationMs: modelRounds.reduce((total, round) => total + round.durationMs, 0),
       },
     };
+  }
+
+  private userContentText(content: string | UserContentBlock[] | undefined): string {
+    if (typeof content === 'string') return content;
+    return (
+      content
+        ?.filter((block) => block.type === 'text')
+        .map((block) => block.text)
+        .join(' ') ?? ''
+    );
+  }
+
+  private completedToolSummary(input: {
+    fetchResult?: WebFetchResult;
+    isApprovalTest: boolean;
+    isCurrentTime: boolean;
+    fileSearchResult?: FileSearchResult;
+    fileReadLinesResult?: FileReadLinesResult;
+    createFileResult?: { file: { fileName: string } };
+    createReportResult?: { report: { title: string } };
+    searchResult?: SearchToolResult;
+  }): string {
+    if (input.fetchResult) {
+      const { stats } = input.fetchResult;
+      return `成功 ${stats.succeededCount} 个，失败 ${stats.failedCount} 个，跳过 ${stats.skippedCount} 个，网络请求 ${stats.networkAttemptCount} 次，提取 ${stats.passageCount} 段原文`;
+    }
+    if (input.isApprovalTest) return '审批测试已完成';
+    if (input.isCurrentTime) return '当前时间已获取';
+    if (input.fileSearchResult) return `找到 ${input.fileSearchResult.matches.length} 个文件命中`;
+    if (input.fileReadLinesResult)
+      return `读取 ${input.fileReadLinesResult.lines.length} 行文件内容`;
+    if (input.createFileResult) return `已生成 ${input.createFileResult.file.fileName}`;
+    if (input.createReportResult) return `生成报告：${input.createReportResult.report.title}`;
+    return `找到 ${input.searchResult?.results.length ?? 0} 个结果`;
   }
 }

@@ -848,7 +848,7 @@ describe('Conversation tool activity navigation', () => {
     );
 
     expect(screen.queryByText('思考过程')).not.toBeInTheDocument();
-    expect(screen.queryByText('这是已经完成的思考过程。')).not.toBeInTheDocument();
+    expect(screen.getByText('这是已经完成的思考过程。')).toBeInTheDocument();
     expect(screen.getByText('这是最终回答。')).toBeInTheDocument();
     expect(
       [...container.querySelectorAll('.ai-chain-step__label')].map((block) => block.textContent),
@@ -935,7 +935,7 @@ describe('Conversation tool activity navigation', () => {
       />,
     );
 
-    expect(screen.queryByText('正在思考中…')).not.toBeInTheDocument();
+    expect(screen.queryByText('正在思考中')).not.toBeInTheDocument();
     expect(screen.getByRole('status', { name: 'AI 正在回复' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '停止任务' })).toBeInTheDocument();
   });
@@ -969,7 +969,7 @@ describe('Conversation tool activity navigation', () => {
       />,
     );
 
-    expect(screen.getByText('正在思考中…')).toBeInTheDocument();
+    expect(screen.getByText('正在思考中')).toBeInTheDocument();
     expect(screen.getByRole('status', { name: 'AI 正在回复' })).toBeInTheDocument();
   });
 
@@ -1023,7 +1023,7 @@ describe('Conversation tool activity navigation', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '搜索网页，执行中' }));
+    fireEvent.click(screen.getByRole('button', { name: '搜索：测试查询，执行中' }));
     expect(screen.getByText(/已用时/)).toBeInTheDocument();
     expect(onFocusWorkbench).toHaveBeenCalledWith({
       kind: 'tool_call',

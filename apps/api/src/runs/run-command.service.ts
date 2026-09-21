@@ -69,11 +69,7 @@ export class RunCommandService {
         detail: '所选模型不可用，请刷新模型列表后重试。',
       });
     const model = configuredModel.id;
-    let attachmentIds = input.attachmentIds?.length
-      ? input.attachmentIds
-      : input.attachmentId
-        ? [input.attachmentId]
-        : [];
+    let attachmentIds = this.attachmentIdsFromInput(input);
     if (input.artifactVersionContext) {
       const context = input.artifactVersionContext;
       const series = await this.prisma.artifactSeries.findFirst({
@@ -301,14 +297,7 @@ export class RunCommandService {
     const snapshot = await this.snapshot(runId);
     const control = snapshot.control ?? {
       runId,
-      state:
-        snapshot.status === 'completed'
-          ? ('completed' as const)
-          : snapshot.status === 'cancelled'
-            ? ('cancelled' as const)
-            : snapshot.status === 'failed'
-              ? ('failed' as const)
-              : ('running' as const),
+      state: this.controlStateFromStatus(snapshot.status),
       phase: 'terminal' as const,
     };
     return { runId, control, snapshot };
@@ -375,6 +364,24 @@ export class RunCommandService {
       error: { code: 'RUN_CANCELLED', detail: '用户已取消本次运行。' },
     });
     return { runId, status: 'cancelled' as const };
+  }
+
+  private attachmentIdsFromInput(input: {
+    attachmentIds?: string[];
+    attachmentId?: string;
+  }): string[] {
+    if (input.attachmentIds?.length) return input.attachmentIds;
+    if (input.attachmentId) return [input.attachmentId];
+    return [];
+  }
+
+  private controlStateFromStatus(
+    status: string,
+  ): 'completed' | 'cancelled' | 'failed' | 'running' {
+    if (status === 'completed') return 'completed';
+    if (status === 'cancelled') return 'cancelled';
+    if (status === 'failed') return 'failed';
+    return 'running';
   }
 
   // 创建 Session 忙碌错误，供多个入口复用。

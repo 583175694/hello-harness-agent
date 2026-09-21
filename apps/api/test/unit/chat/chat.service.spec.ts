@@ -1028,7 +1028,10 @@ describe('ChatService session persistence', () => {
     await collect(service.streamPrepared(prepared));
 
     expect(providerCreate).toHaveBeenCalledTimes(41);
-    expect(providerCreate.mock.calls[0]?.[0]).toMatchObject({ tool_choice: 'auto' });
+    expect(providerCreate.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ tools: expect.any(Array) }),
+    );
+    expect(providerCreate.mock.calls[0]?.[0]).not.toHaveProperty('tool_choice');
     expect(providerCreate.mock.calls[40]?.[0]).not.toHaveProperty('tools');
     expect(providerCreate.mock.calls[40]?.[0]).not.toHaveProperty('tool_choice');
     expect(registry.execute).toHaveBeenCalledTimes(40);

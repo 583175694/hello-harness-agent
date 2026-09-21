@@ -6,10 +6,45 @@ import type {
 } from '@harness/agent-protocol';
 
 import type { ToolStreamEvent } from '../../../api/client';
+import { toolInputSummary, toolTitle } from './tool-copy';
 
 type MessageDeltaEvent = Extract<ChatStreamEvent, { type: 'message.delta' }>;
 type MessagePhaseCompletedEvent = Extract<ChatStreamEvent, { type: 'message.phase.completed' }>;
 type MessageDiscardedEvent = Extract<ChatStreamEvent, { type: 'message.discarded' }>;
+
+function conversationTextPhase(
+  phase?: 'pending' | 'commentary' | 'final_answer' | null,
+): AssistantTextBlock['phase'] | undefined {
+  if (phase === 'pending') return 'pending';
+  if (phase === 'commentary') return 'process';
+  if (phase === 'final_answer') return 'final';
+  return undefined;
+}
+
+function toolActivityStartSummary(event: Extract<ToolStreamEvent, { type: 'tool.started' }>): string {
+  if (event.toolName === 'web_fetch' || event.toolName === 'create_report') {
+    return toolTitle(event.toolName, event.input);
+  }
+  return toolInputSummary(event.toolName, event.input);
+}
+
+function toolActivityCompletedSummary(
+  event: Extract<ToolStreamEvent, { type: 'tool.completed' }>,
+  currentSummary: string,
+): string {
+  if (event.toolName === 'web_search') return currentSummary;
+  if (event.toolName === 'web_fetch') {
+    const succeeded = event.result.results.filter((item) => item.status === 'succeeded');
+    const passageCount = succeeded.reduce((total, item) => total + item.passages.length, 0);
+    return `成功 ${succeeded.length} 个，失败 ${event.result.results.length - succeeded.length} 个，提取 ${passageCount} 段原文`;
+  }
+  if (event.toolName === 'approval_test') return '审批测试已完成';
+  if (event.toolName === 'get_current_time') return '当前时间已获取';
+  if (event.toolName === 'search_file') return `找到 ${event.result.matches.length} 个文件命中`;
+  if (event.toolName === 'read_file_lines') return `读取 ${event.result.lines.length} 行文件内容`;
+  if (event.toolName === 'create_report') return `生成报告：${event.result.report.title}`;
+  return currentSummary;
+}
 
 function compareBlockOrder(left: AssistantContentBlock, right: AssistantContentBlock): number {
   const leftRound = left.roundSequence ?? Number.MAX_SAFE_INTEGER;
@@ -53,6 +88,7 @@ export function appendTextDelta(
 ): AssistantContentBlock[] {
   const index = blocks.findIndex((block) => block.id === event.blockId && block.type === 'text');
   if (index < 0) {
+    const phase = conversationTextPhase(event.phase);
     return insertOrdered(blocks, {
       id: event.blockId,
       type: 'text',
@@ -60,15 +96,10 @@ export function appendTextDelta(
       ...(event.roundId ? { roundId: event.roundId } : {}),
       ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
       ...(event.blockSequence !== undefined ? { blockSequence: event.blockSequence } : {}),
-      ...(event.phase === 'pending'
-        ? { phase: 'pending' as const }
-        : event.phase === 'commentary'
-          ? { phase: 'process' as const }
-          : event.phase === 'final_answer'
-            ? { phase: 'final' as const }
-            : {}),
+      ...(phase ? { phase } : {}),
     });
   }
+  const phase = conversationTextPhase(event.phase);
   return orderAssistantBlocks(
     blocks.map((block, blockIndex) =>
       blockIndex === index
@@ -78,13 +109,7 @@ export function appendTextDelta(
             ...(event.roundId ? { roundId: event.roundId } : {}),
             ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
             ...(event.blockSequence !== undefined ? { blockSequence: event.blockSequence } : {}),
-            ...(event.phase === 'pending'
-              ? { phase: 'pending' as const }
-              : event.phase === 'commentary'
-                ? { phase: 'process' as const }
-                : event.phase === 'final_answer'
-                  ? { phase: 'final' as const }
-                  : {}),
+            ...(phase ? { phase } : {}),
           }
         : block,
     ),
@@ -106,10 +131,9 @@ export function completeTextPhase(
   blocks: AssistantContentBlock[],
   event: MessagePhaseCompletedEvent,
 ): AssistantContentBlock[] {
+  const phase = event.phase === 'commentary' ? 'process' : 'final';
   return blocks.map((block) =>
-    block.type === 'text' && block.id === event.blockId
-      ? { ...block, phase: event.phase === 'commentary' ? 'process' : 'final' }
-      : block,
+    block.type === 'text' && block.id === event.blockId ? { ...block, phase } : block,
   );
 }
 
@@ -172,22 +196,7 @@ export function applyToolActivityEvent(
       toolName: event.toolName,
       status: 'running',
       title: event.title,
-      summary:
-        event.toolName === 'web_fetch'
-          ? `读取 ${event.input.urls.length} 个网页`
-          : event.toolName === 'approval_test'
-            ? event.input.message
-            : event.toolName === 'get_current_time'
-              ? '获取当前日期和时间'
-              : event.toolName === 'search_file'
-                ? `${event.input.fileId} · ${event.input.query}`
-                : event.toolName === 'read_file_lines'
-                  ? `${event.input.fileId} · ${event.input.startLine}-${event.input.endLine} 行`
-                  : event.toolName === 'create_file'
-                    ? event.input.fileName
-                    : event.toolName === 'create_report'
-                      ? `生成报告：${event.input.title}`
-                      : event.input.query,
+      summary: toolActivityStartSummary(event),
       startedAt: event.startedAt,
     });
   }
@@ -223,30 +232,10 @@ export function applyToolActivityEvent(
   return blocks.map((block, blockIndex) => {
     if (blockIndex !== index || block.type !== 'tool_activity') return block;
     if (event.type === 'tool.completed') {
-      const succeeded =
-        event.toolName === 'web_fetch'
-          ? event.result.results.filter((item) => item.status === 'succeeded')
-          : [];
-      const passageCount = succeeded.reduce((total, item) => total + item.passages.length, 0);
       return {
         ...block,
         status: 'completed',
-        summary:
-          event.toolName === 'web_search'
-            ? block.summary
-            : event.toolName === 'web_fetch'
-              ? `成功 ${succeeded.length} 个，失败 ${event.result.results.length - succeeded.length} 个，提取 ${passageCount} 段原文`
-              : event.toolName === 'approval_test'
-                ? '审批测试已完成'
-                : event.toolName === 'get_current_time'
-                  ? '当前时间已获取'
-                  : event.toolName === 'search_file'
-                    ? `找到 ${event.result.matches.length} 个文件命中`
-                    : event.toolName === 'read_file_lines'
-                      ? `读取 ${event.result.lines.length} 行文件内容`
-                      : event.toolName === 'create_report'
-                        ? `生成报告：${event.result.report.title}`
-                        : block.summary,
+        summary: toolActivityCompletedSummary(event, block.summary ?? ''),
         completedAt: event.completedAt,
         durationMs: event.durationMs,
       };

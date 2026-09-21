@@ -18,6 +18,47 @@ import type {
   ToolCallView,
 } from '../model/types';
 
+function fetchOutputSummary(running: boolean, failed: boolean): string | undefined {
+  if (failed) return '成功 0 个，失败 2 个，提取 0 段原文';
+  if (running) return undefined;
+  return '成功 1 个，失败 1 个，提取 1 段原文';
+}
+
+function fetchSourceCount(running: boolean, failed: boolean): number | undefined {
+  if (running) return undefined;
+  if (failed) return 0;
+  return 1;
+}
+
+function fetchSubtitle(running: boolean, failed: boolean): string {
+  if (running) return '正在读取 2 个网页';
+  if (failed) return '2 个来源读取失败';
+  return '1 个已读来源';
+}
+
+function previewToolStatus(status: ActivityStatus): ToolCallStatus {
+  if (
+    status === 'cancelling' ||
+    status === 'pause_requested' ||
+    status === 'paused' ||
+    status === 'resuming'
+  ) {
+    return 'running';
+  }
+  if (status === 'queued' || status === 'final_answer') return 'pending';
+  if (status === 'waiting' || status === 'waiting_for_user') return 'waiting';
+  return status;
+}
+
+function previewWorkbenchView(
+  reportState: boolean,
+  state: PreviewState,
+): 'report' | 'sources' | 'activity' {
+  if (reportState) return 'report';
+  if (state === 'sources') return 'sources';
+  return 'activity';
+}
+
 // 开发预览数据与生产状态完全隔离，避免 Mock 逻辑进入 API 流程。
 export const PREVIEW_STATES: Array<{ id: PreviewState; label: string }> = [
   { id: 'empty', label: '空会话' },
@@ -150,13 +191,9 @@ function makeFetchFixture(
     status: toolStatus,
     elapsed: running ? '进行中' : '2.4 秒',
     inputSummary: '2 个网页 · 生成式 AI 产业落地证据',
-    outputSummary: failed
-      ? '成功 0 个，失败 2 个，提取 0 段原文'
-      : running
-        ? undefined
-        : '成功 1 个，失败 1 个，提取 1 段原文',
+    outputSummary: fetchOutputSummary(running, failed),
     resultCount: running ? undefined : 2,
-    sourceCount: running ? undefined : failed ? 0 : 1,
+    sourceCount: fetchSourceCount(running, failed),
   };
   const toolBlock: AssistantContentBlock = {
     id: 'fetch-block-1',
@@ -172,7 +209,7 @@ function makeFetchFixture(
   const workbench = {
     runId,
     title: '网页证据读取',
-    subtitle: running ? '正在读取 2 个网页' : failed ? '2 个来源读取失败' : '1 个已读来源',
+    subtitle: fetchSubtitle(running, failed),
     activeView: state === 'fetch-candidate' ? ('sources' as const) : ('activity' as const),
     activityStatus: running ? ('running' as const) : ('completed' as const),
     executions: [fetchTool],
@@ -453,17 +490,7 @@ export function makeToolCalls(
   status: ActivityStatus,
   sourceCount: number,
 ): ToolCallView[] {
-  const currentStatus: ToolCallStatus =
-    status === 'cancelling' ||
-    status === 'pause_requested' ||
-    status === 'paused' ||
-    status === 'resuming'
-      ? 'running'
-      : status === 'queued' || status === 'final_answer'
-        ? 'pending'
-        : status === 'waiting' || status === 'waiting_for_user'
-          ? 'waiting'
-          : status;
+  const currentStatus = previewToolStatus(status);
   return [
     {
       toolCallId: `${runId}-tool-1`,
@@ -653,11 +680,7 @@ function makeWorkbench(state: PreviewState, runId: string) {
     runId,
     title: reportState ? '中国与美国 AI 市场' : '中国 AI 市场调研',
     subtitle: status === 'running' ? '网页检索 · 正在执行' : `网页检索 · ${sources.length} 个来源`,
-    activeView: reportState
-      ? ('report' as const)
-      : state === 'sources'
-        ? ('sources' as const)
-        : ('activity' as const),
+    activeView: previewWorkbenchView(reportState, state),
     activityStatus: executionStatus,
     controlPhase: state === 'final-answer' ? ('final_answer' as const) : ('tool_loop' as const),
     executions,

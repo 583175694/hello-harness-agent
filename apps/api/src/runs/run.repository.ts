@@ -530,12 +530,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
           messageId: message.role === 'assistant' ? run.assistantMessageId : null,
           sequence: (latest?.sequence ?? 0) + 1,
           runSequence: (runLatest?.runSequence ?? 0) + 1,
-          kind:
-            message.role === 'assistant'
-              ? 'assistant'
-              : message.role === 'user'
-                ? 'user'
-                : 'tool_result',
+          kind: this.transcriptKind(message.role),
           state: 'active',
           content:
             typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
@@ -827,12 +822,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       .map((block) => block.content)
       .join('');
     // 完成只能来自 running；一旦进入 cancel_requested，成功终态必须让位于 cancelled/failed。
-    const allowedFrom =
-      input.status === 'completed'
-        ? ['running']
-        : input.status === 'cancelled'
-          ? ['cancel_requested']
-          : ['running', 'cancel_requested'];
+    const allowedFrom = this.allowedFromStatuses(input.status);
     // Terminal Run 状态和最终 Assistant Snapshot 原子提交，成功返回后才允许广播 terminal SSE。
     return this.prisma.$transaction(async (tx) => {
       const runMetadata = await tx.agentRun.findUnique({
@@ -918,6 +908,20 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       });
       return true;
     });
+  }
+
+  private transcriptKind(role: ModelMessage['role']): 'assistant' | 'user' | 'tool_result' {
+    if (role === 'assistant') return 'assistant';
+    if (role === 'user') return 'user';
+    return 'tool_result';
+  }
+
+  private allowedFromStatuses(
+    status: 'completed' | 'failed' | 'cancelled',
+  ): AgentRunStatus[] {
+    if (status === 'completed') return ['running'];
+    if (status === 'cancelled') return ['cancel_requested'];
+    return ['running', 'cancel_requested'];
   }
 
   // 将 Prisma JSON 值安全转换为普通对象，供 metadata 合并使用。

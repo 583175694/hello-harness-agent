@@ -44,6 +44,44 @@ describe('normalizeProviderUsage', () => {
       ]),
     ).resolves.toEqual([{ role: 'tool', content: '{"ok":true}', tool_call_id: 'call-1' }]);
   });
+
+  it('sends empty-string assistant content instead of null', async () => {
+    const adapter = new OpenAICompatibleModelAdapter(new ConfigService());
+    await expect(
+      (
+        adapter as unknown as {
+          toProviderMessages: (messages: unknown[], model: string) => Promise<unknown[]>;
+        }
+      ).toProviderMessages(
+        [
+          {
+            role: 'assistant',
+            content: null,
+            reasoning: '仅回放带工具的推理',
+            toolCalls: [
+              {
+                id: 'call-1',
+                name: 'weather',
+                arguments: '{}',
+                blockSequence: 0,
+                providerIndex: 0,
+              },
+            ],
+          },
+        ],
+        'deepseek-v4-pro',
+      ),
+    ).resolves.toEqual([
+      {
+        role: 'assistant',
+        content: '',
+        reasoning_content: '仅回放带工具的推理',
+        tool_calls: [
+          { id: 'call-1', type: 'function', function: { name: 'weather', arguments: '{}' } },
+        ],
+      },
+    ]);
+  });
 });
 
 describe('OpenAICompatibleModelAdapter Responses API', () => {
@@ -103,6 +141,94 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
       expect.objectContaining({ reasoning: { effort: 'none' } }),
       undefined,
     );
+    expect((create.mock.calls as unknown as unknown[][])[0]?.[0]).not.toHaveProperty('tool_choice');
+  });
+
+  it('passes DeepSeek Responses max effort through unchanged', async () => {
+    const adapter = new OpenAICompatibleModelAdapter(
+      new ConfigService({ OPENAI_API_KEY: 'test-key' }),
+    );
+    const create = vi.fn(async () =>
+      (async function* () {
+        yield {
+          type: 'response.completed',
+          response: { usage: { input_tokens: 1, output_tokens: 1 } },
+        };
+      })(),
+    );
+    (adapter as unknown as { client: unknown }).client = {
+      responses: { create },
+      chat: { completions: { create } },
+    };
+
+    for await (const event of adapter.streamRound({
+      model: 'deepseek-flash',
+      messages: [{ role: 'user', content: '深度分析' }],
+      tools: [{ name: 'weather', description: '查询天气', parameters: { type: 'object' } }],
+      reasoningEffort: 'max',
+    })) {
+      void event;
+    }
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reasoning: { effort: 'max' },
+        tools: [expect.objectContaining({ name: 'weather' })],
+      }),
+      undefined,
+    );
+    expect((create.mock.calls as unknown as unknown[][])[0]?.[0]).not.toHaveProperty('tool_choice');
+  });
+
+  it('disables thinking on DeepSeek generateText', async () => {
+    const adapter = new OpenAICompatibleModelAdapter(
+      new ConfigService({ OPENAI_API_KEY: 'test-key' }),
+    );
+    const responsesCreate = vi.fn(async () => ({ output_text: '标题' }));
+    const chatCreate = vi.fn(async () => ({ choices: [{ message: { content: '标题' } }] }));
+    (adapter as unknown as { client: unknown }).client = {
+      responses: { create: responsesCreate },
+      chat: { completions: { create: chatCreate } },
+    };
+
+    await expect(
+      adapter.generateText('deepseek-flash', [{ role: 'user', content: '起个标题' }]),
+    ).resolves.toBe('标题');
+    expect(responsesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoning: { effort: 'none' } }),
+      undefined,
+    );
+
+    await expect(
+      adapter.generateText('deepseek-v4-pro', [{ role: 'user', content: '起个标题' }]),
+    ).resolves.toBe('标题');
+    expect(chatCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ thinking: { type: 'disabled' } }),
+      undefined,
+    );
+    expect((chatCreate.mock.calls as unknown as unknown[][])[0]?.[0]).not.toHaveProperty(
+      'reasoning_effort',
+    );
+  });
+
+  it('keeps a Responses assistant turn when content is null', async () => {
+    const adapter = new OpenAICompatibleModelAdapter(new ConfigService());
+    await expect(
+      (
+        adapter as unknown as {
+          toResponseInput: (messages: unknown[], model: string) => Promise<unknown[]>;
+        }
+      ).toResponseInput(
+        [
+          {
+            role: 'assistant',
+            content: null,
+            reasoning: '没有正文的推理',
+          },
+        ],
+        'deepseek-flash',
+      ),
+    ).resolves.toEqual([{ type: 'message', role: 'assistant', content: '' }]);
   });
 
   it('preserves commentary phase and aggregates a Responses function call', async () => {

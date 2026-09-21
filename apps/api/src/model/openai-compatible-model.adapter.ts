@@ -8,7 +8,7 @@ import type {
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
 import type { ResponseStreamEvent } from 'openai/resources/responses/responses';
-import type { ReasoningCapability } from '@harness/agent-protocol';
+import type { ReasoningCapability, ReasoningEffort } from '@harness/agent-protocol';
 import { getDeepSeekV3TokenEstimator, type DeepSeekMessage } from '@harness/deepseek-v3-tokenizer';
 
 import { ENV_KEYS } from '../bootstrap/env.constants';
@@ -19,7 +19,9 @@ import type {
   ModelMessage,
   ModelRoundEvent,
   ModelRoundInput,
+  ModelTextPhase,
   ModelToolCall,
+  UserContentBlock,
 } from './model-adapter';
 import { ModelProviderResponseError } from './model-adapter';
 import { clarificationRequestSchema } from '@harness/agent-protocol';
@@ -50,6 +52,64 @@ type ProviderUsage = NonNullable<ChatCompletionChunk['usage']> & {
   prompt_cache_hit_tokens?: number;
   prompt_cache_miss_tokens?: number;
 };
+
+function deepSeekChatThinking(effort: ReasoningEffort): {
+  thinking: { type: 'enabled' | 'disabled' };
+  reasoning_effort?: Exclude<ReasoningEffort, 'off'>;
+} {
+  if (effort === 'off') return { thinking: { type: 'disabled' } };
+  return { thinking: { type: 'enabled' }, reasoning_effort: effort };
+}
+
+function deepSeekResponseReasoning(effort: ReasoningEffort): {
+  reasoning: { effort: 'none' | 'low' | 'high' | 'max' };
+} {
+  if (effort === 'off') return { reasoning: { effort: 'none' } };
+  return { reasoning: { effort } };
+}
+
+function responsesFinishReason(
+  eventType: string,
+  incompleteReason: string | undefined,
+): ModelFinishReason {
+  if (eventType !== 'response.incomplete') return 'stop';
+  if (incompleteReason === 'max_output_tokens') return 'max_output_tokens';
+  return 'unknown';
+}
+
+function stringOrFallback(value: unknown, fallback: string): string;
+function stringOrFallback(value: unknown, fallback: null): string | null;
+function stringOrFallback(value: unknown, fallback: string | null): string | null {
+  if (typeof value === 'string') return value;
+  return fallback;
+}
+
+function fileRefMetadataText(block: Extract<UserContentBlock, { type: 'file_ref' }>): string {
+  const extras: string[] = [];
+  if (block.lineCount !== undefined) extras.push(`lines=${block.lineCount}`);
+  if (block.pageCount !== undefined) extras.push(`pages=${block.pageCount}`);
+  const extraSuffix = extras.length > 0 ? `, ${extras.join(', ')}` : '';
+  return `[Attached file metadata: ${block.fileName}, fileId=${block.fileId}, mediaType=${block.mediaType}, size=${block.size} bytes${extraSuffix}. Use search_file or read_file_lines to inspect content.]`;
+}
+
+function requestSignal(signal?: AbortSignal): { signal: AbortSignal } | undefined {
+  if (!signal) return undefined;
+  return { signal };
+}
+
+function streamingTextPhase(input: ModelRoundInput, statePhase: ModelTextPhase): ModelTextPhase {
+  if (input.tools?.length || input.allowClarification) return 'pending';
+  return statePhase ?? 'pending';
+}
+
+function functionCallArguments(
+  completed: boolean,
+  itemArguments: unknown,
+  currentArguments: string | undefined,
+): string {
+  if (completed) return String(itemArguments ?? currentArguments ?? '');
+  return currentArguments ?? String(itemArguments ?? '');
+}
 
 function normalizeFinishReason(reason: string | null | undefined): ModelFinishReason | null {
   if (!reason) return null;
@@ -122,38 +182,23 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       yield* this.streamResponsesRound(input, configured);
       return;
     }
-    const request = {
+    const request: Record<string, unknown> = {
       model: input.model,
       stream: true,
       stream_options: { include_usage: true },
-      ...(configured?.request.temperature !== undefined
-        ? { temperature: configured.request.temperature }
-        : {}),
-      ...(input.maxOutputTokens ?? configured?.request.maxTokens
-        ? { max_tokens: input.maxOutputTokens ?? configured?.request.maxTokens }
-        : {}),
       messages: await this.toProviderMessages(input.messages, input.model),
-      ...(input.tools || input.allowClarification
-        ? {
-            tools: [
-              ...(this.toProviderTools(input.tools) ?? []),
-              ...(input.allowClarification ? [CLARIFICATION_CONTROL_TOOL] : []),
-            ],
-            tool_choice: 'auto' as const,
-          }
-        : {}),
-      ...(profile.provider === 'deepseek'
-        ? input.reasoningEffort === 'off'
-          ? { thinking: { type: 'disabled' } }
-          : {
-              thinking: { type: 'enabled' },
-              reasoning_effort: input.reasoningEffort,
-            }
-        : {}),
     };
+    if (configured?.request.temperature !== undefined) {
+      request.temperature = configured.request.temperature;
+    }
+    const maxTokens = input.maxOutputTokens ?? configured?.request.maxTokens;
+    if (maxTokens) request.max_tokens = maxTokens;
+    const tools = this.collectChatTools(input);
+    if (tools) request.tools = tools;
+    if (profile.provider === 'deepseek') Object.assign(request, deepSeekChatThinking(input.reasoningEffort));
     const response = (await this.getClient(input.model).chat.completions.create(
-      request as Parameters<OpenAI['chat']['completions']['create']>[0],
-      input.signal ? { signal: input.signal } : undefined,
+      request as unknown as Parameters<OpenAI['chat']['completions']['create']>[0],
+      requestSignal(input.signal),
     )) as Awaited<ReturnType<OpenAI['chat']['completions']['create']>> & AsyncIterable<unknown>;
     const pendingCalls = new Map<number, ModelToolCall>();
     let finishReason: ModelFinishReason | null = null;
@@ -228,7 +273,10 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         completionTokens,
         cachedTokens,
         // 供应商消息 framing 不公开；本字段只表示确定性的本地近似，不能代替 Usage。
-        estimatedPromptTokens: await this.estimatePromptTokens(request.messages, request.tools),
+        estimatedPromptTokens: await this.estimatePromptTokens(
+          request.messages as ChatCompletionMessageParam[],
+          request.tools as ChatCompletionTool[] | undefined,
+        ),
       },
     };
   }
@@ -245,33 +293,19 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       input: responseInput,
       stream: true,
       max_output_tokens: input.maxOutputTokens ?? configured.request.maxTokens,
-      ...(configured.request.temperature !== undefined
-        ? { temperature: configured.request.temperature }
-        : {}),
-      ...(input.tools || input.allowClarification
-        ? {
-            tools: [
-              ...(this.toResponseTools(input.tools) ?? []),
-              ...(input.allowClarification ? [this.toResponseClarificationTool()] : []),
-            ],
-            tool_choice: 'auto',
-          }
-        : {}),
       // DeepSeek 的 Responses API 默认启用思考模式；off 必须显式映射为 none，
-      // 省略 reasoning 字段会回退到供应商默认的 high。
-      reasoning: {
-        effort:
-          input.reasoningEffort === 'off'
-            ? 'none'
-            : input.reasoningEffort === 'max'
-              ? 'high'
-              : input.reasoningEffort,
-      },
+      // 省略 reasoning 字段会回退到供应商默认的 high。max 按官方原样传递。
+      ...deepSeekResponseReasoning(input.reasoningEffort),
     };
+    if (configured.request.temperature !== undefined) {
+      request.temperature = configured.request.temperature;
+    }
+    const tools = this.collectResponseTools(input);
+    if (tools) request.tools = tools;
     // DeepSeek ignores stream_options; the OpenAI SDK accepts the request shape at runtime.
     const stream = (await this.getClient(input.model).responses.create(
       request as never,
-      input.signal ? { signal: input.signal } : undefined,
+      requestSignal(input.signal),
     )) as unknown as AsyncIterable<ResponseStreamEvent>;
     const calls = new Map<number, ModelToolCall>();
     type MessageState = {
@@ -327,10 +361,11 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
           calls.set(index, {
             id: String(item.call_id ?? item.id ?? current?.id ?? ''),
             name: String(item.name ?? current?.name ?? ''),
-            arguments:
-              value.type === 'response.output_item.done'
-                ? String(item.arguments ?? current?.arguments ?? '')
-                : (current?.arguments ?? String(item.arguments ?? '')),
+            arguments: functionCallArguments(
+              value.type === 'response.output_item.done',
+              item.arguments,
+              current?.arguments,
+            ),
             blockSequence: index,
             providerIndex: index,
           });
@@ -362,8 +397,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         // DeepSeek's `added.phase` is provisional when tools are available: a
         // tool preamble is initially labelled final_answer and corrected on
         // output_item.done. Stream immediately in a neutral pending state.
-        const phase =
-          input.tools?.length || input.allowClarification ? 'pending' : (state.phase ?? 'pending');
+        const phase = streamingTextPhase(input, state.phase);
         yield {
           type: 'text.delta',
           delta,
@@ -381,16 +415,10 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       }
       if (value.type === 'response.completed' || value.type === 'response.incomplete') {
         const response = value.response as Record<string, any> | undefined;
-        incompleteReason =
-          value.type === 'response.incomplete'
-            ? String(response?.incomplete_details?.reason ?? 'unknown')
-            : undefined;
-        finishReason =
-          value.type === 'response.incomplete'
-            ? incompleteReason === 'max_output_tokens'
-              ? 'max_output_tokens'
-              : 'unknown'
-            : 'stop';
+        if (value.type === 'response.incomplete') {
+          incompleteReason = String(response?.incomplete_details?.reason ?? 'unknown');
+        }
+        finishReason = responsesFinishReason(value.type, incompleteReason);
         const usage = response?.usage as Record<string, any> | undefined;
         promptTokens = usage?.input_tokens ?? null;
         completionTokens = usage?.output_tokens ?? null;
@@ -433,32 +461,37 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
   ): Promise<string> {
     const configured = getConfiguredModel(model);
     if (configured?.api === 'responses') {
+      const request: Record<string, unknown> = {
+        model,
+        input: await this.toResponseInput(messages, model),
+        max_output_tokens: configured.request.maxTokens,
+      };
+      if (configured.request.temperature !== undefined) {
+        request.temperature = configured.request.temperature;
+      }
+      if (configured.provider === 'deepseek') Object.assign(request, deepSeekResponseReasoning('off'));
       const response = await this.getClient(model).responses.create(
-        {
-          model,
-          input: (await this.toResponseInput(messages, model)) as never,
-          max_output_tokens: configured.request.maxTokens,
-          ...(configured.request.temperature !== undefined
-            ? { temperature: configured.request.temperature }
-            : {}),
-        },
-        signal ? { signal } : undefined,
+        request as never,
+        requestSignal(signal),
       );
       return response.output_text;
     }
+    const request: Record<string, unknown> = {
+      model,
+      messages: await this.toProviderMessages(messages, model),
+    };
+    if (configured?.request.temperature !== undefined) {
+      request.temperature = configured.request.temperature;
+    }
+    if (configured?.request.maxTokens !== undefined) {
+      request.max_tokens = configured.request.maxTokens;
+    }
+    if (configured?.provider === 'deepseek') Object.assign(request, deepSeekChatThinking('off'));
     const response = await this.getClient(model).chat.completions.create(
-      {
-        model,
-        messages: await this.toProviderMessages(messages, model),
-        ...(configured?.request.temperature !== undefined
-          ? { temperature: configured.request.temperature }
-          : {}),
-        ...(configured?.request.maxTokens !== undefined
-          ? { max_tokens: configured.request.maxTokens }
-          : {}),
-      },
-      signal ? { signal } : undefined,
+      request as unknown as Parameters<OpenAI['chat']['completions']['create']>[0],
+      requestSignal(signal),
     );
+    if (!('choices' in response)) return '';
     return response.choices[0]?.message.content ?? '';
   }
 
@@ -482,13 +515,15 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
             type: 'reasoning',
             content: [{ type: 'reasoning_text', text: message.reasoning }],
           });
-        if (message.content)
-          items.push({
+        if (message.content || message.toolCalls?.length || message.reasoning) {
+          const assistantMessage: Record<string, unknown> = {
             type: 'message',
             role: 'assistant',
-            content: message.content,
-            ...(message.phase ? { phase: message.phase } : {}),
-          });
+            content: message.content ?? '',
+          };
+          if (message.phase) assistantMessage.phase = message.phase;
+          items.push(assistantMessage);
+        }
         for (const call of message.toolCalls ?? [])
           items.push({
             type: 'function_call',
@@ -513,7 +548,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
           if (block.type === 'file_ref')
             return {
               type: 'input_text',
-              text: `[Attached file metadata: ${block.fileName}, fileId=${block.fileId}, mediaType=${block.mediaType}, size=${block.size} bytes${block.lineCount !== undefined ? `, lines=${block.lineCount}` : ''}${block.pageCount !== undefined ? `, pages=${block.pageCount}` : ''}. Use search_file or read_file_lines to inspect content.]`,
+              text: fileRefMetadataText(block),
             };
           if (!this.files) throw new Error('FILE_STORAGE_UNAVAILABLE');
           return {
@@ -526,6 +561,20 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       items.push({ type: 'message', role: 'user', content });
     }
     return items;
+  }
+
+  private collectChatTools(input: ModelRoundInput): ChatCompletionTool[] | undefined {
+    if (!input.tools && !input.allowClarification) return undefined;
+    const tools = [...(this.toProviderTools(input.tools) ?? [])];
+    if (input.allowClarification) tools.push(CLARIFICATION_CONTROL_TOOL);
+    return tools;
+  }
+
+  private collectResponseTools(input: ModelRoundInput): Record<string, unknown>[] | undefined {
+    if (!input.tools && !input.allowClarification) return undefined;
+    const tools = [...(this.toResponseTools(input.tools) ?? [])];
+    if (input.allowClarification) tools.push(this.toResponseClarificationTool());
+    return tools;
   }
 
   private toResponseTools(tools: ModelRoundInput['tools']): Record<string, unknown>[] | undefined {
@@ -586,18 +635,19 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
           return { role: 'tool', content: message.content, tool_call_id: message.toolCallId };
         }
         if (message.role === 'assistant') {
-          return {
+          const assistant: DeepSeekAssistantMessage = {
             role: 'assistant',
-            content: message.content,
-            ...(message.reasoning && message.toolCalls?.length
-              ? { reasoning_content: message.reasoning }
-              : {}),
+            content: message.content ?? '',
             tool_calls: message.toolCalls?.map((call) => ({
               id: call.id,
               type: 'function' as const,
               function: { name: call.name, arguments: call.arguments },
             })),
-          } as DeepSeekAssistantMessage;
+          };
+          if (message.reasoning && message.toolCalls?.length) {
+            assistant.reasoning_content = message.reasoning;
+          }
+          return assistant;
         }
         if (message.role === 'system') return { role: 'system', content: message.content };
         if (typeof message.content === 'string') return { role: 'user', content: message.content };
@@ -613,7 +663,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
             if (block.type === 'file_ref')
               return {
                 type: 'text' as const,
-                text: `[Attached file metadata: ${block.fileName}, fileId=${block.fileId}, mediaType=${block.mediaType}, size=${block.size} bytes${block.lineCount !== undefined ? `, lines=${block.lineCount}` : ''}${block.pageCount !== undefined ? `, pages=${block.pageCount}` : ''}. Use search_file or read_file_lines to inspect content.]`,
+                text: fileRefMetadataText(block),
               };
             if (!this.files) throw new Error('FILE_STORAGE_UNAVAILABLE');
             const url = await this.files.readUrlById(block.fileId);
@@ -646,7 +696,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       if (message.role === 'assistant') {
         return {
           role: 'assistant' as const,
-          content: typeof message.content === 'string' ? message.content : null,
+          content: stringOrFallback(message.content, null),
           toolCalls: message.tool_calls
             ?.filter(
               (call): call is Extract<typeof call, { type: 'function' }> =>
@@ -663,18 +713,18 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       if (message.role === 'tool') {
         return {
           role: 'tool' as const,
-          content: typeof message.content === 'string' ? message.content : '',
+          content: stringOrFallback(message.content, ''),
         };
       }
       if (message.role === 'developer') {
         return {
           role: 'system' as const,
-          content: typeof message.content === 'string' ? message.content : '',
+          content: stringOrFallback(message.content, ''),
         };
       }
       return {
         role: message.role === 'function' ? ('tool' as const) : message.role,
-        content: typeof message.content === 'string' ? message.content : '',
+        content: stringOrFallback(message.content, ''),
       } as DeepSeekMessage;
     });
     if (tools?.length) {
@@ -686,16 +736,22 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     return this.tokenEstimator.countMessages(tokenizerMessages);
   }
 
+  private resolveApiKey(provider: string | undefined): string {
+    if (provider === 'bailian') {
+      return (
+        this.config.get<string>(ENV_KEYS.bailianApiKey) ??
+        this.config.getOrThrow<string>(ENV_KEYS.openAiApiKey)
+      );
+    }
+    return this.config.getOrThrow<string>(ENV_KEYS.openAiApiKey);
+  }
+
   // 延迟创建客户端，保证未配置模型时 API 仍可启动并返回明确错误。
   private getClient(model?: string): OpenAI {
     // 按模型配置懒加载并复用 OpenAI-compatible 客户端。
     const configured = model ? getConfiguredModel(model) : undefined;
     const baseUrl = configured?.baseUrl ?? 'https://api.openai.com/v1';
-    const apiKey =
-      configured?.provider === 'bailian'
-        ? (this.config.get<string>(ENV_KEYS.bailianApiKey) ??
-          this.config.getOrThrow<string>(ENV_KEYS.openAiApiKey))
-        : this.config.getOrThrow<string>(ENV_KEYS.openAiApiKey);
+    const apiKey = this.resolveApiKey(configured?.provider);
     if (!this.client || (this.clientBaseUrl && this.clientBaseUrl !== baseUrl)) {
       this.client = new OpenAI({
         apiKey,

@@ -64,20 +64,27 @@ export class WebSearchTool implements AgentTool<{ query: string }, SearchToolRes
       // 取消、超时和供应商失败对模型具有不同语义，统一在工具边界转换为稳定错误码。
       const timeout = error instanceof Error && error.name === 'TimeoutError';
       const cancelled = context.signal?.aborted === true;
-      const code = cancelled
-        ? AGENT_ERROR_CODES.searchCancelled
-        : timeout
-          ? AGENT_ERROR_CODES.searchTimeout
-          : AGENT_ERROR_CODES.searchProviderFailed;
       return {
-        status: cancelled ? 'cancelled' : timeout ? 'timeout' : 'failed',
+        status: this.searchFailureStatus(cancelled, timeout),
         error: {
-          code,
+          code: this.searchFailureCode(cancelled, timeout),
           detail: cancelled ? '网页搜索已取消。' : '网页搜索暂时不可用。',
           retryable: !cancelled,
           cause: error,
         },
       };
     }
+  }
+
+  private searchFailureCode(cancelled: boolean, timeout: boolean) {
+    if (cancelled) return AGENT_ERROR_CODES.searchCancelled;
+    if (timeout) return AGENT_ERROR_CODES.searchTimeout;
+    return AGENT_ERROR_CODES.searchProviderFailed;
+  }
+
+  private searchFailureStatus(cancelled: boolean, timeout: boolean) {
+    if (cancelled) return 'cancelled' as const;
+    if (timeout) return 'timeout' as const;
+    return 'failed' as const;
   }
 }

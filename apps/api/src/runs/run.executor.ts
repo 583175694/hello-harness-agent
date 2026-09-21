@@ -136,17 +136,7 @@ export class RunExecutor implements OnModuleDestroy {
         const phaseChanged = control.phase !== lastControlPhase;
         lastControlState = control.state;
         lastControlPhase = control.phase;
-        const eventType = phaseChanged
-          ? 'run.phase_changed'
-          : control.state === 'pause_requested'
-            ? 'run.pause_requested'
-            : control.state === 'paused'
-              ? 'run.paused'
-              : control.state === 'resuming'
-                ? 'run.resuming'
-                : control.state === 'running'
-                  ? 'run.resumed'
-                  : undefined;
+        const eventType = this.controlEventType(phaseChanged, control.state);
         if (eventType) {
           const payload = {
             type: eventType,
@@ -374,11 +364,7 @@ export class RunExecutor implements OnModuleDestroy {
       // 用户取消与进程关闭使用同一个 AbortSignal，但必须映射为不同、不可混淆的终态原因。
       const cancelled = active.abortController.signal.aborted && !this.shuttingDown;
       const status = cancelled ? 'cancelled' : 'failed';
-      const failure = cancelled
-        ? { code: 'RUN_CANCELLED', detail: '用户已取消本次运行。' }
-        : this.shuttingDown
-          ? { code: 'RUN_INTERRUPTED', detail: '服务已停止，本次运行未自动恢复。' }
-          : this.describeError(error);
+      const failure = this.runFailure(cancelled, error);
       await this.repository
         .finishStep(runId, modelStepId, status, undefined, failure)
         .catch(() => undefined);
@@ -491,11 +477,7 @@ export class RunExecutor implements OnModuleDestroy {
       await this.repository.finishStep(
         runId,
         stepId,
-        event.type === 'tool.completed'
-          ? 'completed'
-          : event.type === 'tool.cancelled'
-            ? 'cancelled'
-            : 'failed',
+        this.toolStepStatus(event.type),
         event.type === 'tool.completed' ? event.result : undefined,
         event.type === 'tool.failed' || event.type === 'tool.cancelled'
           ? { code: event.code, detail: event.detail }
@@ -596,5 +578,37 @@ export class RunExecutor implements OnModuleDestroy {
     } catch {
       // 标题是非关键后处理，失败时保留创建会话时的临时标题。
     }
+  }
+
+  private controlEventType(
+    phaseChanged: boolean,
+    state: RuntimeControlSnapshot['state'],
+  ):
+    | 'run.phase_changed'
+    | 'run.pause_requested'
+    | 'run.paused'
+    | 'run.resuming'
+    | 'run.resumed'
+    | undefined {
+    if (phaseChanged) return 'run.phase_changed';
+    if (state === 'pause_requested') return 'run.pause_requested';
+    if (state === 'paused') return 'run.paused';
+    if (state === 'resuming') return 'run.resuming';
+    if (state === 'running') return 'run.resumed';
+    return undefined;
+  }
+
+  private runFailure(cancelled: boolean, error: unknown): { code: string; detail: string } {
+    if (cancelled) return { code: 'RUN_CANCELLED', detail: '用户已取消本次运行。' };
+    if (this.shuttingDown) return { code: 'RUN_INTERRUPTED', detail: '服务已停止，本次运行未自动恢复。' };
+    return this.describeError(error);
+  }
+
+  private toolStepStatus(
+    type: 'tool.completed' | 'tool.failed' | 'tool.cancelled',
+  ): 'completed' | 'cancelled' | 'failed' {
+    if (type === 'tool.completed') return 'completed';
+    if (type === 'tool.cancelled') return 'cancelled';
+    return 'failed';
   }
 }

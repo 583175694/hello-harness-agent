@@ -73,6 +73,32 @@ function statusIcon(status: Extract<AssistantProcessItem, { kind: 'tool' }>['blo
   return undefined;
 }
 
+function processElapsed(
+  start: number | undefined,
+  end: number | undefined,
+  running: boolean,
+  now: number,
+): number {
+  if (start === undefined) return 0;
+  const finish = running ? now : (end ?? start);
+  return finish - start;
+}
+
+function reasoningLabel(streaming: boolean, durationMs?: number): string {
+  if (streaming) return 'Thinking...';
+  if (durationMs !== undefined) {
+    return `Thought for ${Math.max(0, Math.round(durationMs / 1000))} seconds`;
+  }
+  return 'Thought';
+}
+
+function toolStatusLabel(status: Extract<AssistantProcessItem, { kind: 'tool' }>['block']['status']) {
+  if (status === 'running') return '执行中';
+  if (status === 'completed') return '已完成';
+  if (status === 'failed') return '失败';
+  return '已取消';
+}
+
 function sourceDomains(sources: SourceView[], toolCallId: string): string[] {
   const matched = sources.filter((source) => source.toolCallIds?.includes(toolCallId));
   const candidates = matched.length ? matched : sources;
@@ -98,7 +124,9 @@ export function AgentChainOfThought({
   }, [running]);
   if (!process.length) return null;
   const [{ start, end }] = [processTimeRange(process)];
-  const elapsed = start === undefined ? 0 : (end ?? (running ? now : start)) - start;
+  // 整个 assistant 仍在运行时，历史工具的 completedAt 不能冻结总用时；
+  // 只有进入终态后，才以最后一个已完成工具的时间作为结束点。
+  const elapsed = processElapsed(start, end, running, now);
   return (
     <ChainOfThought running={running}>
       <ChainOfThoughtHeader>{formatElapsed(elapsed)}</ChainOfThoughtHeader>
@@ -106,11 +134,7 @@ export function AgentChainOfThought({
         {process.map((item) => {
           if (item.kind === 'reasoning') {
             const streaming = !item.block.completedAt;
-            const label = streaming
-              ? 'Thinking...'
-              : item.block.durationMs !== undefined
-                ? `Thought for ${Math.max(0, Math.round(item.block.durationMs / 1000))} seconds`
-                : 'Thought';
+            const label = reasoningLabel(streaming, item.block.durationMs);
             return (
               <Reasoning className='ai-reasoning' key={item.block.id} isStreaming={streaming}>
                 <ReasoningTrigger>{label}</ReasoningTrigger>
@@ -147,7 +171,7 @@ export function AgentChainOfThought({
               type="button"
               key={item.block.id}
               disabled={!workbench}
-              aria-label={`${toolTitle}，${item.block.status === 'running' ? '执行中' : item.block.status === 'completed' ? '已完成' : item.block.status === 'failed' ? '失败' : '已取消'}`}
+              aria-label={`${toolTitle}，${toolStatusLabel(item.block.status)}`}
               onClick={() =>
                 workbench &&
                 onFocusWorkbench({

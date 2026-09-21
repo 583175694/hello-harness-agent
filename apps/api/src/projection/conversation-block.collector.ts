@@ -8,6 +8,20 @@ import type {
   AssistantReasoningBlock,
 } from '@harness/agent-protocol';
 
+function textPhaseFromModel(
+  phase?: 'pending' | 'commentary' | 'final_answer' | null,
+): AssistantTextBlock['phase'] | undefined {
+  if (phase === 'pending') return 'pending';
+  if (phase === 'commentary') return 'process';
+  if (phase === 'final_answer') return 'final';
+  return undefined;
+}
+
+function completedTextPhase(phase: 'commentary' | 'final_answer'): 'process' | 'final' {
+  if (phase === 'commentary') return 'process';
+  return 'final';
+}
+
 // 将实时文本和工具生命周期折叠为可持久化的 assistant 有序内容块。
 // 事实顺序由 roundSequence + blockSequence 决定，禁止按事件到达顺序直接 push。
 export class ConversationBlockCollector {
@@ -52,6 +66,7 @@ export class ConversationBlockCollector {
       return existing.id;
     }
     this.textBlockCount += 1;
+    const phase = textPhaseFromModel(input.phase);
     const block: AssistantTextBlock = {
       id: `${this.messageId}-text-${this.textBlockCount}`,
       type: 'text',
@@ -59,13 +74,7 @@ export class ConversationBlockCollector {
       roundSequence: input.roundSequence,
       blockSequence: input.blockSequence,
       content: input.delta,
-      ...(input.phase === 'pending'
-        ? { phase: 'pending' as const }
-        : input.phase === 'commentary'
-          ? { phase: 'process' as const }
-          : input.phase === 'final_answer'
-            ? { phase: 'final' as const }
-            : {}),
+      ...(phase ? { phase } : {}),
     };
     this.insert(block);
     return block.id;
@@ -83,7 +92,7 @@ export class ConversationBlockCollector {
         item.blockSequence === input.blockSequence,
     );
     if (!block) return undefined;
-    block.phase = input.phase === 'commentary' ? 'process' : 'final';
+    block.phase = completedTextPhase(input.phase);
     return block.id;
   }
 

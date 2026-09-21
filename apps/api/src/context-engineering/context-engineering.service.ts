@@ -97,6 +97,24 @@ export class ContextEngineeringService {
     };
   }
 
+  // 把编译期外置的 Tool Result 指针写回 Runtime 消息，避免下一轮重复落盘。
+  applyCollapsedToolPointers(live: ModelMessage[], compiled: ModelMessage[]): void {
+    const pointers = new Map<string, string>();
+    for (const message of compiled) {
+      if (message.role === 'tool' && message.content.startsWith('[Tool Result stored:')) {
+        pointers.set(message.toolCallId, message.content);
+      }
+    }
+    if (pointers.size === 0) return;
+    for (let index = 0; index < live.length; index += 1) {
+      const message = live[index];
+      if (message?.role !== 'tool') continue;
+      const pointer = pointers.get(message.toolCallId);
+      if (!pointer || message.content.startsWith('[Tool Result stored:')) continue;
+      live[index] = { ...message, content: pointer };
+    }
+  }
+
   // 按单条/本轮硬上限裁剪工具结果；超限时外置全文并写入可回读 fileId。
   async trimToolResults(
     _messages: ModelMessage[],

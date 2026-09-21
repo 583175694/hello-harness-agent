@@ -43,6 +43,18 @@ describe('foundation protocol', () => {
   it('validates create report input without quality fields', () => {
     const base = { title: '报告', summary: '摘要', fileName: 'report.md', content: '# 报告' };
     expect(createReportInputSchema.parse(base)).toEqual(base);
+    expect(
+      createReportInputSchema.parse({
+        ...base,
+        content: 'x'.repeat(16_000),
+      }).content,
+    ).toHaveLength(16_000);
+    expect(() =>
+      createReportInputSchema.parse({
+        ...base,
+        content: 'x'.repeat(16_001),
+      }),
+    ).toThrow();
   });
   it('validates C2-C generated artifact contracts strictly', () => {
     expect(createFileInputSchema.parse({ fileName: 'report.md', content: '# Report' })).toEqual({

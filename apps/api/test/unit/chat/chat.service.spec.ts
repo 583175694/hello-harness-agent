@@ -143,7 +143,7 @@ describe('ChatService session persistence', () => {
         model: 'deepseek-v4-pro',
         reasoning_effort: 'max',
         temperature: 0,
-        max_tokens: 8_192,
+        max_tokens: 32_768,
       }),
       expect.anything(),
     );
@@ -183,7 +183,7 @@ describe('ChatService session persistence', () => {
   });
 
   it('does not persist a length-truncated assistant response', async () => {
-    const providerCreate = vi.fn().mockResolvedValue(
+    const providerCreate = vi.fn().mockImplementation(async () =>
       (async function* () {
         yield { choices: [{ delta: { content: '不完整回答' } }] };
         yield { choices: [{ delta: {}, finish_reason: 'length' }] };

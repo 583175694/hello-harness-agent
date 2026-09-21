@@ -21,6 +21,7 @@ import { ToolInputValidationError, ToolRegistryService } from '../tools/tool-reg
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import type { AgentRuntimeEvent, AgentRuntimeInput } from './agent-runtime.types';
 import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
+import { recoverTruncatedModelRound } from './output-limit-recovery';
 import { ContextEngineeringService } from '../context-engineering/context-engineering.service';
 import type { ToolResultCandidate } from '../context-engineering/context-engineering.types';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
@@ -77,6 +78,8 @@ export class AgentRuntimeService {
     let compactionState: CompactionState | undefined;
     // reasoning-only 只允许单向切换一次到无工具、无思考的最终回答恢复阶段。
     let finalizationRecoveryAttempted = false;
+    let outputLimitRecoveryCount = 0;
+    let deliveryNudgeAdded = false;
     // Runtime 仅保留最新计划，用于事件发布和下一轮只读上下文。
     let currentPlan: PlanSnapshot | undefined;
     // 将运行从可调用工具的调查阶段单向切换到无工具的最终回答阶段。
@@ -110,6 +113,18 @@ export class AgentRuntimeService {
         }
       }
       this.assertRunActive(input.signal, runDeadlineSignal);
+      if (
+        !finalResponseOnly &&
+        !deliveryNudgeAdded &&
+        modelRounds === DEFAULT_RUNTIME_POLICY.deliveryNudgeAfterRounds
+      ) {
+        deliveryNudgeAdded = true;
+        messages.push({
+          role: 'system',
+          content:
+            '已进行多轮调查。请停止重复搜索，基于已有材料用精炼 create_report 或较短最终回答完成交付；不要在思考中复述全部原始数据。',
+        });
+      }
       this.logger.log(
         `模型 Loop 即将开始 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | 轮次=${modelRounds} | 阶段=${finalResponseOnly ? 'final_answer' : 'tool_loop'} | 暂停状态=${input.lifecycle?.snapshot().state ?? 'none'}`,
         AgentRuntimeService.name,
@@ -153,6 +168,9 @@ export class AgentRuntimeService {
         throw error;
       }
       if (compiled.compactionState) compactionState = compiled.compactionState;
+      if (typeof this.context?.applyCollapsedToolPointers === 'function') {
+        this.context.applyCollapsedToolPointers(messages, compiled.messages);
+      }
       const roundMessages = compiled.messages;
       let textDeltas: string[] = [];
       let reasoningDeltas: string[] = [];
@@ -166,7 +184,9 @@ export class AgentRuntimeService {
       let textPhase: 'pending' | 'commentary' | 'final_answer' | null | undefined;
       // 普通调查轮只调用一次；最终回答遇到协议污染时允许有限重试。
       const maxAttempts = finalResponseOnly
-        ? DEFAULT_RUNTIME_POLICY.finalAnswerProtocolRetries + 1
+        ? DEFAULT_RUNTIME_POLICY.finalAnswerProtocolRetries +
+          DEFAULT_RUNTIME_POLICY.outputLimitRecoveryAttempts +
+          1
         : 1;
       // 内层循环只负责一次模型轮次及最终回答协议校验，不执行任何工具。
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -358,19 +378,61 @@ export class AgentRuntimeService {
           AgentRuntimeService.name,
         );
 
-        // 最终回答被长度截断时不能作为完整消息交付或持久化。
-        if (finalResponseOnly && finishReason === 'max_output_tokens') {
-          visibleContent = visibleContent.slice(0, attemptVisibleStart);
-          yield {
-            type: 'text.discarded',
-            roundId,
-            roundSequence: modelRounds,
-            blockSequence: textBlockSequence,
-          };
+        const truncated =
+          finishReason === 'max_output_tokens' || incompleteReason === 'max_output_tokens';
+        if (incompleteReason && incompleteReason !== 'max_output_tokens') {
           throw new ServiceUnavailableException({
-            code: AGENT_ERROR_CODES.modelOutputLimit,
-            detail: '模型输出达到长度上限，本次回答未保存。',
+            code: AGENT_ERROR_CODES.modelStreamInterrupted,
+            detail: '模型响应未完整结束，本次回答未完成。',
           });
+        }
+        if (truncated) {
+          const recovery = recoverTruncatedModelRound({
+            calls,
+            hasText: Boolean(textDeltas.join('').trim()),
+            finalResponseOnly,
+          });
+          if (recovery.kind === 'proceed') {
+            calls = recovery.calls;
+            this.logger.warn(
+              `输出预算截断已恢复 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 修复参数=${recovery.anySalvaged ? '是' : '否'} | 工具调用=${calls.length} 个`,
+              AgentRuntimeService.name,
+            );
+          } else if (
+            outputLimitRecoveryCount < DEFAULT_RUNTIME_POLICY.outputLimitRecoveryAttempts
+          ) {
+            outputLimitRecoveryCount += 1;
+            this.logger.warn(
+              `输出预算截断，缩短后重试 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 阶段=${finalResponseOnly ? 'final_answer' : 'tool_loop'}`,
+              AgentRuntimeService.name,
+            );
+            if (textDeltas.length) {
+              visibleContent = visibleContent.slice(0, attemptVisibleStart);
+              yield {
+                type: 'text.discarded',
+                roundId,
+                roundSequence: modelRounds,
+                blockSequence: textBlockSequence,
+              };
+            }
+            messages.push({ role: 'system', content: recovery.hint });
+            if (finalResponseOnly) continue;
+            continue runtimeLoop;
+          } else {
+            if (finalResponseOnly && textDeltas.length) {
+              visibleContent = visibleContent.slice(0, attemptVisibleStart);
+              yield {
+                type: 'text.discarded',
+                roundId,
+                roundSequence: modelRounds,
+                blockSequence: textBlockSequence,
+              };
+            }
+            throw new ServiceUnavailableException({
+              code: AGENT_ERROR_CODES.modelOutputLimit,
+              detail: '模型输出预算已耗尽，本次回答未保存。',
+            });
+          }
         }
         // 无文本、无 reasoning 且无工具调用表示供应商没有产生任何可消费结果。
         if (
@@ -424,25 +486,6 @@ export class AgentRuntimeService {
         break;
       }
 
-      if (incompleteReason) {
-        throw new ServiceUnavailableException({
-          code:
-            incompleteReason === 'max_output_tokens'
-              ? AGENT_ERROR_CODES.modelOutputLimit
-              : AGENT_ERROR_CODES.modelStreamInterrupted,
-          detail:
-            incompleteReason === 'max_output_tokens'
-              ? '模型输出预算已耗尽，本次回答未保存。'
-              : '模型响应未完整结束，本次回答未完成。',
-        });
-      }
-      // 长度截断的文本不能作为完整交付持久化。
-      if (finishReason === 'max_output_tokens') {
-        throw new ServiceUnavailableException({
-          code: AGENT_ERROR_CODES.modelOutputLimit,
-          detail: '模型输出达到长度上限，本次回答未保存。',
-        });
-      }
       // 某些兼容供应商可能缺失 Tool Call ID，为每个调用补齐稳定关联标识。
       const normalizedCalls: RuntimeLifecycleToolCall[] = calls.map((call, callIndex) => ({
         ...call,

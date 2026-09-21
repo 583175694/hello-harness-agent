@@ -389,4 +389,54 @@ describe('ContextEngineeringService', () => {
     expect(latest).toMatchObject({ role: 'tool', content: '最新结果仍保留' });
     expect(files.createToolResultFile).not.toHaveBeenCalled();
   });
+
+  it('writes collapsed Tool Result pointers back so later rounds do not re-spill', async () => {
+    const { service, files } = createService();
+    const oldContent = '历史搜索结果。'.repeat(200);
+    const live = [
+      { role: 'system' as const, content: 'system' },
+      { role: 'user' as const, content: '请分析' },
+      {
+        role: 'assistant' as const,
+        content: null,
+        toolCalls: [
+          { id: 'old', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
+        ],
+      },
+      { role: 'tool' as const, toolCallId: 'old', content: oldContent },
+      {
+        role: 'assistant' as const,
+        content: null,
+        toolCalls: [
+          { id: 'mid', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
+        ],
+      },
+      { role: 'tool' as const, toolCallId: 'mid', content: '中间结果仍保留' },
+      {
+        role: 'assistant' as const,
+        content: null,
+        toolCalls: [
+          { id: 'new', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
+        ],
+      },
+      { role: 'tool' as const, toolCallId: 'new', content: '最新结果仍保留' },
+    ];
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: live,
+    });
+    expect(files.createToolResultFile).toHaveBeenCalledOnce();
+    service.applyCollapsedToolPointers(live, compiled.messages);
+    expect(live.find((message) => message.role === 'tool' && message.toolCallId === 'old')).toEqual(
+      expect.objectContaining({ content: expect.stringContaining('[Tool Result stored:') }),
+    );
+    files.createToolResultFile.mockClear();
+    await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: live,
+    });
+    expect(files.createToolResultFile).not.toHaveBeenCalled();
+  });
 });

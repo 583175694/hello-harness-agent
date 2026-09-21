@@ -67,7 +67,7 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
       source: DEEPSEEK_MODEL_PROFILE_SOURCE,
       verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
     },
-    request: { temperature: 0, maxTokens: 8_192, finalAnswerMaxTokens: 16_384 },
+    request: { temperature: 0, maxTokens: 32_768, finalAnswerMaxTokens: 32_768 },
   },
   {
     id: 'deepseek-v4-pro',
@@ -87,7 +87,7 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
       source: DEEPSEEK_MODEL_PROFILE_SOURCE,
       verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
     },
-    request: { temperature: 0, maxTokens: 8_192, finalAnswerMaxTokens: 16_384 },
+    request: { temperature: 0, maxTokens: 32_768, finalAnswerMaxTokens: 32_768 },
   },
   ...(
     [
@@ -117,7 +117,7 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
       source: 'https://help.aliyun.com/zh/model-studio/',
       verified: false,
     },
-    request: { temperature: 0, maxTokens: 8_192, finalAnswerMaxTokens: 16_384 },
+    request: { temperature: 0, maxTokens: 32_768, finalAnswerMaxTokens: 32_768 },
   })),
 ];
 

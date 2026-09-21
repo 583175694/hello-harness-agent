@@ -458,13 +458,13 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     expect(model.streamRound).toHaveBeenCalledTimes(2);
     expect(model.streamRound.mock.calls[0]?.[0]).toMatchObject({
       reasoningEffort: 'high',
-      maxOutputTokens: 8_192,
+      maxOutputTokens: 32_768,
       allowClarification: true,
     });
     expect(model.streamRound.mock.calls[0]?.[0].tools).toBeDefined();
     expect(model.streamRound.mock.calls[1]?.[0]).toMatchObject({
       reasoningEffort: 'off',
-      maxOutputTokens: 16_384,
+      maxOutputTokens: 32_768,
       allowClarification: false,
     });
     expect(model.streamRound.mock.calls[1]?.[0].tools).toBeUndefined();
@@ -494,10 +494,44 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     expect(model.streamRound).toHaveBeenCalledTimes(2);
   });
 
-  it('does not recover an incomplete response as reasoning-only', async () => {
+  it('retries a truncated reasoning-only round instead of treating it as reasoning-only', async () => {
     const model = modelFromRounds([
       [
         { type: 'reasoning.delta', delta: '未完成推理' },
+        {
+          type: 'round.completed',
+          finishReason: 'max_output_tokens',
+          incompleteReason: 'max_output_tokens',
+        },
+      ],
+      [
+        { type: 'text.delta', delta: '这是缩短后的完整回答。' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+
+    const events = await collect(new AgentRuntimeService(model, registry(), logger()));
+    expect(model.streamRound).toHaveBeenCalledTimes(2);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'transcript.item',
+        message: expect.objectContaining({ content: '这是缩短后的完整回答。' }),
+      }),
+    );
+  });
+
+  it('fails after output-limit recovery is also truncated', async () => {
+    const model = modelFromRounds([
+      [
+        { type: 'reasoning.delta', delta: '未完成推理' },
+        {
+          type: 'round.completed',
+          finishReason: 'max_output_tokens',
+          incompleteReason: 'max_output_tokens',
+        },
+      ],
+      [
+        { type: 'reasoning.delta', delta: '仍然超长' },
         {
           type: 'round.completed',
           finishReason: 'max_output_tokens',
@@ -509,7 +543,142 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     await expect(collect(new AgentRuntimeService(model, registry(), logger()))).rejects.toMatchObject(
       { response: { code: AGENT_ERROR_CODES.modelOutputLimit } },
     );
-    expect(model.streamRound).toHaveBeenCalledOnce();
+    expect(model.streamRound).toHaveBeenCalledTimes(2);
+  });
+
+  it('executes a truncated round when tool arguments are still complete JSON', async () => {
+    const tools = registry();
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'call-1',
+              name: AGENT_TOOL_NAMES.webSearch,
+              arguments: '{"query":"weather"}',
+            },
+          ],
+        },
+        {
+          type: 'round.completed',
+          finishReason: 'max_output_tokens',
+          incompleteReason: 'max_output_tokens',
+        },
+      ],
+      [
+        { type: 'text.delta', delta: '天气晴朗。' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+
+    const events = await collect(new AgentRuntimeService(model, tools, logger()));
+    expect(tools.execute).toHaveBeenCalledWith(
+      AGENT_TOOL_NAMES.webSearch,
+      { query: 'weather' },
+      expect.anything(),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'transcript.item',
+        message: expect.objectContaining({ content: '天气晴朗。' }),
+      }),
+    );
+  });
+
+  it('salvages a truncated create_report payload and continues the run', async () => {
+    const tools = registry();
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'call-report',
+              name: AGENT_TOOL_NAMES.createReport,
+              arguments:
+                '{"title":"走势复盘","summary":"摘要","fileName":"report.md","content":"# 结论\\n\\n短期偏强',
+            },
+          ],
+        },
+        {
+          type: 'round.completed',
+          finishReason: 'max_output_tokens',
+          incompleteReason: 'max_output_tokens',
+        },
+      ],
+      [
+        { type: 'text.delta', delta: '报告已生成。' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+
+    const events = await collect(new AgentRuntimeService(model, tools, logger()));
+    expect(tools.parseInput).toHaveBeenCalledWith(
+      AGENT_TOOL_NAMES.createReport,
+      expect.stringContaining('"title":"走势复盘"'),
+    );
+    expect(JSON.parse(String(tools.parseInput.mock.calls[0]?.[1]))).toMatchObject({
+      title: '走势复盘',
+      fileName: 'report.md',
+      content: expect.stringContaining('# 结论'),
+    });
+    expect(tools.execute).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'transcript.item',
+        message: expect.objectContaining({ content: '报告已生成。' }),
+      }),
+    );
+  });
+
+  it('retries an unusable truncated tool call instead of failing the run', async () => {
+    const tools = registry();
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'call-1',
+              name: AGENT_TOOL_NAMES.webSearch,
+              arguments: '{"query":"未完成',
+            },
+          ],
+        },
+        {
+          type: 'round.completed',
+          finishReason: 'max_output_tokens',
+          incompleteReason: 'max_output_tokens',
+        },
+      ],
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'call-2',
+              name: AGENT_TOOL_NAMES.webSearch,
+              arguments: '{"query":"weather"}',
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '已完成。' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+
+    const events = await collect(new AgentRuntimeService(model, tools, logger()));
+    expect(tools.execute).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'transcript.item',
+        message: expect.objectContaining({ content: '已完成。' }),
+      }),
+    );
   });
 
   it('serializes canonical success output instead of consuming tool-owned model content', async () => {
@@ -649,6 +818,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     const context = {
       compileRound,
       trimToolResults,
+      applyCollapsedToolPointers: vi.fn(),
     } as unknown as ContextEngineeringService;
 
     await collect(new AgentRuntimeService(model, registry(), logger(), context));

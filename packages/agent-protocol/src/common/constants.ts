@@ -30,6 +30,8 @@ export const AGENT_PROTOCOL_LIMITS = {
   fileReadResultMaxCharacters: 12_000,
   generatedFileMaxBytes: 10 * 1024 * 1024,
   generatedFileMaxCodePoints: 40_000,
+  // 正式报告与工具轮输出预算对齐，避免把超长正文塞进单次 tool-call JSON。
+  createReportMaxCodePoints: 16_000,
   generatedWorkbookMaxSheets: 10,
   generatedWorkbookMaxRowsPerSheet: 5_000,
   generatedWorkbookMaxCells: 100_000,

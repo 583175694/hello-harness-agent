@@ -351,7 +351,7 @@ export const createReportInputSchema = z
         path: ['fileName'],
         message: 'invalid markdown file name',
       });
-    if ([...v.content].length > 40_000)
+    if ([...v.content].length > AGENT_PROTOCOL_LIMITS.createReportMaxCodePoints)
       c.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['content'],

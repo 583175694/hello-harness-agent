@@ -27,6 +27,19 @@ export type ModelToolCall = {
 };
 
 export type ModelTextPhase = 'pending' | 'commentary' | 'final_answer' | null;
+export type ModelFinishReason =
+  | 'stop'
+  | 'tool_calls'
+  | 'max_output_tokens'
+  | 'content_filter'
+  | 'unknown';
+
+export class ModelProviderResponseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ModelProviderResponseError';
+  }
+}
 
 // Runtime 和模型适配器之间使用的供应商无关消息协议。
 export type ModelMessage =
@@ -51,6 +64,7 @@ export type ModelRoundInput = {
   messages: ModelMessage[];
   tools?: AgentToolDefinition[];
   reasoningEffort: ReasoningEffort;
+  maxOutputTokens?: number;
   signal?: AbortSignal;
   allowClarification?: boolean;
 };
@@ -75,7 +89,8 @@ export type ModelRoundEvent =
   // Round 结束后 Runtime 才能根据是否存在 Tool Call 判断 Content 的最终语义。
   | {
       type: 'round.completed';
-      finishReason: string | null;
+      finishReason: ModelFinishReason | null;
+      incompleteReason?: string;
       usage: {
         promptTokens: number | null;
         completionTokens: number | null;

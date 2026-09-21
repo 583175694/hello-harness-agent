@@ -22,6 +22,7 @@ export type ConfiguredModel = {
   request: {
     temperature?: number;
     maxTokens?: number;
+    finalAnswerMaxTokens?: number;
   };
 };
 
@@ -60,7 +61,7 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
       source: DEEPSEEK_MODEL_PROFILE_SOURCE,
       verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
     },
-    request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
+    request: { temperature: 0, maxTokens: 8_192, finalAnswerMaxTokens: 16_384 },
   },
   {
     id: 'deepseek-v4-pro',
@@ -78,7 +79,7 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
       source: DEEPSEEK_MODEL_PROFILE_SOURCE,
       verified: DEEPSEEK_MODEL_PROFILE_VERIFIED,
     },
-    request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
+    request: { temperature: 0, maxTokens: 8_192, finalAnswerMaxTokens: 16_384 },
   },
   ...(
     [
@@ -106,7 +107,7 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
       source: 'https://help.aliyun.com/zh/model-studio/',
       verified: false,
     },
-    request: { temperature: 0, maxTokens: DEEPSEEK_MAX_OUTPUT_TOKENS },
+    request: { temperature: 0, maxTokens: 8_192, finalAnswerMaxTokens: 16_384 },
   })),
 ];
 

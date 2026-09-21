@@ -87,6 +87,10 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
                 ...metadata,
                 deliveryStatus: 'failed',
                 runId: run.id,
+                error: {
+                  code: 'RUN_INTERRUPTED',
+                  detail: '服务已重启，本次运行未自动恢复。',
+                },
               } as Prisma.InputJsonValue,
             },
           });
@@ -143,6 +147,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
               ...this.metadata(message.metadata),
               deliveryStatus: 'failed',
               runId,
+              error: failure,
             } as Prisma.InputJsonValue,
           },
         });
@@ -907,6 +912,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
               sources: input.projection.sources,
             },
             ...(input.projection.plan ? { plan: input.projection.plan } : {}),
+            ...(input.error ? { error: input.error } : {}),
           } as Prisma.InputJsonValue,
         },
       });

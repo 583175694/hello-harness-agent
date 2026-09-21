@@ -605,7 +605,9 @@ const AssistantMessage = memo(
           {item.deliveryStatus === 'cancelled' ? (
             <div className="assistant-delivery-status">本次回答已取消</div>
           ) : item.deliveryStatus === 'failed' ? (
-            <div className="assistant-delivery-status">本次回答未完成</div>
+            <div className="assistant-delivery-status">
+              本次回答未完成{item.error?.detail ? `：${item.error.detail}` : ''}
+            </div>
           ) : null}
           {showThinking ? (
             <Shimmer

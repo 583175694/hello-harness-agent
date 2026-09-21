@@ -31,6 +31,7 @@ type RoundEvent =
   | {
       type: 'round.completed';
       finishReason: string | null;
+      incompleteReason?: string;
       usage?: {
         promptTokens: number | null;
         completionTokens: number | null;
@@ -129,7 +130,12 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    const events = await collect(new AgentRuntimeService(model, registry(), logger()));
+    const events = await collect(
+      new AgentRuntimeService(model, registry(), logger()),
+      undefined,
+      undefined,
+      'high',
+    );
     expect(events.filter((event) => event.type === 'text.delta')).toEqual([
       expect.objectContaining({ delta: '我先查询。', phase: 'commentary' }),
       expect.objectContaining({ delta: '最终回答。', phase: 'final_answer' }),
@@ -400,7 +406,12 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    const events = await collect(new AgentRuntimeService(model, registry(), logger()));
+    const events = await collect(
+      new AgentRuntimeService(model, registry(), logger()),
+      undefined,
+      undefined,
+      'high',
+    );
 
     expect(events.some((event) => (event as { type: string }).type === 'reasoning.delta')).toBe(
       true,
@@ -425,7 +436,47 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     );
   });
 
-  it('recovers from consecutive reasoning-only rounds within the retry budget', async () => {
+  it('switches one reasoning-only round to a tool-free finalization recovery', async () => {
+    const model = modelFromRounds([
+      [
+        { type: 'reasoning.delta', delta: '第一段思考' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+      [
+        { type: 'text.delta', delta: '最终回答' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+
+    const events = await collect(
+      new AgentRuntimeService(model, registry(), logger()),
+      undefined,
+      undefined,
+      'high',
+    );
+
+    expect(model.streamRound).toHaveBeenCalledTimes(2);
+    expect(model.streamRound.mock.calls[0]?.[0]).toMatchObject({
+      reasoningEffort: 'high',
+      maxOutputTokens: 8_192,
+      allowClarification: true,
+    });
+    expect(model.streamRound.mock.calls[0]?.[0].tools).toBeDefined();
+    expect(model.streamRound.mock.calls[1]?.[0]).toMatchObject({
+      reasoningEffort: 'off',
+      maxOutputTokens: 16_384,
+      allowClarification: false,
+    });
+    expect(model.streamRound.mock.calls[1]?.[0].tools).toBeUndefined();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'transcript.item',
+        message: expect.objectContaining({ content: '最终回答' }),
+      }),
+    );
+  });
+
+  it('fails after one finalization recovery also returns reasoning only', async () => {
     const model = modelFromRounds([
       [
         { type: 'reasoning.delta', delta: '第一段思考' },
@@ -435,21 +486,30 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         { type: 'reasoning.delta', delta: '第二段思考' },
         { type: 'round.completed', finishReason: 'stop' },
       ],
+    ]);
+
+    await expect(collect(new AgentRuntimeService(model, registry(), logger()))).rejects.toMatchObject(
+      { response: { code: AGENT_ERROR_CODES.modelReasoningOnly } },
+    );
+    expect(model.streamRound).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not recover an incomplete response as reasoning-only', async () => {
+    const model = modelFromRounds([
       [
-        { type: 'text.delta', delta: '最终回答' },
-        { type: 'round.completed', finishReason: 'stop' },
+        { type: 'reasoning.delta', delta: '未完成推理' },
+        {
+          type: 'round.completed',
+          finishReason: 'max_output_tokens',
+          incompleteReason: 'max_output_tokens',
+        },
       ],
     ]);
 
-    const events = await collect(new AgentRuntimeService(model, registry(), logger()));
-
-    expect(model.streamRound).toHaveBeenCalledTimes(3);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: 'transcript.item',
-        message: expect.objectContaining({ content: '最终回答' }),
-      }),
+    await expect(collect(new AgentRuntimeService(model, registry(), logger()))).rejects.toMatchObject(
+      { response: { code: AGENT_ERROR_CODES.modelOutputLimit } },
     );
+    expect(model.streamRound).toHaveBeenCalledOnce();
   });
 
   it('serializes canonical success output instead of consuming tool-owned model content', async () => {

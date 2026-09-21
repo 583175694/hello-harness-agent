@@ -15,11 +15,13 @@ import { ENV_KEYS } from '../bootstrap/env.constants';
 import { ModelAdapter } from './model-adapter';
 import { getConfiguredModel } from './model-catalog';
 import type {
+  ModelFinishReason,
   ModelMessage,
   ModelRoundEvent,
   ModelRoundInput,
   ModelToolCall,
 } from './model-adapter';
+import { ModelProviderResponseError } from './model-adapter';
 import { clarificationRequestSchema } from '@harness/agent-protocol';
 import { FilesService } from '../files/files.service';
 
@@ -48,6 +50,15 @@ type ProviderUsage = NonNullable<ChatCompletionChunk['usage']> & {
   prompt_cache_hit_tokens?: number;
   prompt_cache_miss_tokens?: number;
 };
+
+function normalizeFinishReason(reason: string | null | undefined): ModelFinishReason | null {
+  if (!reason) return null;
+  if (reason === 'stop') return 'stop';
+  if (reason === 'tool_calls' || reason === 'function_call') return 'tool_calls';
+  if (reason === 'length') return 'max_output_tokens';
+  if (reason === 'content_filter') return 'content_filter';
+  return 'unknown';
+}
 
 // 将供应商返回的 token 统计统一为运行时使用的字段，并保留未知值为空。
 export function normalizeProviderUsage(usage: ProviderUsage): {
@@ -118,8 +129,8 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       ...(configured?.request.temperature !== undefined
         ? { temperature: configured.request.temperature }
         : {}),
-      ...(configured?.request.maxTokens !== undefined
-        ? { max_tokens: configured.request.maxTokens }
+      ...(input.maxOutputTokens ?? configured?.request.maxTokens
+        ? { max_tokens: input.maxOutputTokens ?? configured?.request.maxTokens }
         : {}),
       messages: await this.toProviderMessages(input.messages, input.model),
       ...(input.tools || input.allowClarification
@@ -145,7 +156,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       input.signal ? { signal: input.signal } : undefined,
     )) as Awaited<ReturnType<OpenAI['chat']['completions']['create']>> & AsyncIterable<unknown>;
     const pendingCalls = new Map<number, ModelToolCall>();
-    let finishReason: string | null = null;
+    let finishReason: ModelFinishReason | null = null;
     let nextBlockSequence = 0;
     let contentBlockSequence: number | undefined;
     let reasoningBlockSequence: number | undefined;
@@ -164,7 +175,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       }
       const choice = chunk.choices[0];
       if (!choice) continue;
-      finishReason = choice.finish_reason ?? finishReason;
+      finishReason = normalizeFinishReason(choice.finish_reason) ?? finishReason;
       const reasoning = (choice.delta as DeepSeekDelta).reasoning_content;
       if (reasoning) {
         reasoningBlockSequence ??= nextBlockSequence++;
@@ -233,7 +244,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       model: input.model,
       input: responseInput,
       stream: true,
-      max_output_tokens: configured.request.maxTokens,
+      max_output_tokens: input.maxOutputTokens ?? configured.request.maxTokens,
       ...(configured.request.temperature !== undefined
         ? { temperature: configured.request.temperature }
         : {}),
@@ -269,7 +280,8 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       emittedText: boolean;
     };
     const messageStates = new Map<string, MessageState>();
-    let finishReason: string | null = null;
+    let finishReason: ModelFinishReason | null = null;
+    let incompleteReason: string | undefined;
     let promptTokens: number | null = null;
     let completionTokens: number | null = null;
     let cachedTokens: number | null = null;
@@ -369,14 +381,25 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       }
       if (value.type === 'response.completed' || value.type === 'response.incomplete') {
         const response = value.response as Record<string, any> | undefined;
-        finishReason = value.type === 'response.incomplete' ? 'length' : 'stop';
+        incompleteReason =
+          value.type === 'response.incomplete'
+            ? String(response?.incomplete_details?.reason ?? 'unknown')
+            : undefined;
+        finishReason =
+          value.type === 'response.incomplete'
+            ? incompleteReason === 'max_output_tokens'
+              ? 'max_output_tokens'
+              : 'unknown'
+            : 'stop';
         const usage = response?.usage as Record<string, any> | undefined;
         promptTokens = usage?.input_tokens ?? null;
         completionTokens = usage?.output_tokens ?? null;
         cachedTokens = usage?.input_tokens_details?.cached_tokens ?? null;
       }
       if (value.type === 'response.failed')
-        throw new Error(String(value.response?.error?.message ?? 'RESPONSES_API_FAILED'));
+        throw new ModelProviderResponseError(
+          String(value.response?.error?.message ?? 'RESPONSES_API_FAILED'),
+        );
     }
     const allCalls = [...calls.values()].filter((call) => call.id && call.name);
     const clarificationCalls = allCalls.filter((call) => call.name === CLARIFICATION_CONTROL_NAME);
@@ -392,6 +415,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     yield {
       type: 'round.completed',
       finishReason,
+      ...(incompleteReason ? { incompleteReason } : {}),
       usage: {
         promptTokens,
         completionTokens,

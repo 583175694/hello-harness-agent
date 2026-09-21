@@ -83,6 +83,16 @@ export const AGENT_ERROR_CODES = {
   modelLengthLimit: 'MODEL_LENGTH_LIMIT',
   // 模型返回了空内容，无法交付 assistant 消息。
   modelEmptyResponse: 'MODEL_EMPTY_RESPONSE',
+  // 模型完成了推理，但没有生成用户可见的最终正文。
+  modelReasoningOnly: 'MODEL_REASONING_ONLY',
+  // 单次模型轮次超过 Runtime 允许的等待时间。
+  modelRoundTimeout: 'MODEL_ROUND_TIMEOUT',
+  // 模型输出预算耗尽，响应以 incomplete 结束。
+  modelOutputLimit: 'MODEL_OUTPUT_LIMIT',
+  // 供应商模型流意外中断，且当前请求无法恢复。
+  modelStreamInterrupted: 'MODEL_STREAM_INTERRUPTED',
+  // 整个 assistant Run 超过累计执行时限。
+  runDeadlineExceeded: 'RUN_DEADLINE_EXCEEDED',
   // Context Engineering 在强制保留内容仍无法放入模型预算时返回。
   contextBudgetExceeded: 'CONTEXT_BUDGET_EXCEEDED',
   // 当前 assistant run 已达到模型工具调用次数上限。

@@ -77,6 +77,7 @@ export const modelRoundObservationSchema = z.object({
   estimatedPromptTokens: z.number().int().nonnegative(),
   durationMs: z.number().int().nonnegative(),
   finishReason: z.string().nullable(),
+  incompleteReason: z.string().min(1).optional(),
 });
 
 export const runObservabilitySchema = z.object({
@@ -393,6 +394,7 @@ export const assistantAgentMetadataSchema = z.object({
     .optional(),
   context: runContextDebugSchema.optional(),
   plan: planSnapshotSchema.optional(),
+  error: z.object({ code: z.string().min(1), detail: z.string().min(1) }).optional(),
   agent: z
     .object({
       toolCallCount: z.number().int().nonnegative().max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),

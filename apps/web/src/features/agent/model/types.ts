@@ -85,6 +85,7 @@ export type ConversationItem =
       blocks: AssistantContentBlock[];
       pending?: boolean;
       deliveryStatus?: 'streaming' | 'completed' | 'failed' | 'cancelled';
+      error?: { code: string; detail: string };
       time?: string;
       createdAt?: string;
       workbench?: WorkbenchState;

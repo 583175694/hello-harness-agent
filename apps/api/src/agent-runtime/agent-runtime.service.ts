@@ -10,7 +10,12 @@ import { Logger } from 'nestjs-pino';
 
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import { ModelAdapter } from '../model/model-adapter';
-import type { ModelMessage, ModelToolCall } from '../model/model-adapter';
+import {
+  ModelProviderResponseError,
+  type ModelFinishReason,
+  type ModelMessage,
+  type ModelToolCall,
+} from '../model/model-adapter';
 import type { ToolExecutionContext, ToolExecutionResult } from '../tools/agent-tool.types';
 import { ToolInputValidationError, ToolRegistryService } from '../tools/tool-registry.service';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
@@ -53,6 +58,10 @@ export class AgentRuntimeService {
   // 执行受通用调用上限约束的模型-工具循环，并输出供应商无关的 Runtime 事件。
   async *run(input: AgentRuntimeInput): AsyncGenerator<AgentRuntimeEvent> {
     const runtimeStartedAt = Date.now();
+    const runDeadlineSignal = AbortSignal.timeout(DEFAULT_RUNTIME_POLICY.runTimeoutMs);
+    const runSignal = input.signal
+      ? AbortSignal.any([input.signal, runDeadlineSignal])
+      : runDeadlineSignal;
     // System Prompt 与历史消息共同组成第一轮模型上下文，后续轮次只在该数组末尾追加。
     const messages: ModelMessage[] = [
       { role: 'system', content: input.systemPrompt },
@@ -66,10 +75,8 @@ export class AgentRuntimeService {
     let visibleContent = '';
     let modelRounds = 0;
     let compactionState: CompactionState | undefined;
-    // 某些供应商会先结束一个仅包含 reasoning 的响应，再在后续请求中产出正文。
-    // 这不应被当作空响应，但最终仍必须拿到普通文本才能完成 Run。
-    let reasoningOnlyFinalRetries = 0;
-    let reasoningOnlyRoundRetries = 0;
+    // reasoning-only 只允许单向切换一次到无工具、无思考的最终回答恢复阶段。
+    let finalizationRecoveryAttempted = false;
     // Runtime 仅保留最新计划，用于事件发布和下一轮只读上下文。
     let currentPlan: PlanSnapshot | undefined;
     // 将运行从可调用工具的调查阶段单向切换到无工具的最终回答阶段。
@@ -82,7 +89,7 @@ export class AgentRuntimeService {
     // 每次外层循环对应一次独立模型请求，也就是一个稳定的 Model Round。
     // 每一轮要么得到最终文本，要么执行工具并把结果追加到下一轮上下文。
     runtimeLoop: while (modelRounds <= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
-      if (input.signal?.aborted) throw this.abortError();
+      this.assertRunActive(input.signal, runDeadlineSignal);
       modelRounds += 1;
       const beforeModelWait = this.reachLifecycle(input, 'before_model_request', {
         roundSequence: modelRounds,
@@ -102,7 +109,7 @@ export class AgentRuntimeService {
           };
         }
       }
-      if (input.signal?.aborted) throw this.abortError();
+      this.assertRunActive(input.signal, runDeadlineSignal);
       this.logger.log(
         `模型 Loop 即将开始 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | 轮次=${modelRounds} | 阶段=${finalResponseOnly ? 'final_answer' : 'tool_loop'} | 暂停状态=${input.lifecycle?.snapshot().state ?? 'none'}`,
         AgentRuntimeService.name,
@@ -122,7 +129,7 @@ export class AgentRuntimeService {
               model: input.model,
               messages,
               tools: definitions,
-              signal: input.signal,
+              signal: runSignal,
               ...(compactionState ? { compactionState } : {}),
             })
           : { messages, estimatedInputTokens: 0, promptBudget: null, compactionTriggered: false };
@@ -151,7 +158,8 @@ export class AgentRuntimeService {
       let reasoningDeltas: string[] = [];
       let calls: ModelToolCall[] = [];
       let clarification: import('@harness/agent-protocol').ClarificationRequest | undefined;
-      let finishReason: string | null = null;
+      let finishReason: ModelFinishReason | null = null;
+      let incompleteReason: string | undefined;
       // roundId 是稳定关联标识，roundSequence 才承担跨 Round 的排序职责。
       let roundId = crypto.randomUUID();
       let textBlockSequence = 0;
@@ -166,7 +174,7 @@ export class AgentRuntimeService {
         const attemptStartedAt = Date.now();
         // 普通轮和最终回答使用不同超时，但都必须响应用户取消信号。
         const roundSignal = this.roundSignal(
-          input.signal,
+          runSignal,
           finalResponseOnly
             ? DEFAULT_RUNTIME_POLICY.finalAnswerTimeoutMs
             : DEFAULT_RUNTIME_POLICY.modelRoundTimeoutMs,
@@ -176,6 +184,7 @@ export class AgentRuntimeService {
         calls = [];
         textPhase = undefined;
         finishReason = null;
+        incompleteReason = undefined;
         let usage = {
           promptTokens: null as number | null,
           completionTokens: null as number | null,
@@ -197,6 +206,9 @@ export class AgentRuntimeService {
             // 最终答案不需要新的思维链：保留输出
             // 为用户可见内容预留预算。历史工具调用推理在协议需要时仍由模型适配器回放。
             reasoningEffort: finalResponseOnly ? 'off' : (input.reasoningEffort ?? 'off'),
+            maxOutputTokens: finalResponseOnly
+              ? DEFAULT_RUNTIME_POLICY.finalAnswerMaxOutputTokens
+              : DEFAULT_RUNTIME_POLICY.toolRoundMaxOutputTokens,
             signal: roundSignal,
             allowClarification: !finalResponseOnly,
           })) {
@@ -242,6 +254,7 @@ export class AgentRuntimeService {
             } else {
               // 结束原因用于区分正常完成、长度截断和其他供应商终态。
               finishReason = event.finishReason;
+              incompleteReason = event.incompleteReason;
               usage = event.usage ?? usage;
             }
           }
@@ -263,14 +276,29 @@ export class AgentRuntimeService {
             );
             throw error;
           }
-          // 模型超时或上游异常统一映射为稳定 API 错误，详细原因只进入脱敏日志。
+          if (runDeadlineSignal.aborted)
+            throw new ServiceUnavailableException({
+              code: AGENT_ERROR_CODES.runDeadlineExceeded,
+              detail: '本次任务已达到总执行时间上限。',
+            });
+          if (roundSignal.aborted)
+            throw new ServiceUnavailableException({
+              code: AGENT_ERROR_CODES.modelRoundTimeout,
+              detail: '模型本轮响应超时，本次回答未完成。',
+            });
+          if (error instanceof ModelProviderResponseError)
+            throw new BadGatewayException({
+              code: AGENT_ERROR_CODES.modelRequestFailed,
+              detail: '模型供应商返回失败，本次回答未完成。',
+            });
+          // 已排除取消和确定性超时后，其余流异常按不可恢复的传输中断处理。
           this.logger.warn(
             `模型请求失败 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 原因=${describeLogError(error)} | 耗时=${formatLogDuration(Date.now() - attemptStartedAt)}`,
             AgentRuntimeService.name,
           );
           throw new BadGatewayException({
-            code: AGENT_ERROR_CODES.modelRequestFailed,
-            detail: '模型服务暂时不可用，请检查供应商配置后重试。',
+            code: AGENT_ERROR_CODES.modelStreamInterrupted,
+            detail: '模型响应流意外中断，本次回答未完成。',
           });
         }
 
@@ -303,6 +331,7 @@ export class AgentRuntimeService {
             ...usage,
             durationMs: roundDurationMs,
             finishReason,
+            ...(incompleteReason ? { incompleteReason } : {}),
           },
           context: {
             version: 1,
@@ -330,7 +359,7 @@ export class AgentRuntimeService {
         );
 
         // 最终回答被长度截断时不能作为完整消息交付或持久化。
-        if (finalResponseOnly && finishReason === 'length') {
+        if (finalResponseOnly && finishReason === 'max_output_tokens') {
           visibleContent = visibleContent.slice(0, attemptVisibleStart);
           yield {
             type: 'text.discarded',
@@ -339,27 +368,9 @@ export class AgentRuntimeService {
             blockSequence: textBlockSequence,
           };
           throw new ServiceUnavailableException({
-            code: AGENT_ERROR_CODES.modelLengthLimit,
+            code: AGENT_ERROR_CODES.modelOutputLimit,
             detail: '模型输出达到长度上限，本次回答未保存。',
           });
-        }
-        // reasoning-only 不是最终答案，但也不是空响应：供应商可能把思考和正文拆成两次响应。
-        // 先继续一次无工具请求，只有完全没有任何输出时才立即报空响应。
-        if (
-          finalResponseOnly &&
-          !roundContent.trim() &&
-          calls.length === 0 &&
-          reasoningDeltas.length
-        ) {
-          if (reasoningOnlyFinalRetries < DEFAULT_RUNTIME_POLICY.reasoningOnlyRetries) {
-            reasoningOnlyFinalRetries += 1;
-            messages.push({
-              role: 'system',
-              content:
-                '上一轮仅返回了思考过程，尚未给出最终答案。请继续输出面向用户的普通文本最终回答。',
-            });
-            continue runtimeLoop;
-          }
         }
         // 无文本、无 reasoning 且无工具调用表示供应商没有产生任何可消费结果。
         if (
@@ -413,10 +424,22 @@ export class AgentRuntimeService {
         break;
       }
 
-      // 长度截断的文本不能作为完整交付持久化。
-      if (finishReason === 'length') {
+      if (incompleteReason) {
         throw new ServiceUnavailableException({
-          code: AGENT_ERROR_CODES.modelLengthLimit,
+          code:
+            incompleteReason === 'max_output_tokens'
+              ? AGENT_ERROR_CODES.modelOutputLimit
+              : AGENT_ERROR_CODES.modelStreamInterrupted,
+          detail:
+            incompleteReason === 'max_output_tokens'
+              ? '模型输出预算已耗尽，本次回答未保存。'
+              : '模型响应未完整结束，本次回答未完成。',
+        });
+      }
+      // 长度截断的文本不能作为完整交付持久化。
+      if (finishReason === 'max_output_tokens') {
+        throw new ServiceUnavailableException({
+          code: AGENT_ERROR_CODES.modelOutputLimit,
           detail: '模型输出达到长度上限，本次回答未保存。',
         });
       }
@@ -438,7 +461,7 @@ export class AgentRuntimeService {
         ...(clarification ? { clarification } : {}),
       });
       if (classifiedWait) await classifiedWait;
-      if (input.signal?.aborted) throw this.abortError();
+      this.assertRunActive(input.signal, runDeadlineSignal);
 
       if (clarification) {
         if (normalizedCalls.length || finalResponseOnly)
@@ -503,16 +526,23 @@ export class AgentRuntimeService {
         const roundContent = textDeltas.join('');
         if (
           !roundContent.trim() &&
-          reasoningDeltas.length &&
-          reasoningOnlyRoundRetries < DEFAULT_RUNTIME_POLICY.reasoningOnlyRetries
+          !finalResponseOnly &&
+          !finalizationRecoveryAttempted
         ) {
-          reasoningOnlyRoundRetries += 1;
+          finalizationRecoveryAttempted = true;
+          enterFinalAnswer();
           messages.push({
             role: 'system',
             content:
-              '上一轮仅返回了思考过程，尚未给出可交付内容。请继续输出面向用户的普通文本回答，或调用合适的工具。',
+              '上一轮没有生成用户可见正文。请停止继续分析，仅依据已有材料直接输出完整最终答案，不得调用工具或输出控制标记。',
           });
           continue runtimeLoop;
+        }
+        if (!roundContent.trim() && reasoningDeltas.length) {
+          throw new ServiceUnavailableException({
+            code: AGENT_ERROR_CODES.modelReasoningOnly,
+            detail: '模型完成了推理，但没有生成可显示的最终答案。',
+          });
         }
         // 普通调查轮同样不能把纯空白结果当作成功交付。
         if (!roundContent.trim()) {
@@ -667,7 +697,7 @@ export class AgentRuntimeService {
         ),
       });
       if (dispatchReadyWait) await dispatchReadyWait;
-      if (input.signal?.aborted) throw this.abortError();
+      this.assertRunActive(input.signal, runDeadlineSignal);
 
       const approvalItems = dispatchPlan
         .filter(
@@ -815,7 +845,7 @@ export class AgentRuntimeService {
               messageId: input.messageId,
               toolCallId: call.id,
             },
-            input.signal,
+            runSignal,
           );
         } catch (error) {
           if (input.signal?.aborted) {
@@ -836,6 +866,7 @@ export class AgentRuntimeService {
             };
             throw error;
           }
+          this.assertRunActive(input.signal, runDeadlineSignal);
           const timedOut = error instanceof ToolExecutionTimeoutError;
           result = {
             status: timedOut ? 'timeout' : 'failed',
@@ -914,7 +945,7 @@ export class AgentRuntimeService {
             blockSequence: call.blockSequence,
           };
         }
-        if (input.signal?.aborted) throw this.abortError();
+        this.assertRunActive(input.signal, runDeadlineSignal);
         pendingToolResults.push({
           candidate: {
             toolCallId: call.id,
@@ -995,7 +1026,7 @@ export class AgentRuntimeService {
         nextAction: finalResponseOnly ? 'final_answer' : 'model_request',
       });
       if (batchCommittedWait) await batchCommittedWait;
-      if (input.signal?.aborted) throw this.abortError();
+      this.assertRunActive(input.signal, runDeadlineSignal);
       // 整批 assistant Tool Calls 已逐一配对后，再追加一次无工具最终回答约束。
       if (finalResponseOnly && !finalInstructionAdded) {
         finalInstructionAdded = true;
@@ -1131,6 +1162,18 @@ export class AgentRuntimeService {
   private roundSignal(external: AbortSignal | undefined, timeoutMs: number): AbortSignal {
     const timeout = AbortSignal.timeout(timeoutMs);
     return external ? AbortSignal.any([external, timeout]) : timeout;
+  }
+
+  private assertRunActive(
+    externalSignal: AbortSignal | undefined,
+    runDeadlineSignal: AbortSignal,
+  ): void {
+    if (externalSignal?.aborted) throw this.abortError();
+    if (runDeadlineSignal.aborted)
+      throw new ServiceUnavailableException({
+        code: AGENT_ERROR_CODES.runDeadlineExceeded,
+        detail: '本次任务已达到总执行时间上限。',
+      });
   }
 
   // DeepSeek 等兼容供应商偶发把内部 DSML 控制协议作为正文返回。

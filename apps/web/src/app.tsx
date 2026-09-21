@@ -726,6 +726,18 @@ function toConversationItem(message: PersistedMessage): ConversationItem {
       })
     : [];
   const restoredBlocks = blocks.length ? cloneAssistantBlocks(blocks) : [];
+  const errorValue = metadata.error;
+  const persistedError: { code: string; detail: string } | undefined =
+    typeof errorValue === 'object' &&
+    errorValue !== null &&
+    !Array.isArray(errorValue) &&
+    typeof (errorValue as Record<string, unknown>).code === 'string' &&
+    typeof (errorValue as Record<string, unknown>).detail === 'string'
+      ? {
+          code: (errorValue as { code: string; detail: string }).code,
+          detail: (errorValue as { code: string; detail: string }).detail,
+        }
+      : undefined;
   const finalBlocks = restoredBlocks.length
     ? restoredBlocks
     : [{ id: `${message.id}-text-1`, type: 'text' as const, content: message.content }];
@@ -734,6 +746,7 @@ function toConversationItem(message: PersistedMessage): ConversationItem {
     kind: 'assistant',
     blocks: finalBlocks,
     ...(message.deliveryStatus ? { deliveryStatus: message.deliveryStatus } : {}),
+    ...(persistedError ? { error: persistedError } : {}),
     createdAt: message.createdAt,
     workbench: workbenchFromPersistedMessage(message),
   };
@@ -1066,6 +1079,11 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
                 : 'streaming',
         runId: snapshot.runId,
         blocks: snapshot.blocks,
+        ...(snapshot.error &&
+        typeof snapshot.error.code === 'string' &&
+        typeof snapshot.error.detail === 'string'
+          ? { error: { code: snapshot.error.code, detail: snapshot.error.detail } }
+          : {}),
         agent: {
           toolCallCount: snapshot.toolCallCount,
           executions: snapshot.executions,
@@ -1471,7 +1489,15 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
             workbench,
             conversation: target.conversation.map((item) =>
               item.kind === 'assistant' && item.pending
-                ? { ...item, pending: false, deliveryStatus: status, workbench }
+                ? {
+                    ...item,
+                    pending: false,
+                    deliveryStatus: status,
+                    workbench,
+                    ...(event.type === 'run.failed' && 'code' in event.payload
+                      ? { error: { code: event.payload.code, detail: event.payload.detail } }
+                      : {}),
+                  }
                 : item,
             ),
           },

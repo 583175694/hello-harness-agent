@@ -143,7 +143,7 @@ describe('ChatService session persistence', () => {
         model: 'deepseek-v4-pro',
         reasoning_effort: 'max',
         temperature: 0,
-        max_tokens: 384_000,
+        max_tokens: 8_192,
       }),
       expect.anything(),
     );
@@ -155,9 +155,13 @@ describe('ChatService session persistence', () => {
         kind: 'assistant_delivery',
         content: '完整回答',
         metadata: {
-          blocks: [
-            { id: `${prepared.assistantMessageId}-text-1`, type: 'text', content: '完整回答' },
-          ],
+          blocks: expect.arrayContaining([
+            expect.objectContaining({
+              id: `${prepared.assistantMessageId}-text-1`,
+              type: 'text',
+              content: '完整回答',
+            }),
+          ]),
         },
       },
     });
@@ -190,7 +194,7 @@ describe('ChatService session persistence', () => {
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await expect(collect(service.streamPrepared(prepared))).rejects.toMatchObject({
-      response: { code: 'MODEL_LENGTH_LIMIT' },
+      response: { code: 'MODEL_OUTPUT_LIMIT' },
     });
     expect(messageCreate).toHaveBeenCalledTimes(1);
   });
@@ -328,7 +332,7 @@ describe('ChatService session persistence', () => {
     );
     expect(providerCreate).toHaveBeenCalledTimes(2);
     expect(events.some((event) => (event as { type?: string }).type === 'reasoning.delta')).toBe(
-      false,
+      true,
     );
     expect(onTranscriptItem).toHaveBeenNthCalledWith(
       1,
@@ -353,7 +357,7 @@ describe('ChatService session persistence', () => {
         content: expect.stringContaining('我先检索。检索完成。'),
         metadata: {
           model: CHAT_COMPLETIONS_MODEL_ID,
-          blocks: [
+          blocks: expect.arrayContaining([
             expect.objectContaining({ type: 'text', content: '我先检索。' }),
             expect.objectContaining({
               type: 'tool_activity',
@@ -361,7 +365,7 @@ describe('ChatService session persistence', () => {
               status: 'completed',
             }),
             expect.objectContaining({ type: 'text', content: expect.stringContaining('检索完成') }),
-          ],
+          ]),
           agent: {
             toolCallCount: 1,
             executions: [
@@ -671,14 +675,14 @@ describe('ChatService session persistence', () => {
       data: {
         content: '检索已停止。',
         metadata: {
-          blocks: [
+          blocks: expect.arrayContaining([
             expect.objectContaining({
               type: 'tool_activity',
               toolCallId: 'call-cancelled',
               status: 'cancelled',
             }),
             expect.objectContaining({ type: 'text', content: '检索已停止。' }),
-          ],
+          ]),
           agent: {
             executions: [
               expect.objectContaining({ toolCallId: 'call-cancelled', status: 'cancelled' }),

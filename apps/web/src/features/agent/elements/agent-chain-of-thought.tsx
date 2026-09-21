@@ -33,6 +33,7 @@ function toolIcon(toolName: string): LucideIcon {
   if (toolName === 'web_search' || toolName === 'web_fetch') return Search;
   if (toolName === 'search_file' || toolName === 'read_file_lines') return FileSearch;
   if (toolName === 'create_file' || toolName === 'create_report') return FileText;
+  if (toolName === 'execute_command') return Clock3;
   return Clock3;
 }
 

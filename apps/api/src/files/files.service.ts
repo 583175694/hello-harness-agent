@@ -221,6 +221,102 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
+  async readOriginalBytes(fileId: string): Promise<Buffer> {
+    const file = await this.findOwned(fileId);
+    if (!file.originalKey)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileNotReady,
+        detail: '文件原始内容不可用。',
+      });
+    const object = await this.storage.readObject({
+      sessionId: file.sessionId,
+      fileId: file.id,
+      variant: 'original',
+    });
+    return object.content;
+  }
+
+  async importGeneratedBytes(input: {
+    sessionId: string;
+    fileName: string;
+    data: Uint8Array;
+  }) {
+    const session = await this.prisma.session.findFirst({
+      where: { id: input.sessionId, userId: LOCAL_USER_ID },
+    });
+    if (!session)
+      throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
+    const buffer = Buffer.from(input.data);
+    if (buffer.length === 0)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.generatedFileEmpty,
+        detail: '输出文件为空。',
+      });
+    if (buffer.length > 20 * 1024 * 1024)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.generatedFileTooLarge,
+        detail: '输出文件超过 20 MiB。',
+      });
+    const mediaType = mediaTypeFromFileName(input.fileName);
+    const fileKind = artifactKindFromMediaType(mediaType);
+    if (!fileKind)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.generatedFileTypeUnsupported,
+        detail: '输出文件类型不在用户上传允许且可成为 Artifact 的种类中。',
+      });
+    const fileId = crypto.randomUUID();
+    await this.prisma.file.create({
+      data: {
+        id: fileId,
+        userId: LOCAL_USER_ID,
+        sessionId: input.sessionId,
+        fileName: input.fileName.trim(),
+        mediaType,
+        fileKind,
+        origin: 'agent_generated',
+        size: buffer.length,
+        sha256: createHash('sha256').update(buffer).digest('hex'),
+        status: 'processing',
+        processingStartedAt: new Date(),
+      },
+    });
+    try {
+      const original = await this.storage.putOriginal({
+        sessionId: input.sessionId,
+        fileId,
+        content: buffer,
+        contentType: mediaType,
+      });
+      const normalizedContent = buffer.toString('utf8');
+      const normalized = await this.storage.putNormalized({
+        sessionId: input.sessionId,
+        fileId,
+        content: Buffer.from(normalizedContent, 'utf8'),
+        contentType: 'text/plain; charset=utf-8',
+      });
+      const file = await this.prisma.file.update({
+        where: { id: fileId },
+        data: {
+          originalKey: original.objectKey,
+          normalizedKey: normalized.objectKey,
+          contentHash: createHash('sha256').update(normalizedContent, 'utf8').digest('hex'),
+          parserVersion: 'c3-a-sandbox',
+          lineCount: normalizedContent.split('\n').length,
+          characterCount: [...normalizedContent].length,
+          overview: { format: fileKind, source: 'sandbox' },
+          status: 'ready',
+          retryable: false,
+          processingCompletedAt: new Date(),
+        },
+      });
+      return this.toPublicRef(file, false);
+    } catch (error) {
+      await this.storage.deleteFile({ sessionId: input.sessionId, fileId }).catch(() => undefined);
+      await this.prisma.file.deleteMany({ where: { id: fileId, origin: 'agent_generated' } });
+      throw error;
+    }
+  }
+
   // 将超大 Tool Result 全文写成 Session 内 File，供 search_file / read_file_lines 回读。
   // 不走用户上传解析或 create_file 的 4 万字上限，避免回读时拿不到原文。
   async createToolResultFile(input: {
@@ -1109,4 +1205,35 @@ function toolResultFileName(toolName: string, toolCallId: string, extension: str
   const safeTool = toolName.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 40) || 'tool';
   const safeCall = toolCallId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 16) || 'result';
   return `${safeTool}_${safeCall}.${extension}`;
+}
+
+function mediaTypeFromFileName(fileName: string): string {
+  const ext = fileName.trim().toLowerCase().split('.').pop();
+  return (
+    {
+      txt: 'text/plain',
+      md: 'text/markdown',
+      csv: 'text/csv',
+      json: 'application/json',
+      html: 'text/html',
+      pdf: 'application/pdf',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    } as Record<string, string>
+  )[ext ?? ''] ?? 'application/octet-stream';
+}
+
+function artifactKindFromMediaType(
+  mediaType: string,
+): 'text' | 'markdown' | 'json' | 'html' | 'pdf' | 'docx' | 'xlsx' | undefined {
+  const kinds = {
+    'text/plain': 'text',
+    'text/markdown': 'markdown',
+    'application/json': 'json',
+    'text/html': 'html',
+    'application/pdf': 'pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  } as const;
+  return kinds[mediaType as keyof typeof kinds];
 }

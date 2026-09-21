@@ -25,7 +25,33 @@ import {
   assistantArtifactBlockSchema,
   createFileResultSchema,
   createReportInputSchema,
+  executeCommandInputSchema,
+  executeCommandPublicResultSchema,
+  toExecuteCommandInputSummary,
 } from '../src/index.js';
+
+describe('execute_command protocol', () => {
+  it('rejects escaping paths and keeps public results free of stdout', () => {
+    expect(executeCommandInputSchema.parse({ command: 'echo hi' }).command).toBe('echo hi');
+    expect(() => executeCommandInputSchema.parse({ command: 'x', cwd: '/etc' })).toThrow();
+    expect(() => executeCommandInputSchema.parse({ command: 'x', cwd: '../out' })).toThrow();
+    const summary = toExecuteCommandInputSummary({
+      command: 'a'.repeat(250),
+    });
+    expect([...summary.command].length).toBe(201);
+    expect(
+      executeCommandPublicResultSchema.parse({
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        aborted: false,
+        timeoutMs: 30_000,
+        durationMs: 12,
+        truncated: { stdout: false, stderr: false },
+      }),
+    ).not.toHaveProperty('stdout');
+  });
+});
 
 describe('foundation protocol', () => {
   it('keeps enough assistant timeline capacity for 40 tool calls with preambles', () => {
@@ -148,7 +174,7 @@ describe('foundation protocol', () => {
     ).toMatchObject({ inputType: 'document', fileName: 'legacy.md' });
   });
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.15.0');
+    expect(protocolVersion).toBe('0.16.0');
   });
 
   it('validates HITL commands and rejects incomplete approval decisions', () => {

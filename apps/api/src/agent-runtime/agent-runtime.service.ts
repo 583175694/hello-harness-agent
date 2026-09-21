@@ -8,7 +8,12 @@ import {
 import { createHash } from 'node:crypto';
 import { Logger } from 'nestjs-pino';
 
-import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
+import {
+  AGENT_ERROR_CODES,
+  AGENT_TOOL_NAMES,
+  executeCommandInputSchema,
+  toExecuteCommandInputSummary,
+} from '@harness/agent-protocol';
 import { ModelAdapter } from '../model/model-adapter';
 import {
   ModelProviderResponseError,
@@ -1133,6 +1138,10 @@ export class AgentRuntimeService {
 
   // create_file 的正文只进入工具执行，不进入 SSE、快照、日志或历史 metadata。
   private publicToolInput(toolName: string, input: unknown): unknown {
+    if (toolName === AGENT_TOOL_NAMES.executeCommand && typeof input === 'object' && input !== null) {
+      const parsed = executeCommandInputSchema.safeParse(input);
+      return parsed.success ? toExecuteCommandInputSummary(parsed.data) : input;
+    }
     if (
       (toolName !== AGENT_TOOL_NAMES.createFile && toolName !== AGENT_TOOL_NAMES.createReport) ||
       typeof input !== 'object' ||
@@ -1249,11 +1258,23 @@ export class AgentRuntimeService {
         externalSignal.addEventListener('abort', cancelListener, { once: true });
       }
     });
+    const execution = this.tools.execute(name, input, { ...context, signal });
     try {
-      return await Promise.race([
-        this.tools.execute(name, input, { ...context, signal }),
-        boundary,
-      ]);
+      return await Promise.race([execution, boundary]);
+    } catch (error) {
+      timeoutController.abort();
+      const graceMs = name === AGENT_TOOL_NAMES.executeCommand ? 10_000 : 0;
+      if (graceMs > 0) {
+        const settled = await Promise.race([
+          execution.then(
+            (result) => result,
+            () => undefined,
+          ),
+          new Promise<undefined>((resolve) => setTimeout(resolve, graceMs)),
+        ]);
+        if (settled) return settled;
+      }
+      throw error;
     } finally {
       if (timeout) clearTimeout(timeout);
       if (externalSignal && cancelListener)

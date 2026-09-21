@@ -257,6 +257,83 @@ describe('conversation blocks reducer', () => {
     });
   });
 
+  it('projects execute_command completion and collected artifacts', () => {
+    const started = applyToolActivityEvent([], {
+      type: 'tool.started',
+      messageId: 'message-1',
+      blockId: 'tool-cmd',
+      toolCallId: 'call-cmd',
+      toolName: 'execute_command',
+      title: '执行命令',
+      input: {
+        command: 'python3 summarize.py',
+        cwd: '.',
+        timeoutMs: 30_000,
+        inputFiles: [{ fileId: 'file-1', path: 'summarize.py' }],
+        output: { path: 'out.txt', fileName: 'out.txt' },
+      },
+      startedAt: '2026-09-21T09:00:00.000Z',
+      roundId: 'round-3',
+      roundSequence: 3,
+      blockSequence: 1,
+    });
+    const blocks = applyToolActivityEvent(started, {
+      type: 'tool.completed',
+      messageId: 'message-1',
+      blockId: 'tool-cmd',
+      toolCallId: 'call-cmd',
+      toolName: 'execute_command',
+      completedAt: '2026-09-21T09:00:01.000Z',
+      durationMs: 80,
+      result: {
+        exitCode: 1,
+        signal: null,
+        timedOut: false,
+        aborted: false,
+        timeoutMs: 30_000,
+        durationMs: 80,
+        truncated: { stdout: false, stderr: false },
+        collection: {
+          status: 'collected',
+          artifact: {
+            artifactId: 'artifact-out',
+            fileId: 'file-out',
+            fileName: 'out.txt',
+            mediaType: 'text/plain',
+            fileKind: 'text',
+            size: 12,
+            status: 'ready',
+            createdAt: '2026-09-21T09:00:01.000Z',
+          },
+          file: {
+            fileId: 'file-out',
+            fileName: 'out.txt',
+            mediaType: 'text/plain',
+            size: 12,
+            status: 'ready',
+            fileKind: 'text',
+          },
+        },
+      },
+      roundId: 'round-3',
+      roundSequence: 3,
+      blockSequence: 1,
+    });
+
+    expect(blocks.map((block) => block.type)).toEqual(['tool_activity', 'artifact']);
+    expect(blocks[0]).toMatchObject({
+      type: 'tool_activity',
+      title: '执行命令',
+      status: 'completed',
+      summary: '命令完成，退出码 1，已收集输出文件',
+    });
+    expect(blocks[1]).toMatchObject({
+      type: 'artifact',
+      artifactId: 'artifact-out',
+      fileName: 'out.txt',
+    });
+  });
+
   it('places a consumed steer before the following model round', () => {
     const afterSteer = appendUserIntervention([], {
       type: 'user.intervention',

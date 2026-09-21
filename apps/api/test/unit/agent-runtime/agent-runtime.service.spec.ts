@@ -618,7 +618,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       AGENT_TOOL_NAMES.createReport,
       expect.stringContaining('"title":"走势复盘"'),
     );
-    expect(JSON.parse(String(tools.parseInput.mock.calls[0]?.[1]))).toMatchObject({
+    expect(JSON.parse(String(vi.mocked(tools.parseInput).mock.calls[0]?.[1]))).toMatchObject({
       title: '走势复盘',
       fileName: 'report.md',
       content: expect.stringContaining('# 结论'),

@@ -410,9 +410,23 @@ export class RunExecutor implements OnModuleDestroy {
     } finally {
       clearInterval(heartbeat);
       this.lifecycles.dispose(runId);
+      await this.releaseSandbox(runId);
       // 先关闭 SSE，再短暂保留 Active Run，允许刚错过 terminal 的客户端读取最终 Live Snapshot。
       this.events.close(runId);
       setTimeout(() => this.registry.remove(runId), 60_000).unref();
+    }
+  }
+
+  private async releaseSandbox(runId: string): Promise<void> {
+    try {
+      const { SandboxManagerService } = await import('../sandbox/sandbox-manager.service');
+      const manager = this.moduleRef.get(SandboxManagerService, { strict: false });
+      await manager.releaseRun(runId);
+    } catch (error) {
+      this.logger.warn(
+        `Sandbox 清理失败 | Run=${shortLogId(runId)} | 原因=${this.describeError(error).code}`,
+        RunExecutor.name,
+      );
     }
   }
 

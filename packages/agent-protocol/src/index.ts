@@ -12,6 +12,10 @@ import {
   createReportResultSchema,
   createReportInputSummarySchema,
 } from './files/contracts.js';
+import {
+  executeCommandInputSummarySchema,
+  executeCommandPublicResultSchema,
+} from './sandbox/contracts.js';
 export * from './common/problem.js';
 export * from './common/status.js';
 export * from './common/constants.js';
@@ -19,6 +23,7 @@ export * from './common/source-url.js';
 export * from './sessions/contracts.js';
 export * from './web-fetch/contracts.js';
 export * from './files/contracts.js';
+export * from './sandbox/contracts.js';
 import {
   webFetchInputSchema,
   webFetchPassageSchema,
@@ -27,7 +32,7 @@ import {
 } from './web-fetch/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.15.0';
+export const protocolVersion = '0.16.0';
 
 // 计划步骤的有限状态集合，前后端只使用这三种状态。
 export const planStepStatusSchema = z.enum(['pending', 'in_progress', 'completed']);
@@ -265,6 +270,10 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
   toolExecutionBaseSchema.extend({
     toolName: z.literal('create_file'),
     input: createFileInputSummarySchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal('execute_command'),
+    input: executeCommandInputSummarySchema,
   }),
 ]);
 
@@ -512,6 +521,19 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     input: createReportInputSummarySchema,
     startedAt: z.string().datetime(),
   }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('execute_command'),
+    title: z.string().min(1),
+    input: executeCommandInputSummarySchema,
+    startedAt: z.string().datetime(),
+  }),
 ]);
 
 const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
@@ -623,6 +645,19 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     completedAt: z.string().datetime(),
     durationMs: z.number().int().nonnegative(),
     result: createReportResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('execute_command'),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: executeCommandPublicResultSchema,
   }),
 ]);
 

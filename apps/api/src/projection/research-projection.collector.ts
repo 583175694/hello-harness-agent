@@ -8,6 +8,8 @@ import type {
   CreateFileInputSummary,
   CreateFileResult,
   CreateReportResult,
+  ExecuteCommandInputSummary,
+  ExecuteCommandPublicResult,
   SourceProvenance,
   ToolExecutionSnapshot,
   WebFetchInput,
@@ -28,7 +30,8 @@ type ToolProjectionInput =
       input: { fileId: string; startLine: number; endLine: number };
     }
   | { toolName: typeof AGENT_TOOL_NAMES.createFile; input: CreateFileInputSummary }
-  | { toolName: typeof AGENT_TOOL_NAMES.createReport; input: any };
+  | { toolName: typeof AGENT_TOOL_NAMES.createReport; input: any }
+  | { toolName: typeof AGENT_TOOL_NAMES.executeCommand; input: ExecuteCommandInputSummary };
 
 const PROVENANCE_PRIORITY: Readonly<Record<SourceProvenance, number>> = {
   // 用户当前消息直接提供的 URL 拥有最高来源优先级。
@@ -158,6 +161,24 @@ export class ResearchProjectionCollector {
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.createFile,
+      input: input.toolInput,
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+    });
+  }
+
+  recordExecuteCommandCompleted(input: {
+    toolCallId: string;
+    toolInput: ExecuteCommandInputSummary;
+    completedAt: string;
+    durationMs: number;
+    result: ExecuteCommandPublicResult;
+  }): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.executeCommand,
       input: input.toolInput,
       status: 'completed',
       startedAt: this.startedAt(input.completedAt, input.durationMs),
@@ -355,6 +376,8 @@ export class ResearchProjectionCollector {
       return { ...base, toolName: AGENT_TOOL_NAMES.readFileLines, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.createFile)
       return { ...base, toolName: AGENT_TOOL_NAMES.createFile, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.executeCommand)
+      return { ...base, toolName: AGENT_TOOL_NAMES.executeCommand, input: input.input };
     return { ...base, toolName: AGENT_TOOL_NAMES.webSearch, input: input.input };
   }
 

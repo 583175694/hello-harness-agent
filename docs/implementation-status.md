@@ -2,11 +2,11 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-20（C3 前置 Provider / Cloud Execution PoC 已通过）
+> 最后更新：2026-09-21（C3-A 本机 OpenSandbox 验收通过，默认关闭）
 
 ## 1. 当前结论
 
-项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 C2-A/C2-B 当前范围。C3 已完成 OpenSandbox + Docker 的本地与腾讯云基础执行 PoC，但尚未接入 Harness Agent Runtime，因此当前不能把 `execute_command` 视为已交付能力。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成一份或多份 Markdown Report Artifact。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
+项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 C2-A/C2-B 当前范围。C3-A 已把 `execute_command` 作为普通 Tool 接入 Runtime：Run-scoped Sandbox、Stage/Collect、强制审批和公共协议显式分支已落地，并在**本机 OpenSandbox + Docker**（`dev/opensandbox-local`）完成 echo、非零退出、同 Run 工作区保留、Collect 与 timeout 验收；Workbench UI 手工冒烟通过。该工具默认关闭，需 `SANDBOX_ENABLED` 与 Domain/API Key/带 digest 的镜像后才对模型可见。CI 使用 fake Provider；真实 OpenSandbox 见 `pnpm --filter @harness/api test:sandbox-live`。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成一份或多份 Markdown Report Artifact。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
 
 当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics 和 C1 File & Multimodal Foundation 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
@@ -26,9 +26,9 @@ C2-A 已提供通用生成文件、Artifact、预览、下载和 Session 恢复�
 
 ### C3 Agent Sandbox 状态
 
-C3 前置 Provider / Cloud Execution PoC 已通过。当前首版选择 OpenSandbox + Docker：本地和腾讯云 x86_64 环境均已验证 Sandbox 创建、Shell/Python 执行、同一 Session 多次调用共享 Workspace、文件回传、Sandbox 销毁和容器清理。腾讯云 OpenSandbox 已启用 API Key、systemd 托管和 SDK server proxy；开发期通过 SSH 隧道访问，后续 Harness 云端实例通过 VPC 私网访问。C3 方向、C3-A 已冻结实施设计、实施切片和验收标准统一见 [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md)。
+C3 前置 Provider / Cloud Execution PoC 已通过。当前首版选择 OpenSandbox + Docker。**日常开发**在仓库 `dev/opensandbox-local/` 启动 `opensandbox-server@0.2.3`（`127.0.0.1:28473`），Harness `.env` 指向本地 Domain/API Key/镜像 digest；腾讯云 x86_64 仍可作为部署 backend（VPC `10.1.24.2:28473` 或公网，见 docs/33 §1.5）。C3 方向、C3-A 冻结契约与验收记录见 [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md)。
 
-当前尚未实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`、Run-scoped Session 关联、`execute_command` Tool、Workspace Stage/Collect、Artifact 导入、timeout/cancel、动态 Policy/Approval、执行投影和遗留 Sandbox 回收。`agent-browser` 的安装方案已经确认，但 Chromium、snapshot、screenshot 和下载链路尚未在腾讯云 Sandbox 中完成验证。因此 C3 仍处于 PoC 与正式代码之间，不属于 production capability。详细边界见 [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md)。
+C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@alibaba-group/opensandbox@0.1.11`）、fake Provider、Run-scoped Session、`execute_command`、Stage/Collect、Artifact 导入、timeout/cancel grace、Web/API 投影显式分支。默认完全 deny 网络、强制审批、未配置则 fail-closed。**待办（不挡本机 C3-A）：** 用户附件 `inputFiles` Stage 的 UI 严格签字、Harness 上腾讯云 VPC 复验、`agent-browser` 云端验证（C3-C）。动态 Policy 与遗留实例对账属 C3-B。详细边界见 [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md)。
 
 Model-led Tool Boundary 已落地为协议 `0.8.0`：模型负责语义规划，Runtime 只执行模型决策和通用执行边界，Tool 只执行能力并返回 canonical 结构化结果，Runtime 统一序列化 Tool Message，Projection 派生 provenance 并按 URL/contentHash 归并 canonical source。`ToolRunState`、`WebResearchRunState`、Tool `modelContent/control` 和跨调用 URL allowlist 已删除；没有新增 Runtime Decision Policy、Web Research Policy 或 Tool observation 预算协议。详见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md)。
 
@@ -462,7 +462,7 @@ C2  Artifact & Report Generation
 
 C3  Agent Sandbox & Cloud Execution Environment   高优先级
     - 前置 PoC 已通过：OpenSandbox + Docker 本地/腾讯云验证，Shell/Python、Workspace 状态、文件回传和清理闭环已确认
-    - C3-A 待实施：SandboxManager/Provider、Run-scoped Session、execute_command、Stage/Collect 和 Artifact 接入
+    - C3-A 已落地并本机验收：SandboxManager/Provider、execute_command、Collect、UI 审批链；启动见 `dev/opensandbox-local/` 与 docs/33 §1.5
     - C3-B 待实施：资源、网络、文件、动态 Policy/Approval、遗留回收和安全收口
     - C3-C 待实施：agent-browser、截图/下载、复杂 Artifact 与 C5/C6 接入
     - C3-D 待实施：模板、预热、快照、多 Provider、容量、成本和规模化

@@ -44,6 +44,10 @@ function toolActivityCompletedSummary(
   if (event.toolName === 'read_file_lines') return `读取 ${event.result.lines.length} 行文件内容`;
   if (event.toolName === 'create_file') return `已生成 ${event.result.file.fileName}`;
   if (event.toolName === 'create_report') return `生成报告：${event.result.report.title}`;
+  if (event.toolName === 'execute_command') {
+    const collected = event.result.collection?.status === 'collected' ? '，已收集输出文件' : '';
+    return `命令完成，退出码 ${event.result.exitCode ?? '无'}${collected}`;
+  }
   return currentSummary;
 }
 
@@ -202,6 +206,34 @@ export function applyToolActivityEvent(
     });
   }
   if (index < 0) return blocks;
+  if (
+    event.type === 'tool.completed' &&
+    event.toolName === 'execute_command' &&
+    event.result.collection?.status === 'collected'
+  ) {
+    const updated = blocks.map((block, blockIndex) =>
+      blockIndex === index && block.type === 'tool_activity'
+        ? {
+            ...block,
+            status: 'completed' as const,
+            summary: toolActivityCompletedSummary(event, block.summary ?? ''),
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+          }
+        : block,
+    );
+    const artifact = event.result.collection.artifact;
+    if (updated.some((block) => block.type === 'artifact' && block.artifactId === artifact.artifactId))
+      return orderAssistantBlocks(updated);
+    return insertOrdered(updated, {
+      id: event.blockId.replace(/tool-/u, 'artifact-'),
+      type: 'artifact',
+      ...artifact,
+      roundId: event.roundId,
+      roundSequence: event.roundSequence,
+      blockSequence: event.blockSequence,
+    });
+  }
   if (
     event.type === 'tool.completed' &&
     (event.toolName === 'create_file' || event.toolName === 'create_report')

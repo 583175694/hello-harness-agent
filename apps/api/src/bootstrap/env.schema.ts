@@ -37,6 +37,11 @@ export const envSchema = z
     COS_SECRET_KEY: z.string().min(1).optional(),
     COS_BUCKET: z.string().min(1).optional(),
     COS_REGION: z.string().min(1).optional(),
+    SANDBOX_ENABLED: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+    SANDBOX_DOMAIN: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+    SANDBOX_API_KEY: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+    SANDBOX_IMAGE: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+    SANDBOX_TTL_MS: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
   })
   .superRefine((value, context) => {
     if (value.NODE_ENV !== 'production') return;

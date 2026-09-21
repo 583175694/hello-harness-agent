@@ -79,6 +79,8 @@ Model-led Tool Boundary 已实现：模型负责是否继续调查，Runtime 只
 
 随后访问 `http://127.0.0.1:4317/agent`。
 
+**C3 沙箱（可选）**：在 `.env` 中配置 `SANDBOX_*` 并对模型暴露 `execute_command` 时，需先启动本机 OpenSandbox：`./dev/opensandbox-local/start.sh`。说明见 [`dev/opensandbox-local/README.md`](./dev/opensandbox-local/README.md) 与 [`docs/33-c3-agent-sandbox-cloud-execution.md`](./docs/33-c3-agent-sandbox-cloud-execution.md) §1.5。
+
 健康检查：
 
 ```bash

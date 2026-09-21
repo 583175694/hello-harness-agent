@@ -10,6 +10,10 @@ import {
   createFileResultSchema,
   createReportInputSummarySchema,
   createReportResultSchema,
+  executeCommandInputSummarySchema,
+  executeCommandPublicResultSchema,
+  toExecuteCommandInputSummary,
+  executeCommandInputSchema,
 } from '@harness/agent-protocol';
 import type {
   ChatStreamEvent,
@@ -310,6 +314,7 @@ export class ChatService {
         const isFileReadLines = event.toolName === AGENT_TOOL_NAMES.readFileLines;
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
+        const isExecuteCommand = event.toolName === AGENT_TOOL_NAMES.executeCommand;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput =
           isFetch ||
@@ -318,7 +323,8 @@ export class ChatService {
           isFileSearch ||
           isFileReadLines ||
           isCreateFile ||
-          isCreateReport
+          isCreateReport ||
+          isExecuteCommand
             ? undefined
             : this.asSearchInput(event.input);
         let toolSummary = searchInput?.query ?? '';
@@ -342,6 +348,9 @@ export class ChatService {
         } else if (isCreateReport) {
           const parsed = createReportInputSummarySchema.safeParse(event.input);
           toolSummary = parsed.success ? `生成报告：${parsed.data.title}` : '生成报告';
+        } else if (isExecuteCommand) {
+          const parsed = executeCommandInputSummarySchema.safeParse(event.input);
+          toolSummary = parsed.success ? parsed.data.command : '执行命令';
         }
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
@@ -451,6 +460,20 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
+        } else if (isExecuteCommand) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.executeCommand,
+            title: block.title,
+            input: executeCommandInputSummarySchema.parse(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
         } else {
           yield {
             type: 'tool.started',
@@ -476,6 +499,7 @@ export class ChatService {
         const isFileReadLines = event.toolName === AGENT_TOOL_NAMES.readFileLines;
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
+        const isExecuteCommand = event.toolName === AGENT_TOOL_NAMES.executeCommand;
         const fetchResult = isFetch ? (event.output as WebFetchResult) : undefined;
         const searchResult =
           isFetch ||
@@ -484,7 +508,8 @@ export class ChatService {
           isFileSearch ||
           isFileReadLines ||
           isCreateFile ||
-          isCreateReport
+          isCreateReport ||
+          isExecuteCommand
             ? undefined
             : (event.output as SearchToolResult);
         const fileSearchResult = isFileSearch ? (event.output as FileSearchResult) : undefined;
@@ -496,6 +521,19 @@ export class ChatService {
           : undefined;
         const createReportResult = isCreateReport
           ? createReportResultSchema.parse(event.output)
+          : undefined;
+        const executeCommandResult = isExecuteCommand
+          ? executeCommandPublicResultSchema.parse(
+              typeof event.output === 'object' && event.output !== null
+                ? (() => {
+                    const { stdout: _stdout, stderr: _stderr, ...publicResult } = event.output as {
+                      stdout?: unknown;
+                      stderr?: unknown;
+                    } & Record<string, unknown>;
+                    return publicResult;
+                  })()
+                : event.output,
+            )
           : undefined;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
@@ -566,6 +604,22 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           });
+        } else if (executeCommandResult) {
+          projection.recordExecuteCommandCompleted({
+            toolCallId: event.toolCallId,
+            toolInput: executeCommandInputSummarySchema.parse(event.input),
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: executeCommandResult,
+          });
+          if (executeCommandResult.collection?.status === 'collected') {
+            conversation.appendArtifact({
+              artifact: executeCommandResult.collection.artifact,
+              roundId: event.roundId,
+              roundSequence: event.roundSequence,
+              blockSequence: event.blockSequence,
+            });
+          }
         }
         const blockId = conversation.completeTool({
           toolCallId: event.toolCallId,
@@ -579,6 +633,7 @@ export class ChatService {
             fileReadLinesResult,
             createFileResult,
             createReportResult,
+            executeCommandResult,
             searchResult,
           }),
         });
@@ -682,6 +737,20 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: createFileResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (executeCommandResult) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.executeCommand,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: executeCommandResult,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -909,6 +978,14 @@ export class ChatService {
         ? { toolName: AGENT_TOOL_NAMES.createFile, input: parsed.data }
         : undefined;
     }
+    if (toolName === AGENT_TOOL_NAMES.executeCommand) {
+      const parsed = executeCommandInputSummarySchema.safeParse(input);
+      if (parsed.success) return { toolName: AGENT_TOOL_NAMES.executeCommand, input: parsed.data };
+      const raw = executeCommandInputSchema.safeParse(input);
+      return raw.success
+        ? { toolName: AGENT_TOOL_NAMES.executeCommand, input: toExecuteCommandInputSummary(raw.data) }
+        : undefined;
+    }
     if (
       toolName === AGENT_TOOL_NAMES.approvalTest &&
       typeof input === 'object' &&
@@ -987,6 +1064,7 @@ export class ChatService {
     fileReadLinesResult?: FileReadLinesResult;
     createFileResult?: { file: { fileName: string } };
     createReportResult?: { report: { title: string } };
+    executeCommandResult?: { exitCode: number | null; collection?: { status: string } };
     searchResult?: SearchToolResult;
   }): string {
     if (input.fetchResult) {
@@ -1000,6 +1078,11 @@ export class ChatService {
       return `读取 ${input.fileReadLinesResult.lines.length} 行文件内容`;
     if (input.createFileResult) return `已生成 ${input.createFileResult.file.fileName}`;
     if (input.createReportResult) return `生成报告：${input.createReportResult.report.title}`;
+    if (input.executeCommandResult) {
+      const collected =
+        input.executeCommandResult.collection?.status === 'collected' ? '，已收集输出文件' : '';
+      return `命令完成，退出码 ${input.executeCommandResult.exitCode ?? '无'}${collected}`;
+    }
     return `找到 ${input.searchResult?.results.length ?? 0} 个结果`;
   }
 }

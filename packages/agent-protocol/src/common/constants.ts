@@ -62,6 +62,7 @@ export const AGENT_TOOL_NAMES = {
   updatePlan: 'update_plan',
   createFile: 'create_file',
   createReport: 'create_report',
+  executeCommand: 'execute_command',
 } as const;
 
 // 集中维护 API 与 SSE 共用的机器可读错误码。
@@ -174,6 +175,11 @@ export const AGENT_ERROR_CODES = {
   reportDeleted: 'REPORT_DELETED',
   reportConflict: 'REPORT_CONFLICT',
   reportValidationFailed: 'REPORT_VALIDATION_FAILED',
+  sandboxUnavailable: 'SANDBOX_UNAVAILABLE',
+  sandboxStageFailed: 'SANDBOX_STAGE_FAILED',
+  sandboxCollectFailed: 'SANDBOX_COLLECT_FAILED',
+  sandboxSessionInvalidated: 'SANDBOX_SESSION_INVALIDATED',
+  sandboxExecutionUnknown: 'SANDBOX_EXECUTION_UNKNOWN',
 } as const;
 
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[keyof typeof AGENT_ERROR_CODES];

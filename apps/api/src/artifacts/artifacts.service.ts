@@ -18,12 +18,105 @@ export class ArtifactsService {
     @Inject(FileStorage) private readonly storage: FileStorage,
   ) {}
 
+  async importFromSandbox(input: {
+    sessionId: string;
+    runId: string;
+    toolCallId: string;
+    fileName: string;
+    data: Uint8Array;
+  }) {
+    const existing = await this.prisma.artifact.findFirst({
+      where: {
+        runId: input.runId,
+        toolCallId: input.toolCallId,
+        sessionId: input.sessionId,
+        userId: LOCAL_USER_ID,
+      },
+      include: { file: true, series: true },
+    });
+    if (existing) {
+      if (existing.status !== 'ready' || existing.file.status !== 'ready')
+        throw new BadRequestException({
+          code: existing.errorCode ?? AGENT_ERROR_CODES.sandboxCollectFailed,
+          detail: '该生成调用未成功完成，不会重复导入文件。',
+        });
+      return {
+        artifact: this.toRef(existing),
+        file: this.files.toPublicRef(existing.file, false, { artifactId: existing.id }),
+      };
+    }
+    const file = await this.files.importGeneratedBytes({
+      sessionId: input.sessionId,
+      fileName: input.fileName,
+      data: input.data,
+    });
+    const artifactId = crypto.randomUUID();
+    const seriesId = crypto.randomUUID();
+    const artifact = await this.prisma.$transaction(async (tx) => {
+      await tx.artifactSeries.create({
+        data: {
+          id: seriesId,
+          userId: LOCAL_USER_ID,
+          sessionId: input.sessionId,
+          logicalName: input.fileName,
+        },
+      });
+      await tx.artifact.create({
+        data: {
+          id: artifactId,
+          fileId: file.fileId,
+          userId: LOCAL_USER_ID,
+          sessionId: input.sessionId,
+          runId: input.runId,
+          toolCallId: input.toolCallId,
+          seriesId,
+          versionNumber: 1,
+          operation: 'create',
+          status: 'ready',
+        },
+      });
+      await tx.artifactSeries.update({
+        where: { id: seriesId },
+        data: { currentArtifactId: artifactId },
+      });
+      return tx.artifact.findUniqueOrThrow({
+        where: { id: artifactId },
+        include: { file: true, series: true },
+      });
+    });
+    return {
+      artifact: this.toRef(artifact),
+      file: this.files.toPublicRef(artifact.file, false, { artifactId: artifact.id }),
+    };
+  }
+
   async create(input: CreateFileInput & {
     sessionId: string;
     runId: string;
     toolCallId: string;
     signal?: AbortSignal;
   }): Promise<CreateFileResult> {
+    const existingReplay = await this.prisma.artifact.findFirst({
+      where: {
+        runId: input.runId,
+        toolCallId: input.toolCallId,
+        sessionId: input.sessionId,
+        userId: LOCAL_USER_ID,
+      },
+      include: { file: true, series: true },
+    });
+    if (existingReplay) {
+      if (existingReplay.status === 'deleted') throw this.deleted();
+      if (existingReplay.status !== 'ready' || existingReplay.file.status !== 'ready')
+        throw new BadRequestException({
+          code: existingReplay.errorCode ?? AGENT_ERROR_CODES.artifactStorageFailed,
+          detail: '该生成调用未成功完成，不会重复创建文件。',
+        });
+      return {
+        artifact: this.toRef(existingReplay),
+        file: this.files.toPublicRef(existingReplay.file, false, { artifactId: existingReplay.id }),
+      };
+    }
     const run = await this.prisma.agentRun.findFirst({
       where: {
         id: input.runId,
@@ -37,27 +130,6 @@ export class ArtifactsService {
         code: AGENT_ERROR_CODES.runNotFound,
         detail: '运行不存在或不属于当前会话。',
       });
-    const existing = await this.prisma.artifact.findFirst({
-      where: {
-        runId: input.runId,
-        toolCallId: input.toolCallId,
-        sessionId: input.sessionId,
-        userId: LOCAL_USER_ID,
-      },
-      include: { file: true, series: true },
-    });
-    if (existing) {
-      if (existing.status === 'deleted') throw this.deleted();
-      if (existing.status !== 'ready' || existing.file.status !== 'ready')
-        throw new BadRequestException({
-          code: existing.errorCode ?? AGENT_ERROR_CODES.artifactStorageFailed,
-          detail: '该生成调用未成功完成，不会重复创建文件。',
-        });
-      return {
-        artifact: this.toRef(existing),
-        file: this.files.toPublicRef(existing.file, false, { artifactId: existing.id }),
-      };
-    }
 
     const versionContext = this.versionContext(run.metadata);
     const file = await this.files.createGenerated({

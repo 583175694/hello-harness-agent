@@ -11,9 +11,10 @@ import { RunsController } from './runs.controller';
 import { RuntimeLifecycleRegistry } from '../agent-runtime/runtime-lifecycle';
 import { PendingUserInputService } from './pending-user-input.service';
 import { FilesModule } from '../files/files.module';
+import { SandboxModule } from '../sandbox/sandbox.module';
 
 @Module({
-  imports: [ChatModule, ModelModule, FilesModule],
+  imports: [ChatModule, ModelModule, FilesModule, SandboxModule],
   controllers: [RunsController],
   providers: [
     ActiveRunRegistry,

@@ -261,6 +261,7 @@ export class ConversationBlockCollector {
     if (toolName === 'search_file') return '搜索文件';
     if (toolName === 'read_file_lines') return '读取文件';
     if (toolName === 'create_file') return '生成文件';
+    if (toolName === 'execute_command') return '执行命令';
     return `运行工具 ${toolName}`;
   }
 

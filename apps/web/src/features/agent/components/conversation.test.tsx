@@ -959,9 +959,10 @@ describe('Conversation tool activity navigation', () => {
     expect(screen.queryByText('思考过程')).not.toBeInTheDocument();
     expect(screen.getByText('这是已经完成的思考过程。')).toBeInTheDocument();
     expect(screen.getByText('这是最终回答。')).toBeInTheDocument();
+    expect(container.querySelector('.ai-chain-step__markdown')?.textContent).toContain('我先搜索。');
     expect(
       [...container.querySelectorAll('.ai-chain-step__label')].map((block) => block.textContent),
-    ).toEqual(['我先搜索。', expect.stringContaining('搜索网页')]);
+    ).toEqual([expect.stringContaining('搜索网页')]);
     const processToggle = screen.getByRole('button', { name: '已用时 1 秒' });
     expect(processToggle).toHaveAttribute('aria-expanded', 'true');
     fireEvent.click(processToggle);

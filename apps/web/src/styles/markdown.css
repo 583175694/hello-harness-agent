@@ -1,4 +1,5 @@
 .markdown-content {
+  max-width: 100%;
   font-size: var(--h-content-font-size);
   line-height: var(--h-leading-content);
   /* Streamdown consumes these shadcn-compatible tokens. Values mirror the
@@ -198,7 +199,10 @@
   white-space: break-spaces;
 }
 .markdown-content pre {
+  width: 100%;
   max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   overflow-x: auto;
   margin: 12px 0 var(--markdown-flow-space);
   padding: 12px 14px;
@@ -319,9 +323,13 @@
 .markdown-content [data-streamdown='code-block'] {
   position: relative;
   display: flex;
+  flex-direction: column;
   gap: 0;
-  padding: 0;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
+  box-sizing: border-box;
+  padding: 0;
   overflow-x: auto;
   margin: 12px 0 var(--markdown-flow-space);
   border: 1px solid #d0d7de;
@@ -341,13 +349,17 @@
   font-size: 12px;
 }
 .markdown-content [data-streamdown='code-block-body'] {
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   overflow: auto;
   border: 0;
   background: #ffffff;
 }
 .markdown-content [data-streamdown='code-block-body'] pre {
-  min-width: max-content;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
   margin: 0;
   padding: 14px 16px;
   border: 0;

@@ -514,6 +514,7 @@ textarea:focus-visible {
 .message {
   display: flex;
   gap: 10px;
+  min-width: 0;
   margin-bottom: var(--h-chat-flow-gap);
 }
 .message--user {
@@ -605,6 +606,11 @@ textarea:focus-visible {
   display: grid;
   gap: 10px;
   min-width: 0;
+  max-width: 100%;
+}
+.assistant-text-block {
+  min-width: 0;
+  max-width: 100%;
 }
 .ai-message,
 .ai-message-content,
@@ -728,6 +734,18 @@ textarea:focus-visible {
   color: var(--theme-text-secondary);
   font-size: var(--h-content-font-size-secondary);
   line-height: var(--h-leading-secondary);
+}
+.ai-chain-step__markdown {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--theme-text-secondary);
+  font-size: var(--h-content-font-size-secondary);
+  line-height: var(--h-leading-secondary);
+}
+.ai-chain-step__markdown .markdown-content {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
 }
 .ai-chain-step__description {
   margin-top: 2px;
@@ -1014,7 +1032,9 @@ textarea:focus-visible {
   gap: 5px;
 }
 .assistant-content {
-  max-width: var(--h-chat-content-width);
+  flex: 1 1 0%;
+  min-width: 0;
+  max-width: 100%;
   color: var(--h-label-primary);
   font-size: var(--h-content-font-size);
   line-height: var(--h-leading-content);

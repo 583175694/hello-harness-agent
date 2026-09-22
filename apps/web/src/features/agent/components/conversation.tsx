@@ -641,7 +641,7 @@ const AssistantMessage = memo(
         <div className="message-avatar assistant-avatar">
           <Sparkles size={15} />
         </div>
-        <MessageContent className="assistant-content w-full text-text-primary">
+        <MessageContent className="assistant-content min-w-0 flex-1 text-text-primary">
           <div className="message-meta">Harness</div>
           {item.deliveryStatus === 'cancelled' ? (
             <div className="assistant-delivery-status">本次回答已取消</div>

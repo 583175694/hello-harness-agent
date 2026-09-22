@@ -5,7 +5,6 @@ import {
   Clock3,
   FileSearch,
   FileText,
-  MessageSquareText,
   Search,
   X,
   type LucideIcon,
@@ -28,12 +27,13 @@ import {
   ReasoningTrigger,
 } from '../../../components/ai-elements/reasoning';
 import { Shimmer } from '../../../components/ai-elements/shimmer';
+import { MarkdownContent } from '../../../components/markdown-content';
 
 function toolIcon(toolName: string): LucideIcon {
   if (toolName === 'web_search' || toolName === 'web_fetch') return Search;
   if (toolName === 'search_file' || toolName === 'read_file_lines') return FileSearch;
   if (toolName === 'create_file' || toolName === 'create_report') return FileText;
-  if (toolName === 'execute_command') return Clock3;
+  if (toolName === 'bash' || toolName === 'execute_command') return Clock3;
   return Clock3;
 }
 
@@ -145,12 +145,11 @@ export function AgentChainOfThought({
           }
           if (item.kind === 'text') {
             return (
-              <ChainOfThoughtStep
-                icon={undefined}
-                key={item.block.id}
-                label={item.block.content}
-                status="complete"
-              />
+              <ChainOfThoughtStep icon={undefined} key={item.block.id} status="complete">
+                <div className="ai-chain-step__markdown">
+                  <MarkdownContent variant="chat">{item.block.content}</MarkdownContent>
+                </div>
+              </ChainOfThoughtStep>
             );
           }
           const domains =

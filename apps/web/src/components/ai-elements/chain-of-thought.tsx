@@ -87,7 +87,7 @@ export function ChainOfThoughtStep({
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
   icon?: LucideIcon;
-  label: ReactNode;
+  label?: ReactNode;
   description?: ReactNode;
   status?: ChainStepStatus;
 }) {
@@ -97,7 +97,9 @@ export function ChainOfThoughtStep({
         <Icon size={15} />
       </span>
       <div className="ai-chain-step__body">
-        <div className="ai-chain-step__label">{label}</div>
+        {label != null && label !== '' ? (
+          <div className="ai-chain-step__label">{label}</div>
+        ) : null}
         {description ? <div className="ai-chain-step__description">{description}</div> : null}
         {children}
       </div>

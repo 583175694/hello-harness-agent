@@ -50,7 +50,11 @@ describe('normalizeProviderUsage', () => {
     await expect(
       (
         adapter as unknown as {
-          toProviderMessages: (messages: unknown[], model: string) => Promise<unknown[]>;
+          toProviderMessages: (
+            messages: unknown[],
+            model: string,
+            options?: { replayReasoningWithTools?: boolean },
+          ) => Promise<unknown[]>;
         }
       ).toProviderMessages(
         [
@@ -79,6 +83,38 @@ describe('normalizeProviderUsage', () => {
         tool_calls: [
           { id: 'call-1', type: 'function', function: { name: 'weather', arguments: '{}' } },
         ],
+      },
+    ]);
+  });
+
+  it('replays final-answer reasoning when replayReasoningWithTools is enabled', async () => {
+    const adapter = new OpenAICompatibleModelAdapter(new ConfigService());
+    await expect(
+      (
+        adapter as unknown as {
+          toProviderMessages: (
+            messages: unknown[],
+            model: string,
+            options?: { replayReasoningWithTools?: boolean },
+          ) => Promise<unknown[]>;
+        }
+      ).toProviderMessages(
+        [
+          {
+            role: 'assistant',
+            content: '交付正文',
+            reasoning: '最终轮推理',
+          },
+        ],
+        'deepseek-v4-pro',
+        { replayReasoningWithTools: true },
+      ),
+    ).resolves.toEqual([
+      {
+        role: 'assistant',
+        content: '交付正文',
+        reasoning_content: '最终轮推理',
+        tool_calls: undefined,
       },
     ]);
   });
@@ -216,7 +252,11 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
     await expect(
       (
         adapter as unknown as {
-          toResponseInput: (messages: unknown[], model: string) => Promise<unknown[]>;
+          toResponseInput: (
+            messages: unknown[],
+            model: string,
+            options?: { replayReasoningWithTools?: boolean },
+          ) => Promise<unknown[]>;
         }
       ).toResponseInput(
         [
@@ -229,6 +269,63 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
         'deepseek-flash',
       ),
     ).resolves.toEqual([{ type: 'message', role: 'assistant', content: '' }]);
+  });
+
+  it('replays full multi-turn reasoning and tool chain for Responses when tools are enabled', async () => {
+    const adapter = new OpenAICompatibleModelAdapter(new ConfigService());
+    const input = await (
+      adapter as unknown as {
+        toResponseInput: (
+          messages: unknown[],
+          model: string,
+          options?: { replayReasoningWithTools?: boolean },
+        ) => Promise<unknown[]>;
+      }
+    ).toResponseInput(
+      [
+        { role: 'user', content: '第一轮' },
+        {
+          role: 'assistant',
+          content: '交付',
+          reasoning: '最终轮推理',
+        },
+        { role: 'user', content: '第二轮' },
+        {
+          role: 'assistant',
+          content: null,
+          reasoning: '工具轮推理',
+          toolCalls: [
+            {
+              id: 'call-1',
+              name: 'web_search',
+              arguments: '{"query":"test"}',
+              blockSequence: 1,
+              providerIndex: 0,
+            },
+          ],
+        },
+        { role: 'tool', toolCallId: 'call-1', content: '{"ok":true}' },
+        { role: 'user', content: '第三轮' },
+      ],
+      'deepseek-flash',
+      { replayReasoningWithTools: true },
+    );
+    expect(input).toEqual([
+      { type: 'message', role: 'user', content: '第一轮' },
+      { type: 'reasoning', content: [{ type: 'reasoning_text', text: '最终轮推理' }] },
+      { type: 'message', role: 'assistant', content: '交付' },
+      { type: 'message', role: 'user', content: '第二轮' },
+      { type: 'reasoning', content: [{ type: 'reasoning_text', text: '工具轮推理' }] },
+      { type: 'message', role: 'assistant', content: '' },
+      {
+        type: 'function_call',
+        call_id: 'call-1',
+        name: 'web_search',
+        arguments: '{"query":"test"}',
+      },
+      { type: 'function_call_output', call_id: 'call-1', output: '{"ok":true}' },
+      { type: 'message', role: 'user', content: '第三轮' },
+    ]);
   });
 
   it('preserves commentary phase and aggregates a Responses function call', async () => {

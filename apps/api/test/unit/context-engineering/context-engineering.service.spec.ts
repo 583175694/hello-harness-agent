@@ -318,6 +318,34 @@ describe('ContextEngineeringService', () => {
     expect(JSON.stringify(model.generateText.mock.calls)).not.toContain('不可截断文件内容');
   }, 15_000);
 
+  it('rejects compiled messages with orphan tool results', async () => {
+    const { service } = createService();
+    await expect(
+      service.compileRound({
+        sessionId: 'session-1',
+        model: 'deepseek-flash',
+        messages: [
+          { role: 'system', content: 'system' },
+          { role: 'user', content: '请分析' },
+          {
+            role: 'assistant',
+            content: null,
+            toolCalls: [
+              {
+                id: 'only-declared',
+                name: 'web_search',
+                arguments: '{}',
+                blockSequence: 0,
+                providerIndex: 0,
+              },
+            ],
+          },
+          { role: 'tool', toolCallId: 'orphan-call', content: '{"ok":true}' },
+        ],
+      }),
+    ).rejects.toThrow(/Tool result without matching assistant tool call/);
+  });
+
   it('collapses older Tool Results to file pointers while keeping the latest units', async () => {
     const { service, files } = createService();
     const compiled = await service.compileRound({

@@ -14,6 +14,7 @@ import type {
   ContextToolResult,
   ToolResultCandidate,
 } from './context-engineering.types';
+import { assertCanonicalToolTranscript } from '../model/model-transcript-integrity';
 
 const SAFETY_MINIMUM = 4_096;
 const SUMMARY_MAX_TOKENS = 8_192;
@@ -88,6 +89,7 @@ export class ContextEngineeringService {
       );
       throw new Error(hasFile ? 'FILE_CONTEXT_TOO_LARGE' : 'CONTEXT_BUDGET_EXCEEDED');
     }
+    assertCanonicalToolTranscript(messages);
     return {
       messages,
       estimatedInputTokens,

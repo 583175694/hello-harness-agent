@@ -248,7 +248,7 @@ describe('ChatService session persistence', () => {
     );
     expect(
       request.messages.find((message) => message.content === '普通回答')?.reasoning_content,
-    ).toBeUndefined();
+    ).toBe('不应回放的最终推理');
   });
 
   it('executes a streamed tool call and persists its recoverable snapshot', async () => {

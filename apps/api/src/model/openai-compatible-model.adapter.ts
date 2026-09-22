@@ -26,6 +26,13 @@ import type {
 import { ModelProviderResponseError } from './model-adapter';
 import { clarificationRequestSchema } from '@harness/agent-protocol';
 import { FilesService } from '../files/files.service';
+import {
+  assertChatCompletionToolChain,
+  assertResponsesInputToolChain,
+  ModelTranscriptIntegrityError,
+  shouldReplayAssistantReasoning,
+  summarizeResponsesInputForLog,
+} from './model-transcript-integrity';
 
 const CLARIFICATION_CONTROL_NAME = 'request_clarification';
 const CLARIFICATION_CONTROL_TOOL: ChatCompletionTool = {
@@ -182,18 +189,34 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       yield* this.streamResponsesRound(input, configured);
       return;
     }
+    const tools = this.collectChatTools(input);
+    const providerMessages = await this.toProviderMessages(input.messages, input.model, {
+      replayReasoningWithTools: Boolean(tools?.length),
+    });
+    if (tools?.length) {
+      try {
+        assertChatCompletionToolChain(providerMessages);
+      } catch (error) {
+        if (error instanceof ModelTranscriptIntegrityError) {
+          this.logger?.error(
+            `Chat Completions 工具链校验失败 | ${error.message} | index=${error.detail?.messageIndex ?? 'unknown'} | callId=${error.detail?.callId ?? 'unknown'}`,
+          );
+          throw new ModelProviderResponseError(error.message);
+        }
+        throw error;
+      }
+    }
     const request: Record<string, unknown> = {
       model: input.model,
       stream: true,
       stream_options: { include_usage: true },
-      messages: await this.toProviderMessages(input.messages, input.model),
+      messages: providerMessages,
     };
     if (configured?.request.temperature !== undefined) {
       request.temperature = configured.request.temperature;
     }
     const maxTokens = input.maxOutputTokens ?? configured?.request.maxTokens;
     if (maxTokens) request.max_tokens = maxTokens;
-    const tools = this.collectChatTools(input);
     if (tools) request.tools = tools;
     if (profile.provider === 'deepseek') Object.assign(request, deepSeekChatThinking(input.reasoningEffort));
     const response = (await this.getClient(input.model).chat.completions.create(
@@ -287,7 +310,23 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     input: ModelRoundInput,
     configured: NonNullable<ReturnType<typeof getConfiguredModel>>,
   ): AsyncIterable<ModelRoundEvent> {
-    const responseInput = await this.toResponseInput(input.messages, input.model);
+    const tools = this.collectResponseTools(input);
+    const responseInput = await this.toResponseInput(input.messages, input.model, {
+      replayReasoningWithTools: Boolean(tools?.length),
+    });
+    if (tools?.length) {
+      try {
+        assertResponsesInputToolChain(responseInput);
+      } catch (error) {
+        if (error instanceof ModelTranscriptIntegrityError) {
+          this.logger?.error(
+            `Responses 工具链校验失败 | ${error.message} | itemIndex=${error.detail?.itemIndex ?? 'unknown'} | callId=${error.detail?.callId ?? 'unknown'} | input=${summarizeResponsesInputForLog(responseInput)}`,
+          );
+          throw new ModelProviderResponseError(error.message);
+        }
+        throw error;
+      }
+    }
     const request: Record<string, unknown> = {
       model: input.model,
       input: responseInput,
@@ -300,7 +339,6 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     if (configured.request.temperature !== undefined) {
       request.temperature = configured.request.temperature;
     }
-    const tools = this.collectResponseTools(input);
     if (tools) request.tools = tools;
     // DeepSeek ignores stream_options; the OpenAI SDK accepts the request shape at runtime.
     const stream = (await this.getClient(input.model).responses.create(
@@ -498,7 +536,9 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
   private async toResponseInput(
     messages: ModelMessage[],
     model: string,
+    options?: { replayReasoningWithTools?: boolean },
   ): Promise<Record<string, unknown>[]> {
+    const replayReasoningWithTools = options?.replayReasoningWithTools ?? false;
     const items: Record<string, unknown>[] = [];
     for (const message of messages) {
       if (message.role === 'tool') {
@@ -510,10 +550,10 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         continue;
       }
       if (message.role === 'assistant') {
-        if (message.reasoning && message.toolCalls?.length)
+        if (shouldReplayAssistantReasoning(replayReasoningWithTools, message))
           items.push({
             type: 'reasoning',
-            content: [{ type: 'reasoning_text', text: message.reasoning }],
+            content: [{ type: 'reasoning_text', text: message.reasoning! }],
           });
         if (message.content || message.toolCalls?.length || message.reasoning) {
           const assistantMessage: Record<string, unknown> = {
@@ -627,7 +667,9 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
   private async toProviderMessages(
     messages: ModelMessage[],
     model: string,
+    options?: { replayReasoningWithTools?: boolean },
   ): Promise<ChatCompletionMessageParam[]> {
+    const replayReasoningWithTools = options?.replayReasoningWithTools ?? false;
     // 并行解析消息中的图片引用，同时保持原消息顺序。
     return Promise.all(
       messages.map(async (message): Promise<ChatCompletionMessageParam> => {
@@ -644,7 +686,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
               function: { name: call.name, arguments: call.arguments },
             })),
           };
-          if (message.reasoning && message.toolCalls?.length) {
+          if (shouldReplayAssistantReasoning(replayReasoningWithTools, message)) {
             assistant.reasoning_content = message.reasoning;
           }
           return assistant;

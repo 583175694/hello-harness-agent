@@ -79,6 +79,15 @@ import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
 import { getArtifactPreview, getFilePreview } from '../../../api/client';
 import { presentAssistantBlocks } from '../elements/assistant-message-adapter';
 import { AgentChainOfThought } from '../elements/agent-chain-of-thought';
+import { toolInputSummary, toolTitle, type ToolCopyInput } from '../model/tool-copy';
+import {
+  Confirmation,
+  ConfirmationAction,
+  ConfirmationActions,
+  ConfirmationContent,
+  ConfirmationRequest,
+  ConfirmationTitle,
+} from '../../../components/ai-elements/confirmation';
 
 // 将消息创建时间格式化为当前本地时间。
 function formatMessageTime(createdAt?: string, fallback?: string): string {
@@ -1157,9 +1166,8 @@ export function Composer({
   const [interruptState, setInterruptState] = useState<{
     interruptId?: string;
     answer: string;
-    decisions: Record<string, 'approve' | 'reject'>;
     submitting: boolean;
-  }>({ answer: '', decisions: {}, submitting: false });
+  }>({ answer: '', submitting: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
@@ -1171,12 +1179,11 @@ export function Composer({
   const currentInterruptState =
     interruptState.interruptId === activeInterrupt?.interruptId
       ? interruptState
-      : { answer: '', decisions: {} as Record<string, 'approve' | 'reject'>, submitting: false };
+      : { answer: '', submitting: false };
   const updateInterruptState = (update: Partial<typeof currentInterruptState>) => {
     setInterruptState({
       interruptId: activeInterrupt?.interruptId,
       answer: currentInterruptState.answer,
-      decisions: currentInterruptState.decisions,
       submitting: currentInterruptState.submitting,
       ...update,
     });
@@ -1205,124 +1212,154 @@ export function Composer({
     return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
   }, [attachmentMenuOpen]);
   const placeholder = composerPlaceholder(mode);
+  const hideComposerInput =
+    activeInterrupt?.kind === 'clarification' || activeInterrupt?.kind === 'tool_approval';
   return (
     <PromptInput
       className="composer rounded-[14px] border border-[var(--theme-composer-border)] bg-surface shadow-[0_8px_24px_rgb(0_0_0_/_3%)]"
       onSubmit={onSubmit}
     >
       {activeInterrupt?.kind === 'clarification' ? (
-        <div className="composer-hitl-panel" role="group" aria-label="需要补充信息">
-          <div className="composer-hitl-header">
-            <strong>需要补充信息</strong>
-            <button
-              className="composer-hitl-cancel"
-              type="button"
-              aria-label="取消当前任务"
-              title="取消当前任务"
-              disabled={currentInterruptState.submitting || !onCancel}
-              onClick={onCancel}
-            >
-              <X size={16} />
-            </button>
-          </div>
-          <p className="composer-hitl-question">{activeInterrupt.payload.question}</p>
-          {activeInterrupt.payload.options.map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={
-                currentInterruptState.answer === option
-                  ? 'text-button composer-hitl-option is-active'
-                  : 'text-button composer-hitl-option'
-              }
-              disabled={currentInterruptState.submitting}
-              onClick={() => updateInterruptState({ answer: option })}
-            >
-              {option}
-            </button>
-          ))}
-          {activeInterrupt.payload.allowFreeText ? (
-            <input
-              aria-label="澄清回答"
-              value={currentInterruptState.answer}
-              disabled={currentInterruptState.submitting}
-              onChange={(event) => updateInterruptState({ answer: event.target.value })}
-            />
-          ) : null}
-          <button
-            className="send-button"
-            type="button"
-            disabled={
-              !currentInterruptState.answer.trim() ||
-              !onClarificationRespond ||
-              currentInterruptState.submitting
-            }
-            onClick={() => {
-              updateInterruptState({ submitting: true });
-              onClarificationRespond?.(activeInterrupt.interruptId, currentInterruptState.answer);
-            }}
-          >
-            {currentInterruptState.submitting ? <LoaderCircle className="spin" size={14} /> : null}
-            {currentInterruptState.submitting ? '正在提交回答' : '提交回答'}
-          </button>
+        <div className="composer-hitl-panel composer-confirmation-panel" aria-label="需要补充信息">
+          <Confirmation approval={{ id: activeInterrupt.interruptId }} state="approval-requested">
+            <ConfirmationRequest>
+              <div className="composer-confirmation-toolbar">
+                <ConfirmationTitle>需要补充信息</ConfirmationTitle>
+                <button
+                  className="composer-hitl-cancel"
+                  type="button"
+                  aria-label="取消当前任务"
+                  title="取消当前任务"
+                  disabled={currentInterruptState.submitting || !onCancel}
+                  onClick={onCancel}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <ConfirmationContent>
+                <p className="composer-hitl-question">{activeInterrupt.payload.question}</p>
+                {activeInterrupt.payload.options.length ? (
+                  <div className="composer-hitl-options">
+                    {activeInterrupt.payload.options.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        className={
+                          currentInterruptState.answer === option
+                            ? 'text-button composer-hitl-option is-active'
+                            : 'text-button composer-hitl-option'
+                        }
+                        disabled={currentInterruptState.submitting}
+                        onClick={() => updateInterruptState({ answer: option })}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {activeInterrupt.payload.allowFreeText ? (
+                  <input
+                    className="composer-hitl-input"
+                    aria-label="澄清回答"
+                    value={currentInterruptState.answer}
+                    disabled={currentInterruptState.submitting}
+                    onChange={(event) => updateInterruptState({ answer: event.target.value })}
+                  />
+                ) : null}
+              </ConfirmationContent>
+            </ConfirmationRequest>
+            <ConfirmationActions>
+              <ConfirmationAction
+                disabled={
+                  !currentInterruptState.answer.trim() ||
+                  !onClarificationRespond ||
+                  currentInterruptState.submitting
+                }
+                onClick={() => {
+                  updateInterruptState({ submitting: true });
+                  onClarificationRespond?.(
+                    activeInterrupt.interruptId,
+                    currentInterruptState.answer,
+                  );
+                }}
+              >
+                {currentInterruptState.submitting ? (
+                  <LoaderCircle className="spin" size={14} />
+                ) : null}
+                {currentInterruptState.submitting ? '正在提交回答' : '提交回答'}
+              </ConfirmationAction>
+            </ConfirmationActions>
+          </Confirmation>
         </div>
       ) : null}
       {activeInterrupt?.kind === 'tool_approval' ? (
-        <div
-          className="composer-hitl-panel composer-approval-overlay"
-          role="group"
-          aria-label="工具审批"
-        >
-          <div className="composer-hitl-header">
-            <strong>需要批准工具调用</strong>
-            <button
-              className="composer-hitl-cancel"
-              type="button"
-              aria-label="取消当前任务"
-              title="取消当前任务"
-              disabled={currentInterruptState.submitting || !onCancel}
-              onClick={onCancel}
-            >
-              <X size={16} />
-            </button>
-          </div>
-          {activeInterrupt.payload.items.slice(0, 1).map((item) => (
-            <div className="approval-item" key={item.itemId}>
-              <div className="approval-item__summary">
-                <strong>{item.toolName}</strong>
+        <div className="composer-hitl-panel composer-confirmation-panel" aria-label="工具审批">
+          <Confirmation
+            approval={{ id: activeInterrupt.interruptId }}
+            state="approval-requested"
+          >
+            <ConfirmationRequest>
+              <div className="composer-confirmation-toolbar">
+                <ConfirmationTitle>
+                  需要批准工具调用
+                  {activeInterrupt.payload.items.length > 1
+                    ? `（${activeInterrupt.payload.items.length} 项）`
+                    : ''}
+                </ConfirmationTitle>
+                <button
+                  className="composer-hitl-cancel"
+                  type="button"
+                  aria-label="取消当前任务"
+                  title="取消当前任务"
+                  disabled={currentInterruptState.submitting || !onCancel}
+                  onClick={onCancel}
+                >
+                  <X size={16} />
+                </button>
               </div>
-              <div className="approval-item__actions">
-                {(['reject', 'approve'] as const).map((decision) => (
-                  <button
-                    key={decision}
-                    type="button"
-                    className={
-                      decision === 'approve'
-                        ? 'send-button approval-item__approve'
-                        : 'secondary-button approval-item__reject'
-                    }
-                    disabled={currentInterruptState.submitting || !onApprovalSubmit}
-                    onClick={() => {
-                      updateInterruptState({ submitting: true });
-                      onApprovalSubmit?.(activeInterrupt.interruptId, [
-                        {
-                          itemId: item.itemId,
-                          toolCallId: item.toolCallId,
-                          argumentsHash: item.argumentsHash,
-                          decision,
-                        },
-                      ]);
-                    }}
-                  >
-                    {currentInterruptState.submitting ? (
-                      <LoaderCircle className="spin" size={13} />
-                    ) : null}
-                    {decision === 'approve' ? '批准' : '拒绝'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
+              <ul className="approval-item-list">
+                {activeInterrupt.payload.items.map((item, index) => {
+                  const input = item.input as ToolCopyInput;
+                  const detail = toolInputSummary(item.toolName, input);
+                  return (
+                    <li className="approval-item" key={item.itemId}>
+                      <div className="approval-item__summary">
+                        <strong>
+                          {activeInterrupt.payload.items.length > 1 ? `${index + 1}. ` : ''}
+                          {toolTitle(item.toolName, input)}
+                        </strong>
+                        {detail ? <span className="approval-item__detail">{detail}</span> : null}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </ConfirmationRequest>
+            <ConfirmationActions>
+              <ConfirmationAction
+                aria-label="批准"
+                disabled={currentInterruptState.submitting || !onApprovalSubmit}
+                onClick={() => {
+                  const items = activeInterrupt.payload.items;
+                  updateInterruptState({ submitting: true });
+                  onApprovalSubmit?.(
+                    activeInterrupt.interruptId,
+                    items.map((entry) => ({
+                      itemId: entry.itemId,
+                      toolCallId: entry.toolCallId,
+                      argumentsHash: entry.argumentsHash,
+                      decision: 'approve' as const,
+                    })),
+                  );
+                }}
+              >
+                {currentInterruptState.submitting ? (
+                  <LoaderCircle className="spin" size={13} />
+                ) : null}
+                批准
+              </ConfirmationAction>
+            </ConfirmationActions>
+          </Confirmation>
         </div>
       ) : null}
       {canUseImageAttachments ? (
@@ -1453,7 +1490,7 @@ export function Composer({
         preview={attachmentPreview}
         onClose={() => setAttachmentPreview(null)}
       />
-      {activeInterrupt?.kind !== 'clarification' ? (
+      {!hideComposerInput ? (
         <PromptInputBody>
           <PromptInputTextarea
             aria-label="任务输入"
@@ -1513,7 +1550,7 @@ export function Composer({
           />
         </PromptInputBody>
       ) : null}
-      {activeInterrupt?.kind !== 'clarification' ? (
+      {!hideComposerInput ? (
         <PromptInputFooter className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
           <PromptInputTools>
             {mode === 'clarification' ? (

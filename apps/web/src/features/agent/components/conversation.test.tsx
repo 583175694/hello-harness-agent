@@ -784,6 +784,61 @@ describe('Conversation tool activity navigation', () => {
     expect(screen.queryByRole('button', { name: '提交审批' })).not.toBeInTheDocument();
   });
 
+  it('submits a decision for every approval item when the model batches tool calls', () => {
+    const submit = vi.fn();
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [],
+          activeInterrupt: {
+            interruptId: 'interrupt-batch',
+            runId: 'run-1',
+            kind: 'tool_approval',
+            status: 'pending',
+            createdAt: '2026-08-21T00:00:00.000Z',
+            roundId: 'round-1',
+            roundSequence: 1,
+            payload: {
+              items: [
+                {
+                  itemId: 'one',
+                  toolCallId: 'call-1',
+                  toolName: 'execute_command',
+                  input: { command: "python3 -c \"print('step1')\"" },
+                  argumentsHash: 'h1',
+                },
+                {
+                  itemId: 'two',
+                  toolCallId: 'call-2',
+                  toolName: 'execute_command',
+                  input: { command: "python3 -c \"print('step2')\"" },
+                  argumentsHash: 'h2',
+                },
+              ],
+            },
+          },
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onApprovalSubmit={submit}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '批准' }));
+    expect(submit).toHaveBeenCalledWith('interrupt-batch', [
+      expect.objectContaining({ itemId: 'one', toolCallId: 'call-1', decision: 'approve' }),
+      expect.objectContaining({ itemId: 'two', toolCallId: 'call-2', decision: 'approve' }),
+    ]);
+  });
+
   it('selects model and closes the settings popover when clicking outside', async () => {
     const onModelChange = vi.fn();
     render(

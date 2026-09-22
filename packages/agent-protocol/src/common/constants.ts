@@ -28,6 +28,8 @@ export const AGENT_PROTOCOL_LIMITS = {
   fileSearchContextLines: 1,
   fileReadLinesMax: 50,
   fileReadResultMaxCharacters: 12_000,
+  // 用户上传文件解析为正文后的最大 Unicode 字符数（code points）。
+  uploadParsedContentMaxCodePoints: 60_000,
   generatedFileMaxBytes: 10 * 1024 * 1024,
   generatedFileMaxCodePoints: 40_000,
   // 正式报告与工具轮输出预算对齐，避免把超长正文塞进单次 tool-call JSON。
@@ -64,6 +66,9 @@ export const AGENT_TOOL_NAMES = {
   createReport: 'create_report',
   executeCommand: 'execute_command',
   bash: 'bash',
+  jobOutput: 'job_output',
+  jobList: 'job_list',
+  jobKill: 'job_kill',
 } as const;
 
 // 集中维护 API 与 SSE 共用的机器可读错误码。

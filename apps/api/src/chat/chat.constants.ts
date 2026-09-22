@@ -21,4 +21,5 @@ export const CHAT_SYSTEM_PROMPT =
   '计划保持简洁，最多一个步骤为 in_progress；根据实际进展更新，完成后将步骤标记为 completed 并直接回答。' +
   `单轮最多允许 ${AGENT_PROTOCOL_LIMITS.agentToolMaxCalls} 次工具调用。联网失败时明确说明证据限制，不要编造来源。` +
   `启用 Sandbox 时使用 ${AGENT_TOOL_NAMES.bash} 执行命令；检查 bash 工具结果中的 [exit code: N] 判断命令是否成功，非零不一定是工具失败。` +
-  '需要 curl、wget、git clone 或 pip/npm install 时，若遭策略拦截，在同一轮使用 sandbox_permissions（network 或 install）与 justification 升权重试。';
+  '需要 curl、wget、git clone 或 pip/npm install 时，若遭策略拦截，在同一轮使用 sandbox_permissions（network 或 install）与 justification 升权重试。' +
+  `长任务可设 run_in_background: true，记下 job id，勿 busy-poll；交付最终答案前用 ${AGENT_TOOL_NAMES.jobOutput} / ${AGENT_TOOL_NAMES.jobList} / ${AGENT_TOOL_NAMES.jobKill} 跟踪或收尾。`;

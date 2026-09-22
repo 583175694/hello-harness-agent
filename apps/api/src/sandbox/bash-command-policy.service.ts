@@ -35,6 +35,8 @@ export class BashCommandPolicyService {
   classify(input: Pick<BashInput, 'command'>): BashPolicyClass | null {
     const command = input.command.trim();
     if (NPM_WORKSPACE.test(command)) return null;
+    if (/\bpip3?\s+install\b/i.test(command) && /\s-i\s+\S+/i.test(command)) return 'install';
+    if (/\bnpm\s+install\b/i.test(command) && /\s--registry\s+\S+/i.test(command)) return 'install';
     if (INSTALL_PATTERNS.some((pattern) => pattern.test(command))) return 'install';
     if (NETWORK_PATTERNS.some((pattern) => pattern.test(command))) return 'network';
     return null;

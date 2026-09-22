@@ -13,6 +13,7 @@ import {
   AGENT_TOOL_NAMES,
   bashInputSchema,
   hashBashApprovalBase,
+  renderBashBackgroundResult,
   renderBashResult,
   toBashInputSummary,
   type BashInput,
@@ -1323,7 +1324,18 @@ export class AgentRuntimeService {
   private serializeToolSuccess(toolName: string, output: unknown): string {
     const resolved = this.tools.resolveName(toolName);
     if (resolved === AGENT_TOOL_NAMES.bash) {
+      const value = output as BashRunResult | { kind: 'background'; jobId: string };
+      if (typeof value === 'object' && value !== null && 'kind' in value && value.kind === 'background') {
+        return renderBashBackgroundResult(value);
+      }
       return renderBashResult(output as BashRunResult);
+    }
+    if (
+      resolved === AGENT_TOOL_NAMES.jobOutput ||
+      resolved === AGENT_TOOL_NAMES.jobList ||
+      resolved === AGENT_TOOL_NAMES.jobKill
+    ) {
+      return typeof output === 'string' ? output : String(output);
     }
     return JSON.stringify({ ok: true, untrustedToolData: true, output });
   }

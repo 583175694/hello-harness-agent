@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import type { Message, Session } from '@prisma/client';
 import { Logger } from 'nestjs-pino';
@@ -25,6 +26,7 @@ import { compareMessageOrder } from '../chat/message-order';
 import { RunRepository } from '../runs/run.repository';
 import { PendingUserInputService } from '../runs/pending-user-input.service';
 import { FileStorage } from '../file-storage/file-storage';
+import { SandboxManagerService } from '../sandbox/sandbox-manager.service';
 
 @Injectable()
 export class SessionsService implements OnModuleInit {
@@ -35,6 +37,7 @@ export class SessionsService implements OnModuleInit {
     @Inject(RunRepository) private readonly runs: RunRepository,
     @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
     @Inject(FileStorage) private readonly fileStorage: FileStorage,
+    @Optional() private readonly sandboxManager?: SandboxManagerService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -182,6 +185,7 @@ export class SessionsService implements OnModuleInit {
       })),
       skipDuplicates: true,
     });
+    await this.sandboxManager?.destroySessionForSessionDelete(sessionId).catch(() => undefined);
     await this.prisma.session.delete({ where: { id: sessionId } });
     await this.retryFileCleanupTasks(sessionId);
     return { deletedSessionId: sessionId };

@@ -3,18 +3,29 @@ import type { ZodType } from 'zod';
 import {
   AGENT_ERROR_CODES,
   AGENT_TOOL_NAMES,
+  bashBackgroundResultSchema,
   bashInputSchema,
   bashRunResultSchema,
   spillReferenceLine,
   type BashInput,
   type BashRunResult,
+  type BashToolSuccess,
 } from '@harness/agent-protocol';
 import { ArtifactsService } from '../artifacts/artifacts.service';
-import { sandboxLimits } from '../sandbox/sandbox-config';
+import {
+  extractHostsFromCommand,
+  isHostAllowed,
+  mergedEgressAllowlist,
+  readSandboxRuntimeConfig,
+  sandboxLimits,
+} from '../sandbox/sandbox-config';
 import { SandboxError } from '../sandbox/sandbox-error';
+import { SandboxEgressAuditService } from '../sandbox/sandbox-egress-audit.service';
+import { SandboxJobService } from '../sandbox/sandbox-job.service';
 import { SandboxManagerService } from '../sandbox/sandbox-manager.service';
 import { resolveWorkspacePath } from '../sandbox/sandbox-path';
 import { SandboxWorkspaceService } from '../sandbox/sandbox-workspace.service';
+import { BashCommandPolicyService } from '../sandbox/bash-command-policy.service';
 import type { AgentTool, ToolExecutionContext, ToolExecutionResult } from './agent-tool.types';
 
 const TOOL_DESCRIPTION =
@@ -23,7 +34,7 @@ const TOOL_DESCRIPTION =
   '非零退出是命令结果。外网默认不可用；需要 curl/pip install 等时按提示申请 network/install 权限。';
 
 @Injectable()
-export class BashTool implements AgentTool<BashInput, BashRunResult> {
+export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
   readonly name = AGENT_TOOL_NAMES.bash;
   readonly inputSchema = bashInputSchema as ZodType<BashInput>;
   readonly inputErrorCode = AGENT_ERROR_CODES.invalidToolArguments;
@@ -36,6 +47,9 @@ export class BashTool implements AgentTool<BashInput, BashRunResult> {
     private readonly manager: SandboxManagerService,
     private readonly workspace: SandboxWorkspaceService,
     private readonly artifacts: ArtifactsService,
+    private readonly jobs: SandboxJobService,
+    private readonly bashPolicy: BashCommandPolicyService,
+    private readonly egressAudit: SandboxEgressAuditService,
   ) {}
 
   definition() {
@@ -79,6 +93,7 @@ export class BashTool implements AgentTool<BashInput, BashRunResult> {
             maxItems: 2,
           },
           justification: { type: 'string', minLength: 1 },
+          run_in_background: { type: 'boolean' },
         },
         required: ['command', 'description'],
       },
@@ -92,13 +107,42 @@ export class BashTool implements AgentTool<BashInput, BashRunResult> {
   async execute(
     input: BashInput,
     context: ToolExecutionContext,
-  ): Promise<ToolExecutionResult<BashRunResult>> {
+  ): Promise<ToolExecutionResult<BashToolSuccess>> {
     if (!context.runId) {
       return this.failed(AGENT_ERROR_CODES.sandboxUnavailable, '命令执行缺少运行上下文。', false);
     }
     const spec = this.resolve(input);
+    if (input.run_in_background && input.output) {
+      return this.failed(
+        AGENT_ERROR_CODES.invalidToolArguments,
+        '后台命令不支持 output Collect；请在前台 bash 或 job 结束后再 Collect。',
+        false,
+      );
+    }
     try {
-      const commandResult = await this.manager.withSession(context.runId, async (session) => {
+      if (context.runId) {
+        this.manager.acquireRunLease(context.sessionId, context.runId);
+      }
+      if (input.run_in_background) {
+        await this.manager.withSession(context.sessionId, async (session) => {
+          if (input.inputFiles?.length) {
+            await this.workspace.stage(context.sessionId, session, input.inputFiles);
+          }
+        });
+        this.assertEgressAllowed(input, context);
+        const { jobId } = await this.jobs.startBackground({
+          sessionId: context.sessionId,
+          runId: context.runId,
+          bash: input,
+          cwd: spec.cwd,
+          env: spec.env,
+          egressBoost: context.bashEgressBoost,
+        });
+        const output = bashBackgroundResultSchema.parse({ kind: 'background', jobId });
+        return { status: 'succeeded', output, logFields: { jobId } };
+      }
+      this.assertEgressAllowed(input, context);
+      const commandResult = await this.manager.withSession(context.sessionId, async (session) => {
         if (input.inputFiles?.length) {
           await this.workspace.stage(context.sessionId, session, input.inputFiles);
         }
@@ -117,7 +161,7 @@ export class BashTool implements AgentTool<BashInput, BashRunResult> {
       const finished = !commandResult.timedOut && !commandResult.aborted;
       if (finished && input.output) {
         try {
-          const imported = await this.manager.withSession(context.runId, (session) =>
+          const imported = await this.manager.withSession(context.sessionId, (session) =>
             this.workspace.collect({
               sessionId: context.sessionId,
               runId: context.runId!,
@@ -158,8 +202,8 @@ export class BashTool implements AgentTool<BashInput, BashRunResult> {
       });
 
       if (commandResult.timedOut) {
-        if (this.shouldInvalidate(context.signal, commandResult)) {
-          await this.manager.invalidate(context.runId);
+        if (this.shouldInvalidate(context.sessionId, context.signal, commandResult)) {
+          await this.manager.invalidate(context.sessionId);
         }
         return {
           status: 'timeout',
@@ -172,7 +216,9 @@ export class BashTool implements AgentTool<BashInput, BashRunResult> {
         };
       }
       if (commandResult.aborted) {
-        await this.manager.invalidate(context.runId);
+        if (this.shouldInvalidate(context.sessionId, context.signal, commandResult)) {
+          await this.manager.invalidate(context.sessionId);
+        }
         return {
           status: 'cancelled',
           error: {
@@ -186,7 +232,9 @@ export class BashTool implements AgentTool<BashInput, BashRunResult> {
       return { status: 'succeeded', output, logFields: this.logFields(output) };
     } catch (error) {
       if (context.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
-        await this.manager.invalidate(context.runId).catch(() => undefined);
+        if (this.shouldInvalidate(context.sessionId, context.signal, { timedOut: false, aborted: true })) {
+          await this.manager.invalidate(context.sessionId).catch(() => undefined);
+        }
         return {
           status: 'cancelled',
           error: {
@@ -282,9 +330,11 @@ export class BashTool implements AgentTool<BashInput, BashRunResult> {
   }
 
   private shouldInvalidate(
+    sessionId: string,
     signal: AbortSignal | undefined,
     result: { timedOut: boolean; aborted: boolean },
   ): boolean {
+    if (this.manager.getRunningJobCount(sessionId) > 0) return false;
     return result.timedOut || result.aborted || Boolean(signal?.aborted);
   }
 
@@ -322,11 +372,35 @@ export class BashTool implements AgentTool<BashInput, BashRunResult> {
     };
   }
 
+  private assertEgressAllowed(input: BashInput, context: ToolExecutionContext): void {
+    if (!context.bashEgressBoost) return;
+    const policy = this.bashPolicy.classify(input);
+    if (policy !== 'network' && policy !== 'install') return;
+    const allowlist = mergedEgressAllowlist(readSandboxRuntimeConfig());
+    const hosts = extractHostsFromCommand(input.command);
+    if (!hosts.length) return;
+    const denied = hosts.filter((host) => !isHostAllowed(host, allowlist));
+    this.egressAudit.record({
+      sessionId: context.sessionId,
+      runId: context.runId,
+      toolCallId: context.toolCallId,
+      hosts,
+      decision: denied.length ? 'deny' : 'allow',
+    });
+    if (denied.length) {
+      throw new SandboxError(
+        AGENT_ERROR_CODES.sandboxUnavailable,
+        `[sandbox: network denied; hosts not in allowlist: ${denied.join(', ')}]`,
+        false,
+      );
+    }
+  }
+
   private failed(
     code: string,
     detail: string,
     retryable: boolean,
-  ): ToolExecutionResult<BashRunResult> {
+  ): ToolExecutionResult<BashToolSuccess> {
     return { status: 'failed', error: { code, detail, retryable } };
   }
 

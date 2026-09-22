@@ -157,6 +157,23 @@ export class OpenSandboxSession implements SandboxSession {
 export class OpenSandboxProvider implements SandboxProvider {
   constructor(private readonly config: SandboxRuntimeConfig) {}
 
+  async connect(input: { providerSandboxId: string }): Promise<SandboxSession> {
+    try {
+      const handle = await Sandbox.connect({
+        sandboxId: input.providerSandboxId,
+        connectionConfig: {
+          domain: this.config.domain,
+          apiKey: this.config.apiKey,
+          protocol: 'http',
+          useServerProxy: true,
+        },
+      });
+      return new OpenSandboxSession(handle.id, handle);
+    } catch (error) {
+      throw sandboxUnavailable(redactProviderError(error));
+    }
+  }
+
   async create(input: CreateSandboxInput): Promise<SandboxSession> {
     try {
       const handle = await Sandbox.create({

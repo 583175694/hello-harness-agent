@@ -76,6 +76,7 @@ const bashCoreFields = {
   output: bashOutputSchema,
   sandbox_permissions: z.array(bashSandboxPermissionSchema).min(1).max(2).optional(),
   justification: z.string().trim().min(1).max(2_000).optional(),
+  run_in_background: z.boolean().optional(),
 };
 
 function normalizeLegacyCwd(value: unknown): unknown {
@@ -158,6 +159,13 @@ const bashSpillSchema = z
   .strict()
   .optional();
 
+export const bashBackgroundResultSchema = z
+  .object({
+    kind: z.literal('background'),
+    jobId: z.string().min(1),
+  })
+  .strict();
+
 export const bashRunResultSchema = z
   .object({
     exitCode: z.number().int().nullable(),
@@ -186,10 +194,52 @@ export const bashPublicResultSchema = bashRunResultSchema.omit({
 });
 export const executeCommandPublicResultSchema = bashPublicResultSchema;
 
+/** SSE / UI 侧 bash（及 execute_command）工具完成时的公开结果。 */
+export const bashPublicToolResultSchema = z.union([
+  bashPublicResultSchema,
+  bashBackgroundResultSchema,
+]);
+
 export type BashInput = z.infer<typeof bashInputSchema>;
 export type BashInputSummary = z.infer<typeof bashInputSummarySchema>;
 export type BashRunResult = z.infer<typeof bashRunResultSchema>;
+export type BashBackgroundResult = z.infer<typeof bashBackgroundResultSchema>;
+export type BashToolSuccess = BashRunResult | BashBackgroundResult;
+
+export const jobOutputInputSchema = z
+  .object({
+    job_id: z.string().min(1),
+    wait: z.boolean().optional(),
+    timeout_ms: z.number().int().min(0).max(600_000).optional(),
+  })
+  .strict();
+
+export const jobListInputSchema = z.object({}).strict();
+
+export const jobKillInputSchema = z
+  .object({
+    job_id: z.string().min(1),
+  })
+  .strict();
+
+export type JobOutputInput = z.infer<typeof jobOutputInputSchema>;
+export type JobListInput = z.infer<typeof jobListInputSchema>;
+export type JobKillInput = z.infer<typeof jobKillInputSchema>;
+
+export const jobToolActivityPresentationSchema = z.enum(['job']);
+export const jobToolActivityFieldsSchema = z
+  .object({
+    presentation: jobToolActivityPresentationSchema,
+    jobId: z.string().min(1).optional(),
+    jobStatus: z.string().min(1).optional(),
+  })
+  .strict();
+
+/** job_output / job_list / job_kill 对 UI 与 SSE 的公开文本结果。 */
+export const sandboxJobToolTextResultSchema = z.object({ text: z.string() }).strict();
+export type SandboxJobToolTextResult = z.infer<typeof sandboxJobToolTextResultSchema>;
 export type BashPublicResult = z.infer<typeof bashPublicResultSchema>;
+export type BashPublicToolResult = z.infer<typeof bashPublicToolResultSchema>;
 export type ExecuteCommandInput = BashInput;
 export type ExecuteCommandInputSummary = BashInputSummary;
 export type ExecuteCommandOutput = BashRunResult;

@@ -1,4 +1,4 @@
-import type { BashRunResult } from './contracts.js';
+import type { BashBackgroundResult, BashRunResult } from './contracts.js';
 
 const TRUNCATION_LINE =
   /^(\[output truncated; full output: artifact:[^\]]+\])$/u;
@@ -38,4 +38,44 @@ export function spillReferenceLine(artifactId: string): string {
 
 export function isSpillReferenceLine(line: string): boolean {
   return TRUNCATION_LINE.test(line.trim());
+}
+
+export function renderBashBackgroundResult(result: BashBackgroundResult): string {
+  return `started background job ${result.jobId}`;
+}
+
+export function renderJobOutputText(input: {
+  stdout: string;
+  stderr: string;
+  status: string;
+  hadNewOutput: boolean;
+}): string {
+  const lines: string[] = [];
+  const stdout = input.stdout.trimEnd();
+  const stderr = input.stderr.trimEnd();
+  if (stdout) lines.push(stdout);
+  if (stderr) {
+    if (lines.length) lines.push('');
+    lines.push('[stderr]');
+    lines.push(stderr);
+  }
+  if (!stdout && !stderr) {
+    lines.push(input.hadNewOutput ? '(no output)' : '(no new output)');
+  }
+  lines.push(`[status: ${input.status}]`);
+  return lines.join('\n');
+}
+
+export function renderJobListText(jobs: ReadonlyArray<{ id: string; status: string; description?: string }>): string {
+  if (!jobs.length) return '(no background jobs)';
+  return jobs
+    .map((job) => {
+      const desc = job.description ? ` · ${job.description}` : '';
+      return `${job.id} [${job.status}]${desc}`;
+    })
+    .join('\n');
+}
+
+export function renderJobKillText(jobId: string, status: string): string {
+  return `job ${jobId} [status: ${status}]`;
 }

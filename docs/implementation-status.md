@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-22（C3-B 已落地；本机 OpenSandbox + Workbench 验收通过，见 docs/33 §6.2.4）
+> 最后更新：2026-09-22（C3-C 方案就绪：docs/33 §6.3.4、§6.6.7–§6.6.8）
 
 ## 1. 当前结论
 
@@ -30,7 +30,9 @@ C3 前置 Provider / Cloud Execution PoC 已通过。当前首版选择 OpenSand
 
 C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@alibaba-group/opensandbox@0.1.11`）、fake Provider、Run-scoped Session、Stage/Collect、Artifact 导入、timeout/cancel grace、Web/API 投影显式分支。默认完全 deny 网络、未配置则 fail-closed。
 
-**C3-B 已落地**（详见 [33-c3-agent-sandbox-cloud-execution.md §6.2](./33-c3-agent-sandbox-cloud-execution.md#62-c3-bdsh-前台-bash-对齐--策略审批改版) 与 **§6.2.4 验收记录**）：主工具 **`bash`**（`BashTool` + Registry 别名 `execute_command`）；`BashCommandPolicyService` + Runtime 动态 `tool_approval`；`renderBashResult()` / spill；OpenSandbox 当次 egress boost（`sandboxEgressAllowlistV1`）；Terminal `tool_activity` 与 system prompt 专段。**C3-C（下一刀）** 为后台 job + egress/install 治理扩展 + orphan 对账；**C3-D** 为 Browser 与规模化。`inputFiles` UI 严格展示、腾讯云 VPC 复验划入 C3-C；`agent-browser` 划入 C3-D。
+**C3-B 已落地**（详见 [33-c3-agent-sandbox-cloud-execution.md §6.2](./33-c3-agent-sandbox-cloud-execution.md#62-c3-bdsh-前台-bash-对齐--策略审批改版) 与 **§6.2.4 验收记录**）：主工具 **`bash`**（`BashTool` + Registry 别名 `execute_command`）；`BashCommandPolicyService` + Runtime 动态 `tool_approval`；`renderBashResult()` / spill；OpenSandbox 当次 egress boost（`sandboxEgressAllowlistV1`）；Terminal `tool_activity` 与 system prompt 专段。
+
+**C3-C 已落地（代码 + 单测；live 手工签字见 docs/33 §6.3.4）**：Session 级 Sandbox + Prisma `sandbox_instances` + Run **lease**（`releaseRunLease`）；`bash.run_in_background` 与 `job_output` / `job_list` / `job_kill`；`SandboxJobWatcher` 默认 **wakeup**（`quiet` / `maxConsecutiveWakes`）；egress v2 词法 host + 扩展 allowlist + 结构化 audit；orphan 扫描骨架；审批 UI 展示 bash `inputFiles`；模型 definitions 不再暴露 `execute_command` 别名（Snapshot 只读保留）。**C3-D** 为 Browser 与规模化。
 
 ### C3-B 相对 C3-A 的能力快照（已对齐）
 
@@ -47,6 +49,21 @@ C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@
 | 测试 | `bash-render`、`bash-command-policy`、`bash.tool` 单测；`pnpm build` 通过 |
 
 详细边界与未签字项（spill 点开、同 Run marker 回归、live `curl example.com`）见 [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md)。
+
+### C3-C 实施差距（相对 C3-B，待开工）
+
+| 能力 | C3-B 现状 | C3-C 目标 |
+| --- | --- | --- |
+| Sandbox 键 | **sessionId** + Run lease | 同左（已实现） |
+| 持久化 | **`sandbox_instances`** + reconnect/orphan | 同左 |
+| bash | 前台 + **`run_in_background`** | 同左 |
+| 工具 | **`job_*` 三工具** | 同左 |
+| 长任务通知 | **wakeup** / quiet / follow-up 降级 | 同左 |
+| egress | v1 + **扩展表 + host 审计** | 同左 |
+| 审批 UI | + **`inputFiles`** | 同左 |
+| 别名 | 模型侧 **仅 `bash`** | 同左 |
+
+建议实施顺序见 docs/33 §6.3.3（C3-C1 → C3-C4）。实现默认、egress v2 env、OpenSandbox reconnect 降级见 **§6.6.6–§6.6.8**；手工验收项 **§6.3.4 第 8–9 条**。
 
 Model-led Tool Boundary 已落地为协议 `0.8.0`：模型负责语义规划，Runtime 只执行模型决策和通用执行边界，Tool 只执行能力并返回 canonical 结构化结果，Runtime 统一序列化 Tool Message，Projection 派生 provenance 并按 URL/contentHash 归并 canonical source。`ToolRunState`、`WebResearchRunState`、Tool `modelContent/control` 和跨调用 URL allowlist 已删除；没有新增 Runtime Decision Policy、Web Research Policy 或 Tool observation 预算协议。详见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md)。
 
@@ -482,7 +499,7 @@ C3  Agent Sandbox & Cloud Execution Environment   高优先级
     - 前置 PoC 已通过：OpenSandbox + Docker 本地/腾讯云验证，Shell/Python、Workspace 状态、文件回传和清理闭环已确认
     - C3-A 已落地并本机验收：SandboxManager/Provider、Collect、Stage；启动见 `dev/opensandbox-local/` 与 docs/33 §1.5
     - C3-B 已落地并本机验收：bash、Bash 策略 v1、动态升权审批、文本 Tool Result、Terminal UI（docs/33 §6.2.4）
-    - C3-C 待实施：run_in_background、job_*、egress/install 执行层、orphan 对账、inputFiles UI（docs/33 §6.3）
+    - C3-C 待实施：Session Sandbox、job_*、wakeup 完成通知、egress v2、orphan（docs/33 §6.3、§6.6）
     - C3-D 待实施：agent-browser、复杂产物、镜像/预热/多 Provider/成本（docs/33 §6.4）
     - 采用 Sandbox as a Tool：Agent Runtime、Tool Registry、Policy、Credential、Audit 和 Artifact 留在可信 Host
     - C3-B 起主模型 Tool 为 bash；C3-A 为 execute_command
@@ -550,7 +567,7 @@ K3 Control & HITL Kernel（基本完成）
   -> K4 Agent Task Semantics（已完成）
   -> C1 File & Multimodal Foundation（已完成）
   -> C3-B DSH 前台 bash + Bash 策略 v1（已完成，见 docs/33 §6.2.4）
-  -> C3-C 后台 job + 沙箱生产 + network/install 执行（下一刀）
+  -> C3-C 后台 job + Session Sandbox + network/install v2（下一刀，§6.6 已冻结）
   -> C2-C/C2-D Artifact 后续能力（接入本地写入策略）
   -> C3-D Browser 与规模化
   -> K5-B Side-effect Governance 验收收口（MCP/浏览器写操作等）

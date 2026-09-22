@@ -1,5 +1,5 @@
 import { dirname } from 'node:path';
-import { sandboxLimits } from './sandbox-config';
+import { SANDBOX_WORKSPACE_ROOT, sandboxLimits } from './sandbox-config';
 import { boundStreamTail } from './sandbox-output';
 import type {
   CreateSandboxInput,
@@ -83,6 +83,51 @@ export class FakeSandboxSession implements SandboxSession {
     input: SandboxCommandInput,
     started: number,
   ): Promise<SandboxCommandResult> {
+    if (input.command.includes('ls -1') && input.command.includes('.harness/jobs')) {
+      const prefix = `${SANDBOX_WORKSPACE_ROOT}/.harness/jobs/`;
+      const ids = new Set<string>();
+      for (const key of this.files.keys()) {
+        if (!key.startsWith(prefix)) continue;
+        const rest = key.slice(prefix.length);
+        if (!rest) continue;
+        const jobId = rest.split('/')[0];
+        if (jobId) ids.add(jobId);
+      }
+      return this.result(input, {
+        exitCode: 0,
+        stdout: [...ids].join('\n'),
+        durationMs: Date.now() - started,
+      });
+    }
+    if (input.command.includes('nohup bash -c')) {
+      await this.runBackgroundJob(input.command);
+      return this.result(input, { exitCode: 0, durationMs: Date.now() - started });
+    }
+    const catPath = this.parseCatPath(input.command);
+    if (catPath) {
+      const file = this.files.get(catPath);
+      const text =
+        file?.kind === 'regular_file' && file.data
+          ? Buffer.from(file.data).toString('utf8')
+          : '';
+      return this.result(input, { exitCode: 0, stdout: text, durationMs: Date.now() - started });
+    }
+    if (input.command.includes("m['status']='killed'") && input.command.includes('.harness/jobs/')) {
+      const jobId = input.command.match(/\.harness\/jobs\/([^/]+)/)?.[1];
+      if (jobId) {
+        const metaPath = `${SANDBOX_WORKSPACE_ROOT}/.harness/jobs/${jobId}/meta.json`;
+        const file = this.files.get(metaPath);
+        if (file?.data) {
+          const meta = JSON.parse(Buffer.from(file.data).toString('utf8')) as Record<string, unknown>;
+          meta.status = 'killed';
+          await this.upload({
+            path: metaPath,
+            data: Buffer.from(JSON.stringify(meta), 'utf8'),
+          });
+        }
+      }
+      return this.result(input, { exitCode: 0, durationMs: Date.now() - started });
+    }
     if (input.timeoutMs <= 0) {
       return this.result(input, { exitCode: null, timedOut: true, durationMs: Date.now() - started });
     }
@@ -137,6 +182,17 @@ export class FakeSandboxSession implements SandboxSession {
     };
   }
 
+  private parseCatPath(command: string): string | undefined {
+    if (!command.startsWith('cat ')) return undefined;
+    const pathPart = command.slice(4).split(' 2>/dev/null')[0]?.trim();
+    if (!pathPart) return undefined;
+    try {
+      return JSON.parse(pathPart) as string;
+    } catch {
+      return undefined;
+    }
+  }
+
   private ensureParent(path: string): void {
     const parent = dirname(path);
     if (parent === path) return;
@@ -145,6 +201,56 @@ export class FakeSandboxSession implements SandboxSession {
 
   private assertAlive(): void {
     if (this.destroyed) throw new Error('sandbox destroyed');
+  }
+
+  private async runBackgroundJob(command: string): Promise<void> {
+    const jobMatch = command.match(/\.harness\/jobs\/([^/]+)/);
+    const jobId = jobMatch?.[1];
+    if (!jobId) return;
+    const jobDir = `/workspace/.harness/jobs/${jobId}`;
+    this.ensureParent(jobDir);
+    this.files.set(`${SANDBOX_WORKSPACE_ROOT}/.harness`, { kind: 'directory' });
+    this.files.set(`${SANDBOX_WORKSPACE_ROOT}/.harness/jobs`, { kind: 'directory' });
+    this.files.set(jobDir, { kind: 'directory' });
+    await this.upload({
+      path: `${jobDir}/meta.json`,
+      data: Buffer.from(
+        JSON.stringify({
+          jobId,
+          command: '',
+          description: '',
+          startedAt: new Date().toISOString(),
+          status: 'running',
+        }),
+        'utf8',
+      ),
+    });
+    const innerMatch = command.match(/nohup bash -c (.+?) >>/);
+    const inner = innerMatch?.[1];
+    if (!inner) return;
+    const decoded = inner.startsWith('"') ? JSON.parse(inner) : inner;
+    const sleepMatch = String(decoded).match(/sleep(?::|\s+)(\d+)/);
+    const delayMs = sleepMatch ? Number(sleepMatch[1]) * 1000 : 10;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(delayMs, 200)));
+    const exitCode = String(decoded).includes('fail') ? 1 : 0;
+    await this.upload({
+      path: `${jobDir}/exit_code`,
+      data: Buffer.from(String(exitCode), 'utf8'),
+    });
+    const metaRaw = this.files.get(`${jobDir}/meta.json`)?.data;
+    if (metaRaw) {
+      const meta = JSON.parse(Buffer.from(metaRaw).toString('utf8')) as Record<string, unknown>;
+      meta.status = exitCode === 0 ? 'completed' : 'failed';
+      meta.exitCode = exitCode;
+      await this.upload({
+        path: `${jobDir}/meta.json`,
+        data: Buffer.from(JSON.stringify(meta), 'utf8'),
+      });
+    }
+    await this.upload({
+      path: `${jobDir}/stdout.log`,
+      data: Buffer.from(`ran:${decoded}\n`, 'utf8'),
+    });
   }
 }
 
@@ -157,6 +263,12 @@ export class FakeSandboxProvider implements SandboxProvider {
     this.sessions.set(id, session);
     void input.ttlMs;
     void sandboxLimits.ttlMs;
+    return session;
+  }
+
+  async connect(input: { providerSandboxId: string }): Promise<SandboxSession> {
+    const session = this.sessions.get(input.providerSandboxId);
+    if (!session || session.destroyed) throw new Error('sandbox not found');
     return session;
   }
 }

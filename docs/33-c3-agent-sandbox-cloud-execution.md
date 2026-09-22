@@ -2,7 +2,7 @@
 
 > 文档状态：C3 统一方向与实施方案；**C3-A / C3-B 已在本机 OpenSandbox + Docker 完成验收**（Sandbox 默认仍关闭，启用需配置 `SANDBOX_*`）。
 >
-> 最后更新：2026-09-22（C3-B 落地与验收记录）。
+> 最后更新：2026-09-22（C3-C §6.6.7–§6.6.8 实现默认与 reconnect 降级；§6.3.4 补充验收）。
 >
 > 本文是 C3 的唯一权威文档，同时包含已完成的基础设施 PoC、C3-A 实施方案、冻结契约、后续阶段和验收标准。
 
@@ -24,7 +24,7 @@ C3 的目标是为每个 Agent Run 提供任务级隔离、可持续且可配置
 前置 PoC  OpenSandbox + Docker / Cloud Execution   已通过
 C3-A      Sandbox 抽象与 execute_command 接入       已落地；本机 Docker 验收通过；默认关闭
 C3-B      DSH 前台 bash 对齐 + 策略审批改版         已落地；本机 Docker 验收通过（见 §6.2.4）
-C3-C      后台 job + 沙箱生产 + 网络/安装执行层       待实施（见 §6.3）
+C3-C      后台 job + 沙箱生产 + 网络/安装执行层       待实施（见 §6.3、§6.6）
 C3-D      Browser、复杂产物与规模化                   待实施（见 §6.4）
 ```
 
@@ -750,11 +750,67 @@ Host 判定优先于模型 `justification`。v1 建议分类：
 
 ### 6.3 C3-C：后台 job + 沙箱生产 + 网络/安装执行
 
-**定义**：补全 DSH 长任务面；在 C3-B「批准后当次 egress」之上扩展 **allowlist 治理与 install 源**；收口 C3-A TTL-only 回收。
+**定义**：补全 DSH 长任务面（`@deepseek-ai/dsh-tool-bash` + `@deepseek-ai/dsh-tool-jobs`）；在 C3-B「批准后当次 egress」之上扩展 **allowlist 治理与 install 源**；将 Sandbox 从 **Run 租约** 升级为 **Session 持久关联 + orphan 对账**（见 §6.6）。
 
-必做：`bash.run_in_background`；`job_output` / `job_list` / `job_kill`；完成通知（K3.3 Follow-up）；Job × Session TTL 规则；进程树 cancel；**扩展** Host egress allowlist（域名级、审计、与命令 URL 解析）；**install 源/包名**策略；Run↔Sandbox 持久关联与 orphan 扫描；`inputFiles` 审批/UI 严格展示（C3-A 尾巴）。
+#### 6.3.1 必做范围
 
-验收：后台 sleep + 增量 job_output + job_kill；已批准 curl 对 **C3-C 扩展表**内任意验收域名成功；orphan 可演示回收。此时可对外称 bash 与 DSH 默认组合**等价（除隔离机制）**。
+| ID | 项 | 要点 |
+| --- | --- | --- |
+| C1 | Session Sandbox | `SandboxManager` 主键 **sessionId**；Run 结束 **不无条件** `releaseRun`；DB `sandbox_instances` + Provider reconnect |
+| C2 | `bash.run_in_background` | 无 timeout；立即返回 jobId；文本 `started background job <id>`；network/install 策略与 egress boost 同前台 |
+| C3 | `job_output` | 增量读 job log；可选 `wait`/`timeout_ms`；末尾 `[status: …]` |
+| C4 | `job_list` / `job_kill` | 对齐 DSH 三工具；kill 进程组；owner 隔离在 **session** |
+| C5 | 完成通知 | 默认 **wakeup**（idle 自动开 Run）；`maxConsecutiveWakes=3`；可配 `quiet`（§6.6.4） |
+| C6 | Job × TTL | 活动刷新 `SANDBOX_TTL_MS`；有 **running** job 时禁止 TTL 销毁；**硬顶** `SANDBOX_MAX_TTL_MS` |
+| C7 | Cancel / 进程树 | 前台 cancel 杀远端进程树；**Run cancel 不默认杀后台 job**；Session 删除清场 |
+| C8 | egress v2 | 命令 URL/host 词法抽取 + 扩展 allowlist + **审计**；批准 network 后 host 仍须在表内 |
+| C9 | install v1 | `pip`/`npm` 非默认 index 走 install 审批；index host ∈ allowlist |
+| C10 | orphan | 启动/定时对账 Provider 与 DB；可演示回收 |
+| C11 | `inputFiles` UI | bash 审批卡展示 Stage 文件列表（C3-A 尾巴） |
+| C12 | 别名收尾 | C3-C 末删除模型侧 `execute_command` 别名（Snapshot 只读保留） |
+
+#### 6.3.2 明确不进 C3-C
+
+- 完整 PTY、`dsh-tool-bash-persistent`、subagent/PTY job kind（仅 `bash` kind）
+- 包名级 install allowlist、按命令 AST 的 egress、Secret Proxy、多 Provider 矩阵（C3-D）
+- `agent-browser`、腾讯云 VPC 复验（C3-C 可本地 OpenSandbox 验收；VPC 为部署签字）
+- Host 崩溃 exactly-once 与跨进程 job 迁移（仅 orphan 对账 + TTL）
+
+#### 6.3.3 建议实施顺序
+
+```text
+C3-C1  Session Sandbox + sandbox_instances + 延迟 destroy + orphan 骨架
+C3-C2  bash.run_in_background + 容器内 .harness/jobs/<id>/ 协议
+C3-C3  job_output / job_list / job_kill + 协议/UI + Fake Provider
+C3-C4  完成通知(wakeup) + egress/install v2 + cancel 树 + inputFiles UI + 验收
+```
+
+#### 6.3.4 C3-C 验收标准
+
+1. `bash` 带 `run_in_background: true` 启动 `sleep` 类命令：Tool succeeded，返回 job id 与 DSH 式起始文本。
+2. 同 Session 内：`job_list` 可见 job；`job_output` 增量输出；`job_kill` 可终止 running job。
+3. Run 已结束但 job 仍 running：**Sandbox 不被销毁**；job 完成后默认 **wakeup** 开新 Run（通知文案含 `job_output` 指引），连续 wakeup ≤3。
+4. 批准后 `curl` 对 **扩展 allowlist** 内 HTTPS 域名 live 成功；表外 host 有 audit 且仍 fail-closed。
+5. orphan：模拟 DB/Provider 不一致可演示回收。
+6. bash 带 `inputFiles` 时审批 UI 展示 staged 文件。
+7. `pnpm check`；fake 单测覆盖 job 协议；sandbox-live 回归不回归。
+8. **Run 已 completed** 且后台 `sleep` 仍 running：Sandbox **未销毁**；job 结束后 **wakeup** 收到完成句（含 `job_output` 指引）。
+9. **同 Session 两次 Run**：第一次 Run 写入 workspace 文件；第二次 Run（新 Assistant Run）仍可读取（Session Sandbox 共享 `/workspace`）。
+
+**2026-09-22 建议手工签字项（C3-C 完成后填写）：**
+
+| 项 | 结果 |
+| --- | --- |
+| 8. Run 结束 + 后台 job + wakeup | （待测） |
+| 9. 跨 Run workspace 保留 | （待测） |
+| §6.3.4 第 4 项 egress v2 live | （待测） |
+
+**UI 冒烟 Prompt 示例（C3-C）**
+
+1. `请用 bash 在后台执行 sleep 45（run_in_background），告诉我 job id；在我这轮对话结束后再用 job_output 看结果。`
+2. `请 job_list 列出当前 Session 的后台 job，并对仍在运行的 job 用 job_output 读增量输出。`
+
+**对外表述**：本节全部验收通过后，可称前台 bash + 后台 job 控制与 DSH 默认 **`dsh-tool-bash` + `dsh-tool-jobs` 组合等价（除隔离机制）**。
 
 ### 6.4 C3-D：Browser、复杂产物与规模化
 
@@ -830,6 +886,138 @@ apps/web                    Terminal 卡片、审批策略类展示
 - Host 文件只用 `inputFiles` / `output`（Harness extension）。  
 - spill 用 `artifact:<id>`，不要用 shell 去读 Host。
 
+### 6.6 C3-C 冻结决策（参考 DSH tool-bash / tool-jobs + Harness 云映射）
+
+以下结论 **已拍板**（含 2026-09-22 产品确认：**完成通知默认 wakeup**）。实施 C3-C 以本节为准。
+
+#### 6.6.1 工具与 DSH 对齐
+
+| 决策 | 结论 | DSH / 说明 |
+| --- | --- | --- |
+| 工具分包 | **`bash`** 仅增加 `run_in_background`；**独立**注册 `job_output`、`job_list`、`job_kill` | 同 `dsh-tool-jobs` |
+| 后台返回值 | Struct `{ kind: 'background', jobId }`；模型文本 **`started background job <id>`** | 前台仍 `renderBashResult()` |
+| 后台 timeout | **无** executor timeout；结束靠自然退出、`job_kill`、Session/Sandbox 销毁 | 同 DSH |
+| 策略 / 升权 | 后台 **preflight** `BashCommandPolicyService`；network/install 仍 interrupt + 批准后 **egress boost** | 云侧无 file mode |
+| job 可见性 | jobId **session 级** fence；其他 Session 不可见 | 同 owner-fenced registry |
+| System prompt | 增加 DSH 背景 job 段：track id、勿 busy-poll、final answer 前 `job_output`/`job_kill` | tool-jobs README |
+
+#### 6.6.2 Sandbox 生命周期（Session 级）
+
+| 决策 | 结论 |
+| --- | --- |
+| 绑定粒度 | **Session-scoped** Sandbox；同一 Chat Session 多 Run **共享** `/workspace` 与已装依赖 |
+| Run 结束 | `RunExecutor` **释放 Run lease**，**不**在无 running job 时立即 destroy；C3-B 行为改为 lease 模型 |
+| 销毁条件 | 无 active Run lease **且** 无 `running` job **且** TTL/硬顶到期，或 **Session 删除** |
+| 持久化 | Prisma **`sandbox_instances`**：`sessionId`、`providerSandboxId`、`status`、`lastActiveAt`、`expiresAt` |
+| Reconnect | API 重启后按 DB `providerSandboxId` 重连 OpenSandbox；失败降级见 **§6.6.8** |
+| C3-A 文案 | §9 第 5 条「Run-scoped」在 C3-C 后理解为：**Run 内 tool 串行 + Run lease**；**容器**以 Session 为主 |
+
+#### 6.6.3 容器内 Job 实现（OpenSandbox 无 detach API）
+
+| 决策 | 结论 |
+| --- | --- |
+| 存储路径 | `/workspace/.harness/jobs/<jobId>/`：`stdout.log`、`stderr.log`、`pid`、`meta.json`（command、description、startedAt、status） |
+| 启动 | 单次短 `bash -c` 写 wrapper：`nohup …` 后台跑，立即返回；**不**依赖 PTY |
+| `job_output` | Host 经 Sandbox 读 log **offset**；无新输出时 `(no new output)` + `[status: …]` |
+| `job_kill` | 读 pid → 容器内 **进程组** TERM → 可选 KILL grace |
+| Fake Provider | 同一目录协议，供单测 |
+
+#### 6.6.4 完成通知（K3.3 + DSH completionDelivery）
+
+| 决策 | 结论 |
+| --- | --- |
+| 默认交付 | **`completionDelivery: wakeup`**（已确认）：Session **idle**（无 queued/running Run）时 job settle → **`RunCommandService.create`** 自动开一轮，内容为 DSH 式完成句 |
+| 完成句模板 | `background job <id> (bash: <description>) finished [status: …]. Read its output with job_output.` |
+| busy Session | 有 active Run 时：**注入当前 Run 下一轮 model 请求前** 的 job-notice（inbox 等价），**不**额外开 Run |
+| 防自激 | **`maxConsecutiveWakes=3`** / owner(session)；超出后 degrade 为 **仅排队** follow-up、不自动 create Run，直到用户发送消息重置预算 |
+| quiet 模式 | env **`SANDBOX_JOB_COMPLETION_DELIVERY=quiet`**：只写 `pending_user_inputs` follow_up，**不**自动 create Run |
+| 已读抑制 | terminal `job_output`（wait 到 settled）或 `job_kill` 标记 completion **reported**，不再重复通知 |
+
+配置默认值（Host 只读）：
+
+| 字段 | 默认 |
+| --- | --- |
+| `SANDBOX_JOB_COMPLETION_DELIVERY` | `wakeup` |
+| `SANDBOX_JOB_MAX_CONSECUTIVE_WAKES` | `3` |
+| `SANDBOX_JOB_WAIT_TIMEOUT_MS` | `30000`（`job_output` wait 缺省） |
+| `SANDBOX_JOB_MAX_WAIT_TIMEOUT_MS` | `600000`（模型 wait 上限 clamp） |
+
+#### 6.6.5 TTL 与 Cancel
+
+| 决策 | 结论 |
+| --- | --- |
+| 滑动 TTL | 任意 bash / job 工具活动刷新 `expiresAt`（基于 `SANDBOX_TTL_MS`） |
+| running job | 存在 **running** job 时 **推迟** TTL destroy |
+| 硬顶 | **`SANDBOX_MAX_TTL_MS`**（建议默认 **2h**）：到点 destroy Sandbox 并 kill 全部 job |
+| User cancel Run | 取消当前 Run/前台命令；**不默认** kill 后台 job |
+| Session 删除 | kill all jobs + destroy sandbox + 删 `sandbox_instances` 行 |
+| 前台 timeout/cancel | 保持 C3-B first-cause；补强 **进程树** terminate |
+
+#### 6.6.6 egress / install v2
+
+| 决策 | 结论 |
+| --- | --- |
+| allowlist | C3-B v1 列表 **保留**为内核；C3-C 增加 **可配置扩展**（env/配置文件），文档化 v2 验收域名 |
+| URL 校验 | 从 command **词法**抽 `http(s)://host`；批准后 egress 仍要求 host ∈ **合并 allowlist** |
+| 审计 | 每次 network 类执行写结构化 audit（sessionId、runId、toolCallId、hosts、allow/deny） |
+| install | `pip install -i` / `npm install` 非默认 registry → install interrupt；index host 必须在 allowlist；**不做**包名 allowlist |
+
+合并 allowlist = **`sandboxEgressAllowlistV1`**（§6.5.3）∪ **扩展表**。扩展 Host 配置（不进模型 prompt）：
+
+```env
+# 逗号分隔 host，无 scheme/path；与 v1 合并后用于 egress boost 与 URL 校验
+SANDBOX_EGRESS_ALLOWLIST_EXTRA=registry.yarnpkg.com,objects.githubusercontent.com
+```
+
+v2 验收建议：
+
+- **允许**：扩展表内 HTTPS（如 `curl -fsS https://registry.yarnpkg.com/` 在表内时，批准后成功）。
+- **拒绝**：表外 host（如 `curl https://evil.example`）→ 结构化 audit 记 `deny`，命令仍 fail-closed（连接失败或非零 exit 文本结果），**不**静默开网。
+
+C3-C 审计首版写入 **结构化日志**（`sessionId`、`runId`、`toolCallId`、`hosts[]`、`decision`）；独立 DB 表 `egress_audit` **可选**，不阻塞验收。
+
+#### 6.6.7 实现默认（运行时行为）
+
+以下默认值 **已拍板**，实施时写入代码或 env；与 §6.6.1–§6.6.6 不一致时以本节为准。
+
+| 主题 | 默认 |
+| --- | --- |
+| Job 完成检测 | Host **`SandboxJobWatcher`** 轮询容器内 `meta.json` / pid（建议间隔 **2s**）；settle 后触发 §6.6.4 通知；**不**仅依赖模型轮询 `job_output` |
+| `run_in_background` + `output` | 后台启动 **拒绝或忽略 `output`**；Collect 用前台 bash 或 job 结束后再执行带 `output` 的前台命令 |
+| Execute 串行 | 同一 **sessionId** 下 bash 与 job 工具 **共用一条 execute 队列**（延续 C3 串行），跨 Run 亦串行 |
+| Running job 上限 | 每 Session 同时 **running ≤ 8**（`SANDBOX_JOB_MAX_RUNNING`，可 env 覆盖） |
+| `job_output` cursor | Host 按 `(sessionId, jobId)` 存读 offset；**API 进程重启**后 cursor 丢失 → 从 **0** 重读（可能重复，可接受） |
+| `job_*` 注册 | 与 `bash` 相同：仅 **`SANDBOX_ENABLED` 且配置完整**（或 test fake Provider）时注册 |
+| Wakeup 预算重置 | 用户 **新提交** Session 消息（新 Run 的 user content）时，重置该 Session 的 **`maxConsecutiveWakes`** 计数 |
+| Busy job-notice | 注入点：**`onBeforeModelRequest`** 之前，将未报告的 completion 合成一条 **user 或 system 边界消息**（实现择一，须进 Transcript 且 replay-safe） |
+| 硬顶 env | `SANDBOX_MAX_TTL_MS` 默认 **7200000**（2h） |
+
+#### 6.6.8 OpenSandbox reconnect 与降级
+
+C3-C1 实施前或并行 **Spike**：确认 `@alibaba-group/opensandbox` 是否支持按 **`providerSandboxId`**  attach/reconnect 已有 Sandbox。
+
+| 能力 | 行为 |
+| --- | --- |
+| **Reconnect 成功** | API 重启后按 `sandbox_instances.providerSandboxId` 恢复 `SandboxSession`；继续 job 与 workspace |
+| **Reconnect 失败** | 将该行标 **`stale`**，走 orphan destroy；该 Session **下次 lazy create 新 Sandbox**（**不**承诺 workspace/job 续跑） |
+| **DB 有、Provider 无** | orphan 扫描 → destroy 行 + 清理 Provider 侧残留（若有） |
+| **Provider 有、DB 无** | orphan 扫描 → destroy 远端 Sandbox（防泄漏） |
+
+跨进程 **job 状态与 wakeup 不保证 exactly-once**（见 §8 第 5 项）；Reconnect 失败时未报告的 completion **可能丢失**，属已知限制。
+
+#### 6.6.9 代码触达面（相对 C3-B）
+
+```text
+apps/api/prisma              sandbox_instances (+ 可选 egress_audit)
+apps/api/src/sandbox         Session manager、lifecycle lease、job runner、job watcher、orphan scanner
+apps/api/src/tools           bash.run_in_background；JobOutputTool、JobListTool、JobKillTool
+apps/api/src/agent-runtime   job-notice 注入（onBeforeModelRequest）；wakeup → RunCommandService
+apps/api/src/runs            与 PendingUserInput / Follow-up 衔接；Session 删除清 Sandbox
+apps/api/src/sessions        delete → kill jobs + destroy sandbox
+packages/agent-protocol      bash 参数、job_* schema、tool_activity（job 卡片）
+apps/web                     job 读/杀卡片；bash 审批 inputFiles 列表
+```
+
 ## 7. 与其他 Capability 的关系
 
 - **C4 MCP**：高权限 MCP、Credential 和业务系统连接默认留在 Host，不能因为 Sandbox 可运行程序就搬入执行面。
@@ -839,15 +1027,14 @@ apps/web                    Terminal 卡片、审批策略类展示
 
 ## 8. 后续开放问题
 
-C3-A 已冻结项见 §9。C3-B 决策见 §6.5；其余：
+C3-A 已冻结项见 §9。C3-B 决策见 §6.5；C3-C 决策见 §6.6。其余：
 
 1. 完整 PTY 与用户可见 Terminal（非 C3-B/C 目标）。
 2. 多镜像矩阵与预装版本（C3-D D2；install 执行与 C3-C 衔接）。
 3. `agent-browser` 登录、用户接管（C3-D D1 / C6）。
-4. 受控代理与 Secret Proxy（C3-C/C3-D）。
-5. Host 崩溃后对账与 exactly-once（C3-C）。
-6. 多输出 Artifact、目录打包、自动 Diff（按需，不阻塞 C3-B）。
-7. Follow-up / Session 是否复用 Sandbox（C3-C job 设计时冻结）。
+4. 受控代理与 Secret Proxy（C3-D）。
+5. Host 崩溃后 **跨进程 job 续跑** 与 exactly-once（C3-C 仅 orphan + TTL；更深语义延期）。
+6. 多输出 Artifact、目录打包、自动 Diff（按需，不阻塞 C3-C）。
 
 ## 9. 当前冻结结论
 
@@ -855,18 +1042,18 @@ C3-A 已冻结项见 §9。C3-B 决策见 §6.5；其余：
 2. 已部署的 OpenSandbox + Docker 是 C3-A 首版 Provider 和执行 backend。
 3. C3-A 模型 Tool 名为 `execute_command`；C3-B 起主名为 `bash`，按普通 Tool Loop 处理。
 4. 命令执行纪律对齐 DSH 默认 `bash`：全新 `bash -c`、`resolve(request)`、正交结果、有界输出、fail-closed；有状态的是 Workspace，不是 shell。
-5. 首版是 Run-scoped、同 Run 串行的 Sandbox Session；正常命令完成后保留容器。
+5. C3-A/B：Run 租约 + 同 Run 串行；**C3-C 起** Sandbox **Session 级**持久化，Run 结束不毁盒（无 running job 且无 lease 时按 TTL 回收）。
 6. 输入显式 Stage，每次调用最多 Collect 一个输出 Artifact。
 7. timeout/cancel 必须终止远端进程树，并按第一原因区分 `timedOut` 与 `aborted`；能力不明确时销毁整个 Sandbox。
 8. 所有 Sandbox 有服务端 TTL；C3-A 不承诺进程重启恢复。
-9. C3-A 修改公共协议，但不实现 Terminal、流式日志、后台 jobs、本机文件沙箱升权或 Browser 动作协议。
+9. C3-A 修改公共协议；C3-C 实现后台 jobs 与 job_* 工具；仍不实现 PTY、本机文件沙箱升权或 Browser 动作协议。
 10. C3-A 默认关闭、**每条命令强制审批**、固定非 root 镜像和完全 deny 网络；C3-B 改为默认不批 + 升权审批，仍 fail-closed、无静默 Host shell。
 11. 命令正常结束即可 Collect，不要求 exit 0；timeout/cancel 不 Collect。
 12. Provider 可替换，OpenSandbox/Docker 细节不得扩散到 Runtime、Prompt 或公共业务身份。
 
 ## 10. 调研参考
 
-- DeepSeek Harness bash 执行纪律（借鉴范围见第 2.3 节）：`packages/shell/tool-bash`、`packages/shell/bash-local`、`docs/subsystems/shell.md`
+- DeepSeek Harness bash / jobs（C3-B/C 对齐）：`packages/shell/tool-bash`、`packages/jobs/tool-jobs`、`docs/subsystems/shell.md`、`docs/subsystems/jobs.md`
 - [OpenAI Cookbook：Architecture — sandbox as a tool](https://developers.openai.com/cookbook/examples/agents_sdk/sandboxed-code-migration/sandboxed_code_migration_agent#architecture-sandbox-as-a-tool)
 - [OpenAI Codex Sandbox](https://learn.chatgpt.com/docs/sandboxing)
 - [OpenAI Codex Cloud](https://learn.chatgpt.com/docs/cloud)

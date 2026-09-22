@@ -28,6 +28,36 @@ export class PendingUserInputService {
     return run?.id;
   }
 
+  async enqueueFollowUp(sessionId: string, content: string, idempotencyKey: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const session = await tx.session.findFirst({
+        where: { id: sessionId, userId: LOCAL_USER_ID },
+      });
+      if (!session) return;
+      const existing = await tx.pendingUserInput.findUnique({
+        where: { sessionId_idempotencyKey: { sessionId, idempotencyKey } },
+      });
+      if (existing) return;
+      const count = await tx.pendingUserInput.count({ where: { sessionId, status: 'pending' } });
+      if (count >= MAX_PENDING) return;
+      const last = await tx.pendingUserInput.findFirst({
+        where: { sessionId },
+        orderBy: { sequence: 'desc' },
+      });
+      await tx.pendingUserInput.create({
+        data: {
+          id: crypto.randomUUID(),
+          sessionId,
+          kind: 'follow_up',
+          content,
+          sequence: (last?.sequence ?? 0) + 1,
+          idempotencyKey,
+          status: 'pending',
+        },
+      });
+    });
+  }
+
   async submit(sessionId: string, content: string, idempotencyKey: string) {
     const hash = createHash('sha256').update(content).digest('hex');
     return this.prisma.$transaction(async (tx) => {

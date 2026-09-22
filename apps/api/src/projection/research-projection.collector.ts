@@ -176,7 +176,7 @@ export class ResearchProjectionCollector {
     toolInput: ExecuteCommandInputSummary;
     completedAt: string;
     durationMs: number;
-    result: ExecuteCommandPublicResult;
+    result?: ExecuteCommandPublicResult;
   }): void {
     this.executions.push({
       toolCallId: input.toolCallId,

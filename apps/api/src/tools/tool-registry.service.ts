@@ -17,10 +17,6 @@ export class ToolInputValidationError extends Error {
   }
 }
 
-const LEGACY_TOOL_ALIASES: Record<string, string> = {
-  [AGENT_TOOL_NAMES.executeCommand]: AGENT_TOOL_NAMES.bash,
-};
-
 // 工具注册表只负责发现、校验和分派，不包含任何具体工具业务逻辑。
 @Injectable()
 export class ToolRegistryService {
@@ -38,7 +34,8 @@ export class ToolRegistryService {
   }
 
   resolveName(name: string): string {
-    return LEGACY_TOOL_ALIASES[name] ?? name;
+    if (name === AGENT_TOOL_NAMES.executeCommand) return AGENT_TOOL_NAMES.bash;
+    return name;
   }
 
   // 返回当前可用工具的 OpenAI Function Calling 声明。

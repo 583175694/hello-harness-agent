@@ -2,6 +2,8 @@ import type {
   AssistantContentBlock,
   AssistantTextBlock,
   AssistantUserInterventionBlock,
+  BashBackgroundResult,
+  BashPublicToolResult,
   ChatStreamEvent,
 } from '@harness/agent-protocol';
 
@@ -19,6 +21,12 @@ function conversationTextPhase(
   if (phase === 'commentary') return 'process';
   if (phase === 'final_answer') return 'final';
   return undefined;
+}
+
+function isBashBackgroundToolResult(
+  result: BashPublicToolResult,
+): result is BashBackgroundResult {
+  return 'kind' in result && result.kind === 'background';
 }
 
 function toolActivityStartSummary(event: Extract<ToolStreamEvent, { type: 'tool.started' }>): string {
@@ -45,8 +53,13 @@ function toolActivityCompletedSummary(
   if (event.toolName === 'create_file') return `已生成 ${event.result.file.fileName}`;
   if (event.toolName === 'create_report') return `生成报告：${event.result.report.title}`;
   if (event.toolName === 'bash' || event.toolName === 'execute_command') {
-    const collected = event.result.collection?.status === 'collected' ? '，已收集输出文件' : '';
-    return `命令完成，退出码 ${event.result.exitCode ?? '无'}${collected}`;
+    const commandResult = event.result;
+    if (isBashBackgroundToolResult(commandResult)) {
+      return `后台 job 已启动，job id：${commandResult.jobId}`;
+    }
+    const collected =
+      commandResult.collection?.status === 'collected' ? '，已收集输出文件' : '';
+    return `命令完成，退出码 ${commandResult.exitCode ?? '无'}${collected}`;
   }
   return currentSummary;
 }
@@ -229,6 +242,7 @@ export function applyToolActivityEvent(
   if (
     event.type === 'tool.completed' &&
     (event.toolName === 'bash' || event.toolName === 'execute_command') &&
+    'collection' in event.result &&
     event.result.collection?.status === 'collected'
   ) {
     const updated = blocks.map((block, blockIndex) =>

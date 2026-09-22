@@ -62,18 +62,19 @@ import type {
   WorkbenchFocusTarget,
   WorkbenchState,
 } from '../model/types';
-import type {
-  InterruptSnapshot,
-  PlanSnapshot,
-  PublicModelConfig,
-  ReasoningEffort,
-  ToolApprovalDecision,
-  FileRef,
-  ArtifactRef,
-  AssistantArtifactBlock,
-  RunContextDebug,
+import {
+  AGENT_PROTOCOL_LIMITS,
+  type InterruptSnapshot,
+  type PlanSnapshot,
+  type PublicModelConfig,
+  type ReasoningEffort,
+  type ToolApprovalDecision,
+  type FileRef,
+  type ArtifactRef,
+  type AssistantArtifactBlock,
+  type RunContextDebug,
+  type PendingUserInputView,
 } from '@harness/agent-protocol';
-import type { PendingUserInputView } from '@harness/agent-protocol';
 import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
 import { getArtifactPreview, getFilePreview } from '../../../api/client';
@@ -112,7 +113,6 @@ const FILE_ERROR_MESSAGES: Record<string, string> = {
   FILE_SIGNATURE_MISMATCH: '文件类型与实际内容不一致',
   FILE_PARSE_FAILED: '文件格式无法解析',
   FILE_PARSE_TIMEOUT: '文件解析超时',
-  FILE_CONTENT_TOO_LARGE: '解析内容超过 40,000 字符限制',
   PDF_PAGE_LIMIT_EXCEEDED: 'PDF 页数超过 200 页限制',
   PDF_TEXT_UNAVAILABLE: 'PDF 不包含可提取文本，当前不支持 OCR',
   FILE_NOT_READY: '文件尚未准备好',
@@ -122,6 +122,9 @@ const FILE_ERROR_MESSAGES: Record<string, string> = {
 
 // 将服务端稳定错误码转换为用户可读的简短提示。
 function fileErrorMessage(errorCode?: string): string {
+  if (errorCode === 'FILE_CONTENT_TOO_LARGE') {
+    return `解析内容超过 ${AGENT_PROTOCOL_LIMITS.uploadParsedContentMaxCodePoints.toLocaleString('zh-CN')} 字符限制`;
+  }
   return FILE_ERROR_MESSAGES[errorCode ?? ''] ?? '文件处理失败';
 }
 

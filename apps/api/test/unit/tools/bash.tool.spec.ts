@@ -9,6 +9,9 @@ describe('BashTool', () => {
       { isAvailable: () => true } as never,
       {} as never,
       {} as never,
+      {} as never,
+      { classify: () => null } as never,
+      { record: () => undefined } as never,
     );
     expect(tool.executionPolicy).toEqual({ timeoutMs: 610_000, approval: 'auto_execute' });
     expect(tool.resolve({ command: 'pwd', description: 'print cwd' })).toMatchObject({
@@ -39,6 +42,9 @@ describe('BashTool', () => {
         }),
       } as never,
       {} as never,
+      {} as never,
+      { classify: () => null } as never,
+      { record: () => undefined } as never,
     );
     const result = await tool.execute(
       { command: 'echo x', description: 'echo', inputFiles: [{ fileId: 'f1', path: 'in.txt' }] },

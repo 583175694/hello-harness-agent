@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
 import { PDFParse } from 'pdf-parse';
 import { OfficeParser } from 'officeparser';
 import { createHash } from 'node:crypto';
@@ -6,7 +7,7 @@ import { createHash } from 'node:crypto';
 // C1 文件大小、会话容量、正文字符数和 PDF 页数上限。
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_SESSION_FILE_BYTES = 100 * 1024 * 1024;
-export const MAX_PARSED_CODE_POINTS = 40_000;
+export const MAX_PARSED_CODE_POINTS = AGENT_PROTOCOL_LIMITS.uploadParsedContentMaxCodePoints;
 export const MAX_PDF_PAGES = 200;
 // 单个文件解析任务的最长执行时间。
 export const FILE_PARSE_TIMEOUT_MS = 30_000;
@@ -174,7 +175,10 @@ export class FileProcessingService {
     const characterCount = [...normalizedContent].length;
     if (!normalizedContent.trim()) throw this.reject('FILE_EMPTY', '文件内容为空。');
     if (characterCount > MAX_PARSED_CODE_POINTS)
-      throw this.reject('FILE_CONTENT_TOO_LARGE', '文件解析内容超过 40,000 字符限制。');
+      throw this.reject(
+        'FILE_CONTENT_TOO_LARGE',
+        `文件解析内容超过 ${MAX_PARSED_CODE_POINTS.toLocaleString('zh-CN')} 字符限制。`,
+      );
     return {
       ...prepared,
       normalizedContent,

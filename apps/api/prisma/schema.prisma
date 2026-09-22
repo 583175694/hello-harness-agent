@@ -51,9 +51,32 @@ model Session {
   artifacts Artifact[]
   artifactSeries ArtifactSeries[]
   reports Report[]
+  sandboxInstance SandboxInstance?
 
   @@index([userId, isPinned(sort: Desc), updatedAt(sort: Desc)])
   @@map("sessions")
+}
+
+enum SandboxInstanceStatus {
+  active
+  stale
+  destroying
+}
+
+model SandboxInstance {
+  id                 String                @id @default(uuid())
+  sessionId          String                @unique @map("session_id")
+  providerSandboxId  String                @map("provider_sandbox_id")
+  status             SandboxInstanceStatus @default(active)
+  lastActiveAt       DateTime              @map("last_active_at")
+  expiresAt          DateTime              @map("expires_at")
+  hardExpiresAt      DateTime              @map("hard_expires_at")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  session            Session               @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([status, expiresAt])
+  @@map("sandbox_instances")
 }
 
 enum PendingUserInputKind {

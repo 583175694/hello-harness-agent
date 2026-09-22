@@ -46,6 +46,7 @@ export interface SandboxSession {
 
 export interface SandboxProvider {
   create(input: CreateSandboxInput): Promise<SandboxSession>;
+  connect?(input: { providerSandboxId: string }): Promise<SandboxSession>;
 }
 
 export const SANDBOX_PROVIDER = Symbol('SANDBOX_PROVIDER');

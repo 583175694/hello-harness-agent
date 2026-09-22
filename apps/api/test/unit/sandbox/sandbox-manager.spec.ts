@@ -13,15 +13,6 @@ describe('sandbox manager', () => {
     expect(() => resolveWorkspacePath('/tmp')).toThrow();
   });
 
-  it('keeps head and tail when truncating output (legacy boundStream)', () => {
-    const text = `${'H'.repeat(20_000)}${'T'.repeat(20_000)}`;
-    const bounded = boundStream(text);
-    expect(bounded.truncated).toBe(true);
-    expect(bounded.text.startsWith('H')).toBe(true);
-    expect(bounded.text.endsWith('T')).toBe(true);
-    expect(bounded.text).toContain('[truncated]');
-  });
-
   it('prefers tail when truncating model-visible output', () => {
     const text = `${'H'.repeat(20_000)}${'T'.repeat(20_000)}`;
     const bounded = boundStreamTail(text);
@@ -30,29 +21,31 @@ describe('sandbox manager', () => {
     expect(bounded.text.endsWith('T')).toBe(true);
   });
 
-  it('reuses one session per run and serializes commands', async () => {
+  it('reuses one sandbox session per sessionId across runs', async () => {
     const provider = new FakeSandboxProvider();
-    const manager = new SandboxManagerService(provider);
-    const first = await manager.execute('run-1', {
+    const manager = new SandboxManagerService(provider, undefined);
+    manager.acquireRunLease('session-1', 'run-1');
+    await manager.execute('session-1', {
       command: 'echo one',
       cwd: '/workspace',
       timeoutMs: 5_000,
     });
-    const second = await manager.execute('run-1', {
+    manager.acquireRunLease('session-1', 'run-2');
+    await manager.execute('session-1', {
       command: 'echo two',
       cwd: '/workspace',
       timeoutMs: 5_000,
     });
-    expect(first.exitCode).toBe(0);
-    expect(second.exitCode).toBe(0);
     expect(provider.sessions.size).toBe(1);
-    await manager.releaseRun('run-1');
-    expect([...provider.sessions.values()][0]?.destroyed).toBe(true);
+    await manager.releaseRunLease('run-1');
+    expect(provider.sessions.size).toBe(1);
+    expect([...provider.sessions.values()][0]?.destroyed).toBe(false);
+    await manager.releaseRunLease('run-2');
   });
 
   it('reports nonzero exits as command results', async () => {
-    const manager = new SandboxManagerService(new FakeSandboxProvider());
-    const result = await manager.execute('run-2', {
+    const manager = new SandboxManagerService(new FakeSandboxProvider(), undefined);
+    const result = await manager.execute('session-2', {
       command: 'fail',
       cwd: '/workspace',
       timeoutMs: 5_000,

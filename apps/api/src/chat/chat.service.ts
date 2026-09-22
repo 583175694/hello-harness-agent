@@ -12,9 +12,15 @@ import {
   createReportResultSchema,
   executeCommandInputSummarySchema,
   executeCommandPublicResultSchema,
+  bashBackgroundResultSchema,
+  jobKillInputSchema,
+  jobListInputSchema,
+  jobOutputInputSchema,
+  sandboxJobToolTextResultSchema,
   toExecuteCommandInputSummary,
   executeCommandInputSchema,
 } from '@harness/agent-protocol';
+import type { BashBackgroundResult, ExecuteCommandPublicResult } from '@harness/agent-protocol';
 import type {
   ChatStreamEvent,
   ModelRoundObservation,
@@ -315,6 +321,8 @@ export class ChatService {
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
         const isSandboxCommand = this.isSandboxCommandTool(event.toolName);
+        const isBash = event.toolName === AGENT_TOOL_NAMES.bash;
+        const isJobTool = this.isSandboxJobTool(event.toolName);
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput =
           isFetch ||
@@ -324,7 +332,8 @@ export class ChatService {
           isFileReadLines ||
           isCreateFile ||
           isCreateReport ||
-          isSandboxCommand
+          isSandboxCommand ||
+          isJobTool
             ? undefined
             : this.asSearchInput(event.input);
         let toolSummary = searchInput?.query ?? '';
@@ -355,6 +364,14 @@ export class ChatService {
               ? parsed.data.description
               : parsed.data.command
             : '终端命令';
+        } else if (event.toolName === AGENT_TOOL_NAMES.jobList) {
+          toolSummary = '列出后台 job';
+        } else if (event.toolName === AGENT_TOOL_NAMES.jobOutput) {
+          const parsed = jobOutputInputSchema.safeParse(event.input);
+          toolSummary = parsed.success ? `读取 job ${parsed.data.job_id}` : '读取 job 输出';
+        } else if (event.toolName === AGENT_TOOL_NAMES.jobKill) {
+          const parsed = jobKillInputSchema.safeParse(event.input);
+          toolSummary = parsed.success ? `终止 job ${parsed.data.job_id}` : '终止后台 job';
         }
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
@@ -464,6 +481,23 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
+        } else if (isBash) {
+          const parsed = executeCommandInputSummarySchema.parse(event.input);
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.bash,
+            title: block.title,
+            input: parsed,
+            presentation: 'terminal' as const,
+            description: parsed.description,
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
         } else if (isSandboxCommand) {
           const parsed = executeCommandInputSummarySchema.parse(event.input);
           yield {
@@ -471,15 +505,58 @@ export class ChatService {
             messageId: prepared.assistantMessageId,
             blockId: block.id,
             toolCallId: event.toolCallId,
-            toolName:
-              event.toolName === AGENT_TOOL_NAMES.bash
-                ? AGENT_TOOL_NAMES.bash
-                : AGENT_TOOL_NAMES.executeCommand,
+            toolName: AGENT_TOOL_NAMES.executeCommand,
             title: block.title,
             input: parsed,
-            ...(event.toolName === AGENT_TOOL_NAMES.bash
-              ? { presentation: 'terminal' as const, description: parsed.description }
-              : {}),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (event.toolName === AGENT_TOOL_NAMES.jobList) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.jobList,
+            title: block.title,
+            input: jobListInputSchema.parse(event.input),
+            presentation: 'job' as const,
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (event.toolName === AGENT_TOOL_NAMES.jobOutput) {
+          const parsed = jobOutputInputSchema.parse(event.input);
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.jobOutput,
+            title: block.title,
+            input: parsed,
+            presentation: 'job' as const,
+            jobId: parsed.job_id,
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (event.toolName === AGENT_TOOL_NAMES.jobKill) {
+          const parsed = jobKillInputSchema.parse(event.input);
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.jobKill,
+            title: block.title,
+            input: parsed,
+            presentation: 'job' as const,
+            jobId: parsed.job_id,
             startedAt: event.startedAt,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
@@ -511,8 +588,13 @@ export class ChatService {
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
         const isSandboxCommand = this.isSandboxCommandTool(event.toolName);
+        const isJobTool = this.isSandboxJobTool(event.toolName);
         const isBash = event.toolName === AGENT_TOOL_NAMES.bash;
+        const isExecuteCommand = event.toolName === AGENT_TOOL_NAMES.executeCommand;
         const fetchResult = isFetch ? (event.output as WebFetchResult) : undefined;
+        const jobToolResult = isJobTool
+          ? this.toSandboxJobToolTextResult(event.output)
+          : undefined;
         const searchResult =
           isFetch ||
           isApprovalTest ||
@@ -521,7 +603,8 @@ export class ChatService {
           isFileReadLines ||
           isCreateFile ||
           isCreateReport ||
-          isSandboxCommand
+          isSandboxCommand ||
+          isJobTool
             ? undefined
             : (event.output as SearchToolResult);
         const fileSearchResult = isFileSearch ? (event.output as FileSearchResult) : undefined;
@@ -534,9 +617,17 @@ export class ChatService {
         const createReportResult = isCreateReport
           ? createReportResultSchema.parse(event.output)
           : undefined;
-        const executeCommandResult = isSandboxCommand
-          ? executeCommandPublicResultSchema.parse(this.stripSandboxStreams(event.output))
+        const sandboxCommandCompletion = isSandboxCommand
+          ? this.parseSandboxCommandCompletion(event.output)
           : undefined;
+        const executeCommandResult =
+          sandboxCommandCompletion?.kind === 'foreground'
+            ? sandboxCommandCompletion.result
+            : undefined;
+        const bashBackgroundResult =
+          sandboxCommandCompletion?.kind === 'background'
+            ? sandboxCommandCompletion.result
+            : undefined;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
         if (fetchResult && fetchInput) {
@@ -606,7 +697,7 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           });
-        } else if (executeCommandResult) {
+        } else if (executeCommandResult || bashBackgroundResult) {
           projection.recordExecuteCommandCompleted({
             toolCallId: event.toolCallId,
             toolName: isBash ? AGENT_TOOL_NAMES.bash : AGENT_TOOL_NAMES.executeCommand,
@@ -615,7 +706,7 @@ export class ChatService {
             durationMs: event.durationMs,
             result: executeCommandResult,
           });
-          if (executeCommandResult.collection?.status === 'collected') {
+          if (executeCommandResult?.collection?.status === 'collected') {
             conversation.appendArtifact({
               artifact: executeCommandResult.collection.artifact,
               roundId: event.roundId,
@@ -637,6 +728,9 @@ export class ChatService {
             createFileResult,
             createReportResult,
             executeCommandResult,
+            bashBackgroundResult,
+            jobToolResult,
+            jobToolName: isJobTool ? event.toolName : undefined,
             searchResult,
           }),
         });
@@ -651,6 +745,55 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: fetchResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (jobToolResult && event.toolName === AGENT_TOOL_NAMES.jobList) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.jobList,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: jobToolResult,
+            presentation: 'job' as const,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (jobToolResult && event.toolName === AGENT_TOOL_NAMES.jobOutput) {
+          const parsed = jobOutputInputSchema.safeParse(event.input);
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.jobOutput,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: jobToolResult,
+            presentation: 'job' as const,
+            ...(parsed.success ? { jobId: parsed.data.job_id } : {}),
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (jobToolResult && event.toolName === AGENT_TOOL_NAMES.jobKill) {
+          const parsed = jobKillInputSchema.safeParse(event.input);
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.jobKill,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: jobToolResult,
+            presentation: 'job' as const,
+            ...(parsed.success ? { jobId: parsed.data.job_id } : {}),
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -744,25 +887,67 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
-        } else if (executeCommandResult) {
+        } else if (bashBackgroundResult && isBash) {
           const parsedInput = executeCommandInputSummarySchema.parse(event.input);
           yield {
             type: 'tool.completed',
             messageId: prepared.assistantMessageId,
             blockId,
             toolCallId: event.toolCallId,
-            toolName: isBash ? AGENT_TOOL_NAMES.bash : AGENT_TOOL_NAMES.executeCommand,
+            toolName: AGENT_TOOL_NAMES.bash,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: bashBackgroundResult,
+            presentation: 'terminal' as const,
+            description: parsedInput.description,
+            jobId: bashBackgroundResult.jobId,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (bashBackgroundResult) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.executeCommand,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: bashBackgroundResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (executeCommandResult && isBash) {
+          const parsedInput = executeCommandInputSummarySchema.parse(event.input);
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.bash,
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: executeCommandResult,
-            ...(isBash
-              ? {
-                  presentation: 'terminal' as const,
-                  description: parsedInput.description,
-                  exitCode: executeCommandResult.exitCode,
-                  exitSignal: executeCommandResult.signal,
-                }
-              : {}),
+            presentation: 'terminal' as const,
+            description: parsedInput.description,
+            exitCode: executeCommandResult.exitCode,
+            exitSignal: executeCommandResult.signal,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (executeCommandResult && isExecuteCommand) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.executeCommand,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: executeCommandResult,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -1068,6 +1253,35 @@ export class ChatService {
     );
   }
 
+  private isSandboxJobTool(toolName: string): boolean {
+    return (
+      toolName === AGENT_TOOL_NAMES.jobOutput ||
+      toolName === AGENT_TOOL_NAMES.jobList ||
+      toolName === AGENT_TOOL_NAMES.jobKill
+    );
+  }
+
+  private toSandboxJobToolTextResult(output: unknown): { text: string } {
+    if (typeof output === 'string') return { text: output };
+    return sandboxJobToolTextResultSchema.parse(output);
+  }
+
+  private parseSandboxCommandCompletion(
+    output: unknown,
+  ):
+    | { kind: 'foreground'; result: ExecuteCommandPublicResult }
+    | { kind: 'background'; result: BashBackgroundResult } {
+    const stripped = this.stripSandboxStreams(output);
+    const background = bashBackgroundResultSchema.safeParse(stripped);
+    if (background.success) {
+      return { kind: 'background', result: background.data };
+    }
+    return {
+      kind: 'foreground',
+      result: executeCommandPublicResultSchema.parse(stripped),
+    };
+  }
+
   private stripSandboxStreams(output: unknown): unknown {
     if (typeof output !== 'object' || output === null) return output;
     const record = { ...(output as Record<string, unknown>) };
@@ -1095,6 +1309,9 @@ export class ChatService {
     createFileResult?: { file: { fileName: string } };
     createReportResult?: { report: { title: string } };
     executeCommandResult?: { exitCode: number | null; collection?: { status: string } };
+    bashBackgroundResult?: BashBackgroundResult;
+    jobToolResult?: { text: string };
+    jobToolName?: string;
     searchResult?: SearchToolResult;
   }): string {
     if (input.fetchResult) {
@@ -1108,6 +1325,15 @@ export class ChatService {
       return `读取 ${input.fileReadLinesResult.lines.length} 行文件内容`;
     if (input.createFileResult) return `已生成 ${input.createFileResult.file.fileName}`;
     if (input.createReportResult) return `生成报告：${input.createReportResult.report.title}`;
+    if (input.bashBackgroundResult) {
+      return `后台 job 已启动，job id：${input.bashBackgroundResult.jobId}`;
+    }
+    if (input.jobToolResult) {
+      if (input.jobToolName === AGENT_TOOL_NAMES.jobList) return '已列出后台 job';
+      if (input.jobToolName === AGENT_TOOL_NAMES.jobKill) return '已终止后台 job';
+      if (input.jobToolName === AGENT_TOOL_NAMES.jobOutput) return '已读取 job 输出';
+      return 'Job 工具已完成';
+    }
     if (input.executeCommandResult) {
       const collected =
         input.executeCommandResult.collection?.status === 'collected' ? '，已收集输出文件' : '';

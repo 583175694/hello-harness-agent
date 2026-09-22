@@ -10,6 +10,8 @@ export type ToolCopyInput = {
   command?: string;
   description?: string;
   policyClass?: 'network' | 'install';
+  inputFiles?: Array<{ fileId: string; path: string }>;
+  job_id?: string;
 };
 
 export function toolInputSummary(toolName: string, input: ToolCopyInput): string {
@@ -30,8 +32,15 @@ export function toolInputSummary(toolName: string, input: ToolCopyInput): string
         : input.policyClass === 'install'
           ? ' · 安装依赖'
           : '';
-    return `${input.description ?? ''}${policy}${input.command ? ` · ${input.command}` : ''}`;
+    const staged =
+      input.inputFiles?.length ?
+        ` · Stage: ${input.inputFiles.map((file) => `${file.path} (${file.fileId.slice(0, 8)}…)`).join(', ')}`
+      : '';
+    return `${input.description ?? ''}${policy}${staged}${input.command ? ` · ${input.command}` : ''}`;
   }
+  if (toolName === 'job_output') return input.job_id ?? '';
+  if (toolName === 'job_kill') return input.job_id ?? '';
+  if (toolName === 'job_list') return '列出后台 job';
   if (toolName === 'execute_command') return input.command ?? '';
   if (toolName === 'web_search') return input.query ?? '';
   return '';
@@ -46,6 +55,9 @@ export function toolTitle(toolName: string, input: ToolCopyInput): string {
   if (toolName === 'create_file') return `生成文件：${input.fileName}`;
   if (toolName === 'create_report') return `生成报告：${input.title}`;
   if (toolName === 'bash') return '终端命令';
+  if (toolName === 'job_output') return '读取后台 job 输出';
+  if (toolName === 'job_list') return '列出后台 job';
+  if (toolName === 'job_kill') return '终止后台 job';
   if (toolName === 'execute_command') return '执行命令';
   if (toolName === 'web_search') return `搜索：${input.query}`;
   return `运行工具 ${toolName}`;

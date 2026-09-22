@@ -263,6 +263,9 @@ export class ConversationBlockCollector {
     if (toolName === 'create_file') return '生成文件';
     if (toolName === 'execute_command') return '执行命令';
     if (toolName === 'bash') return '终端';
+    if (toolName === 'job_output') return 'Job 输出';
+    if (toolName === 'job_list') return 'Job 列表';
+    if (toolName === 'job_kill') return '终止 Job';
     return `运行工具 ${toolName}`;
   }
 

@@ -198,6 +198,7 @@ export class RunExecutor implements OnModuleDestroy {
         if (latest) this.events.updateSnapshot(runId, latest);
         return;
       }
+      await this.acquireSandboxLease(stored.sessionId, runId);
       await this.repository.createStep({
         id: modelStepId,
         runId,
@@ -417,11 +418,21 @@ export class RunExecutor implements OnModuleDestroy {
     }
   }
 
+  private async acquireSandboxLease(sessionId: string, runId: string): Promise<void> {
+    try {
+      const { SandboxManagerService } = await import('../sandbox/sandbox-manager.service');
+      const manager = this.moduleRef.get(SandboxManagerService, { strict: false });
+      manager.acquireRunLease(sessionId, runId);
+    } catch {
+      // Sandbox 未启用时跳过
+    }
+  }
+
   private async releaseSandbox(runId: string): Promise<void> {
     try {
       const { SandboxManagerService } = await import('../sandbox/sandbox-manager.service');
       const manager = this.moduleRef.get(SandboxManagerService, { strict: false });
-      await manager.releaseRun(runId);
+      await manager.releaseRunLease(runId);
     } catch (error) {
       this.logger.warn(
         `Sandbox 清理失败 | Run=${shortLogId(runId)} | 原因=${this.describeError(error).code}`,

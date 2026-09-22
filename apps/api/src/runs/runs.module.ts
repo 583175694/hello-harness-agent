@@ -12,7 +12,7 @@ import { RuntimeLifecycleRegistry } from '../agent-runtime/runtime-lifecycle';
 import { PendingUserInputService } from './pending-user-input.service';
 import { FilesModule } from '../files/files.module';
 import { SandboxModule } from '../sandbox/sandbox.module';
-
+import { SandboxJobWatcherService } from '../sandbox/sandbox-job-watcher.service';
 @Module({
   imports: [ChatModule, ModelModule, FilesModule, SandboxModule],
   controllers: [RunsController],
@@ -25,6 +25,7 @@ import { SandboxModule } from '../sandbox/sandbox.module';
     SessionTitleService,
     RuntimeLifecycleRegistry,
     PendingUserInputService,
+    SandboxJobWatcherService,
   ],
   exports: [RunCommandService, RunRepository, ActiveRunRegistry, PendingUserInputService],
 })

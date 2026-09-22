@@ -16,4 +16,14 @@ describe('BashCommandPolicyService', () => {
     expect(policy.classify({ command: 'pip install requests' })).toBe('install');
     expect(policy.classify({ command: 'npm install lodash' })).toBe('install');
   });
+
+  it('classifies agent-browser with URLs as network', () => {
+    expect(
+      policy.classify({ command: 'agent-browser open https://example.com' }),
+    ).toBe('network');
+    expect(policy.classify({ command: 'agent-browser snapshot' })).toBeNull();
+    expect(
+      policy.classify({ command: 'agent-browser screenshot /workspace/out.png' }),
+    ).toBeNull();
+  });
 });

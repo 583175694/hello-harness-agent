@@ -4,6 +4,7 @@ import { readSandboxRuntimeConfig, sandboxLimits } from './sandbox-config';
 import { SandboxManagerService } from './sandbox-manager.service';
 import { resolveWorkspacePath } from './sandbox-path';
 import { SANDBOX_WORKSPACE_ROOT } from './sandbox-config';
+import { mergeSandboxExecuteEnv, sandboxEnvExportShell } from './sandbox-shell-env';
 import type { SandboxSession } from './sandbox.types';
 
 export const SANDBOX_JOBS_DIR = `${SANDBOX_WORKSPACE_ROOT}/.harness/jobs`;
@@ -32,6 +33,7 @@ export class SandboxJobService {
     cwd: string;
     env: Record<string, string>;
     egressBoost?: boolean;
+    egressBoostHosts?: readonly string[];
   }): Promise<{ jobId: string }> {
     const config = readSandboxRuntimeConfig();
     const running = this.runningBySession.get(input.sessionId) ?? new Set<string>();
@@ -60,7 +62,9 @@ export class SandboxJobService {
       "m['status']='completed' if ec==0 else 'failed'",
       "json.dump(m, open(p,'w'))",
     ].join('; ');
+    const jobEnv = mergeSandboxExecuteEnv(input.sessionId, input.env);
     const inner = [
+      sandboxEnvExportShell(jobEnv),
       `echo $$ > ${JSON.stringify(pidFile)}`,
       `cd ${JSON.stringify(input.cwd)}`,
       input.bash.command,
@@ -79,8 +83,9 @@ export class SandboxJobService {
         command: startCommand,
         cwd: SANDBOX_WORKSPACE_ROOT,
         timeoutMs: sandboxLimits.commandDefaultMs,
-        env: { ...input.env, HARNESS_SESSION_ID: input.sessionId },
+        env: mergeSandboxExecuteEnv(input.sessionId, input.env),
         egressBoost: input.egressBoost,
+        egressBoostHosts: input.egressBoostHosts,
       });
       if (started.exitCode !== 0 && started.exitCode !== null) {
         throw new Error(`SANDBOX_JOB_START_FAILED:${started.stderr || started.stdout}`);

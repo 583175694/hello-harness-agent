@@ -1,0 +1,28 @@
+# Harness Session Sandbox with Chromium + agent-browser (C3-D).
+# Build: ./build-browser-image.sh
+
+FROM node:20-bookworm-slim
+
+ARG AGENT_BROWSER_VERSION=0.38.1
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    chromium \
+    curl \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    libgbm1 \
+    libnss3 \
+    python3 \
+    python3-minimal \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV CHROME_PATH=/usr/bin/chromium
+ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
+# OpenSandbox/Docker 内常见 Chromium 启动参数（docs/34 §7）
+ENV AGENT_BROWSER_ARGS="--no-sandbox --disable-dev-shm-usage --disable-gpu"
+
+RUN npm install -g "agent-browser@${AGENT_BROWSER_VERSION}"
+
+WORKDIR /workspace

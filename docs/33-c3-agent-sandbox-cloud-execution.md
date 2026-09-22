@@ -2,7 +2,7 @@
 
 > 文档状态：C3 统一方向与实施方案；**C3-A / C3-B 已在本机 OpenSandbox + Docker 完成验收**（Sandbox 默认仍关闭，启用需配置 `SANDBOX_*`）。
 >
-> 最后更新：2026-09-22（C3-C §6.6.7–§6.6.8 实现默认与 reconnect 降级；§6.3.4 补充验收）。
+> 最后更新：2026-09-22（C3-C 已落地；**C3-D 已落地**；专文 [34-c3-d-session-browser-agent.md](./34-c3-d-session-browser-agent.md)）。
 >
 > 本文是 C3 的唯一权威文档，同时包含已完成的基础设施 PoC、C3-A 实施方案、冻结契约、后续阶段和验收标准。
 
@@ -11,6 +11,7 @@
 - 要开始实施 C3-A：先读第 0、1 节；这里给出当前基础、目标模块、实施顺序和完成标准。
 - 要实现或评审具体代码：再读第 2–5 节；这里集中说明架构依据、与 DeepSeek Harness bash 的对齐、冻结契约、安全、观测和清理约束。
 - 要判断 C3-A 之外的范围：读第 6–10 节；这里记录后续阶段、关联能力和开放问题。
+- 要实施 **C3-D**（Session 内浏览器）：读 §6.4 与专文 [34-c3-d-session-browser-agent.md](./34-c3-d-session-browser-agent.md)。
 
 ## 0. 当前结论
 
@@ -24,8 +25,8 @@ C3 的目标是为每个 Agent Run 提供任务级隔离、可持续且可配置
 前置 PoC  OpenSandbox + Docker / Cloud Execution   已通过
 C3-A      Sandbox 抽象与 execute_command 接入       已落地；本机 Docker 验收通过；默认关闭
 C3-B      DSH 前台 bash 对齐 + 策略审批改版         已落地；本机 Docker 验收通过（见 §6.2.4）
-C3-C      后台 job + 沙箱生产 + 网络/安装执行层       待实施（见 §6.3、§6.6）
-C3-D      Browser、复杂产物与规模化                   待实施（见 §6.4）
+C3-C      后台 job + 沙箱生产 + 网络/安装执行层       已落地（见 §6.3、§6.6；live 签字 §6.3.4）
+C3-D      Session 内 Chromium + agent-browser         已落地（见 §6.4.4、[34](./34-c3-d-session-browser-agent.md)；规模化等后置）
 ```
 
 **日常开发**优先使用本机 OpenSandbox（见 [1.5 本地 OpenSandbox 开发](#15-本地-opensandbox-开发)）。腾讯云 x86_64 环境仍可作为部署目标，不属于 C3-A 代码待办：
@@ -203,11 +204,11 @@ C3-A 只有在以下条件全部满足后才标记完成：
 | 非零退出（如 `exit 42`）Tool 仍 `succeeded` | 通过 |
 | 同 Run 多次 `execute_command`，工作区文件保留、shell 状态不保留 | 通过 |
 | `output` Collect → Artifact 预览/下载 | 通过 |
-| 命令 timeout → `TOOL_TIMEOUT` | 通过（`apps/api/scripts/sandbox-live-timeout.mjs`） |
+| 命令 timeout → `TOOL_TIMEOUT` | 通过（历史 live 脚本验收；现依赖 Workbench 与单测） |
 | 用户附件 → `inputFiles` Stage → 命令 | UI 未严格测；Collect 与命令链路已测 |
-| cancel 毁盒 | 脚本级 timeout grace 已测；UI cancel 未单独签字 |
+| cancel 毁盒 | timeout grace 已测；UI cancel 未单独签字 |
 
-自动化入口：`pnpm --filter @harness/api test:sandbox-live`、`node apps/api/c3a-sandbox-live.mjs`。
+自动化入口：`pnpm --filter @harness/api test`（fake Provider）；真实盒见 §1.5 UI 冒烟。
 
 ### 1.5 本地 OpenSandbox 开发
 
@@ -252,9 +253,7 @@ SANDBOX_IMAGE=python:3.12-slim@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de
 **自动化验收**
 
 ```bash
-pnpm --filter @harness/api test:sandbox-live
-pnpm exec dotenv -e ../../.env -- node apps/api/scripts/sandbox-live-timeout.mjs
-node apps/api/c3a-sandbox-live.mjs
+pnpm --filter @harness/api test
 ```
 
 **UI 冒烟 Prompt 示例**
@@ -663,7 +662,7 @@ C3 不是 Python Runner、Notebook 或 Code Interpreter 的同义词，而是 Ha
 | --- | --- |
 | C3-B 完成后 | 前台 **`bash`** 与 DSH 默认 `dsh-tool-bash` 的**模型契约对齐**（参数、文本结果、exit 标记、默认不批 + 升权审批） |
 | C3-C 完成后 | 在 C3-B 上补全 **长任务**（`run_in_background` + `job_*`）与 **网络/安装执行层**；可称 bash 命令行与 DSH 默认组合等价（**除隔离机制**） |
-| C3-D 完成后 | Browser、复杂产物与规模化；**不属于**「bash 与 DSH 对齐」 |
+| C3-D 完成后 | Session Sandbox 内 **Chromium + agent-browser** 可完成浏览/截图/下载并交付 Artifact；**不属于**「bash 与 DSH 对齐」 |
 
 **架构原则（C3-B 起贯穿）**：
 
@@ -724,7 +723,7 @@ Host 判定优先于模型 `justification`。v1 建议分类：
 4. workspace 内普通命令：**无** approval interrupt。
 5. `curl` / `pip install`（或策略表等价物）：**有** approval；批准后 **当次调用** 带 v1 allowlist egress；对 allowlist 内 HTTPS（如 `https://example.com`）live 验收可成功；拒绝后无静默开网。
 6. 同 Run 文件保留、shell 状态不保留；Stage/Collect/cancel/timeout 回归通过。
-7. `pnpm check` 与 sandbox-live（或等价 fake）通过。
+7. `pnpm check` 与 `pnpm --filter @harness/api test`（fake）通过。
 
 **2026-09-22 验收记录（本机 `dev/opensandbox-local` + Workbench UI/API）：**
 
@@ -740,7 +739,7 @@ Host 判定优先于模型 `justification`。v1 建议分类：
 | 同 Run 连续 bash 写读 `/workspace/marker.txt` | 未单独签字（C3-A 同 Run 工作区已验） |
 | 批准后 `curl https://example.com` live 成功 | 未单独签字（镜像可能无 `curl`；egress boost 与 allowlist 已实现） |
 
-自动化入口：`pnpm --filter @harness/api test`（含 `bash-render`、`bash-command-policy`、`bash.tool`）；真实 OpenSandbox 回归仍用 `pnpm --filter @harness/api test:sandbox-live`（C3-A 链路 + 可选 live egress）。
+自动化入口：`pnpm --filter @harness/api test`（含 `bash-render`、`bash-command-policy`、`bash.tool`）；真实 OpenSandbox 回归用 Workbench 冒烟（§1.5、§6.2.4）与可选 timeout 脚本。
 
 **UI 冒烟 Prompt 示例**
 
@@ -793,7 +792,7 @@ C3-C4  完成通知(wakeup) + egress/install v2 + cancel 树 + inputFiles UI + �
 4. 批准后 `curl` 对 **扩展 allowlist** 内 HTTPS 域名 live 成功；表外 host 有 audit 且仍 fail-closed。
 5. orphan：模拟 DB/Provider 不一致可演示回收。
 6. bash 带 `inputFiles` 时审批 UI 展示 staged 文件。
-7. `pnpm check`；fake 单测覆盖 job 协议；sandbox-live 回归不回归。
+7. `pnpm check`；fake 单测覆盖 job 协议。
 8. **Run 已 completed** 且后台 `sleep` 仍 running：Sandbox **未销毁**；job 结束后 **wakeup** 收到完成句（含 `job_output` 指引）。
 9. **同 Session 两次 Run**：第一次 Run 写入 workspace 文件；第二次 Run（新 Assistant Run）仍可读取（Session Sandbox 共享 `/workspace`）。
 
@@ -812,14 +811,84 @@ C3-C4  完成通知(wakeup) + egress/install v2 + cancel 树 + inputFiles UI + �
 
 **对外表述**：本节全部验收通过后，可称前台 bash + 后台 job 控制与 DSH 默认 **`dsh-tool-bash` + `dsh-tool-jobs` 组合等价（除隔离机制）**。
 
-### 6.4 C3-D：Browser、复杂产物与规模化
+### 6.4 C3-D：Session 内 Chromium + agent-browser
 
-对外一个 C3-D；对内建议两里程碑：
+**2026-09-22 范围冻结**：C3-D **仅**交付 Sandbox 内的浏览器执行能力；**不**对齐 DSH Host 侧 Playwright MCP / 独立 `browser_use` Provider。镜像矩阵、预热/快照、多 Provider、成本观测、复杂产物流水线、Secret Proxy 等 **移出 C3-D**，列入后续计划（见 §6.4.1）。
 
-- **D1**：容器内 Chromium / agent-browser；截图、下载 → Artifact；是否独立 `browser_use` Tool 按需立项。
-- **D2**：镜像矩阵、预热/快照（Provider 支持时）、并发与 TTL、多 Provider、成本观测。
+**实施方案（细）**：[34-c3-d-session-browser-agent.md](./34-c3-d-session-browser-agent.md)
 
-C5/C6：C3-D 管浏览器进程与文件；C6 管页面动作语义与 K5 页面写操作。
+#### 6.4.0 必做范围（C3-D）
+
+| 主题 | 结论 |
+| --- | --- |
+| 执行面 | **Session-scoped** OpenSandbox 容器内 **预装** **Chromium + agent-browser**（专用 `SANDBOX_IMAGE`；与 C3-C 共享 Session `/workspace`） |
+| 模型入口 | 优先 **`bash` 调用 agent-browser CLI**；是否增加独立 `browser_*` Tool **按需立项**（内部仍可 exec CLI） |
+| 网络/安装 | 沿用 C3-B/C **BashCommandPolicy** + egress v2；浏览器访问外网走既有升权与 allowlist |
+| 产物 | 截图、下载文件 → workspace → **`bash.output` Collect** → Host **Artifact** |
+| 生命周期 | 浏览器进程与 Session Sandbox 一致：Run lease 结束不毁盒（与 C3-C 相同）；Session 删除 / TTL 回收时清理 |
+| 验收 | 容器内 `agent-browser` 打开 URL、截图或下载、Artifact 可在 Workbench 打开；fake/live 单测 + OpenSandbox 冒烟 |
+
+#### 6.4.1 明确后置（原 D2 及扩展）
+
+以下能力 **不属于当前 C3-D**，在 C3-D 验收通过后再单独立项：
+
+- 镜像矩阵、版本 pinning、预热/快照（Provider 支持时）
+- 并发配额、TTL/硬顶运营化、多 Sandbox Provider、成本观测
+- Sandbox 内复杂产物组（多输出打包、自动 Diff 等）
+- 受控代理与 Secret Proxy；腾讯云 VPC 部署签字（可与 D 后置一并做）
+
+#### 6.4.2 与 C5 / C6 的分工
+
+- **C5**：用 C3（含 C3-D 浏览器能力）做构建/测试/预览；网站源码与构建结果仍进 Artifact。
+- **C6**：页面动作语义、登录态、用户接管、K5 写操作；C3-D 只提供 **容器内浏览器进程与文件**，不实现 C6 级协议。
+
+**对外表述**：C3-D 完成后，可称 Agent 在 **Session Sandbox** 内具备 **headless 浏览器自动化底座（agent-browser + Chromium）**；完整「Browser Use 产品面」仍依赖 **C6**。
+
+#### 6.4.3 冻结决策（实施方案摘要）
+
+与 [34-c3-d-session-browser-agent.md](./34-c3-d-session-browser-agent.md) 一致，实施以本节 + 专文为准：
+
+| 主题 | 冻结结论 |
+| --- | --- |
+| 架构 | Browser 进程与数据 **仅在** OpenSandbox Session 容器内；Host 只收 **bash 文本结果** 与 **Collect 后的 Artifact** |
+| 模型入口 | **首版仅 `bash` 调 agent-browser CLI**；独立 `browser_*` Tool 为 **D4 可选**，不阻塞 MVP |
+| agent-browser 会话 | 每次 bash 注入 `AGENT_BROWSER_SESSION`（及可选 `AGENT_BROWSER_SESSION_NAME`）= `harness-<sessionId>`；storage **不同步 Host**，Sandbox 销毁即清空 |
+| 浏览器生命周期 | **方案 A**：按需启动，依赖 CLI `--session` 跨多条 bash 复用 Chromium；**无** Host 侧 browser daemon；回收靠 Session TTL / 删除 |
+| 镜像 | MVP **强制专用 `harness-sandbox-browser` 类镜像**（Chromium + Node + agent-browser），换 `SANDBOX_IMAGE` digest；运行时 apt/npm 安装仅作 dev 过渡 |
+| 资源 | browser 镜像部署时评估 **3–4GiB** RAM（高于默认 2GiB）；超时仍受 bash **600s**；大文件走 `run_in_background` + `job_*` |
+| 策略 | `agent-browser open https://…` 归类 **network**；egress v2 + allowlist，**不开**浏览器专用全网模式 |
+| 产物 | 截图/下载 → `/workspace` → **`bash.output` Collect** → Artifact；静态页优先 **`web_fetch`（Host）** |
+| 里程碑 | **D0** 镜像 POC → **D1** env/策略 → **D2** Workbench 冒烟 → **D3** 单测 + 手工 live → **D4**（可选）薄 Tool / UI |
+
+**不采纳**：DSH Host 侧 Playwright MCP / `browser_use` Provider；Sandbox 内 Host 感知的 Browser 保活 job（后置再议）。
+
+#### 6.4.4 C3-D 验收与冒烟
+
+**签字标准**（全部通过后可标 C3-D 已落地）：
+
+1. 新 digest 本地 OpenSandbox 可建 Session；容器内 `agent-browser --version` 与 Chromium 可启动。
+2. allowlist 外 HTTPS：未审批失败 + audit；批准后 `open` 成功。
+3. `agent-browser snapshot` 经 bash 返回文本；流式/Terminal 无协议错误。
+4. `screenshot` + `output` Collect 后 Workbench 可预览 Artifact。
+5. 同 Session 两次 Run 共享 workspace 文件（对齐 C3-C §6.3.4 第 9 条）。
+6. `pnpm --filter @harness/api test` 通过；browser 能力 Workbench / 容器 POC 签字。
+7. 本文 §6.4 与 docs/34 状态更新为「已验收」。
+
+**Workbench 冒烟 Prompt**
+
+1. 「请用 bash 在 sandbox 里执行 agent-browser 打开 https://example.com 并 snapshot，把主要标题告诉我。」
+2. 「对 example.com 截图保存到 workspace/screenshot.png，并用 output Collect 给我 Artifact。」
+3. （需 network 审批）「打开 https://registry.npmjs.org 上某包页面并 snapshot。」
+
+**2026-09-22 验收记录（本机 `dev/opensandbox-local` + `harness-sandbox-browser:local` + Workbench/手工 live）：**
+
+| 项 | 结果 |
+| --- | --- |
+| 1–2. 镜像 + egress live | 通过：`agent-browser --version`；allowlist 外 deny + audit；example.com 升权后 open |
+| 3–4. snapshot 流式 + 截图 Artifact | 通过：bash snapshot 文本；PNG `output` Collect → Artifact（`fileKind: image`） |
+| 5. 跨 Run workspace | 通过：`releaseRunLease` 后同 Session 第二 Run 可读 workspace 标记文件 |
+| 6. 单测 / browser live | 通过：`pnpm --filter @harness/api test`；browser 手工/Workbench 签字 |
+| Workbench 三条 Prompt（§6.4.4） | 自动化已覆盖 example.com / registry.npmjs.org snapshot、PNG Collect、egress；UI 对话流可选复验 |
 
 ### 6.5 C3-B 冻结决策（参考 DSH + Harness 云映射）
 
@@ -1030,9 +1099,9 @@ apps/web                     job 读/杀卡片；bash 审批 inputFiles 列表
 C3-A 已冻结项见 §9。C3-B 决策见 §6.5；C3-C 决策见 §6.6。其余：
 
 1. 完整 PTY 与用户可见 Terminal（非 C3-B/C 目标）。
-2. 多镜像矩阵与预装版本（C3-D D2；install 执行与 C3-C 衔接）。
-3. `agent-browser` 登录、用户接管（C3-D D1 / C6）。
-4. 受控代理与 Secret Proxy（C3-D）。
+2. 多镜像矩阵与预装版本（§6.4.1 后置；install 执行与 C3-C 已衔接）。
+3. `agent-browser` 登录、用户接管（**C6**；C3-D 仅容器内 CLI 底座）。
+4. 受控代理与 Secret Proxy（§6.4.1 后置）。
 5. Host 崩溃后 **跨进程 job 续跑** 与 exactly-once（C3-C 仅 orphan + TTL；更深语义延期）。
 6. 多输出 Artifact、目录打包、自动 Diff（按需，不阻塞 C3-C）。
 

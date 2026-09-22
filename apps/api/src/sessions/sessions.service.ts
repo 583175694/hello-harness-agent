@@ -128,7 +128,15 @@ export class SessionsService implements OnModuleInit {
             fileId: artifact.fileId,
             fileName: artifact.file.fileName,
             mediaType: artifact.file.mediaType,
-            fileKind: artifact.file.fileKind as 'text' | 'markdown' | 'json' | 'html' | 'pdf' | 'docx' | 'xlsx',
+            fileKind: artifact.file.fileKind as
+              | 'text'
+              | 'markdown'
+              | 'json'
+              | 'html'
+              | 'pdf'
+              | 'docx'
+              | 'xlsx'
+              | 'image',
             size: artifact.file.size,
             status: artifact.status,
             createdAt: artifact.createdAt.toISOString(),

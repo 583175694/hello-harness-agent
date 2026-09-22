@@ -34,6 +34,7 @@ const NPM_WORKSPACE = /^\s*npm\s+(run|test|ci)\b/i;
 export class BashCommandPolicyService {
   classify(input: Pick<BashInput, 'command'>): BashPolicyClass | null {
     const command = input.command.trim();
+    if (/\bagent-browser\b/i.test(command) && /https?:\/\//i.test(command)) return 'network';
     if (NPM_WORKSPACE.test(command)) return null;
     if (/\bpip3?\s+install\b/i.test(command) && /\s-i\s+\S+/i.test(command)) return 'install';
     if (/\bnpm\s+install\b/i.test(command) && /\s--registry\s+\S+/i.test(command)) return 'install';

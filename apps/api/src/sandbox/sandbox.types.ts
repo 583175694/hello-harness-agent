@@ -12,6 +12,8 @@ export type SandboxCommandInput = {
   signal?: AbortSignal;
   env?: Record<string, string>;
   egressBoost?: boolean;
+  /** network/install 升权时 OpenSandbox 临时放行的 host（来自命令 URL 词法抽取） */
+  egressBoostHosts?: readonly string[];
 };
 
 export type SandboxCommandResult = {

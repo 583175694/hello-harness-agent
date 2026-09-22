@@ -3,14 +3,23 @@ import { FilesService } from '../../../src/files/files.service';
 
 function makeService(overrides: Record<string, unknown> = {}) {
   const prisma = {
+    session: { findFirst: vi.fn() },
     file: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
+      create: vi.fn(),
+      deleteMany: vi.fn(),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       update: vi.fn(),
     },
   };
-  const storage = { readObject: vi.fn(), putNormalized: vi.fn() };
+  const storage = {
+    readObject: vi.fn(),
+    putNormalized: vi.fn(),
+    putOriginal: vi.fn(),
+    putPreview: vi.fn(),
+    deleteFile: vi.fn(),
+  };
   const processor = { parse: vi.fn() };
   const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
   Object.assign(prisma, overrides);
@@ -27,6 +36,59 @@ function makeService(overrides: Record<string, unknown> = {}) {
     logger,
   };
 }
+
+describe('FilesService importGeneratedBytes', () => {
+  it('stores sandbox PNG collect as image with preview', async () => {
+    const { service, prisma, storage } = makeService();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+    prisma.session.findFirst.mockResolvedValue({ id: 'session-1' });
+    prisma.file.create.mockResolvedValue({});
+    storage.putOriginal.mockImplementation(async (input) => ({
+      objectKey: `sessions/session-1/files/${input.fileId}/original`,
+    }));
+    storage.putPreview.mockImplementation(async (input) => ({
+      objectKey: `sessions/session-1/files/${input.fileId}/preview`,
+    }));
+    prisma.file.update.mockImplementation(async ({ where, data }) => ({
+      id: where.id,
+      fileName: 'shot.png',
+      mediaType: 'image/png',
+      fileKind: 'image',
+      size: png.length,
+      width: null,
+      height: null,
+      status: 'ready',
+      errorCode: null,
+    }));
+
+    const ref = await service.importGeneratedBytes({
+      sessionId: 'session-1',
+      fileName: 'shot.png',
+      data: png,
+    });
+
+    expect(storage.putOriginal).toHaveBeenCalled();
+    expect(storage.putPreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-1',
+        fileId: ref.fileId,
+        contentType: 'image/png',
+      }),
+    );
+    expect(storage.putNormalized).not.toHaveBeenCalled();
+    expect(prisma.file.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          previewKey: `sessions/session-1/files/${ref.fileId}/preview`,
+          parserVersion: 'c3-d-sandbox-image',
+          status: 'ready',
+        }),
+      }),
+    );
+    expect(ref.fileKind).toBe('image');
+    expect(ref.previewUrl).toBe(`/api/agent/files/${ref.fileId}/preview`);
+  });
+});
 
 describe('FilesService recovery', () => {
   it('converges processing files after restart and preserves storage distinction', async () => {

@@ -1,5 +1,5 @@
 import { Sandbox, type NetworkRule } from '@alibaba-group/opensandbox';
-import { sandboxEgressAllowlistV1 } from './sandbox-config';
+import { buildEgressBoostRules } from './sandbox-config';
 import { sandboxUnavailable, redactProviderError } from './sandbox-error';
 import { boundStreamTail } from './sandbox-output';
 import type { SandboxRuntimeConfig } from './sandbox-config';
@@ -20,10 +20,6 @@ function joinLogs(messages: ReadonlyArray<{ text: string }> | undefined): string
 
 function secondsFromMs(ms: number): number {
   return Math.max(1, Math.ceil(ms / 1000));
-}
-
-function egressAllowRules(): NetworkRule[] {
-  return sandboxEgressAllowlistV1.map((target) => ({ action: 'allow', target }));
 }
 
 function buildShellCommand(input: SandboxCommandInput): string {
@@ -86,12 +82,15 @@ export class OpenSandboxSession implements SandboxSession {
       }
     };
     if (!input.egressBoost) return run();
-    const rules = egressAllowRules();
+    const rules = buildEgressBoostRules({
+      commandHosts: input.egressBoostHosts ?? [],
+    }) as NetworkRule[];
+    const deleteTargets = rules.map((rule) => rule.target);
     try {
       await this.handle.patchEgressRules(rules);
       return await run();
     } finally {
-      await this.handle.deleteEgressRules([...sandboxEgressAllowlistV1]).catch(() => undefined);
+      await this.handle.deleteEgressRules(deleteTargets).catch(() => undefined);
     }
   }
 

@@ -61,7 +61,7 @@ export const artifactRefSchema = z.object({
   fileId: z.string().min(1),
   fileName: z.string().min(1),
   mediaType: z.string().min(1),
-  fileKind: z.enum(['text', 'markdown', 'json', 'html', 'pdf', 'docx', 'xlsx']),
+  fileKind: z.enum(['text', 'markdown', 'json', 'html', 'pdf', 'docx', 'xlsx', 'image']),
   size: z.number().int().nonnegative(),
   status: artifactStatusSchema,
   createdAt: z.string().datetime(),

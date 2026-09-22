@@ -26,12 +26,14 @@ import { SandboxManagerService } from '../sandbox/sandbox-manager.service';
 import { resolveWorkspacePath } from '../sandbox/sandbox-path';
 import { SandboxWorkspaceService } from '../sandbox/sandbox-workspace.service';
 import { BashCommandPolicyService } from '../sandbox/bash-command-policy.service';
+import { mergeSandboxExecuteEnv, sandboxTerminalEnv } from '../sandbox/sandbox-shell-env';
 import type { AgentTool, ToolExecutionContext, ToolExecutionResult } from './agent-tool.types';
 
 const TOOL_DESCRIPTION =
   '在隔离云端工作区执行一条 bash 命令（每次调用是新的 shell；文件与已装依赖会保留）。' +
   '必须提供 description。路径相对工作区；Host 文件用 inputFiles Stage、output Collect。' +
-  '非零退出是命令结果。外网默认不可用；需要 curl/pip install 等时按提示申请 network/install 权限。';
+  '非零退出是命令结果。外网默认不可用；需要 curl/pip install 等时按提示申请 network/install 权限。' +
+  'Browser 镜像下预装 agent-browser：JS 渲染页、截图与下载用 agent-browser CLI（路径在 workspace，截图/下载用 output Collect）；静态公开页优先 web_fetch。访问 HTTPS 需 network 权限。';
 
 @Injectable()
 export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
@@ -137,6 +139,9 @@ export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
           cwd: spec.cwd,
           env: spec.env,
           egressBoost: context.bashEgressBoost,
+          egressBoostHosts: context.bashEgressBoost
+            ? extractHostsFromCommand(input.command)
+            : undefined,
         });
         const output = bashBackgroundResultSchema.parse({ kind: 'background', jobId });
         return { status: 'succeeded', output, logFields: { jobId } };
@@ -151,8 +156,11 @@ export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
           cwd: spec.cwd,
           timeoutMs: spec.timeoutMs,
           signal: context.signal,
-          env: { ...spec.env, HARNESS_SESSION_ID: context.sessionId },
+          env: mergeSandboxExecuteEnv(context.sessionId, spec.env),
           egressBoost: context.bashEgressBoost,
+          egressBoostHosts: context.bashEgressBoost
+            ? extractHostsFromCommand(input.command)
+            : undefined,
         });
       });
 
@@ -267,13 +275,7 @@ export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
       command: input.command,
       cwd: resolveWorkspacePath(input.workdir ?? '.'),
       timeoutMs,
-      env: {
-        NO_COLOR: '1',
-        TERM: 'dumb',
-        PAGER: 'cat',
-        GIT_PAGER: 'cat',
-        HARNESS_SHELL: '1',
-      },
+      env: sandboxTerminalEnv(),
     };
   }
 
@@ -376,9 +378,20 @@ export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
     if (!context.bashEgressBoost) return;
     const policy = this.bashPolicy.classify(input);
     if (policy !== 'network' && policy !== 'install') return;
-    const allowlist = mergedEgressAllowlist(readSandboxRuntimeConfig());
+    const config = readSandboxRuntimeConfig();
     const hosts = extractHostsFromCommand(input.command);
     if (!hosts.length) return;
+    if (!config.egressHostAllowlistEnforced) {
+      this.egressAudit.record({
+        sessionId: context.sessionId,
+        runId: context.runId,
+        toolCallId: context.toolCallId,
+        hosts,
+        decision: 'allow',
+      });
+      return;
+    }
+    const allowlist = mergedEgressAllowlist(config);
     const denied = hosts.filter((host) => !isHostAllowed(host, allowlist));
     this.egressAudit.record({
       sessionId: context.sessionId,
@@ -390,7 +403,8 @@ export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
     if (denied.length) {
       throw new SandboxError(
         AGENT_ERROR_CODES.sandboxUnavailable,
-        `[sandbox: network denied; hosts not in allowlist: ${denied.join(', ')}]`,
+        `[sandbox: network denied; hosts not in allowlist: ${denied.join(', ')}. ` +
+          '设置 SANDBOX_EGRESS_ALLOWLIST_EXTRA 或关闭 SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED（开放阶段默认 false）。]',
         false,
       );
     }

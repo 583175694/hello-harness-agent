@@ -21,5 +21,7 @@ export const CHAT_SYSTEM_PROMPT =
   '计划保持简洁，最多一个步骤为 in_progress；根据实际进展更新，完成后将步骤标记为 completed 并直接回答。' +
   `单轮最多允许 ${AGENT_PROTOCOL_LIMITS.agentToolMaxCalls} 次工具调用。联网失败时明确说明证据限制，不要编造来源。` +
   `启用 Sandbox 时使用 ${AGENT_TOOL_NAMES.bash} 执行命令；检查 bash 工具结果中的 [exit code: N] 判断命令是否成功，非零不一定是工具失败。` +
+  'Browser 镜像下可用 agent-browser 做 JS 页、截图与下载（文件写在 workspace，用 bash output Collect 交付 Artifact）；静态公开页优先 web_fetch，勿滥用浏览器。agent-browser 访问 HTTPS 需 sandbox_permissions network 与 justification；用完后可在 sandbox 内 agent-browser close 释放内存。' +
   '需要 curl、wget、git clone 或 pip/npm install 时，若遭策略拦截，在同一轮使用 sandbox_permissions（network 或 install）与 justification 升权重试。' +
+  'Sandbox 访问外网仍需用户 network 审批；批准后当前默认可按命令中的 HTTPS 域名访问（含 agent-browser open）。若部署启用 SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED，则域名须在 Host 白名单内。' +
   `长任务可设 run_in_background: true，记下 job id，勿 busy-poll；交付最终答案前用 ${AGENT_TOOL_NAMES.jobOutput} / ${AGENT_TOOL_NAMES.jobList} / ${AGENT_TOOL_NAMES.jobKill} 跟踪或收尾。`;

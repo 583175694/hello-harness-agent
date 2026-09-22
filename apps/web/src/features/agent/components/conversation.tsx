@@ -77,7 +77,7 @@ import {
 } from '@harness/agent-protocol';
 import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
-import { getArtifactPreview, getFilePreview } from '../../../api/client';
+import { getArtifactPreview, getArtifactPreviewUrl, getFilePreview } from '../../../api/client';
 import { presentAssistantBlocks } from '../elements/assistant-message-adapter';
 import { AgentChainOfThought } from '../elements/agent-chain-of-thought';
 import { toolInputSummary, toolTitle, type ToolCopyInput } from '../model/tool-copy';
@@ -361,9 +361,12 @@ function ArtifactPreviewDialog({
   artifact: ArtifactRef;
   onClose: () => void;
 }) {
+  const isImageArtifact =
+    artifact.fileKind === 'image' || artifact.mediaType.startsWith('image/');
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
+    if (isImageArtifact) return;
     const controller = new AbortController();
     void getArtifactPreview(artifact.artifactId, controller.signal)
       .then((result) => setContent(result.content))
@@ -372,7 +375,7 @@ function ArtifactPreviewDialog({
           setError(requestError instanceof Error ? requestError.message : '文件预览不可用。');
       });
     return () => controller.abort();
-  }, [artifact.artifactId]);
+  }, [artifact.artifactId, isImageArtifact]);
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -380,6 +383,52 @@ function ArtifactPreviewDialog({
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
+  if (isImageArtifact) {
+    return createPortal(
+      <div
+        className="file-preview-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${artifact.fileName}预览`}
+        onMouseDown={(event) => {
+          if (event.currentTarget === event.target) onClose();
+        }}
+      >
+        <section
+          className="file-preview-dialog__panel"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <header className="file-preview-dialog__header">
+            <div>
+              <span
+                className={`file-card-icon file-card-icon--${fileExtension(artifact.fileName).toLowerCase()}`}
+              >
+                {fileExtension(artifact.fileName)}
+              </span>
+              <strong title={artifact.fileName}>{artifact.fileName}</strong>
+            </div>
+            <button
+              type="button"
+              className="file-preview-dialog__close"
+              aria-label="关闭文件预览"
+              title="关闭预览"
+              onClick={onClose}
+            >
+              <X size={19} />
+            </button>
+          </header>
+          <div className="file-preview-dialog__body">
+            <img
+              src={getArtifactPreviewUrl(artifact.artifactId)}
+              alt={artifact.fileName}
+              style={{ maxWidth: '100%', height: 'auto' }}
+            />
+          </div>
+        </section>
+      </div>,
+      document.body,
+    );
+  }
   return createPortal(
     <div
       className="file-preview-dialog"

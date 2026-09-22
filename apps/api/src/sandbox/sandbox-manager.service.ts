@@ -188,7 +188,8 @@ export class SandboxManagerService implements OnModuleDestroy {
     if (entry.runLeases.size > 0 || entry.runningJobCount > 0) return;
     const record = await this.instances?.findBySessionId(sessionId);
     const now = Date.now();
-    const expiresAtMs = record?.expiresAt.getTime() ?? 0;
+    // 无 DB 行时不应视为 TTL=0 立即销毁（否则 Run lease 释放后会丢掉 Session workspace）。
+    const expiresAtMs = record?.expiresAt.getTime() ?? Number.POSITIVE_INFINITY;
     const hardMs = entry.hardExpiresAtMs || (record?.hardExpiresAt.getTime() ?? 0);
     if (now < expiresAtMs && now < hardMs) return;
     if (entry.session) await this.destroySession(sessionId, entry.session);

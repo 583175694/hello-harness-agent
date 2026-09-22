@@ -287,6 +287,28 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         content: buffer,
         contentType: mediaType,
       });
+      if (fileKind === 'image') {
+        const preview = await this.storage.putPreview({
+          sessionId: input.sessionId,
+          fileId,
+          content: buffer,
+          contentType: mediaType,
+        });
+        const file = await this.prisma.file.update({
+          where: { id: fileId },
+          data: {
+            originalKey: original.objectKey,
+            previewKey: preview.objectKey,
+            contentHash: createHash('sha256').update(buffer).digest('hex'),
+            parserVersion: 'c3-d-sandbox-image',
+            overview: { format: fileKind, source: 'sandbox' },
+            status: 'ready',
+            retryable: false,
+            processingCompletedAt: new Date(),
+          },
+        });
+        return this.toPublicRef(file, true);
+      }
       const normalizedContent = buffer.toString('utf8');
       const normalized = await this.storage.putNormalized({
         sessionId: input.sessionId,
@@ -1217,6 +1239,10 @@ function mediaTypeFromFileName(fileName: string): string {
       json: 'application/json',
       html: 'text/html',
       pdf: 'application/pdf',
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      webp: 'image/webp',
       docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     } as Record<string, string>
@@ -1225,13 +1251,16 @@ function mediaTypeFromFileName(fileName: string): string {
 
 function artifactKindFromMediaType(
   mediaType: string,
-): 'text' | 'markdown' | 'json' | 'html' | 'pdf' | 'docx' | 'xlsx' | undefined {
+): 'text' | 'markdown' | 'json' | 'html' | 'pdf' | 'docx' | 'xlsx' | 'image' | undefined {
   const kinds = {
     'text/plain': 'text',
     'text/markdown': 'markdown',
     'application/json': 'json',
     'text/html': 'html',
     'application/pdf': 'pdf',
+    'image/png': 'image',
+    'image/jpeg': 'image',
+    'image/webp': 'image',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
   } as const;

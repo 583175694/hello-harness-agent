@@ -2,11 +2,11 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-22（C3-C 方案就绪：docs/33 §6.3.4、§6.6.7–§6.6.8）
+> 最后更新：2026-09-22（C3-D 已落地：Session Sandbox 内 Chromium + agent-browser，见 docs/34、docs/33 §6.4.4）
 
 ## 1. 当前结论
 
-项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 C2-A/C2-B 当前范围。C3-A 已把 Sandbox 作为普通 Tool 接入 Runtime；**C3-B** 已将主工具改为 **`bash`**（`execute_command` 仅迁移期别名）：DSH 式 `renderBashResult()` 文本 Tool Message、默认 `auto_execute`、Host `BashCommandPolicyService` 触发的 network/install 升权审批、批准后当次 v1 egress allowlist、Terminal 投影与 spill Artifact 已落地，并在**本机 OpenSandbox + Docker**（`dev/opensandbox-local`）完成 Workbench 手工冒烟（echo/非零退出、普通命令不批、pip/curl 审批、Collect）。Sandbox 默认关闭，需 `SANDBOX_ENABLED` 与 Domain/API Key/带 digest 的镜像后才对模型可见。CI 使用 fake Provider；真实 OpenSandbox 见 `pnpm --filter @harness/api test:sandbox-live`。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成一份或多份 Markdown Report Artifact。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
+项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 C2-A/C2-B 当前范围。C3-A 已把 Sandbox 作为普通 Tool 接入 Runtime；**C3-B** 已将主工具改为 **`bash`**（`execute_command` 仅迁移期别名）：DSH 式 `renderBashResult()` 文本 Tool Message、默认 `auto_execute`、Host `BashCommandPolicyService` 触发的 network/install 升权审批、批准后当次 v1 egress allowlist、Terminal 投影与 spill Artifact 已落地，并在**本机 OpenSandbox + Docker**（`dev/opensandbox-local`）完成 Workbench 手工冒烟（echo/非零退出、普通命令不批、pip/curl 审批、Collect）。Sandbox 默认关闭，需 `SANDBOX_ENABLED` 与 Domain/API Key/带 digest 的镜像后才对模型可见。CI 使用 fake Provider（`pnpm --filter @harness/api test`）；真实 OpenSandbox 见 `dev/opensandbox-local` 与 docs/33 §1.5 UI 冒烟。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成一份或多份 Markdown Report Artifact。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
 
 当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics 和 C1 File & Multimodal Foundation 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
@@ -32,7 +32,9 @@ C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@
 
 **C3-B 已落地**（详见 [33-c3-agent-sandbox-cloud-execution.md §6.2](./33-c3-agent-sandbox-cloud-execution.md#62-c3-bdsh-前台-bash-对齐--策略审批改版) 与 **§6.2.4 验收记录**）：主工具 **`bash`**（`BashTool` + Registry 别名 `execute_command`）；`BashCommandPolicyService` + Runtime 动态 `tool_approval`；`renderBashResult()` / spill；OpenSandbox 当次 egress boost（`sandboxEgressAllowlistV1`）；Terminal `tool_activity` 与 system prompt 专段。
 
-**C3-C 已落地（代码 + 单测；live 手工签字见 docs/33 §6.3.4）**：Session 级 Sandbox + Prisma `sandbox_instances` + Run **lease**（`releaseRunLease`）；`bash.run_in_background` 与 `job_output` / `job_list` / `job_kill`；`SandboxJobWatcher` 默认 **wakeup**（`quiet` / `maxConsecutiveWakes`）；egress v2 词法 host + 扩展 allowlist + 结构化 audit；orphan 扫描骨架；审批 UI 展示 bash `inputFiles`；模型 definitions 不再暴露 `execute_command` 别名（Snapshot 只读保留）。**C3-D** 为 Browser 与规模化。
+**C3-C 已落地（代码 + 单测；live 手工签字见 docs/33 §6.3.4）**：Session 级 Sandbox + Prisma `sandbox_instances` + Run **lease**（`releaseRunLease`）；`bash.run_in_background` 与 `job_output` / `job_list` / `job_kill`；`SandboxJobWatcher` 默认 **wakeup**（`quiet` / `maxConsecutiveWakes`）；egress v2 词法 host + 扩展 allowlist + 结构化 audit；orphan 扫描骨架；审批 UI 展示 bash `inputFiles`；模型 definitions 不再暴露 `execute_command` 别名（Snapshot 只读保留）。
+
+**C3-D 已落地（D0–D3）**：专用镜像 [`dev/opensandbox-local/Dockerfile.harness-sandbox-browser`](../dev/opensandbox-local/Dockerfile.harness-sandbox-browser)；`bash` 注入 `AGENT_BROWSER_SESSION*`；`agent-browser` + URL → network 策略；PNG 等截图 **`output` Collect** → Artifact（`fileKind: image`）；OpenSandbox 回归靠 Workbench 冒烟与单测。**当前阶段** Sandbox 在用户 **network 审批** 后默认 **不启用 Host 域名白名单**（命令内 HTTPS 域名动态放行 OpenSandbox egress）；恢复 C3-C v2 白名单：`SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED=true`。实施方案与验收 [docs/34](./34-c3-d-session-browser-agent.md)、[docs/33 §6.4.4](./33-c3-agent-sandbox-cloud-execution.md#644-c3-d-验收与冒烟)。D4 薄 Tool / 规模化 **后置**。
 
 ### C3-B 相对 C3-A 的能力快照（已对齐）
 
@@ -499,8 +501,9 @@ C3  Agent Sandbox & Cloud Execution Environment   高优先级
     - 前置 PoC 已通过：OpenSandbox + Docker 本地/腾讯云验证，Shell/Python、Workspace 状态、文件回传和清理闭环已确认
     - C3-A 已落地并本机验收：SandboxManager/Provider、Collect、Stage；启动见 `dev/opensandbox-local/` 与 docs/33 §1.5
     - C3-B 已落地并本机验收：bash、Bash 策略 v1、动态升权审批、文本 Tool Result、Terminal UI（docs/33 §6.2.4）
-    - C3-C 待实施：Session Sandbox、job_*、wakeup 完成通知、egress v2、orphan（docs/33 §6.3、§6.6）
-    - C3-D 待实施：agent-browser、复杂产物、镜像/预热/多 Provider/成本（docs/33 §6.4）
+    - C3-C 已落地：Session Sandbox、job_*、wakeup 完成通知、egress v2、orphan（docs/33 §6.3、§6.6）
+    - C3-D 已落地：Session 内 Chromium + agent-browser（[docs/34](./34-c3-d-session-browser-agent.md)、docs/33 §6.4.4）
+    - C3 后置：镜像矩阵/预热/多 Provider/成本/复杂产物等（docs/33 §6.4.1）
     - 采用 Sandbox as a Tool：Agent Runtime、Tool Registry、Policy、Credential、Audit 和 Artifact 留在可信 Host
     - C3-B 起主模型 Tool 为 bash；C3-A 为 execute_command
     - Run 内多次 Tool Call 共享受控 Workspace 和必要状态，输出文件经 Host 校验后进入 File / Artifact 链路
@@ -567,9 +570,9 @@ K3 Control & HITL Kernel（基本完成）
   -> K4 Agent Task Semantics（已完成）
   -> C1 File & Multimodal Foundation（已完成）
   -> C3-B DSH 前台 bash + Bash 策略 v1（已完成，见 docs/33 §6.2.4）
-  -> C3-C 后台 job + Session Sandbox + network/install v2（下一刀，§6.6 已冻结）
+  -> C3-C 后台 job + Session Sandbox + network/install v2（已完成，docs/33 §6.3.4）
+  -> C3-D Chromium + agent-browser（Sandbox 内，已完成，docs/34 / docs/33 §6.4.4）
   -> C2-C/C2-D Artifact 后续能力（接入本地写入策略）
-  -> C3-D Browser 与规模化
   -> K5-B Side-effect Governance 验收收口（MCP/浏览器写操作等）
   -> C4 MCP Client（接入外部写操作策略）
   -> C5 Website Generation & Workbench Preview

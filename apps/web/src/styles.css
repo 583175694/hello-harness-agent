@@ -896,14 +896,14 @@ textarea:focus-visible {
 .ai-terminal__content {
   max-height: min(420px, 50vh);
   overflow: auto;
-  padding: 16px 14px 18px;
+  padding: 10px 12px 12px;
   background: var(--theme-terminal-bg);
 }
 .ai-terminal__output {
   margin: 0;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--theme-terminal-fg);

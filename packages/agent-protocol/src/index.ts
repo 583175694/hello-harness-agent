@@ -16,6 +16,7 @@ import {
   bashInputSummarySchema,
   bashPublicResultSchema,
   bashPublicToolResultSchema,
+  bashTerminalViewSchema,
   executeCommandInputSummarySchema,
   executeCommandPublicResultSchema,
   jobKillInputSchema,
@@ -378,6 +379,7 @@ export const assistantToolActivityBlockSchema = z.object({
   description: z.string().min(1).optional(),
   exitCode: z.number().int().nullable().optional(),
   exitSignal: z.string().min(1).nullable().optional(),
+  terminalView: bashTerminalViewSchema.optional(),
 });
 
 // 安全边界消费的 Steer，作为 assistant 流中的用户时间线节点保存。
@@ -563,6 +565,7 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     input: bashInputSummarySchema,
     presentation: z.literal('terminal').optional(),
     description: z.string().min(1).optional(),
+    terminalView: bashTerminalViewSchema.optional(),
     startedAt: z.string().datetime(),
   }),
   z.object({
@@ -751,6 +754,7 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     exitCode: z.number().int().nullable().optional(),
     exitSignal: z.string().min(1).nullable().optional(),
     jobId: z.string().min(1).optional(),
+    terminalView: bashTerminalViewSchema.optional(),
   }),
   z.object({
     type: z.literal('tool.completed'),

@@ -23,6 +23,7 @@
     "@streamdown/mermaid": "^1.0.2",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-virtual": "^3.14.9",
+    "ansi-to-react": "6.1.6",
     "katex": "^0.18.4",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",

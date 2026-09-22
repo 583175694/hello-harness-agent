@@ -19,7 +19,6 @@ import { MarkdownContent } from '../../../components/markdown-content';
 import { JsonViewer } from '../../../components/ui/json-viewer';
 
 import type {
-  ActivityStatus,
   ReportView,
   SourceView,
   ToolCallStatus,
@@ -29,7 +28,7 @@ import type {
   WorkspaceView,
 } from '../model/types';
 import type { ArtifactRef } from '@harness/agent-protocol';
-import { ACTIVITY_STATUS_COPY } from '../config/ui.constants';
+import { BashTerminalPanel } from '../elements/bash-terminal-panel';
 import { downloadArtifact, getArtifactPreviewUrl } from '../../../api/client';
 
 // 在统一 Workbench 容器中承载不同工具的视图。
@@ -162,8 +161,6 @@ function WorkbenchActiveView({
       <ActivityView
         executions={state.executions}
         focusTarget={state.focusTarget}
-        followMode={state.followMode}
-        status={state.activityStatus ?? 'running'}
         onSelect={onExecutionSelect}
       />
     );
@@ -306,23 +303,12 @@ function ContextView({ context }: { context?: WorkbenchState['context'] }) {
 function ActivityView({
   executions,
   focusTarget,
-  followMode,
-  status,
   onSelect,
 }: {
   executions: ToolCallView[];
   focusTarget?: WorkbenchFocusTarget;
-  followMode: 'auto' | 'pinned';
-  status: ActivityStatus;
   onSelect: (tool: ToolCallView) => void;
 }) {
-  const { title, subtitle } = ACTIVITY_STATUS_COPY[status];
-  const isBusy =
-    status === 'running' ||
-    status === 'final_answer' ||
-    status === 'pause_requested' ||
-    status === 'resuming' ||
-    status === 'cancelling';
   const selectedTool =
     focusTarget?.kind === 'tool_call'
       ? executions.find((tool) => tool.toolCallId === focusTarget.toolCallId)
@@ -339,29 +325,50 @@ function ActivityView({
 
   return (
     <div className="activity-view">
-      <div className="activity-heading">
-        <div className={`activity-loader activity-loader--${status}`}>
-          {status === 'failed' ? (
-            <CircleAlert size={20} />
-          ) : status === 'cancelled' ? (
-            <X size={20} />
-          ) : status === 'queued' ||
-            status === 'waiting' ||
-            status === 'paused' ||
-            status === 'pause_requested' ? (
-            <Clock3 size={20} />
-          ) : status === 'completed' ? (
-            <Check size={20} />
-          ) : (
-            <LoaderCircle className={isBusy ? 'spin' : ''} size={20} />
-          )}
-        </div>
-        <div>
-          <strong>{title}</strong>
-          <span>{subtitle}</span>
-        </div>
-        <span className="follow-mode">{followMode === 'auto' ? '自动跟随' : '已固定'}</span>
-      </div>
+      {selectedTool ? (
+        selectedTool.toolName === 'bash' && selectedTool.terminal ? (
+          <BashTerminalPanel
+            key={selectedTool.toolCallId}
+            terminal={selectedTool.terminal}
+            status={selectedTool.status}
+            contextLabel={selectedTool.runId.slice(0, 8)}
+          />
+        ) : (
+          <article className="execution-detail" key={selectedTool.toolCallId} tabIndex={-1}>
+            <div className="execution-detail-heading">
+              <div>
+                <span className="tool-name">{selectedTool.toolName}</span>
+                <h3>{selectedTool.title}</h3>
+              </div>
+              <span className={`execution-status execution-status--${selectedTool.status}`}>
+                {selectedTool.status}
+              </span>
+            </div>
+            <p>{selectedTool.detail}</p>
+            <dl>
+              <div>
+                <dt>业务输入</dt>
+                <dd>{selectedTool.inputSummary}</dd>
+              </div>
+              <div>
+                <dt>结果摘要</dt>
+                <dd>{selectedTool.outputSummary ?? '执行中，结果尚未生成'}</dd>
+              </div>
+              <div className="execution-metrics">
+                <span>耗时 {selectedTool.elapsed}</span>
+                {selectedTool.resultCount !== undefined ? (
+                  <span>{selectedTool.resultCount} 条结果</span>
+                ) : null}
+                {selectedTool.sourceCount !== undefined ? (
+                  <span>{selectedTool.sourceCount} 个来源</span>
+                ) : null}
+              </div>
+            </dl>
+          </article>
+        )
+      ) : (
+        <div className="execution-empty">执行详情暂不可用</div>
+      )}
       <div className="execution-timeline">
         <div className="section-label">调用时间线</div>
         {executions.map((tool) => {
@@ -388,41 +395,6 @@ function ActivityView({
           );
         })}
       </div>
-      {selectedTool ? (
-        <article className="execution-detail" key={selectedTool.toolCallId} tabIndex={-1}>
-          <div className="execution-detail-heading">
-            <div>
-              <span className="tool-name">{selectedTool.toolName}</span>
-              <h3>{selectedTool.title}</h3>
-            </div>
-            <span className={`execution-status execution-status--${selectedTool.status}`}>
-              {selectedTool.status}
-            </span>
-          </div>
-          <p>{selectedTool.detail}</p>
-          <dl>
-            <div>
-              <dt>业务输入</dt>
-              <dd>{selectedTool.inputSummary}</dd>
-            </div>
-            <div>
-              <dt>结果摘要</dt>
-              <dd>{selectedTool.outputSummary ?? '执行中，结果尚未生成'}</dd>
-            </div>
-            <div className="execution-metrics">
-              <span>耗时 {selectedTool.elapsed}</span>
-              {selectedTool.resultCount !== undefined ? (
-                <span>{selectedTool.resultCount} 条结果</span>
-              ) : null}
-              {selectedTool.sourceCount !== undefined ? (
-                <span>{selectedTool.sourceCount} 个来源</span>
-              ) : null}
-            </div>
-          </dl>
-        </article>
-      ) : (
-        <div className="execution-empty">执行详情暂不可用</div>
-      )}
     </div>
   );
 }

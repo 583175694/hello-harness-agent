@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { renderBashResult } from '../src/sandbox/bash-render.js';
+import { buildBashTerminalView, renderBashResult } from '../src/sandbox/bash-render.js';
 
 describe('renderBashResult', () => {
   it('renders stdout, stderr and exit code markers', () => {
@@ -35,5 +35,26 @@ describe('renderBashResult', () => {
         truncated: { stdout: false, stderr: false },
       }),
     ).toContain('(no output)');
+  });
+});
+
+describe('buildBashTerminalView', () => {
+  it('includes rendered output for UI terminal cards', () => {
+    const view = buildBashTerminalView(
+      { description: 'echo test', command: 'echo test' },
+      {
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        aborted: false,
+        timeoutMs: 1_000,
+        stdout: 'ok',
+        stderr: '',
+        durationMs: 5,
+        truncated: { stdout: false, stderr: false },
+      },
+    );
+    expect(view.renderedOutput).toContain('ok');
+    expect(view.exitCode).toBe(0);
   });
 });

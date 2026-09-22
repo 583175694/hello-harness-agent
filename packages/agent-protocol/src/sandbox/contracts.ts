@@ -166,6 +166,23 @@ export const bashBackgroundResultSchema = z
   })
   .strict();
 
+/** Workbench Terminal 卡片与 CoT 共用的 bash 展示视图（可含 UI 专用 render 文本，不进模型 transcript）。 */
+export const bashTerminalViewSchema = z
+  .object({
+    description: z.string().min(1),
+    command: z.string().min(1),
+    workdir: z.string().min(1).optional(),
+    renderedOutput: z.string().optional(),
+    exitCode: z.number().int().nullable().optional(),
+    exitSignal: z.string().min(1).nullable().optional(),
+    jobId: z.string().min(1).optional(),
+  })
+  .strict();
+
+export const BASH_TERMINAL_RENDERED_OUTPUT_MAX = 32_000;
+
+export type BashTerminalView = z.infer<typeof bashTerminalViewSchema>;
+
 export const bashRunResultSchema = z
   .object({
     exitCode: z.number().int().nullable(),

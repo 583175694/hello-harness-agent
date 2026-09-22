@@ -33,7 +33,38 @@ function toolActivityStartSummary(event: Extract<ToolStreamEvent, { type: 'tool.
   if (event.toolName === 'web_fetch' || event.toolName === 'create_report') {
     return toolTitle(event.toolName, event.input);
   }
+  if (
+    event.toolName === 'bash' &&
+    'presentation' in event &&
+    event.presentation === 'terminal' &&
+    'description' in event &&
+    typeof event.description === 'string'
+  ) {
+    return event.description;
+  }
   return toolInputSummary(event.toolName, event.input);
+}
+
+function bashTerminalBlockPatch(
+  event: ToolStreamEvent,
+): Partial<Extract<AssistantContentBlock, { type: 'tool_activity' }>> {
+  if (event.toolName !== 'bash') return {};
+  if (!('presentation' in event) || event.presentation !== 'terminal') return {};
+  return {
+    presentation: 'terminal' as const,
+    ...( 'description' in event && typeof event.description === 'string'
+      ? { description: event.description }
+      : {}),
+    ...( 'terminalView' in event && event.terminalView ? { terminalView: event.terminalView } : {}),
+    ...(event.type === 'tool.completed' && 'exitCode' in event
+      ? { exitCode: event.exitCode ?? null }
+      : {}),
+    ...(event.type === 'tool.completed' &&
+    'exitSignal' in event &&
+    (event.exitSignal === null || typeof event.exitSignal === 'string')
+      ? { exitSignal: event.exitSignal }
+      : {}),
+  };
 }
 
 function toolActivityCompletedSummary(
@@ -189,8 +220,6 @@ export function applyToolActivityEvent(
     (block) => block.type === 'tool_activity' && block.toolCallId === event.toolCallId,
   );
   if (event.type === 'tool.started') {
-    const terminalStarted =
-      event.toolName === 'bash' && 'presentation' in event && event.presentation === 'terminal';
     if (index >= 0)
       return orderAssistantBlocks(
         blocks.map((block, blockIndex) =>
@@ -202,15 +231,7 @@ export function applyToolActivityEvent(
                 ...(event.blockSequence !== undefined
                   ? { blockSequence: event.blockSequence }
                   : {}),
-                ...(terminalStarted
-                  ? {
-                      presentation: 'terminal' as const,
-                      description:
-                        'description' in event && typeof event.description === 'string'
-                          ? event.description
-                          : block.description,
-                    }
-                  : {}),
+                ...bashTerminalBlockPatch(event),
               }
             : block,
         ),
@@ -227,15 +248,7 @@ export function applyToolActivityEvent(
       title: event.title,
       summary: toolActivityStartSummary(event),
       startedAt: event.startedAt,
-      ...(terminalStarted
-        ? {
-            presentation: 'terminal' as const,
-            description:
-              'description' in event && typeof event.description === 'string'
-                ? event.description
-                : undefined,
-          }
-        : {}),
+      ...bashTerminalBlockPatch(event),
     });
   }
   if (index < 0) return blocks;
@@ -253,6 +266,7 @@ export function applyToolActivityEvent(
             summary: toolActivityCompletedSummary(event, block.summary ?? ''),
             completedAt: event.completedAt,
             durationMs: event.durationMs,
+            ...bashTerminalBlockPatch(event),
           }
         : block,
     );
@@ -302,28 +316,13 @@ export function applyToolActivityEvent(
   return blocks.map((block, blockIndex) => {
     if (blockIndex !== index || block.type !== 'tool_activity') return block;
     if (event.type === 'tool.completed') {
-      const terminalCompleted =
-        event.toolName === 'bash' && 'presentation' in event && event.presentation === 'terminal';
       return {
         ...block,
         status: 'completed',
         summary: toolActivityCompletedSummary(event, block.summary ?? ''),
         completedAt: event.completedAt,
         durationMs: event.durationMs,
-        ...(terminalCompleted
-          ? {
-              presentation: 'terminal' as const,
-              description:
-                'description' in event && typeof event.description === 'string'
-                  ? event.description
-                  : block.description,
-              exitCode: 'exitCode' in event ? (event.exitCode ?? null) : block.exitCode,
-              exitSignal:
-                'exitSignal' in event && typeof event.exitSignal === 'string'
-                  ? event.exitSignal
-                  : block.exitSignal,
-            }
-          : {}),
+        ...bashTerminalBlockPatch(event),
       };
     }
     return event.type === 'tool.cancelled'

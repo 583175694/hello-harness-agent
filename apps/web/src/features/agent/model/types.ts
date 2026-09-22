@@ -1,5 +1,6 @@
 import type {
   AssistantContentBlock,
+  BashTerminalView,
   InterruptSnapshot,
   PendingUserInputView,
   RunContextDebug,
@@ -104,6 +105,7 @@ export type ToolCallView = {
   outputSummary?: string;
   resultCount?: number;
   sourceCount?: number;
+  terminal?: BashTerminalView;
 };
 
 export type SourceView = {

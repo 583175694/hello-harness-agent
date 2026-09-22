@@ -145,6 +145,43 @@ describe('conversation blocks reducer', () => {
     expect(flattenAssistantText(blocks)).toBe('先检索。得到结论。');
   });
 
+  it('stores bash terminal view on started events', () => {
+    const blocks = applyToolActivityEvent([], {
+      type: 'tool.started',
+      messageId: 'message-1',
+      blockId: 'tool-bash',
+      toolCallId: 'call-bash',
+      toolName: 'bash',
+      title: 'Bash',
+      presentation: 'terminal',
+      description: 'Open GitHub home page',
+      terminalView: {
+        description: 'Open GitHub home page',
+        command: 'agent-browser open https://github.com',
+      },
+      input: {
+        command: 'agent-browser open https://github.com',
+        description: 'Open GitHub home page',
+        workdir: '.',
+        timeoutMs: 120_000,
+      },
+      startedAt: '2026-09-21T09:00:00.000Z',
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 0,
+    });
+
+    expect(blocks[0]).toMatchObject({
+      type: 'tool_activity',
+      summary: 'Open GitHub home page',
+      presentation: 'terminal',
+      terminalView: {
+        description: 'Open GitHub home page',
+        command: 'agent-browser open https://github.com',
+      },
+    });
+  });
+
   it('projects tool cancellation separately from failure', () => {
     const started = applyToolActivityEvent([], {
       type: 'tool.started',

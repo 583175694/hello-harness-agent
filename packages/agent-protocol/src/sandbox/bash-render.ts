@@ -1,4 +1,10 @@
-import type { BashBackgroundResult, BashRunResult } from './contracts.js';
+import type {
+  BashBackgroundResult,
+  BashInputSummary,
+  BashRunResult,
+  BashTerminalView,
+} from './contracts.js';
+import { BASH_TERMINAL_RENDERED_OUTPUT_MAX } from './contracts.js';
 
 const TRUNCATION_LINE =
   /^(\[output truncated; full output: artifact:[^\]]+\])$/u;
@@ -42,6 +48,38 @@ export function isSpillReferenceLine(line: string): boolean {
 
 export function renderBashBackgroundResult(result: BashBackgroundResult): string {
   return `started background job ${result.jobId}`;
+}
+
+export function capBashTerminalRenderedOutput(text: string): string {
+  const points = [...text];
+  if (points.length <= BASH_TERMINAL_RENDERED_OUTPUT_MAX) return text;
+  return `${points.slice(0, BASH_TERMINAL_RENDERED_OUTPUT_MAX).join('')}…`;
+}
+
+export function buildBashTerminalView(
+  input: Pick<BashInputSummary, 'description' | 'command' | 'workdir'>,
+  result?: BashRunResult | BashBackgroundResult,
+): BashTerminalView {
+  const base: BashTerminalView = {
+    description: input.description,
+    command: input.command,
+    ...(input.workdir ? { workdir: input.workdir } : {}),
+  };
+  if (!result) return base;
+  if ('kind' in result && result.kind === 'background') {
+    return {
+      ...base,
+      jobId: result.jobId,
+      renderedOutput: capBashTerminalRenderedOutput(renderBashBackgroundResult(result)),
+    };
+  }
+  const run = result as BashRunResult;
+  return {
+    ...base,
+    exitCode: run.exitCode,
+    exitSignal: run.signal,
+    renderedOutput: capBashTerminalRenderedOutput(renderBashResult(run)),
+  };
 }
 
 export function renderJobOutputText(input: {

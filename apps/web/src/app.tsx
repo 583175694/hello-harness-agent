@@ -60,6 +60,7 @@ import type {
   ToolApprovalDecision,
   AssistantArtifactBlock,
   ArtifactRef,
+  BashTerminalView,
 } from '@harness/agent-protocol';
 import type {
   AgentUiState,
@@ -82,6 +83,7 @@ import {
   discardTextBlock,
   appendUserIntervention,
 } from './features/agent/model/conversation-blocks';
+import { bashTerminalFromInput, mergeBashTerminalView } from './features/agent/model/bash-transparent';
 import { nextSourceNumber } from './features/agent/model/source-identifiers';
 import {
   fetchProvenance,
@@ -237,9 +239,16 @@ export function workbenchFromPersistedMessage(
   const executions = metadata.data.agent?.executions ?? [];
   const sources = metadata.data.agent?.sources ?? [];
   const context = metadata.data.context;
-  const artifactBlocks = (metadata.data.blocks ?? []).filter(
+  const contentBlocks = metadata.data.blocks ?? [];
+  const artifactBlocks = contentBlocks.filter(
     (block): block is AssistantArtifactBlock => block.type === 'artifact',
   );
+  const bashTerminalByCallId = new Map<string, BashTerminalView>();
+  for (const block of contentBlocks) {
+    if (block.type === 'tool_activity' && block.toolName === 'bash' && block.terminalView) {
+      bashTerminalByCallId.set(block.toolCallId, block.terminalView);
+    }
+  }
   if (!executions.length && !context && !metadata.data.plan && !artifactBlocks.length)
     return undefined;
   const completedCount = executions.filter((execution) => execution.status === 'completed').length;
@@ -309,6 +318,13 @@ export function workbenchFromPersistedMessage(
     activityStatus: persistedActivityStatus(completedCount, cancelledCount, executions.length),
     executions: executions.map((execution) => {
       const input = execution.input;
+      const terminal =
+        execution.toolName === 'bash'
+          ? mergeBashTerminalView(
+              bashTerminalFromInput(input),
+              bashTerminalByCallId.get(execution.toolCallId),
+            )
+          : undefined;
       return {
         toolCallId: execution.toolCallId,
         runId: message.runId ?? message.id,
@@ -319,6 +335,7 @@ export function workbenchFromPersistedMessage(
         status: execution.status,
         elapsed: formatToolDuration(execution.durationMs),
         inputSummary: toolInputSummary(execution.toolName, input),
+        ...(terminal ? { terminal } : {}),
         outputSummary: persistedOutputSummary({
           status: execution.status,
           toolName: execution.toolName,
@@ -365,6 +382,13 @@ export function applyToolEvent(
     open,
   };
   if (event.type === 'tool.started') {
+    const bashTerminal =
+      event.toolName === 'bash'
+        ? mergeBashTerminalView(
+            bashTerminalFromInput(event.input),
+            'terminalView' in event ? event.terminalView : undefined,
+          )
+        : undefined;
     const tool: ToolCallView = {
       toolCallId: event.toolCallId,
       runId: event.messageId,
@@ -375,6 +399,7 @@ export function applyToolEvent(
       status: 'running',
       elapsed: '进行中',
       inputSummary: toolInputSummary(event.toolName, event.input),
+      ...(bashTerminal ? { terminal: bashTerminal } : {}),
     };
     const executions = base.executions.some((item) => item.toolCallId === event.toolCallId)
       ? base.executions
@@ -428,6 +453,14 @@ export function applyToolEvent(
             ? liveCompletedDetail(completedEvent.toolName)
             : (cancelledEvent?.detail ?? failedEvent?.detail ?? '工具执行失败'),
           elapsed: formatToolDuration(event.durationMs),
+          ...(completedEvent?.toolName === 'bash'
+            ? {
+                terminal: mergeBashTerminalView(
+                  tool.terminal,
+                  'terminalView' in completedEvent ? completedEvent.terminalView : undefined,
+                ),
+              }
+            : {}),
           outputSummary: completedEvent
             ? liveOutputSummary({
                 toolName: completedEvent.toolName,

@@ -9,6 +9,7 @@ export type ToolCopyInput = {
   title?: string;
   command?: string;
   description?: string;
+  workdir?: string;
   policyClass?: 'network' | 'install';
   inputFiles?: Array<{ fileId: string; path: string }>;
   job_id?: string;
@@ -54,7 +55,9 @@ export function toolTitle(toolName: string, input: ToolCopyInput): string {
   if (toolName === 'read_file_lines') return `读取文件：${input.startLine}-${input.endLine} 行`;
   if (toolName === 'create_file') return `生成文件：${input.fileName}`;
   if (toolName === 'create_report') return `生成报告：${input.title}`;
-  if (toolName === 'bash') return '终端命令';
+  if (toolName === 'bash') {
+    return input.description?.trim() ? `Bash · ${input.description.trim()}` : 'Bash';
+  }
   if (toolName === 'job_output') return '读取后台 job 输出';
   if (toolName === 'job_list') return '列出后台 job';
   if (toolName === 'job_kill') return '终止后台 job';

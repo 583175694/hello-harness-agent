@@ -746,15 +746,21 @@ describe('R1 workbench shell', () => {
     expect(screen.getByText(/^位置 9–/)).toBeInTheDocument();
   });
 
-  it('opens the workbench from an inline tool activity and pins the selected call', () => {
+  it('opens the workbench from an inline tool activity and focuses the selected call', () => {
     window.history.replaceState({}, '', '/agent/preview?state=tool-running');
     render(<App />);
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
     expect(document.querySelector('[aria-label="工作区"]')).toHaveAttribute('aria-hidden', 'true');
     fireEvent.click(screen.getByRole('button', { name: '交叉验证关键结论，执行中' }));
     expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
-    expect(screen.getByText('已固定')).toBeInTheDocument();
+    expect(screen.getByText('调用时间线')).toBeInTheDocument();
     expect(screen.getByText('业务输入')).toBeInTheDocument();
+    const workspace = screen.getByRole('complementary', { name: '工作区' });
+    expect(
+      workspace.querySelector('.execution-detail')!.compareDocumentPosition(
+        workspace.querySelector('.execution-timeline')!,
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it('keeps preview input lightweight without creating a run card', () => {

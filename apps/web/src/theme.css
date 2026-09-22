@@ -151,6 +151,23 @@
   --theme-rejection-bg: #f8ecea;
   --theme-rejection-text: #984b41;
 
+  /* 浅色 Terminal：对齐 DSH 白底 + 浅灰顶栏 + 绿色状态点 */
+  --theme-terminal-bg: #ffffff;
+  --theme-terminal-header-bg: #f6f6f5;
+  --theme-terminal-fg: var(--theme-text-primary);
+  --theme-terminal-divider: var(--theme-border-subtle);
+  --theme-terminal-muted: var(--theme-text-secondary);
+  --theme-terminal-icon: var(--theme-text-muted);
+  --theme-terminal-icon-hover-bg: var(--theme-surface-subtle);
+  --theme-terminal-accent: #34c759;
+  --theme-terminal-green: #047857;
+  --theme-terminal-blue: #2563eb;
+  --theme-terminal-yellow: #b45309;
+  --theme-terminal-cyan: #0891b2;
+  --theme-terminal-red: #dc2626;
+  --theme-terminal-magenta: #c026d3;
+  --theme-terminal-dim: var(--theme-text-muted);
+
   --h-bg-base: var(--theme-sidebar);
   --h-bg-canvas: var(--theme-canvas);
   --h-bg-sidebar: var(--theme-sidebar);
@@ -164,6 +181,10 @@
   --h-border-l3: var(--theme-border-subtle);
   --h-bubble: var(--theme-surface-subtle);
   --h-link: var(--theme-info);
+}
+
+:root .ai-terminal {
+  color-scheme: light;
 }
 
 :root[data-theme='dark'] {
@@ -195,6 +216,22 @@
   --theme-rejection-bg: #2d201f;
   --theme-rejection-text: #d8aaa3;
 
+  --theme-terminal-bg: #0f1115;
+  --theme-terminal-header-bg: #0f1115;
+  --theme-terminal-fg: #e8eaed;
+  --theme-terminal-divider: rgb(255 255 255 / 8%);
+  --theme-terminal-muted: rgb(255 255 255 / 58%);
+  --theme-terminal-icon: rgb(255 255 255 / 58%);
+  --theme-terminal-icon-hover-bg: rgb(255 255 255 / 10%);
+  --theme-terminal-accent: #4ade80;
+  --theme-terminal-green: #4ade80;
+  --theme-terminal-blue: #60a5fa;
+  --theme-terminal-yellow: #facc15;
+  --theme-terminal-cyan: #22d3ee;
+  --theme-terminal-red: #f87171;
+  --theme-terminal-magenta: #e879f9;
+  --theme-terminal-dim: rgb(255 255 255 / 45%);
+
   --h-bg-base: var(--theme-sidebar);
   --h-bg-canvas: var(--theme-canvas);
   --h-bg-sidebar: var(--theme-sidebar);
@@ -208,6 +245,10 @@
   --h-border-l3: var(--theme-border-subtle);
   --h-bubble: var(--theme-surface-subtle);
   --h-link: var(--theme-info);
+}
+
+:root[data-theme='dark'] .ai-terminal {
+  color-scheme: dark;
 }
 
 :root[data-theme='dark'] .markdown-content,

@@ -13,6 +13,8 @@ import {
   executeCommandInputSummarySchema,
   executeCommandPublicResultSchema,
   bashBackgroundResultSchema,
+  bashRunResultSchema,
+  buildBashTerminalView,
   jobKillInputSchema,
   jobListInputSchema,
   jobOutputInputSchema,
@@ -20,7 +22,12 @@ import {
   toExecuteCommandInputSummary,
   executeCommandInputSchema,
 } from '@harness/agent-protocol';
-import type { BashBackgroundResult, ExecuteCommandPublicResult } from '@harness/agent-protocol';
+import type {
+  BashBackgroundResult,
+  BashInputSummary,
+  BashTerminalView,
+  ExecuteCommandPublicResult,
+} from '@harness/agent-protocol';
 import type {
   ChatStreamEvent,
   ModelRoundObservation,
@@ -373,6 +380,11 @@ export class ChatService {
           const parsed = jobKillInputSchema.safeParse(event.input);
           toolSummary = parsed.success ? `终止 job ${parsed.data.job_id}` : '终止后台 job';
         }
+        const bashStartedInput =
+          isBash ? executeCommandInputSummarySchema.safeParse(event.input) : undefined;
+        const bashStartTerminalView = bashStartedInput?.success
+          ? buildBashTerminalView(bashStartedInput.data)
+          : undefined;
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
           toolName: event.toolName,
@@ -381,6 +393,13 @@ export class ChatService {
           roundId: event.roundId,
           roundSequence: event.roundSequence,
           blockSequence: event.blockSequence,
+          ...(bashStartTerminalView
+            ? {
+                presentation: 'terminal' as const,
+                description: bashStartTerminalView.description,
+                terminalView: bashStartTerminalView,
+              }
+            : {}),
         });
         await notifyProjection();
         if (fetchInput) {
@@ -493,6 +512,7 @@ export class ChatService {
             input: parsed,
             presentation: 'terminal' as const,
             description: parsed.description,
+            terminalView: buildBashTerminalView(parsed),
             startedAt: event.startedAt,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
@@ -715,6 +735,12 @@ export class ChatService {
             });
           }
         }
+        const bashCompletedInput =
+          isBash ? executeCommandInputSummarySchema.safeParse(event.input) : undefined;
+        const bashTerminalView =
+          bashCompletedInput?.success && (executeCommandResult || bashBackgroundResult)
+            ? this.bashTerminalViewForCompletion(bashCompletedInput.data, event.output)
+            : undefined;
         const blockId = conversation.completeTool({
           toolCallId: event.toolCallId,
           completedAt: event.completedAt,
@@ -733,6 +759,15 @@ export class ChatService {
             jobToolName: isJobTool ? event.toolName : undefined,
             searchResult,
           }),
+          ...(bashTerminalView
+            ? {
+                presentation: 'terminal' as const,
+                description: bashTerminalView.description,
+                exitCode: bashTerminalView.exitCode,
+                exitSignal: bashTerminalView.exitSignal,
+                terminalView: bashTerminalView,
+              }
+            : {}),
         });
         await notifyProjection();
         if (fetchResult) {
@@ -901,6 +936,7 @@ export class ChatService {
             presentation: 'terminal' as const,
             description: parsedInput.description,
             jobId: bashBackgroundResult.jobId,
+            terminalView: buildBashTerminalView(parsedInput, bashBackgroundResult),
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -934,6 +970,7 @@ export class ChatService {
             description: parsedInput.description,
             exitCode: executeCommandResult.exitCode,
             exitSignal: executeCommandResult.signal,
+            terminalView: this.bashTerminalViewForCompletion(parsedInput, event.output),
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -1288,6 +1325,21 @@ export class ChatService {
     delete record.stdout;
     delete record.stderr;
     return record;
+  }
+
+  private bashTerminalViewForCompletion(
+    input: BashInputSummary,
+    output: unknown,
+  ): BashTerminalView {
+    const background = bashBackgroundResultSchema.safeParse(output);
+    if (background.success) {
+      return buildBashTerminalView(input, background.data);
+    }
+    const run = bashRunResultSchema.safeParse(output);
+    if (run.success) {
+      return buildBashTerminalView(input, run.data);
+    }
+    return buildBashTerminalView(input);
   }
 
   private userContentText(content: string | UserContentBlock[] | undefined): string {

@@ -6,6 +6,7 @@ import type {
   ArtifactRef,
   AssistantUserInterventionBlock,
   AssistantReasoningBlock,
+  BashTerminalView,
 } from '@harness/agent-protocol';
 
 function textPhaseFromModel(
@@ -138,6 +139,9 @@ export class ConversationBlockCollector {
     roundId: string;
     roundSequence: number;
     blockSequence: number;
+    presentation?: 'terminal';
+    description?: string;
+    terminalView?: BashTerminalView;
   }): AssistantToolActivityBlock {
     const existing = this.findTool(input.toolCallId);
     if (existing) return { ...existing };
@@ -153,6 +157,9 @@ export class ConversationBlockCollector {
       title: this.toolTitle(input.toolName),
       summary: input.summary || undefined,
       startedAt: input.startedAt,
+      ...(input.presentation ? { presentation: input.presentation } : {}),
+      ...(input.description ? { description: input.description } : {}),
+      ...(input.terminalView ? { terminalView: input.terminalView } : {}),
     };
     this.insert(block);
     return { ...block };
@@ -164,12 +171,22 @@ export class ConversationBlockCollector {
     completedAt: string;
     durationMs: number;
     summary: string;
+    presentation?: 'terminal';
+    description?: string;
+    exitCode?: number | null;
+    exitSignal?: string | null;
+    terminalView?: BashTerminalView;
   }): string {
     const block = this.requireTool(input.toolCallId);
     block.status = 'completed';
     block.summary = input.summary;
     block.completedAt = input.completedAt;
     block.durationMs = input.durationMs;
+    if (input.presentation) block.presentation = input.presentation;
+    if (input.description) block.description = input.description;
+    if (input.exitCode !== undefined) block.exitCode = input.exitCode;
+    if (input.exitSignal !== undefined) block.exitSignal = input.exitSignal;
+    if (input.terminalView) block.terminalView = input.terminalView;
     return block.id;
   }
 
@@ -262,7 +279,7 @@ export class ConversationBlockCollector {
     if (toolName === 'read_file_lines') return '读取文件';
     if (toolName === 'create_file') return '生成文件';
     if (toolName === 'execute_command') return '执行命令';
-    if (toolName === 'bash') return '终端';
+    if (toolName === 'bash') return 'Bash';
     if (toolName === 'job_output') return 'Job 输出';
     if (toolName === 'job_list') return 'Job 列表';
     if (toolName === 'job_kill') return '终止 Job';

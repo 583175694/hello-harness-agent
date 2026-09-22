@@ -82,7 +82,6 @@ test('opens and focuses the workbench from a conversation tool call', async ({ p
   await expect(page.getByRole('complementary', { name: '工作区' })).toHaveCount(0);
   await page.getByRole('button', { name: '搜索网页，执行中' }).click();
   await expect(page.getByRole('complementary', { name: '工作区' })).toBeVisible();
-  await expect(page.getByText('已固定')).toBeVisible();
   await expect(
     page
       .getByRole('complementary', { name: '工作区' })

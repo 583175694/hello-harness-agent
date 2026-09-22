@@ -6,6 +6,7 @@ import {
   FileSearch,
   FileText,
   Search,
+  Terminal,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -20,6 +21,7 @@ import {
   type ChainStepStatus,
 } from '../../../components/ai-elements/chain-of-thought';
 import type { SourceView, WorkbenchFocusTarget, WorkbenchState } from '../model/types';
+import { bashCoTLabel, isBashTransparentTool } from '../model/bash-transparent';
 import type { AssistantProcessItem } from './assistant-message-adapter';
 import {
   Reasoning,
@@ -33,7 +35,8 @@ function toolIcon(toolName: string): LucideIcon {
   if (toolName === 'web_search' || toolName === 'web_fetch') return Search;
   if (toolName === 'search_file' || toolName === 'read_file_lines') return FileSearch;
   if (toolName === 'create_file' || toolName === 'create_report') return FileText;
-  if (toolName === 'bash' || toolName === 'execute_command') return Clock3;
+  if (toolName === 'bash') return Terminal;
+  if (toolName === 'execute_command') return Clock3;
   return Clock3;
 }
 
@@ -160,8 +163,10 @@ export function AgentChainOfThought({
           const workbenchTitle = workbench?.executions.find(
             (execution) => execution.toolCallId === item.block.toolCallId,
           )?.title;
-          const toolTitle =
-            item.block.toolName === 'web_search'
+          const bashStep = isBashTransparentTool(item.block);
+          const toolTitle = bashStep
+            ? bashCoTLabel(item.block)
+            : item.block.toolName === 'web_search'
               ? (workbenchTitle ??
                 (item.block.summary ? `搜索：${item.block.summary}` : item.block.title))
               : item.block.title;
@@ -189,7 +194,9 @@ export function AgentChainOfThought({
                     <span className="agent-chain-tool__title">
                       {item.block.status === 'running' ? <Shimmer>{toolTitle}</Shimmer> : toolTitle}
                     </span>
-                    {item.block.summary && item.block.toolName !== 'web_search' ? (
+                    {item.block.summary &&
+                    item.block.toolName !== 'web_search' &&
+                    !bashStep ? (
                       <span className="agent-chain-tool__summary">{item.block.summary}</span>
                     ) : null}
                     {StateIcon ? <StateIcon size={13} aria-hidden="true" /> : null}

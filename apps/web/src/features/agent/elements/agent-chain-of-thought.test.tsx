@@ -28,6 +28,37 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe('AgentChainOfThought bash transparent events', () => {
+  it('renders a single Bash · description line', () => {
+    render(
+      <AgentChainOfThought
+        process={[
+          {
+            kind: 'tool',
+            block: {
+              id: 'tool-bash',
+              type: 'tool_activity',
+              toolCallId: 'call-bash',
+              toolName: 'bash',
+              title: 'Bash',
+              status: 'running',
+              presentation: 'terminal',
+              description: 'Check current system date',
+              startedAt: '2026-09-21T00:00:00.000Z',
+            },
+          },
+        ]}
+        running
+        onFocusWorkbench={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByRole('button', { name: 'Bash · Check current system date，执行中' }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('AgentChainOfThought elapsed time', () => {
   it('keeps ticking every second while the assistant is running after a tool completes', () => {
     vi.useFakeTimers();

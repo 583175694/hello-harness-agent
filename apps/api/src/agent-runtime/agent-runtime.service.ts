@@ -11,9 +11,15 @@ import { Logger } from 'nestjs-pino';
 import {
   AGENT_ERROR_CODES,
   AGENT_TOOL_NAMES,
-  executeCommandInputSchema,
-  toExecuteCommandInputSummary,
+  bashInputSchema,
+  hashBashApprovalBase,
+  renderBashResult,
+  toBashInputSummary,
+  type BashInput,
+  type BashRunResult,
 } from '@harness/agent-protocol';
+import { BashCommandPolicyService } from '../sandbox/bash-command-policy.service';
+import { sandboxLimits } from '../sandbox/sandbox-config';
 import { ModelAdapter } from '../model/model-adapter';
 import {
   ModelProviderResponseError,
@@ -53,6 +59,7 @@ export class AgentRuntimeService {
   constructor(
     @Inject(ModelAdapter) private readonly model: ModelAdapter,
     @Inject(ToolRegistryService) private readonly tools: ToolRegistryService,
+    @Inject(BashCommandPolicyService) private readonly bashPolicy: BashCommandPolicyService,
     @Inject(Logger) private readonly logger: Logger,
     @Optional()
     @Inject(ContextEngineeringService)
@@ -742,20 +749,43 @@ export class AgentRuntimeService {
       if (dispatchReadyWait) await dispatchReadyWait;
       this.assertRunActive(input.signal, runDeadlineSignal);
 
+      const bashApprovalPermission = new Map<string, 'network' | 'install'>();
       const approvalItems = dispatchPlan
         .filter(
           (item): item is Extract<PreparedDispatch, { status: 'ready' }> => item.status === 'ready',
         )
-        // 计划更新不需要审批，只对有副作用的 Business Tool 建立审批项。
         .filter((item) => item.call.name !== AGENT_TOOL_NAMES.updatePlan)
-        .filter((item) => this.approvalPolicy(item.call.name) === 'require_approval')
-        .map((item) => ({
-          itemId: `${roundId}:${item.call.id}`,
-          toolCallId: item.call.id,
-          toolName: item.call.name,
-          input: item.input,
-          argumentsHash: this.hashCanonical(item.call.name, item.input),
-        }));
+        .flatMap((item) => {
+          const resolved = this.tools.resolveName(item.call.name);
+          if (resolved === AGENT_TOOL_NAMES.bash) {
+            const bashInput = item.input as BashInput;
+            const policyClass = this.bashPolicy.classify(bashInput);
+            if (!policyClass) return [];
+            bashApprovalPermission.set(item.call.id, policyClass);
+            const base = hashBashApprovalBase(bashInput);
+            return [
+              {
+                itemId: `${roundId}:${item.call.id}:${policyClass}`,
+                toolCallId: item.call.id,
+                toolName: item.call.name,
+                input: toBashInputSummary(bashInput, policyClass),
+                argumentsHash: createHash('sha256')
+                  .update(`${base}:${policyClass}`)
+                  .digest('hex'),
+              },
+            ];
+          }
+          if (this.approvalPolicy(item.call.name) !== 'require_approval') return [];
+          return [
+            {
+              itemId: `${roundId}:${item.call.id}`,
+              toolCallId: item.call.id,
+              toolName: item.call.name,
+              input: item.input,
+              argumentsHash: this.hashCanonical(item.call.name, item.input),
+            },
+          ];
+        });
       let approvalDecisions = new Map<string, 'approve' | 'reject'>();
       if (approvalItems.length) {
         if (!input.lifecycle)
@@ -879,6 +909,8 @@ export class AgentRuntimeService {
         };
         let result: ToolExecutionResult<unknown>;
         try {
+          const bashEgressBoost =
+            approvalDecisions.get(call.id) === 'approve' && bashApprovalPermission.has(call.id);
           result = await this.executeTool(
             call.name,
             toolInput,
@@ -887,6 +919,7 @@ export class AgentRuntimeService {
               runId: input.runId,
               messageId: input.messageId,
               toolCallId: call.id,
+              ...(bashEgressBoost ? { bashEgressBoost: true } : {}),
             },
             runSignal,
           );
@@ -995,7 +1028,7 @@ export class AgentRuntimeService {
             toolName: call.name,
             content:
               result.status === 'succeeded'
-                ? this.serializeToolSuccess(result.output)
+                ? this.serializeToolSuccess(call.name, result.output)
                 : this.serializeToolError(result.error),
             ...(this.isFileTool(call.name) ? { truncatable: false } : {}),
           },
@@ -1138,9 +1171,10 @@ export class AgentRuntimeService {
 
   // create_file 的正文只进入工具执行，不进入 SSE、快照、日志或历史 metadata。
   private publicToolInput(toolName: string, input: unknown): unknown {
-    if (toolName === AGENT_TOOL_NAMES.executeCommand && typeof input === 'object' && input !== null) {
-      const parsed = executeCommandInputSchema.safeParse(input);
-      return parsed.success ? toExecuteCommandInputSummary(parsed.data) : input;
+    const resolved = this.tools.resolveName(toolName);
+    if (resolved === AGENT_TOOL_NAMES.bash && typeof input === 'object' && input !== null) {
+      const parsed = bashInputSchema.safeParse(input);
+      return parsed.success ? toBashInputSummary(parsed.data) : input;
     }
     if (
       (toolName !== AGENT_TOOL_NAMES.createFile && toolName !== AGENT_TOOL_NAMES.createReport) ||
@@ -1263,7 +1297,10 @@ export class AgentRuntimeService {
       return await Promise.race([execution, boundary]);
     } catch (error) {
       timeoutController.abort();
-      const graceMs = name === AGENT_TOOL_NAMES.executeCommand ? 10_000 : 0;
+      const graceMs =
+        this.tools.resolveName(name) === AGENT_TOOL_NAMES.bash
+          ? sandboxLimits.cancellationGraceMs
+          : 0;
       if (graceMs > 0) {
         const settled = await Promise.race([
           execution.then(
@@ -1283,7 +1320,11 @@ export class AgentRuntimeService {
   }
 
   // 将成功结果包装为统一的不可信 Tool Message，避免具体 Tool 维护第二份模型内容。
-  private serializeToolSuccess(output: unknown): string {
+  private serializeToolSuccess(toolName: string, output: unknown): string {
+    const resolved = this.tools.resolveName(toolName);
+    if (resolved === AGENT_TOOL_NAMES.bash) {
+      return renderBashResult(output as BashRunResult);
+    }
     return JSON.stringify({ ok: true, untrustedToolData: true, output });
   }
 

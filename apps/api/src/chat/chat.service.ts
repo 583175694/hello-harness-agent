@@ -314,7 +314,7 @@ export class ChatService {
         const isFileReadLines = event.toolName === AGENT_TOOL_NAMES.readFileLines;
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
-        const isExecuteCommand = event.toolName === AGENT_TOOL_NAMES.executeCommand;
+        const isSandboxCommand = this.isSandboxCommandTool(event.toolName);
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput =
           isFetch ||
@@ -324,7 +324,7 @@ export class ChatService {
           isFileReadLines ||
           isCreateFile ||
           isCreateReport ||
-          isExecuteCommand
+          isSandboxCommand
             ? undefined
             : this.asSearchInput(event.input);
         let toolSummary = searchInput?.query ?? '';
@@ -348,9 +348,13 @@ export class ChatService {
         } else if (isCreateReport) {
           const parsed = createReportInputSummarySchema.safeParse(event.input);
           toolSummary = parsed.success ? `生成报告：${parsed.data.title}` : '生成报告';
-        } else if (isExecuteCommand) {
+        } else if (isSandboxCommand) {
           const parsed = executeCommandInputSummarySchema.safeParse(event.input);
-          toolSummary = parsed.success ? parsed.data.command : '执行命令';
+          toolSummary = parsed.success
+            ? event.toolName === AGENT_TOOL_NAMES.bash
+              ? parsed.data.description
+              : parsed.data.command
+            : '终端命令';
         }
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
@@ -460,15 +464,22 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
-        } else if (isExecuteCommand) {
+        } else if (isSandboxCommand) {
+          const parsed = executeCommandInputSummarySchema.parse(event.input);
           yield {
             type: 'tool.started',
             messageId: prepared.assistantMessageId,
             blockId: block.id,
             toolCallId: event.toolCallId,
-            toolName: AGENT_TOOL_NAMES.executeCommand,
+            toolName:
+              event.toolName === AGENT_TOOL_NAMES.bash
+                ? AGENT_TOOL_NAMES.bash
+                : AGENT_TOOL_NAMES.executeCommand,
             title: block.title,
-            input: executeCommandInputSummarySchema.parse(event.input),
+            input: parsed,
+            ...(event.toolName === AGENT_TOOL_NAMES.bash
+              ? { presentation: 'terminal' as const, description: parsed.description }
+              : {}),
             startedAt: event.startedAt,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
@@ -499,7 +510,8 @@ export class ChatService {
         const isFileReadLines = event.toolName === AGENT_TOOL_NAMES.readFileLines;
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
-        const isExecuteCommand = event.toolName === AGENT_TOOL_NAMES.executeCommand;
+        const isSandboxCommand = this.isSandboxCommandTool(event.toolName);
+        const isBash = event.toolName === AGENT_TOOL_NAMES.bash;
         const fetchResult = isFetch ? (event.output as WebFetchResult) : undefined;
         const searchResult =
           isFetch ||
@@ -509,7 +521,7 @@ export class ChatService {
           isFileReadLines ||
           isCreateFile ||
           isCreateReport ||
-          isExecuteCommand
+          isSandboxCommand
             ? undefined
             : (event.output as SearchToolResult);
         const fileSearchResult = isFileSearch ? (event.output as FileSearchResult) : undefined;
@@ -522,18 +534,8 @@ export class ChatService {
         const createReportResult = isCreateReport
           ? createReportResultSchema.parse(event.output)
           : undefined;
-        const executeCommandResult = isExecuteCommand
-          ? executeCommandPublicResultSchema.parse(
-              typeof event.output === 'object' && event.output !== null
-                ? (() => {
-                    const { stdout: _stdout, stderr: _stderr, ...publicResult } = event.output as {
-                      stdout?: unknown;
-                      stderr?: unknown;
-                    } & Record<string, unknown>;
-                    return publicResult;
-                  })()
-                : event.output,
-            )
+        const executeCommandResult = isSandboxCommand
+          ? executeCommandPublicResultSchema.parse(this.stripSandboxStreams(event.output))
           : undefined;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
@@ -607,6 +609,7 @@ export class ChatService {
         } else if (executeCommandResult) {
           projection.recordExecuteCommandCompleted({
             toolCallId: event.toolCallId,
+            toolName: isBash ? AGENT_TOOL_NAMES.bash : AGENT_TOOL_NAMES.executeCommand,
             toolInput: executeCommandInputSummarySchema.parse(event.input),
             completedAt: event.completedAt,
             durationMs: event.durationMs,
@@ -742,15 +745,24 @@ export class ChatService {
             blockSequence: event.blockSequence,
           };
         } else if (executeCommandResult) {
+          const parsedInput = executeCommandInputSummarySchema.parse(event.input);
           yield {
             type: 'tool.completed',
             messageId: prepared.assistantMessageId,
             blockId,
             toolCallId: event.toolCallId,
-            toolName: AGENT_TOOL_NAMES.executeCommand,
+            toolName: isBash ? AGENT_TOOL_NAMES.bash : AGENT_TOOL_NAMES.executeCommand,
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: executeCommandResult,
+            ...(isBash
+              ? {
+                  presentation: 'terminal' as const,
+                  description: parsedInput.description,
+                  exitCode: executeCommandResult.exitCode,
+                  exitSignal: executeCommandResult.signal,
+                }
+              : {}),
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -978,6 +990,10 @@ export class ChatService {
         ? { toolName: AGENT_TOOL_NAMES.createFile, input: parsed.data }
         : undefined;
     }
+    if (toolName === AGENT_TOOL_NAMES.bash) {
+      const parsed = executeCommandInputSummarySchema.safeParse(input);
+      return parsed.success ? { toolName: AGENT_TOOL_NAMES.bash, input: parsed.data } : undefined;
+    }
     if (toolName === AGENT_TOOL_NAMES.executeCommand) {
       const parsed = executeCommandInputSummarySchema.safeParse(input);
       if (parsed.success) return { toolName: AGENT_TOOL_NAMES.executeCommand, input: parsed.data };
@@ -1044,6 +1060,20 @@ export class ChatService {
         modelRoundDurationMs: modelRounds.reduce((total, round) => total + round.durationMs, 0),
       },
     };
+  }
+
+  private isSandboxCommandTool(toolName: string): boolean {
+    return (
+      toolName === AGENT_TOOL_NAMES.bash || toolName === AGENT_TOOL_NAMES.executeCommand
+    );
+  }
+
+  private stripSandboxStreams(output: unknown): unknown {
+    if (typeof output !== 'object' || output === null) return output;
+    const record = { ...(output as Record<string, unknown>) };
+    delete record.stdout;
+    delete record.stderr;
+    return record;
   }
 
   private userContentText(content: string | UserContentBlock[] | undefined): string {

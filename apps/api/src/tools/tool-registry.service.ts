@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
+import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import type {
   AgentTool,
   AgentToolDefinition,
@@ -17,6 +17,10 @@ export class ToolInputValidationError extends Error {
   }
 }
 
+const LEGACY_TOOL_ALIASES: Record<string, string> = {
+  [AGENT_TOOL_NAMES.executeCommand]: AGENT_TOOL_NAMES.bash,
+};
+
 // 工具注册表只负责发现、校验和分派，不包含任何具体工具业务逻辑。
 @Injectable()
 export class ToolRegistryService {
@@ -31,6 +35,10 @@ export class ToolRegistryService {
       }
       this.toolsByName.set(tool.name, tool);
     }
+  }
+
+  resolveName(name: string): string {
+    return LEGACY_TOOL_ALIASES[name] ?? name;
   }
 
   // 返回当前可用工具的 OpenAI Function Calling 声明。
@@ -50,7 +58,7 @@ export class ToolRegistryService {
 
   approvalPolicy(name: string): 'auto_execute' | 'require_approval' | 'direct_reject' {
     // 获取指定工具的审批模式，未声明时默认自动执行。
-    return this.executionPolicy(name).approval ?? 'auto_execute';
+    return this.executionPolicy(this.resolveName(name)).approval ?? 'auto_execute';
   }
 
   // 按工具自身 schema 解析模型返回的 JSON 参数。
@@ -102,7 +110,8 @@ export class ToolRegistryService {
 
   // 查找工具并统一转换未知工具错误。
   private get(name: string): AgentTool {
-    const tool = this.toolsByName.get(name);
+    const resolved = this.resolveName(name);
+    const tool = this.toolsByName.get(resolved);
     if (!tool) throw new Error(AGENT_ERROR_CODES.unknownTool);
     return tool;
   }

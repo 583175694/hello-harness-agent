@@ -31,7 +31,8 @@ type ToolProjectionInput =
     }
   | { toolName: typeof AGENT_TOOL_NAMES.createFile; input: CreateFileInputSummary }
   | { toolName: typeof AGENT_TOOL_NAMES.createReport; input: any }
-  | { toolName: typeof AGENT_TOOL_NAMES.executeCommand; input: ExecuteCommandInputSummary };
+  | { toolName: typeof AGENT_TOOL_NAMES.executeCommand; input: ExecuteCommandInputSummary }
+  | { toolName: typeof AGENT_TOOL_NAMES.bash; input: ExecuteCommandInputSummary };
 
 const PROVENANCE_PRIORITY: Readonly<Record<SourceProvenance, number>> = {
   // 用户当前消息直接提供的 URL 拥有最高来源优先级。
@@ -171,6 +172,7 @@ export class ResearchProjectionCollector {
 
   recordExecuteCommandCompleted(input: {
     toolCallId: string;
+    toolName?: typeof AGENT_TOOL_NAMES.executeCommand | typeof AGENT_TOOL_NAMES.bash;
     toolInput: ExecuteCommandInputSummary;
     completedAt: string;
     durationMs: number;
@@ -178,7 +180,7 @@ export class ResearchProjectionCollector {
   }): void {
     this.executions.push({
       toolCallId: input.toolCallId,
-      toolName: AGENT_TOOL_NAMES.executeCommand,
+      toolName: input.toolName ?? AGENT_TOOL_NAMES.executeCommand,
       input: input.toolInput,
       status: 'completed',
       startedAt: this.startedAt(input.completedAt, input.durationMs),
@@ -378,6 +380,8 @@ export class ResearchProjectionCollector {
       return { ...base, toolName: AGENT_TOOL_NAMES.createFile, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.executeCommand)
       return { ...base, toolName: AGENT_TOOL_NAMES.executeCommand, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.bash)
+      return { ...base, toolName: AGENT_TOOL_NAMES.bash, input: input.input };
     return { ...base, toolName: AGENT_TOOL_NAMES.webSearch, input: input.input };
   }
 

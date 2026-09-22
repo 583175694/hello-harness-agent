@@ -8,6 +8,8 @@ export type ToolCopyInput = {
   fileName?: string;
   title?: string;
   command?: string;
+  description?: string;
+  policyClass?: 'network' | 'install';
 };
 
 export function toolInputSummary(toolName: string, input: ToolCopyInput): string {
@@ -21,6 +23,15 @@ export function toolInputSummary(toolName: string, input: ToolCopyInput): string
   if (toolName === 'read_file_lines') return `${input.fileId} · ${input.startLine}-${input.endLine} 行`;
   if (toolName === 'create_file') return input.fileName ?? '';
   if (toolName === 'create_report') return input.title ?? '';
+  if (toolName === 'bash') {
+    const policy =
+      input.policyClass === 'network'
+        ? ' · 网络访问'
+        : input.policyClass === 'install'
+          ? ' · 安装依赖'
+          : '';
+    return `${input.description ?? ''}${policy}${input.command ? ` · ${input.command}` : ''}`;
+  }
   if (toolName === 'execute_command') return input.command ?? '';
   if (toolName === 'web_search') return input.query ?? '';
   return '';
@@ -34,6 +45,7 @@ export function toolTitle(toolName: string, input: ToolCopyInput): string {
   if (toolName === 'read_file_lines') return `读取文件：${input.startLine}-${input.endLine} 行`;
   if (toolName === 'create_file') return `生成文件：${input.fileName}`;
   if (toolName === 'create_report') return `生成报告：${input.title}`;
+  if (toolName === 'bash') return '终端命令';
   if (toolName === 'execute_command') return '执行命令';
   if (toolName === 'web_search') return `搜索：${input.query}`;
   return `运行工具 ${toolName}`;
@@ -46,6 +58,7 @@ export function toolRunningDetail(toolName: string): string {
   if (toolName === 'search_file' || toolName === 'read_file_lines') return '正在读取用户文件';
   if (toolName === 'create_file') return '正在保存生成文件';
   if (toolName === 'create_report') return '正在保存正式报告';
+  if (toolName === 'bash') return '正在终端执行';
   if (toolName === 'execute_command') return '正在执行命令';
   if (toolName === 'web_search') return '正在搜索公开网页';
   return '正在执行工具';
@@ -58,6 +71,7 @@ export function persistedCompletedDetail(toolName: string): string {
   if (toolName === 'read_file_lines') return '文件行读取已完成';
   if (toolName === 'create_file') return '生成文件已完成';
   if (toolName === 'create_report') return '生成报告已完成';
+  if (toolName === 'bash') return '终端命令已完成';
   if (toolName === 'execute_command') return '命令执行已完成';
   if (toolName === 'web_search') return '公开网页检索已完成';
   return '工具调用已完成';
@@ -123,6 +137,7 @@ export function liveOutputSummary(input: {
   if (input.fileReadLineCount !== undefined) return `返回 ${input.fileReadLineCount} 行文件内容`;
   if (input.fileName) return `已生成 ${input.fileName}`;
   if (input.reportTitle) return `生成报告：${input.reportTitle}`;
+  if (input.toolName === 'bash') return '终端命令已完成';
   if (input.toolName === 'execute_command') return '命令执行已完成';
   if (input.toolName === 'web_search') return `返回 ${input.searchResultCount ?? 0} 条网页结果`;
   return '';

@@ -1,6 +1,7 @@
-import { Sandbox } from '@alibaba-group/opensandbox';
+import { Sandbox, type NetworkRule } from '@alibaba-group/opensandbox';
+import { sandboxEgressAllowlistV1 } from './sandbox-config';
 import { sandboxUnavailable, redactProviderError } from './sandbox-error';
-import { boundStream } from './sandbox-output';
+import { boundStreamTail } from './sandbox-output';
 import type { SandboxRuntimeConfig } from './sandbox-config';
 import type {
   CreateSandboxInput,
@@ -21,6 +22,19 @@ function secondsFromMs(ms: number): number {
   return Math.max(1, Math.ceil(ms / 1000));
 }
 
+function egressAllowRules(): NetworkRule[] {
+  return sandboxEgressAllowlistV1.map((target) => ({ action: 'allow', target }));
+}
+
+function buildShellCommand(input: SandboxCommandInput): string {
+  const envEntries = input.env ?? {};
+  const exports = Object.entries(envEntries)
+    .map(([key, value]) => `export ${key}=${JSON.stringify(value)}`)
+    .join('; ');
+  const body = exports ? `${exports}; ${input.command}` : input.command;
+  return body;
+}
+
 export class OpenSandboxSession implements SandboxSession {
   constructor(
     readonly id: string,
@@ -32,36 +46,52 @@ export class OpenSandboxSession implements SandboxSession {
     if (input.signal?.aborted) {
       return this.interrupted(input, started, true);
     }
+    const run = async (): Promise<SandboxCommandResult> => {
+      try {
+        const raw = await this.handle.commands.run(
+          `bash -c ${JSON.stringify(buildShellCommand(input))}`,
+          {
+            workingDirectory: input.cwd,
+            timeoutSeconds: secondsFromMs(input.timeoutMs),
+          },
+          undefined,
+          input.signal,
+        );
+        if (input.signal?.aborted) return this.interrupted(input, started, true);
+        const durationMs = Date.now() - started;
+        const rawStdout = joinLogs(raw.logs.stdout);
+        const rawStderr = joinLogs(raw.logs.stderr);
+        const stdout = boundStreamTail(rawStdout);
+        const stderr = boundStreamTail(rawStderr);
+        const exitCode = raw.exitCode ?? null;
+        const timedOut =
+          durationMs >= input.timeoutMs && exitCode !== 0 && !input.signal?.aborted;
+        return {
+          exitCode,
+          signal: null,
+          timedOut,
+          aborted: false,
+          timeoutMs: input.timeoutMs,
+          stdout: stdout.text,
+          stderr: stderr.text,
+          durationMs,
+          truncatedStdout: stdout.truncated,
+          truncatedStderr: stderr.truncated,
+          ...(stdout.truncated ? { fullStdout: stdout.full } : {}),
+          ...(stderr.truncated ? { fullStderr: stderr.full } : {}),
+        };
+      } catch (error) {
+        if (input.signal?.aborted) return this.interrupted(input, started, true);
+        throw sandboxUnavailable(redactProviderError(error));
+      }
+    };
+    if (!input.egressBoost) return run();
+    const rules = egressAllowRules();
     try {
-      const raw = await this.handle.commands.run(
-        `bash -c ${JSON.stringify(input.command)}`,
-        {
-          workingDirectory: input.cwd,
-          timeoutSeconds: secondsFromMs(input.timeoutMs),
-        },
-        undefined,
-        input.signal,
-      );
-      if (input.signal?.aborted) return this.interrupted(input, started, true);
-      const durationMs = Date.now() - started;
-      const stdout = boundStream(joinLogs(raw.logs.stdout));
-      const stderr = boundStream(joinLogs(raw.logs.stderr));
-      const exitCode = raw.exitCode ?? null;
-      const timedOut =
-        durationMs >= input.timeoutMs && exitCode !== 0 && !input.signal?.aborted;
-      return {
-        exitCode,
-        signal: null,
-        timedOut,
-        aborted: false,
-        timeoutMs: input.timeoutMs,
-        stdout: stdout.text,
-        stderr: stderr.text,
-        durationMs,
-      };
-    } catch (error) {
-      if (input.signal?.aborted) return this.interrupted(input, started, true);
-      throw sandboxUnavailable(redactProviderError(error));
+      await this.handle.patchEgressRules(rules);
+      return await run();
+    } finally {
+      await this.handle.deleteEgressRules([...sandboxEgressAllowlistV1]).catch(() => undefined);
     }
   }
 

@@ -44,7 +44,7 @@ function toolActivityCompletedSummary(
   if (event.toolName === 'read_file_lines') return `读取 ${event.result.lines.length} 行文件内容`;
   if (event.toolName === 'create_file') return `已生成 ${event.result.file.fileName}`;
   if (event.toolName === 'create_report') return `生成报告：${event.result.report.title}`;
-  if (event.toolName === 'execute_command') {
+  if (event.toolName === 'bash' || event.toolName === 'execute_command') {
     const collected = event.result.collection?.status === 'collected' ? '，已收集输出文件' : '';
     return `命令完成，退出码 ${event.result.exitCode ?? '无'}${collected}`;
   }
@@ -176,16 +176,27 @@ export function applyToolActivityEvent(
     (block) => block.type === 'tool_activity' && block.toolCallId === event.toolCallId,
   );
   if (event.type === 'tool.started') {
+    const terminalStarted =
+      event.toolName === 'bash' && 'presentation' in event && event.presentation === 'terminal';
     if (index >= 0)
       return orderAssistantBlocks(
         blocks.map((block, blockIndex) =>
-          blockIndex === index
+          blockIndex === index && block.type === 'tool_activity'
             ? {
                 ...block,
                 ...(event.roundId ? { roundId: event.roundId } : {}),
                 ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
                 ...(event.blockSequence !== undefined
                   ? { blockSequence: event.blockSequence }
+                  : {}),
+                ...(terminalStarted
+                  ? {
+                      presentation: 'terminal' as const,
+                      description:
+                        'description' in event && typeof event.description === 'string'
+                          ? event.description
+                          : block.description,
+                    }
                   : {}),
               }
             : block,
@@ -203,12 +214,21 @@ export function applyToolActivityEvent(
       title: event.title,
       summary: toolActivityStartSummary(event),
       startedAt: event.startedAt,
+      ...(terminalStarted
+        ? {
+            presentation: 'terminal' as const,
+            description:
+              'description' in event && typeof event.description === 'string'
+                ? event.description
+                : undefined,
+          }
+        : {}),
     });
   }
   if (index < 0) return blocks;
   if (
     event.type === 'tool.completed' &&
-    event.toolName === 'execute_command' &&
+    (event.toolName === 'bash' || event.toolName === 'execute_command') &&
     event.result.collection?.status === 'collected'
   ) {
     const updated = blocks.map((block, blockIndex) =>
@@ -268,12 +288,28 @@ export function applyToolActivityEvent(
   return blocks.map((block, blockIndex) => {
     if (blockIndex !== index || block.type !== 'tool_activity') return block;
     if (event.type === 'tool.completed') {
+      const terminalCompleted =
+        event.toolName === 'bash' && 'presentation' in event && event.presentation === 'terminal';
       return {
         ...block,
         status: 'completed',
         summary: toolActivityCompletedSummary(event, block.summary ?? ''),
         completedAt: event.completedAt,
         durationMs: event.durationMs,
+        ...(terminalCompleted
+          ? {
+              presentation: 'terminal' as const,
+              description:
+                'description' in event && typeof event.description === 'string'
+                  ? event.description
+                  : block.description,
+              exitCode: 'exitCode' in event ? (event.exitCode ?? null) : block.exitCode,
+              exitSignal:
+                'exitSignal' in event && typeof event.exitSignal === 'string'
+                  ? event.exitSignal
+                  : block.exitSignal,
+            }
+          : {}),
       };
     }
     return event.type === 'tool.cancelled'

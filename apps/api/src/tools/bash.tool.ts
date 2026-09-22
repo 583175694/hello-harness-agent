@@ -1,12 +1,15 @@
 import { HttpException, Injectable } from '@nestjs/common';
+import type { ZodType } from 'zod';
 import {
   AGENT_ERROR_CODES,
   AGENT_TOOL_NAMES,
-  executeCommandInputSchema,
-  executeCommandOutputSchema,
-  type ExecuteCommandInput,
-  type ExecuteCommandOutput,
+  bashInputSchema,
+  bashRunResultSchema,
+  spillReferenceLine,
+  type BashInput,
+  type BashRunResult,
 } from '@harness/agent-protocol';
+import { ArtifactsService } from '../artifacts/artifacts.service';
 import { sandboxLimits } from '../sandbox/sandbox-config';
 import { SandboxError } from '../sandbox/sandbox-error';
 import { SandboxManagerService } from '../sandbox/sandbox-manager.service';
@@ -15,21 +18,24 @@ import { SandboxWorkspaceService } from '../sandbox/sandbox-workspace.service';
 import type { AgentTool, ToolExecutionContext, ToolExecutionResult } from './agent-tool.types';
 
 const TOOL_DESCRIPTION =
-  '在隔离的云端工作区用 bash -c 执行一条命令。每次调用是新的 shell，cwd/变量/函数不保留；同一 Run 的文件和已装依赖会保留。路径必须相对工作区。需要输入文件时用 inputFiles，需要带回一个文件时用 output。非零退出是命令结果。不要假设外网可用。';
+  '在隔离云端工作区执行一条 bash 命令（每次调用是新的 shell；文件与已装依赖会保留）。' +
+  '必须提供 description。路径相对工作区；Host 文件用 inputFiles Stage、output Collect。' +
+  '非零退出是命令结果。外网默认不可用；需要 curl/pip install 等时按提示申请 network/install 权限。';
 
 @Injectable()
-export class ExecuteCommandTool implements AgentTool<ExecuteCommandInput, ExecuteCommandOutput> {
-  readonly name = AGENT_TOOL_NAMES.executeCommand;
-  readonly inputSchema = executeCommandInputSchema;
+export class BashTool implements AgentTool<BashInput, BashRunResult> {
+  readonly name = AGENT_TOOL_NAMES.bash;
+  readonly inputSchema = bashInputSchema as ZodType<BashInput>;
   readonly inputErrorCode = AGENT_ERROR_CODES.invalidToolArguments;
   readonly executionPolicy = {
     timeoutMs: sandboxLimits.toolOuterTimeoutMs,
-    approval: 'require_approval',
+    approval: 'auto_execute',
   } as const;
 
   constructor(
     private readonly manager: SandboxManagerService,
     private readonly workspace: SandboxWorkspaceService,
+    private readonly artifacts: ArtifactsService,
   ) {}
 
   definition() {
@@ -41,8 +47,9 @@ export class ExecuteCommandTool implements AgentTool<ExecuteCommandInput, Execut
         additionalProperties: false,
         properties: {
           command: { type: 'string', minLength: 1 },
-          cwd: { type: 'string' },
-          timeoutMs: { type: 'number', minimum: 1000, maximum: 120000 },
+          description: { type: 'string', minLength: 1 },
+          workdir: { type: 'string' },
+          timeoutMs: { type: 'number', minimum: 1000, maximum: 600000 },
           inputFiles: {
             type: 'array',
             maxItems: 10,
@@ -65,8 +72,15 @@ export class ExecuteCommandTool implements AgentTool<ExecuteCommandInput, Execut
             },
             required: ['path'],
           },
+          sandbox_permissions: {
+            type: 'array',
+            items: { type: 'string', enum: ['network', 'install'] },
+            minItems: 1,
+            maxItems: 2,
+          },
+          justification: { type: 'string', minLength: 1 },
         },
-        required: ['command'],
+        required: ['command', 'description'],
       },
     };
   }
@@ -76,9 +90,9 @@ export class ExecuteCommandTool implements AgentTool<ExecuteCommandInput, Execut
   }
 
   async execute(
-    input: ExecuteCommandInput,
+    input: BashInput,
     context: ToolExecutionContext,
-  ): Promise<ToolExecutionResult<ExecuteCommandOutput>> {
+  ): Promise<ToolExecutionResult<BashRunResult>> {
     if (!context.runId) {
       return this.failed(AGENT_ERROR_CODES.sandboxUnavailable, '命令执行缺少运行上下文。', false);
     }
@@ -93,10 +107,13 @@ export class ExecuteCommandTool implements AgentTool<ExecuteCommandInput, Execut
           cwd: spec.cwd,
           timeoutMs: spec.timeoutMs,
           signal: context.signal,
+          env: { ...spec.env, HARNESS_SESSION_ID: context.sessionId },
+          egressBoost: context.bashEgressBoost,
         });
       });
 
-      let collection: ExecuteCommandOutput['collection'];
+      const spilled = await this.applySpill(commandResult, context);
+      let collection: BashRunResult['collection'];
       const finished = !commandResult.timedOut && !commandResult.aborted;
       if (finished && input.output) {
         try {
@@ -115,9 +132,7 @@ export class ExecuteCommandTool implements AgentTool<ExecuteCommandInput, Execut
           collection = {
             status: 'failed',
             error: {
-              code: mapped.code === AGENT_ERROR_CODES.sandboxCollectFailed
-                ? mapped.code
-                : AGENT_ERROR_CODES.sandboxCollectFailed,
+              code: AGENT_ERROR_CODES.sandboxCollectFailed,
               detail: mapped.detail,
               retryable: mapped.retryable,
             },
@@ -125,12 +140,20 @@ export class ExecuteCommandTool implements AgentTool<ExecuteCommandInput, Execut
         }
       }
 
-      const output = executeCommandOutputSchema.parse({
-        ...commandResult,
+      const output = bashRunResultSchema.parse({
+        exitCode: commandResult.exitCode,
+        signal: commandResult.signal,
+        timedOut: commandResult.timedOut,
+        aborted: commandResult.aborted,
+        timeoutMs: commandResult.timeoutMs,
+        stdout: spilled.stdout,
+        stderr: spilled.stderr,
+        durationMs: commandResult.durationMs,
         truncated: {
-          stdout: commandResult.stdout.includes('[truncated]'),
-          stderr: commandResult.stderr.includes('[truncated]'),
+          stdout: spilled.truncated.stdout,
+          stderr: spilled.truncated.stderr,
         },
+        ...(spilled.spill ? { spill: spilled.spill } : {}),
         ...(collection ? { collection } : {}),
       });
 
@@ -182,15 +205,79 @@ export class ExecuteCommandTool implements AgentTool<ExecuteCommandInput, Execut
     }
   }
 
-  resolve(input: ExecuteCommandInput): { command: string; cwd: string; timeoutMs: number } {
+  resolve(input: BashInput): {
+    command: string;
+    cwd: string;
+    timeoutMs: number;
+    env: Record<string, string>;
+  } {
     const timeoutMs = Math.min(
       sandboxLimits.commandMaxMs,
       Math.max(sandboxLimits.commandMinMs, input.timeoutMs ?? sandboxLimits.commandDefaultMs),
     );
     return {
       command: input.command,
-      cwd: resolveWorkspacePath(input.cwd ?? '.'),
+      cwd: resolveWorkspacePath(input.workdir ?? '.'),
       timeoutMs,
+      env: {
+        NO_COLOR: '1',
+        TERM: 'dumb',
+        PAGER: 'cat',
+        GIT_PAGER: 'cat',
+        HARNESS_SHELL: '1',
+      },
+    };
+  }
+
+  private async applySpill(
+    commandResult: {
+      stdout: string;
+      stderr: string;
+      truncatedStdout?: boolean;
+      truncatedStderr?: boolean;
+      fullStdout?: string;
+      fullStderr?: string;
+    },
+    context: ToolExecutionContext,
+  ): Promise<{
+    stdout: string;
+    stderr: string;
+    truncated: { stdout: boolean; stderr: boolean };
+    spill?: BashRunResult['spill'];
+  }> {
+    let stdout = commandResult.stdout;
+    let stderr = commandResult.stderr;
+    const spill: NonNullable<BashRunResult['spill']> = {};
+    if (commandResult.truncatedStdout && commandResult.fullStdout && context.runId) {
+      const imported = await this.artifacts.importFromSandbox({
+        sessionId: context.sessionId,
+        runId: context.runId,
+        toolCallId: `${context.toolCallId}:stdout-spill`,
+        fileName: 'bash-stdout.txt',
+        data: Buffer.from(commandResult.fullStdout, 'utf8'),
+      });
+      spill.stdout = { artifactId: imported.artifact.artifactId };
+      stdout = `${spillReferenceLine(imported.artifact.artifactId)}\n${stdout.replace(/^\[output truncated\]\n?/u, '')}`;
+    }
+    if (commandResult.truncatedStderr && commandResult.fullStderr && context.runId) {
+      const imported = await this.artifacts.importFromSandbox({
+        sessionId: context.sessionId,
+        runId: context.runId,
+        toolCallId: `${context.toolCallId}:stderr-spill`,
+        fileName: 'bash-stderr.txt',
+        data: Buffer.from(commandResult.fullStderr, 'utf8'),
+      });
+      spill.stderr = { artifactId: imported.artifact.artifactId };
+      stderr = `${spillReferenceLine(imported.artifact.artifactId)}\n${stderr.replace(/^\[output truncated\]\n?/u, '')}`;
+    }
+    return {
+      stdout,
+      stderr,
+      truncated: {
+        stdout: Boolean(commandResult.truncatedStdout),
+        stderr: Boolean(commandResult.truncatedStderr),
+      },
+      ...(Object.keys(spill).length ? { spill } : {}),
     };
   }
 
@@ -239,11 +326,11 @@ export class ExecuteCommandTool implements AgentTool<ExecuteCommandInput, Execut
     code: string,
     detail: string,
     retryable: boolean,
-  ): ToolExecutionResult<ExecuteCommandOutput> {
+  ): ToolExecutionResult<BashRunResult> {
     return { status: 'failed', error: { code, detail, retryable } };
   }
 
-  private logFields(output: ExecuteCommandOutput) {
+  private logFields(output: BashRunResult) {
     return {
       exitCode: output.exitCode ?? -1,
       timedOut: output.timedOut,

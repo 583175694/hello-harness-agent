@@ -13,6 +13,8 @@ import {
   createReportInputSummarySchema,
 } from './files/contracts.js';
 import {
+  bashInputSummarySchema,
+  bashPublicResultSchema,
   executeCommandInputSummarySchema,
   executeCommandPublicResultSchema,
 } from './sandbox/contracts.js';
@@ -24,6 +26,7 @@ export * from './sessions/contracts.js';
 export * from './web-fetch/contracts.js';
 export * from './files/contracts.js';
 export * from './sandbox/contracts.js';
+export * from './sandbox/bash-render.js';
 import {
   webFetchInputSchema,
   webFetchPassageSchema,
@@ -275,6 +278,10 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
     toolName: z.literal('execute_command'),
     input: executeCommandInputSummarySchema,
   }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal('bash'),
+    input: bashInputSummarySchema,
+  }),
 ]);
 
 // 标识来源 URL 在当前 assistant run 中如何进入模型规划范围。
@@ -362,6 +369,10 @@ export const assistantToolActivityBlockSchema = z.object({
   startedAt: z.string().datetime(),
   completedAt: z.string().datetime().optional(),
   durationMs: z.number().int().nonnegative().optional(),
+  presentation: z.literal('terminal').optional(),
+  description: z.string().min(1).optional(),
+  exitCode: z.number().int().nullable().optional(),
+  exitSignal: z.string().min(1).nullable().optional(),
 });
 
 // 安全边界消费的 Steer，作为 assistant 流中的用户时间线节点保存。
@@ -534,6 +545,21 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     input: executeCommandInputSummarySchema,
     startedAt: z.string().datetime(),
   }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('bash'),
+    title: z.string().min(1),
+    input: bashInputSummarySchema,
+    presentation: z.literal('terminal').optional(),
+    description: z.string().min(1).optional(),
+    startedAt: z.string().datetime(),
+  }),
 ]);
 
 const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
@@ -657,7 +683,24 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     toolName: z.literal('execute_command'),
     completedAt: z.string().datetime(),
     durationMs: z.number().int().nonnegative(),
-    result: executeCommandPublicResultSchema,
+    result: bashPublicToolResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('bash'),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: bashPublicResultSchema,
+    presentation: z.literal('terminal').optional(),
+    description: z.string().min(1).optional(),
+    exitCode: z.number().int().nullable().optional(),
+    exitSignal: z.string().min(1).nullable().optional(),
   }),
 ]);
 

@@ -19,4 +19,6 @@ export const CHAT_SYSTEM_PROMPT =
   '任务规划：简单、单步或无需工具的任务直接回答。复杂、多步骤、需要多次工具调用或耗时较长的任务，即使用户未明确要求，也可使用 update_plan。' +
   '用户明确要求做计划时，如果任务需要执行或调查，请用 update_plan 记录简洁计划，并在创建后继续执行，不要只输出计划。' +
   '计划保持简洁，最多一个步骤为 in_progress；根据实际进展更新，完成后将步骤标记为 completed 并直接回答。' +
-  `单轮最多允许 ${AGENT_PROTOCOL_LIMITS.agentToolMaxCalls} 次工具调用。联网失败时明确说明证据限制，不要编造来源。`;
+  `单轮最多允许 ${AGENT_PROTOCOL_LIMITS.agentToolMaxCalls} 次工具调用。联网失败时明确说明证据限制，不要编造来源。` +
+  `启用 Sandbox 时使用 ${AGENT_TOOL_NAMES.bash} 执行命令；检查 bash 工具结果中的 [exit code: N] 判断命令是否成功，非零不一定是工具失败。` +
+  '需要 curl、wget、git clone 或 pip/npm install 时，若遭策略拦截，在同一轮使用 sandbox_permissions（network 或 install）与 justification 升权重试。';

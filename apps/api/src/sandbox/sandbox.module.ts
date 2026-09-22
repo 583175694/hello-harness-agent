@@ -4,6 +4,7 @@ import { FilesModule } from '../files/files.module';
 import { FakeSandboxProvider } from './fake-sandbox.provider';
 import { OpenSandboxProvider } from './opensandbox.provider';
 import { isSandboxConfigured, readSandboxRuntimeConfig } from './sandbox-config';
+import { BashCommandPolicyService } from './bash-command-policy.service';
 import { SandboxManagerService } from './sandbox-manager.service';
 import { SandboxWorkspaceService } from './sandbox-workspace.service';
 import { SANDBOX_PROVIDER } from './sandbox.types';
@@ -19,9 +20,10 @@ import { SANDBOX_PROVIDER } from './sandbox.types';
         return new FakeSandboxProvider();
       },
     },
+    BashCommandPolicyService,
     SandboxManagerService,
     SandboxWorkspaceService,
   ],
-  exports: [SandboxManagerService, SandboxWorkspaceService],
+  exports: [BashCommandPolicyService, SandboxManagerService, SandboxWorkspaceService],
 })
 export class SandboxModule {}

@@ -32,11 +32,18 @@ import {
 
 describe('execute_command protocol', () => {
   it('rejects escaping paths and keeps public results free of stdout', () => {
-    expect(executeCommandInputSchema.parse({ command: 'echo hi' }).command).toBe('echo hi');
-    expect(() => executeCommandInputSchema.parse({ command: 'x', cwd: '/etc' })).toThrow();
-    expect(() => executeCommandInputSchema.parse({ command: 'x', cwd: '../out' })).toThrow();
+    expect(
+      executeCommandInputSchema.parse({ command: 'echo hi', description: 'echo' }).command,
+    ).toBe('echo hi');
+    expect(() =>
+      executeCommandInputSchema.parse({ command: 'x', description: 'x', workdir: '/etc' }),
+    ).toThrow();
+    expect(() =>
+      executeCommandInputSchema.parse({ command: 'x', description: 'x', workdir: '../out' }),
+    ).toThrow();
     const summary = toExecuteCommandInputSummary({
       command: 'a'.repeat(250),
+      description: 'echo many chars',
     });
     expect([...summary.command].length).toBe(201);
     expect(

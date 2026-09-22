@@ -3,6 +3,7 @@ import { artifactRefSchema, fileRefSchema } from '../files/contracts.js';
 
 export const EXECUTE_COMMAND_PUBLIC_COMMAND_MAX = 200;
 export const EXECUTE_COMMAND_COMMAND_MAX = 8_000;
+export const BASH_DESCRIPTION_MAX = 2_000;
 
 export function unicodeLength(value: string): number {
   return [...value].length;
@@ -33,41 +34,78 @@ const workspaceRelativePathSchema = z
     message: 'path must be workspace-relative',
   });
 
-export const executeCommandInputSchema = z
-  .object({
-    command: z
-      .string()
-      .min(1)
-      .refine((value) => unicodeLength(value) <= EXECUTE_COMMAND_COMMAND_MAX, {
-        message: `command exceeds ${EXECUTE_COMMAND_COMMAND_MAX} code points`,
-      }),
-    cwd: workspaceRelativePathSchema.optional(),
-    timeoutMs: z.number().int().min(1_000).max(120_000).optional(),
-    inputFiles: z
-      .array(
-        z
-          .object({
-            fileId: z.string().min(1),
-            path: workspaceRelativePathSchema,
-          })
-          .strict(),
-      )
-      .max(10)
-      .optional(),
-    output: z
-      .object({
-        path: workspaceRelativePathSchema,
-        fileName: z.string().trim().min(1).max(255).optional(),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict();
+export const bashSandboxPermissionSchema = z.enum(['network', 'install']);
 
-export const executeCommandInputSummarySchema = z
+const bashInputFilesSchema = z
+  .array(
+    z
+      .object({
+        fileId: z.string().min(1),
+        path: workspaceRelativePathSchema,
+      })
+      .strict(),
+  )
+  .max(10)
+  .optional();
+
+const bashOutputSchema = z
+  .object({
+    path: workspaceRelativePathSchema,
+    fileName: z.string().trim().min(1).max(255).optional(),
+  })
+  .strict()
+  .optional();
+
+const bashCoreFields = {
+  command: z
+    .string()
+    .min(1)
+    .refine((value) => unicodeLength(value) <= EXECUTE_COMMAND_COMMAND_MAX, {
+      message: `command exceeds ${EXECUTE_COMMAND_COMMAND_MAX} code points`,
+    }),
+  description: z
+    .string()
+    .trim()
+    .min(1)
+    .refine((value) => unicodeLength(value) <= BASH_DESCRIPTION_MAX, {
+      message: `description exceeds ${BASH_DESCRIPTION_MAX} code points`,
+    }),
+  workdir: workspaceRelativePathSchema.optional(),
+  timeoutMs: z.number().int().min(1_000).max(600_000).optional(),
+  inputFiles: bashInputFilesSchema,
+  output: bashOutputSchema,
+  sandbox_permissions: z.array(bashSandboxPermissionSchema).min(1).max(2).optional(),
+  justification: z.string().trim().min(1).max(2_000).optional(),
+};
+
+function normalizeLegacyCwd(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  if (record.workdir !== undefined || record.cwd === undefined) return value;
+  const { cwd, ...rest } = record;
+  return { ...rest, workdir: cwd };
+}
+
+export const bashInputSchema = z
+  .preprocess(normalizeLegacyCwd, z.object(bashCoreFields).strict())
+  .superRefine((value, context) => {
+    if (value.sandbox_permissions?.length && !value.justification) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'sandbox_permissions 需要 justification',
+        path: ['justification'],
+      });
+    }
+  });
+
+/** @deprecated C3-A 名称；新 Run 使用 bash */
+export const executeCommandInputSchema = bashInputSchema;
+
+export const bashInputSummarySchema = z
   .object({
     command: z.string().min(1),
-    cwd: z.string().min(1).optional(),
+    description: z.string().min(1),
+    workdir: z.string().min(1).optional(),
     timeoutMs: z.number().int().positive().optional(),
     inputFiles: z
       .array(z.object({ fileId: z.string().min(1), path: z.string().min(1) }).strict())
@@ -80,8 +118,11 @@ export const executeCommandInputSummarySchema = z
       })
       .strict()
       .optional(),
+    policyClass: bashSandboxPermissionSchema.optional(),
   })
   .strict();
+
+export const executeCommandInputSummarySchema = bashInputSummarySchema;
 
 const collectionErrorSchema = z
   .object({
@@ -91,7 +132,7 @@ const collectionErrorSchema = z
   })
   .strict();
 
-export const executeCommandCollectionSchema = z.discriminatedUnion('status', [
+export const bashCollectionSchema = z.discriminatedUnion('status', [
   z
     .object({
       status: z.literal('collected'),
@@ -107,7 +148,17 @@ export const executeCommandCollectionSchema = z.discriminatedUnion('status', [
     .strict(),
 ]);
 
-export const executeCommandOutputSchema = z
+export const executeCommandCollectionSchema = bashCollectionSchema;
+
+const bashSpillSchema = z
+  .object({
+    stdout: z.object({ artifactId: z.string().min(1) }).strict().optional(),
+    stderr: z.object({ artifactId: z.string().min(1) }).strict().optional(),
+  })
+  .strict()
+  .optional();
+
+export const bashRunResultSchema = z
   .object({
     exitCode: z.number().int().nullable(),
     signal: z.string().min(1).nullable(),
@@ -123,28 +174,63 @@ export const executeCommandOutputSchema = z
         stderr: z.boolean(),
       })
       .strict(),
-    collection: executeCommandCollectionSchema.optional(),
+    spill: bashSpillSchema,
+    collection: bashCollectionSchema.optional(),
   })
   .strict();
 
-export const executeCommandPublicResultSchema = executeCommandOutputSchema.omit({
+export const executeCommandOutputSchema = bashRunResultSchema;
+export const bashPublicResultSchema = bashRunResultSchema.omit({
   stdout: true,
   stderr: true,
 });
+export const executeCommandPublicResultSchema = bashPublicResultSchema;
 
-export type ExecuteCommandInput = z.infer<typeof executeCommandInputSchema>;
-export type ExecuteCommandInputSummary = z.infer<typeof executeCommandInputSummarySchema>;
-export type ExecuteCommandOutput = z.infer<typeof executeCommandOutputSchema>;
-export type ExecuteCommandPublicResult = z.infer<typeof executeCommandPublicResultSchema>;
+export type BashInput = z.infer<typeof bashInputSchema>;
+export type BashInputSummary = z.infer<typeof bashInputSummarySchema>;
+export type BashRunResult = z.infer<typeof bashRunResultSchema>;
+export type BashPublicResult = z.infer<typeof bashPublicResultSchema>;
+export type ExecuteCommandInput = BashInput;
+export type ExecuteCommandInputSummary = BashInputSummary;
+export type ExecuteCommandOutput = BashRunResult;
+export type ExecuteCommandPublicResult = BashPublicResult;
 
-export function toExecuteCommandInputSummary(
-  input: ExecuteCommandInput,
-): ExecuteCommandInputSummary {
+export function toBashInputSummary(input: BashInput, policyClass?: BashInputSummary['policyClass']): BashInputSummary {
   return {
     command: summarizeCommand(input.command),
-    ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
+    description: summarizeCommand(input.description, 120),
+    ...(input.workdir !== undefined ? { workdir: input.workdir } : {}),
+    ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+    ...(input.inputFiles !== undefined ? { inputFiles: input.inputFiles } : {}),
+    ...(input.output !== undefined ? { output: input.output } : {}),
+    ...(policyClass ? { policyClass } : {}),
+  };
+}
+
+export const toExecuteCommandInputSummary = toBashInputSummary;
+
+export function hashBashApprovalBase(input: BashInput): string {
+  const payload = {
+    command: input.command,
+    workdir: input.workdir ?? '.',
     ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
     ...(input.inputFiles !== undefined ? { inputFiles: input.inputFiles } : {}),
     ...(input.output !== undefined ? { output: input.output } : {}),
   };
+  const ordered = JSON.stringify(payload, (_key, value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)));
+  });
+  return ordered;
 }
+
+export const bashToolActivityPresentationSchema = z.enum(['terminal']);
+
+export const bashToolActivityFieldsSchema = z
+  .object({
+    presentation: bashToolActivityPresentationSchema,
+    description: z.string().min(1),
+    exitCode: z.number().int().nullable().optional(),
+    exitSignal: z.string().min(1).nullable().optional(),
+  })
+  .strict();

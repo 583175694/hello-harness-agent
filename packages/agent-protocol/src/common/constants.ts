@@ -63,6 +63,7 @@ export const AGENT_TOOL_NAMES = {
   createFile: 'create_file',
   createReport: 'create_report',
   executeCommand: 'execute_command',
+  bash: 'bash',
 } as const;
 
 // 集中维护 API 与 SSE 共用的机器可读错误码。

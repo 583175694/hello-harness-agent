@@ -1,6 +1,6 @@
 import { dirname } from 'node:path';
 import { sandboxLimits } from './sandbox-config';
-import { boundStream } from './sandbox-output';
+import { boundStreamTail } from './sandbox-output';
 import type {
   CreateSandboxInput,
   SandboxCommandInput,
@@ -119,8 +119,8 @@ export class FakeSandboxSession implements SandboxSession {
     input: SandboxCommandInput,
     partial: Partial<SandboxCommandResult> & { durationMs: number },
   ): SandboxCommandResult {
-    const stdout = boundStream(partial.stdout ?? '');
-    const stderr = boundStream(partial.stderr ?? '');
+    const stdout = boundStreamTail(partial.stdout ?? '');
+    const stderr = boundStreamTail(partial.stderr ?? '');
     return {
       exitCode: partial.exitCode ?? null,
       signal: partial.signal ?? null,
@@ -130,6 +130,10 @@ export class FakeSandboxSession implements SandboxSession {
       stdout: stdout.text,
       stderr: stderr.text,
       durationMs: partial.durationMs,
+      truncatedStdout: stdout.truncated,
+      truncatedStderr: stderr.truncated,
+      ...(stdout.truncated ? { fullStdout: stdout.full } : {}),
+      ...(stderr.truncated ? { fullStderr: stderr.full } : {}),
     };
   }
 

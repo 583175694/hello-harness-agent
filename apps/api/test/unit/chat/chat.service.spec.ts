@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../../../src/database/prisma.service';
 import { OpenAICompatibleModelAdapter } from '../../../src/model/openai-compatible-model.adapter';
 import { AgentRuntimeService } from '../../../src/agent-runtime/agent-runtime.service';
+import { BashCommandPolicyService } from '../../../src/sandbox/bash-command-policy.service';
 import { AssistantDeliveryRepository } from '../../../src/persistence/assistant-delivery.repository';
 import { SessionExecutionRegistry } from '../../../src/sessions/session-execution.registry';
 import { ChatService } from '../../../src/chat/chat.service';
@@ -58,9 +59,15 @@ function makeService(
   } as unknown as OpenAI;
   const runtimeRegistry = {
     executionPolicy: vi.fn(() => ({ timeoutMs: 30_000 })),
+    resolveName: vi.fn((name: string) => name),
     ...toolRegistry,
   } as ToolRegistryService;
-  const runtime = new AgentRuntimeService(modelAdapter, runtimeRegistry, logger);
+  const runtime = new AgentRuntimeService(
+    modelAdapter,
+    runtimeRegistry,
+    new BashCommandPolicyService(),
+    logger,
+  );
   const service = new ChatService(
     config as unknown as ConfigService,
     prisma as unknown as PrismaService,

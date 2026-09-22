@@ -267,7 +267,8 @@ describe('conversation blocks reducer', () => {
       title: '执行命令',
       input: {
         command: 'python3 summarize.py',
-        cwd: '.',
+        description: 'run summarize script',
+        workdir: '.',
         timeoutMs: 30_000,
         inputFiles: [{ fileId: 'file-1', path: 'summarize.py' }],
         output: { path: 'out.txt', fileName: 'out.txt' },

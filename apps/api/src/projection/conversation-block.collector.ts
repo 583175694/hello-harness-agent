@@ -262,6 +262,7 @@ export class ConversationBlockCollector {
     if (toolName === 'read_file_lines') return '读取文件';
     if (toolName === 'create_file') return '生成文件';
     if (toolName === 'execute_command') return '执行命令';
+    if (toolName === 'bash') return '终端';
     return `运行工具 ${toolName}`;
   }
 

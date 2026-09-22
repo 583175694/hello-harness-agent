@@ -10,6 +10,8 @@ export type SandboxCommandInput = {
   cwd: string;
   timeoutMs: number;
   signal?: AbortSignal;
+  env?: Record<string, string>;
+  egressBoost?: boolean;
 };
 
 export type SandboxCommandResult = {
@@ -21,6 +23,10 @@ export type SandboxCommandResult = {
   stdout: string;
   stderr: string;
   durationMs: number;
+  truncatedStdout?: boolean;
+  truncatedStderr?: boolean;
+  fullStdout?: string;
+  fullStderr?: string;
 };
 
 export type SandboxFileStat = {

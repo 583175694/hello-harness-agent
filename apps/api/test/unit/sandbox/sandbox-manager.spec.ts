@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { FakeSandboxProvider } from '../../../src/sandbox/fake-sandbox.provider';
 import { SandboxManagerService } from '../../../src/sandbox/sandbox-manager.service';
 import { resolveWorkspacePath } from '../../../src/sandbox/sandbox-path';
-import { boundStream } from '../../../src/sandbox/sandbox-output';
+import { boundStream, boundStreamTail } from '../../../src/sandbox/sandbox-output';
 
 describe('sandbox manager', () => {
   it('resolves workspace-relative paths and rejects escapes', () => {
@@ -13,13 +13,21 @@ describe('sandbox manager', () => {
     expect(() => resolveWorkspacePath('/tmp')).toThrow();
   });
 
-  it('keeps head and tail when truncating output', () => {
+  it('keeps head and tail when truncating output (legacy boundStream)', () => {
     const text = `${'H'.repeat(20_000)}${'T'.repeat(20_000)}`;
     const bounded = boundStream(text);
     expect(bounded.truncated).toBe(true);
     expect(bounded.text.startsWith('H')).toBe(true);
     expect(bounded.text.endsWith('T')).toBe(true);
     expect(bounded.text).toContain('[truncated]');
+  });
+
+  it('prefers tail when truncating model-visible output', () => {
+    const text = `${'H'.repeat(20_000)}${'T'.repeat(20_000)}`;
+    const bounded = boundStreamTail(text);
+    expect(bounded.truncated).toBe(true);
+    expect(bounded.text.startsWith('[output truncated]')).toBe(true);
+    expect(bounded.text.endsWith('T')).toBe(true);
   });
 
   it('reuses one session per run and serializes commands', async () => {

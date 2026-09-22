@@ -31,6 +31,10 @@ Playwright
 
 前端不导入 NestJS DTO、Prisma type 或后端 entity。
 
+### Design tokens / Tailwind 语义类
+
+Web UI 的 typography、间距与 elevation 以 [`apps/web/src/design-system/README.md`](../apps/web/src/design-system/README.md) 为准：对话正文用 `text-content`（默认 14px），布局用 `max-w-chat` / `gap-flow`；**颜色**继续沿用现有 `--theme-*` 暖灰主题，侧栏 footer 提供 12–17px 对话字号设置。
+
 ## 3. 信息架构
 
 桌面端：

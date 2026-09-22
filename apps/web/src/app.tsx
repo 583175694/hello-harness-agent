@@ -101,7 +101,13 @@ import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
 import { AGENT_UI_COPY, SERVICE_STATE_LABELS } from './features/agent/config/ui.constants';
-import { useTheme, type Theme } from './theme';
+import {
+  CONTENT_FONT_SIZE_MAX,
+  CONTENT_FONT_SIZE_MIN,
+  useContentFontSize,
+  useTheme,
+  type Theme,
+} from './theme';
 import {
   Dialog,
   DialogAction,
@@ -132,6 +138,7 @@ function getPreviewState(): PreviewState | null {
 // 根据当前地址选择生产状态或开发预览状态。
 export function App() {
   const [theme, toggleTheme] = useTheme();
+  const [contentFontSize, setContentFontSize] = useContentFontSize();
   const preview = getPreviewState();
   return (
     <>
@@ -141,9 +148,16 @@ export function App() {
           previewState={makeFixture(preview)}
           theme={theme}
           onToggleTheme={toggleTheme}
+          contentFontSize={contentFontSize}
+          onContentFontSizeChange={setContentFontSize}
         />
       ) : (
-        <PersistentAgentApp theme={theme} onToggleTheme={toggleTheme} />
+        <PersistentAgentApp
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          contentFontSize={contentFontSize}
+          onContentFontSizeChange={setContentFontSize}
+        />
       )}
       {preview ? <PreviewSwitcher active={preview} /> : null}
     </>
@@ -868,7 +882,17 @@ function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }
 }
 
 // 管理生产页面的持久化会话、独立缓存和后台流。
-function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
+function PersistentAgentApp({
+  theme,
+  onToggleTheme,
+  contentFontSize,
+  onContentFontSizeChange,
+}: {
+  theme: Theme;
+  onToggleTheme: () => void;
+  contentFontSize: number;
+  onContentFontSizeChange: (size: number) => void;
+}) {
   // 会话列表与 sessionStates 分离：前者驱动 Sidebar，后者缓存各会话独立 UI 投影。
   const [serviceState, setServiceState] = useState<ServiceState>('checking');
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -2220,6 +2244,8 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
         }}
         onRename={(sessionId, title) => modifySession(sessionId, { title })}
         onTogglePin={(sessionId, isPinned) => void modifySession(sessionId, { isPinned })}
+        contentFontSize={contentFontSize}
+        onContentFontSizeChange={onContentFontSizeChange}
       />
       {mobileNavOpen ? (
         <button
@@ -2260,7 +2286,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
           className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}
         >
           <section className="conversation-column">
-            <header className="topbar flex min-h-[66px] items-center gap-2.5 bg-surface px-[26px] text-text-primary max-[720px]:min-h-[62px] max-[720px]:px-4">
+            <header className="topbar flex min-h-14 items-center gap-2.5 bg-surface px-5 text-text-primary max-[720px]:min-h-[58px] max-[720px]:px-4">
               <button
                 className="icon-button open-mobile-nav"
                 type="button"
@@ -2271,7 +2297,7 @@ function PersistentAgentApp({ theme, onToggleTheme }: { theme: Theme; onToggleTh
                 <Menu size={18} />
               </button>
               <div className="task-title flex min-w-0 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
-                <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-base">
+                <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-content font-medium">
                   {uiState.label}
                 </span>
               </div>
@@ -2513,10 +2539,14 @@ export function AppShell({
   previewState,
   theme,
   onToggleTheme,
+  contentFontSize,
+  onContentFontSizeChange,
 }: {
   previewState?: AgentUiState;
   theme?: Theme;
   onToggleTheme?: () => void;
+  contentFontSize: number;
+  onContentFontSizeChange: (size: number) => void;
 }) {
   const activeTheme = theme ?? 'light';
   const toggleTheme = onToggleTheme ?? (() => undefined);
@@ -2601,6 +2631,8 @@ export function AppShell({
         serviceLabel={serviceLabel}
         mobileNavOpen={mobileNavOpen}
         onClose={() => setMobileNavOpen(false)}
+        contentFontSize={contentFontSize}
+        onContentFontSizeChange={onContentFontSizeChange}
       />
       {mobileNavOpen ? (
         <button
@@ -2615,7 +2647,7 @@ export function AppShell({
           className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}
         >
           <section className="conversation-column">
-            <header className="topbar flex min-h-[66px] items-center gap-2.5 bg-surface px-[26px] text-text-primary max-[720px]:min-h-[62px] max-[720px]:px-4">
+            <header className="topbar flex min-h-14 items-center gap-2.5 bg-surface px-5 text-text-primary max-[720px]:min-h-[58px] max-[720px]:px-4">
               <button
                 className="icon-button open-mobile-nav"
                 type="button"
@@ -2626,7 +2658,7 @@ export function AppShell({
                 <Menu size={18} />
               </button>
               <div className="task-title flex min-w-0 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
-                <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-base">
+                <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-content font-medium">
                   {uiState.label}
                 </span>
                 {uiState.subtitle ? (
@@ -2704,6 +2736,8 @@ function Sidebar({
   onDelete,
   onRename,
   onTogglePin,
+  contentFontSize,
+  onContentFontSizeChange,
 }: {
   serviceState: ServiceState;
   serviceLabel: string;
@@ -2717,6 +2751,8 @@ function Sidebar({
   onDelete?: (sessionId: string) => void;
   onRename?: (sessionId: string, title: string) => Promise<void>;
   onTogglePin?: (sessionId: string, isPinned: boolean) => void;
+  contentFontSize: number;
+  onContentFontSizeChange: (size: number) => void;
 }) {
   // 菜单状态同时保存目标会话和视口坐标，避免菜单受侧栏滚动裁剪。
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
@@ -2822,7 +2858,7 @@ function Sidebar({
             H
           </div>
           <div className="min-w-0">
-            <strong className="block text-base">Harness</strong>
+            <strong className="block text-brand font-semibold">Harness</strong>
             <span className="mt-0.5 block text-xs text-text-muted">Agent Workbench</span>
           </div>
           <button
@@ -2835,7 +2871,7 @@ function Sidebar({
             <X size={18} />
           </button>
         </div>
-        <div className="sidebar-heading flex items-center justify-between px-2 pb-2 pr-[22px] text-xs font-bold uppercase tracking-[0.08em] text-text-muted">
+        <div className="sidebar-heading flex items-center justify-between px-2 pb-2 pr-[22px] text-ui-xs font-medium uppercase tracking-[0.05em] text-text-muted">
           <span>会话</span>
           <button
             className="icon-button"
@@ -2854,8 +2890,8 @@ function Sidebar({
         >
           {sessions && selectedSessionId === null ? (
             <div className="session-row">
-              <button className="session-item is-active mb-0.5 flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-transparent bg-surface-hover px-2.5 py-2 pr-12 text-left text-text-primary transition-colors hover:bg-surface-hover">
-                <span className="session-item__title min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-normal">
+              <button className="session-item is-active mb-0.5 flex min-h-9 w-full items-center gap-2 rounded-control border border-transparent bg-surface-hover px-2.5 py-2 pr-12 text-left text-text-primary transition-colors hover:bg-surface-hover">
+                <span className="session-item__title min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-content font-normal">
                   {AGENT_UI_COPY.defaultSessionTitle}
                 </span>
               </button>
@@ -2868,7 +2904,7 @@ function Sidebar({
                 {group.sessions.map((session) => (
                   <div className="session-row" key={session.id}>
                     <button
-                      className={`session-item mb-0.5 flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-transparent px-2.5 py-2 pr-12 text-left text-text-primary transition-colors hover:bg-surface-hover ${selectedSessionId === session.id ? 'is-active bg-surface-hover' : ''}`}
+                      className={`session-item mb-0.5 flex min-h-9 w-full items-center gap-2 rounded-control border border-transparent px-2.5 py-2 pr-12 text-left text-text-primary transition-colors hover:bg-surface-hover ${selectedSessionId === session.id ? 'is-active bg-surface-hover' : ''}`}
                       type="button"
                       onClick={() => onSelect?.(session.id)}
                       aria-label={
@@ -2884,7 +2920,7 @@ function Sidebar({
                           <i />
                         </span>
                       ) : null}
-                      <span className="session-item__title min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-normal">
+                      <span className="session-item__title min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-content font-normal">
                         {session.title}
                       </span>
                     </button>
@@ -2908,14 +2944,14 @@ function Sidebar({
           ) : (
             <>
               <button
-                className="session-item is-active mb-0.5 flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-transparent bg-surface-hover px-2.5 py-2 pr-12 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                className="session-item is-active mb-0.5 flex min-h-9 w-full items-center gap-2 rounded-control border border-transparent bg-surface-hover px-2.5 py-2 pr-12 text-left text-text-primary transition-colors hover:bg-surface-hover"
                 type="button"
               >
-                <span className="session-item__title min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-normal">
+                <span className="session-item__title min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-content font-normal">
                   {AGENT_UI_COPY.defaultSessionTitle}
                 </span>
               </button>
-              <div className="sidebar-section mt-6 flex items-center justify-between px-2 pb-2 pr-[22px] text-xs font-bold uppercase tracking-[0.08em] text-text-muted">
+              <div className="sidebar-section mt-6 flex items-center justify-between px-2 pb-2 pr-[22px] text-ui-xs font-medium uppercase tracking-[0.05em] text-text-muted">
                 <span>最近使用</span>
               </div>
               <div className="sessions-empty">
@@ -2929,13 +2965,34 @@ function Sidebar({
             </div>
           ) : null}
         </div>
-        {serviceLabel ? (
-          <div className="sidebar-footer mt-auto flex items-center gap-2 px-2 pt-3 text-xs text-text-muted">
-            <span className={`status-dot status-dot--${serviceState}`} aria-hidden="true" />
-            <span>{serviceLabel}</span>
-            <span className="local-badge">本地</span>
-          </div>
-        ) : null}
+        <div className="sidebar-footer mt-auto flex flex-wrap items-center gap-2 px-2 pt-3 text-ui-xs text-text-muted">
+          {serviceLabel ? (
+            <>
+              <span className={`status-dot status-dot--${serviceState}`} aria-hidden="true" />
+              <span>{serviceLabel}</span>
+              <span className="local-badge">本地</span>
+            </>
+          ) : null}
+          <label className="ml-auto flex items-center gap-1.5">
+            <span className="sr-only">对话字号</span>
+            <span aria-hidden="true">字号</span>
+            <select
+              className="rounded-control border border-border bg-surface px-1.5 py-0.5 text-content text-text-primary"
+              value={contentFontSize}
+              aria-label="对话字号"
+              onChange={(event) => onContentFontSizeChange(Number(event.target.value))}
+            >
+              {Array.from(
+                { length: CONTENT_FONT_SIZE_MAX - CONTENT_FONT_SIZE_MIN + 1 },
+                (_, index) => CONTENT_FONT_SIZE_MIN + index,
+              ).map((size) => (
+                <option key={size} value={size}>
+                  {size}px
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </aside>
       {menuSessionId && menuAnchor && sessions
         ? (() => {

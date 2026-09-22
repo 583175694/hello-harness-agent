@@ -597,7 +597,7 @@ const UserMessage = memo(function UserMessage({
             )}
           </Attachments>
         ) : null}
-        <div className="user-bubble max-w-[min(820px,calc(100vw-72px))] rounded-[8px_8px_3px_8px] bg-surface-subtle text-text-primary">
+        <div className="user-bubble">
           <MessageResponse>{item.content}</MessageResponse>
         </div>
         <MessageActions className="message-actions">
@@ -994,7 +994,7 @@ export function Conversation({
           </div>
         ) : (
           <div
-            className={`message-list mx-auto w-[min(820px,calc(100%-72px))] max-[1180px]:w-[min(760px,calc(100%-48px))] max-[900px]:w-[min(720px,calc(100%-36px))] max-[720px]:w-[calc(100%-24px)] ${shouldVirtualize ? '' : 'message-list--static'}`}
+            className={`message-list mx-auto w-full max-w-chat ${shouldVirtualize ? '' : 'message-list--static'}`}
             style={shouldVirtualize ? { height: virtualizer.getTotalSize() } : undefined}
           >
             {shouldVirtualize
@@ -1043,7 +1043,7 @@ export function Conversation({
           </div>
         )}
       </ConversationContent>
-      <div className="composer-area mx-auto w-[min(820px,calc(100%-72px))] bg-surface pb-6 max-[1180px]:w-[min(760px,calc(100%-48px))] max-[900px]:w-[min(720px,calc(100%-36px))] max-[720px]:w-[calc(100%-24px)]">
+      <div className="composer-area mx-auto w-full max-w-chat bg-surface pb-6">
         {error ? (
           <div className="error-notice" role="alert">
             <CircleAlert size={17} />
@@ -1216,7 +1216,7 @@ export function Composer({
     activeInterrupt?.kind === 'clarification' || activeInterrupt?.kind === 'tool_approval';
   return (
     <PromptInput
-      className="composer rounded-[14px] border border-[var(--theme-composer-border)] bg-surface shadow-[0_8px_24px_rgb(0_0_0_/_3%)]"
+      className="composer rounded-[14px] border-0 bg-surface shadow-composer"
       onSubmit={onSubmit}
     >
       {activeInterrupt?.kind === 'clarification' ? (
@@ -1363,7 +1363,7 @@ export function Composer({
         </div>
       ) : null}
       {canUseImageAttachments ? (
-        <PromptInputHeader className="composer-attachments px-[15px] pt-3">
+        <PromptInputHeader className="composer-attachments px-4 pt-3">
           {attachments.map((item) => (
             // 附件卡片同时展示解析状态、错误原因和可用操作。
             <Attachment
@@ -1551,7 +1551,7 @@ export function Composer({
         </PromptInputBody>
       ) : null}
       {!hideComposerInput ? (
-        <PromptInputFooter className="composer-actions flex min-h-12 items-center justify-between px-[15px] py-[5px] pr-2 text-xs text-text-muted">
+        <PromptInputFooter className="composer-actions flex min-h-12 items-center justify-between px-4 py-[5px] pr-2 text-ui-xs text-text-muted">
           <PromptInputTools>
             {mode === 'clarification' ? (
               <div className="composer-hints">

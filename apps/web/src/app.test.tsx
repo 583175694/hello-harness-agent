@@ -299,6 +299,8 @@ describe('R1 workbench shell', () => {
   it('renders sources and report in the development fixture preview', () => {
     render(
       <AppShell
+        contentFontSize={14}
+        onContentFontSizeChange={() => undefined}
         previewState={{
           label: '市场调研',
           subtitle: '网页检索',

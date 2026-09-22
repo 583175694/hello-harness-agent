@@ -5,13 +5,49 @@
 @source '../node_modules/@streamdown/mermaid/dist/*.js';
 
 @theme {
-  /* Keep utility typography on the same even-pixel scale as component CSS. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+  /* Legacy scale — prefer semantic text-content* in product UI */
   --text-xs: 12px;
   --text-sm: 14px;
   --text-base: 16px;
   --text-lg: 18px;
   --text-xl: 20px;
   --text-2xl: 24px;
+
+  --text-content: var(--h-content-font-size);
+  --text-content-secondary: var(--h-content-font-size-secondary);
+  --text-brand: 18px;
+  --text-ui-xs: 12px;
+
+  --leading-content: var(--h-leading-content);
+  --leading-secondary: var(--h-leading-secondary);
+  --leading-bubble: var(--h-leading-bubble);
+
+  --spacing-flow: var(--h-chat-flow-gap);
+  --spacing-composer-x: var(--h-composer-side-clearance);
+
+  --radius-bubble: 22px;
+  --radius-panel: 12px;
+  --radius-control: 8px;
+
+  --width-chat: var(--h-chat-content-width);
+  --max-width-chat: var(--h-chat-content-width);
+
+  --shadow-panel: var(--h-elevation-panel);
+  --shadow-prominent: var(--h-elevation-prominent);
+  --shadow-composer: var(--h-elevation-soft);
+
+  --color-base: var(--h-bg-base);
+  --color-label-primary: var(--h-label-primary);
+  --color-label-secondary: var(--h-label-secondary);
+  --color-label-tertiary: var(--h-label-tertiary);
+  --color-bubble: var(--h-bubble);
+  --color-link: var(--h-link);
+  --color-border-l2: var(--h-border-l2);
+  --color-border-l3: var(--h-border-l3);
 
   --color-canvas: var(--theme-canvas);
   --color-sidebar: var(--theme-sidebar);
@@ -29,6 +65,32 @@
   --color-info: var(--theme-info);
 }
 
+@utility bubble-user {
+  width: fit-content;
+  max-width: min(82%, calc(var(--h-chat-content-width) * 0.702));
+  border-radius: var(--radius-bubble);
+  background: var(--h-bubble);
+  padding: 10px 16px;
+  font-size: var(--h-content-font-size);
+  line-height: var(--h-leading-bubble);
+  color: var(--h-label-primary);
+}
+
+@utility type-tool-row {
+  font-size: var(--h-content-font-size-secondary);
+  line-height: var(--h-leading-secondary);
+}
+
+@utility shadow-panel {
+  border: 0;
+  box-shadow: var(--h-elevation-panel);
+}
+
+@utility shadow-prominent {
+  border: 0;
+  box-shadow: var(--h-elevation-prominent);
+}
+
 :root.theme-transition,
 :root.theme-transition *,
 :root.theme-transition *::before,
@@ -40,6 +102,31 @@
 
 :root {
   color-scheme: light;
+
+  --h-content-font-size: 14px;
+  --h-content-font-delta: calc(var(--h-content-font-size) - 14px);
+  --h-content-font-size-secondary: min(
+    calc(var(--h-content-font-size) - 1px),
+    max(13px, calc(var(--h-content-font-size) - 2px))
+  );
+  --h-content-font-delta-secondary: calc(var(--h-content-font-size-secondary) - 13px);
+  --h-leading-content: calc(24px + var(--h-content-font-delta));
+  --h-leading-secondary: calc(20px + var(--h-content-font-delta-secondary));
+  --h-leading-bubble: calc(22px + var(--h-content-font-delta));
+  --h-chat-flow-gap: 16px;
+  --h-composer-side-clearance: 16px;
+  --h-chat-content-width: min(920px, max(680px, 64vw));
+
+  --h-elevation-stroke-color: rgb(0 0 0 / 16%);
+  --h-elevation-stroke: 0 0 0 0.5px var(--h-elevation-stroke-color);
+  --h-elevation-panel:
+    var(--h-elevation-stroke), 0 3px 8px 0 rgb(0 0 0 / 3%), 0 0 16px 0 rgb(0 0 0 / 2%);
+  --h-elevation-prominent:
+    var(--h-elevation-stroke), 0 3px 8px 0 rgb(0 0 0 / 4%), 0 0 20px 0 rgb(0 0 0 / 5%);
+  --h-elevation-soft:
+    var(--h-elevation-stroke), 0 4px 16px 0 rgb(0 0 0 / 3%), 0 0 24px 0 rgb(0 0 0 / 3%);
+
+  /* Original product palette — color source of truth */
   --theme-canvas: #f7f7f6;
   --theme-sidebar: #fbfaf9;
   --theme-surface: #ffffff;
@@ -63,10 +150,27 @@
   --theme-approval-text: #2f5d3a;
   --theme-rejection-bg: #f8ecea;
   --theme-rejection-text: #984b41;
+
+  --h-bg-base: var(--theme-sidebar);
+  --h-bg-canvas: var(--theme-canvas);
+  --h-bg-sidebar: var(--theme-sidebar);
+  --h-bg-surface: var(--theme-surface);
+  --h-bg-surface-subtle: var(--theme-surface-subtle);
+  --h-bg-surface-hover: var(--theme-surface-hover);
+  --h-label-primary: var(--theme-text-primary);
+  --h-label-secondary: var(--theme-text-secondary);
+  --h-label-tertiary: var(--theme-text-muted);
+  --h-border-l2: color-mix(in srgb, var(--theme-border) 90%, transparent);
+  --h-border-l3: var(--theme-border-subtle);
+  --h-bubble: var(--theme-surface-subtle);
+  --h-link: var(--theme-info);
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
+
+  --h-elevation-stroke-color: rgb(255 255 255 / 12%);
+
   --theme-canvas: #101010;
   --theme-sidebar: #141414;
   --theme-surface: #181818;
@@ -90,6 +194,20 @@
   --theme-approval-text: #a9c5ae;
   --theme-rejection-bg: #2d201f;
   --theme-rejection-text: #d8aaa3;
+
+  --h-bg-base: var(--theme-sidebar);
+  --h-bg-canvas: var(--theme-canvas);
+  --h-bg-sidebar: var(--theme-sidebar);
+  --h-bg-surface: var(--theme-surface);
+  --h-bg-surface-subtle: var(--theme-surface-subtle);
+  --h-bg-surface-hover: var(--theme-surface-hover);
+  --h-label-primary: var(--theme-text-primary);
+  --h-label-secondary: var(--theme-text-secondary);
+  --h-label-tertiary: var(--theme-text-muted);
+  --h-border-l2: var(--theme-border);
+  --h-border-l3: var(--theme-border-subtle);
+  --h-bubble: var(--theme-surface-subtle);
+  --h-link: var(--theme-info);
 }
 
 :root[data-theme='dark'] .markdown-content,

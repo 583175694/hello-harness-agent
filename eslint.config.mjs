@@ -46,6 +46,15 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      'no-restricted-syntax': [
+        'warn',
+        {
+          selector:
+            "JSXAttribute[name.name='className'] Literal[value=/\\btext-base\\b/]",
+          message:
+            'Use text-content for product UI body copy; see apps/web/src/design-system/README.md',
+        },
+      ],
     },
   },
 );

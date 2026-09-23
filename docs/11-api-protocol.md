@@ -359,6 +359,8 @@ type PublicConfig = {
 
 Host 侧 MCP Server 配置（Streamable HTTP）。`GET /api/agent/mcp/servers` 返回 `servers[]` 与 `catalogGeneration`；响应含 `status`、`toolCount`、`lastError`、`secretsConfigured`，**永不**返回凭证明文。`POST`/`PUT` 可携带 `secrets[]`（`header` | `env` | `bearer`），落库前 AES-GCM 加密，依赖部署 env `HARNESS_SECRETS_MASTER_KEY`。保存后 **同步** `reconcile`（connect + listTools）。`POST .../test` 仅探测，不写入 catalog。模型侧工具名：`mcp__<serverName>__<rawName>`。
 
+Workbench Chat SSE 对 MCP 与未注册外部工具使用合成 discriminant `external_tool`（`AGENT_TOOL_NAMES.externalTool`），真实公开名放在 `publicName`，`subKind` 为 `mcp` | `unknown`。`tool.completed.result` 为 `{ preview, charCount?, truncated? }`，不进入 `web_search` / Research sources 投影。Conversation `tool_activity` 块仍保存 Runtime 真实 `toolName`（含 `mcp__…`）。
+
 ## 16. Idempotency
 
 Create run、clarification、steer、cancel 和 session delete 都必须支持 idempotency。相同 key + 相同 payload 返回同一结果；相同 key + 不同 payload 返回 conflict。Create Run payload hash 必须覆盖 `content + reasoningEffort`，并为其他会改变模型执行语义的 run profile 预留 canonical serialization；不能只 hash正文。

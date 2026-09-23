@@ -8,7 +8,11 @@ import type {
 } from '@harness/agent-protocol';
 
 import type { ToolStreamEvent } from '../../../api/client';
-import { toolInputSummary, toolTitle } from './tool-copy';
+import {
+  resolveActivityToolName,
+  toolInputSummary,
+  toolStreamTitle,
+} from './tool-copy';
 
 type MessageDeltaEvent = Extract<ChatStreamEvent, { type: 'message.delta' }>;
 type MessagePhaseCompletedEvent = Extract<ChatStreamEvent, { type: 'message.phase.completed' }>;
@@ -29,9 +33,25 @@ function isBashBackgroundToolResult(
   return 'kind' in result && result.kind === 'background';
 }
 
+function streamPublicName(event: ToolStreamEvent): string | undefined {
+  return 'publicName' in event && typeof event.publicName === 'string'
+    ? event.publicName
+    : undefined;
+}
+
+function activityToolName(event: ToolStreamEvent): string {
+  return resolveActivityToolName(event.toolName, streamPublicName(event));
+}
+
 function toolActivityStartSummary(event: Extract<ToolStreamEvent, { type: 'tool.started' }>): string {
+  if (event.toolName === 'external_tool') {
+    return toolInputSummary(
+      activityToolName(event),
+      (event.input ?? {}) as Parameters<typeof toolInputSummary>[1],
+    );
+  }
   if (event.toolName === 'web_fetch' || event.toolName === 'create_report') {
-    return toolTitle(event.toolName, event.input);
+    return toolStreamTitle(event.toolName, event.input, { publicName: streamPublicName(event) });
   }
   if (
     event.toolName === 'bash' &&
@@ -71,6 +91,11 @@ function toolActivityCompletedSummary(
   event: Extract<ToolStreamEvent, { type: 'tool.completed' }>,
   currentSummary: string,
 ): string {
+  if (event.toolName === 'external_tool') {
+    const result = event.result;
+    const count = result.charCount ?? result.preview.length;
+    return `返回 ${count} 字符${result.truncated ? '（预览已截断）' : ''}`;
+  }
   if (event.toolName === 'web_search') return currentSummary;
   if (event.toolName === 'web_fetch') {
     const succeeded = event.result.results.filter((item) => item.status === 'succeeded');
@@ -243,9 +268,14 @@ export function applyToolActivityEvent(
       ...(event.roundSequence ? { roundSequence: event.roundSequence } : {}),
       ...(event.blockSequence !== undefined ? { blockSequence: event.blockSequence } : {}),
       toolCallId: event.toolCallId,
-      toolName: event.toolName,
+      toolName: activityToolName(event),
       status: 'running',
-      title: event.title,
+      title:
+        event.toolName === 'external_tool'
+          ? toolStreamTitle(event.toolName, (event.input ?? {}) as Parameters<
+              typeof toolStreamTitle
+            >[1], { publicName: streamPublicName(event) })
+          : event.title,
       summary: toolActivityStartSummary(event),
       startedAt: event.startedAt,
       ...bashTerminalBlockPatch(event),

@@ -47,6 +47,8 @@ export const AGENT_PROTOCOL_LIMITS = {
   planStepMaxLength: 500,
   // 计划快照序列化后的最大 UTF-8 字节数。
   planJsonMaxBytes: 16_384,
+  // 外部/MCP 工具结果写入 SSE 与 execution 快照时的预览上限。
+  externalToolOutputPreviewMax: 2_000,
 } as const;
 
 // 集中维护协议中稳定的工具标识。
@@ -69,6 +71,8 @@ export const AGENT_TOOL_NAMES = {
   jobOutput: 'job_output',
   jobList: 'job_list',
   jobKill: 'job_kill',
+  // SSE 与 execution 快照中标识 MCP/外部工具的合成 discriminant。
+  externalTool: 'external_tool',
 } as const;
 
 // 集中维护 API 与 SSE 共用的机器可读错误码。

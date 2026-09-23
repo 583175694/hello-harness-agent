@@ -183,7 +183,27 @@ describe('foundation protocol', () => {
     ).toMatchObject({ inputType: 'document', fileName: 'legacy.md' });
   });
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.17.0');
+    expect(protocolVersion).toBe('0.18.0');
+  });
+
+  it('validates external_tool chat stream events for MCP presentation', () => {
+    expect(
+      chatStreamEventSchema.parse({
+        type: 'tool.completed',
+        messageId: 'msg-1',
+        blockId: 'block-1',
+        roundId: 'round-1',
+        roundSequence: 1,
+        blockSequence: 1,
+        toolCallId: 'call-1',
+        toolName: 'external_tool',
+        publicName: 'mcp__demo__ping',
+        subKind: 'mcp',
+        completedAt: '2026-09-23T10:00:00.000Z',
+        durationMs: 12,
+        result: { preview: 'pong', charCount: 4, truncated: false },
+      }),
+    ).toMatchObject({ toolName: 'external_tool', publicName: 'mcp__demo__ping' });
   });
 
   it('validates HITL commands and rejects incomplete approval decisions', () => {

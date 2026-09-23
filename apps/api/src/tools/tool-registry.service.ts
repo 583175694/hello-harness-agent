@@ -11,6 +11,10 @@ import type {
 } from './agent-tool.types';
 import { AGENT_TOOLS } from './tool-catalog';
 import type { ToolRegistryContext } from './tool-registry.types';
+import {
+  classifyToolPresentation,
+  type ToolPresentationKind,
+} from './tool-presentation';
 
 export class ToolInputValidationError extends Error {
   constructor(
@@ -45,6 +49,10 @@ export class ToolRegistryService {
     if (isMcpPublicToolName(name)) return name;
     if (name === AGENT_TOOL_NAMES.executeCommand) return AGENT_TOOL_NAMES.bash;
     return name;
+  }
+
+  presentationKind(name: string): ToolPresentationKind {
+    return classifyToolPresentation(this.resolveName(name));
   }
 
   // 返回当前可用工具的 OpenAI Function Calling 声明。

@@ -33,6 +33,7 @@ export * from './web-fetch/contracts.js';
 export * from './files/contracts.js';
 export * from './sandbox/contracts.js';
 export * from './sandbox/bash-render.js';
+export * from './mcp/contracts.js';
 import {
   webFetchInputSchema,
   webFetchPassageSchema,
@@ -41,7 +42,7 @@ import {
 } from './web-fetch/contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.16.0';
+export const protocolVersion = '0.17.0';
 
 // 计划步骤的有限状态集合，前后端只使用这三种状态。
 export const planStepStatusSchema = z.enum(['pending', 'in_progress', 'completed']);

@@ -53,7 +53,7 @@ export function applyTheme(theme: Theme, animate = false): void {
   }
 }
 
-export function useTheme(): [Theme, () => void] {
+export function useTheme(): [Theme, () => void, (theme: Theme) => void] {
   const [theme, setTheme] = useState<Theme>(() => {
     const initial = readInitialTheme();
     applyTheme(initial);
@@ -66,7 +66,8 @@ export function useTheme(): [Theme, () => void] {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
-  return [theme, () => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))];
+  const toggleTheme = () => setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
+  return [theme, toggleTheme, setTheme] as const;
 }
 
 export function useContentFontSize(): [number, (size: number) => void] {

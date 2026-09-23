@@ -32,6 +32,7 @@ import {
 } from '../model/model-adapter';
 import type { ToolExecutionContext, ToolExecutionResult } from '../tools/agent-tool.types';
 import { ToolInputValidationError, ToolRegistryService } from '../tools/tool-registry.service';
+import type { ToolRegistryContext } from '../tools/tool-registry.types';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import type { AgentRuntimeEvent, AgentRuntimeInput } from './agent-runtime.types';
 import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
@@ -73,6 +74,7 @@ export class AgentRuntimeService {
 
   // 执行受通用调用上限约束的模型-工具循环，并输出供应商无关的 Runtime 事件。
   async *run(input: AgentRuntimeInput): AsyncGenerator<AgentRuntimeEvent> {
+    const toolRegistryContext: ToolRegistryContext = { mcpSnapshot: input.mcpSnapshot };
     const runtimeStartedAt = Date.now();
     const runDeadlineSignal = AbortSignal.timeout(DEFAULT_RUNTIME_POLICY.runTimeoutMs);
     const runSignal = input.signal
@@ -148,7 +150,10 @@ export class AgentRuntimeService {
       // 最终回答阶段主动撤掉所有工具，防止模型在收尾时再次发起调用。
       const definitions = finalResponseOnly
         ? undefined
-        : [...(this.tools.definitions() ?? []), ...builtinToolDefinitions()];
+        : [
+            ...(this.tools.definitions(toolRegistryContext) ?? []),
+            ...builtinToolDefinitions(),
+          ];
       // 每次模型尝试都重新收集文本、工具调用和结束原因，污染重试不得混入上一轮内容。
       let compiled;
       try {
@@ -169,17 +174,26 @@ export class AgentRuntimeService {
           (error.message === 'CONTEXT_BUDGET_EXCEEDED' ||
             error.message === 'FILE_CONTEXT_TOO_LARGE')
         ) {
+          const code =
+            error.message === 'FILE_CONTEXT_TOO_LARGE'
+              ? 'FILE_CONTEXT_TOO_LARGE'
+              : AGENT_ERROR_CODES.contextBudgetExceeded;
+          this.logger.warn(
+            `上下文编译失败 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 错误码=${code}`,
+            AgentRuntimeService.name,
+          );
           throw new ServiceUnavailableException({
-            code:
-              error.message === 'FILE_CONTEXT_TOO_LARGE'
-                ? 'FILE_CONTEXT_TOO_LARGE'
-                : AGENT_ERROR_CODES.contextBudgetExceeded,
+            code,
             detail:
               error.message === 'FILE_CONTEXT_TOO_LARGE'
                 ? '文件内容超过当前模型上下文预算，请移除附件或缩短问题后重试。'
                 : '当前上下文超过模型预算，无法在保留必要内容后继续执行。',
           });
         }
+        this.logger.warn(
+          `上下文编译异常 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 上游=${describeLogError(error)}`,
+          AgentRuntimeService.name,
+        );
         throw error;
       }
       if (compiled.compactionState) compactionState = compiled.compactionState;
@@ -708,7 +722,7 @@ export class AgentRuntimeService {
               AgentRuntimeService.name,
             );
             toolInput = result.snapshot;
-          } else toolInput = this.tools.parseInput(call.name, call.arguments);
+          } else toolInput = this.tools.parseInput(call.name, call.arguments, toolRegistryContext);
         } catch (error) {
           const code = this.toolValidationCode(error);
           const detail =
@@ -778,7 +792,8 @@ export class AgentRuntimeService {
               },
             ];
           }
-          if (this.approvalPolicy(item.call.name) !== 'require_approval') return [];
+          if (this.approvalPolicy(item.call.name, toolRegistryContext) !== 'require_approval')
+            return [];
           return [
             {
               itemId: `${roundId}:${item.call.id}`,
@@ -856,7 +871,7 @@ export class AgentRuntimeService {
           });
           continue;
         }
-        if (this.approvalPolicy(call.name) === 'direct_reject') {
+        if (this.approvalPolicy(call.name, toolRegistryContext) === 'direct_reject') {
           pendingToolResults.push({
             candidate: {
               toolCallId: call.id,
@@ -927,6 +942,7 @@ export class AgentRuntimeService {
               ...(bashEgressBoost ? { bashEgressBoost: true } : {}),
             },
             runSignal,
+            toolRegistryContext,
           );
         } catch (error) {
           if (input.signal?.aborted) {
@@ -1166,11 +1182,11 @@ export class AgentRuntimeService {
     return createHash('sha256').update(`${toolName}:${ordered}`).digest('hex');
   }
 
-  private approvalPolicy(toolName: string): 'auto_execute' | 'require_approval' | 'direct_reject' {
-    const registry = this.tools as ToolRegistryService & {
-      approvalPolicy?: ToolRegistryService['approvalPolicy'];
-    };
-    return registry.approvalPolicy?.(toolName) ?? 'auto_execute';
+  private approvalPolicy(
+    toolName: string,
+    ctx?: ToolRegistryContext,
+  ): 'auto_execute' | 'require_approval' | 'direct_reject' {
+    return this.tools.approvalPolicy(toolName, ctx);
   }
 
   private isFileTool(toolName: string): boolean {
@@ -1289,8 +1305,9 @@ export class AgentRuntimeService {
     input: unknown,
     context: Omit<ToolExecutionContext, 'signal'>,
     externalSignal?: AbortSignal,
+    registryContext?: ToolRegistryContext,
   ): Promise<ToolExecutionResult<unknown>> {
-    const timeoutMs = this.tools.executionPolicy(name).timeoutMs;
+    const timeoutMs = this.tools.executionPolicy(name, registryContext).timeoutMs;
     const timeoutController = new AbortController();
     const signal = externalSignal
       ? AbortSignal.any([externalSignal, timeoutController.signal])
@@ -1307,7 +1324,7 @@ export class AgentRuntimeService {
         externalSignal.addEventListener('abort', cancelListener, { once: true });
       }
     });
-    const execution = this.tools.execute(name, input, { ...context, signal });
+    const execution = this.tools.execute(name, input, { ...context, signal }, registryContext);
     try {
       return await Promise.race([execution, boundary]);
     } catch (error) {

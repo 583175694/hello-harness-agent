@@ -13,10 +13,14 @@ import { SandboxInstanceRepository } from './sandbox-instance.repository';
 import { SandboxOrphanScannerService } from './sandbox-orphan-scanner.service';
 import { SandboxJobService } from './sandbox-job.service';
 import { SandboxEgressAuditService } from './sandbox-egress-audit.service';
+import { SandboxJobWatcherService } from './sandbox-job-watcher.service';
+import { SANDBOX_JOB_SERVICE, SANDBOX_MANAGER_SERVICE } from './sandbox-job.tokens';
 
 @Module({
   imports: [FilesModule, ArtifactsModule, DatabaseModule],
   providers: [
+    { provide: SANDBOX_JOB_SERVICE, useExisting: SandboxJobService },
+    { provide: SANDBOX_MANAGER_SERVICE, useExisting: SandboxManagerService },
     {
       provide: SANDBOX_PROVIDER,
       useFactory: () => {
@@ -32,6 +36,7 @@ import { SandboxEgressAuditService } from './sandbox-egress-audit.service';
     SandboxOrphanScannerService,
     SandboxJobService,
     SandboxEgressAuditService,
+    SandboxJobWatcherService,
   ],
   exports: [
     BashCommandPolicyService,
@@ -40,6 +45,7 @@ import { SandboxEgressAuditService } from './sandbox-egress-audit.service';
     SandboxWorkspaceService,
     SandboxJobService,
     SandboxEgressAuditService,
+    SandboxJobWatcherService,
   ],
 })
 export class SandboxModule {}

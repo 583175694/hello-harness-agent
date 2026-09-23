@@ -5,11 +5,12 @@ import { WebFetchModule } from '../web-fetch/web-fetch.module';
 import { FilesModule } from '../files/files.module';
 import { ArtifactsModule } from '../artifacts/artifacts.module';
 import { SandboxModule } from '../sandbox/sandbox.module';
+import { McpModule } from '../mcp/mcp.module';
 import { AGENT_TOOL_CLASSES, AGENT_TOOLS_PROVIDER } from './tool-catalog';
 import { ToolRegistryService } from './tool-registry.service';
 
 @Module({
-  imports: [SearchModule, WebFetchModule, FilesModule, ArtifactsModule, SandboxModule],
+  imports: [SearchModule, WebFetchModule, FilesModule, ArtifactsModule, SandboxModule, McpModule],
   providers: [...AGENT_TOOL_CLASSES, AGENT_TOOLS_PROVIDER, ToolRegistryService],
   exports: [ToolRegistryService],
 })

@@ -8,7 +8,8 @@ import { SessionTitleService } from '../sessions/session-title.service';
 import { ActiveRunRegistry } from './active-run.registry';
 import { RunEventHub } from './run-event-hub';
 import { RunRepository } from './run.repository';
-import { shortLogId } from '../shared/logging.utils';
+import { toAgentFailure } from '../shared/agent-failure.utils';
+import { describeLogError, shortLogId } from '../shared/logging.utils';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import {
   RuntimeLifecycleRegistry,
@@ -16,7 +17,8 @@ import {
 } from '../agent-runtime/runtime-lifecycle';
 import type { ToolApprovalDecision } from '@harness/agent-protocol';
 import { PendingUserInputService } from './pending-user-input.service';
-import { RunCommandService } from './run-command.service';
+import { McpRunLatchService } from '../mcp/mcp-run-latch.service';
+import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 
 @Injectable()
 export class RunExecutor implements OnModuleDestroy {
@@ -35,6 +37,7 @@ export class RunExecutor implements OnModuleDestroy {
     @Inject(RuntimeLifecycleRegistry) private readonly lifecycles: RuntimeLifecycleRegistry,
     @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
     @Inject(ModuleRef) private readonly moduleRef: ModuleRef,
+    @Inject(McpRunLatchService) private readonly mcpLatch: McpRunLatchService,
   ) {}
 
   // 启动一个 Run 的后台执行，并防止同一进程重复启动。
@@ -127,6 +130,22 @@ export class RunExecutor implements OnModuleDestroy {
     const active = this.registry.get(runId);
     const stored = await this.repository.findOwned(runId);
     if (!active || !stored) return;
+    if (!active.mcpSnapshot) {
+      try {
+        active.mcpSnapshot = await this.mcpLatch.captureForUser(LOCAL_USER_ID);
+      } catch (error) {
+        const failure = this.mcpLatchFailure(error);
+        this.logger.warn(
+          `MCP 快照绑定失败 | Run=${shortLogId(runId)} | 错误码=${failure.code} | 上游=${describeLogError(error)}`,
+          RunExecutor.name,
+        );
+        const terminal = this.events.commit(runId, 'run.failed', failure);
+        if (terminal) this.events.broadcast(runId, terminal);
+        await this.repository.forceFail(runId, stored.assistantMessageId, failure);
+        this.registry.remove(runId);
+        return;
+      }
+    }
     let lastControlState: RuntimeControlSnapshot['state'] = 'running';
     let lastControlPhase: RuntimeControlSnapshot['phase'] = 'tool_loop';
     const lifecycle = this.lifecycles.create(
@@ -218,6 +237,7 @@ export class RunExecutor implements OnModuleDestroy {
         {
           sessionId: stored.sessionId,
           runId,
+          mcpSnapshot: active.mcpSnapshot,
           userMessageId: stored.inputMessageId,
           assistantMessageId: stored.assistantMessageId,
           messages,
@@ -365,6 +385,17 @@ export class RunExecutor implements OnModuleDestroy {
       const cancelled = active.abortController.signal.aborted && !this.shuttingDown;
       const status = cancelled ? 'cancelled' : 'failed';
       const failure = this.runFailure(cancelled, error);
+      if (cancelled) {
+        this.logger.log(
+          `Run 已取消 | Run=${shortLogId(runId)} | 会话=${shortLogId(stored.sessionId)}`,
+          RunExecutor.name,
+        );
+      } else {
+        this.logger.error(
+          `Run 失败 | Run=${shortLogId(runId)} | 会话=${shortLogId(stored.sessionId)} | 错误码=${failure.code} | 详情=${failure.detail} | 上游=${describeLogError(error)}`,
+          RunExecutor.name,
+        );
+      }
       await this.repository
         .finishStep(runId, modelStepId, status, undefined, failure)
         .catch(() => undefined);
@@ -448,7 +479,9 @@ export class RunExecutor implements OnModuleDestroy {
   ): Promise<void> {
     const pending = await this.pendingInputs.claimFollowUp(sessionId);
     if (!pending) return;
+    const { RunCommandService } = await import('./run-command.service');
     const commands = this.moduleRef.get(RunCommandService, { strict: false });
+    if (!commands) return;
     await commands.create(sessionId, {
       content: pending.content,
       idempotencyKey: `pending:${pending.id}`,
@@ -566,25 +599,7 @@ export class RunExecutor implements OnModuleDestroy {
 
   // 将未知异常转换为稳定的客户端错误结构。
   private describeError(error: unknown): { code: string; detail: string } {
-    if (error instanceof Error && error.message === 'MODEL_TRANSCRIPT_INCOMPATIBLE')
-      return {
-        code: 'MODEL_TRANSCRIPT_INCOMPATIBLE',
-        detail: '当前模型与该会话的推理上下文不兼容，请新建会话或恢复原模型。',
-      };
-    if (error instanceof Error && error.message === 'MODEL_TRANSCRIPT_INTEGRITY_ERROR')
-      return {
-        code: 'MODEL_TRANSCRIPT_INTEGRITY_ERROR',
-        detail: '会话模型上下文不完整，请删除该会话并新建会话。',
-      };
-    if (typeof error === 'object' && error !== null && 'response' in error) {
-      const response = (error as { response?: unknown }).response;
-      if (typeof response === 'object' && response !== null) {
-        const value = response as { code?: unknown; detail?: unknown };
-        if (typeof value.code === 'string' && typeof value.detail === 'string')
-          return { code: value.code, detail: value.detail };
-      }
-    }
-    return { code: 'MODEL_STREAM_FAILED', detail: '模型流式输出失败，请稍后重试。' };
+    return toAgentFailure(error);
   }
 
   // 在首轮回答完成后，异步生成并保存 Session 标题。
@@ -624,6 +639,12 @@ export class RunExecutor implements OnModuleDestroy {
     if (state === 'resuming') return 'run.resuming';
     if (state === 'running') return 'run.resumed';
     return undefined;
+  }
+
+  private mcpLatchFailure(error: unknown): { code: string; detail: string } {
+    const described = this.describeError(error);
+    if (described.code !== 'UNKNOWN_ERROR') return described;
+    return { code: 'MCP_LATCH_FAILED', detail: described.detail || 'MCP 快照绑定失败。' };
   }
 
   private runFailure(cancelled: boolean, error: unknown): { code: string; detail: string } {

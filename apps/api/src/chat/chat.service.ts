@@ -58,9 +58,12 @@ import { getDefaultModel } from '../model/model-catalog';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import type { RuntimeLifecycleController } from '../agent-runtime/runtime-lifecycle';
 
+import type { RunMcpSnapshot } from '../mcp/mcp.types';
+
 export type PreparedSessionStream = {
   sessionId: string;
   runId?: string;
+  mcpSnapshot?: RunMcpSnapshot;
   userMessageId: string;
   assistantMessageId: string;
   messages: ModelMessage[];
@@ -213,6 +216,7 @@ export class ChatService {
     for await (const event of this.runtime.run({
       sessionId: prepared.sessionId,
       runId: prepared.runId,
+      mcpSnapshot: prepared.mcpSnapshot,
       messageId: prepared.assistantMessageId,
       model,
       systemPrompt: CHAT_SYSTEM_PROMPT,

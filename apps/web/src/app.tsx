@@ -1,4 +1,4 @@
-import { Ellipsis, Menu, Moon, Pencil, Pin, PinOff, Plus, Sun, Trash2, X } from 'lucide-react';
+import { Ellipsis, Menu, Moon, Pencil, Pin, PinOff, Plus, Settings, Sun, Trash2, X } from 'lucide-react';
 import {
   useEffect,
   useRef,
@@ -101,11 +101,11 @@ import {
 } from './features/agent/model/tool-copy';
 import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
+import { SettingsDialog } from './features/agent/components/settings-dialog';
+import { ToastViewport } from './components/ui/toast';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
 import { AGENT_UI_COPY, SERVICE_STATE_LABELS } from './features/agent/config/ui.constants';
 import {
-  CONTENT_FONT_SIZE_MAX,
-  CONTENT_FONT_SIZE_MIN,
   useContentFontSize,
   useTheme,
   type Theme,
@@ -139,7 +139,7 @@ function getPreviewState(): PreviewState | null {
 
 // 根据当前地址选择生产状态或开发预览状态。
 export function App() {
-  const [theme, toggleTheme] = useTheme();
+  const [theme, toggleTheme, setTheme] = useTheme();
   const [contentFontSize, setContentFontSize] = useContentFontSize();
   const preview = getPreviewState();
   return (
@@ -150,6 +150,7 @@ export function App() {
           previewState={makeFixture(preview)}
           theme={theme}
           onToggleTheme={toggleTheme}
+          onThemeChange={setTheme}
           contentFontSize={contentFontSize}
           onContentFontSizeChange={setContentFontSize}
         />
@@ -157,11 +158,13 @@ export function App() {
         <PersistentAgentApp
           theme={theme}
           onToggleTheme={toggleTheme}
+          onThemeChange={setTheme}
           contentFontSize={contentFontSize}
           onContentFontSizeChange={setContentFontSize}
         />
       )}
       {preview ? <PreviewSwitcher active={preview} /> : null}
+      <ToastViewport theme={theme} />
     </>
   );
 }
@@ -918,11 +921,13 @@ function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }
 function PersistentAgentApp({
   theme,
   onToggleTheme,
+  onThemeChange,
   contentFontSize,
   onContentFontSizeChange,
 }: {
   theme: Theme;
   onToggleTheme: () => void;
+  onThemeChange: (theme: Theme) => void;
   contentFontSize: number;
   onContentFontSizeChange: (size: number) => void;
 }) {
@@ -948,6 +953,7 @@ function PersistentAgentApp({
   const [error, setError] = useState<string | null>(null);
   const [pendingInputs, setPendingInputs] = useState<PendingUserInputView[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [reconnectRunId, setReconnectRunId] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('high');
@@ -2277,8 +2283,8 @@ function PersistentAgentApp({
         }}
         onRename={(sessionId, title) => modifySession(sessionId, { title })}
         onTogglePin={(sessionId, isPinned) => void modifySession(sessionId, { isPinned })}
-        contentFontSize={contentFontSize}
-        onContentFontSizeChange={onContentFontSizeChange}
+        onOpenSettings={() => setSettingsOpen(true)}
+        settingsOpen={settingsOpen}
       />
       {mobileNavOpen ? (
         <button
@@ -2314,6 +2320,14 @@ function PersistentAgentApp({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        theme={theme}
+        onThemeChange={onThemeChange}
+        contentFontSize={contentFontSize}
+        onContentFontSizeChange={onContentFontSizeChange}
+      />
       <main className="main-shell my-2 mr-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl bg-surface">
         <div
           className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}
@@ -2572,17 +2586,20 @@ export function AppShell({
   previewState,
   theme,
   onToggleTheme,
+  onThemeChange,
   contentFontSize,
   onContentFontSizeChange,
 }: {
   previewState?: AgentUiState;
   theme?: Theme;
   onToggleTheme?: () => void;
+  onThemeChange?: (theme: Theme) => void;
   contentFontSize: number;
   onContentFontSizeChange: (size: number) => void;
 }) {
   const activeTheme = theme ?? 'light';
   const toggleTheme = onToggleTheme ?? (() => undefined);
+  const applyTheme = onThemeChange ?? (() => undefined);
   const [serviceState, setServiceState] = useState<ServiceState>(
     previewState ? 'ready' : 'checking',
   );
@@ -2590,6 +2607,7 @@ export function AppShell({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(Boolean(previewState?.previewSubmitting));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [uiState, setUiState] = useState<AgentUiState>(previewState ?? makeFixture('empty'));
 
   useEffect(() => {
@@ -2664,8 +2682,8 @@ export function AppShell({
         serviceLabel={serviceLabel}
         mobileNavOpen={mobileNavOpen}
         onClose={() => setMobileNavOpen(false)}
-        contentFontSize={contentFontSize}
-        onContentFontSizeChange={onContentFontSizeChange}
+        onOpenSettings={() => setSettingsOpen(true)}
+        settingsOpen={settingsOpen}
       />
       {mobileNavOpen ? (
         <button
@@ -2675,6 +2693,14 @@ export function AppShell({
           onClick={() => setMobileNavOpen(false)}
         />
       ) : null}
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        theme={activeTheme}
+        onThemeChange={applyTheme}
+        contentFontSize={contentFontSize}
+        onContentFontSizeChange={onContentFontSizeChange}
+      />
       <main className="main-shell flex h-screen min-h-0 min-w-0 flex-col overflow-hidden bg-surface max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
         <div
           className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}
@@ -2769,8 +2795,8 @@ function Sidebar({
   onDelete,
   onRename,
   onTogglePin,
-  contentFontSize,
-  onContentFontSizeChange,
+  onOpenSettings,
+  settingsOpen = false,
 }: {
   serviceState: ServiceState;
   serviceLabel: string;
@@ -2784,8 +2810,8 @@ function Sidebar({
   onDelete?: (sessionId: string) => void;
   onRename?: (sessionId: string, title: string) => Promise<void>;
   onTogglePin?: (sessionId: string, isPinned: boolean) => void;
-  contentFontSize: number;
-  onContentFontSizeChange: (size: number) => void;
+  onOpenSettings?: () => void;
+  settingsOpen?: boolean;
 }) {
   // 菜单状态同时保存目标会话和视口坐标，避免菜单受侧栏滚动裁剪。
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
@@ -2998,33 +3024,29 @@ function Sidebar({
             </div>
           ) : null}
         </div>
-        <div className="sidebar-footer mt-auto flex flex-wrap items-center gap-2 px-2 pt-3 text-ui-xs text-text-muted">
+        <div className="sidebar-footer mt-auto">
           {serviceLabel ? (
-            <>
+            <div className="sidebar-footer__status text-ui-xs text-text-muted">
               <span className={`status-dot status-dot--${serviceState}`} aria-hidden="true" />
               <span>{serviceLabel}</span>
               <span className="local-badge">本地</span>
-            </>
+            </div>
           ) : null}
-          <label className="ml-auto flex items-center gap-1.5">
-            <span className="sr-only">对话字号</span>
-            <span aria-hidden="true">字号</span>
-            <select
-              className="rounded-control border border-border bg-surface px-1.5 py-0.5 text-content text-text-primary"
-              value={contentFontSize}
-              aria-label="对话字号"
-              onChange={(event) => onContentFontSizeChange(Number(event.target.value))}
-            >
-              {Array.from(
-                { length: CONTENT_FONT_SIZE_MAX - CONTENT_FONT_SIZE_MIN + 1 },
-                (_, index) => CONTENT_FONT_SIZE_MIN + index,
-              ).map((size) => (
-                <option key={size} value={size}>
-                  {size}px
-                </option>
-              ))}
-            </select>
-          </label>
+          {onOpenSettings ? (
+            <div className="sidebar-settings-row">
+              <button
+                type="button"
+                className="sidebar-settings-btn"
+                aria-label="设置"
+                aria-haspopup="dialog"
+                aria-expanded={settingsOpen}
+                onClick={onOpenSettings}
+              >
+                <Settings size={16} strokeWidth={1.75} aria-hidden="true" />
+                <span className="sidebar-settings-btn__label">设置</span>
+              </button>
+            </div>
+          ) : null}
         </div>
       </aside>
       {menuSessionId && menuAnchor && sessions

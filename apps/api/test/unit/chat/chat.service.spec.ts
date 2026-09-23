@@ -59,6 +59,7 @@ function makeService(
   } as unknown as OpenAI;
   const runtimeRegistry = {
     executionPolicy: vi.fn(() => ({ timeoutMs: 30_000 })),
+    approvalPolicy: vi.fn(() => 'auto_execute' as const),
     resolveName: vi.fn((name: string) => name),
     ...toolRegistry,
   } as ToolRegistryService;

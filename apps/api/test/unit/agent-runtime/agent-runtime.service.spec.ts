@@ -66,6 +66,7 @@ function registry(overrides: Partial<ToolRegistryService> = {}): ToolRegistrySer
     executionPolicy: vi.fn((name: string) => ({
       timeoutMs: name === AGENT_TOOL_NAMES.webFetch ? 45_000 : 10_000,
     })),
+    approvalPolicy: vi.fn(() => 'auto_execute' as const),
     execute: vi.fn().mockResolvedValue({ status: 'succeeded', output: { value: 'ok' } }),
     resolveName: vi.fn((name: string) => name),
     ...overrides,
@@ -579,6 +580,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       AGENT_TOOL_NAMES.webSearch,
       { query: 'weather' },
       expect.anything(),
+      expect.objectContaining({ mcpSnapshot: undefined }),
     );
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -619,6 +621,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     expect(tools.parseInput).toHaveBeenCalledWith(
       AGENT_TOOL_NAMES.createReport,
       expect.stringContaining('"title":"走势复盘"'),
+      expect.objectContaining({ mcpSnapshot: undefined }),
     );
     expect(JSON.parse(String(vi.mocked(tools.parseInput).mock.calls[0]?.[1]))).toMatchObject({
       title: '走势复盘',

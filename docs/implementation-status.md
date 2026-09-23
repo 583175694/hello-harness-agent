@@ -2,11 +2,11 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-22（C3-D 已落地：Session Sandbox 内 Chromium + agent-browser，见 docs/34、docs/33 §6.4.4）
+> 最后更新：2026-09-23（C2/C3 已落地；**规划调整**：Capability C4–C7 优先，K5/K6 后置加强，见 §7）
 
 ## 1. 当前结论
 
-项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 C2-A/C2-B 当前范围。C3-A 已把 Sandbox 作为普通 Tool 接入 Runtime；**C3-B** 已将主工具改为 **`bash`**（`execute_command` 仅迁移期别名）：DSH 式 `renderBashResult()` 文本 Tool Message、默认 `auto_execute`、Host `BashCommandPolicyService` 触发的 network/install 升权审批、批准后当次 v1 egress allowlist、Terminal 投影与 spill Artifact 已落地，并在**本机 OpenSandbox + Docker**（`dev/opensandbox-local`）完成 Workbench 手工冒烟（echo/非零退出、普通命令不批、pip/curl 审批、Collect）。Sandbox 默认关闭，需 `SANDBOX_ENABLED` 与 Domain/API Key/带 digest 的镜像后才对模型可见。CI 使用 fake Provider（`pnpm --filter @harness/api test`）；真实 OpenSandbox 见 `dev/opensandbox-local` 与 docs/33 §1.5 UI 冒烟。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成一份或多份 Markdown Report Artifact。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
+项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 **C2 Artifact & Report Generation（C2-A–C2-D）**。C3-A 已把 Sandbox 作为普通 Tool 接入 Runtime；**C3-B** 已将主工具改为 **`bash`**（`execute_command` 仅迁移期别名）：DSH 式 `renderBashResult()` 文本 Tool Message、默认 `auto_execute`、Host `BashCommandPolicyService` 触发的 network/install 升权审批、批准后当次 v1 egress allowlist、Terminal 投影与 spill Artifact 已落地，并在**本机 OpenSandbox + Docker**（`dev/opensandbox-local`）完成 Workbench 手工冒烟（echo/非零退出、普通命令不批、pip/curl 审批、Collect）。Sandbox 默认关闭，需 `SANDBOX_ENABLED` 与 Domain/API Key/带 digest 的镜像后才对模型可见。CI 使用 fake Provider（`pnpm --filter @harness/api test`）；真实 OpenSandbox 见 `dev/opensandbox-local` 与 docs/33 §1.5 UI 冒烟。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成 Markdown Report，或通过 `create_file` 生成 Markdown/HTML/PDF/DOCX/XLSX 等 Artifact；同一逻辑产物支持 **C2-D** 线性版本（`ArtifactSeries`、`revise`/`restore`、Workbench「基于此版本修改」）。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
 
 当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics 和 C1 File & Multimodal Foundation 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
@@ -18,11 +18,16 @@ C1 已完整实现并收口。图片链路覆盖最多四个附件的有序绑�
 
 C1 的数据库 migration、协议、FileStorage/COS、文件处理、Model Adapter、Run Context、Tool、Projection、Session 恢复和 Web Composer 均已接入。C1 的完成验证覆盖 API/Web/Protocol 单测、类型检查、lint、production build、数据库集成和真实浏览器交互；现代 Office 解析和 Office/PDF/TXT 文件预览已纳入本次完成范围并通过回归。C1 不包含 C2 Artifact/Report 生成，也不承诺 OCR、音视频转写、复杂 Office 版式、压缩包递归解析、密码保护文件、向量检索或全文索引。
 
-### C2-B Report Artifact 状态
+### C2 Artifact & Report Generation 状态
 
-C2-A 已提供通用生成文件、Artifact、预览、下载和 Session 恢复；C2-B 在此基础上新增 `create_report`、Report 表及轻量 ReportRef。工具输入为标题、摘要、Markdown 文件名、完整正文和可选 `sourceIds/fileIds`；不包含 `quality` 或 `limitationNote`。同一 Run 可以通过不同 `toolCallId` 创建多份报告，网页来源是否在本 Run 成功 Fetch 不再阻断创建，材料文件仍校验就绪状态和 Session 归属。
+**C2-A–C2-D 已落地**（契约与验收见 [31-c2-artifact-and-report-generation.md](./31-c2-artifact-and-report-generation.md)）：
 
-当前用户界面把报告作为 Markdown Artifact 展示，在 Artifact Workbench 中预览和下载；删除 Session 时数据库关系级联删除并通过清理任务删除存储对象。专用 Report Workbench、单报告删除 UI、Session 恢复中的 reportId 投影和跨 File/Artifact/Report 的强事务回滚均明确延期，不作为当前 C2-B 完成条件。详细边界见 [31-c2-artifact-and-report-generation.md](./31-c2-artifact-and-report-generation.md)。
+- **C2-A**：`create_file`、通用生成文件、Artifact、预览、下载与 Session 恢复。
+- **C2-B**：`create_report`、Report 表与 ReportRef；多报告、材料引用校验；UI 以 Markdown Artifact 在 Workbench 预览/下载。
+- **C2-C**：同一 `create_file` 按扩展名渲染 Markdown、HTML、PDF、DOCX、XLSX（`renderGeneratedFile`）；`html` FileKind 与协议/迁移已接入。
+- **C2-D**：`ArtifactSeries` 与单调 `versionNumber`；`artifactVersionContext` 驱动 `revise`；恢复旧版本生成新版本（`restore`）；current 指针乐观并发；Workbench 版本列表与「基于此版本修改」/恢复确认。
+
+自动化覆盖含 API 集成（版本链、并发冲突、Session 恢复等，见 `apps/api/test/integration/app.integration.spec.ts`）。**仍延期**：专用 Report Workbench、单报告删除 UI、在线编辑、分支/合并、二进制 diff、跨格式产物组。C2 后续增强不阻塞主线，见 docs/31 §6.12。
 
 ### C3 Agent Sandbox 状态
 
@@ -434,7 +439,9 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 
 ## 7. 后续优先级计划
 
-> 本节是 Context Engineering 第一阶段之后的执行顺序。后续规划明确区分 **Agent Kernel（内核）** 和 **Capability（功能能力）**：内核优先级高于功能，功能通过统一 Action/Artifact/Source 协议接入，不反向改变 Runtime 语义。编号是规划编号，不表示已经实现。
+> 本节是 Context Engineering 第一阶段之后的执行顺序。规划区分 **Agent Kernel（内核）** 与 **Capability（功能能力）**；Capability 通过统一 Action/Artifact/Source 协议接入，不反向改变 Runtime 语义。编号是规划编号，不表示已经实现。
+>
+> **当前阶段策略（2026-09-23）**：C1/C2/C3 与 K3/K4 基线已可用；**先推进 Capability 主线（C4→C5→C6→C7）**，尽快形成 MCP、做站预览、Browser Use 等用户可感知闭环。**K5/K6 视为对现有能力的治理与质量加强**，不阻塞 Capability 首期交付——写操作与高风险动作继续复用 **K3.2 `tool_approval`**、Sandbox **bash/network/install 策略** 等已落地机制；待 C4–C6 形态稳定后再集中做 K5 统一 Policy/审计与 K6 引用/完成度验证。
 
 ### 7.1 Agent Kernel 主线
 
@@ -463,7 +470,7 @@ K4  Agent Task Semantics                         已完成：Plan and Execute、
     - Re-plan / no-progress 检测（发现计划失效或长时间没有进展时重新规划）
     - Task State 持久化并按预算注入 Context（保存任务状态，并在上下文预算内恢复给模型）
 
-K5  Side-effect Policy & Governance               随写能力渐进实施
+K5  Side-effect Policy & Governance               后置加强（Capability 首期不阻塞）
     - 可信 Action 风险元数据与 Policy：区分 read-only、受任务意图授权的可逆写入、需确认写入和禁止操作；风险结论不能由模型自行声明
     - 不可变审批绑定：展示目标、影响、canonical 参数和风险原因；批准只授权原 argumentsHash，参数或目标变化必须重新审批
     - 真实副作用能力接入：本地文件覆盖/删除、外部发送、Code Execution、Browser Use 和 MCP 写操作逐项接入同一 Policy/Interrupt，不允许能力自行绕过
@@ -474,13 +481,13 @@ K5  Side-effect Policy & Governance               随写能力渐进实施
     - durable Interrupt/Command 幂等、服务重启后继续等待、多实例命令路由
     - Tool exactly-once、execution_unknown 对账和跨进程副作用恢复
 
-K6  Evidence / Citation / Completion Verification 横切内核能力
+K6  Evidence / Citation / Completion Verification 后置加强（横切，与 K5 同期或略晚）
     - Passage -> Evidence -> Claim -> Citation（从原文片段提取证据，支撑具体结论并生成引用）
     - 来源定位、引用校验和证据覆盖（确认引用能定位原文，并覆盖回答中的关键主张）
     - 最终交付前的任务完成检查与限制说明（交付前检查是否完成，并明确已知局限）
 ```
 
-K3 已经完成通用控制和 HITL 机制；K4 已完成轻量任务语义与计划投影；K5 将 K3 机制应用到真实副作用并形成可审计的治理策略。K6 会横切文件分析、研究回答和 Artifact 生成，不能等所有功能完成后才设计来源关联。
+K3 已经完成通用控制和 HITL 机制；K4 已完成轻量任务语义与计划投影。K5 将把 K3 机制扩展到统一副作用 Policy/审计；K6 会横切研究回答与 Artifact 交付质量。**当前选择先 Capability、后 K5/K6**：新能力上线时沿用现有审批与 Sandbox 策略即可，不在 C4–C6 前冻结完整 Governance 平台。
 
 ### 7.2 Capability 主线
 
@@ -491,11 +498,11 @@ C1  File & Multimodal Foundation                  已完成：图片、通用文
     - 已交付：PDF 页码、文本行号/字符范围、CSV/JSON/Office 基础结构和 contentHash 等定位元数据
     - C1-C：OCR、音视频转写、复杂 Office 版式、压缩包递归解析、密码保护文件、向量检索和全文索引
 
-C2  Artifact & Report Generation
-    - C2-A/C2-B 已完成：通用生成文件、正式 Markdown Report、多报告、预览、下载和恢复
-    - C2-C 待实施：HTML、DOCX、XLSX/CSV、PDF 等常见交付格式
-    - C2-D 待实施：多版本、局部修改、覆盖、回滚和失败重试
-    - 后续 Workbench 重构：报告专用阅读体验、来源联动和单报告管理
+C2  Artifact & Report Generation                  已完成（C2-A–C2-D）
+    - C2-A/C2-B：通用生成文件、正式 Markdown Report、多报告、预览、下载和恢复
+    - C2-C：Markdown、HTML、PDF、DOCX、XLSX 多格式 `create_file` 闭环
+    - C2-D：线性不可变版本、revise/restore、并发冲突、Session/Workbench 恢复
+    - 后续（非 C2 主线）：专用 Report Workbench、来源联动、模板/产物组等（docs/31 §6.8–§6.12、§7.8）
 
 C3  Agent Sandbox & Cloud Execution Environment   高优先级
     - 前置 PoC 已通过：OpenSandbox + Docker 本地/腾讯云验证，Shell/Python、Workspace 状态、文件回传和清理闭环已确认
@@ -509,22 +516,22 @@ C3  Agent Sandbox & Cloud Execution Environment   高优先级
     - Run 内多次 Tool Call 共享受控 Workspace 和必要状态，输出文件经 Host 校验后进入 File / Artifact 链路
     - 进程、CPU/Memory/Disk/Time、文件和网络隔离；可取消、可审计、可清理，Sandbox Provider 保持可替换
 
-C4  MCP Client & Tool Ecosystem                   中高优先级
-    - 外部 MCP Server 发现、Tool Schema 校验和生命周期（接入外部工具并验证其契约）
-    - 内置松耦合能力的 MCP Server 适配（让内置能力也能通过统一协议提供）
-    - 凭证绑定、权限、timeout/cancel、命名冲突和审计（管理授权、超时、取消和调用记录）
-    - Read-only 默认自动执行，写操作接入 K5（只读可自动运行，修改外部状态需确认）
+C4  MCP Client & Tool Ecosystem                   **C4-A 已落地（代码 + 单测/集成；live fixture 见 dev/mcp-fixture）**（[35-c4-mcp-client.md](./35-c4-mcp-client.md)）
+    - Host MCP Client（C4-A **HTTP-only**）：Settings/Admin → DB → 动态 `mcp__<server>__<tool>` 合并进 ToolRegistry；Run 级 catalog 快照 + generation 护栏
+    - 对照 DSH + Codex **Run 级 catalog 快照** + execute generation 护栏；不引入 Cordis/plugin_manager
+    - **用户凭证加密落库**（`HARNESS_SECRETS_MASTER_KEY`）；连接、timeout/cancel、审计在 Host；Sandbox 不跑 MCP
+    - C4-A：**Workbench 设置弹框** + `/api/agent/mcp/*`；写操作 **K3.2 tool_approval**；Resources/instructions → C4-B
 
-C5  Website Generation & Workbench Preview        中高优先级
+C5  Website Generation & Workbench Preview        Capability 主线（C4 后或并行）
     - HTML/CSS/JS Artifact 生成和版本迭代（生成可运行的网站并支持修改版本）
     - 基于 C3 Agent Sandbox 的构建/校验（在隔离环境中构建并检查网站）
     - Workbench 沙箱预览、运行日志、源码下载和安全网络策略（在工作台安全预览和调试）
 
-C6  Browser Use                                   中期
+C6  Browser Use                                   Capability 主线（依赖 C3-D 底座）
     - 使用运行在 C3 Sandbox 中的 agent-browser 作为底层执行能力（用浏览器完成网页交互）
     - open/click/type/select/scroll/extract/screenshot/download（打开、点击、输入、提取和下载）
     - 先支持公开网页和受限流程，再扩展登录态和写操作（先做低风险场景）
-    - 所有副作用动作接入 K5（可能修改外部状态的操作都需要权限控制）
+    - 首期：结构化 Browser Tool + 既有 **network/副作用审批**；统一 K5 页面写策略 **后置**
 
 C7  Skills / Notes / TODO / Memory                中期
     - 可复用 Skill、任务模板和输出契约（把常用工作流程封装成可重复能力）
@@ -532,7 +539,7 @@ C7  Skills / Notes / TODO / Memory                中期
     - Memory 写入需有来源、置信度、可见性和用户删除能力（记忆可追溯、可管理、可删除）
 ```
 
-文件和图片上传共享同一 Artifact/Source 底座；Artifact 生成依赖文件和结构化产物模型；Website Generation 依赖 Artifact、C3 Agent Sandbox 和 Workbench Preview；Browser Use 的执行引擎可以运行在 C3 Sandbox 中，但页面动作语义和副作用治理仍属于 C6/K5；MCP 与 Browser Use 依赖 Action Boundary、权限和 Human-in-the-loop，不应提前把外部工具直接接入核心循环。
+文件和图片上传共享同一 Artifact/Source 底座；Artifact 生成依赖文件和结构化产物模型；Website Generation 依赖 Artifact、C3 Agent Sandbox 和 Workbench Preview；Browser Use 的执行引擎运行在 C3 Sandbox（C3-D），页面语义属于 C6。MCP/C6 接入时保持 **Registry + 现有 HITL**，不把外部 Tool 直接绑进模型不可见的旁路；K5 全量治理在 Capability 形态稳定后收口。
 
 ### 7.3 低优先级扩展
 
@@ -566,27 +573,31 @@ L7  Multi-user / Remote Storage / Operations      更后期
 ### 7.4 推荐执行顺序
 
 ```text
+【已完成基线】
 K3 Control & HITL Kernel（基本完成）
   -> K4 Agent Task Semantics（已完成）
   -> C1 File & Multimodal Foundation（已完成）
-  -> C3-B DSH 前台 bash + Bash 策略 v1（已完成，见 docs/33 §6.2.4）
-  -> C3-C 后台 job + Session Sandbox + network/install v2（已完成，docs/33 §6.3.4）
-  -> C3-D Chromium + agent-browser（Sandbox 内，已完成，docs/34 / docs/33 §6.4.4）
-  -> C2-C/C2-D Artifact 后续能力（接入本地写入策略）
-  -> K5-B Side-effect Governance 验收收口（MCP/浏览器写操作等）
-  -> C4 MCP Client（接入外部写操作策略）
-  -> C5 Website Generation & Workbench Preview
-  -> C6 Browser Use（接入页面写操作策略）
-  -> K5-B Side-effect Governance 验收收口
-  -> K6 Evidence / Citation / Verification 持续横切
+  -> C2 Artifact & Report（C2-A–C2-D，已完成，docs/31）
+  -> C3 Sandbox（C3-A–C3-D，已完成，docs/33 / docs/34）
+
+【当前聚焦：Capability 主线】
+  -> C4 MCP Client（外部 Tool 生态；写操作先用 K3.2 审批）
+  -> C5 Website Generation & Workbench Preview（C3 构建 + 沙箱预览）
+  -> C6 Browser Use（C3-D 底座 + 结构化页面 Tool）
   -> C7 Skills / Notes / TODO / Memory
-  -> L1/L2/L3 低优先级扩展
+
+【后置：Kernel 加强】
+  -> K5 Side-effect Policy & Governance（MCP/C6/Sandbox 写能力统一 Policy 与审计）
+  -> K6 Evidence / Citation / Completion Verification（报告/回答引用与交付检查）
+
+【低优先级扩展】
+  -> L1/L2/L3
   -> L4 Delegation / Worker
-  -> L5 成本/质量/运行控制台
+  -> L5 成本/质量/运行控制台（展示层最后；采集可随 Capability 逐步埋点）
   -> L6 Desktop / Mobile
 ```
 
-其中 K6 虽在编号上列于后面，但应从 C1 文件分析和 C2 Artifact 生成开始同步建设来源引用关系；L5 只把指标展示放到最后，运行数据采集不得延后。第三方连接器和 Background Tasks 不作为当前 Agent Kernel 或首批功能的前置条件。
+Capability 阶段不等待 K6 全量；若在 C2 报告或 Research 回答中出现明确的引用/校验痛点，可开 **K6 小切片**，但不改变「先 C4–C7、后 K5/K6 大项」的顺序。第三方连接器优先走 C4 MCP；Background Tasks 仍非 Capability 首期前置。L5 控制台可最后建设，运行数据采集宜随新 Capability 轻量接入。
 
 本阶段的产品目标是建设 **AI Agent 工作台**：用户可以输入文字、文件和图片，Agent 在可控、可恢复、可验证的 Task Loop 中调用内置工具、Agent Sandbox、MCP 和 Browser Use，最终生成回答、报告、表格或可预览网站；Web、桌面端和移动端在 Agent Kernel 完善后复用同一套 canonical protocol。
 
@@ -605,6 +616,7 @@ P8 的完成标准仍然不是“再增加一个工具”，而是现有 `Chat -
 - Web Fetch 设计：[docs/23-web-fetch-tool.md](./23-web-fetch-tool.md)
 - Connection-Durable Agent Loop：[docs/26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)
 - C3 Agent Sandbox 与云端执行环境：[docs/33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md)
+- C4 MCP Client：[docs/35-c4-mcp-client.md](./35-c4-mcp-client.md)
 
 ## 9. 维护规则
 

@@ -43,6 +43,13 @@ GET    /api/agent/runs/:runId/sources
 
 GET    /api/agent/artifacts/:artifactId
 GET    /api/agent/artifacts/:artifactId/content
+
+GET    /api/agent/mcp/servers
+POST   /api/agent/mcp/servers
+PUT    /api/agent/mcp/servers/:id
+PATCH  /api/agent/mcp/servers/:id
+DELETE /api/agent/mcp/servers/:id
+POST   /api/agent/mcp/servers/:id/test
 ```
 
 Post-R1：
@@ -348,10 +355,14 @@ type PublicConfig = {
 
 不得返回 baseURL、API Key env name、provider secret 或完整内部 model config。
 
-## 15. Idempotency
+## 15. MCP Admin（C4-A）
+
+Host 侧 MCP Server 配置（Streamable HTTP）。`GET /api/agent/mcp/servers` 返回 `servers[]` 与 `catalogGeneration`；响应含 `status`、`toolCount`、`lastError`、`secretsConfigured`，**永不**返回凭证明文。`POST`/`PUT` 可携带 `secrets[]`（`header` | `env` | `bearer`），落库前 AES-GCM 加密，依赖部署 env `HARNESS_SECRETS_MASTER_KEY`。保存后 **同步** `reconcile`（connect + listTools）。`POST .../test` 仅探测，不写入 catalog。模型侧工具名：`mcp__<serverName>__<rawName>`。
+
+## 16. Idempotency
 
 Create run、clarification、steer、cancel 和 session delete 都必须支持 idempotency。相同 key + 相同 payload 返回同一结果；相同 key + 不同 payload 返回 conflict。Create Run payload hash 必须覆盖 `content + reasoningEffort`，并为其他会改变模型执行语义的 run profile 预留 canonical serialization；不能只 hash正文。
 
-## 16. Versioning
+## 17. Versioning
 
 所有 API/Stream schema 从 canonical protocol 生成或直接引用。未知 event 必须按 capability/version 过滤，不能由客户端猜测字段。

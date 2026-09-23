@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { getDeepSeekV3TokenEstimator, type DeepSeekMessage } from '@harness/deepseek-v3-tokenizer';
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
@@ -26,6 +26,8 @@ const COMPACTION_PROMPT = `Summarize the closed historical transcript for contin
 
 @Injectable()
 export class ContextEngineeringService {
+  private readonly logger = new Logger(ContextEngineeringService.name);
+
   // 本地 tokenizer 用于在调用模型前估算上下文占用。
   private readonly estimator = getDeepSeekV3TokenEstimator();
 
@@ -87,7 +89,11 @@ export class ContextEngineeringService {
           Array.isArray(message.content) &&
           message.content.some((block) => block.type === 'file_ref'),
       );
-      throw new Error(hasFile ? 'FILE_CONTEXT_TOO_LARGE' : 'CONTEXT_BUDGET_EXCEEDED');
+      const code = hasFile ? 'FILE_CONTEXT_TOO_LARGE' : 'CONTEXT_BUDGET_EXCEEDED';
+      this.logger.warn(
+        `上下文超出模型预算 | 会话=${input.sessionId.slice(0, 8)} | 估算=${estimatedInputTokens} | 预算=${promptBudget} | 错误=${code}`,
+      );
+      throw new Error(code);
     }
     assertCanonicalToolTranscript(messages);
     return {

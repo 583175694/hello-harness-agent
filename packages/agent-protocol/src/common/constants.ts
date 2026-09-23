@@ -186,6 +186,15 @@ export const AGENT_ERROR_CODES = {
   sandboxCollectFailed: 'SANDBOX_COLLECT_FAILED',
   sandboxSessionInvalidated: 'SANDBOX_SESSION_INVALIDATED',
   sandboxExecutionUnknown: 'SANDBOX_EXECUTION_UNKNOWN',
+  // MCP Server 当前无可用连接或 client 未 ready。
+  mcpUnavailable: 'MCP_UNAVAILABLE',
+  // Run 绑定的 MCP catalog 世代与当前 live 不一致，禁止执行。
+  mcpCatalogStale: 'MCP_CATALOG_STALE',
+  // 未配置 HARNESS_SECRETS_MASTER_KEY 时拒绝写入 MCP 凭证。
+  secretsMasterKeyMissing: 'SECRETS_MASTER_KEY_MISSING',
+  mcpServerNotFound: 'MCP_SERVER_NOT_FOUND',
+  mcpServerNameConflict: 'MCP_SERVER_NAME_CONFLICT',
+  mcpRequiredServerUnavailable: 'MCP_REQUIRED_SERVER_UNAVAILABLE',
 } as const;
 
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[keyof typeof AGENT_ERROR_CODES];

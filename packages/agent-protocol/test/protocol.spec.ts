@@ -28,6 +28,8 @@ import {
   executeCommandInputSchema,
   executeCommandPublicResultSchema,
   toExecuteCommandInputSummary,
+  mcpCreateServerRequestSchema,
+  mcpServerViewSchema,
 } from '../src/index.js';
 
 describe('execute_command protocol', () => {
@@ -181,7 +183,7 @@ describe('foundation protocol', () => {
     ).toMatchObject({ inputType: 'document', fileName: 'legacy.md' });
   });
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.16.0');
+    expect(protocolVersion).toBe('0.17.0');
   });
 
   it('validates HITL commands and rejects incomplete approval decisions', () => {
@@ -617,5 +619,43 @@ describe('foundation protocol', () => {
         },
       }),
     ).toThrow();
+  });
+});
+
+describe('MCP admin protocol', () => {
+  it('parses create-server body without secrets in view schema', () => {
+    const body = mcpCreateServerRequestSchema.parse({
+      serverName: 'demo',
+      url: 'http://127.0.0.1:8765/mcp',
+      headersPlain: { 'X-Test': '1' },
+    });
+    expect(body.defaultApproval).toBe('require_approval');
+    expect(body.transport).toBeUndefined();
+    const view = mcpServerViewSchema.parse({
+      id: 'cfg-1',
+      serverName: 'demo',
+      enabled: true,
+      transport: 'streamable_http',
+      url: body.url,
+      headersPlain: body.headersPlain,
+      startupTimeoutMs: 30_000,
+      toolCallTimeoutMs: 60_000,
+      required: false,
+      failOnStartupError: false,
+      defaultApproval: 'require_approval',
+      enabledTools: null,
+      disabledTools: null,
+      maxInstructionBytes: 32_768,
+      reconnectEnabled: true,
+      reconnectMaxAttempts: 5,
+      status: 'disconnected',
+      toolCount: 0,
+      lastError: null,
+      secretsConfigured: { headerNames: [], envKeys: [] },
+      createdAt: '2026-09-23T00:00:00.000Z',
+      updatedAt: '2026-09-23T00:00:00.000Z',
+    });
+    expect(view).not.toHaveProperty('secrets');
+    expect(view.secretsConfigured.headerNames).toEqual([]);
   });
 });

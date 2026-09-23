@@ -1,12 +1,15 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 import { PrismaService } from '../database/prisma.service';
 import { readSandboxRuntimeConfig } from './sandbox-config';
 import { SandboxInstanceRepository } from './sandbox-instance.repository';
-import { SandboxJobService, type JobMeta } from './sandbox-job.service';
+import type { JobMeta } from './sandbox-job.service';
+import { SandboxJobService } from './sandbox-job.service';
 import { SandboxManagerService } from './sandbox-manager.service';
-import { RunCommandService } from '../runs/run-command.service';
-import { PendingUserInputService } from '../runs/pending-user-input.service';
+import { SANDBOX_JOB_SERVICE, SANDBOX_MANAGER_SERVICE } from './sandbox-job.tokens';
+import type { RunCommandService } from '../runs/run-command.service';
+import type { PendingUserInputService } from '../runs/pending-user-input.service';
 import { getConfiguredModel } from '../model/model-catalog';
 
 @Injectable()
@@ -15,12 +18,11 @@ export class SandboxJobWatcherService implements OnModuleInit, OnModuleDestroy {
   private readonly wakeBudget = new Map<string, number>();
 
   constructor(
-    private readonly jobs: SandboxJobService,
-    private readonly manager: SandboxManagerService,
+    @Inject(SANDBOX_JOB_SERVICE) private readonly jobs: SandboxJobService,
+    @Inject(SANDBOX_MANAGER_SERVICE) private readonly manager: SandboxManagerService,
     @Optional() private readonly instances: SandboxInstanceRepository | undefined,
     @Optional() private readonly prisma: PrismaService | undefined,
-    @Optional() private readonly runCommands: RunCommandService | undefined,
-    @Optional() private readonly pendingInputs: PendingUserInputService | undefined,
+    @Inject(ModuleRef) private readonly moduleRef: ModuleRef,
     @Optional() @Inject(Logger) private readonly logger?: Logger,
   ) {}
 
@@ -57,25 +59,26 @@ export class SandboxJobWatcherService implements OnModuleInit, OnModuleDestroy {
     const message = `background job ${job.jobId} (bash: ${job.description}) finished [status: ${job.status}]. Read its output with job_output.`;
     const busy = await this.hasActiveRun(sessionId);
     if (busy) {
-      await this.pendingInputs?.enqueueFollowUp(sessionId, message, `job-notice:${job.jobId}`);
+      await this.resolvePendingInputs()?.enqueueFollowUp(sessionId, message, `job-notice:${job.jobId}`);
       this.jobs.markCompletionReported(sessionId, job.jobId);
       return;
     }
     if (config.jobCompletionDelivery === 'quiet') {
-      await this.pendingInputs?.enqueueFollowUp(sessionId, message, `job-notice:${job.jobId}`);
+      await this.resolvePendingInputs()?.enqueueFollowUp(sessionId, message, `job-notice:${job.jobId}`);
       this.jobs.markCompletionReported(sessionId, job.jobId);
       return;
     }
     const budget = this.wakeBudget.get(sessionId) ?? 0;
     if (budget >= config.jobMaxConsecutiveWakes) {
-      await this.pendingInputs?.enqueueFollowUp(sessionId, message, `job-notice:${job.jobId}`);
+      await this.resolvePendingInputs()?.enqueueFollowUp(sessionId, message, `job-notice:${job.jobId}`);
       this.jobs.markCompletionReported(sessionId, job.jobId);
       return;
     }
-    if (!this.runCommands) return;
+    const runCommands = await this.resolveRunCommands();
+    if (!runCommands) return;
     const model = getConfiguredModel(process.env.DEFAULT_MODEL ?? 'deepseek-chat')?.id ?? 'deepseek-chat';
     try {
-      await this.runCommands.create(sessionId, {
+      await runCommands.create(sessionId, {
         content: message,
         idempotencyKey: `job-wakeup:${job.jobId}`,
         model,
@@ -97,5 +100,16 @@ export class SandboxJobWatcherService implements OnModuleInit, OnModuleDestroy {
       where: { sessionId, status: { in: ['queued', 'running', 'cancel_requested'] } },
     });
     return Boolean(active);
+  }
+
+  private async resolveRunCommands(): Promise<RunCommandService | undefined> {
+    const { RunCommandService: RunCommands } = await import('../runs/run-command.service');
+    return this.moduleRef.get(RunCommands, { strict: false });
+  }
+
+  private resolvePendingInputs(): PendingUserInputService | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PendingUserInputService: PendingInputs } = require('../runs/pending-user-input.service');
+    return this.moduleRef.get(PendingInputs, { strict: false });
   }
 }

@@ -25,6 +25,7 @@ import {
 import type {
   BashBackgroundResult,
   BashInputSummary,
+  BashTerminalCommandInput,
   BashTerminalView,
   ExecuteCommandPublicResult,
 } from '@harness/agent-protocol';
@@ -383,7 +384,12 @@ export class ChatService {
         const bashStartedInput =
           isBash ? executeCommandInputSummarySchema.safeParse(event.input) : undefined;
         const bashStartTerminalView = bashStartedInput?.success
-          ? buildBashTerminalView(bashStartedInput.data)
+          ? buildBashTerminalView(
+              this.bashTerminalViewInput(
+                bashStartedInput.data,
+                event.type === 'tool.started' ? event.bashTerminalInput : undefined,
+              ),
+            )
           : undefined;
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
@@ -502,6 +508,10 @@ export class ChatService {
           };
         } else if (isBash) {
           const parsed = executeCommandInputSummarySchema.parse(event.input);
+          const terminalInput = this.bashTerminalViewInput(
+            parsed,
+            event.type === 'tool.started' ? event.bashTerminalInput : undefined,
+          );
           yield {
             type: 'tool.started',
             messageId: prepared.assistantMessageId,
@@ -511,8 +521,8 @@ export class ChatService {
             title: block.title,
             input: parsed,
             presentation: 'terminal' as const,
-            description: parsed.description,
-            terminalView: buildBashTerminalView(parsed),
+            description: terminalInput.description,
+            terminalView: buildBashTerminalView(terminalInput),
             startedAt: event.startedAt,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
@@ -739,7 +749,13 @@ export class ChatService {
           isBash ? executeCommandInputSummarySchema.safeParse(event.input) : undefined;
         const bashTerminalView =
           bashCompletedInput?.success && (executeCommandResult || bashBackgroundResult)
-            ? this.bashTerminalViewForCompletion(bashCompletedInput.data, event.output)
+            ? this.bashTerminalViewForCompletion(
+                this.bashTerminalViewInput(
+                  bashCompletedInput.data,
+                  event.type === 'tool.completed' ? event.bashTerminalInput : undefined,
+                ),
+                event.output,
+              )
             : undefined;
         const blockId = conversation.completeTool({
           toolCallId: event.toolCallId,
@@ -924,6 +940,10 @@ export class ChatService {
           };
         } else if (bashBackgroundResult && isBash) {
           const parsedInput = executeCommandInputSummarySchema.parse(event.input);
+          const terminalInput = this.bashTerminalViewInput(
+            parsedInput,
+            event.type === 'tool.completed' ? event.bashTerminalInput : undefined,
+          );
           yield {
             type: 'tool.completed',
             messageId: prepared.assistantMessageId,
@@ -934,9 +954,9 @@ export class ChatService {
             durationMs: event.durationMs,
             result: bashBackgroundResult,
             presentation: 'terminal' as const,
-            description: parsedInput.description,
+            description: terminalInput.description,
             jobId: bashBackgroundResult.jobId,
-            terminalView: buildBashTerminalView(parsedInput, bashBackgroundResult),
+            terminalView: buildBashTerminalView(terminalInput, bashBackgroundResult),
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -957,6 +977,10 @@ export class ChatService {
           };
         } else if (executeCommandResult && isBash) {
           const parsedInput = executeCommandInputSummarySchema.parse(event.input);
+          const terminalInput = this.bashTerminalViewInput(
+            parsedInput,
+            event.type === 'tool.completed' ? event.bashTerminalInput : undefined,
+          );
           yield {
             type: 'tool.completed',
             messageId: prepared.assistantMessageId,
@@ -967,10 +991,10 @@ export class ChatService {
             durationMs: event.durationMs,
             result: executeCommandResult,
             presentation: 'terminal' as const,
-            description: parsedInput.description,
+            description: terminalInput.description,
             exitCode: executeCommandResult.exitCode,
             exitSignal: executeCommandResult.signal,
-            terminalView: this.bashTerminalViewForCompletion(parsedInput, event.output),
+            terminalView: this.bashTerminalViewForCompletion(terminalInput, event.output),
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -1325,6 +1349,19 @@ export class ChatService {
     delete record.stdout;
     delete record.stderr;
     return record;
+  }
+
+  private bashTerminalViewInput(
+    summary: BashInputSummary,
+    full?: BashTerminalCommandInput,
+  ): BashInputSummary {
+    if (!full) return summary;
+    return {
+      ...summary,
+      command: full.command,
+      description: full.description,
+      ...(full.workdir !== undefined ? { workdir: full.workdir } : {}),
+    };
   }
 
   private bashTerminalViewForCompletion(

@@ -16,8 +16,10 @@ import {
   renderBashBackgroundResult,
   renderBashResult,
   toBashInputSummary,
+  toBashTerminalCommandInput,
   type BashInput,
   type BashRunResult,
+  type BashTerminalCommandInput,
 } from '@harness/agent-protocol';
 import { BashCommandPolicyService } from '../sandbox/bash-command-policy.service';
 import { sandboxLimits } from '../sandbox/sandbox-config';
@@ -898,11 +900,13 @@ export class AgentRuntimeService {
           `工具调用开始 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name}`,
           AgentRuntimeService.name,
         );
+        const bashTerminalInput = this.bashTerminalInput(call.name, toolInput);
         yield {
           type: 'tool.started',
           toolCallId: call.id,
           toolName: call.name,
           input: this.publicToolInput(call.name, toolInput),
+          ...(bashTerminalInput ? { bashTerminalInput } : {}),
           startedAt: startedAt.toISOString(),
           roundId,
           roundSequence: modelRounds,
@@ -969,6 +973,7 @@ export class AgentRuntimeService {
             toolCallId: call.id,
             toolName: call.name,
             input: this.publicToolInput(call.name, toolInput),
+            ...(bashTerminalInput ? { bashTerminalInput } : {}),
             output: result.output,
             completedAt: completedAt.toISOString(),
             durationMs,
@@ -990,6 +995,7 @@ export class AgentRuntimeService {
             toolCallId: call.id,
             toolName: call.name,
             input: this.publicToolInput(call.name, toolInput),
+            ...(bashTerminalInput ? { bashTerminalInput } : {}),
             completedAt: completedAt.toISOString(),
             durationMs,
             code: result.error.code,
@@ -1012,6 +1018,7 @@ export class AgentRuntimeService {
             toolCallId: call.id,
             toolName: call.name,
             input: this.publicToolInput(call.name, toolInput),
+            ...(bashTerminalInput ? { bashTerminalInput } : {}),
             completedAt: completedAt.toISOString(),
             durationMs,
             code: result.error.code,
@@ -1171,6 +1178,13 @@ export class AgentRuntimeService {
   }
 
   // create_file 的正文只进入工具执行，不进入 SSE、快照、日志或历史 metadata。
+  private bashTerminalInput(toolName: string, input: unknown): BashTerminalCommandInput | undefined {
+    const resolved = this.tools.resolveName(toolName);
+    if (resolved !== AGENT_TOOL_NAMES.bash) return undefined;
+    const parsed = bashInputSchema.safeParse(input);
+    return parsed.success ? toBashTerminalCommandInput(parsed.data) : undefined;
+  }
+
   private publicToolInput(toolName: string, input: unknown): unknown {
     const resolved = this.tools.resolveName(toolName);
     if (resolved === AGENT_TOOL_NAMES.bash && typeof input === 'object' && input !== null) {

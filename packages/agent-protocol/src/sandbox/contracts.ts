@@ -183,6 +183,30 @@ export const BASH_TERMINAL_RENDERED_OUTPUT_MAX = 32_000;
 
 export type BashTerminalView = z.infer<typeof bashTerminalViewSchema>;
 
+/** Workbench Terminal 输入区：完整 command，不经过 public summary 截断。 */
+export const bashTerminalCommandInputSchema = z
+  .object({
+    description: z.string().min(1),
+    command: z
+      .string()
+      .min(1)
+      .refine((value) => unicodeLength(value) <= EXECUTE_COMMAND_COMMAND_MAX, {
+        message: `command exceeds ${EXECUTE_COMMAND_COMMAND_MAX} code points`,
+      }),
+    workdir: z.string().min(1).optional(),
+  })
+  .strict();
+
+export type BashTerminalCommandInput = z.infer<typeof bashTerminalCommandInputSchema>;
+
+export function toBashTerminalCommandInput(input: BashInput): BashTerminalCommandInput {
+  return {
+    description: input.description,
+    command: input.command,
+    ...(input.workdir !== undefined ? { workdir: input.workdir } : {}),
+  };
+}
+
 export const bashRunResultSchema = z
   .object({
     exitCode: z.number().int().nullable(),

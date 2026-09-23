@@ -150,6 +150,7 @@
   --theme-approval-text: #2f5d3a;
   --theme-rejection-bg: #f8ecea;
   --theme-rejection-text: #984b41;
+  --theme-user-bubble: #edf3fe;
 
   /* 浅色 Terminal：对齐 DSH 白底 + 浅灰顶栏 + 绿色状态点 */
   --theme-terminal-bg: #ffffff;
@@ -179,7 +180,7 @@
   --h-label-tertiary: var(--theme-text-muted);
   --h-border-l2: color-mix(in srgb, var(--theme-border) 90%, transparent);
   --h-border-l3: var(--theme-border-subtle);
-  --h-bubble: var(--theme-surface-subtle);
+  --h-bubble: var(--theme-user-bubble);
   --h-link: var(--theme-info);
 }
 

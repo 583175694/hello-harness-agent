@@ -8,7 +8,7 @@ import 'katex/dist/katex.min.css';
 type MarkdownContentProps = {
   children: string;
   className?: string;
-  variant?: 'chat' | 'report';
+  variant?: 'chat' | 'report' | 'user';
   isAnimating?: boolean;
 };
 
@@ -122,6 +122,11 @@ export function MarkdownContent({
   const rootClassName = ['markdown-content', `markdown-content--${variant}`, className]
     .filter(Boolean)
     .join(' ');
+
+  // 用户输入按纯文本展示，避免 Markdown 吞掉 textarea 里的单换行。
+  if (variant === 'user') {
+    return <div className={rootClassName}>{children}</div>;
+  }
 
   return (
     <div className={rootClassName}>

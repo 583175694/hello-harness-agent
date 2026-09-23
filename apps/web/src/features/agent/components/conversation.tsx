@@ -650,7 +650,7 @@ const UserMessage = memo(function UserMessage({
           </Attachments>
         ) : null}
         <div className="user-bubble">
-          <MessageResponse>{item.content}</MessageResponse>
+          <MessageResponse variant="user">{item.content}</MessageResponse>
         </div>
         <MessageActions className="message-actions">
           {item.pendingState === 'steer_pending' ? <span>等待下一步骤应用</span> : null}

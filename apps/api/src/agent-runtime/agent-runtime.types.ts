@@ -1,4 +1,5 @@
 import type {
+  BashTerminalCommandInput,
   ClarificationRequest,
   ModelRoundObservation,
   ReasoningEffort,
@@ -83,6 +84,7 @@ export type AgentRuntimeEvent =
       toolCallId: string;
       toolName: string;
       input: unknown;
+      bashTerminalInput?: BashTerminalCommandInput;
       startedAt: string;
       roundId: string;
       roundSequence: number;
@@ -101,6 +103,7 @@ export type AgentRuntimeEvent =
       toolCallId: string;
       toolName: string;
       input: unknown;
+      bashTerminalInput?: BashTerminalCommandInput;
       output: unknown;
       completedAt: string;
       durationMs: number;
@@ -113,6 +116,7 @@ export type AgentRuntimeEvent =
       toolCallId: string;
       toolName: string;
       input: unknown;
+      bashTerminalInput?: BashTerminalCommandInput;
       completedAt: string;
       durationMs: number;
       code: string;
@@ -127,6 +131,7 @@ export type AgentRuntimeEvent =
       toolCallId: string;
       toolName: string;
       input: unknown;
+      bashTerminalInput?: BashTerminalCommandInput;
       completedAt: string;
       durationMs: number;
       code: string;

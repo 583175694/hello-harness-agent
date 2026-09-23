@@ -33,6 +33,13 @@ describe('MarkdownContent', () => {
     expect(screen.getByRole('link', { name: '查看来源' })).toHaveAttribute('target', '_blank');
   });
 
+  it('preserves user textarea line breaks as plain text', () => {
+    const { container } = render(<MarkdownContent variant="user">{'第一行\n第二行'}</MarkdownContent>);
+
+    expect(container.firstChild).toHaveClass('markdown-content--user');
+    expect(container.firstChild?.textContent).toBe('第一行\n第二行');
+  });
+
   it('supports report density and unlabelled fenced code blocks', () => {
     const { container } = render(
       <MarkdownContent variant="report">{'```\nconst result = true;\n```'}</MarkdownContent>,

@@ -893,6 +893,30 @@ textarea:focus-visible {
   color: var(--theme-terminal-fg);
   background: var(--theme-terminal-icon-hover-bg);
 }
+.ai-terminal__input-pane {
+  max-height: min(240px, 35vh);
+  overflow: auto;
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid var(--theme-border-subtle);
+  background: var(--theme-surface);
+}
+.ai-terminal__pane-label {
+  margin-bottom: 6px;
+  color: var(--theme-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ai-terminal__input {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--theme-text-secondary);
+}
 .ai-terminal__content {
   max-height: min(420px, 50vh);
   overflow: auto;
@@ -903,13 +927,15 @@ textarea:focus-visible {
   margin: 0;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--theme-terminal-fg);
 }
 .ai-terminal__ansi {
-  display: inline;
+  display: block;
+  white-space: inherit;
+  word-break: inherit;
 }
 .ai-terminal__output span[style*='color: rgb(0, 0, 0)'],
 .ai-terminal__output span[style*='color: rgb(0,0,0)'] {

@@ -1,5 +1,5 @@
 import type { BashTerminalView } from '@harness/agent-protocol';
-import { summarizeCommand } from '@harness/agent-protocol';
+import Ansi from 'ansi-to-react';
 import { useMemo } from 'react';
 
 import {
@@ -13,29 +13,33 @@ import {
 } from '../../../components/ai-elements/terminal';
 import type { ToolCallStatus } from '../model/types';
 
-/** 与 AI Elements Terminal 一致的 ANSI 语义色（stdout 若自带转义码会一并渲染）。 */
 const ansi = {
   reset: '\x1b[0m',
   dim: '\x1b[2m',
-  green: '\x1b[32m',
   yellow: '\x1b[33m',
 } as const;
 
-export function formatBashTerminalOutput(
+/** 仅工具结果（stdout/stderr 等），不含 command 重复。 */
+export function formatBashTerminalRendered(
   terminal: BashTerminalView,
   busy: boolean,
 ): string {
-  const commandBlock = terminal.command
-    .split('\n')
-    .map((line) => `${ansi.green}$${ansi.reset} ${line}`)
-    .join('\n');
   if (terminal.renderedOutput?.trim()) {
-    return `${commandBlock}\n\n${terminal.renderedOutput.trimEnd()}`;
+    return terminal.renderedOutput.trimEnd();
   }
   if (busy) {
-    return `${commandBlock}\n\n${ansi.yellow}(命令执行中…)${ansi.reset}`;
+    return `${ansi.yellow}(命令执行中…)${ansi.reset}`;
   }
-  return `${commandBlock}\n\n${ansi.dim}(no output)${ansi.reset}`;
+  return `${ansi.dim}(no output)${ansi.reset}`;
+}
+
+/** 复制到剪贴板：完整 command + 输出。 */
+export function formatBashTerminalCopyText(
+  terminal: BashTerminalView,
+  busy: boolean,
+): string {
+  const rendered = formatBashTerminalRendered(terminal, busy);
+  return `${terminal.command}\n\n${rendered}`;
 }
 
 export function BashTerminalPanel({
@@ -48,8 +52,12 @@ export function BashTerminalPanel({
   contextLabel?: string;
 }) {
   const busy = status === 'running' || status === 'cancelling';
-  const output = useMemo(
-    () => formatBashTerminalOutput(terminal, busy),
+  const copyText = useMemo(
+    () => formatBashTerminalCopyText(terminal, busy),
+    [terminal, busy],
+  );
+  const rendered = useMemo(
+    () => formatBashTerminalRendered(terminal, busy),
     [terminal, busy],
   );
   const meta =
@@ -61,11 +69,9 @@ export function BashTerminalPanel({
 
   return (
     <div className="bash-terminal-panel">
-      <Terminal output={output} isStreaming={busy} autoScroll>
+      <Terminal output={copyText} isStreaming={busy} autoScroll>
         <TerminalHeader>
-          <TerminalTitle title={terminal.command}>
-            {contextLabel ?? 'sandbox'} · {summarizeCommand(terminal.command, 96)}
-          </TerminalTitle>
+          <TerminalTitle>{contextLabel ?? 'sandbox'}</TerminalTitle>
           <div className="ai-terminal__header-end">
             {meta ? <span className="bash-terminal-panel__meta">{meta}</span> : null}
             <TerminalStatus />
@@ -74,7 +80,16 @@ export function BashTerminalPanel({
             </TerminalActions>
           </div>
         </TerminalHeader>
-        <TerminalContent />
+        <div className="ai-terminal__input-pane">
+          <div className="ai-terminal__pane-label">输入</div>
+          <pre className="ai-terminal__input">{terminal.command}</pre>
+        </div>
+        <TerminalContent>
+          <div className="ai-terminal__pane-label">输出</div>
+          <pre className="ai-terminal__output">
+            <Ansi className="ai-terminal__ansi">{rendered}</Ansi>
+          </pre>
+        </TerminalContent>
       </Terminal>
     </div>
   );

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatBashTerminalOutput } from '../elements/bash-terminal-panel';
+import {
+  formatBashTerminalCopyText,
+  formatBashTerminalRendered,
+} from '../elements/bash-terminal-panel';
 import { bashCoTLabel, mergeBashTerminalView } from './bash-transparent';
 
 describe('bash transparent copy', () => {
@@ -13,14 +16,16 @@ describe('bash transparent copy', () => {
     ).toBe('Bash · Check current system date');
   });
 
-  it('formats command and output for AI Elements Terminal', () => {
-    const formatted = formatBashTerminalOutput(
-      { description: 'd', command: 'echo hi', renderedOutput: 'hi' },
-      false,
+  it('keeps full command in copy text and separates rendered output', () => {
+    const terminal = {
+      description: 'd',
+      command: 'cat << EOF\nline1\nline2\nEOF',
+      renderedOutput: 'line1\nline2',
+    };
+    expect(formatBashTerminalRendered(terminal, false)).toBe('line1\nline2');
+    expect(formatBashTerminalCopyText(terminal, false)).toBe(
+      'cat << EOF\nline1\nline2\nEOF\n\nline1\nline2',
     );
-    expect(formatted).toContain('echo hi');
-    expect(formatted).toContain('hi');
-    expect(formatted).toContain('\x1b[32m$');
   });
 
   it('merges terminal output on completion', () => {

@@ -103,6 +103,30 @@ export function toolStreamTitle(
   return toolTitle(toolName, input);
 }
 
+export function asToolCopyInput(input: unknown): ToolCopyInput {
+  if (typeof input !== 'object' || input === null) return {};
+  return input as ToolCopyInput;
+}
+
+export function streamToolTitle(event: {
+  toolName: string;
+  input?: unknown;
+  publicName?: string;
+}): string {
+  return toolStreamTitle(event.toolName, asToolCopyInput(event.input), {
+    publicName: event.publicName,
+  });
+}
+
+export function streamToolInputSummary(event: {
+  toolName: string;
+  input?: unknown;
+  publicName?: string;
+}): string {
+  const displayName = resolveActivityToolName(event.toolName, event.publicName);
+  return toolInputSummary(displayName, asToolCopyInput(event.input));
+}
+
 export function toolRunningDetail(toolName: string): string {
   if (toolName === 'web_fetch') return '正在读取和过滤网页正文';
   if (toolName === 'approval_test') return '正在执行已批准的无副作用工具';

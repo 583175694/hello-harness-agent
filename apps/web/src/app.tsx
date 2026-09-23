@@ -95,9 +95,11 @@ import {
   persistedOutputSummary,
   persistedToolDetail,
   toolEventStatus,
-  toolInputSummary,
+  asToolCopyInput,
+  resolveActivityToolName,
+  streamToolInputSummary,
+  streamToolTitle,
   toolRunningDetail,
-  toolTitle,
 } from './features/agent/model/tool-copy';
 import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
@@ -320,7 +322,10 @@ export function workbenchFromPersistedMessage(
     activeView: persistedActiveView(sources.length, Boolean(context && !executions.length)),
     activityStatus: persistedActivityStatus(completedCount, cancelledCount, executions.length),
     executions: executions.map((execution) => {
-      const input = execution.input;
+      const input = asToolCopyInput(execution.input);
+      const publicName =
+        execution.toolName === 'external_tool' ? execution.publicName : undefined;
+      const displayToolName = resolveActivityToolName(execution.toolName, publicName);
       const terminal =
         execution.toolName === 'bash'
           ? mergeBashTerminalView(
@@ -332,18 +337,26 @@ export function workbenchFromPersistedMessage(
         toolCallId: execution.toolCallId,
         runId: message.runId ?? message.id,
         stepId: execution.toolCallId,
-        toolName: execution.toolName,
-        title: toolTitle(execution.toolName, input),
-        detail: persistedToolDetail(execution.status, execution.toolName),
+        toolName: displayToolName,
+        title: streamToolTitle({
+          toolName: execution.toolName,
+          input: execution.input,
+          publicName,
+        }),
+        detail: persistedToolDetail(execution.status, displayToolName),
         status: execution.status,
         elapsed: formatToolDuration(execution.durationMs),
-        inputSummary: toolInputSummary(execution.toolName, input),
+        inputSummary: streamToolInputSummary({
+          toolName: execution.toolName,
+          input: execution.input,
+          publicName,
+        }),
         ...(terminal ? { terminal } : {}),
         outputSummary: persistedOutputSummary({
           status: execution.status,
-          toolName: execution.toolName,
-          fileName: 'fileName' in input ? input.fileName : undefined,
-          title: 'title' in input ? input.title : undefined,
+          toolName: displayToolName,
+          fileName: input.fileName,
+          title: input.title,
           succeededCount: execution.succeededCount,
           failedCount: execution.failedCount,
           passageCount: execution.passageCount,
@@ -392,16 +405,26 @@ export function applyToolEvent(
             'terminalView' in event ? event.terminalView : undefined,
           )
         : undefined;
+    const publicName = 'publicName' in event ? event.publicName : undefined;
+    const displayToolName = resolveActivityToolName(event.toolName, publicName);
     const tool: ToolCallView = {
       toolCallId: event.toolCallId,
       runId: event.messageId,
       stepId: event.toolCallId,
-      toolName: event.toolName,
-      title: toolTitle(event.toolName, event.input),
-      detail: toolRunningDetail(event.toolName),
+      toolName: displayToolName,
+      title: streamToolTitle({
+        toolName: event.toolName,
+        input: event.input,
+        publicName,
+      }),
+      detail: toolRunningDetail(displayToolName),
       status: 'running',
       elapsed: '进行中',
-      inputSummary: toolInputSummary(event.toolName, event.input),
+      inputSummary: streamToolInputSummary({
+        toolName: event.toolName,
+        input: event.input,
+        publicName,
+      }),
       ...(bashTerminal ? { terminal: bashTerminal } : {}),
     };
     const executions = base.executions.some((item) => item.toolCallId === event.toolCallId)

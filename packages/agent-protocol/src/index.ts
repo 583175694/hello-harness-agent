@@ -33,6 +33,7 @@ export * from './web-fetch/contracts.js';
 export * from './files/contracts.js';
 export * from './sandbox/contracts.js';
 export * from './sandbox/bash-render.js';
+export * from './mcp/contracts.js';
 import {
   webFetchInputSchema,
   webFetchPassageSchema,

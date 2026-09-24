@@ -498,7 +498,8 @@ function ReportView({ report, sources: items }: { report: ReportView; sources: S
         </button>
       </div>
       <div className="report-document">
-        {report.content}
+        {report.content ??
+          (report.markdown ? <MarkdownContent>{report.markdown}</MarkdownContent> : null)}
         <div className="report-sources">
           <h3>来源列表</h3>
           {items.map((source) => (

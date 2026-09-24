@@ -592,12 +592,21 @@ K3 Control & HITL Kernel（基本完成）
 
 P8 的完成标准仍然不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Tool/Artifact -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败、用户可控和最小恢复能力。
 
+### 7.5 Mobile Agent（`feature/mobile-agent` / `apps/mobile`）
+
+- **状态**：首版 RN 客户端已落地（Expo Router + 共享 headless 包）；在独立 worktree 开发，见 [dev/mobile-worktree.md](../dev/mobile-worktree.md) 与 [docs/36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)。
+- **共享包**：`@harness/agent-client`、`agent-conversation`、`agent-projection`、`agent-run-state`、`agent-ui-types`；Web 已切引用并通过 unit test。
+- **Mobile 能力**：Settings（API URL / readyz）、Session CRUD Drawer、`useRunObserver` + `applyRunEventToSession`、对话 + 工作台五 Tab、Composer（模型/推理/附件/HITL/controlRun pause·resume）、MCP Settings CRUD/Test、Artifact 预览路由、Maestro smoke、iPad 宽屏并排、可选本地推送。
+- **脚本**：根目录 `pnpm dev:mobile`；`pnpm check` 含 `check:mobile` typecheck。
+- **联调**：Mobile 仅跑 Expo；API 复用本机 Nest `:4318`（真机 Settings 填 Mac LAN IP）。
+
 ## 8. 关联文档
 
 - 产品与范围：[docs/00-agent-core-roadmap.md](./00-agent-core-roadmap.md)
 - 实施阶段：[docs/17-implementation-plan.md](./17-implementation-plan.md)
 - Reasoning 与完整上下文：[docs/27-reasoning-context-transcript.md](./27-reasoning-context-transcript.md)
 - 前端契约：[docs/19-agent-frontend.md](./19-agent-frontend.md)
+- Mobile 前端：[docs/36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)
 - Workbench 契约：[docs/20-agent-workbench.md](./20-agent-workbench.md)
 - API 协议：[docs/11-api-protocol.md](./11-api-protocol.md)
 - 工程结构：[docs/18-project-structure.md](./18-project-structure.md)

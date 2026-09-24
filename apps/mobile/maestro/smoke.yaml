@@ -1,0 +1,7 @@
+appId: com.harness.agent
+---
+- launchApp
+- tapOn: "设置"
+- tapOn: "返回"
+- tapOn: "会话"
+- tapOn: "关闭"

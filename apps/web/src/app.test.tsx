@@ -646,7 +646,9 @@ describe('R1 workbench shell', () => {
     window.history.replaceState({}, '', '/agent/preview?state=waiting');
     render(<App />);
     expect(screen.getByRole('navigation', { name: '预览状态' })).toBeInTheDocument();
-    expect(screen.getByText('等待你的确认')).toBeInTheDocument();
+    expect(
+      screen.getByText('检索材料跨度较大，请确认关注近 12 个月还是近 3 年。'),
+    ).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '最终报告' })).toHaveAttribute(
       'href',
       '/agent/preview?state=final-report',

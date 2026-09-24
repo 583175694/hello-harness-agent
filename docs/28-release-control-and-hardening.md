@@ -411,7 +411,6 @@ K3.2 需要新增但 K3.1 不预实现：
 ```text
 pnpm check
 pnpm test:integration
-pnpm test:e2e
 git diff --check
 ```
 
@@ -445,7 +444,7 @@ K3.1 Runtime Lifecycle + In-process Pause/Resume（已完成）
   → K3.2 HITL：Typed Interrupt + Clarification + Tool Approval
   → K3.3 Steer + Follow-up Queue
   → 需要时再设计持久化 Control Plane
-  → K5 Side-effect Policy & Governance
+  → K6 Side-effect Policy & Governance
 ```
 
 K3.2 必须复用这些生命周期边界和同一 Runtime 等待机制；不得回到 SSE 事件猜测暂停时机、Resume 重建 Runtime 或在未闭合 Tool Transcript 上继续请求模型的实现方式。
@@ -920,10 +919,10 @@ flowchart TD
 K3.1 Runtime Lifecycle
   → K3.2 Clarification & Tool Approval（本文）
   → K3.3 Steer & Follow-up Queue
-  → K5 Side-effect Policy & Governance
+  → K6 Side-effect Policy & Governance
 ```
 
-K3.2 交付 clarification 与 tool approval 两条 HITL 路径，K3.3 在同一 Control Kernel 上交付 Steer、Follow-up Queue 和跨边界竞态处理。K5 负责可信风险分级、不可变授权绑定、真实写能力接入、审批失效、审计和副作用治理。持久化 Control Plane、跨进程恢复和 exactly-once 根据未来部署与能力需求另行冻结。
+K3.2 交付 clarification 与 tool approval 两条 HITL 路径，K3.3 在同一 Control Kernel 上交付 Steer、Follow-up Queue 和跨边界竞态处理。后续 **K5**（Context Engineering 全面优化）与 Control 正交，专项文档待建。**K6** 负责可信风险分级、不可变授权绑定、真实写能力接入、审批失效、审计和副作用治理。持久化 Control Plane、跨进程恢复和 exactly-once 根据未来部署与能力需求另行冻结。
 
 ## 11. 已冻结的业务结论
 

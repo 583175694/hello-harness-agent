@@ -693,7 +693,7 @@ C3 不是 Python Runner、Notebook 或 Code Interpreter 的同义词，而是 Ha
 | B12 | UI / 协议 | Terminal 卡片；`tool_activity` 扩展 `presentation: terminal`、`description`、`exitCode`/`exitSignal`（pill **只信 struct**，不从文本 parse） |
 | B13 | System prompt | 短段：检查 bash 结果中的 `[exit code: N]` |
 | B14 | first-cause | `timedOut` / `aborted` 互斥，与 DSH 一致 |
-| B15 | Bash 策略表 | 与 K5 同步一页：命令类别 ↔ 是否审批 ↔ 升权类型 ↔ 审计字段（见 §6.2.3–§6.2.5） |
+| B15 | Bash 策略表 | 与 K6 同步一页：命令类别 ↔ 是否审批 ↔ 升权类型 ↔ 审计字段（见 §6.2.3–§6.2.5） |
 
 #### 6.2.2 明确不进 C3-B
 
@@ -702,7 +702,7 @@ C3 不是 Python Runner、Notebook 或 Code Interpreter 的同义词，而是 Ha
 - orphan 对账、durable Sandbox 表、腾讯云 VPC 复验（C3-C）
 - agent-browser、多镜像矩阵、PTY / persistent bash、本机 Landlock 实现
 
-#### 6.2.3 Bash 命令策略 v1（K5 与 C3-B 共表）
+#### 6.2.3 Bash 命令策略 v1（K6 与 C3-B 共表）
 
 Host 判定优先于模型 `justification`。v1 建议分类：
 
@@ -840,7 +840,7 @@ C3-C4  完成通知(wakeup) + egress/install v2 + cancel 树 + inputFiles UI + �
 #### 6.4.2 与 C5 / C6 的分工
 
 - **C5**：用 C3（含 C3-D 浏览器能力）做构建/测试/预览；网站源码与构建结果仍进 Artifact。
-- **C6**：页面动作语义、登录态、用户接管、K5 写操作；C3-D 只提供 **容器内浏览器进程与文件**，不实现 C6 级协议。
+- **C6**：页面动作语义、登录态、用户接管、K6 写操作；C3-D 只提供 **容器内浏览器进程与文件**，不实现 C6 级协议。
 
 **对外表述**：C3-D 完成后，可称 Agent 在 **Session Sandbox** 内具备 **headless 浏览器自动化底座（agent-browser + Chromium）**；完整「Browser Use 产品面」仍依赖 **C6**。
 

@@ -241,7 +241,7 @@ docs/33、docs/34、.env.example
 ## 8. 与路线图衔接
 
 ```text
-C3-C（已完成）→ C3-D（本文）→ C6 Browser Use（结构化 tools + K5）
+C3-C（已完成）→ C3-D（本文）→ C6 Browser Use（结构化 tools + K6 Policy）
                       ↓
                  C5 可复用浏览器做预览/构建验证
 ```
@@ -263,7 +263,7 @@ C3-D 验收通过后，在 `implementation-status.md` 将 C3-D 标为已落地�
 | 镜像 | **专用 browser 镜像（MVP 强制）** | 避免运行时 apt/npm 双审批、 flaky 与不可重复 live；代价是体积与运维 digest |
 | 内存 | **3–4GiB（browser 部署）** | Chromium 在 2GiB 下易 OOM；属运维配置而非新模块 |
 | Host Playwright（PDF 等） | **保留，与 Sandbox 无关** | 可信面渲染与隔离面浏览分栈；接受双 Chromium 依赖的维护成本 |
-| 与 C6 边界 | **C3-D = 进程 + 文件 + CLI 结果** | 登录、用户接管、结构化 page 副作用归 C6/K5 |
+| 与 C6 边界 | **C3-D = 进程 + 文件 + CLI 结果** | 登录、用户接管、结构化 page 副作用归 C6/K6 |
 
 ---
 

@@ -412,7 +412,7 @@ C2-B 支持最小、诚实的可追溯性：
 - 服务端对两类 ID 去重并按模型提交顺序保留；`fileIds` 中未知、越权、已删除或不可用的引用仍使本次工具调用失败。
 - 没有网页来源是合法情况，例如报告完全基于用户文件或模型已有知识；UI 不显示空“来源”区域。
 
-当前 Workbench 分别展示 Artifact 和本次 Run 的来源投影，不建设 report-scoped 来源联动。C2-B 不引入 Evidence、Claim、`[Sx]`、锚点级 cited-by 或 Citation Validator；这些属于 K6。
+当前 Workbench 分别展示 Artifact 和本次 Run 的来源投影，不建设 report-scoped 来源联动。C2-B 不引入 Evidence、Claim、`[Sx]`、锚点级 cited-by 或 Citation Validator；这些属于 K7。
 
 ### 5.8 生命周期、幂等与失败边界
 
@@ -471,7 +471,7 @@ Conversation 在报告成功后展示：
 
 - PDF、DOCX、HTML 等多格式渲染和格式模板，属于 C2-C；
 - 在线编辑、局部修改、版本选择、覆盖与回滚，属于 C2-D；
-- Evidence/Claim 模型、逐主张引用、`[Sx]`、Citation Validator 和自动事实复核，属于 K6；
+- Evidence/Claim 模型、逐主张引用、`[Sx]`、Citation Validator 和自动事实复核，属于 K7；
 - 自动生成图表、执行数据分析代码和复杂表格处理，依赖 C3；
 - 公开分享链接、多人协作、评论、发布和全局报告管理器；
 - 报告模板市场、品牌主题、目录 AST、脚注引擎和后台通知；

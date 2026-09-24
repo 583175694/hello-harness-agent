@@ -1,0 +1,25 @@
+[Unit]
+Description=Hello Harness Agent API
+After=network-online.target postgresql.service opensandbox.service
+Wants=network-online.target
+Requires=postgresql.service opensandbox.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/www/hello-harness-agent
+Environment=PATH=/home/ubuntu/.local/node-v22/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/www/hello-harness-agent/.env
+ExecStart=/home/ubuntu/.local/node-v22/bin/node /www/hello-harness-agent/apps/api/dist/main.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/www/hello-harness-agent/artifacts
+
+[Install]
+WantedBy=multi-user.target

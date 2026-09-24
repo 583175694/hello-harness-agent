@@ -4,10 +4,31 @@ import type { AgentToolDefinition } from '../tools/agent-tool.types';
 export type CompactionState = {
   summary: string;
   coveredMessageCount: number;
+  /** 已摘要覆盖的 history unit 数量；与 coveredMessageCount 对齐，优先用于切分。 */
+  coveredUnitCount?: number;
   coveredThroughItemId: string | null;
   version: number;
   tokenCount: number;
 };
+
+/** Prisma 可空字段 → 内存 compaction 状态（避免 null 进入 CE 逻辑）。 */
+export function compactionStateFromDb(row: {
+  summary: string;
+  coveredMessageCount: number;
+  coveredUnitCount: number | null;
+  coveredThroughItemId: string | null;
+  version: number;
+  tokenCount: number;
+}): CompactionState {
+  return {
+    summary: row.summary,
+    coveredMessageCount: row.coveredMessageCount,
+    ...(row.coveredUnitCount != null ? { coveredUnitCount: row.coveredUnitCount } : {}),
+    coveredThroughItemId: row.coveredThroughItemId,
+    version: row.version,
+    tokenCount: row.tokenCount,
+  };
+}
 
 export type ToolResultCandidate = {
   toolCallId: string;

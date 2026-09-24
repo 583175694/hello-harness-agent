@@ -108,6 +108,8 @@ export const AGENT_ERROR_CODES = {
   runDeadlineExceeded: 'RUN_DEADLINE_EXCEEDED',
   // Context Engineering 在强制保留内容仍无法放入模型预算时返回。
   contextBudgetExceeded: 'CONTEXT_BUDGET_EXCEEDED',
+  // Context Engineering 检测到 tool 声明与 tool 结果链不完整（常见于长对话压缩后）。
+  modelTranscriptIntegrityError: 'MODEL_TRANSCRIPT_INTEGRITY_ERROR',
   // 当前 assistant run 已达到模型工具调用次数上限。
   toolCallLimitExceeded: 'TOOL_CALL_LIMIT_EXCEEDED',
   // 工具未在自身声明的外层执行时间内完成。

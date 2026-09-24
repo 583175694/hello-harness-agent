@@ -1,4 +1,5 @@
 import { HttpException } from '@nestjs/common';
+import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 
 type AgentFailure = { code: string; detail: string };
 
@@ -16,10 +17,15 @@ export function toAgentFailure(error: unknown): AgentFailure {
       detail: '当前模型与该会话的推理上下文不兼容，请新建会话或恢复原模型。',
     };
   }
-  if (error instanceof Error && error.message === 'MODEL_TRANSCRIPT_INTEGRITY_ERROR') {
+  if (
+    error instanceof Error &&
+    (error.name === 'ModelTranscriptIntegrityError' ||
+      error.message === 'MODEL_TRANSCRIPT_INTEGRITY_ERROR')
+  ) {
     return {
-      code: 'MODEL_TRANSCRIPT_INTEGRITY_ERROR',
-      detail: '会话模型上下文不完整，请删除该会话并新建会话。',
+      code: AGENT_ERROR_CODES.modelTranscriptIntegrityError,
+      detail:
+        '对话过长后工具调用记录不完整，无法继续。请新建会话后重试，或缩短单次任务的调查范围。',
     };
   }
   if (error instanceof HttpException) {

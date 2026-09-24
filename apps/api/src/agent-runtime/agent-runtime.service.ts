@@ -171,6 +171,21 @@ export class AgentRuntimeService {
       } catch (error) {
         if (
           error instanceof Error &&
+          (error.name === 'ModelTranscriptIntegrityError' ||
+            error.message === 'MODEL_TRANSCRIPT_INTEGRITY_ERROR')
+        ) {
+          this.logger.warn(
+            `上下文工具链不完整 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 上游=${describeLogError(error)}`,
+            AgentRuntimeService.name,
+          );
+          throw new ServiceUnavailableException({
+            code: AGENT_ERROR_CODES.modelTranscriptIntegrityError,
+            detail:
+              '对话过长后工具调用记录不完整，无法继续请求模型。请新建会话后重试，或缩短单次任务的调查范围。',
+          });
+        }
+        if (
+          error instanceof Error &&
           (error.message === 'CONTEXT_BUDGET_EXCEEDED' ||
             error.message === 'FILE_CONTEXT_TOO_LARGE')
         ) {

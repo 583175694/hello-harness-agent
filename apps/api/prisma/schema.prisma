@@ -114,6 +114,7 @@ model ContextCompactionState {
   sessionId             String   @unique @map("session_id")
   summary               String
   coveredMessageCount   Int      @map("covered_message_count")
+  coveredUnitCount      Int?     @map("covered_unit_count")
   coveredThroughItemId  String?  @map("covered_through_item_id")
   version               Int      @default(1)
   tokenCount            Int      @map("token_count")

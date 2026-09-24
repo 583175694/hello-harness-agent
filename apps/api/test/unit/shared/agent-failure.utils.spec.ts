@@ -27,6 +27,16 @@ describe('toAgentFailure', () => {
     });
   });
 
+  it('maps ModelTranscriptIntegrityError to a stable code', () => {
+    const error = new Error('Tool result without matching assistant tool call');
+    error.name = 'ModelTranscriptIntegrityError';
+    expect(toAgentFailure(error)).toEqual({
+      code: AGENT_ERROR_CODES.modelTranscriptIntegrityError,
+      detail:
+        '对话过长后工具调用记录不完整，无法继续。请新建会话后重试，或缩短单次任务的调查范围。',
+    });
+  });
+
   it('falls back to generic stream failure for unknown errors', () => {
     expect(toAgentFailure(new Error('network reset'))).toEqual({
       code: 'MODEL_STREAM_FAILED',

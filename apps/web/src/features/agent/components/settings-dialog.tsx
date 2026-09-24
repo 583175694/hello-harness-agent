@@ -12,12 +12,17 @@ import {
   Wifi,
   X,
 } from 'lucide-react';
-import type { McpCreateServerRequest, McpServerView } from '@harness/agent-protocol';
+import type {
+  McpCreateServerRequest,
+  McpPatchServerRequest,
+  McpServerView,
+} from '@harness/agent-protocol';
 import {
   ApiProblem,
   createMcpServer,
   deleteMcpServer,
   listMcpServers,
+  patchMcpServer,
   testMcpServer,
 } from '../../../api/client';
 import {
@@ -83,6 +88,185 @@ function McpStatusBadge({ status }: { status: McpServerView['status'] }) {
   );
 }
 
+function SettingsSwitch({
+  checked,
+  disabled,
+  label,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  label: string;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="settings-dialog__switch">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        aria-label={label}
+        onChange={(event) => onCheckedChange(event.target.checked)}
+      />
+      <span className="settings-dialog__switch-track" aria-hidden="true" />
+    </label>
+  );
+}
+
+function McpServerToggleRow({
+  title,
+  checked,
+  disabled,
+  onCheckedChange,
+}: {
+  title: string;
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="settings-dialog__mcp-toggle">
+      <div className="settings-dialog__mcp-toggle-title">{title}</div>
+      <SettingsSwitch
+        checked={checked}
+        disabled={disabled}
+        label={title}
+        onCheckedChange={onCheckedChange}
+      />
+    </div>
+  );
+}
+
+function mcpServerPolicySummary(server: McpServerView): string {
+  const enabled = server.enabled ? '已启用' : '已停用';
+  const approval =
+    server.defaultApproval === 'require_approval' ? '执行前需批准' : '自动执行';
+  return `${enabled} · ${approval}`;
+}
+
+type McpServerCardProps = {
+  server: McpServerView;
+  expanded: boolean;
+  patching: boolean;
+  onToggleExpand: () => void;
+  onPatch: (patch: McpPatchServerRequest, toastMessage: string) => void;
+  onTest: () => void;
+  onDelete: () => void;
+  onCopyUrl: () => void;
+};
+
+function McpServerCard({
+  server,
+  expanded,
+  patching,
+  onToggleExpand,
+  onPatch,
+  onTest,
+  onDelete,
+  onCopyUrl,
+}: McpServerCardProps) {
+  const panelId = `mcp-server-panel-${server.id}`;
+
+  return (
+    <li className={`settings-dialog__mcp-card${expanded ? ' is-expanded' : ''}`}>
+      <div className="settings-dialog__mcp-card-header">
+        <button
+          type="button"
+          className="settings-dialog__mcp-card-trigger"
+          aria-expanded={expanded}
+          aria-controls={panelId}
+          onClick={onToggleExpand}
+        >
+          <ChevronDown
+            size={16}
+            className={`settings-dialog__mcp-chevron${expanded ? ' is-expanded' : ''}`}
+            aria-hidden="true"
+          />
+          <span className="settings-dialog__mcp-card-trigger-main">
+            <span className="settings-dialog__mcp-card-title">
+              <code>{server.serverName}</code>
+              <McpStatusBadge status={server.status} />
+              <span className="settings-dialog__pill">{server.toolCount} tools</span>
+            </span>
+            {!expanded ? (
+              <>
+                <span className="settings-dialog__mcp-card-summary">
+                  {mcpServerPolicySummary(server)}
+                </span>
+                {server.lastError ? (
+                  <span className="settings-dialog__mcp-card-error">{server.lastError}</span>
+                ) : null}
+              </>
+            ) : null}
+          </span>
+        </button>
+        <div className="settings-dialog__mcp-card-actions">
+          <button
+            type="button"
+            className="settings-dialog__icon-btn"
+            aria-label="探测"
+            onClick={onTest}
+          >
+            <Wifi size={16} />
+          </button>
+          <button
+            type="button"
+            className="settings-dialog__icon-btn settings-dialog__icon-btn--danger"
+            aria-label="删除"
+            onClick={onDelete}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
+
+      {expanded ? (
+        <div id={panelId} className="settings-dialog__mcp-card-panel">
+          <div className="settings-dialog__mcp-url-line">
+            <code className="settings-dialog__mcp-url" title={server.url}>
+              {server.url}
+            </code>
+            <button
+              type="button"
+              className="settings-dialog__icon-btn"
+              aria-label="复制 URL"
+              onClick={onCopyUrl}
+            >
+              <Copy size={14} />
+            </button>
+          </div>
+          {server.lastError ? (
+            <p className="settings-dialog__inline-error">{server.lastError}</p>
+          ) : null}
+          <div className="settings-dialog__mcp-settings">
+            <McpServerToggleRow
+              title="启用"
+              checked={server.enabled}
+              disabled={patching}
+              onCheckedChange={(enabled) =>
+                onPatch({ enabled }, enabled ? '已启用 MCP Server' : '已停用 MCP Server')
+              }
+            />
+            <McpServerToggleRow
+              title="执行前需批准"
+              checked={server.defaultApproval === 'require_approval'}
+              disabled={patching}
+              onCheckedChange={(requireApproval) =>
+                onPatch(
+                  {
+                    defaultApproval: requireApproval ? 'require_approval' : 'auto_execute',
+                  },
+                  requireApproval ? '已开启工具执行批准' : '已改为自动执行工具',
+                )
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
 export function SettingsDialog({
   open,
   onOpenChange,
@@ -102,6 +286,8 @@ export function SettingsDialog({
   const [form, setForm] = useState<McpCreateServerRequest>(emptyForm);
   const [token, setToken] = useState('');
   const [saving, setSaving] = useState(false);
+  const [patchingServerId, setPatchingServerId] = useState<string | null>(null);
+  const [expandedMcpIds, setExpandedMcpIds] = useState<Set<string>>(() => new Set());
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -122,6 +308,7 @@ export function SettingsDialog({
     if (!open) return;
     setSection('general');
     setMcpAddOpen(false);
+    setExpandedMcpIds(new Set());
     setError(null);
     void refresh();
     closeRef.current?.focus();
@@ -158,6 +345,25 @@ export function SettingsDialog({
       setError(err instanceof ApiProblem ? err.problem.detail : '保存 MCP Server 失败。');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handlePatchServer(id: string, patch: McpPatchServerRequest, toastMessage: string) {
+    setError(null);
+    setPatchingServerId(id);
+    const snapshot = servers;
+    setServers((current) =>
+      current.map((server) => (server.id === id ? { ...server, ...patch } : server)),
+    );
+    try {
+      await patchMcpServer(id, patch);
+      await refresh();
+      toast(toastMessage, 'success');
+    } catch (err) {
+      setServers(snapshot);
+      setError(err instanceof ApiProblem ? err.problem.detail : '更新 MCP 配置失败。');
+    } finally {
+      setPatchingServerId(null);
     }
   }
 
@@ -363,49 +569,26 @@ export function SettingsDialog({
                           <li className="settings-dialog__empty-card">暂无已配置的 MCP Server</li>
                         ) : null}
                         {servers.map((server) => (
-                          <li key={server.id} className="settings-dialog__mcp-card">
-                            <div className="settings-dialog__mcp-card-body">
-                              <div className="settings-dialog__mcp-card-title">
-                                <code>{server.serverName}</code>
-                                <McpStatusBadge status={server.status} />
-                                <span className="settings-dialog__pill">{server.toolCount} tools</span>
-                              </div>
-                              <div className="settings-dialog__mcp-url-line">
-                                <code className="settings-dialog__mcp-url" title={server.url}>
-                                  {server.url}
-                                </code>
-                                <button
-                                  type="button"
-                                  className="settings-dialog__icon-btn"
-                                  aria-label="复制 URL"
-                                  onClick={() => void copyUrl(server.url)}
-                                >
-                                  <Copy size={14} />
-                                </button>
-                              </div>
-                              {server.lastError ? (
-                                <p className="settings-dialog__inline-error">{server.lastError}</p>
-                              ) : null}
-                            </div>
-                            <div className="settings-dialog__mcp-card-actions">
-                              <button
-                                type="button"
-                                className="settings-dialog__icon-btn"
-                                aria-label="探测"
-                                onClick={() => void handleTest(server.id)}
-                              >
-                                <Wifi size={16} />
-                              </button>
-                              <button
-                                type="button"
-                                className="settings-dialog__icon-btn settings-dialog__icon-btn--danger"
-                                aria-label="删除"
-                                onClick={() => void handleDelete(server.id)}
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          </li>
+                          <McpServerCard
+                            key={server.id}
+                            server={server}
+                            expanded={expandedMcpIds.has(server.id)}
+                            patching={patchingServerId === server.id}
+                            onToggleExpand={() =>
+                              setExpandedMcpIds((current) => {
+                                const next = new Set(current);
+                                if (next.has(server.id)) next.delete(server.id);
+                                else next.add(server.id);
+                                return next;
+                              })
+                            }
+                            onPatch={(patch, toastMessage) =>
+                              void handlePatchServer(server.id, patch, toastMessage)
+                            }
+                            onTest={() => void handleTest(server.id)}
+                            onDelete={() => void handleDelete(server.id)}
+                            onCopyUrl={() => void copyUrl(server.url)}
+                          />
                         ))}
                       </ul>
                     </>
@@ -443,14 +626,25 @@ export function SettingsDialog({
                           placeholder="保存后不回显"
                         />
                       </label>
-                      <label className="settings-dialog__checkbox">
-                        <input
-                          type="checkbox"
+                      <div className="settings-dialog__form-toggle-block">
+                        <McpServerToggleRow
+                          title="启用"
                           checked={form.enabled}
-                          onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
+                          onCheckedChange={(enabled) => setForm((f) => ({ ...f, enabled }))}
                         />
-                        启用此服务
-                      </label>
+                        <McpServerToggleRow
+                          title="执行前需批准"
+                          checked={form.defaultApproval === 'require_approval'}
+                          onCheckedChange={(requireApproval) =>
+                            setForm((f) => ({
+                              ...f,
+                              defaultApproval: requireApproval
+                                ? 'require_approval'
+                                : 'auto_execute',
+                            }))
+                          }
+                        />
+                      </div>
                       <label className="settings-dialog__checkbox">
                         <input
                           type="checkbox"

@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 import {
   ApiProblem,
   cancelRun,
+  createClientId,
   cancelPendingInput,
   controlRun,
   createRun,
@@ -1874,7 +1875,7 @@ function PersistentAgentApp({
     // 选择图片后立即创建临时附件，让 UI 在上传请求期间也能显示 loading。
     // 在 API 请求完成前先反馈给用户；临时地址只用于 UI，并在服务端预览接管后释放。
     const localPreviewUrl = URL.createObjectURL(file);
-    const pendingId = `pending-${crypto.randomUUID()}`;
+    const pendingId = `pending-${createClientId()}`;
     attachmentFilesRef.current[pendingId] = file;
     setAttachments((current) => [
       ...current,
@@ -2005,8 +2006,8 @@ function PersistentAgentApp({
     setError(null);
     const createdAt = new Date().toISOString();
     // 乐观 ID 在服务端返回真实 messageId 前稳定定位本轮消息。
-    const localUserId = `local-user-${crypto.randomUUID()}`;
-    const localAssistantId = `local-assistant-${crypto.randomUUID()}`;
+    const localUserId = `local-user-${createClientId()}`;
+    const localAssistantId = `local-assistant-${createClientId()}`;
     let assistantMessageId = localAssistantId;
     let sessionId = currentId;
     const draftSubmissionToken = currentId ? undefined : ++draftSubmissionTokenRef.current;

@@ -69,6 +69,23 @@ export type ModelRoundCompletedEvent = Extract<RunPayload, { type: 'model.round.
 // API 基地址为空时通过 Vite 代理访问同源后端。
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 
+// HTTP deployments are not a secure context, so older browsers may not expose
+// crypto.randomUUID(). Keep client-side idempotency keys available everywhere.
+export function createClientId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+    bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export class ApiProblem extends Error {
   // 保留后端标准 Problem Details，供界面按稳定错误码和用户可读 detail 分别处理。
   constructor(readonly problem: ProblemDetails) {
@@ -168,7 +185,7 @@ export async function createRun(
       content,
       model,
       reasoningEffort,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: createClientId(),
       ...(attachmentIds.length ? { attachmentIds } : {}),
       ...(artifactVersionContext ? { artifactVersionContext } : {}),
     }),
@@ -188,7 +205,7 @@ export async function restoreArtifact(
   const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${encodeURIComponent(artifactId)}/restore`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ expectedCurrentArtifactId, idempotencyKey: crypto.randomUUID() }),
+    body: JSON.stringify({ expectedCurrentArtifactId, idempotencyKey: createClientId() }),
   });
   return restoreArtifactResultSchema.parse(await parseResponse(response));
 }
@@ -326,7 +343,7 @@ export async function submitPendingInput(sessionId: string, content: string): Pr
   const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/pending-inputs`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ content, idempotencyKey: crypto.randomUUID() }),
+    body: JSON.stringify({ content, idempotencyKey: createClientId() }),
   });
   return parseResponse(response);
 }

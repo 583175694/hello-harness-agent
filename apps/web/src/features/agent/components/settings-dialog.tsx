@@ -532,9 +532,6 @@ export function SettingsDialog({
                       <div className="settings-dialog__mcp-toolbar">
                         <div>
                           <h2 className="settings-dialog__page-heading">MCP Servers</h2>
-                          <p className="settings-dialog__page-intro">
-                            管理 Streamable HTTP MCP 连接；凭证加密存储，列表不回显 Token。
-                          </p>
                         </div>
                         <button
                           type="button"
@@ -545,10 +542,6 @@ export function SettingsDialog({
                           添加 Server
                         </button>
                       </div>
-                      <p className="settings-dialog__meta">
-                        catalog generation {catalogGeneration}
-                        {loading ? ' · 加载中…' : ` · ${servers.length} 个已配置`}
-                      </p>
                       <ul className="settings-dialog__mcp-cards">
                         {loading && servers.length === 0 ? (
                           <li className="settings-dialog__empty-card">正在加载…</li>

@@ -2,13 +2,13 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-23（C2/C3 已落地；**规划调整**：Capability C4–C7 优先，K5/K6 后置加强，见 §7）
+> 最后更新：2026-09-24（**当前进度：C4 完成**；下一阶段 C5 未启动）
 
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 **C2 Artifact & Report Generation（C2-A–C2-D）**。C3-A 已把 Sandbox 作为普通 Tool 接入 Runtime；**C3-B** 已将主工具改为 **`bash`**（`execute_command` 仅迁移期别名）：DSH 式 `renderBashResult()` 文本 Tool Message、默认 `auto_execute`、Host `BashCommandPolicyService` 触发的 network/install 升权审批、批准后当次 v1 egress allowlist、Terminal 投影与 spill Artifact 已落地，并在**本机 OpenSandbox + Docker**（`dev/opensandbox-local`）完成 Workbench 手工冒烟（echo/非零退出、普通命令不批、pip/curl 审批、Collect）。Sandbox 默认关闭，需 `SANDBOX_ENABLED` 与 Domain/API Key/带 digest 的镜像后才对模型可见。CI 使用 fake Provider（`pnpm --filter @harness/api test`）；真实 OpenSandbox 见 `dev/opensandbox-local` 与 docs/33 §1.5 UI 冒烟。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成 Markdown Report，或通过 `create_file` 生成 Markdown/HTML/PDF/DOCX/XLSX 等 Artifact；同一逻辑产物支持 **C2-D** 线性版本（`ArtifactSeries`、`revise`/`restore`、Workbench「基于此版本修改」）。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics 和 C1 File & Multimodal Foundation 已落地”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
+当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics、C1–C3 与 **C4 MCP Client（C4-A/B）** 已落地；**Capability 主线当前停在 C4 完成**”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
 评估体系当前暂缓建设。相关实现、配置、命令、数据和专题文档已于 2026-08-17 移除；普通 unit、integration、E2E 与 `agent-testkit` 回归测试继续保留。后续评估能力作为独立模块重新设计，不再阻塞当前 Context Engineering 或功能开发。
 
@@ -40,6 +40,18 @@ C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@
 **C3-C 已落地（代码 + 单测；live 手工签字见 docs/33 §6.3.4）**：Session 级 Sandbox + Prisma `sandbox_instances` + Run **lease**（`releaseRunLease`）；`bash.run_in_background` 与 `job_output` / `job_list` / `job_kill`；`SandboxJobWatcher` 默认 **wakeup**（`quiet` / `maxConsecutiveWakes`）；egress v2 词法 host + 扩展 allowlist + 结构化 audit；orphan 扫描骨架；审批 UI 展示 bash `inputFiles`；模型 definitions 不再暴露 `execute_command` 别名（Snapshot 只读保留）。
 
 **C3-D 已落地（D0–D3）**：专用镜像 [`dev/opensandbox-local/Dockerfile.harness-sandbox-browser`](../dev/opensandbox-local/Dockerfile.harness-sandbox-browser)；`bash` 注入 `AGENT_BROWSER_SESSION*`；`agent-browser` + URL → network 策略；PNG 等截图 **`output` Collect** → Artifact（`fileKind: image`）；OpenSandbox 回归靠 Workbench 冒烟与单测。**当前阶段** Sandbox 在用户 **network 审批** 后默认 **不启用 Host 域名白名单**（命令内 HTTPS 域名动态放行 OpenSandbox egress）；恢复 C3-C v2 白名单：`SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED=true`。实施方案与验收 [docs/34](./34-c3-d-session-browser-agent.md)、[docs/33 §6.4.4](./33-c3-agent-sandbox-cloud-execution.md#644-c3-d-验收与冒烟)。D4 薄 Tool / 规模化 **后置**。
+
+### C4 MCP Client 状态
+
+**C4-A / C4-B 已完成**（设计、验收与手工签字见 [35-c4-mcp-client.md](./35-c4-mcp-client.md) §12.1）：
+
+- HTTP MCP、Admin/Settings、凭证加密、Registry 合并、Run 快照与 `mcpCatalogStale` 护栏、`tool_approval`。
+- B1：PUT 编辑、`enabledTools` allowlist、「可用 N / 共 M」。
+- B2：MCP instructions → Context Engineering。
+- B3：degraded 文案、Context 预览 MCP 行、definitions token warn。
+- B4：Host `list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource`。
+
+大 catalog 未配 allowlist 时仍 **整包 definitions**（过渡态）；按需 expose / CE 预算属后续 **Kernel K5** 规划，**暂无独立设计文档**。stdio、Session 级 MCP、OAuth 不在 C4 范围。
 
 ### C3-B 相对 C3-A 的能力快照（已对齐）
 
@@ -271,12 +283,11 @@ pnpm dev
 
 ## 5. 验证记录
 
-最近一次 UI/工程验证已通过：
+最近一次工程验证（单元 + 集成；UI 用手工 / agent-browser，无 Playwright E2E 脚本）：
 
 ```text
 pnpm check
 pnpm test:integration
-pnpm --filter @harness/web test:e2e
 ```
 
 2026-09-09 完成 C1 File & Multimodal Foundation 全量收口。代码与回归覆盖图片多附件、文件上传与解析、现代 DOCX/XLSX、PDF/TXT/Office 预览、COS 规范化正文、`search_file`/`read_file_lines` 按需读取、长文本粘贴外置为 TXT、失败重试/取消/移除、Session 恢复和消息附件绑定；对应完成提交为 `7f5a747`，后续补充提交为 `c2524b4` 与 `bec0e76`。本轮文档记录以这些已落地代码和测试为准；C1-C 的 OCR、复杂版式、压缩包、密码保护文件、向量检索和全文索引不计入已完成范围。
@@ -441,7 +452,7 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 
 > 本节是 Context Engineering 第一阶段之后的执行顺序。规划区分 **Agent Kernel（内核）** 与 **Capability（功能能力）**；Capability 通过统一 Action/Artifact/Source 协议接入，不反向改变 Runtime 语义。编号是规划编号，不表示已经实现。
 >
-> **当前阶段策略（2026-09-23）**：C1/C2/C3 与 K3/K4 基线已可用；**先推进 Capability 主线（C4→C5→C6→C7）**，尽快形成 MCP、做站预览、Browser Use 等用户可感知闭环。**K5/K6 视为对现有能力的治理与质量加强**，不阻塞 Capability 首期交付——写操作与高风险动作继续复用 **K3.2 `tool_approval`**、Sandbox **bash/network/install 策略** 等已落地机制；待 C4–C6 形态稳定后再集中做 K5 统一 Policy/审计与 K6 引用/完成度验证。
+> **当前阶段（2026-09-24）**：**C4 为 Capability 主线最新完成项**；C5 及以后 **尚未启动**（下一产品切片为 C5 Website Preview 等，见 §7.2）。Kernel 侧 K5（Context Engineering 全面优化，含大 catalog Tool Exposure）、K6（副作用 Policy）、K7（Evidence）均为 **后续规划**，无独立专项文档；写操作继续复用 **K3.2 `tool_approval`** 与 Sandbox 策略。
 
 ### 7.1 Agent Kernel 主线
 
@@ -461,7 +472,7 @@ K3.1 第一批已完成 Runtime Lifecycle 重构：以 `before_model_request`、
 
 K3.2 已实施并验证：完成 `clarification Interrupt → respond → 下一轮 Model Round` 与 `tool_approval Interrupt → approve / reject` 两条 HITL 路径，复用 K3.1 生命周期边界和进程内等待机制；Clarification 事实与 Tool Control Outcome 写入现有 Transcript。K3.3 已完成 Steer 安全边界消费、Follow-up FIFO 调度、pending input 持久化和 Workbench 交互，当前只做最终缺陷回归。持久化 Interrupt、Checkpoint、Command 和跨进程恢复仍需另行冻结。详见 [28-release-control-and-hardening.md](./28-release-control-and-hardening.md)。
 
-K3 已经提供后续能力使用的 Control & HITL Kernel。K5 聚焦真实副作用能力所需的可信风险策略、授权约束和审计。Retry Current Step、执行中自动接管、多实例 Worker、Provider/Search 韧性、系统性安全加固和完整评估/可观测平台移入后续 Backlog，不属于当前 K3 实施范围。
+K3 已经提供后续能力使用的 Control & HITL Kernel。**K6** 聚焦真实副作用能力所需的可信风险策略、授权约束和审计。Retry Current Step、执行中自动接管、多实例 Worker、Provider/Search 韧性、系统性安全加固和完整评估/可观测平台移入后续 Backlog，不属于当前 K3 实施范围。
 
 K4  Agent Task Semantics                         已完成：Plan and Execute、计划投影与恢复
     - Goal、Constraints、Success Criteria（明确任务目标、限制条件和完成标准）
@@ -470,24 +481,27 @@ K4  Agent Task Semantics                         已完成：Plan and Execute、
     - Re-plan / no-progress 检测（发现计划失效或长时间没有进展时重新规划）
     - Task State 持久化并按预算注入 Context（保存任务状态，并在上下文预算内恢复给模型）
 
-K5  Side-effect Policy & Governance               后置加强（Capability 首期不阻塞）
+K5  Context Engineering 全面优化                 后续（开工时再写专项文档）
+    - CE 预算与 compile 分池；Tool Exposure（大 catalog 按需 hydrate；跨 MCP/builtin）
+
+K6  Side-effect Policy & Governance               后置加强
     - 可信 Action 风险元数据与 Policy：区分 read-only、受任务意图授权的可逆写入、需确认写入和禁止操作；风险结论不能由模型自行声明
     - 不可变审批绑定：展示目标、影响、canonical 参数和风险原因；批准只授权原 argumentsHash，参数或目标变化必须重新审批
     - 真实副作用能力接入：本地文件覆盖/删除、外部发送、Code Execution、Browser Use 和 MCP 写操作逐项接入同一 Policy/Interrupt，不允许能力自行绕过
     - 执行结果与审计：记录 policy version、风险级别、决策来源、操作者、时间、批准摘要和最终执行结果；拒绝、取消和过期保持不同语义
     - 失效与竞态：审批超时/过期、审批后取消、重复响应、Tool 启动前状态变化和批量部分批准必须确定性收敛
     - 可逆操作恢复契约：能力可撤销时记录 undo/compensation 信息；不可逆或外部发送必须采用更严格的显式确认
-    后续部署升级条件，不作为当前本地单实例 K5 门槛：
+    后续部署升级条件，不作为当前本地单实例 K6 门槛：
     - durable Interrupt/Command 幂等、服务重启后继续等待、多实例命令路由
     - Tool exactly-once、execution_unknown 对账和跨进程副作用恢复
 
-K6  Evidence / Citation / Completion Verification 后置加强（横切，与 K5 同期或略晚）
+K7  Evidence / Citation / Completion Verification 后置加强（横切，与 K6 同期或略晚）
     - Passage -> Evidence -> Claim -> Citation（从原文片段提取证据，支撑具体结论并生成引用）
     - 来源定位、引用校验和证据覆盖（确认引用能定位原文，并覆盖回答中的关键主张）
     - 最终交付前的任务完成检查与限制说明（交付前检查是否完成，并明确已知局限）
 ```
 
-K3 已经完成通用控制和 HITL 机制；K4 已完成轻量任务语义与计划投影。K5 将把 K3 机制扩展到统一副作用 Policy/审计；K6 会横切研究回答与 Artifact 交付质量。**当前选择先 Capability、后 K5/K6**：新能力上线时沿用现有审批与 Sandbox 策略即可，不在 C4–C6 前冻结完整 Governance 平台。
+K3 已经完成通用控制和 HITL 机制；K4 已完成轻量任务语义与计划投影。**当前 Capability 进度到 C4 为止**；K5/K6/K7 为后续 Kernel 加强项，实施时再拆文档与里程碑。
 
 ### 7.2 Capability 主线
 
@@ -516,13 +530,10 @@ C3  Agent Sandbox & Cloud Execution Environment   高优先级
     - Run 内多次 Tool Call 共享受控 Workspace 和必要状态，输出文件经 Host 校验后进入 File / Artifact 链路
     - 进程、CPU/Memory/Disk/Time、文件和网络隔离；可取消、可审计、可清理，Sandbox Provider 保持可替换
 
-C4  MCP Client & Tool Ecosystem                   **C4-A 已落地（代码 + 单测/集成；live fixture 见 dev/mcp-fixture）**（[35-c4-mcp-client.md](./35-c4-mcp-client.md)）
-    - Host MCP Client（C4-A **HTTP-only**）：Settings/Admin → DB → 动态 `mcp__<server>__<tool>` 合并进 ToolRegistry；Run 级 catalog 快照 + generation 护栏
-    - 对照 DSH + Codex **Run 级 catalog 快照** + execute generation 护栏；不引入 Cordis/plugin_manager
-    - **用户凭证加密落库**（`HARNESS_SECRETS_MASTER_KEY`）；连接、timeout/cancel、审计在 Host；Sandbox 不跑 MCP
-    - C4-A：**Workbench 设置弹框** + `/api/agent/mcp/*`；写操作 **K3.2 tool_approval**；Resources/instructions → C4-B
-
-C5  Website Generation & Workbench Preview        Capability 主线（C4 后或并行）
+C4  MCP Client & Tool Ecosystem                   **已闭环（C4-A / C4-B）**（[35-c4-mcp-client.md](./35-c4-mcp-client.md)）
+    - C4-A：HTTP MCP、Registry 合并、Run 快照 + generation 护栏、Settings（含折叠卡片、启用/批准 PATCH）、凭证加密、`tool_approval`
+    - C4-B（§12.1）：**已落地 + 2026-09-24 手工签字** — B1 Settings（PUT/allowlist、「可用/共」）、B2 instructions→CE、B3 Context/degraded/stale、B4 Host list/read resource（**Tinyfish**）；**不做** stdio / Session 覆盖 / OAuth
+C5  Website Generation & Workbench Preview        **未启动**（C4 之后）
     - HTML/CSS/JS Artifact 生成和版本迭代（生成可运行的网站并支持修改版本）
     - 基于 C3 Agent Sandbox 的构建/校验（在隔离环境中构建并检查网站）
     - Workbench 沙箱预览、运行日志、源码下载和安全网络策略（在工作台安全预览和调试）
@@ -531,7 +542,7 @@ C6  Browser Use                                   Capability 主线（依赖 C3-
     - 使用运行在 C3 Sandbox 中的 agent-browser 作为底层执行能力（用浏览器完成网页交互）
     - open/click/type/select/scroll/extract/screenshot/download（打开、点击、输入、提取和下载）
     - 先支持公开网页和受限流程，再扩展登录态和写操作（先做低风险场景）
-    - 首期：结构化 Browser Tool + 既有 **network/副作用审批**；统一 K5 页面写策略 **后置**
+    - 首期：结构化 Browser Tool + 既有 **network/副作用审批**；统一 **K6** 页面写策略 **后置**
 
 C7  Skills / Notes / TODO / Memory                中期
     - 可复用 Skill、任务模板和输出契约（把常用工作流程封装成可重复能力）
@@ -539,7 +550,7 @@ C7  Skills / Notes / TODO / Memory                中期
     - Memory 写入需有来源、置信度、可见性和用户删除能力（记忆可追溯、可管理、可删除）
 ```
 
-文件和图片上传共享同一 Artifact/Source 底座；Artifact 生成依赖文件和结构化产物模型；Website Generation 依赖 Artifact、C3 Agent Sandbox 和 Workbench Preview；Browser Use 的执行引擎运行在 C3 Sandbox（C3-D），页面语义属于 C6。MCP/C6 接入时保持 **Registry + 现有 HITL**，不把外部 Tool 直接绑进模型不可见的旁路；K5 全量治理在 Capability 形态稳定后收口。
+文件和图片上传共享同一 Artifact/Source 底座；Artifact 生成依赖文件和结构化产物模型；Website Generation 依赖 Artifact、C3 Agent Sandbox 和 Workbench Preview；Browser Use 的执行引擎运行在 C3 Sandbox（C3-D），页面语义属于 C6。MCP/C6 接入时保持 **Registry + 现有 HITL**，不把外部 Tool 直接绑进模型不可见的旁路；**K6** 全量 Policy 在 Capability 形态稳定后收口；Context 膨胀见 **K5**。
 
 ### 7.3 低优先级扩展
 
@@ -579,16 +590,19 @@ K3 Control & HITL Kernel（基本完成）
   -> C1 File & Multimodal Foundation（已完成）
   -> C2 Artifact & Report（C2-A–C2-D，已完成，docs/31）
   -> C3 Sandbox（C3-A–C3-D，已完成，docs/33 / docs/34）
+  -> C4 MCP Client（C4-A/B，已完成，docs/35）
 
-【当前聚焦：Capability 主线】
-  -> C4 MCP Client（外部 Tool 生态；写操作先用 K3.2 审批）
-  -> C5 Website Generation & Workbench Preview（C3 构建 + 沙箱预览）
-  -> C6 Browser Use（C3-D 底座 + 结构化页面 Tool）
+【下一阶段 Capability（未启动）】
+  -> C5 Website Generation & Workbench Preview
+  -> C6 Browser Use
   -> C7 Skills / Notes / TODO / Memory
 
-【后置：Kernel 加强】
-  -> K5 Side-effect Policy & Governance（MCP/C6/Sandbox 写能力统一 Policy 与审计）
-  -> K6 Evidence / Citation / Completion Verification（报告/回答引用与交付检查）
+【后续 Kernel】
+  -> K5 Context Engineering 全面优化（专项文档待建）
+
+【后置：治理与交付质量】
+  -> K6 Side-effect Policy & Governance（MCP/C6/Sandbox 写能力统一 Policy 与审计）
+  -> K7 Evidence / Citation / Completion Verification（报告/回答引用与交付检查）
 
 【低优先级扩展】
   -> L1/L2/L3
@@ -597,7 +611,7 @@ K3 Control & HITL Kernel（基本完成）
   -> L6 Desktop / Mobile
 ```
 
-Capability 阶段不等待 K6 全量；若在 C2 报告或 Research 回答中出现明确的引用/校验痛点，可开 **K6 小切片**，但不改变「先 C4–C7、后 K5/K6 大项」的顺序。第三方连接器优先走 C4 MCP；Background Tasks 仍非 Capability 首期前置。L5 控制台可最后建设，运行数据采集宜随新 Capability 轻量接入。
+第三方连接器优先走 C4 MCP；Background Tasks 非当前前置；L5 控制台最后建设。
 
 本阶段的产品目标是建设 **AI Agent 工作台**：用户可以输入文字、文件和图片，Agent 在可控、可恢复、可验证的 Task Loop 中调用内置工具、Agent Sandbox、MCP 和 Browser Use，最终生成回答、报告、表格或可预览网站；Web、桌面端和移动端在 Agent Kernel 完善后复用同一套 canonical protocol。
 

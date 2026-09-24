@@ -4,6 +4,7 @@ import {
   ChevronUp,
   Copy,
   Moon,
+  Pencil,
   Plus,
   Puzzle,
   Settings2,
@@ -16,6 +17,7 @@ import type {
   McpCreateServerRequest,
   McpPatchServerRequest,
   McpServerView,
+  McpUpdateServerRequest,
 } from '@harness/agent-protocol';
 import {
   ApiProblem,
@@ -24,6 +26,7 @@ import {
   listMcpServers,
   patchMcpServer,
   testMcpServer,
+  updateMcpServer,
 } from '../../../api/client';
 import {
   CONTENT_FONT_SIZE_DEFAULT,
@@ -31,14 +34,17 @@ import {
   CONTENT_FONT_SIZE_MIN,
   type Theme,
 } from '../../../theme';
-import {
-  Dialog,
-  DialogAction,
-  DialogCancel,
-  DialogContent,
-  DialogFooter,
-} from '../../../components/ui/dialog';
+import { Dialog, DialogContent } from '../../../components/ui/dialog';
 import { toast } from '../../../components/ui/toast';
+import { McpServerForm, serverViewToForm } from './mcp-server-form';
+import {
+  McpCardChevron,
+  McpServerToggleRow,
+  McpStatusBadge,
+  McpToolCountPill,
+  mcpDegradedActionHint,
+} from './mcp-settings-shared';
+import { McpToolFilter } from './mcp-tool-filter';
 
 type SettingsSection = 'general' | 'mcp';
 
@@ -54,7 +60,7 @@ type SettingsDialogProps = {
 const emptyForm: McpCreateServerRequest = {
   serverName: 'demo',
   enabled: true,
-  url: 'http://127.0.0.1:8765/mcp',
+  url: '',
   headersPlain: {},
   startupTimeoutMs: 30_000,
   toolCallTimeoutMs: 60_000,
@@ -65,77 +71,6 @@ const emptyForm: McpCreateServerRequest = {
   reconnectEnabled: true,
   reconnectMaxAttempts: 5,
 };
-
-function mcpStatusLabel(status: McpServerView['status']): string {
-  switch (status) {
-    case 'connected':
-      return '已连接';
-    case 'degraded':
-      return '降级';
-    case 'disconnected':
-      return '未连接';
-    default:
-      return status;
-  }
-}
-
-function McpStatusBadge({ status }: { status: McpServerView['status'] }) {
-  return (
-    <span className={`settings-dialog__status settings-dialog__status--${status}`}>
-      <span className="settings-dialog__status-dot" aria-hidden="true" />
-      {mcpStatusLabel(status)}
-    </span>
-  );
-}
-
-function SettingsSwitch({
-  checked,
-  disabled,
-  label,
-  onCheckedChange,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  label: string;
-  onCheckedChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="settings-dialog__switch">
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        aria-label={label}
-        onChange={(event) => onCheckedChange(event.target.checked)}
-      />
-      <span className="settings-dialog__switch-track" aria-hidden="true" />
-    </label>
-  );
-}
-
-function McpServerToggleRow({
-  title,
-  checked,
-  disabled,
-  onCheckedChange,
-}: {
-  title: string;
-  checked: boolean;
-  disabled?: boolean;
-  onCheckedChange: (checked: boolean) => void;
-}) {
-  return (
-    <div className="settings-dialog__mcp-toggle">
-      <div className="settings-dialog__mcp-toggle-title">{title}</div>
-      <SettingsSwitch
-        checked={checked}
-        disabled={disabled}
-        label={title}
-        onCheckedChange={onCheckedChange}
-      />
-    </div>
-  );
-}
 
 function mcpServerPolicySummary(server: McpServerView): string {
   const enabled = server.enabled ? '已启用' : '已停用';
@@ -149,8 +84,9 @@ type McpServerCardProps = {
   expanded: boolean;
   patching: boolean;
   onToggleExpand: () => void;
+  onEdit: () => void;
   onPatch: (patch: McpPatchServerRequest, toastMessage: string) => void;
-  onTest: () => void;
+  onTest: () => Promise<string[]>;
   onDelete: () => void;
   onCopyUrl: () => void;
 };
@@ -160,12 +96,14 @@ function McpServerCard({
   expanded,
   patching,
   onToggleExpand,
+  onEdit,
   onPatch,
   onTest,
   onDelete,
   onCopyUrl,
 }: McpServerCardProps) {
   const panelId = `mcp-server-panel-${server.id}`;
+  const degradedHint = mcpDegradedActionHint(server);
 
   return (
     <li className={`settings-dialog__mcp-card${expanded ? ' is-expanded' : ''}`}>
@@ -177,16 +115,12 @@ function McpServerCard({
           aria-controls={panelId}
           onClick={onToggleExpand}
         >
-          <ChevronDown
-            size={16}
-            className={`settings-dialog__mcp-chevron${expanded ? ' is-expanded' : ''}`}
-            aria-hidden="true"
-          />
+          <McpCardChevron expanded={expanded} />
           <span className="settings-dialog__mcp-card-trigger-main">
             <span className="settings-dialog__mcp-card-title">
               <code>{server.serverName}</code>
               <McpStatusBadge status={server.status} />
-              <span className="settings-dialog__pill">{server.toolCount} tools</span>
+              <McpToolCountPill server={server} />
             </span>
             {!expanded ? (
               <>
@@ -204,8 +138,16 @@ function McpServerCard({
           <button
             type="button"
             className="settings-dialog__icon-btn"
+            aria-label="编辑"
+            onClick={onEdit}
+          >
+            <Pencil size={16} />
+          </button>
+          <button
+            type="button"
+            className="settings-dialog__icon-btn"
             aria-label="探测"
-            onClick={onTest}
+            onClick={() => void onTest()}
           >
             <Wifi size={16} />
           </button>
@@ -238,6 +180,9 @@ function McpServerCard({
           {server.lastError ? (
             <p className="settings-dialog__inline-error">{server.lastError}</p>
           ) : null}
+          {degradedHint ? (
+            <p className="settings-dialog__mcp-hint">{degradedHint}</p>
+          ) : null}
           <div className="settings-dialog__mcp-settings">
             <McpServerToggleRow
               title="启用"
@@ -261,11 +206,19 @@ function McpServerCard({
               }
             />
           </div>
+          <McpToolFilter
+            server={server}
+            disabled={patching}
+            onLoadTools={onTest}
+            onSave={onPatch}
+          />
         </div>
       ) : null}
     </li>
   );
 }
+
+type McpFormMode = { kind: 'add' } | { kind: 'edit'; serverId: string };
 
 export function SettingsDialog({
   open,
@@ -278,7 +231,7 @@ export function SettingsDialog({
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
   const [section, setSection] = useState<SettingsSection>('general');
-  const [mcpAddOpen, setMcpAddOpen] = useState(false);
+  const [mcpFormMode, setMcpFormMode] = useState<McpFormMode | null>(null);
   const [servers, setServers] = useState<McpServerView[]>([]);
   const [catalogGeneration, setCatalogGeneration] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -307,7 +260,7 @@ export function SettingsDialog({
   useEffect(() => {
     if (!open) return;
     setSection('general');
-    setMcpAddOpen(false);
+    setMcpFormMode(null);
     setExpandedMcpIds(new Set());
     setError(null);
     void refresh();
@@ -323,6 +276,26 @@ export function SettingsDialog({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open, onOpenChange]);
 
+  function openAddForm() {
+    setForm(emptyForm);
+    setToken('');
+    setMcpFormMode({ kind: 'add' });
+    setError(null);
+  }
+
+  function openEditForm(server: McpServerView) {
+    setForm(serverViewToForm(server));
+    setToken('');
+    setMcpFormMode({ kind: 'edit', serverId: server.id });
+    setError(null);
+  }
+
+  function buildSecrets() {
+    return token.trim()
+      ? [{ kind: 'bearer' as const, name: 'Authorization', value: token.trim() }]
+      : undefined;
+  }
+
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -330,19 +303,37 @@ export function SettingsDialog({
     try {
       const body: McpCreateServerRequest = {
         ...form,
-        ...(token.trim()
-          ? {
-              secrets: [{ kind: 'bearer' as const, name: 'Authorization', value: token.trim() }],
-            }
-          : {}),
+        ...(buildSecrets() ? { secrets: buildSecrets() } : {}),
       };
       await createMcpServer(body);
       setToken('');
       toast('MCP Server 已保存并开始连接。', 'success');
-      setMcpAddOpen(false);
+      setMcpFormMode(null);
       await refresh();
     } catch (err) {
       setError(err instanceof ApiProblem ? err.problem.detail : '保存 MCP Server 失败。');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleUpdate(event: React.FormEvent) {
+    event.preventDefault();
+    if (mcpFormMode?.kind !== 'edit') return;
+    setSaving(true);
+    setError(null);
+    try {
+      const body: McpUpdateServerRequest = {
+        ...form,
+        ...(buildSecrets() ? { secrets: buildSecrets() } : {}),
+      };
+      await updateMcpServer(mcpFormMode.serverId, body);
+      setToken('');
+      toast('MCP Server 已更新并开始连接。', 'success');
+      setMcpFormMode(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiProblem ? err.problem.detail : '更新 MCP Server 失败。');
     } finally {
       setSaving(false);
     }
@@ -377,23 +368,21 @@ export function SettingsDialog({
     }
   }
 
-  async function handleTest(id: string) {
+  async function handleTest(id: string): Promise<string[]> {
     setError(null);
-    try {
-      const result = await testMcpServer(id);
-      if (result.ok) {
-        const count = result.toolNames.length;
-        toast(
-          count > 0 ? `探测成功，共 ${count} 个工具` : '探测成功，未发现工具',
-          'success',
-        );
-        await refresh();
-      } else {
-        setError(result.error ?? '探测失败。');
-      }
-    } catch (err) {
-      setError(err instanceof ApiProblem ? err.problem.detail : '探测请求失败。');
+    const result = await testMcpServer(id);
+    if (result.ok) {
+      const count = result.toolNames.length;
+      toast(
+        count > 0 ? `探测成功，共 ${count} 个工具` : '探测成功，未发现工具',
+        'success',
+      );
+      await refresh();
+      return result.toolNames;
     }
+    const message = result.error ?? '探测失败。';
+    setError(message);
+    throw new Error(message);
   }
 
   async function copyUrl(url: string) {
@@ -404,6 +393,8 @@ export function SettingsDialog({
       setError('复制失败，请手动选择 URL。');
     }
   }
+
+  const mcpFormVisible = mcpFormMode !== null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -428,7 +419,7 @@ export function SettingsDialog({
                 aria-current={section === 'general' ? 'true' : undefined}
                 onClick={() => {
                   setSection('general');
-                  setMcpAddOpen(false);
+                  setMcpFormMode(null);
                   setError(null);
                 }}
               >
@@ -536,7 +527,7 @@ export function SettingsDialog({
                 <div className="settings-dialog__mcp-page">
                   {error ? <div className="settings-dialog__error-banner">{error}</div> : null}
 
-                  {!mcpAddOpen ? (
+                  {!mcpFormVisible ? (
                     <>
                       <div className="settings-dialog__mcp-toolbar">
                         <div>
@@ -548,10 +539,7 @@ export function SettingsDialog({
                         <button
                           type="button"
                           className="settings-dialog__outline-btn"
-                          onClick={() => {
-                            setMcpAddOpen(true);
-                            setError(null);
-                          }}
+                          onClick={openAddForm}
                         >
                           <Plus size={14} aria-hidden="true" />
                           添加 Server
@@ -582,86 +570,43 @@ export function SettingsDialog({
                                 return next;
                               })
                             }
+                            onEdit={() => openEditForm(server)}
                             onPatch={(patch, toastMessage) =>
                               void handlePatchServer(server.id, patch, toastMessage)
                             }
-                            onTest={() => void handleTest(server.id)}
+                            onTest={() => handleTest(server.id)}
                             onDelete={() => void handleDelete(server.id)}
                             onCopyUrl={() => void copyUrl(server.url)}
                           />
                         ))}
                       </ul>
                     </>
+                  ) : mcpFormMode?.kind === 'add' ? (
+                    <McpServerForm
+                      key="mcp-add"
+                      mode="create"
+                      heading="添加 MCP Server"
+                      form={form}
+                      onFormChange={setForm}
+                      token={token}
+                      onTokenChange={setToken}
+                      saving={saving}
+                      onSubmit={(e) => void handleCreate(e)}
+                      onCancel={() => setMcpFormMode(null)}
+                    />
                   ) : (
-                    <form className="settings-dialog__form" onSubmit={(e) => void handleCreate(e)}>
-                      <h2 className="settings-dialog__page-heading">添加 MCP Server</h2>
-                      <label className="settings-dialog__field">
-                        <span className="settings-dialog__field-label">Server Name</span>
-                        <input
-                          className="settings-dialog__field-input settings-dialog__field-input--mono"
-                          value={form.serverName}
-                          onChange={(e) => setForm((f) => ({ ...f, serverName: e.target.value }))}
-                          required
-                          pattern="^[A-Za-z0-9_-]+$"
-                        />
-                      </label>
-                      <label className="settings-dialog__field">
-                        <span className="settings-dialog__field-label">Endpoint URL</span>
-                        <input
-                          className="settings-dialog__field-input settings-dialog__field-input--mono"
-                          type="url"
-                          value={form.url}
-                          onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
-                          required
-                        />
-                      </label>
-                      <label className="settings-dialog__field">
-                        <span className="settings-dialog__field-label">Bearer Token（可选）</span>
-                        <input
-                          className="settings-dialog__field-input settings-dialog__field-input--mono"
-                          type="password"
-                          autoComplete="off"
-                          value={token}
-                          onChange={(e) => setToken(e.target.value)}
-                          placeholder="保存后不回显"
-                        />
-                      </label>
-                      <div className="settings-dialog__form-toggle-block">
-                        <McpServerToggleRow
-                          title="启用"
-                          checked={form.enabled}
-                          onCheckedChange={(enabled) => setForm((f) => ({ ...f, enabled }))}
-                        />
-                        <McpServerToggleRow
-                          title="执行前需批准"
-                          checked={form.defaultApproval === 'require_approval'}
-                          onCheckedChange={(requireApproval) =>
-                            setForm((f) => ({
-                              ...f,
-                              defaultApproval: requireApproval
-                                ? 'require_approval'
-                                : 'auto_execute',
-                            }))
-                          }
-                        />
-                      </div>
-                      <label className="settings-dialog__checkbox">
-                        <input
-                          type="checkbox"
-                          checked={form.required}
-                          onChange={(e) => setForm((f) => ({ ...f, required: e.target.checked }))}
-                        />
-                        启动 Run 时必须连接成功
-                      </label>
-                      <DialogFooter className="settings-dialog__form-footer">
-                        <DialogCancel type="button" onClick={() => setMcpAddOpen(false)}>
-                          取消
-                        </DialogCancel>
-                        <DialogAction type="submit" disabled={saving}>
-                          {saving ? '保存中…' : '保存并连接'}
-                        </DialogAction>
-                      </DialogFooter>
-                    </form>
+                    <McpServerForm
+                      key={mcpFormMode.serverId}
+                      mode="edit"
+                      heading="编辑 MCP Server"
+                      form={form}
+                      onFormChange={setForm}
+                      token={token}
+                      onTokenChange={setToken}
+                      saving={saving}
+                      onSubmit={(e) => void handleUpdate(e)}
+                      onCancel={() => setMcpFormMode(null)}
+                    />
                   )}
                 </div>
               ) : null}

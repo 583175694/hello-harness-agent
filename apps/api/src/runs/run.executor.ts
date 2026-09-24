@@ -132,7 +132,7 @@ export class RunExecutor implements OnModuleDestroy {
     if (!active || !stored) return;
     if (!active.mcpSnapshot) {
       try {
-        active.mcpSnapshot = await this.mcpLatch.captureForUser(LOCAL_USER_ID);
+        active.mcpSnapshot = await this.mcpLatch.captureForUser(LOCAL_USER_ID, runId);
       } catch (error) {
         const failure = this.mcpLatchFailure(error);
         this.logger.warn(

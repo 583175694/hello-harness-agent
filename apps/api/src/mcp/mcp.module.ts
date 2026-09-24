@@ -7,6 +7,7 @@ import { McpRunLatchService } from './mcp-run-latch.service';
 import { McpServerConfigRepository } from './mcp-server-config.repository';
 import { McpServerSecretsRepository } from './mcp-server-secrets.repository';
 import { McpToolCatalogService } from './mcp-tool-catalog.service';
+import { McpResourceExecutor } from './mcp-resource.executor';
 import { McpToolExecutor } from './mcp-tool-executor';
 import { SecretsCryptoService } from './secrets-crypto.service';
 
@@ -20,12 +21,14 @@ import { SecretsCryptoService } from './secrets-crypto.service';
     McpConnectionManager,
     McpToolCatalogService,
     McpToolExecutor,
+    McpResourceExecutor,
     McpRunLatchService,
     McpAdminService,
   ],
   exports: [
     McpToolCatalogService,
     McpToolExecutor,
+    McpResourceExecutor,
     McpRunLatchService,
     McpConnectionManager,
     SecretsCryptoService,

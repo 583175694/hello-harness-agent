@@ -292,6 +292,11 @@ function ContextView({ context }: { context?: WorkbenchState['context'] }) {
             {context.estimatedInputTokens.toLocaleString()} estimated tokens · attempt{' '}
             {context.attempt}
           </span>
+          {context.mcp ? (
+            <span>
+              MCP gen {context.mcp.catalogGeneration} · {context.mcp.toolCount} tools latched
+            </span>
+          ) : null}
         </div>
       </div>
       <JsonViewer value={context} />

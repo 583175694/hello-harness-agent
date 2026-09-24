@@ -166,6 +166,9 @@ export class AgentRuntimeService {
               tools: definitions,
               signal: runSignal,
               ...(compactionState ? { compactionState } : {}),
+              ...(input.mcpSnapshot?.serverInstructions.length
+                ? { mcpInstructions: input.mcpSnapshot.serverInstructions }
+                : {}),
             })
           : { messages, estimatedInputTokens: 0, promptBudget: null, compactionTriggered: false };
       } catch (error) {
@@ -408,6 +411,14 @@ export class AgentRuntimeService {
             messages: structuredClone(roundMessages),
             response: structuredClone(roundResponse),
             tools: structuredClone(definitions ?? []),
+            ...(input.mcpSnapshot
+              ? {
+                  mcp: {
+                    catalogGeneration: input.mcpSnapshot.catalogGeneration,
+                    toolCount: input.mcpSnapshot.entries.length,
+                  },
+                }
+              : {}),
           },
         };
         const blockOrder = [

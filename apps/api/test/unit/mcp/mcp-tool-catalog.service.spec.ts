@@ -31,7 +31,12 @@ describe('McpToolCatalogService', () => {
   it('definitionsForRun prefers frozen snapshot entries', () => {
     const live = entry({ publicName: 'mcp__live__tool', boundGeneration: 9 });
     const frozen = entry({ publicName: 'mcp__demo__ping', boundGeneration: 2 });
-    const snapshot: RunMcpSnapshot = { catalogGeneration: 2, entries: [frozen] };
+    const snapshot: RunMcpSnapshot = {
+      catalogGeneration: 2,
+      serverInstructions: [],
+      latchedServerNames: ['demo'],
+      entries: [frozen],
+    };
     const connections = {
       getCatalogGeneration: vi.fn(() => 9),
       getPublishedEntries: vi.fn(() => [live]),

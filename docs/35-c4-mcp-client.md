@@ -1,7 +1,7 @@
 # C4：Host MCP Client 与工具生态扩展
 
-> 文档状态：**方案冻结（待实施）**  
-> 最后更新：2026-09-23（DB 用户凭证加密、Settings 必做、HTTP-only、§11 决策冻结、§12 方案自检）  
+> 文档状态：**C4 完成（C4-A / C4-B）**  
+> 最后更新：2026-09-24（§12.1 手工验收；Capability 进度见 [implementation-status](./implementation-status.md)）  
 > 关联：[implementation-status §7](./implementation-status.md)、[33-c3 §7](./33-c3-agent-sandbox-cloud-execution.md)  
 > 外部参考（只读对照）：DSH `docs/subsystems/mcp.md`、`dsh-mcp-client`；Codex 开源 `codex-rs/codex-mcp`、`core/src/mcp_tool_call.rs`
 
@@ -22,9 +22,10 @@
 | Cordis / profile HMR / `plugin_manager` 装包 | 配置由 **Settings → Admin API → DB** 管理，非 Run 内 pnpm 装 Host 代码 |
 | MCP **Server**（对外暴露 Harness 工具） | 可列为 C4 后期或独立项；DSH 亦 defer |
 | Codex 级 **Marketplace / OAuth / Elicitation / Codex Apps** | 首期不做；仅预留扩展点 |
-| **stdio MCP**（子进程） | C4-A **仅 Streamable HTTP**；stdio 后置（本地/单实例 dev 如需再开） |
-| **Tool Search / Deferred namespace**（Codex 大工具集） | 工具数 &lt; ~30 时不做；超阈值再开 C4-C |
-| 完整 **K5** Policy 平台 | 用 `executionPolicy.approval` + server 级默认策略 |
+| **stdio MCP**（子进程） | C4-A/B **不做**；若本地子进程 MCP 有强需求再单独立项 |
+| **Session 级 MCP 覆盖 / OAuth** | C4-B **不做**；配置保持 user 级 DB + Settings |
+| **Tool Search / Deferred / 大 catalog 按需 expose** | 后续 **Kernel K5**（非 C4；专项文档待建） |
+| 完整 **K6** Side-effect Policy 平台 | 用 `executionPolicy.approval` + server 级默认策略 |
 | Sandbox 内跑 MCP Client | 禁止 |
 
 ---
@@ -413,15 +414,27 @@ mcp_server_secrets
    - text content → `output` 字符串或结构化块（与 `renderBashResult` 同级由 Runtime 统一转 Tool Message）
    - 图片：**C4-A** 仅 text 诊断；**C4-B** 接入 C1 Attachment（对齐 DSH attachment 路径）
 
-### 4.7 System prompt / Resources（分期）
+### 4.7 System prompt / Resources / 工具暴露（分期）
 
-**C4-A（MVP）**：仅 tools。
+**C4-A（MVP，已落地）**：仅 MCP **tools**；Run 快照内 **过滤后 tool 列表整包** 进入 `definitions`（无 Resource、无 instructions 注入）。
 
-**C4-B**（对齐 DSH `mcp-resources`）：
+**C4-B（运维 + 理解 Server + 可选 Resource）**：
 
-- 内置 Host 工具：`list_mcp_resources`、`list_mcp_resource_templates`、`read_mcp_resource`（参数 `server` = `serverName`）
-- 每个已连接 server 的非空 **instructions** → Context Engineering 可插入短片段（带上限 `maxInstructionBytes`）
-- 可选：Workbench 展示 MCP server 状态（connected / degraded / lastError）
+| 模块 | 内容 | 对模型的影响 |
+| --- | --- | --- |
+| **B1 Settings 闭环** | 编辑 Server（PUT）、`enabledTools` / `disabledTools` UI（PATCH 已有字段） | **人工收窄** 进入 catalog / Run 快照的 tool 集合；仍 **整包 definitions** |
+| **B2 instructions** | reconcile 取得 server instructions → CE 在 system 区插入短片段（`maxInstructionBytes`、多 server 总上限） | 更好 **选对 Server、少踩权限/参数坑**；**不减少** schema token |
+| **B3 可观测** | Settings degraded 文案；Run/Debug `catalogGeneration`、快照 tool 数；超阈值 warn 日志 | 排障与预算预警 |
+| **B4 Resources（按需）** | Host 工具：`list_mcp_resources`、`list_mcp_resource_templates`、`read_mcp_resource`（`server` = `serverName`） | **按需读 Resource**，不注册成大量 `function` |
+
+**C4-B 明确不做**：stdio、Session 级 MCP 覆盖、OAuth、SSE `mcp_server_status`、MCP 图片 → Attachment（有明确需求再开切片）。
+
+**C4 交付边界**：未配 `enabledTools` 时，过滤后 tools **仍整包** 进入 `definitions`（如 Tushare 200+）。大 catalog 按需 expose、CE 预算分池属后续 **Kernel K5**，不在本文范围。
+
+**边界对照**：
+
+- **C4 完成后（当前）**：allowlist（`enabledTools`）可人工收窄；否则快照内 MCP tools 仍全部进 definitions。
+- **K5（未来）**：按需 expose / discovery 工具 / compile 预算（实施时再写专项文档）。
 
 ---
 
@@ -444,11 +457,15 @@ mcp_server_secrets
 
 **审批展示（K3.2）**：`tool_approval` 卡片展示 `publicName`，并附带 `serverName` / `rawName` / args 摘要（不含解密凭证）。
 
-### 5.2 Workbench / Settings（C4-A 必做）
+### 5.2 Workbench / Settings
 
-- **入口**：Workbench **左下角「设置」** → 打开 **Settings 弹框**（Modal/Drawer）。
-- **MCP 页签**：增删改 MCP Server（HTTP URL、非敏感 headers、**Token/API Key**（写入加密落库）、`enabled`、`defaultApproval` 等），调用 §5.1 Admin API；保存后触发 reconcile。
-- **C4-B 增强**：连接状态、tool 数量、degraded 原因、Run Debug 中的 catalog generation。
+- **入口**：Workbench **左下角「设置」** → Settings 弹框。
+- **C4-A（已落地）**：MCP 页签 — 添加/删除 Server、探测、折叠卡片、**启用** / **执行前需批准** 开关（PATCH）、URL 复制、连接状态与 `toolCount`。
+- **C4-B（已落地）**：
+  - **编辑 Server**（PUT：URL、headers、超时、required、Token 轮换；省略 secret = 保留原密文）。
+  - **工具过滤**：加载 catalog 多选 → PATCH `enabledTools`（全选保存为 `null`）；卡片 **「可用 N / 共 M」**（`toolCountExposed` / `toolCountTotal`）。
+  - **degraded** 时展示 `lastError` + 可操作排查建议（URL/Token/探测/启用开关）。
+  - Run **Context 预览** 一行：`MCP gen {catalogGeneration} · {toolCount} tools latched`（`runContextDebug.mcp`）。
 
 ### 5.3 模型可见性
 
@@ -458,7 +475,7 @@ mcp_server_secrets
 
 ---
 
-## 6. 安全与审批（K5 前置最小集）
+## 6. 安全与审批（K6 Policy 前置最小集）
 
 | 规则 | 默认 |
 | --- | --- |
@@ -472,7 +489,7 @@ mcp_server_secrets
 
 ## 7. 实施阶段
 
-### C4-A — MCP Tools MVP
+### C4-A — MCP Tools MVP（**已落地**）
 
 1. 依赖：`@modelcontextprotocol/sdk`（C4-A：**Streamable HTTP** Client）
 2. `McpConnectionManager.reconcile` + `McpToolCatalogService`（generation、复用、失败保留）
@@ -481,11 +498,11 @@ mcp_server_secrets
 5. Run 创建 latch `mcpCatalogGeneration` + 快照至 **ActiveRun**（§4.5.3）；`definitions(run)` / execute **generation 护栏**（§4.5.1）
 6. Admin CRUD + `SecretsCryptoService` + `mcp_server_secrets` 仓储；`.env.example` 增加 `HARNESS_SECRETS_MASTER_KEY` 说明
 7. Workbench：**左下角设置** → MCP 弹框（§5.2）
-8. `dev/mcp-fixture` 集成测试 + 手工：模型调用 `mcp__demo__ping`
+8. Admin 集成测（`mcp-admin.spec.ts`）+ 真实 HTTP MCP 手工冒烟（如 Tushare / Tinyfish）
 
 **完成标准**：
 
-- 配置 1 个 HTTP demo server（或 fixture），模型可调用；相同 toolCall 幂等
+- 配置至少 1 个真实 HTTP MCP Server，模型可调用；相同 toolCall 幂等
 - reconcile 中 listTools 失败时，旧 tool 列表仍对**已冻结 Run**可用
 - config 变更 generation++ 后，旧 Run 上 MCP execute 返回 `mcpCatalogStale`（不 silent wrong server）
 - duplicate `serverName` 拒绝；`required: false` 慢 server 不阻塞其它 tools
@@ -493,18 +510,92 @@ mcp_server_secrets
 - Settings 可 CRUD server、保存后可见连接结果；GET 永不泄露 token 明文
 - 无 `HARNESS_SECRETS_MASTER_KEY` 时无法保存含 secret 的配置（明确 4xx）
 
-### C4-B — Resources + Instructions + UI
+### C4-B — 可运维、可理解、可选 Resource（**已落地**；手工验收见 §12.1）
 
-- 三 resource 工具 + instructions 注入 Context
-- Workbench：degraded 详情、Run Debug catalog generation
-- **stdio transport**（若需要本地子进程 MCP）
-- 图片结果 → File/Attachment（若产品需要）
+**目标**：在仍可能 **全量 register 过滤后 tools** 的过渡期，让多 Server、大 Server（人工子集）可配置、可维护；补 instructions / Resource；大 catalog 按需暴露 **不在 C4 范围**。
 
-### C4-C — 规模化（按需）
+**实施顺序**：**B1 → B3 → B2 →（按需）B4**。
 
-- Tool 数量超阈值：Codex 式 **deferred namespace** 或 `tool_search`（需 Context 与 UI 设计）
-- Session 级 server 启用、OAuth（参考 Codex `mcp/auth.rs`）
-- 多 API 实例：stdio 仅 sticky 实例；或禁止 stdio、统一 HTTP gateway
+#### B1 — Settings 与 Admin 闭环（优先）
+
+| 任务 | 说明 |
+| --- | --- |
+| 编辑 Server | `PUT /api/agent/mcp/servers/:id`，表单与「添加」复用 |
+| 工具过滤 UI | PATCH `enabledTools` / `disabledTools`；搜索、多选、保存后 reconcile |
+| 可用计数 | 列表卡片：**可用 N / 共 M**（过滤后进 catalog 数 vs `listTools` 总数） |
+| 文档 | [11-api-protocol.md](./11-api-protocol.md) MCP 章与 UI 行为对齐 |
+
+**验收**：Tushare 等可只暴露 10～20 个常用接口；改 Token 无需删重建。
+
+#### B2 — Context：MCP instructions
+
+| 任务 | 说明 |
+| --- | --- |
+| 连接层 | reconcile / initialize 后读取 server **instructions**（若协议提供） |
+| CE | `compileRound` 在 system 区插入 `<mcp_instructions server="…">` 片段；遵守 `maxInstructionBytes`；多 server 合并全局上限 **65536 字节**（`MCP_INSTRUCTIONS_GLOBAL_MAX_BYTES`）；disabled server 不注入 |
+| 单测 | 超长截断、多 server 合并上限 |
+
+**验收**：权限/用法写在 instructions 的 Server 上，模型误用接口减少（辅助 prompt，非硬保证）。
+
+#### B3 — 可观测（轻量）
+
+| 任务 | 说明 |
+| --- | --- |
+| Settings | degraded + `lastError` + 建议动作（URL/Token/required） |
+| Run / Debug | latched `mcpCatalogGeneration`、快照 MCP tool 数 |
+| 日志 | Run 创建时 MCP definitions token 估算；超阈值 warn |
+
+**验收**：`mcpCatalogStale`、required 失败与配置错误可区分。
+
+#### B4 — MCP Resources（**按需**；可排在 B1–B3 之后）
+
+| 任务 | 说明 |
+| --- | --- |
+| Host 工具 | `list_mcp_resources`、`list_mcp_resource_templates`、`read_mcp_resource` |
+| 执行 | 同一 MCP Client + `defaultApproval` / K3.2 |
+| 触发 | 下一批必须接的 MCP **强依赖 resource** 时再开；否则延后 |
+
+**验收**：文档/模板在 Resource 中的 MCP 可读，且不 inflate function definitions。
+
+#### C4-B 端到端流程（与 C4-A 主路径的关系）
+
+```text
+Settings(B1) ──POST/PUT/PATCH──► Admin API ──► reconcile ──► catalog(filtered tools)
+                                                                    │
+Create Run ──latch generation + mcpSnapshot ◄─────────────────────┘
+     │
+     ▼
+compileRound(B2 instructions) + definitions(快照内 MCP tools 仍整包)
+     │
+     ▼
+Agent Loop ──mcp__*──► callTool          Agent Loop ──B4──► list/read resource（可选）
+```
+
+```mermaid
+flowchart TB
+  subgraph B1["B1 Settings"]
+    S1[添加/编辑 Server]
+    S2[enabledTools 过滤]
+    S3[启用 / 批准开关]
+  end
+  subgraph Host["Host MCP"]
+    R[reconcile + catalogGeneration]
+  end
+  subgraph Run["Run"]
+    L[快照 mcpSnapshot]
+    CE[B2 instructions → CE]
+    D[definitions = 快照内 MCP tools 整包]
+    M[模型]
+  end
+  S1 --> R
+  S2 --> R
+  S3 --> R
+  R --> L
+  L --> CE --> D --> M
+  M -->|B4 可选| RES[read_mcp_resource]
+```
+
+**C4-B 不做清单（近期）**：stdio、Session 级 MCP 覆盖、OAuth、SSE `mcp_server_status`、MCP 图片 Attachment、Tool Search / deferred（→ 后续 Kernel K5）。
 
 ---
 
@@ -533,10 +624,14 @@ apps/api/src/agent-runtime/
 packages/agent-protocol/             # mcpUnavailable、mcpCatalogStale；C4-B：SSE mcp_server_status
 
 apps/web/src/features/agent/components/
-  settings-dialog.tsx（或 settings/） # 左下角入口 + MCP 表单
+  settings-dialog.tsx                # C4-A 列表/折叠/开关；C4-B B1 编辑 + enabledTools UI
+
+apps/api/src/context-engineering/
+  context-engineering.service.ts     # C4-B B2：MCP instructions 片段
+
+apps/api/src/tools/                  # C4-B B4：list/read_mcp_resource*（按需）
 
 apps/api/test/integration/mcp-*.spec.ts
-dev/mcp-fixture/                     # 最小 HTTP ping MCP
 ```
 
 ---
@@ -547,7 +642,7 @@ dev/mcp-fixture/                     # 最小 HTTP ping MCP
 | --- | --- |
 | MCP schema 质量差 | 文档说明 garbage-in；C4-B 可选 max description 长度 |
 | HTTP 连接泄漏 /  hung listTools | `OnModuleDestroy` dispose；Run cancel → `AbortSignal`；startup/tool 双超时 |
-| Tool 定义 token 膨胀 | Settings 里 `enabledTools` 过滤；C4-C deferred |
+| Tool 定义 token 膨胀 | Settings 里 `enabledTools` 过滤；**K5** Tool Exposure |
 | 与 C6 边界混淆 | C6 = Sandbox **agent-browser** 公开页；C4 = Host **外连业务 MCP** |
 | DB 凭证泄露 | 加密 at rest；GET 不回明文；日志 redaction；禁止 secret 进 RunEvent payload |
 | 多实例 API | C4-A 单实例假设；每实例独立连接池 + 同一 DB catalog；HTTP MCP 无 sticky 问题 |
@@ -559,12 +654,12 @@ dev/mcp-fixture/                     # 最小 HTTP ping MCP
 
 | # | 项 | 结果 |
 | --- | --- | --- |
-| 1 | fixture ping round-trip | 待手工（`dev/mcp-fixture`） |
+| 1 | 真实 HTTP MCP ping / tool 调用 | ✅ 手工（Tushare 等，§12.1） |
 | 2 | 命名 normalize / 双名分离单测 | 通过 |
 | 3 | tool_approval + MCP execute | 复用 K3.2 路径（待 live） |
 | 4 | Run 内 definitions 不随 reconcile 变化 | 代码：ActiveRun.mcpSnapshot |
 | 5 | listTools 失败保留旧 catalog | 代码：reconcile 保留上一代 |
-| 6 | generation 变更后旧 Run execute → stale | 代码：McpToolExecutor |
+| 6 | generation 变更后旧 Run execute → stale | 手工：待批准窗口内 PATCH allowlist → `mcpCatalogStale`（2026-09-24） |
 | 7 | optional server 超时 omit | 代码：McpRunLatchService |
 | 8 | Settings CRUD + secret 不回显 | UI + 集成 GET |
 | 9 | 无 master key 拒绝写 secret | 代码：McpAdminService 4xx |
@@ -576,7 +671,7 @@ dev/mcp-fixture/                     # 最小 HTTP ping MCP
 | # | 决策 |
 | --- | --- |
 | 1 | **`run.mcpCatalogGeneration` 不进 DB**：Run 创建时在内存绑定当前 `catalogGeneration` + 工具快照，**整个 Run 期间** definitions 只用这份快照；**不**每个 Model Round 重新 listTools。Run 结束后丢弃。用户 **新开 Run** 即重新对齐当前 MCP 配置。 |
-| 2 | **C4-A 仅 HTTP MCP**（Streamable HTTP）；不实现 stdio 子进程（后置）。 |
+| 2 | **C4-A/B 仅 HTTP MCP**（Streamable HTTP）；**不**做 stdio 子进程（除非未来单独立项）。 |
 | 3 | **Settings UI（C4-A 必做）**：左下角设置 → 弹框内 MCP Server 配置（走 Admin API）。 |
 | 4 | **MCP 审批**：完全 **复用 K3.2 `tool_approval`**，不单独做 MCP 审批协议。 |
 | 5 | **Admin 鉴权**：与现有本地 API 一致；MCP 配置属高权限操作。 |
@@ -584,6 +679,8 @@ dev/mcp-fixture/                     # 最小 HTTP ping MCP
 | 7 | **MCP 凭证**：与配置同 **DB + user scope**；应用层加密落库；**不做** C4-A `.env` bootstrap / env 变量名间接引用。部署仅需 **`HARNESS_SECRETS_MASTER_KEY`**（实例主密钥，非用户 Token）。 |
 | 8 | **`required: true`**：未 ready → **Create Run 失败**（§4.5.2），不拖到首 Model Round。 |
 | 9 | **Admin API 路径**：`/api/agent/mcp/*`；与 [11-api-protocol](./11-api-protocol.md) 对齐（C4-A 实施时改文档）。 |
+| 10 | **C4-B 范围**：B1–B3 + 按需 B4；**不做** stdio、Session 级 MCP 覆盖、OAuth。 |
+| 11 | **C4 范围不含** 大 catalog Tool Exposure；后续 Kernel K5，专项文档待建。 |
 
 ### 11.1 概念说明（产品 / 实现共读）
 
@@ -613,17 +710,39 @@ C4-A 建议新加的 server 默认 **false**；只有关键集成才勾 true。
 | 项 | 状态 |
 | --- | --- |
 | 配置与凭证单源 DB + Settings | ✅ 已冻结 |
-| C4-A HTTP-only；stdio → C4-B | ✅ |
-| Registry **合并层**（不改 Nest 静态 `AGENT_TOOLS`） | ✅ 需改 `definitions(run)` 签名 |
-| Run 快照仅 **ActiveRun 内存**；generation 不进 DB | ✅ 与 Connection Durable 范围一致 |
-| `ToolRegistryService` 当前无 `run` 参数 | ⚠️ C4-A **必改** Runtime 调用链（约 `agent-runtime.service.ts` L151） |
-| Prisma 新表 `McpServerConfig` + `mcp_server_secrets` | 📋 待实施 |
-| agent-protocol 错误码 `mcpUnavailable` / `mcpCatalogStale` | 📋 待实施 |
-| 11-api-protocol MCP 路由章节 | 📋 C4-A 随 Controller 一并补 |
-| ModelScope / marketplace 自动导入 | ❌ 非 C4-A |
-| K5 统一 Policy 平台 | ❌ 后置；C4 用 K3.2 + server `defaultApproval` |
+| C4-A HTTP-only；stdio / Session 覆盖 / OAuth | ✅ C4-B **不做** |
+| Registry **合并层**（不改 Nest 静态 `AGENT_TOOLS`） | ✅ 已落地 |
+| Run 快照仅 **ActiveRun 内存**；generation 不进 DB | ✅ 已落地 |
+| Prisma `McpServerConfig` + `mcp_server_secrets` | ✅ C4-A |
+| agent-protocol `mcpUnavailable` / `mcpCatalogStale` | ✅ C4-A |
+| Settings 折叠卡片 + 启用/批准 PATCH | ✅ C4-A（2026-09-24） |
+| C4-B B1 编辑 Server + enabledTools UI | ✅ 已落地 |
+| C4-B B2 instructions → CE | ✅ 已落地 |
+| C4-B B3 Run Debug generation / 快照 tool 数 | ✅ 已落地 |
+| C4-B B4 Resources 三工具 | ✅ 已落地 |
+| K5 Tool Exposure / search + hydrate | 📋 后续 Kernel（非 C4） |
+| 11-api-protocol MCP 章与 B1 UI 对齐 | ✅（§15 + `toolCountExposed`/`Total`） |
+| C4-B 手工验收（Workbench + Settings） | ✅ §12.1（2026-09-24） |
+| ModelScope / marketplace 自动导入 | ❌ 非 C4 |
+| K6 统一 Policy 平台 | ❌ 后置；C4 用 K3.2 + server `defaultApproval` |
 
-**仍可有意的二期项（不阻塞 C4-A）**：Session 级 MCP 覆盖、OAuth、MCP 图片进 Attachment、deferred/tool_search、进程外 Run 恢复时的 MCP 快照持久化。
+### 12.1 C4-B 手工验收（2026-09-24）
+
+环境：本地 `pnpm dev`（Web 4317 / API 4318）。主要 MCP：`tushareMcp`（allowlist 子集）、`Tinyfish`（tools + resource）。
+
+| 切片 | 项 | 结果 | 备注 |
+| --- | --- | --- | --- |
+| B1 | Settings 编辑 PUT、allowlist PATCH、可用/共计数 | ✅ | UI 文案「可用」非「暴露」 |
+| B2 | `<mcp_instructions server="…">` 进 CE system | ✅ | Tushare + Tinyfish 均可见 |
+| B3 | Context `MCP gen · tools latched` | ✅ | 与 Settings `catalogGeneration` 一致 |
+| B3 | degraded + 排查建议 | ✅ | 无效 URL → 降级 + 文案 |
+| B3 | Run 进行中改 catalog → stale | ✅ | `require_approval` 待批时 PATCH allowlist；批准后 `mcpCatalogStale` |
+| B3 | 改 allowlist 后 **新开 Run** 对齐 | ✅ | gen/toolCount 与 definitions 更新 |
+| B4 | `list_mcp_resources` + `read_mcp_resource` | ✅ | **Tinyfish** → `ui://tinyfish/automation`（MCP App HTML）；非 `mcp__*` 注册 |
+
+**C4 结论**：C4-A/B 代码与上述手工项通过；**Capability C4 完成**。
+
+**仍可有意的二期项**：MCP 图片 → Attachment、进程外 Run 恢复时的 MCP 快照持久化、stdio MCP（单独立项）。
 
 ---
 
@@ -633,5 +752,5 @@ C4-A 建议新加的 server 默认 **false**；只有关键集成才勾 true。
 - DSH MCP Client Agent Note：`deepseek-harness/.agents/notes/implemented/feature/2026-07-07-mcp-client-plugin.md`
 - Codex MCP crate：`codex-rs/codex-mcp/`（`McpConnectionSet`、`McpBinding`、`PreparedMcpCall`）
 - Codex 执行与审批：`codex-rs/core/src/mcp_tool_call.rs`（Harness 仅借鉴「prepare + 审批链」形状，不搬 Apps/OAuth）
-- Codex tool 暴露：`core/src/mcp_tool_exposure.rs`（Deferred/tool_search，C4-C 再议）
+- Codex tool 暴露：`core/src/mcp_tool_exposure.rs`（Deferred/tool_search，对照 **K5**）
 - Harness 工具注册：`apps/api/src/tools/tool-registry.service.ts`

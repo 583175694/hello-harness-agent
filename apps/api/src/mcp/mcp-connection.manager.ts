@@ -32,6 +32,8 @@ type ServerRuntimeState = {
   toolCallTimeoutMs: number;
   status: McpServerRuntimeStatus;
   lastError: string | null;
+  instructions: string | null;
+  toolCountTotal: number;
   connection?: LiveConnection;
 };
 
@@ -111,6 +113,8 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
           toolCallTimeoutMs: config.toolCallTimeoutMs,
           status: 'disconnected',
           lastError: null,
+          instructions: null,
+          toolCountTotal: 0,
         };
         this.runtimeByServer.set(config.serverName, state);
       } else {
@@ -126,8 +130,12 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
         const transportConfig = await this.resolveTransport(config);
         const fingerprint = this.transportFingerprint(config, transportConfig);
         await this.ensureConnected(state, config, transportConfig, fingerprint);
-        const tools = await this.listAllTools(state.connection!.client, config.startupTimeoutMs);
+        const client = state.connection!.client;
+        const tools = await this.listAllTools(client, config.startupTimeoutMs);
         const filtered = filterTools(tools, state.enabledTools, state.disabledTools);
+        const instructions = client.getInstructions()?.trim() || null;
+        state.instructions = instructions;
+        state.toolCountTotal = tools.length;
         const entries = filtered.map((tool) =>
           toCatalogEntry(config, tool, nextGeneration, state!.defaultApproval),
         );
@@ -142,6 +150,9 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
           toolCallTimeoutMs: config.toolCallTimeoutMs,
           status: 'connected',
           lastError: null,
+          toolCountTotal: tools.length,
+          toolCountExposed: filtered.length,
+          instructions,
           tools: filtered.map((tool) => ({
             rawName: tool.name,
             description: tool.description ?? '',
@@ -155,6 +166,8 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(`MCP server ${config.serverName} reconcile 失败: ${detail}`);
         state.status = 'degraded';
         state.lastError = detail;
+        const exposedCount = prevTools.length;
+        const totalCount = state.toolCountTotal || exposedCount;
         if (prevTools.length) {
           nextEntries.push(...prevTools.map((entry) => ({ ...entry, boundGeneration: nextGeneration })));
           nextServers.set(config.serverName, {
@@ -167,6 +180,9 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
             toolCallTimeoutMs: config.toolCallTimeoutMs,
             status: 'degraded',
             lastError: detail,
+            toolCountTotal: totalCount,
+            toolCountExposed: exposedCount,
+            instructions: state.instructions,
             tools: prevTools.map((entry) => ({
               rawName: entry.rawName,
               description: entry.description,
@@ -184,6 +200,9 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
             toolCallTimeoutMs: config.toolCallTimeoutMs,
             status: 'degraded',
             lastError: detail,
+            toolCountTotal: 0,
+            toolCountExposed: 0,
+            instructions: state.instructions,
             tools: [],
           });
         }

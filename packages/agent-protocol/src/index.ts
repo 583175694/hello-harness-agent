@@ -127,6 +127,12 @@ export const runContextDebugSchema = z.object({
   // 本轮模型输出，与发送给模型的 messages 分离，便于调试完整观察一轮输入/输出。
   response: z.unknown().optional(),
   tools: z.array(z.unknown()),
+  mcp: z
+    .object({
+      catalogGeneration: z.number().int().nonnegative(),
+      toolCount: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 export const publicModelConfigSchema = z.object({
   id: z.string().min(1),

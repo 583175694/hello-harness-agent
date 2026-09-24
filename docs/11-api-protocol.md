@@ -355,9 +355,9 @@ type PublicConfig = {
 
 不得返回 baseURL、API Key env name、provider secret 或完整内部 model config。
 
-## 15. MCP Admin（C4-A）
+## 15. MCP Admin（C4-A / C4-B）
 
-Host 侧 MCP Server 配置（Streamable HTTP）。`GET /api/agent/mcp/servers` 返回 `servers[]` 与 `catalogGeneration`；响应含 `status`、`toolCount`、`lastError`、`secretsConfigured`，**永不**返回凭证明文。`POST`/`PUT` 可携带 `secrets[]`（`header` | `env` | `bearer`），落库前 AES-GCM 加密，依赖部署 env `HARNESS_SECRETS_MASTER_KEY`。保存后 **同步** `reconcile`（connect + listTools）。`POST .../test` 仅探测，不写入 catalog。模型侧工具名：`mcp__<serverName>__<rawName>`。
+Host 侧 MCP Server 配置（Streamable HTTP）。`GET /api/agent/mcp/servers` 返回 `servers[]` 与 `catalogGeneration`；响应含 `status`、`toolCountExposed` / `toolCountTotal`（`toolCount` 与 `toolCountExposed` 相同，兼容旧客户端；Settings UI 展示为 **可用 N / 共 M**）、`lastError`、`secretsConfigured`，**永不**返回凭证明文。`POST`/`PUT` 可携带 `secrets[]`（`header` | `env` | `bearer`），落库前 AES-GCM 加密，依赖部署 env `HARNESS_SECRETS_MASTER_KEY`；`PUT` 支持编辑 URL/headers/超时等（C4-B）。`PATCH` 支持 `enabled` / `defaultApproval` / `required` / **`enabledTools`**（`null` = 不过滤，全量进 catalog）。保存后 **同步** `reconcile`（connect + listTools）。`POST .../test` 仅探测，不写入 catalog。模型侧 MCP 工具名：`mcp__<serverName>__<rawName>`；**Resources** 不注册为 `mcp__*`，由 Host 工具 `list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource`（参数 `server` = `serverName`）按需读取（C4-B）。
 
 Workbench Chat SSE 对 MCP 与未注册外部工具使用合成 discriminant `external_tool`（`AGENT_TOOL_NAMES.externalTool`），真实公开名放在 `publicName`，`subKind` 为 `mcp` | `unknown`。`tool.completed.result` 为 `{ preview, charCount?, truncated? }`，不进入 `web_search` / Research sources 投影。Conversation `tool_activity` 块仍保存 Runtime 真实 `toolName`（含 `mcp__…`）。
 

@@ -25,6 +25,8 @@ import {
   unitBoundaryMessageCount,
   type TranscriptUnit,
 } from './transcript-units';
+import { formatMcpInstructionsBlock } from '../mcp/mcp-instructions.format';
+import type { McpServerInstructionSnapshot } from '../mcp/mcp.types';
 
 const SAFETY_MINIMUM = 4_096;
 const SUMMARY_MAX_TOKENS = 8_192;
@@ -50,11 +52,12 @@ export class ContextEngineeringService {
 
   // 编译单轮模型上下文，必要时压缩历史并严格检查输入预算。
   async compileRound(input: ContextCompileInput): Promise<CompiledContext> {
+    let messages = this.withMcpInstructions(input.messages, input.mcpInstructions);
     // 未验证上下文配置的模型保持原消息，不执行预算处理。
     const profile = getConfiguredModel(input.model)?.context;
     if (!profile?.verified) {
       return {
-        messages: input.messages,
+        messages,
         estimatedInputTokens: 0,
         promptBudget: null,
         compactionTriggered: false,
@@ -69,8 +72,8 @@ export class ContextEngineeringService {
         });
     const state: CompactionState | undefined =
       input.compactionState ?? (committedRow ? compactionStateFromDb(committedRow) : undefined);
-    const beforePersistedSummary = input.messages;
-    let messages = this.applySummary(input.messages, state?.summary, state);
+    const beforePersistedSummary = messages;
+    messages = this.applySummary(messages, state?.summary, state);
     messages = await this.applyIfValid('after_apply_summary', beforePersistedSummary, async () => messages);
     const beforeCollapse = messages;
     messages = await this.collapseOldToolResults(
@@ -716,5 +719,30 @@ export class ContextEngineeringService {
       keep = Math.max(1, Math.floor(((keep * targetTokens) / tokens) * 0.95));
     }
     return `[${label} truncated: originalTokens=${originalTokens}, retainedTokens=0]`;
+  }
+
+  private withMcpInstructions(
+    messages: ModelMessage[],
+    snapshots?: ReadonlyArray<McpServerInstructionSnapshot>,
+  ): ModelMessage[] {
+    const block = formatMcpInstructionsBlock(snapshots ?? []);
+    if (!block) return messages;
+    const index = messages.findIndex((message) => message.role === 'system');
+    if (index < 0) {
+      return [{ role: 'system', content: block }, ...messages];
+    }
+    const system = messages[index]!;
+    const base =
+      typeof system.content === 'string'
+        ? system.content
+        : Array.isArray(system.content)
+          ? system.content
+              .filter((part) => part.type === 'text')
+              .map((part) => part.text)
+              .join('\n')
+          : '';
+    const next = [...messages];
+    next[index] = { role: 'system', content: `${base}\n\n${block}`.trim() };
+    return next;
   }
 }

@@ -8,6 +8,8 @@ import type { McpToolCatalogEntry, RunMcpSnapshot } from '../../../src/mcp/mcp.t
 
 const snapshot: RunMcpSnapshot = {
   catalogGeneration: 3,
+  serverInstructions: [],
+  latchedServerNames: ['demo'],
   entries: [
     {
       publicName: 'mcp__demo__ping',

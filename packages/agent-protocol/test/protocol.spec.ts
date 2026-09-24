@@ -646,7 +646,7 @@ describe('MCP admin protocol', () => {
   it('parses create-server body without secrets in view schema', () => {
     const body = mcpCreateServerRequestSchema.parse({
       serverName: 'demo',
-      url: 'http://127.0.0.1:8765/mcp',
+      url: 'https://example.com/mcp',
       headersPlain: { 'X-Test': '1' },
     });
     expect(body.defaultApproval).toBe('require_approval');
@@ -670,6 +670,8 @@ describe('MCP admin protocol', () => {
       reconnectMaxAttempts: 5,
       status: 'disconnected',
       toolCount: 0,
+      toolCountExposed: 0,
+      toolCountTotal: 0,
       lastError: null,
       secretsConfigured: { headerNames: [], envKeys: [] },
       createdAt: '2026-09-23T00:00:00.000Z',

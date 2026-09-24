@@ -48,12 +48,53 @@ describe('MCP Admin API', () => {
       .post('/api/agent/mcp/servers')
       .send({
         serverName: testServerName,
-        url: 'http://127.0.0.1:8765/mcp',
+        url: 'https://example.com/mcp',
         enabled: false,
       })
       .expect(201);
     expect(response.body.serverName).toBe(testServerName);
     expect(response.body.secretsConfigured).toEqual({ headerNames: [], envKeys: [] });
     expect(JSON.stringify(response.body)).not.toContain('secret-token');
+    expect(response.body.toolCountExposed).toBe(0);
+    expect(response.body.toolCountTotal).toBe(0);
+  });
+
+  it('updates server via PUT without resending secrets', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/agent/mcp/servers')
+      .send({
+        serverName: `${testServerName}_put`,
+        url: 'https://example.com/mcp',
+        enabled: false,
+      })
+      .expect(201);
+    const updated = await request(app.getHttpServer())
+      .put(`/api/agent/mcp/servers/${created.body.id}`)
+      .send({ url: 'http://127.0.0.1:8766/mcp' })
+      .expect(200);
+    expect(updated.body.url).toBe('http://127.0.0.1:8766/mcp');
+    await prisma.mcpServerConfig.deleteMany({
+      where: { userId: 'local-user', serverName: `${testServerName}_put` },
+    });
+  });
+
+  it('patches enabledTools and exposes count fields', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/agent/mcp/servers')
+      .send({
+        serverName: `${testServerName}_patch`,
+        url: 'https://example.com/mcp',
+        enabled: false,
+      })
+      .expect(201);
+    const patched = await request(app.getHttpServer())
+      .patch(`/api/agent/mcp/servers/${created.body.id}`)
+      .send({ enabledTools: ['ping'] })
+      .expect(200);
+    expect(patched.body.enabledTools).toEqual(['ping']);
+    expect(patched.body.toolCountExposed).toBeLessThanOrEqual(patched.body.toolCountTotal);
+    await prisma.mcpServerConfig.deleteMany({
+      where: { userId: 'local-user', serverName: `${testServerName}_patch` },
+    });
   });
 });

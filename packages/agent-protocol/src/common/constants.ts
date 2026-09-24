@@ -71,6 +71,9 @@ export const AGENT_TOOL_NAMES = {
   jobOutput: 'job_output',
   jobList: 'job_list',
   jobKill: 'job_kill',
+  listMcpResources: 'list_mcp_resources',
+  listMcpResourceTemplates: 'list_mcp_resource_templates',
+  readMcpResource: 'read_mcp_resource',
   // SSE 与 execution 快照中标识 MCP/外部工具的合成 discriminant。
   externalTool: 'external_tool',
 } as const;

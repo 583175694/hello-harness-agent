@@ -737,7 +737,7 @@ Tool Approval 的关键不只是加一个确认按钮，而是保证审批前没
 - Runtime unit：边界顺序、Pause/Resume 竞态、Interrupt 单 pending、clarification interruptId、审批 approve/reject/direct reject 和 Tool Transcript 闭合。
 - Repository/protocol：Interrupt pending/resolved/cancelled 状态、Transcript metadata、Provider 不泄露内部控制字段。
 - 真实有头 `agent-browser`：approve、reject、clarification 三条模型路径；审批前无 Tool Activity，恢复后不重复模型或工具，最终 Run 为 completed。
-- 最终验证：`pnpm check`、`pnpm test:integration`、`pnpm test:e2e`、`git diff --check`。
+- 最终验证：`pnpm check`、`pnpm test:integration`、`git diff --check`；Workbench 回归用 agent-browser 手工/E2E。
 
 ## 16. K4 Agent Task Semantics：Plan and Execute
 

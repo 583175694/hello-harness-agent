@@ -80,7 +80,10 @@ export const mcpServerViewSchema = z.object({
   reconnectEnabled: z.boolean(),
   reconnectMaxAttempts: z.number().int().nonnegative(),
   status: mcpServerStatusSchema,
+  /** @deprecated 与 toolCountExposed 相同；保留以兼容旧客户端 */
   toolCount: z.number().int().nonnegative(),
+  toolCountExposed: z.number().int().nonnegative(),
+  toolCountTotal: z.number().int().nonnegative(),
   catalogGeneration: z.number().int().nonnegative().optional(),
   lastError: z.string().min(1).nullable(),
   secretsConfigured: mcpSecretsConfiguredSchema,

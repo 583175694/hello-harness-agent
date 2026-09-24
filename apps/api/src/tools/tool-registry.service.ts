@@ -1,8 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import { McpToolCatalogService } from '../mcp/mcp-tool-catalog.service';
+import { McpResourceExecutor } from '../mcp/mcp-resource.executor';
 import { McpToolExecutor } from '../mcp/mcp-tool-executor';
-import { isMcpPublicToolName } from '../mcp/mcp.types';
+import { isMcpPublicToolName, isMcpResourceToolName } from '../mcp/mcp.types';
 import type {
   AgentTool,
   AgentToolDefinition,
@@ -34,6 +35,7 @@ export class ToolRegistryService {
     @Inject(AGENT_TOOLS) tools: AgentTool[],
     @Inject(McpToolCatalogService) private readonly mcpCatalog: McpToolCatalogService,
     @Inject(McpToolExecutor) private readonly mcpExecutor: McpToolExecutor,
+    @Inject(McpResourceExecutor) private readonly mcpResourceExecutor: McpResourceExecutor,
   ) {
     this.toolsByName = new Map();
     // 启动期建立唯一索引，重复工具名属于配置错误，必须立即失败而不是后注册覆盖前者。
@@ -135,6 +137,9 @@ export class ToolRegistryService {
   ): Promise<ToolExecutionResult<unknown>> {
     if (isMcpPublicToolName(name)) {
       return this.mcpExecutor.execute(name, input, context, ctx?.mcpSnapshot);
+    }
+    if (isMcpResourceToolName(name)) {
+      return this.mcpResourceExecutor.execute(name, input, context, ctx?.mcpSnapshot);
     }
     const tool = this.get(name);
     if (!tool.isAvailable()) {

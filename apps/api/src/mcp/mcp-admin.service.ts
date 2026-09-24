@@ -188,7 +188,9 @@ export class McpAdminService {
       reconnectEnabled: row.reconnectEnabled,
       reconnectMaxAttempts: row.reconnectMaxAttempts,
       status: runtime?.status ?? view?.status ?? 'disconnected',
-      toolCount: view?.tools.length ?? 0,
+      toolCount: view?.toolCountExposed ?? view?.tools.length ?? 0,
+      toolCountExposed: view?.toolCountExposed ?? view?.tools.length ?? 0,
+      toolCountTotal: view?.toolCountTotal ?? view?.tools.length ?? 0,
       catalogGeneration: this.connections.getCatalogGeneration(),
       lastError: runtime?.lastError ?? view?.lastError ?? null,
       secretsConfigured: this.secrets.secretsConfigured(

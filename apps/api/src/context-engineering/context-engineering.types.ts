@@ -1,4 +1,5 @@
 import type { ModelMessage, ModelToolCall } from '../model/model-adapter';
+import type { McpServerInstructionSnapshot } from '../mcp/mcp.types';
 import type { AgentToolDefinition } from '../tools/agent-tool.types';
 
 export type CompactionState = {
@@ -45,6 +46,7 @@ export type ContextCompileInput = {
   tools?: AgentToolDefinition[];
   signal?: AbortSignal;
   compactionState?: CompactionState;
+  mcpInstructions?: ReadonlyArray<McpServerInstructionSnapshot>;
 };
 
 export type CompiledContext = {

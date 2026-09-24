@@ -58,9 +58,22 @@ import { getDefaultModel } from '../model/model-catalog';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import type { RuntimeLifecycleController } from '../agent-runtime/runtime-lifecycle';
 
+import type { RunMcpSnapshot } from '../mcp/mcp.types';
+import {
+  externalSubKind,
+  isExternalPresentation,
+} from '../tools/tool-presentation';
+import {
+  externalToolCompletedSummary,
+  externalToolInputSummary,
+  externalToolOutputPreview,
+  summarizeExternalToolInput,
+} from '../tools/external-tool-display';
+
 export type PreparedSessionStream = {
   sessionId: string;
   runId?: string;
+  mcpSnapshot?: RunMcpSnapshot;
   userMessageId: string;
   assistantMessageId: string;
   messages: ModelMessage[];
@@ -213,6 +226,7 @@ export class ChatService {
     for await (const event of this.runtime.run({
       sessionId: prepared.sessionId,
       runId: prepared.runId,
+      mcpSnapshot: prepared.mcpSnapshot,
       messageId: prepared.assistantMessageId,
       model,
       systemPrompt: CHAT_SYSTEM_PROMPT,
@@ -321,6 +335,8 @@ export class ChatService {
         continue;
       }
       if (event.type === 'tool.started') {
+        const isWebSearch = event.toolName === AGENT_TOOL_NAMES.webSearch;
+        const isExternalTool = isExternalPresentation(event.toolName);
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
         const isApprovalTest = event.toolName === AGENT_TOOL_NAMES.approvalTest;
         const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
@@ -332,18 +348,7 @@ export class ChatService {
         const isBash = event.toolName === AGENT_TOOL_NAMES.bash;
         const isJobTool = this.isSandboxJobTool(event.toolName);
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
-        const searchInput =
-          isFetch ||
-          isApprovalTest ||
-          isCurrentTime ||
-          isFileSearch ||
-          isFileReadLines ||
-          isCreateFile ||
-          isCreateReport ||
-          isSandboxCommand ||
-          isJobTool
-            ? undefined
-            : this.asSearchInput(event.input);
+        const searchInput = isWebSearch ? this.asSearchInput(event.input) : undefined;
         let toolSummary = searchInput?.query ?? '';
         if (fetchInput) {
           toolSummary = `读取 ${fetchInput.urls.length} 个网页`;
@@ -380,6 +385,8 @@ export class ChatService {
         } else if (event.toolName === AGENT_TOOL_NAMES.jobKill) {
           const parsed = jobKillInputSchema.safeParse(event.input);
           toolSummary = parsed.success ? `终止 job ${parsed.data.job_id}` : '终止后台 job';
+        } else if (isExternalTool) {
+          toolSummary = externalToolInputSummary(event.input);
         }
         const bashStartedInput =
           isBash ? executeCommandInputSummarySchema.safeParse(event.input) : undefined;
@@ -592,7 +599,7 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
-        } else {
+        } else if (isWebSearch) {
           yield {
             type: 'tool.started',
             messageId: prepared.assistantMessageId,
@@ -606,10 +613,28 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
+        } else if (isExternalTool) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.externalTool,
+            publicName: event.toolName,
+            subKind: externalSubKind(event.toolName),
+            title: block.title,
+            input: summarizeExternalToolInput(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
         }
         continue;
       }
       if (event.type === 'tool.completed') {
+        const isWebSearch = event.toolName === AGENT_TOOL_NAMES.webSearch;
+        const isExternalTool = isExternalPresentation(event.toolName);
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
         const isApprovalTest = event.toolName === AGENT_TOOL_NAMES.approvalTest;
         const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
@@ -625,18 +650,7 @@ export class ChatService {
         const jobToolResult = isJobTool
           ? this.toSandboxJobToolTextResult(event.output)
           : undefined;
-        const searchResult =
-          isFetch ||
-          isApprovalTest ||
-          isCurrentTime ||
-          isFileSearch ||
-          isFileReadLines ||
-          isCreateFile ||
-          isCreateReport ||
-          isSandboxCommand ||
-          isJobTool
-            ? undefined
-            : (event.output as SearchToolResult);
+        const searchResult = isWebSearch ? this.asSearchToolResult(event.output) : undefined;
         const fileSearchResult = isFileSearch ? (event.output as FileSearchResult) : undefined;
         const fileReadLinesResult = isFileReadLines
           ? (event.output as FileReadLinesResult)
@@ -659,7 +673,10 @@ export class ChatService {
             ? sandboxCommandCompletion.result
             : undefined;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
-        const searchInput = isFetch ? undefined : this.asSearchInput(event.input);
+        const searchInput = isWebSearch ? this.asSearchInput(event.input) : undefined;
+        const externalOutputPreview = isExternalTool
+          ? externalToolOutputPreview(event.output)
+          : undefined;
         if (fetchResult && fetchInput) {
           projection.recordFetchCompleted({
             toolCallId: event.toolCallId,
@@ -675,6 +692,18 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: searchResult,
+          });
+        } else if (isExternalTool && externalOutputPreview) {
+          const inputRecord = summarizeExternalToolInput(event.input);
+          projection.recordExternalCompleted({
+            toolCallId: event.toolCallId,
+            publicName: event.toolName,
+            subKind: externalSubKind(event.toolName),
+            toolInput: Object.keys(inputRecord).length ? inputRecord : undefined,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            outputPreview: externalOutputPreview.preview,
+            outputCharCount: externalOutputPreview.charCount,
           });
         } else if (isApprovalTest) {
           projection.recordApprovalTestCompleted({
@@ -774,6 +803,7 @@ export class ChatService {
             jobToolResult,
             jobToolName: isJobTool ? event.toolName : undefined,
             searchResult,
+            externalOutputPreview,
           }),
           ...(bashTerminalView
             ? {
@@ -1013,6 +1043,22 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
+        } else if (isExternalTool && externalOutputPreview) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.externalTool,
+            publicName: event.toolName,
+            subKind: externalSubKind(event.toolName),
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: externalOutputPreview,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
         }
         continue;
       }
@@ -1028,6 +1074,23 @@ export class ChatService {
             detail: event.detail,
             retryable: event.retryable,
           });
+        else if (isExternalPresentation(event.toolName)) {
+          const inputRecord = summarizeExternalToolInput(event.input);
+          projection.recordExternalTerminal(
+            {
+              toolCallId: event.toolCallId,
+              publicName: event.toolName,
+              subKind: externalSubKind(event.toolName),
+              toolInput: Object.keys(inputRecord).length ? inputRecord : undefined,
+              completedAt: event.completedAt,
+              durationMs: event.durationMs,
+              code: event.code,
+              detail: event.detail,
+              retryable: event.retryable,
+            },
+            'failed',
+          );
+        }
         const blockId = conversation.failTool({
           toolCallId: event.toolCallId,
           completedAt: event.completedAt,
@@ -1063,6 +1126,22 @@ export class ChatService {
             code: event.code,
             detail: event.detail,
           });
+        else if (isExternalPresentation(event.toolName)) {
+          const inputRecord = summarizeExternalToolInput(event.input);
+          projection.recordExternalTerminal(
+            {
+              toolCallId: event.toolCallId,
+              publicName: event.toolName,
+              subKind: externalSubKind(event.toolName),
+              toolInput: Object.keys(inputRecord).length ? inputRecord : undefined,
+              completedAt: event.completedAt,
+              durationMs: event.durationMs,
+              code: event.code,
+              detail: event.detail,
+            },
+            'cancelled',
+          );
+        }
         const blockId = conversation.cancelTool({
           toolCallId: event.toolCallId,
           completedAt: event.completedAt,
@@ -1184,6 +1263,13 @@ export class ChatService {
   }
 
   // 从 Runtime 未知输入中读取网页搜索参数。
+  private asSearchToolResult(output: unknown): SearchToolResult | undefined {
+    if (typeof output !== 'object' || output === null) return undefined;
+    if (!('results' in output) || !Array.isArray((output as SearchToolResult).results))
+      return undefined;
+    return output as SearchToolResult;
+  }
+
   private asSearchInput(input: unknown): { query: string } {
     if (
       typeof input === 'object' &&
@@ -1402,6 +1488,7 @@ export class ChatService {
     jobToolResult?: { text: string };
     jobToolName?: string;
     searchResult?: SearchToolResult;
+    externalOutputPreview?: { charCount: number; truncated?: boolean };
   }): string {
     if (input.fetchResult) {
       const { stats } = input.fetchResult;
@@ -1428,6 +1515,12 @@ export class ChatService {
         input.executeCommandResult.collection?.status === 'collected' ? '，已收集输出文件' : '';
       return `命令完成，退出码 ${input.executeCommandResult.exitCode ?? '无'}${collected}`;
     }
-    return `找到 ${input.searchResult?.results.length ?? 0} 个结果`;
+    if (input.searchResult) {
+      return `找到 ${input.searchResult.results?.length ?? 0} 个结果`;
+    }
+    if (input.externalOutputPreview) {
+      return externalToolCompletedSummary(input.externalOutputPreview);
+    }
+    return '工具调用已完成';
   }
 }

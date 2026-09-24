@@ -869,6 +869,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
             update: {
               summary: input.compactionState.summary,
               coveredMessageCount: input.compactionState.coveredMessageCount,
+              coveredUnitCount: input.compactionState.coveredUnitCount ?? null,
               coveredThroughItemId: input.compactionState.coveredThroughItemId,
               version: input.compactionState.version,
               tokenCount: input.compactionState.tokenCount,

@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
+import { SandboxModule } from '../sandbox/sandbox.module';
+import { McpModule } from '../mcp/mcp.module';
 import { ChatModule } from '../chat/chat.module';
 import { ModelModule } from '../model/model.module';
+import { FilesModule } from '../files/files.module';
 import { SessionTitleService } from '../sessions/session-title.service';
 import { ActiveRunRegistry } from './active-run.registry';
 import { RunCommandService } from './run-command.service';
@@ -10,11 +13,9 @@ import { RunRepository } from './run.repository';
 import { RunsController } from './runs.controller';
 import { RuntimeLifecycleRegistry } from '../agent-runtime/runtime-lifecycle';
 import { PendingUserInputService } from './pending-user-input.service';
-import { FilesModule } from '../files/files.module';
-import { SandboxModule } from '../sandbox/sandbox.module';
-import { SandboxJobWatcherService } from '../sandbox/sandbox-job-watcher.service';
+
 @Module({
-  imports: [ChatModule, ModelModule, FilesModule, SandboxModule],
+  imports: [SandboxModule, McpModule, ChatModule, ModelModule, FilesModule],
   controllers: [RunsController],
   providers: [
     ActiveRunRegistry,
@@ -25,7 +26,6 @@ import { SandboxJobWatcherService } from '../sandbox/sandbox-job-watcher.service
     SessionTitleService,
     RuntimeLifecycleRegistry,
     PendingUserInputService,
-    SandboxJobWatcherService,
   ],
   exports: [RunCommandService, RunRepository, ActiveRunRegistry, PendingUserInputService],
 })

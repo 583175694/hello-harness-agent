@@ -4,16 +4,16 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering（Tool Result 外置/指针/compaction trigger）、K3 Runtime Control/HITL/Steer/Follow-up、K4 Agent Task Semantics、C1 File & Multimodal Foundation，以及 C2 Artifact/Report 生成与多格式交付。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering（Tool Result 外置/指针/compaction trigger / transcript unit 压缩）、K3 Runtime Control/HITL/Steer/Follow-up、K4 Agent Task Semantics、C1 File & Multimodal Foundation、C2 Artifact/Report 生成与多格式交付、**C3 Agent Sandbox（C3-A～C3-D）**，以及 **C4 Host MCP Client（C4-A/B）**。
 
 ## 1. 项目一句话介绍
 
-这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答/正式报告`、Connection-Durable Run、可断线恢复的 Conversation/Workbench、Model Round 级的 Context 编译/Token 预算/Tool Result 外置与指针回收/历史压缩、C1 文件与多模态输入，以及 C2 生成文件/报告 Artifact 与多格式交付闭环。
+这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答/正式报告`、Connection-Durable Run、可断线恢复的 Conversation/Workbench、Model Round 级的 Context 编译/Token 预算/Tool Result 外置与指针回收/历史压缩、C1 文件与多模态输入、C2 生成文件/报告 Artifact 与多格式交付、C3 OpenSandbox 隔离执行（bash / 后台 job / 沙箱内 agent-browser）、以及 C4 Host 外连 HTTP MCP 与 Settings 管理闭环。
 
 面试时需要主动区分：
 
 ```text
-已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch、Workbench 恢复、Context Engineering（Tool Result 外置/指针/40k compaction trigger）、C2 的 `create_file`/`create_report` 与 Artifact 预览下载及线性版本（C2-D），以及 C1 图片/文本/数据/Office 附件上传、解析、预览、按需读取和模型输入
+已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch、Workbench（Activity/Sources/Artifact/Terminal/Context Debug）、`external_tool` 统一投影、Context Engineering（Tool Result 外置/指针/40k compaction / transcript unit 切分）、C2 的 `create_file`/`create_report` 与 Artifact 预览下载及线性版本（C2-D）、C1 附件全链路、C3 Session 级 Sandbox（`bash`、`job_*`、策略升权审批、Collect/spill Artifact、agent-browser 截图）、C4 HTTP MCP（Registry 合并、凭证加密、allowlist、instructions→CE、Resource 三工具、`mcpCatalogStale` 护栏）
 ```
 
 ## 2. 阶段一：工程基线
@@ -142,6 +142,24 @@ Model Adapter 是供应商差异的唯一边界，Runtime 不依赖 `reasoning_c
 
 > DeepSeek V4 的难点不是把 Base URL 换成兼容接口，而是 Thinking 和 Tool Calling 形成了特殊上下文契约。工具轮的 `reasoning_content` 必须和 Tool Call、Tool Result 一起恢复，但最终回答的 reasoning 不应该继续进入下一轮。我把供应商字段限制在 Model Adapter 内，Runtime 和数据库只保存 canonical transcript；请求时对工具单元做 native replay，对最终回答只回放正文。这样既保证了 DeepSeek 工具链协议，又避免无效 reasoning 持续膨胀上下文，同时不把 raw reasoning 暴露给用户。
 
+### 3.5 工具链 transcript 完整性（请求前硬校验）
+
+**要解决的问题**：多轮 Thinking + Tool Calling 下，若历史里缺少与 Tool Call 配对的 reasoning、或出现 orphan `tool` message（有结果没有对应 `assistant.tool_calls`），DeepSeek 等供应商会在下一轮直接返回 400；若只在流式阶段失败，用户看到的是半截 Run，且难以区分是模型问题还是 transcript 损坏。Context 层的 compaction / 指针折叠若按“消息条数”粗暴切分，还可能把 Tool Unit 拆开，制造 orphan tool。
+
+**解决方式**：在 Model Adapter 编码请求前增加 `model-transcript-integrity` 校验；`compileRound` 在编译输出侧同样拒绝 orphan tool。Adapter 对**仍含 Tool Call 的历史 assistant** 恢复完整 `reasoning_content + content + tool_calls`，而不是只回放正文。校验失败时不发起供应商请求，Run 以 **`MODEL_TRANSCRIPT_INTEGRITY_ERROR`** 等明确错误收敛，避免把协议错误伪装成流式中断。
+
+**技术细节**：
+
+```text
+canonical live transcript
+  -> compileRound（Tool Unit 边界内折叠/压缩）
+  -> model-transcript-integrity 校验配对
+  -> Adapter 按需恢复 reasoning_content
+  -> Chat Completions 请求
+```
+
+这与 §14.3 的 **transcript unit** 切分配合：压缩和 collapse 都按封闭 Tool Unit 移动边界，而不是从 Tool Result 中间切开；摘要失败时不推进 `coveredUnitCount` / `coveredMessageCount`，必要时 rollback，避免“摘要已写入但后半段 tool 消息悬空”。
+
 ## 4. 阶段三：流式对话的一致性边界
 
 ### 4.1 数据流与前端状态提交顺序
@@ -216,7 +234,7 @@ buffer = events.pop() ?? '';
 
 ## 5. 阶段四：Workbench 的状态边界
 
-Workbench 不是另一套对话页面，而是 Agent 执行事实的投影容器。生产链路已经接入真实 Search/Fetch Activity、Sources 和 Context Debug。
+Workbench 不是另一套对话页面，而是 Agent 执行事实的投影容器。生产链路已经接入 Search/Fetch Activity、Sources、Artifact/Report、Sandbox **Terminal**、Context Debug 等视图。
 
 ```text
 Agent Runtime / Event Stream
@@ -226,17 +244,19 @@ Agent Runtime / Event Stream
        |           |
        v           v
  Conversation   Workbench
- (消息摘要)     (Activity, Sources, Report)
+ (消息摘要)     (Activity, Sources, Artifact, Terminal, Debug)
 ```
 
 可讲的设计决策：
 
 - Conversation 用有序文本与 Tool Activity block 还原真实执行时间线；Tool Activity 点击后定位 Workbench，避免再用 RunCard 重复展示同一工具状态。
-- Workbench 根据当前 Run 是否存在可查看的 Activity、Sources 或 Context Debug 展开；没有内容时不渲染空视图。
-- Activity、Sources、Report 是同一运行上下文的不同视图，不应由各组件分别维护一份运行状态。
+- **MCP、Sandbox bash 等工具**在协议层仍是独立 Tool Name，但 UI 统一走 **`external_tool` 投影**：服务端 `tool-presentation` / `external-tool-display` 产出展示类型与摘要字段，Web 的 `tool-copy` 与 Conversation block 只消费 canonical 展示结构，避免为每个连接器写一套卡片。
+- **`bash` Terminal 视图**展示完整命令、分栏 stdin/stdout、主题感知 ANSI 与结构化 `exitCode`；超长输出在 Host 侧 spill 为 Artifact 时，Workbench 仍保留 Terminal 摘要，不把整段日志塞进 Chat 流。
+- Workbench 根据当前 Run 是否存在可查看内容展开；没有内容时不渲染空视图。Activity、Sources、Artifact、Terminal 共享同一 Run 投影，不应由各 Tab 各自维护 execution 状态。
 - 用户手动收起 Workbench 后，本次 run 内由 `pinned/auto-follow` 语义阻止自动重新打开；这类交互状态必须与运行事实分开保存。
+- K3.2 的 Clarification 与 Tool Approval 在前端复用 **Confirmation** 组件，与 Steer/Follow-up 队列分离；控制语义仍由 Runtime Interrupt 驱动，UI 只负责一致交互壳。
 
-当前恢复同时使用 assistant draft metadata、Run snapshot 和 Checkpoint 水位后的进程内 Event Tail。Workbench 的 open/tab/focus/pinned 属于本地选择，不被 server snapshot 覆盖；blocks、execution、source 和 Run 状态属于服务端投影。用户取消通过独立 command API 传播到 Runtime。
+当前恢复同时使用 assistant draft metadata、Run snapshot 和 Checkpoint 水位后的进程内 Event Tail。Workbench 的 open/tab/focus/pinned 属于本地选择，不被 server snapshot 覆盖；blocks、execution、source、artifact 和 Run 状态属于服务端投影。用户取消通过独立 command API 传播到 Runtime。
 
 ## 6. 阶段五：会话持久化与并发隔离
 
@@ -328,16 +348,19 @@ OpenAI-compatible 流中的函数名和 JSON arguments 都可能跨 chunk 返回
 工具层拆成稳定的通用边界：
 
 ```text
-AgentTool             定义名称、Function Schema、可用性和 execute
-Tool Catalog          作为工具白名单与唯一注册入口
-Tool Registry         负责发现、JSON/Zod 校验和分派
-Agent Runtime         负责模型-工具循环、20 次调用上限、超时和终止
-Tool implementation   只负责具体能力和自己的业务不变量
+AgentTool             定义名称、Function Schema、可用性和 execute（内置 Host 工具）
+Tool Catalog          静态 AGENT_TOOLS 白名单
+McpToolCatalog        运行时 reconcile HTTP MCP Server，合并过滤后 definitions
+Tool Registry         发现、JSON/Zod 校验、分派（内置 + MCP 动态层）
+Agent Runtime         模型-工具循环、40 次调用上限、超时、取消、Run 快照 generation 护栏
+Tool implementation   具体能力与其安全/资源不变量（含 Sandbox、MCP Executor）
 ```
 
-新增工具时，只需实现 `AgentTool` 并加入 Catalog，Registry 和 Runtime 不应出现 `if (toolName === ...)` 式的业务执行逻辑。Prompt 负责引导模型何时用工具，具体 Tool/Executor 负责强制输入、安全和能力内部资源边界；不能把安全性寄托在 Prompt 上。Tool 的外层执行超时由 Tool 声明、Runtime 统一组合用户取消并强制执行。
+新增**内置**工具时，实现 `AgentTool` 并加入 Catalog；**MCP 工具**由 Admin 配置 Server，Connection Manager connect + listTools，按 `enabledTools` allowlist 过滤后注入 Registry，公开名为 `mcp__<serverName>__<rawName>`。Run 创建时冻结 **catalog generation**；执行期若 DB/catalog 代际变化，返回 **`mcpCatalogStale`** 而不是混用新旧 schema。Registry 和 Runtime 不应出现按业务工具名分支的执行逻辑。
 
-通用 Runtime 把执行过程转换为 `tool.started/completed/failed/cancelled`，Conversation 和 Workbench 只消费这些 canonical lifecycle event，不解析 OpenAI 原始 chunk 或具体 Provider 响应。当前这仍是 Chat SSE 投影，不是 durable Run Event Store。
+MCP **Resources** 有意**不**注册成 `mcp__*` 工具，避免大 catalog 撑爆 definitions；Host 提供 `list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource`，按需读取。Prompt 负责引导模型何时用工具，具体 Tool/Executor 负责强制输入、安全和能力内部资源边界；不能把安全性寄托在 Prompt 上。Tool 的外层执行超时由 Tool 声明、Runtime 统一组合用户取消并强制执行。
+
+通用 Runtime 把执行过程转换为 `tool.started/completed/failed/cancelled`，Conversation 和 Workbench 只消费这些 canonical lifecycle event，不解析 OpenAI 原始 chunk 或具体 Provider 响应。Durable Run 下 Event Hub + Checkpoint 才是观察通道事实源。
 
 ## 10. Web Search：Clue 发现与搜索投影
 
@@ -455,7 +478,7 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 
 ### 12.5 关键取舍
 
-当前运行使用 20 次通用 Tool Call 上限、单操作超时和用户取消传播来保证收敛；上游失败会进入结构化错误和脱敏日志。
+当前运行使用 **40 次**通用 Tool Call 上限、单操作超时和用户取消传播来保证收敛；上游失败会进入结构化错误和脱敏日志。
 
 这里的设计取舍可以概括为：去掉会误伤正常复杂任务的全局时间限制，用单操作超时保证故障隔离，用 40 次 Tool Call 上限保证最终收敛，用无工具缓冲校验保证输出安全。
 
@@ -469,7 +492,7 @@ Search snippet 和 Fetch Passage 都以带 `untrustedExternalData` 语义的独�
 
 > 我们做深度联网 Agent 时，最初给整个研究阶段设置了 120 秒硬超时，目的是防止模型无限调用工具。但实际运行复杂任务后发现，多轮搜索和网页读取即使每一步都正常，累计也会超过 120 秒，全局计时器反而会误杀健康任务。直接删除超时也不行，因为还存在重复调用、资源耗尽和工具协议污染。
 >
-> 我先通过轮次和工具日志确认瓶颈不是某个请求卡死，而是正常操作累计耗时，因此删除了 Agent 总截止时间，保留模型、搜索和抓取各自的单操作超时，并用 20 次通用工具调用保证循环一定有硬上限。结束工具阶段后完全移除工具定义，缓冲并校验最终回答，发现 DSML 或结构化工具调用就丢弃并只重试一次。
+> 我先通过轮次和工具日志确认瓶颈不是某个请求卡死，而是正常操作累计耗时，因此删除了 Agent 总截止时间，保留模型、搜索和抓取各自的单操作超时，并用通用 Tool Call 硬上限（当前 40 次）保证循环一定收敛。结束工具阶段后完全移除工具定义，缓冲并校验最终回答，发现 DSML 或结构化工具调用就丢弃并只重试一次。
 >
 > 第一版还把 URL、正文预算和早停状态下沉到 Web Research，并用 `forceFinalAnswer` 通知 Runtime。架构复盘确认这隐藏了决策依赖：Tool 仍在替模型决定何时停止。最终实现删除领域 run state 和控制意图，明确模型是唯一语义 planner，Runtime 只守通用执行边界，Tool 只返回结构化结果，来源事实由 Projection 派生。这个演进比单纯强调“Runtime 没有工具名称分支”更彻底，也避免每增加一个工具就增加一套隐形决策系统。
 
@@ -605,7 +628,7 @@ terminal 的要求更严格：先在内存提交 terminal Event 与 Projection�
 2. Integration 覆盖 Repository 单调写、状态 CAS、terminal transaction、Create/Cancel API 和数据库恢复。
 3. 真实浏览器黑盒覆盖真实模型与工具调用、Session 切换、离线重连、刷新、并行 Session、取消、双击提交、移动端和三轮上下文恢复。
 
-只验证静态 Playwright Preview 不能证明真实 Agent Loop 的时序。真实 `agent-browser` 测试不仅确认了 `Round 前言 -> tools -> 下一轮正文 -> final` 的 DOM 顺序，还发现了“新建 Session 后立即发送”的 state/ref 竞争。这个结果说明确定性 reducer 测试负责穷举协议边界，真实黑盒测试负责发现跨网络、React 调度和实际 Provider 行为组合出来的问题，两者不能互相替代。
+只验证静态开发 Preview 不能证明真实 Agent Loop 的时序。仓库级 Playwright E2E 已移除；时序与 HITL 依赖 unit/integration 加有头 **`agent-browser`** 黑盒。真实浏览器测试不仅确认了 `Round 前言 -> tools -> 下一轮正文 -> final` 的 DOM 顺序，还发现了“新建 Session 后立即发送”的 state/ref 竞争。确定性 reducer 测试负责穷举协议边界，真实黑盒测试负责跨网络、React 调度和实际 Provider 行为组合出来的问题，两者不能互相替代。
 
 ### 13.10 面试口述版
 
@@ -686,11 +709,13 @@ Runtime 必须先保存 `assistant(toolCalls)`，再按相同声明顺序保存�
 
 ### 14.3 历史压缩为什么只处理封闭前缀
 
-当前压缩保留最近 12 条消息，并向前移动边界以避免从 Tool Result 中间切开工具协议。只把边界之前尚未覆盖的历史交给模型生成 continuation summary。Run 内的 `summary + coveredMessageCount + version + tokenCount` 由 Runtime 保存在内存，后续 Round 用一条 `<compaction_summary>` system message 替代已覆盖前缀；只有 Run 成功结束才在 terminal transaction 中保存为 Session 正式状态，失败、取消或进程中断时不写入。
+**要解决的问题**：长 Run 里 messages 条数与 Tool 协议单元不对齐——一条 assistant 可能带多个 Tool Call，后面跟多条 `tool` message；若 compaction 只按“保留最近 N 条 message”切分，可能从 Tool Batch 中间截断，产生 orphan tool，进而触发 §3.5 的供应商 400 或 integrity 失败。
 
-`compactionTriggerTokens=40_000` 的含义是：在 1M 窗口模型上，不必等到输入接近满窗才做第一次摘要；多轮 Search/Fetch 后 prompt 与 tokenizer 成本会先膨胀，提前触发 compaction 可以把“注意力稀释”和本地计量开销都压住。压缩可能在一个长 Agent Loop 中触发多次；每次只总结上次覆盖位置之后的新封闭前缀，并把旧摘要一并提供给摘要模型，因此不是不断重新总结完整历史。
+**解决方式**：引入 **transcript unit**（封闭 Tool Unit + 普通 user/assistant 消息）作为切分坐标。压缩时在 unit 边界上移动前缀，只把尚未被 Session `compaction summary` 覆盖的封闭前缀交给摘要模型；Run 内存维护 `summary + coveredMessageCount + coveredUnitCount + version + tokenCount`，成功终态写入 Session。C4-B 起 MCP Server 的 **instructions** 经格式化后注入 CE 编译（独立片段），与 User/System 分离，避免把运维说明散落到 Tool Result。
 
-若 compaction 摘要批次失败，不会推进 `coveredMessageCount`；Runtime 仍可使用上一轮有效摘要，避免半套状态污染后续 Round。
+`compactionTriggerTokens=40_000` 的含义是：在 1M 窗口模型上，不必等到输入接近满窗才做第一次摘要；多轮 Search/Fetch / MCP 大结果后 prompt 与 tokenizer 成本会先膨胀，提前触发 compaction 可以把“注意力稀释”和本地计量开销都压住。压缩可能在一个长 Agent Loop 中触发多次；每次只总结上次覆盖位置之后的新封闭前缀，并把旧摘要一并提供给摘要模型。
+
+若 compaction 摘要批次失败，不会推进 `coveredMessageCount` / `coveredUnitCount`；必要时 rollback 本次切分，Run 仍可使用上一轮有效摘要，并以 **`MODEL_TRANSCRIPT_INTEGRITY_ERROR`** 等路径拒绝继续发送损坏 transcript，而不是让流式请求在供应商侧硬失败。
 
 ### 14.4 指针写回：避免每轮重复外置
 
@@ -704,7 +729,7 @@ Context Engineering 解决的是**进入模型的 prompt 体积与结构**；长
 
 ### 14.6 面试口述版
 
-> 我把 Context Engineering 放在每个 Model Round 之前，并在每个 Tool Batch 之后做同轮结果预算。Tool 只返回完整结果；Context 层用 DeepSeek V3 tokenizer 统一计量，在 verified Profile 下用 40k trigger 提前做历史 compaction，用 8k/16k 控制单条和同轮 Tool Result。超大 Web/Fetch 结果不是简单删中间，而是 head-tail 预览 + 全文外置到 `tool_result` 文件，上下文里留可恢复的 fileId，并复用已有 `search_file` / `read_file_lines` 按需读回。更早的历史 Tool Unit 在 compile 时收成指针，Runtime 再把指针写回 live messages，避免每轮重复 spill。文件工具结果和用户附件不能静默丢弃，超预算就明确报错。压缩状态在 Run 内存即时生效，成功终态才写入 Session。
+> 我把 Context Engineering 放在每个 Model Round 之前，并在每个 Tool Batch 之后做同轮结果预算。Tool 只返回完整结果；Context 层用 DeepSeek V3 tokenizer 统一计量，在 verified Profile 下用 40k trigger 提前做历史 compaction，用 8k/16k 控制单条和同轮 Tool Result。压缩和折叠都按 transcript unit 切，避免 orphan tool；MCP instructions 作为独立片段注入 compile。超大 Web/Fetch 结果不是简单删中间，而是 head-tail 预览 + 全文外置到 `tool_result` 文件，上下文里留可恢复的 fileId，并复用已有 `search_file` / `read_file_lines` 按需读回。更早的历史 Tool Unit 在 compile 时收成指针，Runtime 再把指针写回 live messages，避免每轮重复 spill。文件工具结果和用户附件不能静默丢弃，超预算就明确报错。压缩状态在 Run 内存即时生效，成功终态才写入 Session。
 
 ## 15. K3 Runtime Lifecycle 与 HITL
 
@@ -737,7 +762,7 @@ Tool Approval 的关键不只是加一个确认按钮，而是保证审批前没
 - Runtime unit：边界顺序、Pause/Resume 竞态、Interrupt 单 pending、clarification interruptId、审批 approve/reject/direct reject 和 Tool Transcript 闭合。
 - Repository/protocol：Interrupt pending/resolved/cancelled 状态、Transcript metadata、Provider 不泄露内部控制字段。
 - 真实有头 `agent-browser`：approve、reject、clarification 三条模型路径；审批前无 Tool Activity，恢复后不重复模型或工具，最终 Run 为 completed。
-- 最终验证：`pnpm check`、`pnpm test:integration`、`pnpm test:e2e`、`git diff --check`。
+- 最终验证：`pnpm check`、`pnpm test:integration`、`git diff --check`；Workbench 回归用 agent-browser 手工/E2E。
 
 ## 16. K4 Agent Task Semantics：Plan and Execute
 
@@ -905,11 +930,104 @@ Runtime 对两类工具的 SSE/快照/日志使用 `publicToolInput`：只暴露
 
 > C2 把 Agent 输出从聊天文本升级成可持久化的交付物。C1 管读，C2 管写：模型通过 `create_file` 或 `create_report` 触发受控写入，File 层统一存 COS 和规范化正文，Artifact 层表达交付关系，报告再多一张 Report 表存标题、摘要和材料引用。多格式不增加新工具，只在 `create_file` 里按扩展名走 `renderGeneratedFile`。SSE 和快照里不 inline 巨型正文，Conversation 只展示工具活动和 Artifact 卡片，完整内容在 Workbench 预览下载。C2-D 在此基础上用 ArtifactSeries 做线性不可变版本：修改和恢复都追加新版本，current 指针用乐观并发更新，避免多 Run 静默覆盖。这样调研类任务可以 `web_search -> web_fetch -> create_report` 闭环，又不会把 Passage 和报告正文反复堆进 prompt。
 
-## 19. 面试表达模板
+## 19. C3 Agent Sandbox & Cloud Execution
+
+> 详细契约与验收见 [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md)、浏览器切片见 [34-c3-d-session-browser-agent.md](./34-c3-d-session-browser-agent.md)。面试口径以当前代码为准：C3-A～C3-D 已落地；Sandbox 默认 **fail-closed**（未配置 `SANDBOX_ENABLED` 与 Domain/镜像等对模型不可见）。
+
+### 问：C3 相对「只在 Host 上跑 Tool」解决什么问题？
+
+答：Search/Fetch、读文件、写 Artifact 都发生在 Host 或受控服务里，但模型一旦需要 **跑命令、装依赖、拉代码、开浏览器**，就在 Host 进程权限下执行，风险和噪声都不可接受。C3 把 **有副作用的执行面** 迁到 OpenSandbox 容器：Host Runtime 仍负责模型循环与审批，Sandbox 只执行 `bash` / 后台 job / 沙箱内 `agent-browser`，输出经 canonical Tool Message 与 Workbench Terminal 回传。
+
+### 问：C3-A 的最小闭环是什么？
+
+答：引入 `SandboxManager` + `OpenSandboxProvider`（及 fake Provider 便于 CI），把 Sandbox 当作**普通 Tool** 接入 Registry，而不是在 Runtime 里写死分支。C3-A 先打通 `execute_command` 与本地 `dev/opensandbox-local` 开发链路：Run-scoped 会话、Stage/Collect、timeout/cancel grace、投影层对 Sandbox 工具显式分支。未配置时工具不出现在 definitions，避免“半开启”状态。
+
+### 问：C3-B 为什么把主工具改成 `bash`，并加策略审批？
+
+答：要对齐 DSH 式前台 shell 体验，同时把 **network / install 类副作用** 从“模型自觉”改成 Host 强制策略。模型侧主工具名为 **`bash`**（`execute_command` 仅 Registry 别名，模型 definitions 最终只暴露 `bash`）：必填 `description`、可选 `workdir`、默认 timeout 120s（上限 600s）。`BashCommandPolicyService` 静态放行 `auto_execute` 命令；命中 network/install 规则时 Runtime 在 **`tool_dispatch_ready`** 创建 **升权 `tool_approval` Interrupt**，用户批准后对**当次调用**注入 OpenSandbox egress boost（v1 allowlist），而不是永久放开容器网络。
+
+**技术细节**：
+
+```text
+model -> bash(description, command, ...)
+  -> Policy 分类 (auto / needs_network / needs_install / deny)
+  -> 需升权：Interrupt -> 用户 approve/reject
+  -> OpenSandbox 执行（NO_COLOR / TERM=dumb / HARNESS_* env）
+  -> renderBashResult() 纯文本 Tool Message（非 JSON _dump）
+  -> 超长：tail 优先 spill -> Host Artifact + artifact:<id> 提示行
+  -> Terminal 投影 + struct exitCode
+```
+
+### 问：C3-C Session 级 Sandbox 与后台 job 解决什么？
+
+答：C3-B 每次 Run 新建沙箱成本高，且长命令会占满 Tool 超时。C3-C 改为 **Session 级** 实例：`sandbox_instances` 持久化 + Run **lease**（`releaseRunLease`），同 Session 多 Run 可复用容器。`bash` 支持 **`run_in_background`**；配套 **`job_output` / `job_list` / `job_kill`** 三工具，由 `SandboxJobWatcher` 默认 **wakeup** 通知（可 quiet / 限连续 wake）。egress 升级到 v2（词法 host + 扩展 allowlist + 审计）；审批 UI 展示 bash **`inputFiles`**，与 C1 附件语义对齐。API 进程 orphan 扫描为骨架能力，不假装跨重启续跑 job。
+
+### 问：C3-D 浏览器能力为什么放在 Sandbox 里而不是 Host MCP？
+
+答：公开页自动化需要 Chromium、下载与网络，属于 **高权限执行面**，与 C4「外连业务 MCP」边界不同。C3-D 在专用镜像注入 `AGENT_BROWSER_SESSION*`，沙箱内跑 **`agent-browser`**；URL 访问仍走 network 策略。PNG 等截图经 **`output` Collect** 导入 Host，成为 `fileKind: image` 的 Artifact，用户可在 Workbench 预览/下载，而不是把二进制塞进 Tool Message。当前阶段在用户 **network 审批** 后，默认 **不启用 Host 域名白名单**，由命令内 HTTPS 目标动态放行 OpenSandbox egress（可通过 env 恢复 C3-C v2 白名单强制）。
+
+### 问：C3 与 K3.2 / C2 / Context 如何配合？
+
+答：**升权 bash** 复用 K3.2 Tool Approval，审批前零副作用；reject 走 synthetic Tool Result 保持协议闭合。**Collect / spill** 复用 C2 File + Artifact 管线，但来源是 Sandbox 输出而非 `create_file` 模型参数。**bash 成功结果**进入 Tool Message 后仍受 Context Engineering 同轮/历史预算约束；Terminal 只负责人类可读投影。
+
+### 问：C3 如何验证？
+
+答：CI 用 fake Sandbox Provider 跑 `bash-render`、`bash-command-policy`、`bash.tool` 等单测与 API integration；真实 OpenSandbox + Docker 在 `dev/opensandbox-local` 与 docs/33 手工冒烟（echo、非零退出、pip/curl 审批、Collect、job 生命周期、agent-browser 截图）。不能把“Host 上直接 exec”当作已验收能力。
+
+### 19.1 C3 面试口述版
+
+> C3 解决的是“模型要写代码、跑命令、开浏览器，但不能在 Host 上裸奔”。我用 OpenSandbox 做执行面，Host 仍做 Model-led Loop 和 K3 审批。C3-B 把主工具收敛成 `bash`，用 Host 策略识别 network/install，批准后只对当次调用放开 egress；输出用 DSH 式纯文本 Tool Message，Workbench Terminal 展示全命令与 ANSI，太长就 spill 成 Artifact。C3-C 把 Sandbox 升到 Session 级并加后台 job 三件套，长任务靠 watcher 唤醒而不是堵死在前台 timeout。C3-D 在容器里跑 agent-browser，截图 Collect 成图片 Artifact。整条链路的共同点是：执行在沙箱，决策在模型，授权在 Runtime，展示在 Workbench。
+
+## 20. C4 Host MCP Client & Tool Ecosystem
+
+> 设计、验收与手工签字见 [35-c4-mcp-client.md](./35-c4-mcp-client.md) §12.1。C4 **只做** Streamable **HTTP** MCP Client；stdio、Session 级 MCP 覆盖、OAuth、marketplace 自动导入均不在范围。大 catalog 未配 allowlist 时仍整包进 definitions——按需 expose 属后续 **Kernel K5**。
+
+### 问：C4 解决什么问题？
+
+答：内置 `AGENT_TOOLS` 每接一个新系统就要发版；业务方也更希望用标准 **MCP Server** 暴露工具。C4 在 Host 内实现 MCP Client：Settings 配置 Server，Runtime 在 Run 快照内 **合并** MCP 与内置工具，模型以统一 Function Calling 调用；Credentials 与用户级配置落库加密，不进入 Event Tail 或 SSE。
+
+### 问：C4-A 主链路怎么跑？
+
+答：
+
+```text
+Settings / Admin API (PUT/PATCH + secrets[])
+  -> DB: McpServerConfig + 加密 mcp_server_secrets
+  -> reconcile: connect (HTTP) + listTools
+  -> McpToolCatalog 过滤(enabled, enabledTools, defaultApproval)
+  -> Run 创建：冻结 catalogGeneration + definitions 快照
+  -> 模型 mcp__<serverName>__<rawName>(args)
+  -> McpToolExecutor -> MCP SDK callTool
+  -> canonical Tool Result + tool lifecycle events
+```
+
+**关键护栏**：Run 执行中若 catalog generation 变化，返回 **`mcpCatalogStale`**，避免半 Run 混用新旧 tool schema。Server 级 **`defaultApproval`** 与 **`required`** 接入 K3.2：MCP 副作用工具可在 dispatch 前批量审批。依赖部署 env **`HARNESS_SECRETS_MASTER_KEY`** 做 AES-GCM，API **永不**回传凭证明文。
+
+### 问：C4-B 为什么要有 allowlist、instructions 和 Resource 三工具？
+
+答：**B1 `enabledTools`**：像 Tushare 这类 200+ tools 的 Server，未配 allowlist 时仍整包进 definitions（过渡态），Settings 展示 **「可用 N / 共 M」**，PUT/PATCH 可编辑 URL、headers、超时与 allowlist。**B2 instructions → CE**：各 Server 的 MCP instructions 格式化后注入 Context Engineering，帮助模型理解工具域，而不把运维文本写进每个 Tool Result。**B3 可观测**：degraded/stale 文案、Run Context Debug 中 MCP 行、definitions token 告警，便于排障。**B4 Resources**：Resources **不**注册为 `mcp__*`（避免撑爆 definitions），Host 提供 `list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource`（参数 `server` = `serverName`），按需读取。
+
+### 问：MCP 与 Workbench / Conversation 如何展示？
+
+答：MCP 工具在 Activity 层与 Sandbox bash 一样，走 **`external_tool` 统一投影**（`tool-presentation` + `external-tool.contracts`）：Conversation block 与 Workbench 文案由 `tool-copy` 消费展示类型，而不是解析 `mcp__` 字符串。SSE / Checkpoint 的 `publicToolInput` 仍只暴露摘要字段（标题、计数、引用 id），不 inline 巨型参数 JSON。
+
+### 问：C4 与 C3 / C6 边界是什么？
+
+答：**C3** = Host 编排、Sandbox **内**执行命令与浏览器；**C4** = Host **外连**业务 MCP（行情、内部 API 等）。高权限 MCP 默认仍留在 Host 侧，不因 Sandbox 能跑 curl 就把业务凭证搬进容器。**C6 Website Preview** 等未启动能力不应与 C4 混淆。
+
+### 问：C4 如何验证？
+
+答：`mcp-admin` integration、instructions 格式化单测、tool catalog/executor 单测、`pnpm check`；2026-09-24 手工签字覆盖 Settings（编辑/allowlist/折叠开关）、Workbench Context Debug、Tinyfish 等 Resource 读取。仓库已移除 Playwright E2E 套件，MCP 回归以 integration + agent-browser 手工/E2E 为主。
+
+### 20.1 C4 面试口述版
+
+> C4 解决的是“工具生态不能绑死在发版上”。我在 Host 里做 HTTP MCP Client：配置进 DB、凭证加密、reconcile 出 catalog，Run 创建时冻结 generation 和 definitions，执行期 stale 就明确失败。工具名统一 `mcp__server__tool`，审批复用 K3.2。大 Server 用 enabledTools 做人工子集，instructions 进 Context Engineering，Resources 则用三个 Host 工具按需读，避免把 resource 列表塞进 definitions。UI 层用 external_tool 统一 MCP 和 Sandbox 的卡片语义，和内置 web_search 的 Activity 投影解耦。
+
+## 21. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
-答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、C1 文件与多模态输入、C2 生成文件/报告 Artifact 与多格式交付、Activity/Sources/Artifact 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、Tool Result 外置与历史压缩。
+答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、C1 文件与多模态输入、C2 生成文件/报告 Artifact 与多格式交付、C3 OpenSandbox 执行面（bash/job/agent-browser）、C4 HTTP MCP Client 与 Settings、Activity/Sources/Artifact/Terminal 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、Tool Result 外置、transcript unit 压缩与工具链 integrity 校验。
 
 ### 问：SSE 为什么没有直接使用 WebSocket？
 
@@ -937,7 +1055,7 @@ Runtime 对两类工具的 SSE/快照/日志使用 `publicToolInput`：只暴露
 
 ### 问：DeepSeek V4 既然兼容 OpenAI API，为什么还需要专门的 Model Adapter 优化？
 
-答：兼容的是请求外形，不代表上下文语义完全相同。DeepSeek Thinking + Tool Calling 要求历史工具轮携带原生 `reasoning_content`，否则 Tool Call 上下文可能不完整；但最终回答的 reasoning 又不应在后续轮次反复回放。我在 Adapter 中解码流式 reasoning，Runtime/Repository 保存供应商无关的 canonical transcript，请求编译时只对包含 Tool Call 的 assistant 消息恢复 `reasoning_content`，最终回答只发送正文。同时按 provider 和 reasoning format 校验真正需要 native replay 的工具单元，并把 raw reasoning 排除在用户 SSE 和 UI 之外。
+答：兼容的是请求外形，不代表上下文语义完全相同。DeepSeek Thinking + Tool Calling 要求历史工具轮携带原生 `reasoning_content`，否则 Tool Call 上下文可能不完整；但最终回答的 reasoning 又不应在后续轮次反复回放。我在 Adapter 中解码流式 reasoning，Runtime/Repository 保存供应商无关的 canonical transcript，请求编译时只对包含 Tool Call 的 assistant 消息恢复 `reasoning_content`，最终回答只发送正文；并在发请求前做 transcript integrity 校验，避免 orphan tool 拖到供应商 400。同时按 provider 和 reasoning format 校验真正需要 native replay 的工具单元，并把 raw reasoning 排除在用户 SSE 和 UI 之外。
 
 ### 问：为什么 Context Engineering 要在每个 Model Round 执行？
 
@@ -954,6 +1072,18 @@ Runtime 对两类工具的 SSE/快照/日志使用 `publicToolInput`：只暴露
 ### 问：C2 的 Artifact 和 Context 里的 `tool_result` 外置文件有什么区别？
 
 答：两者都落在 File 存储上，但 `FileOrigin` 和 UI 语义不同。`tool_result` 是 Context Engineering 为过大 Tool Result 做的内部外置，模型上下文里是指针说明，不是用户交付物。`agent_generated` + Artifact 是用户可见的生成结果，有 Workbench 卡片、下载和（C2-D）版本历史。模型回读都可以走 `search_file`/`read_file_lines`，但面试和架构讲解时必须分开，否则会把“省 prompt”和“交报告”混成一件事。
+
+### 问：为什么需要 Sandbox，而不是让模型在 Host 上直接 bash？
+
+答：Host 侧有数据库凭证、MCP secrets 和 Admin API，任意 `exec` 都会把多租户边界打穿。C3 把命令放进 OpenSandbox，默认 deny 网络，network/install 必须走 K3.2 升权审批；输出经 `renderBashResult` 与 Terminal 投影，过长 spill 为 Artifact，而不是写进 assistant 正文。
+
+### 问：MCP 工具和内置工具有什么架构差异？
+
+答：内置工具编译期进 `AGENT_TOOLS`；MCP 工具运行时 reconcile，公开名 `mcp__<server>__<tool>`，Run 快照绑定 catalog generation。未配 `enabledTools` 时大 Server 仍可能整包暴露——这是已知过渡态，收窄靠 Settings allowlist，长期靠 K5 按需 expose。Resources 不注册为 MCP 工具名，而用 Host 三工具按需读。
+
+### 问：Compaction 为什么引入 transcript unit？
+
+答：按 message 条数切分会截断 Tool Batch，制造 orphan tool 和 DeepSeek 400。现在按封闭 Tool Unit 切分前缀做摘要，并持久化 `coveredUnitCount`；失败 rollback 并可用 `MODEL_TRANSCRIPT_INTEGRITY_ERROR` 终止 Run，而不是把损坏 transcript 发给模型。
 
 ## K3.3 Steer & Follow-up 面试专题
 
@@ -1023,7 +1153,7 @@ Runtime 对两类工具的 SSE/快照/日志使用 `publicToolInput`：只暴露
 
 本轮已手动验证 K3 核心交互：`final_answer` 阶段 Steer 会自动降级并启动下一轮；Stop 后队列保留；Follow-up 支持按条发送；队列上限为 3 条且第 4 条明确拒绝；删除/发送会释放容量；刷新、断线和重复点击后状态保持一致。Continue 的上下文恢复仍归入后续 Context Engineering 阶段，不作为 K3 已验收能力。
 
-## 20. 追加规则
+## 22. 追加规则
 
 每个阶段只追加四类内容：
 

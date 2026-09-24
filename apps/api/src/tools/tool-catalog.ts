@@ -9,6 +9,11 @@ import { FileCreateTool } from './file-create.tool';
 import { ReportCreateTool } from './report-create.tool';
 import { BashTool } from './bash.tool';
 import { JobKillTool, JobListTool, JobOutputTool } from './job.tools';
+import {
+  ListMcpResourcesTool,
+  ListMcpResourceTemplatesTool,
+  ReadMcpResourceTool,
+} from './mcp-resource.tools';
 
 // 多工具集合使用的 Nest 注入标识，避免业务服务依赖具体工具类。
 export const AGENT_TOOLS = Symbol('AGENT_TOOLS');
@@ -29,6 +34,9 @@ export const AGENT_TOOL_CLASSES = [
   JobOutputTool,
   JobListTool,
   JobKillTool,
+  ListMcpResourcesTool,
+  ListMcpResourceTemplatesTool,
+  ReadMcpResourceTool,
 ] as const;
 
 // 将 catalog 中的工具类实例聚合为 Registry 所需的统一集合。

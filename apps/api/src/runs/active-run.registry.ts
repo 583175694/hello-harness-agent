@@ -9,7 +9,7 @@ export class ActiveRunRegistry {
 
   // 注册一个 Run 的进程内运行句柄，并以数据库 Snapshot 作为初始状态。
   // 从数据库初始 Snapshot 建立内存基线；此时 Tail 为空，Live 与 Durable 完全一致。
-  register(snapshot: RunSnapshot): ActiveRun {
+  register(snapshot: RunSnapshot, options?: { mcpSnapshot?: ActiveRun['mcpSnapshot'] }): ActiveRun {
     const existing = this.runs.get(snapshot.runId);
     if (existing) return existing;
     const active: ActiveRun = {
@@ -28,6 +28,7 @@ export class ActiveRunRegistry {
       tailBytes: 0,
       checkpointRequested: false,
       subscribers: new Set(),
+      ...(options?.mcpSnapshot ? { mcpSnapshot: options.mcpSnapshot } : {}),
     };
     this.runs.set(snapshot.runId, active);
     return active;

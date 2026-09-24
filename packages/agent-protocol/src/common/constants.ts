@@ -47,6 +47,8 @@ export const AGENT_PROTOCOL_LIMITS = {
   planStepMaxLength: 500,
   // 计划快照序列化后的最大 UTF-8 字节数。
   planJsonMaxBytes: 16_384,
+  // 外部/MCP 工具结果写入 SSE 与 execution 快照时的预览上限。
+  externalToolOutputPreviewMax: 2_000,
 } as const;
 
 // 集中维护协议中稳定的工具标识。
@@ -69,6 +71,11 @@ export const AGENT_TOOL_NAMES = {
   jobOutput: 'job_output',
   jobList: 'job_list',
   jobKill: 'job_kill',
+  listMcpResources: 'list_mcp_resources',
+  listMcpResourceTemplates: 'list_mcp_resource_templates',
+  readMcpResource: 'read_mcp_resource',
+  // SSE 与 execution 快照中标识 MCP/外部工具的合成 discriminant。
+  externalTool: 'external_tool',
 } as const;
 
 // 集中维护 API 与 SSE 共用的机器可读错误码。
@@ -104,6 +111,8 @@ export const AGENT_ERROR_CODES = {
   runDeadlineExceeded: 'RUN_DEADLINE_EXCEEDED',
   // Context Engineering 在强制保留内容仍无法放入模型预算时返回。
   contextBudgetExceeded: 'CONTEXT_BUDGET_EXCEEDED',
+  // Context Engineering 检测到 tool 声明与 tool 结果链不完整（常见于长对话压缩后）。
+  modelTranscriptIntegrityError: 'MODEL_TRANSCRIPT_INTEGRITY_ERROR',
   // 当前 assistant run 已达到模型工具调用次数上限。
   toolCallLimitExceeded: 'TOOL_CALL_LIMIT_EXCEEDED',
   // 工具未在自身声明的外层执行时间内完成。
@@ -186,6 +195,15 @@ export const AGENT_ERROR_CODES = {
   sandboxCollectFailed: 'SANDBOX_COLLECT_FAILED',
   sandboxSessionInvalidated: 'SANDBOX_SESSION_INVALIDATED',
   sandboxExecutionUnknown: 'SANDBOX_EXECUTION_UNKNOWN',
+  // MCP Server 当前无可用连接或 client 未 ready。
+  mcpUnavailable: 'MCP_UNAVAILABLE',
+  // Run 绑定的 MCP catalog 世代与当前 live 不一致，禁止执行。
+  mcpCatalogStale: 'MCP_CATALOG_STALE',
+  // 未配置 HARNESS_SECRETS_MASTER_KEY 时拒绝写入 MCP 凭证。
+  secretsMasterKeyMissing: 'SECRETS_MASTER_KEY_MISSING',
+  mcpServerNotFound: 'MCP_SERVER_NOT_FOUND',
+  mcpServerNameConflict: 'MCP_SERVER_NAME_CONFLICT',
+  mcpRequiredServerUnavailable: 'MCP_REQUIRED_SERVER_UNAVAILABLE',
 } as const;
 
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[keyof typeof AGENT_ERROR_CODES];

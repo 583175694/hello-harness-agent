@@ -59,6 +59,7 @@ function makeService(
   } as unknown as OpenAI;
   const runtimeRegistry = {
     executionPolicy: vi.fn(() => ({ timeoutMs: 30_000 })),
+    approvalPolicy: vi.fn(() => 'auto_execute' as const),
     resolveName: vi.fn((name: string) => name),
     ...toolRegistry,
   } as ToolRegistryService;
@@ -1046,6 +1047,85 @@ describe('ChatService session persistence', () => {
       data: {
         content: '已达到工具预算，基于现有资料回答。',
         metadata: { agent: { toolCallCount: 40 } },
+      },
+    });
+  });
+
+  it('projects MCP string output as external_tool without treating it as web_search', async () => {
+    const mcpToolName = 'mcp__fixture__ping';
+    const providerCreate = vi
+      .fn()
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield { choices: [{ delta: { content: '调用 MCP。' } }] };
+          yield {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call-mcp',
+                      function: { name: mcpToolName, arguments: '{"message":"hi"}' },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+          };
+        })(),
+      )
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield { choices: [{ delta: { content: 'MCP 完成。' } }] };
+          yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
+        })(),
+      );
+    const registry = {
+      definitions: vi.fn(() => [{ name: mcpToolName, description: 'ping', parameters: {} }]),
+      parseInput: vi.fn(() => ({ message: 'hi' })),
+      execute: vi.fn().mockResolvedValue({
+        status: 'succeeded',
+        output: 'pong-response-text',
+        logFields: { durationMs: 8 },
+      }),
+    };
+    const { service, messageCreate } = makeService(providerCreate, registry);
+    const prepared = await service.prepareSessionStream('session-1', 'ping mcp');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
+    const events = await collect(service.streamPrepared(prepared));
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool.started',
+          toolName: 'external_tool',
+          publicName: mcpToolName,
+        }),
+        expect.objectContaining({
+          type: 'tool.completed',
+          toolName: 'external_tool',
+          publicName: mcpToolName,
+          result: expect.objectContaining({ preview: 'pong-response-text', charCount: 18 }),
+        }),
+        expect.objectContaining({ type: 'message.delta', delta: 'MCP 完成。' }),
+      ]),
+    );
+    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+      data: {
+        metadata: {
+          agent: {
+            toolCallCount: 1,
+            executions: [
+              expect.objectContaining({
+                toolName: 'external_tool',
+                publicName: mcpToolName,
+                outputPreview: 'pong-response-text',
+              }),
+            ],
+          },
+        },
       },
     });
   });

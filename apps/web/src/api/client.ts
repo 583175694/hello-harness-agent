@@ -17,6 +17,10 @@ import {
   reportRefSchema,
   artifactSeriesRefSchema,
   restoreArtifactResultSchema,
+  mcpServerListResponseSchema,
+  mcpServerViewSchema,
+  mcpServerTestResponseSchema,
+  mcpCreateServerRequestSchema,
 } from '@harness/agent-protocol';
 import type {
   CancelRunResponse,
@@ -39,6 +43,12 @@ import type {
   ReportRef,
   ArtifactSeriesRef,
   RestoreArtifactResult,
+  McpServerListResponse,
+  McpServerView,
+  McpServerTestResponse,
+  McpCreateServerRequest,
+  McpUpdateServerRequest,
+  McpPatchServerRequest,
 } from '@harness/agent-protocol';
 import { publicAgentConfigSchema } from '@harness/agent-protocol';
 
@@ -413,6 +423,49 @@ export async function subscribeRun(
     }
     if (done) return;
   }
+}
+
+export async function listMcpServers(signal?: AbortSignal): Promise<McpServerListResponse> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/mcp/servers`, { signal });
+  return mcpServerListResponseSchema.parse(await parseResponse(response));
+}
+
+export async function createMcpServer(body: McpCreateServerRequest): Promise<McpServerView> {
+  mcpCreateServerRequestSchema.parse(body);
+  const response = await fetch(`${apiBaseUrl}/api/agent/mcp/servers`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return mcpServerViewSchema.parse(await parseResponse(response));
+}
+
+export async function updateMcpServer(id: string, body: McpUpdateServerRequest): Promise<McpServerView> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/mcp/servers/${id}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return mcpServerViewSchema.parse(await parseResponse(response));
+}
+
+export async function patchMcpServer(id: string, body: McpPatchServerRequest): Promise<McpServerView> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/mcp/servers/${id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return mcpServerViewSchema.parse(await parseResponse(response));
+}
+
+export async function deleteMcpServer(id: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/mcp/servers/${id}`, { method: 'DELETE' });
+  if (!response.ok) await parseResponse(response);
+}
+
+export async function testMcpServer(id: string): Promise<McpServerTestResponse> {
+  const response = await fetch(`${apiBaseUrl}/api/agent/mcp/servers/${id}/test`, { method: 'POST' });
+  return mcpServerTestResponseSchema.parse(await parseResponse(response));
 }
 
 // 统一解析 JSON API，并将 Problem Details 转换为前端异常。

@@ -6,6 +6,9 @@ import type {
   RunStreamEvent,
   ToolExecutionSnapshot,
 } from '@harness/agent-protocol';
+import type { RunMcpSnapshot } from '../mcp/mcp.types';
+
+export type { RunMcpSnapshot };
 
 // Chat/Tool 事件归约后的完整业务投影；它不包含传输 cursor 等 Run 外壳字段。
 export type RunProjection = {
@@ -44,6 +47,7 @@ export type ActiveRun = {
   checkpointRequested: boolean;
   // Subscriber 只是观察者；集合为空不代表 Run 应该停止。
   subscribers: Set<RunSubscriber>;
+  mcpSnapshot?: RunMcpSnapshot;
 };
 
 // 每个 SSE 连接拥有独立的小队列，慢客户端不能阻塞 Runtime 或其他订阅者。

@@ -24,7 +24,7 @@
   单个本地用户自动初始化
   本地 Artifact 目录 readiness 检查
   结构化日志、配置校验和敏感字段脱敏
-  unit / integration / desktop+mobile E2E
+  unit / integration；UI 手工与回归用 agent-browser
 
 下一阶段
   全局 Context Engineering
@@ -93,14 +93,13 @@ curl http://127.0.0.1:4318/readyz
 ```bash
 pnpm check             # lint + typecheck + unit tests + build
 pnpm test:integration  # API/PostgreSQL integration tests
-pnpm test:e2e          # desktop/mobile browser tests
 pnpm setup                  # 首次准备本地数据库、应用 migration 并生成 Prisma Client
 pnpm db -- update           # 拉取数据库变更后应用 migration 并生成 Prisma Client
 pnpm db -- migrate          # 仅在修改 schema.prisma 时创建开发 migration
 pnpm db -- studio           # 打开 Prisma Studio
 ```
 
-日常只需要在首次安装时运行 `pnpm setup`，拉取到新的 Prisma migration 后运行 `pnpm db -- update`。`pnpm db -- init|deploy|generate` 作为底层排障入口继续保留；运行 `pnpm db -- --help` 可查看完整参数。PostgreSQL 使用本机服务，Web 和 API 通过 pnpm 在宿主机运行。首次初始化会创建或更新 `.env` 中配置的 PostgreSQL 用户和数据库；停止或重启数据库由本机 PostgreSQL 服务管理。API、数据库端口和连接字符串从 `.env` 读取；修改 Web 端口时还需同步 `apps/web/package.json`、Playwright 配置和 `WEB_ORIGIN`。
+日常只需要在首次安装时运行 `pnpm setup`，拉取到新的 Prisma migration 后运行 `pnpm db -- update`。`pnpm db -- init|deploy|generate` 作为底层排障入口继续保留；运行 `pnpm db -- --help` 可查看完整参数。PostgreSQL 使用本机服务，Web 和 API 通过 pnpm 在宿主机运行。首次初始化会创建或更新 `.env` 中配置的 PostgreSQL 用户和数据库；停止或重启数据库由本机 PostgreSQL 服务管理。API、数据库端口和连接字符串从 `.env` 读取；修改 Web 端口时还需同步 `apps/web/package.json` 与 `WEB_ORIGIN`。
 
 ## 工程结构
 

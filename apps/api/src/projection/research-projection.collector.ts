@@ -114,6 +114,63 @@ export class ResearchProjectionCollector {
     });
   }
 
+  recordExternalCompleted(input: {
+    toolCallId: string;
+    publicName: string;
+    subKind: 'mcp' | 'unknown';
+    toolInput?: Record<string, unknown>;
+    completedAt: string;
+    durationMs: number;
+    outputPreview: string;
+    outputCharCount: number;
+  }): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.externalTool,
+      publicName: input.publicName,
+      subKind: input.subKind,
+      ...(input.toolInput ? { input: input.toolInput } : {}),
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+      outputPreview: input.outputPreview,
+      outputCharCount: input.outputCharCount,
+    });
+  }
+
+  recordExternalTerminal(
+    input: {
+      toolCallId: string;
+      publicName: string;
+      subKind: 'mcp' | 'unknown';
+      toolInput?: Record<string, unknown>;
+      completedAt: string;
+      durationMs: number;
+      code: string;
+      detail: string;
+      retryable?: boolean;
+    },
+    status: 'failed' | 'cancelled',
+  ): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.externalTool,
+      publicName: input.publicName,
+      subKind: input.subKind,
+      ...(input.toolInput ? { input: input.toolInput } : {}),
+      status,
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+      error: {
+        code: input.code,
+        detail: input.detail,
+        ...(status === 'failed' ? { retryable: input.retryable ?? false } : {}),
+      },
+    });
+  }
+
   recordFileSearchCompleted(input: {
     toolCallId: string;
     toolInput: { fileId: string; query: string; maxResults?: number };

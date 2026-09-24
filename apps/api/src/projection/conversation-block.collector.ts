@@ -273,6 +273,13 @@ export class ConversationBlockCollector {
 
   // 将 canonical 工具名转换为简洁的用户可见动作标题。
   private toolTitle(toolName: string): string {
+    if (toolName.startsWith('mcp__')) {
+      const rest = toolName.slice('mcp__'.length);
+      const separator = rest.indexOf('__');
+      if (separator > 0) {
+        return `${rest.slice(0, separator)} · ${rest.slice(separator + 2)}`;
+      }
+    }
     if (toolName === 'web_search') return '搜索网页';
     if (toolName === 'web_fetch') return '读取网页';
     if (toolName === 'search_file') return '搜索文件';

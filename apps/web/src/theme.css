@@ -151,6 +151,12 @@
   --theme-rejection-bg: #f8ecea;
   --theme-rejection-text: #984b41;
   --theme-user-bubble: #edf3fe;
+  --settings-highlight-bg: #edf3fe;
+  --settings-nav-active: #edf3fe;
+  --settings-module-bg: #f5f6f7;
+  --settings-cube-border: rgb(0 0 0 / 16%);
+  --settings-cube-selected-border: #adb2b8;
+  --settings-row-border: rgb(0 0 0 / 10%);
 
   /* 浅色 Terminal：对齐 DSH 白底 + 浅灰顶栏 + 绿色状态点 */
   --theme-terminal-bg: #ffffff;
@@ -207,6 +213,12 @@
   --theme-composer-border: #383838;
   --theme-composer-placeholder: rgb(255 255 255 / 48%);
   --theme-session-action-hover: #242424;
+  --settings-highlight-bg: var(--theme-surface-subtle);
+  --settings-nav-active: var(--theme-surface-hover);
+  --settings-module-bg: var(--theme-surface-subtle);
+  --settings-cube-border: rgb(255 255 255 / 12%);
+  --settings-cube-selected-border: rgb(255 255 255 / 28%);
+  --settings-row-border: rgb(255 255 255 / 10%);
   --theme-scrollbar: rgb(255 255 255 / 4%);
   --theme-accent: #d8d8d8;
   --theme-danger: #e28d85;

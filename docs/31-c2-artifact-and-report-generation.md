@@ -1,10 +1,10 @@
 # C2 Artifact & Report Generation / 产物与报告生成方案
 
-> 文档状态：C2-A、当前范围的 C2-B 与 C2-C 已实施；C2-D 方案已冻结，待实施。
+> 文档状态：**C2-A–C2-D 已实施**。后续 Workbench 重构、模板/产物组等见各节「明确不做 / 后续升级」。
 >
-> 最后更新：2026-09-16。
+> 最后更新：2026-09-23。
 >
-> 本文记录 C2 产物与报告生成能力的阶段方向，以及已经落地的 C2-A/C2-B 当前边界。Workbench 后续将独立重构，因此当前 C2-B 复用 Artifact 查看与下载链路，不冻结专用 Report Workbench。
+> 本文记录 C2 产物与报告生成能力的阶段方向、冻结契约与验收标准。当前 C2-B 仍复用 Artifact 查看与下载链路，不冻结专用 Report Workbench。
 
 ## 1. 规划原则
 
@@ -35,7 +35,7 @@ C2  Artifact & Report Generation
 | C2-A      | 已实现         | 通用生成文件、Artifact、预览、下载、删除和恢复闭环已落地 |
 | C2-B      | 当前范围已实现 | 正式 Markdown 报告、多报告持久化、Artifact 交付与恢复    |
 | C2-C      | 已实现         | Markdown、HTML、PDF、DOCX、XLSX 多格式输出闭环已落地    |
-| C2-D      | 方案已冻结     | 线性不可变版本、恢复、失败隔离与会话恢复，待实施         |
+| C2-D      | 已实现         | 线性不可变版本、revise/restore、乐观并发、Workbench 版本入口 |
 
 ## 3. C2 总体目标
 
@@ -510,7 +510,7 @@ C2-B 当前范围以下列内容作为完成标准：
 
 ## 6. C2-C 多格式输出
 
-> 状态：方案冻结，待实施。本阶段以“能稳定生成、打开、下载和恢复”为完成目标，不建设通用文档平台。
+> 状态：**已实施**（2026-09 前完成）。本阶段以“能稳定生成、打开、下载和恢复”为完成目标，不建设通用文档平台。
 
 ### 6.1 阶段目标与设计判断
 
@@ -627,7 +627,7 @@ create_file input
 
 `originalKey` 保存用户下载的真实 HTML、PDF、DOCX 或 XLSX；`normalizedKey` 保存后续 `read_file/search_file` 使用的可读文本。文档类格式保存输入 Markdown 作为规范化正文，XLSX 保存带 Sheet 边界的 Markdown 表格或稳定纯文本表示。
 
-数据库的 `FileKind` 已包含 PDF、DOCX 和 XLSX，但尚未包含 HTML。C2-C 需要增加 `html` 枚举迁移，并同步扩大 `fileRefSchema`、`artifactRefSchema`、文件 MIME 映射、文件图标和生成服务类型范围；不为多格式输出增加新表。首版只接受 `.html`，不增加 `.htm` 别名。
+数据库 `FileKind` 已包含 PDF、DOCX、XLSX 与 **html**（Prisma 枚举迁移已完成），并同步扩大 `fileRefSchema`、`artifactRefSchema`、文件 MIME 映射、文件图标和生成服务类型范围；不为多格式输出增加新表。首版只接受 `.html`，不增加 `.htm` 别名。
 
 `createFileInputSummarySchema` 也必须覆盖两类输入：文档类记录文件名、内容字符数和字节数；工作簿类记录输入类型、Sheet 数、总行数和总单元格数。完整正文和完整 Sheet 数据不得进入工具事件、快照、日志或模型上下文。
 
@@ -840,9 +840,9 @@ C2-C 只有在以下内容一起完成时才算完成：
 - XLSX 出现稳定的公式或图表需求时，再通过显式结构扩展，不能从普通字符串隐式推断；
 - 多格式批量导出成为高频需求时，再设计产物组，不改变当前一次调用一个 Artifact 的语义。
 
-### 6.13 实施会话交接清单
+### 6.13 实施会话交接清单（归档）
 
-C2-C 方案已足够进入实现，不再等待新的产品或架构讨论。新实施会话应直接从以下前置确认和代码任务开始。
+C2-C 已按 §6.11 完成标准交付。以下清单保留作实施记录；新能力扩展见 §6.12，不重复开工 C2-C 本体。
 
 #### 开工前必须确认
 
@@ -901,7 +901,7 @@ C2-C 方案已足够进入实现，不再等待新的产品或架构讨论。新
 
 ## 7. C2-D 产物版本与迭代
 
-> 状态：方案已冻结，待实施。
+> 状态：**已实施**。实现落点：`ArtifactSeries` / 版本字段（Prisma）、`ArtifactsService`（create/revise/restore/current 推进）、Run `artifactVersionContext`、Workbench 版本 UI；集成测试见 `apps/api/test/integration/app.integration.spec.ts`（C2-D 版本链与并发冲突）。
 
 ### 7.1 阶段定位
 
@@ -1111,10 +1111,10 @@ C2-D 只有在以下行为全部通过自动化测试和真实端到端验证后
 ## 8. C2 推荐开发顺序
 
 ```text
-C2-A FileCreateTool + Artifact 完整闭环
--> C2-B 正式报告生成
--> C2-C 多格式输出
--> C2-D 版本与迭代
+C2-A FileCreateTool + Artifact 完整闭环   （已完成）
+-> C2-B 正式报告生成                      （已完成）
+-> C2-C 多格式输出                        （已完成）
+-> C2-D 版本与迭代                        （已完成）
 ```
 
 C2-A 实施前需要进一步冻结的内容仅包括工具输入输出、Artifact 最小元数据、首版格式和 API/Workbench 投影；不重新讨论是否采用工具驱动、是否暴露路径或是否拆成多个交付阶段。

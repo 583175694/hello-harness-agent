@@ -9,10 +9,12 @@ import type { PlanSnapshot } from '@harness/agent-protocol';
 import type { ModelMessage } from '../model/model-adapter';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import type { RuntimeLifecycleController } from './runtime-lifecycle';
+import type { RunMcpSnapshot } from '../mcp/mcp.types';
 
 export type AgentRuntimeInput = {
   sessionId: string;
   runId?: string;
+  mcpSnapshot?: RunMcpSnapshot;
   messageId: string;
   model: string;
   systemPrompt: string;

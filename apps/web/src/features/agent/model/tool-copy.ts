@@ -1,3 +1,21 @@
+const MCP_PUBLIC_PREFIX = 'mcp__';
+
+export function mcpFriendlyToolTitle(publicName: string): string {
+  if (publicName.startsWith(MCP_PUBLIC_PREFIX)) {
+    const rest = publicName.slice(MCP_PUBLIC_PREFIX.length);
+    const separator = rest.indexOf('__');
+    if (separator > 0) {
+      return `${rest.slice(0, separator)} · ${rest.slice(separator + 2)}`;
+    }
+  }
+  return `运行工具 ${publicName}`;
+}
+
+export function resolveActivityToolName(toolName: string, publicName?: string): string {
+  if (toolName === 'external_tool' && publicName) return publicName;
+  return toolName;
+}
+
 export type ToolCopyInput = {
   urls?: string[];
   query?: string;
@@ -44,6 +62,12 @@ export function toolInputSummary(toolName: string, input: ToolCopyInput): string
   if (toolName === 'job_list') return '列出后台 job';
   if (toolName === 'execute_command') return input.command ?? '';
   if (toolName === 'web_search') return input.query ?? '';
+  if (toolName.startsWith(MCP_PUBLIC_PREFIX)) {
+    const parts = Object.entries(input)
+      .slice(0, 5)
+      .map(([key, value]) => `${key}=${String(value).slice(0, 48)}`);
+    return parts.join(', ');
+  }
   return '';
 }
 
@@ -63,7 +87,44 @@ export function toolTitle(toolName: string, input: ToolCopyInput): string {
   if (toolName === 'job_kill') return '终止后台 job';
   if (toolName === 'execute_command') return '执行命令';
   if (toolName === 'web_search') return `搜索：${input.query}`;
+  if (toolName === 'external_tool') return '外部工具';
+  if (toolName.startsWith(MCP_PUBLIC_PREFIX)) return mcpFriendlyToolTitle(toolName);
   return `运行工具 ${toolName}`;
+}
+
+export function toolStreamTitle(
+  toolName: string,
+  input: ToolCopyInput,
+  options?: { publicName?: string },
+): string {
+  if (toolName === 'external_tool' && options?.publicName) {
+    return mcpFriendlyToolTitle(options.publicName);
+  }
+  return toolTitle(toolName, input);
+}
+
+export function asToolCopyInput(input: unknown): ToolCopyInput {
+  if (typeof input !== 'object' || input === null) return {};
+  return input as ToolCopyInput;
+}
+
+export function streamToolTitle(event: {
+  toolName: string;
+  input?: unknown;
+  publicName?: string;
+}): string {
+  return toolStreamTitle(event.toolName, asToolCopyInput(event.input), {
+    publicName: event.publicName,
+  });
+}
+
+export function streamToolInputSummary(event: {
+  toolName: string;
+  input?: unknown;
+  publicName?: string;
+}): string {
+  const displayName = resolveActivityToolName(event.toolName, event.publicName);
+  return toolInputSummary(displayName, asToolCopyInput(event.input));
 }
 
 export function toolRunningDetail(toolName: string): string {
@@ -76,6 +137,8 @@ export function toolRunningDetail(toolName: string): string {
   if (toolName === 'bash') return '正在终端执行';
   if (toolName === 'execute_command') return '正在执行命令';
   if (toolName === 'web_search') return '正在搜索公开网页';
+  if (toolName === 'external_tool') return '正在执行外部工具';
+  if (toolName.startsWith(MCP_PUBLIC_PREFIX)) return '正在执行 MCP 工具';
   return '正在执行工具';
 }
 

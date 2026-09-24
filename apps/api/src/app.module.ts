@@ -12,6 +12,7 @@ import { RunsModule } from './runs/runs.module';
 import { ModelModule } from './model/model.module';
 import { FilesModule } from './files/files.module';
 import { ArtifactsModule } from './artifacts/artifacts.module';
+import { McpModule } from './mcp/mcp.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ArtifactsModule } from './artifacts/artifacts.module';
     SessionsModule,
     FilesModule,
     ArtifactsModule,
+    McpModule,
   ],
   controllers: [HealthController],
   providers: [HealthService],

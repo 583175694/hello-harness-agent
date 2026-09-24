@@ -1,4 +1,61 @@
 @import './styles/markdown.css';
+@import './styles/settings-dialog.css';
+
+/* Sonner (shadcn toast) — Harness variants */
+.harness-toaster {
+  --h-toast-width: min(420px, calc(100vw - 32px));
+  font-family: var(--font-sans);
+}
+
+.harness-toaster [data-sonner-toaster] {
+  width: var(--h-toast-width);
+}
+
+.harness-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: var(--h-toast-width);
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--theme-text-primary);
+  background: var(--theme-surface);
+  border: 1px solid var(--theme-border);
+  box-shadow: var(--h-elevation-prominent);
+}
+
+.harness-toast__title {
+  font-weight: 500;
+}
+
+.harness-toast--default {
+  border-color: var(--theme-border);
+  background: var(--theme-surface);
+}
+
+.harness-toast--success {
+  border-color: color-mix(in srgb, #10b981 40%, var(--theme-border));
+  background: color-mix(in srgb, #10b981 8%, var(--theme-surface));
+}
+
+.harness-toast--success .harness-toast__title {
+  color: #047857;
+}
+
+:root[data-theme='dark'] .harness-toast--success .harness-toast__title {
+  color: #6ee7b7;
+}
+
+.harness-toast--error {
+  border-color: color-mix(in srgb, var(--theme-danger) 45%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-danger) 10%, var(--theme-surface));
+}
+
+.harness-toast--error .harness-toast__title {
+  color: var(--theme-danger);
+}
 :root {
   font-family: var(--font-sans);
   color: var(--theme-text-primary);
@@ -236,6 +293,7 @@ textarea:focus-visible {
   inset: 0;
   background: rgb(0 0 0 / 22%);
   animation: dialog-backdrop-in 140ms ease-out;
+  border: 0;
 }
 .ui-dialog-content {
   position: fixed;
@@ -405,12 +463,22 @@ textarea:focus-visible {
 }
 .sidebar-footer {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
   margin-top: auto;
-  padding: 14px 8px 0;
+  /* 与会话列表同宽：列表只有右侧 scroll gutter，不再叠加一层左右 padding */
+  padding: 12px 6px 0 0;
   color: #777;
   font-size: 12px;
+}
+.sidebar-footer__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 8px;
+}
+.sidebar-footer__status .local-badge {
+  margin-left: auto;
 }
 .status-dot {
   width: 7px;

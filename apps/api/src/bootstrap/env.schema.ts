@@ -42,6 +42,10 @@ export const envSchema = z
     SANDBOX_API_KEY: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
     SANDBOX_IMAGE: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
     SANDBOX_TTL_MS: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+    HARNESS_SECRETS_MASTER_KEY: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().min(1).optional(),
+    ),
   })
   .superRefine((value, context) => {
     if (value.NODE_ENV !== 'production') return;

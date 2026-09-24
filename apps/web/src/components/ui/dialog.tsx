@@ -8,17 +8,23 @@ export const DialogClose = DialogPrimitive.Close;
 
 export function DialogContent({
   className = '',
+  variant,
   children,
   ...props
-}: ComponentProps<typeof DialogPrimitive.Content>) {
+}: ComponentProps<typeof DialogPrimitive.Content> & { variant?: 'settings' }) {
+  const settings = variant === 'settings';
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="ui-dialog-overlay" />
+      <DialogPrimitive.Overlay
+        className={settings ? 'ui-dialog-overlay ui-dialog-overlay--settings' : 'ui-dialog-overlay'}
+      />
       <DialogPrimitive.Content className={`ui-dialog-content ${className}`} {...props}>
         {children}
-        <DialogPrimitive.Close className="ui-dialog-close" aria-label="关闭">
-          <X size={17} />
-        </DialogPrimitive.Close>
+        {settings ? null : (
+          <DialogPrimitive.Close className="ui-dialog-close" aria-label="关闭">
+            <X size={17} />
+          </DialogPrimitive.Close>
+        )}
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   );

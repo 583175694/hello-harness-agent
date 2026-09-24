@@ -26,4 +26,12 @@ describe('environment validation', () => {
       'SEARCH_PROVIDER',
     );
   });
+
+  it('passes through HARNESS_SECRETS_MASTER_KEY for MCP secrets encryption', () => {
+    const masterKey = 'c5b5c7590b12d4c4da9fe7e38ef0559f94e59c260d82c344ddb0fe9b1341449c';
+    expect(
+      validateEnvironment({ ...validEnvironment, HARNESS_SECRETS_MASTER_KEY: masterKey })
+        .HARNESS_SECRETS_MASTER_KEY,
+    ).toBe(masterKey);
+  });
 });

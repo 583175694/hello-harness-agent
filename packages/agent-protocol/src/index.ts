@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AGENT_PROTOCOL_LIMITS } from './common/constants.js';
+import { AGENT_PROTOCOL_LIMITS, AGENT_TOOL_NAMES } from './common/constants.js';
 import {
   userContentBlockSchema,
   fileSearchInputSchema,
@@ -33,15 +33,23 @@ export * from './web-fetch/contracts.js';
 export * from './files/contracts.js';
 export * from './sandbox/contracts.js';
 export * from './sandbox/bash-render.js';
+export * from './mcp/contracts.js';
+export * from './tools/external-tool.contracts.js';
 import {
   webFetchInputSchema,
   webFetchPassageSchema,
   webFetchResultSchema,
   webFetchStatsSchema,
 } from './web-fetch/contracts.js';
+import {
+  externalToolInputSchema,
+  externalToolOutputPreviewSchema,
+  externalToolResultSchema,
+  externalToolSubKindSchema,
+} from './tools/external-tool.contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.16.0';
+export const protocolVersion = '0.18.0';
 
 // 计划步骤的有限状态集合，前后端只使用这三种状态。
 export const planStepStatusSchema = z.enum(['pending', 'in_progress', 'completed']);
@@ -119,6 +127,12 @@ export const runContextDebugSchema = z.object({
   // 本轮模型输出，与发送给模型的 messages 分离，便于调试完整观察一轮输入/输出。
   response: z.unknown().optional(),
   tools: z.array(z.unknown()),
+  mcp: z
+    .object({
+      catalogGeneration: z.number().int().nonnegative(),
+      toolCount: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 export const publicModelConfigSchema = z.object({
   id: z.string().min(1),
@@ -287,6 +301,14 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
   toolExecutionBaseSchema.extend({
     toolName: z.literal('bash'),
     input: bashInputSummarySchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.externalTool),
+    publicName: z.string().min(1),
+    subKind: externalToolSubKindSchema,
+    input: externalToolInputSchema,
+    outputPreview: externalToolOutputPreviewSchema.optional(),
+    outputCharCount: z.number().int().nonnegative().optional(),
   }),
 ]);
 
@@ -612,6 +634,21 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     jobId: z.string().min(1).optional(),
     startedAt: z.string().datetime(),
   }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.externalTool),
+    title: z.string().min(1),
+    publicName: z.string().min(1),
+    subKind: externalToolSubKindSchema,
+    input: externalToolInputSchema,
+    startedAt: z.string().datetime(),
+  }),
 ]);
 
 const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
@@ -799,6 +836,21 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     result: sandboxJobToolTextResultSchema,
     presentation: z.literal('job').optional(),
     jobId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.externalTool),
+    publicName: z.string().min(1),
+    subKind: externalToolSubKindSchema,
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: externalToolResultSchema,
   }),
 ]);
 

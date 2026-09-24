@@ -1,4 +1,5 @@
-import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { createHash } from 'node:crypto';
 import {
   AGENT_ERROR_CODES,
@@ -19,7 +20,6 @@ import { FilesService } from '../files/files.service';
 import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
-import { SandboxJobWatcherService } from '../sandbox/sandbox-job-watcher.service';
 
 @Injectable()
 export class RunCommandService {
@@ -32,7 +32,7 @@ export class RunCommandService {
     @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
     @Inject(FilesService) private readonly files: FilesService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Optional() private readonly jobWatcher?: SandboxJobWatcherService,
+    @Inject(ModuleRef) private readonly moduleRef: ModuleRef,
   ) {}
 
   // 校验请求并创建 Run；成功后注册初始 Snapshot，异步交给 Executor 执行。
@@ -187,7 +187,7 @@ export class RunCommandService {
     if (!snapshot) throw new Error('CreatedRunSnapshotMissing');
     if (result.kind === 'created') {
       if (!input.idempotencyKey.startsWith('job-wakeup:')) {
-        this.jobWatcher?.resetWakeBudget(sessionId);
+        this.resetJobWakeBudget(sessionId);
       }
       // 先注册初始 Durable Snapshot，再让后台 Executor 发布第一个事件，避免首订阅找不到 Run。
       this.registry.register(snapshot);
@@ -403,5 +403,17 @@ export class RunCommandService {
       code: AGENT_ERROR_CODES.runNotFound,
       detail: 'Run 不存在。',
     });
+  }
+
+  private resetJobWakeBudget(sessionId: string): void {
+    type Watcher = { resetWakeBudget(sessionId: string): void };
+    let WatcherClass: new (...args: never[]) => Watcher;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      WatcherClass = require('../sandbox/sandbox-job-watcher.service').SandboxJobWatcherService;
+    } catch {
+      return;
+    }
+    this.moduleRef.get(WatcherClass, { strict: false })?.resetWakeBudget(sessionId);
   }
 }

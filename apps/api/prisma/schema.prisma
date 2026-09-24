@@ -19,6 +19,7 @@ model User {
   artifacts   Artifact[]
   artifactSeries ArtifactSeries[]
   reports     Report[]
+  mcpServerConfigs McpServerConfig[]
 
   @@map("users")
 }
@@ -113,6 +114,7 @@ model ContextCompactionState {
   sessionId             String   @unique @map("session_id")
   summary               String
   coveredMessageCount   Int      @map("covered_message_count")
+  coveredUnitCount      Int?     @map("covered_unit_count")
   coveredThroughItemId  String?  @map("covered_through_item_id")
   version               Int      @default(1)
   tokenCount            Int      @map("token_count")
@@ -462,4 +464,64 @@ enum AgentStepStatus {
   completed
   failed
   cancelled
+}
+
+enum McpTransport {
+  streamable_http
+}
+
+enum McpDefaultApproval {
+  auto_execute
+  require_approval
+}
+
+enum McpSecretKind {
+  header
+  env
+  bearer
+}
+
+model McpServerConfig {
+  id                   String             @id @default(uuid())
+  userId               String             @map("user_id")
+  sessionId            String?            @map("session_id")
+  serverName           String             @map("server_name")
+  enabled              Boolean            @default(true)
+  transport            McpTransport       @default(streamable_http)
+  url                  String
+  headersPlain         Json               @default("{}") @map("headers_plain")
+  startupTimeoutMs     Int                @default(30000) @map("startup_timeout_ms")
+  toolCallTimeoutMs    Int                @default(60000) @map("tool_call_timeout_ms")
+  required             Boolean            @default(false)
+  failOnStartupError   Boolean            @default(false) @map("fail_on_startup_error")
+  defaultApproval      McpDefaultApproval @default(require_approval) @map("default_approval")
+  enabledTools         Json?              @map("enabled_tools")
+  disabledTools        Json?              @map("disabled_tools")
+  maxInstructionBytes  Int                @default(32768) @map("max_instruction_bytes")
+  reconnectEnabled     Boolean            @default(true) @map("reconnect_enabled")
+  reconnectMaxAttempts Int                @default(5) @map("reconnect_max_attempts")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  secrets              McpServerSecret[]
+
+  @@unique([userId, sessionId, serverName])
+  @@index([userId, enabled])
+  @@map("mcp_server_configs")
+}
+
+model McpServerSecret {
+  id                 String           @id @default(uuid())
+  mcpServerConfigId  String           @map("mcp_server_config_id")
+  kind               McpSecretKind
+  name               String
+  ciphertext         String           @db.Text
+  nonce              String
+  keyVersion         Int              @default(1) @map("key_version")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  config             McpServerConfig  @relation(fields: [mcpServerConfigId], references: [id], onDelete: Cascade)
+
+  @@unique([mcpServerConfigId, kind, name])
+  @@map("mcp_server_secrets")
 }

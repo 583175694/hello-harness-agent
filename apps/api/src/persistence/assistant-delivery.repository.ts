@@ -1,12 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
 
-import type {
-  AssistantContentBlock,
-  AssistantTextBlock,
-  ResearchSourceSnapshot,
-  ToolExecutionSnapshot,
+import {
+  assistantAgentMetadataSchema,
+  type AssistantContentBlock,
+  type AssistantTextBlock,
+  type ResearchSourceSnapshot,
+  type ToolExecutionSnapshot,
 } from '@harness/agent-protocol';
+import type { Prisma } from '@prisma/client';
 import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
 import { formatLogDuration, shortLogId } from '../shared/logging.utils';
@@ -33,6 +35,19 @@ export class AssistantDeliveryRepository {
       .filter((block): block is AssistantTextBlock => block.type === 'text')
       .map((block) => block.content)
       .join('');
+    const metadata = assistantAgentMetadataSchema.parse({
+      model: input.model,
+      blocks: input.blocks,
+      ...(input.executions.length
+        ? {
+            agent: {
+              toolCallCount: input.toolCallCount,
+              executions: input.executions,
+              sources: input.sources,
+            },
+          }
+        : {}),
+    });
     await this.prisma.$transaction([
       this.prisma.message.create({
         data: {
@@ -42,19 +57,7 @@ export class AssistantDeliveryRepository {
           role: 'assistant',
           kind: 'assistant_delivery',
           content,
-          metadata: {
-            model: input.model,
-            blocks: input.blocks,
-            ...(input.executions.length
-              ? {
-                  agent: {
-                    toolCallCount: input.toolCallCount,
-                    executions: input.executions,
-                    sources: input.sources,
-                  },
-                }
-              : {}),
-          },
+          metadata: metadata as Prisma.InputJsonValue,
         },
       }),
       this.prisma.session.update({

@@ -2348,14 +2348,6 @@ function PersistentAgentApp() {
     toast.success('已退出登录');
   }
 
-  if (authChecking) {
-    return (
-      <div className="auth-screen">
-        <p className="auth-subtitle">正在验证登录状态…</p>
-      </div>
-    );
-  }
-
   return (
     <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-sidebar text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
       <Sidebar

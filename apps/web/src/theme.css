@@ -234,6 +234,15 @@
   --h-border-l3: var(--theme-border-subtle);
   --h-bubble: var(--theme-user-bubble);
   --h-link: var(--theme-info);
+
+  --markdown-heading: #222220;
+  --markdown-muted: #686864;
+  --markdown-link: #3f5f78;
+  --markdown-link-hover: #26475f;
+  --markdown-border: #dededb;
+  --markdown-border-subtle: #e8e8e4;
+  --markdown-surface: #f7f7f5;
+  --markdown-surface-strong: #efefec;
 }
 
 :root .ai-terminal {

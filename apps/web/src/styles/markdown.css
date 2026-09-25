@@ -11,14 +11,6 @@
   --border: 60 4% 87%;
   --ring: 60 3% 43%;
   --radius: 7px;
-  --markdown-heading: #222220;
-  --markdown-muted: #686864;
-  --markdown-link: #3f5f78;
-  --markdown-link-hover: #26475f;
-  --markdown-border: #dededb;
-  --markdown-border-subtle: #e8e8e4;
-  --markdown-surface: #f7f7f5;
-  --markdown-surface-strong: #efefec;
   --markdown-flow-space: 11px;
 
   min-width: 0;
@@ -178,7 +170,7 @@
 }
 .markdown-content h5,
 .markdown-content h6 {
-  color: #4f4f4b;
+  color: var(--markdown-muted);
 }
 .markdown-content blockquote {
   margin: 12px 0 var(--markdown-flow-space);
@@ -262,7 +254,7 @@
   border-bottom: 0;
 }
 .markdown-content th {
-  color: #3d3d3a;
+  color: var(--markdown-heading);
   background: var(--theme-sidebar);
   font-weight: 500;
 }
@@ -493,7 +485,7 @@
   word-break: break-word;
 }
 .markdown-content [data-streamdown='table-header-cell'] {
-  color: #3d3d3a;
+  color: var(--markdown-heading);
   background: var(--theme-sidebar);
   font-weight: 500;
 }

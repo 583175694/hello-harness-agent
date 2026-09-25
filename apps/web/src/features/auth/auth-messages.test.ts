@@ -19,7 +19,7 @@ describe('formatAuthApiError', () => {
     expect(message).toContain('\n');
   });
 
-  it('passes through other problem details', () => {
+  it('passes through invalid code detail', () => {
     expect(
       formatAuthApiError({
         type: 'about:blank',
@@ -29,5 +29,17 @@ describe('formatAuthApiError', () => {
         detail: '验证码错误。',
       }),
     ).toBe('验证码错误。');
+  });
+
+  it('replaces generic english server errors with chinese login hint', () => {
+    expect(
+      formatAuthApiError({
+        type: 'about:blank',
+        title: 'Internal server error',
+        status: 500,
+        code: 'INTERNAL_SERVER_ERROR',
+        detail: 'An unexpected error occurred.',
+      }),
+    ).toBe('登录失败，请检查验证码或稍后重试。');
   });
 });

@@ -68,6 +68,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (body.detail) return body.detail;
     if (Array.isArray(body.message)) return body.message.join('; ');
     if (body.message) return body.message;
-    return status === 500 ? 'An unexpected error occurred.' : 'The request could not be completed.';
+    return status === 500 ? '服务器内部错误，请稍后重试。' : '请求未能完成，请稍后重试。';
   }
 }

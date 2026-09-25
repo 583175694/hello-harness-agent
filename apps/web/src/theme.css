@@ -1,4 +1,7 @@
 @import 'tailwindcss';
+@import './styles/shiki.css';
+
+@custom-variant dark (&:where(:root[data-theme='dark'], :root[data-theme='dark'] *));
 
 /* Streamdown/Mermaid 的交互控件和全屏层使用 Tailwind 工具类。 */
 @source '../node_modules/streamdown/dist/**/*.js';
@@ -65,10 +68,56 @@
   --color-info: var(--theme-info);
 }
 
-/* shadcn/ui Sonner host */
+/* shadcn/ui Sonner host — token bridge (popover → Harness surface) */
 .toaster {
   font-family: var(--font-sans);
   --width: min(420px, calc(100vw - 2rem));
+  --normal-bg: var(--theme-surface);
+  --normal-text: var(--theme-text-primary);
+  --normal-border: var(--theme-border);
+  --border-radius: 8px;
+}
+
+.toaster [data-sonner-toast][data-styled='true'] {
+  box-shadow: var(--h-elevation-prominent);
+  padding-right: 44px;
+}
+
+.toaster [data-sonner-toast] [data-icon] {
+  display: none;
+}
+
+.toaster [data-sonner-toast]:focus-visible {
+  box-shadow: var(--h-elevation-prominent);
+}
+
+.toaster [data-sonner-toast][data-styled='true'] [data-description] {
+  color: var(--theme-text-secondary);
+}
+
+/* Close — trailing edge, vertically centered (not Sonner default top-left) */
+.toaster [data-sonner-toast][data-styled='true'] [data-close-button],
+.toaster .harness-sonner-close {
+  left: auto;
+  right: 12px;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  color: var(--theme-text-muted);
+  background: transparent;
+  transform: translateY(-50%);
+}
+
+.toaster [data-sonner-toast][data-styled='true'] [data-close-button]:hover,
+.toaster .harness-sonner-close:hover {
+  color: var(--theme-text-primary);
+  background: var(--theme-surface-hover);
+}
+
+.toaster [data-sonner-toast][data-styled='true'] [data-close-button]:focus-visible {
+  box-shadow: none;
 }
 
 @utility bubble-user {
@@ -95,15 +144,6 @@
 @utility shadow-prominent {
   border: 0;
   box-shadow: var(--h-elevation-prominent);
-}
-
-:root.theme-transition,
-:root.theme-transition *,
-:root.theme-transition *::before,
-:root.theme-transition *::after {
-  transition-property: color, background-color, border-color;
-  transition-duration: 140ms;
-  transition-timing-function: ease;
 }
 
 :root {
@@ -264,19 +304,7 @@
   --h-border-l3: var(--theme-border-subtle);
   --h-bubble: var(--theme-surface-subtle);
   --h-link: var(--theme-info);
-}
 
-:root[data-theme='dark'] .ai-terminal {
-  color-scheme: dark;
-}
-
-:root[data-theme='dark'] .markdown-content,
-:root[data-theme='dark'] .assistant-content,
-:root[data-theme='dark'] .report-document {
-  color: var(--theme-text-primary);
-}
-
-:root[data-theme='dark'] .markdown-content {
   --markdown-heading: rgb(255 255 255 / 84%);
   --markdown-muted: rgb(255 255 255 / 56%);
   --markdown-link: #91b7d0;
@@ -285,6 +313,10 @@
   --markdown-border-subtle: #252525;
   --markdown-surface: #1c1c1c;
   --markdown-surface-strong: #242424;
+}
+
+:root[data-theme='dark'] .ai-terminal {
+  color-scheme: dark;
 }
 
 :root[data-theme='dark'] .brand-mark,
@@ -475,36 +507,4 @@
   ):is(:hover, :focus-within) {
     scrollbar-color: var(--theme-scrollbar) transparent;
   }
-}
-
-:root[data-theme='dark'] .workspace-header h2,
-:root[data-theme='dark'] .source-item h3,
-:root[data-theme='dark'] .report-sources h3,
-:root[data-theme='dark'] .view-toolbar strong,
-:root[data-theme='dark'] .execution-item.is-selected,
-:root[data-theme='dark'] .stage.is-current {
-  color: var(--theme-text-primary);
-}
-
-:root[data-theme='dark'] .source-item p,
-:root[data-theme='dark'] .report-document,
-:root[data-theme='dark'] .report-sources a,
-:root[data-theme='dark'] .execution-item,
-:root[data-theme='dark'] .tool-call-row,
-:root[data-theme='dark'] .message-meta,
-:root[data-theme='dark'] .workspace-tab,
-:root[data-theme='dark'] .task-title__meta {
-  color: var(--theme-text-secondary);
-}
-
-:root[data-theme='dark'] .source-item-top,
-:root[data-theme='dark'] .source-item small,
-:root[data-theme='dark'] .workspace-header p,
-:root[data-theme='dark'] .execution-item small,
-:root[data-theme='dark'] .view-toolbar span,
-:root[data-theme='dark'] .workspace-kicker,
-:root[data-theme='dark'] .sidebar-heading,
-:root[data-theme='dark'] .sidebar-section,
-:root[data-theme='dark'] .sessions-empty {
-  color: var(--theme-text-muted);
 }

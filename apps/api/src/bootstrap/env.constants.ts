@@ -35,11 +35,10 @@ export const ENV_KEYS = {
   smtpUser: 'SMTP_USER',
   smtpPass: 'SMTP_PASS',
   smtpFrom: 'SMTP_FROM',
-  tencentSmsSecretId: 'TENCENT_SMS_SECRET_ID',
-  tencentSmsSecretKey: 'TENCENT_SMS_SECRET_KEY',
-  tencentSmsAppId: 'TENCENT_SMS_APP_ID',
-  tencentSmsSign: 'TENCENT_SMS_SIGN',
-  tencentSmsTemplateId: 'TENCENT_SMS_TEMPLATE_ID',
+  aliyunSmsAuthAccessKeyId: 'ALIYUN_SMS_AUTH_ACCESS_KEY_ID',
+  aliyunSmsAuthAccessKeySecret: 'ALIYUN_SMS_AUTH_ACCESS_KEY_SECRET',
+  aliyunSmsAuthSignName: 'ALIYUN_SMS_AUTH_SIGN_NAME',
+  aliyunSmsAuthTemplateCode: 'ALIYUN_SMS_AUTH_TEMPLATE_CODE',
 } as const;
 
 // 集中维护本地开发和外部 Provider 的默认配置。

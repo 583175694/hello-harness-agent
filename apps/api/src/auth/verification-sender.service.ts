@@ -48,12 +48,8 @@ export class VerificationSenderService {
   }
 
   private async sendSms(target: string, code: string, nodeEnv: string): Promise<void> {
-    const secretId = this.config.get<string>(ENV_KEYS.tencentSmsSecretId);
-    if (!secretId) {
-      if (nodeEnv === 'production') throw new Error('腾讯云 SMS 未配置，无法发送短信验证码。');
-      this.logger.warn(`[dev-auth] 短信验证码 target=${target} code=${code}`);
-      return;
-    }
-    this.logger.warn(`[sms-stub] target=${target} code=${code}（请配置完整腾讯云 SMS 参数以真正发送）`);
+    if (nodeEnv === 'production')
+      throw new Error('未配置 ALIYUN_SMS_AUTH_*，无法发送手机验证码（请使用阿里云短信认证）。');
+    this.logger.warn(`[dev-auth] 短信验证码 target=${target} code=${code}`);
   }
 }

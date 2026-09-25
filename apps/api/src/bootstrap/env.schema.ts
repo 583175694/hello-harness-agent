@@ -64,23 +64,19 @@ export const envSchema = z
     SMTP_USER: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
     SMTP_PASS: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
     SMTP_FROM: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
-    TENCENT_SMS_SECRET_ID: z.preprocess(
+    ALIYUN_SMS_AUTH_ACCESS_KEY_ID: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z.string().optional(),
     ),
-    TENCENT_SMS_SECRET_KEY: z.preprocess(
+    ALIYUN_SMS_AUTH_ACCESS_KEY_SECRET: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z.string().optional(),
     ),
-    TENCENT_SMS_APP_ID: z.preprocess(
+    ALIYUN_SMS_AUTH_SIGN_NAME: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z.string().optional(),
     ),
-    TENCENT_SMS_SIGN: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().optional(),
-    ),
-    TENCENT_SMS_TEMPLATE_ID: z.preprocess(
+    ALIYUN_SMS_AUTH_TEMPLATE_CODE: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z.string().optional(),
     ),

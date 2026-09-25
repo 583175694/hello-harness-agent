@@ -341,8 +341,6 @@ describe('R1 workbench shell', () => {
   it('renders sources and report in the development fixture preview', () => {
     render(
       <AppShell
-        contentFontSize={14}
-        onContentFontSizeChange={() => undefined}
         previewState={{
           label: '市场调研',
           subtitle: '网页检索',
@@ -687,12 +685,7 @@ describe('R1 workbench shell', () => {
   it('exposes a mock state switcher on the preview route', () => {
     render(
       <>
-        <AppShell
-          previewState={makeFixture('waiting')}
-          theme="light"
-          contentFontSize={14}
-          onContentFontSizeChange={() => undefined}
-        />
+        <AppShell previewState={makeFixture('waiting')} />
         <PreviewSwitcher active="waiting" />
       </>,
     );

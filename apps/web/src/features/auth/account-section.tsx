@@ -1,13 +1,6 @@
 import { useState, type FormEvent } from 'react';
 
-import {
-  ApiProblem,
-  bindEmail,
-  bindPhone,
-  logout,
-  sendEmailCode,
-  sendPhoneCode,
-} from '../../api/client';
+import { ApiProblem, bindPhone, logout, sendPhoneCode } from '../../api/client';
 import type { AuthUserView } from '@harness/agent-protocol';
 import { LOGOUT_CONFIRM, useConfirm } from '../../components/ui/confirm-provider';
 import { ACCOUNT_BINDING_INTRO, formatAuthApiError } from './auth-messages';
@@ -20,14 +13,14 @@ type AccountSectionProps = {
 
 export function AccountSection({ user, onUserChange, onLoggedOut }: AccountSectionProps) {
   const confirm = useConfirm();
-  const [bindTarget, setBindTarget] = useState<'email' | 'phone' | null>(null);
+  const [bindTarget, setBindTarget] = useState<'phone' | null>(null);
   const [value, setValue] = useState('');
   const [code, setCode] = useState('');
   const [step, setStep] = useState<'idle' | 'code'>('idle');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function openBind(target: 'email' | 'phone') {
+  function openBind(target: 'phone') {
     setBindTarget(target);
     setStep('idle');
     setValue('');
@@ -49,8 +42,7 @@ export function AccountSection({ user, onUserChange, onLoggedOut }: AccountSecti
     setBusy(true);
     setError(null);
     try {
-      if (bindTarget === 'email') await sendEmailCode(value.trim());
-      else await sendPhoneCode(value.trim());
+      await sendPhoneCode(value.trim());
       setStep('code');
     } catch (err) {
       setError(
@@ -69,10 +61,7 @@ export function AccountSection({ user, onUserChange, onLoggedOut }: AccountSecti
     setBusy(true);
     setError(null);
     try {
-      const next =
-        bindTarget === 'email'
-          ? await bindEmail(value.trim(), code.trim())
-          : await bindPhone(value.trim(), code.trim());
+      const next = await bindPhone(value.trim(), code.trim());
       onUserChange(next);
       closeBind();
     } catch (err) {
@@ -134,17 +123,7 @@ export function AccountSection({ user, onUserChange, onLoggedOut }: AccountSecti
           {user.email ? (
             <span className="settings-dialog__row-value--primary">{user.email}</span>
           ) : (
-            <>
-              <span className="settings-dialog__meta">未绑定</span>
-              <button
-                type="button"
-                className="settings-dialog__link-btn"
-                disabled={busy || bindTarget !== null}
-                onClick={() => openBind('email')}
-              >
-                绑定
-              </button>
-            </>
+            <span className="settings-dialog__meta">暂未开放</span>
           )}
         </span>
       </div>
@@ -178,23 +157,15 @@ export function AccountSection({ user, onUserChange, onLoggedOut }: AccountSecti
           onSubmit={step === 'idle' ? sendBindCode : confirmBind}
         >
           <label className="settings-dialog__field">
-            <span className="settings-dialog__field-label">
-              {bindTarget === 'email' ? '邮箱' : '手机号'}
-            </span>
+            <span className="settings-dialog__field-label">手机号</span>
             <input
               className="settings-dialog__field-input"
-              type={bindTarget === 'email' ? 'email' : 'tel'}
+              type="tel"
               required
               value={value}
-              onChange={(e) =>
-                setValue(
-                  bindTarget === 'phone'
-                    ? e.target.value.replace(/\D/g, '').slice(0, 11)
-                    : e.target.value,
-                )
-              }
-              placeholder={bindTarget === 'email' ? 'you@example.com' : '13800138000'}
-              inputMode={bindTarget === 'phone' ? 'numeric' : undefined}
+              onChange={(e) => setValue(e.target.value.replace(/\D/g, '').slice(0, 11))}
+              placeholder="13800138000"
+              inputMode="numeric"
             />
           </label>
           {step === 'code' ? (

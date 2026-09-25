@@ -34,7 +34,8 @@ import {
   CONTENT_FONT_SIZE_DEFAULT,
   CONTENT_FONT_SIZE_MAX,
   CONTENT_FONT_SIZE_MIN,
-  type Theme,
+  useContentFontSizeControls,
+  useThemeControls,
 } from '../../../theme';
 import { Dialog, DialogContent } from '../../../components/ui/dialog';
 import { toast } from '../../../components/ui/toast';
@@ -53,10 +54,6 @@ type SettingsSection = 'general' | 'mcp';
 type SettingsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  theme: Theme;
-  onThemeChange: (theme: Theme) => void;
-  contentFontSize: number;
-  onContentFontSizeChange: (size: number) => void;
   authUser?: AuthUserView | null;
   onAuthUserChange?: (user: AuthUserView) => void;
   onLogout?: () => void;
@@ -195,7 +192,7 @@ function McpServerCard({
               checked={server.enabled}
               disabled={patching}
               onCheckedChange={(enabled) =>
-                onPatch({ enabled }, enabled ? '已启用 MCP Server' : '已停用 MCP Server')
+                onPatch({ enabled }, enabled ? '已启用' : '已停用')
               }
             />
             <McpServerToggleRow
@@ -207,7 +204,7 @@ function McpServerCard({
                   {
                     defaultApproval: requireApproval ? 'require_approval' : 'auto_execute',
                   },
-                  requireApproval ? '已开启工具执行批准' : '已改为自动执行工具',
+                  requireApproval ? '已开启执行批准' : '已自动执行',
                 )
               }
             />
@@ -229,15 +226,14 @@ type McpFormMode = { kind: 'add' } | { kind: 'edit'; serverId: string };
 export function SettingsDialog({
   open,
   onOpenChange,
-  theme,
-  onThemeChange,
-  contentFontSize,
-  onContentFontSizeChange,
   authUser,
   onAuthUserChange,
   onLogout,
   onRequestLogin,
 }: SettingsDialogProps) {
+  const { theme, setTheme: onThemeChange } = useThemeControls();
+  const { fontSize: contentFontSize, setFontSize: onContentFontSizeChange } =
+    useContentFontSizeControls();
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
   const [section, setSection] = useState<SettingsSection>('general');
@@ -318,7 +314,7 @@ export function SettingsDialog({
       };
       await createMcpServer(body);
       setToken('');
-      toast.success('MCP Server 已保存并开始连接。');
+      toast.success('MCP 已保存');
       setMcpFormMode(null);
       await refresh();
     } catch (err) {
@@ -340,7 +336,7 @@ export function SettingsDialog({
       };
       await updateMcpServer(mcpFormMode.serverId, body);
       setToken('');
-      toast.success('MCP Server 已更新并开始连接。');
+      toast.success('MCP 已更新');
       setMcpFormMode(null);
       await refresh();
     } catch (err) {
@@ -384,9 +380,7 @@ export function SettingsDialog({
     const result = await testMcpServer(id);
     if (result.ok) {
       const count = result.toolNames.length;
-      toast.success(
-        count > 0 ? `探测成功，共 ${count} 个工具` : '探测成功，未发现工具',
-      );
+      toast.success(count > 0 ? `发现 ${count} 个工具` : '未发现工具');
       await refresh();
       return result.toolNames;
     }
@@ -398,7 +392,7 @@ export function SettingsDialog({
   async function copyUrl(url: string) {
     try {
       await navigator.clipboard.writeText(url);
-      toast('URL 已复制到剪贴板。');
+      toast('已复制');
     } catch {
       setError('复制失败，请手动选择 URL。');
     }

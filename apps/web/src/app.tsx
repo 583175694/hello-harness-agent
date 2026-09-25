@@ -123,14 +123,9 @@ import { SettingsDialog } from './features/agent/components/settings-dialog';
 import { LoginDialog } from './features/auth/login-dialog';
 import { LOGOUT_CONFIRM, useConfirm } from './components/ui/confirm-provider';
 import { toast } from './components/ui/toast';
-import { LOGIN_SUCCESS_TOAST } from './features/auth/auth-messages';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
 import { AGENT_UI_COPY, SERVICE_STATE_LABELS } from './features/agent/config/ui.constants';
-import {
-  useContentFontSize,
-  useTheme,
-  type Theme,
-} from './theme';
+import { toggleThemePreference, useDocumentTheme } from './theme';
 import {
   Dialog,
   DialogAction,
@@ -163,29 +158,13 @@ function getPreviewState(): PreviewState | null {
 
 // 根据当前地址选择生产状态或开发预览状态。
 export function App() {
-  const [theme, toggleTheme, setTheme] = useTheme();
-  const [contentFontSize, setContentFontSize] = useContentFontSize();
   const preview = getPreviewState();
   return (
     <>
       {preview ? (
-        <AppShell
-          key={preview}
-          previewState={makeFixture(preview)}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-          onThemeChange={setTheme}
-          contentFontSize={contentFontSize}
-          onContentFontSizeChange={setContentFontSize}
-        />
+        <AppShell key={preview} previewState={makeFixture(preview)} />
       ) : (
-        <PersistentAgentApp
-          theme={theme}
-          onToggleTheme={toggleTheme}
-          onThemeChange={setTheme}
-          contentFontSize={contentFontSize}
-          onContentFontSizeChange={setContentFontSize}
-        />
+        <PersistentAgentApp />
       )}
       {preview ? <PreviewSwitcher active={preview} /> : null}
     </>
@@ -947,14 +926,15 @@ export function groupSessionSummaries(
   return groups.filter((group) => group.sessions.length > 0);
 }
 
-function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }) {
+function ThemeToggle() {
+  const theme = useDocumentTheme();
   return (
     <button
       className="icon-button ml-auto border border-transparent text-text-secondary hover:border-border hover:bg-surface-hover"
       type="button"
       aria-label={theme === 'dark' ? '切换浅色主题' : '切换暗色主题'}
       title={theme === 'dark' ? '切换浅色主题' : '切换暗色主题'}
-      onClick={onToggle}
+      onClick={toggleThemePreference}
     >
       {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
     </button>
@@ -962,19 +942,7 @@ function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }
 }
 
 // 管理生产页面的持久化会话、独立缓存和后台流。
-function PersistentAgentApp({
-  theme,
-  onToggleTheme,
-  onThemeChange,
-  contentFontSize,
-  onContentFontSizeChange,
-}: {
-  theme: Theme;
-  onToggleTheme: () => void;
-  onThemeChange: (theme: Theme) => void;
-  contentFontSize: number;
-  onContentFontSizeChange: (size: number) => void;
-}) {
+function PersistentAgentApp() {
   const confirm = useConfirm();
   const [authUser, setAuthUser] = useState<AuthUserView | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
@@ -1023,13 +991,13 @@ function PersistentAgentApp({
   const draftSubmissionTokenRef = useRef(0);
 
   useEffect(() => {
-    if (!authUser || pendingSubmitTaskRef.current === null) return;
+    if (!authUser || !selectedModel || pendingSubmitTaskRef.current === null) return;
     const task = pendingSubmitTaskRef.current;
     pendingSubmitTaskRef.current = null;
     if (prompt.trim() !== task) return;
     void handleSubmit({ preventDefault: () => {} } as FormEvent<HTMLFormElement>);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在登录成功后续接一次发送
-  }, [authUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 登录且模型就绪后续接一次发送
+  }, [authUser, selectedModel]);
 
   useEffect(() => {
     pendingSessionsRef.current = pendingSessions;
@@ -1042,6 +1010,16 @@ function PersistentAgentApp({
   useEffect(() => {
     sessionStatesRef.current = sessionStates;
   }, [sessionStates]);
+
+  function applyPublicAgentConfig(config: Awaited<ReturnType<typeof getPublicAgentConfig>>): void {
+    const selected =
+      config.models.find((model) => model.id === config.defaultModel) ?? config.models[0];
+    setModels(config.models);
+    if (selected) {
+      setSelectedModel(selected.id);
+      setReasoningEffort(selected.reasoning.default);
+    }
+  }
 
   useEffect(() => {
     disposedRef.current = false;
@@ -1057,15 +1035,7 @@ function PersistentAgentApp({
       })
       .finally(() => setAuthChecking(false));
     void getPublicAgentConfig(controller.signal)
-      .then((config) => {
-        const selected =
-          config.models.find((model) => model.id === config.defaultModel) ?? config.models[0];
-        setModels(config.models);
-        if (selected) {
-          setSelectedModel(selected.id);
-          setReasoningEffort(selected.reasoning.default);
-        }
-      })
+      .then(applyPublicAgentConfig)
       .catch(() => undefined);
     return () => {
       disposedRef.current = true;
@@ -1073,7 +1043,18 @@ function PersistentAgentApp({
       Object.values(runControllersRef.current).forEach((runController) => runController.abort());
       runControllersRef.current = {};
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅挂载时拉取会话与公开模型配置
   }, []);
+
+  useEffect(() => {
+    if (!authUser) return;
+    const controller = new AbortController();
+    void getPublicAgentConfig(controller.signal)
+      .then(applyPublicAgentConfig)
+      .catch(() => undefined);
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 登录成功后补拉模型配置（未登录时可能 401）
+  }, [authUser]);
 
   function setSessionStates(
     update: (current: Record<string, AgentUiState>) => Record<string, AgentUiState>,
@@ -2364,12 +2345,12 @@ function PersistentAgentApp({
     setSessions([]);
     setSelectedSession(null);
     setSessionStatesState({});
-    toast.success('已退出登录。你的会话仍保存在该账号下，再次登录后可继续查看。');
+    toast.success('已退出登录');
   }
 
   if (authChecking) {
     return (
-      <div className="auth-screen" data-theme={theme}>
+      <div className="auth-screen">
         <p className="auth-subtitle">正在验证登录状态…</p>
       </div>
     );
@@ -2435,10 +2416,6 @@ function PersistentAgentApp({
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
-        theme={theme}
-        onThemeChange={onThemeChange}
-        contentFontSize={contentFontSize}
-        onContentFontSizeChange={onContentFontSizeChange}
         authUser={authUser}
         onAuthUserChange={setAuthUser}
         onLogout={() => {
@@ -2447,7 +2424,7 @@ function PersistentAgentApp({
           setSessions([]);
           setSelectedSession(null);
           setSessionStatesState({});
-          toast.success('已退出登录。你的会话仍保存在该账号下，再次登录后可继续查看。');
+          toast.success('已退出登录');
         }}
         onRequestLogin={() => {
           setSettingsOpen(false);
@@ -2470,7 +2447,7 @@ function PersistentAgentApp({
           skipClearPendingOnLoginCloseRef.current = true;
           setAuthUser(user);
           setLoginOpen(false);
-          toast.success(LOGIN_SUCCESS_TOAST);
+          toast.success('登录成功');
         }}
       />
       <main className="main-shell my-2 mr-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl bg-surface">
@@ -2493,7 +2470,7 @@ function PersistentAgentApp({
                   {uiState.label}
                 </span>
               </div>
-              <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+              <ThemeToggle />
             </header>
             <Conversation
               state={uiState}
@@ -2727,24 +2704,7 @@ export function PreviewSwitcher({ active }: { active: PreviewState }) {
 }
 
 // 管理开发预览中的对话与 Workbench 状态转换。
-export function AppShell({
-  previewState,
-  theme,
-  onToggleTheme,
-  onThemeChange,
-  contentFontSize,
-  onContentFontSizeChange,
-}: {
-  previewState?: AgentUiState;
-  theme?: Theme;
-  onToggleTheme?: () => void;
-  onThemeChange?: (theme: Theme) => void;
-  contentFontSize: number;
-  onContentFontSizeChange: (size: number) => void;
-}) {
-  const activeTheme = theme ?? 'light';
-  const toggleTheme = onToggleTheme ?? (() => undefined);
-  const applyTheme = onThemeChange ?? (() => undefined);
+export function AppShell({ previewState }: { previewState?: AgentUiState }) {
   const [serviceState, setServiceState] = useState<ServiceState>(
     previewState ? 'ready' : 'checking',
   );
@@ -2837,14 +2797,7 @@ export function AppShell({
           onClick={() => setMobileNavOpen(false)}
         />
       ) : null}
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        theme={activeTheme}
-        onThemeChange={applyTheme}
-        contentFontSize={contentFontSize}
-        onContentFontSizeChange={onContentFontSizeChange}
-      />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <main className="main-shell flex h-screen min-h-0 min-w-0 flex-col overflow-hidden bg-surface max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
         <div
           className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}
@@ -2868,7 +2821,7 @@ export function AppShell({
                   <span className="task-title__meta">{uiState.subtitle}</span>
                 ) : null}
               </div>
-              <ThemeToggle theme={activeTheme} onToggle={toggleTheme} />
+              <ThemeToggle />
             </header>
             <Conversation
               state={uiState}

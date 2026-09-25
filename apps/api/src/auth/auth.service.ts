@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { User, VerificationChannel } from '@prisma/client';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   AUTH_ERROR_CODES,
   type AuthUserView,
@@ -15,6 +15,7 @@ import {
 import { ENV_KEYS } from '../bootstrap/env.constants';
 import { PrismaService } from '../database/prisma.service';
 import { maskEmail, maskPhone, normalizeEmail, normalizePhone } from './auth.normalize';
+import { ALIYUN_SMS_RATE_LIMIT_MARKER, AliyunSmsAuthService } from './aliyun-sms-auth.service';
 import { VerificationSenderService } from './verification-sender.service';
 
 const MAX_VERIFY_ATTEMPTS = 5;
@@ -25,6 +26,7 @@ export class AuthService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ConfigService) private readonly config: ConfigService,
     @Inject(VerificationSenderService) private readonly sender: VerificationSenderService,
+    @Inject(AliyunSmsAuthService) private readonly aliyunSms: AliyunSmsAuthService,
   ) {}
 
   async getUserById(userId: string): Promise<AuthUserView> {
@@ -48,20 +50,18 @@ export class AuthService {
   }
 
   async sendPhoneCode(rawPhone: string): Promise<void> {
-    await this.sendCode('phone', normalizePhone(rawPhone));
+    const phone = normalizePhone(rawPhone);
+    if (this.aliyunSms.isConfigured()) {
+      await this.assertSendCodeRateLimit('phone', phone);
+      await this.aliyunSms.sendVerifyCode(phone);
+      await this.recordExternalSendRateLimit('phone', phone);
+      return;
+    }
+    await this.sendCode('phone', phone);
   }
 
   private async sendCode(channel: VerificationChannel, target: string): Promise<void> {
-    const minInterval = this.config.get<number>(ENV_KEYS.authSendCodeMinIntervalSec) ?? 60;
-    const latest = await this.prisma.verificationCode.findFirst({
-      where: { channel, target, consumedAt: null },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (latest && Date.now() - latest.createdAt.getTime() < minInterval * 1000)
-      throw new ConflictException({
-        code: AUTH_ERROR_CODES.codeRateLimited,
-        detail: `请 ${minInterval} 秒后再试。`,
-      });
+    await this.assertSendCodeRateLimit(channel, target);
 
     const code = this.sender.generateCode();
     const ttl = this.config.get<number>(ENV_KEYS.authCodeTtlSeconds) ?? 600;
@@ -76,6 +76,34 @@ export class AuthService {
     await this.sender.send({ channel, target, code });
   }
 
+  private async assertSendCodeRateLimit(channel: VerificationChannel, target: string): Promise<void> {
+    const minInterval = this.config.get<number>(ENV_KEYS.authSendCodeMinIntervalSec) ?? 60;
+    const latest = await this.prisma.verificationCode.findFirst({
+      where: { channel, target, consumedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (latest && Date.now() - latest.createdAt.getTime() < minInterval * 1000)
+      throw new ConflictException({
+        code: AUTH_ERROR_CODES.codeRateLimited,
+        detail: `请 ${minInterval} 秒后再试。`,
+      });
+  }
+
+  private async recordExternalSendRateLimit(
+    channel: VerificationChannel,
+    target: string,
+  ): Promise<void> {
+    const ttl = this.config.get<number>(ENV_KEYS.authCodeTtlSeconds) ?? 600;
+    await this.prisma.verificationCode.create({
+      data: {
+        channel,
+        target,
+        codeHash: ALIYUN_SMS_RATE_LIMIT_MARKER,
+        expiresAt: new Date(Date.now() + ttl * 1000),
+      },
+    });
+  }
+
   async verifyEmailLogin(rawEmail: string, code: string, userAgent?: string) {
     const email = normalizeEmail(rawEmail);
     return this.verifyAndLogin('email', email, code, userAgent, { email });
@@ -83,6 +111,10 @@ export class AuthService {
 
   async verifyPhoneLogin(rawPhone: string, code: string, userAgent?: string) {
     const phone = normalizePhone(rawPhone);
+    if (this.aliyunSms.isConfigured()) {
+      await this.aliyunSms.checkVerifyCode(phone, code);
+      return this.loginAfterIdentityVerified('phone', phone, userAgent, { phone });
+    }
     return this.verifyAndLogin('phone', phone, code, userAgent, { phone });
   }
 
@@ -104,7 +136,8 @@ export class AuthService {
 
   async bindPhone(userId: string, rawPhone: string, code: string): Promise<AuthUserView> {
     const phone = normalizePhone(rawPhone);
-    await this.consumeCode('phone', phone, code);
+    if (this.aliyunSms.isConfigured()) await this.aliyunSms.checkVerifyCode(phone, code);
+    else await this.consumeCode('phone', phone, code);
     const existing = await this.prisma.user.findUnique({ where: { phone } });
     if (existing && existing.id !== userId)
       throw new ConflictException({
@@ -126,6 +159,15 @@ export class AuthService {
     identity: { email?: string; phone?: string },
   ): Promise<{ user: AuthUserView; token: string; expiresAt: Date }> {
     await this.consumeCode(channel, target, code);
+    return this.loginAfterIdentityVerified(channel, target, userAgent, identity);
+  }
+
+  private async loginAfterIdentityVerified(
+    channel: VerificationChannel,
+    target: string,
+    userAgent: string | undefined,
+    identity: { email?: string; phone?: string },
+  ): Promise<{ user: AuthUserView; token: string; expiresAt: Date }> {
     let user =
       channel === 'email'
         ? await this.prisma.user.findUnique({ where: { email: target } })
@@ -136,7 +178,7 @@ export class AuthService {
         channel === 'email' ? target.split('@')[0] ?? 'User' : `用户${target.slice(-4)}`;
       user = await this.prisma.user.create({
         data: {
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           kind: 'registered',
           displayName,
           role: 'user',

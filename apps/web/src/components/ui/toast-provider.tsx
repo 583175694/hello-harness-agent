@@ -1,27 +1,10 @@
 import { toast as sonnerToast, type ExternalToast } from 'sonner';
-import { useSyncExternalStore, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 
-import type { Theme } from '../../theme';
+import { useDocumentTheme } from '../../theme';
 import { Toaster } from './sonner';
 
 export type ToastVariant = 'success' | 'error' | 'default';
-
-function readDocumentTheme(): Theme {
-  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-}
-
-function subscribeDocumentTheme(onStoreChange: () => void): () => void {
-  const observer = new MutationObserver(onStoreChange);
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-theme'],
-  });
-  return () => observer.disconnect();
-}
-
-function useDocumentTheme(): Theme {
-  return useSyncExternalStore(subscribeDocumentTheme, readDocumentTheme, () => 'light');
-}
 
 function dispatchToast(variant: ToastVariant, message: string, options?: ExternalToast): void {
   switch (variant) {

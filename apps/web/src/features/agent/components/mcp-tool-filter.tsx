@@ -88,7 +88,7 @@ export function McpToolFilter({ server, disabled, onLoadTools, onSave }: McpTool
     const allSelected = selected.size === toolNames.length;
     onSave(
       { enabledTools: allSelected ? null : [...selected].sort() },
-      allSelected ? '已保存（全部工具可用）' : `已保存（${selected.size} 个工具）`,
+      '已保存',
     );
   }
 

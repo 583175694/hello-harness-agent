@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useMemo } from 'react';
 import { Streamdown, type Components } from 'streamdown';
 import { createCodePlugin } from '@streamdown/code';
 import { mermaid } from '@streamdown/mermaid';
 import { math } from '@streamdown/math';
 import 'katex/dist/katex.min.css';
+
+import { useDocumentTheme } from '../theme';
 
 type MarkdownContentProps = {
   children: string;
@@ -13,7 +15,6 @@ type MarkdownContentProps = {
 };
 
 const markdownComponents: Components = {
-  // Keep the semantic tags required by the existing accessibility contract.
   strong: ({ node: _node, ...props }) => {
     void _node;
     return <strong {...props} />;
@@ -40,12 +41,11 @@ const markdownComponents: Components = {
   },
 };
 
-// 亮色使用 GitHub Light，暗色使用 One Dark Pro，与应用主题保持一致。
-const codePlugin = createCodePlugin({ themes: ['catppuccin-latte', 'one-dark-pro'] });
+/** Shiki 双主题：高亮结果内嵌 light/dark CSS 变量，换肤不重跑 highlight。 */
+const codePlugin = createCodePlugin({ themes: ['github-light', 'github-dark'] });
 
 type MermaidTheme = 'light' | 'dark';
 
-// Mermaid 会把主题色写入 SVG，不能直接使用 CSS var()；这里提供实际颜色值。
 const mermaidThemeVariables = {
   light: {
     background: '#ffffff',
@@ -85,45 +85,34 @@ const mermaidThemeVariables = {
   },
 } as const;
 
-function useMermaidTheme(): MermaidTheme {
-  const [theme, setTheme] = useState<MermaidTheme>(() =>
-    document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
-  );
+const MERMAID_PATTERN = /```\s*mermaid|^\s*```mermaid/m;
+const STABLE_MERMAID_THEME: MermaidTheme = 'light';
 
-  useEffect(() => {
-    const root = document.documentElement;
-    const observer = new MutationObserver(() => {
-      setTheme(root.dataset.theme === 'dark' ? 'dark' : 'light');
-    });
-    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
-    return () => observer.disconnect();
-  }, []);
-
-  return theme;
-}
-
-// 使用共享的消息和报告展示方式渲染不可信 Markdown。
 export function MarkdownContent({
   children,
   className,
   variant = 'chat',
   isAnimating = false,
 }: MarkdownContentProps) {
-  const theme = useMermaidTheme();
+  const documentTheme = useDocumentTheme();
+  const deferredDocumentTheme = useDeferredValue(documentTheme);
+  const hasMermaid = MERMAID_PATTERN.test(children);
+  const mermaidTheme = hasMermaid ? deferredDocumentTheme : STABLE_MERMAID_THEME;
+
   const mermaidConfig = useMemo(
     () => ({
       theme: 'base' as const,
       fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
       fontSize: 14,
-      themeVariables: mermaidThemeVariables[theme],
+      themeVariables: mermaidThemeVariables[mermaidTheme],
     }),
-    [theme],
+    [mermaidTheme],
   );
+
   const rootClassName = ['markdown-content', `markdown-content--${variant}`, className]
     .filter(Boolean)
     .join(' ');
 
-  // 用户输入按纯文本展示，避免 Markdown 吞掉 textarea 里的单换行。
   if (variant === 'user') {
     return <div className={rootClassName}>{children}</div>;
   }

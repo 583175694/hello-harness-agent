@@ -6,6 +6,7 @@ import { AdminGuard } from './admin.guard';
 import { AuthController } from './auth.controller';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
+import { AliyunSmsAuthService } from './aliyun-sms-auth.service';
 import { VerificationSenderService } from './verification-sender.service';
 
 @Module({
@@ -13,6 +14,7 @@ import { VerificationSenderService } from './verification-sender.service';
   controllers: [AuthController, AdminController],
   providers: [
     AuthService,
+    AliyunSmsAuthService,
     VerificationSenderService,
     AuthGuard,
     AdminGuard,

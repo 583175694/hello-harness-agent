@@ -19,7 +19,6 @@ import { PendingUserInputService } from './pending-user-input.service';
 import { FilesService } from '../files/files.service';
 import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 
 @Injectable()
 export class RunCommandService {
@@ -40,6 +39,7 @@ export class RunCommandService {
   // HTTP 请求只负责“可靠接单”，不会持有到模型生成结束。
   // 校验模型和附件后，以同一幂等哈希创建用户消息、Run 和执行快照。
   async create(
+    userId: string,
     sessionId: string,
     input: {
       content: string;
@@ -75,7 +75,7 @@ export class RunCommandService {
     if (input.artifactVersionContext) {
       const context = input.artifactVersionContext;
       const series = await this.prisma.artifactSeries.findFirst({
-        where: { id: context.seriesId, sessionId, userId: LOCAL_USER_ID },
+        where: { id: context.seriesId, sessionId, userId },
         select: { currentArtifactId: true },
       });
       const base = await this.prisma.artifact.findFirst({
@@ -83,7 +83,7 @@ export class RunCommandService {
           id: context.baseArtifactId,
           seriesId: context.seriesId,
           sessionId,
-          userId: LOCAL_USER_ID,
+          userId,
           status: 'ready',
         },
         select: { fileId: true },
@@ -104,7 +104,7 @@ export class RunCommandService {
     const attachments = [];
     // 绑定前逐个校验 Session 归属和 ready 状态。
     for (const attachmentId of attachmentIds)
-      attachments.push(await this.files.findReadyForSession(sessionId, attachmentId));
+      attachments.push(await this.files.findReadyForSession(userId, sessionId, attachmentId));
     // 只有图片附件要求模型支持 Vision，文本文件不受影响。
     if (
       attachments.some((attachment) => attachment.fileKind === 'image') &&
@@ -138,6 +138,7 @@ export class RunCommandService {
     let result;
     try {
       result = await this.repository.create({
+        userId,
         sessionId,
         content: input.content,
         idempotencyKey: input.idempotencyKey,
@@ -160,7 +161,11 @@ export class RunCommandService {
         'code' in error &&
         error.code === 'P2002'
       ) {
-        const existing = await this.repository.findByIdempotency(sessionId, input.idempotencyKey);
+        const existing = await this.repository.findByIdempotency(
+          sessionId,
+          input.idempotencyKey,
+          userId,
+        );
         if (existing) {
           if (existing.payloadHash !== payloadHash)
             throw new ConflictException({
@@ -204,8 +209,8 @@ export class RunCommandService {
   }
 
   // 返回当前进程最新 Snapshot；没有内存 Run 时退回数据库 Snapshot。
-  async snapshot(runId: string) {
-    const snapshot = await this.repository.snapshot(runId);
+  async snapshot(runId: string, userId: string) {
+    const snapshot = await this.repository.snapshot(runId, userId);
     if (!snapshot) this.notFound();
     // Active Run 优先返回进程内 Latest Snapshot；Registry 不存在时退回 PostgreSQL Checkpoint。
     const live = this.registry.get(runId)?.liveSnapshot;
@@ -223,7 +228,7 @@ export class RunCommandService {
     return { ...effective, pendingUserInputs: snapshot.pendingUserInputs };
   }
 
-  async resumeFollowUpQueue(sessionId: string) {
+  async resumeFollowUpQueue(userId: string, sessionId: string) {
     const latest = await this.repository.latestTerminalProfile(sessionId);
     if (!latest)
       throw new ConflictException({ code: 'NO_TERMINAL_RUN', detail: '没有可恢复的已结束 Run。' });
@@ -233,7 +238,7 @@ export class RunCommandService {
         code: 'FOLLOW_UP_QUEUE_EMPTY',
         detail: 'Follow-up 队列为空。',
       });
-    return this.create(sessionId, {
+    return this.create(userId, sessionId, {
       content: pending.content,
       idempotencyKey: `pending:${pending.id}`,
       pendingInputId: pending.id,
@@ -242,8 +247,8 @@ export class RunCommandService {
     });
   }
 
-  async sendFollowUp(inputId: string) {
-    const pending = await this.pendingInputs.findById(inputId);
+  async sendFollowUp(userId: string, inputId: string) {
+    const pending = await this.pendingInputs.findById(userId, inputId);
     if (!pending || pending.kind !== 'follow_up' || pending.status !== 'pending')
       throw new ConflictException({
         code: 'FOLLOW_UP_NOT_FOUND',
@@ -258,7 +263,7 @@ export class RunCommandService {
         code: 'FOLLOW_UP_NOT_FOUND',
         detail: '该 Follow-up 已被发送、删除或不可发送。',
       });
-    return this.create(pending.sessionId, {
+    return this.create(userId, pending.sessionId, {
       content: claimed.content,
       idempotencyKey: `pending:${claimed.id}`,
       pendingInputId: claimed.id,
@@ -267,8 +272,12 @@ export class RunCommandService {
     });
   }
 
-  async control(runId: string, command: RunControlCommand): Promise<RunControlResponse> {
-    if (command.type === 'cancel') await this.cancel(runId);
+  async control(
+    runId: string,
+    userId: string,
+    command: RunControlCommand,
+  ): Promise<RunControlResponse> {
+    if (command.type === 'cancel') await this.cancel(runId, userId);
     else if (command.type === 'pause' || command.type === 'resume') {
       try {
         if (command.type === 'pause') this.executor.pause(runId);
@@ -299,7 +308,7 @@ export class RunCommandService {
         throw error;
       }
     }
-    const snapshot = await this.snapshot(runId);
+    const snapshot = await this.snapshot(runId, userId);
     const control = snapshot.control ?? {
       runId,
       state: this.controlStateFromStatus(snapshot.status),
@@ -309,8 +318,8 @@ export class RunCommandService {
   }
 
   // 请求取消 Run，并根据当前执行位置选择立即终止或交给 Executor 收尾。
-  async cancel(runId: string) {
-    const snapshot = await this.repository.snapshot(runId);
+  async cancel(runId: string, userId: string) {
+    const snapshot = await this.repository.snapshot(runId, userId);
     if (!snapshot) this.notFound();
     if (
       snapshot.status === 'completed' ||

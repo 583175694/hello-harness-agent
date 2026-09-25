@@ -15,11 +15,10 @@ import {
   type McpUpdateServerRequest,
 } from '@harness/agent-protocol';
 import { Prisma } from '@prisma/client';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { McpConnectionManager } from './mcp-connection.manager';
 import { McpServerConfigRepository } from './mcp-server-config.repository';
 import { McpServerSecretsRepository } from './mcp-server-secrets.repository';
-import { SecretsCryptoService, SecretsMasterKeyMissingError } from './secrets-crypto.service';
+import { SecretsCryptoService } from './secrets-crypto.service';
 
 @Injectable()
 export class McpAdminService {
@@ -30,43 +29,46 @@ export class McpAdminService {
     @Inject(SecretsCryptoService) private readonly crypto: SecretsCryptoService,
   ) {}
 
-  async listServers(): Promise<McpServerListResponse> {
-    const rows = await this.configs.listForUser(LOCAL_USER_ID);
+  async listServers(userId: string): Promise<McpServerListResponse> {
+    const rows = await this.configs.listForUser(userId);
     return {
-      catalogGeneration: this.connections.getCatalogGeneration(),
-      servers: rows.map((row) => this.toView(row)),
+      catalogGeneration: this.connections.getCatalogGeneration(userId),
+      servers: rows.map((row) => this.toView(userId, row)),
     };
   }
 
-  async createServer(body: McpCreateServerRequest): Promise<McpServerView> {
+  async createServer(userId: string, body: McpCreateServerRequest): Promise<McpServerView> {
     this.assertSecretsWritable(body.secrets);
     try {
-      const created = await this.configs.create({
-        serverName: body.serverName,
-        enabled: body.enabled,
-        url: body.url,
-        headersPlain: body.headersPlain,
-        startupTimeoutMs: body.startupTimeoutMs,
-        toolCallTimeoutMs: body.toolCallTimeoutMs,
-        required: body.required,
-        failOnStartupError: body.failOnStartupError,
-        defaultApproval: body.defaultApproval,
-        ...(body.enabledTools !== undefined ? { enabledTools: body.enabledTools } : {}),
-        ...(body.disabledTools !== undefined ? { disabledTools: body.disabledTools } : {}),
-        maxInstructionBytes: body.maxInstructionBytes,
-        reconnectEnabled: body.reconnectEnabled,
-        reconnectMaxAttempts: body.reconnectMaxAttempts,
-      });
+      const created = await this.configs.create(
+        {
+          serverName: body.serverName,
+          enabled: body.enabled,
+          url: body.url,
+          headersPlain: body.headersPlain,
+          startupTimeoutMs: body.startupTimeoutMs,
+          toolCallTimeoutMs: body.toolCallTimeoutMs,
+          required: body.required,
+          failOnStartupError: body.failOnStartupError,
+          defaultApproval: body.defaultApproval,
+          ...(body.enabledTools !== undefined ? { enabledTools: body.enabledTools } : {}),
+          ...(body.disabledTools !== undefined ? { disabledTools: body.disabledTools } : {}),
+          maxInstructionBytes: body.maxInstructionBytes,
+          reconnectEnabled: body.reconnectEnabled,
+          reconnectMaxAttempts: body.reconnectMaxAttempts,
+        },
+        userId,
+      );
       if (body.secrets?.length) {
         await this.secrets.replaceSecrets(
           created.id,
           body.secrets.map((s) => ({ kind: s.kind, name: s.name, value: s.value })),
         );
       }
-      await this.connections.reconcile(LOCAL_USER_ID);
-      const row = await this.configs.findById(created.id);
+      await this.connections.reconcile(userId);
+      const row = await this.configs.findById(created.id, userId);
       if (!row) throw new Error('McpServerCreateMissing');
-      return this.toView(row);
+      return this.toView(userId, row);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException({
@@ -78,47 +80,51 @@ export class McpAdminService {
     }
   }
 
-  async updateServer(id: string, body: McpUpdateServerRequest): Promise<McpServerView> {
+  async updateServer(userId: string, id: string, body: McpUpdateServerRequest): Promise<McpServerView> {
     this.assertSecretsWritable(body.secrets);
-    const existing = await this.configs.findById(id);
+    const existing = await this.configs.findById(id, userId);
     if (!existing) this.notFound();
     try {
-      await this.configs.update(id, {
-        ...(body.serverName !== undefined ? { serverName: body.serverName } : {}),
-        ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
-        ...(body.url !== undefined ? { url: body.url } : {}),
-        ...(body.headersPlain !== undefined ? { headersPlain: body.headersPlain } : {}),
-        ...(body.startupTimeoutMs !== undefined ? { startupTimeoutMs: body.startupTimeoutMs } : {}),
-        ...(body.toolCallTimeoutMs !== undefined ? { toolCallTimeoutMs: body.toolCallTimeoutMs } : {}),
-        ...(body.required !== undefined ? { required: body.required } : {}),
-        ...(body.failOnStartupError !== undefined
-          ? { failOnStartupError: body.failOnStartupError }
-          : {}),
-        ...(body.defaultApproval !== undefined ? { defaultApproval: body.defaultApproval } : {}),
-        ...(body.enabledTools !== undefined
-          ? { enabledTools: body.enabledTools ?? Prisma.JsonNull }
-          : {}),
-        ...(body.disabledTools !== undefined
-          ? { disabledTools: body.disabledTools ?? Prisma.JsonNull }
-          : {}),
-        ...(body.maxInstructionBytes !== undefined
-          ? { maxInstructionBytes: body.maxInstructionBytes }
-          : {}),
-        ...(body.reconnectEnabled !== undefined ? { reconnectEnabled: body.reconnectEnabled } : {}),
-        ...(body.reconnectMaxAttempts !== undefined
-          ? { reconnectMaxAttempts: body.reconnectMaxAttempts }
-          : {}),
-      });
+      await this.configs.update(
+        id,
+        {
+          ...(body.serverName !== undefined ? { serverName: body.serverName } : {}),
+          ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+          ...(body.url !== undefined ? { url: body.url } : {}),
+          ...(body.headersPlain !== undefined ? { headersPlain: body.headersPlain } : {}),
+          ...(body.startupTimeoutMs !== undefined ? { startupTimeoutMs: body.startupTimeoutMs } : {}),
+          ...(body.toolCallTimeoutMs !== undefined ? { toolCallTimeoutMs: body.toolCallTimeoutMs } : {}),
+          ...(body.required !== undefined ? { required: body.required } : {}),
+          ...(body.failOnStartupError !== undefined
+            ? { failOnStartupError: body.failOnStartupError }
+            : {}),
+          ...(body.defaultApproval !== undefined ? { defaultApproval: body.defaultApproval } : {}),
+          ...(body.enabledTools !== undefined
+            ? { enabledTools: body.enabledTools ?? Prisma.JsonNull }
+            : {}),
+          ...(body.disabledTools !== undefined
+            ? { disabledTools: body.disabledTools ?? Prisma.JsonNull }
+            : {}),
+          ...(body.maxInstructionBytes !== undefined
+            ? { maxInstructionBytes: body.maxInstructionBytes }
+            : {}),
+          ...(body.reconnectEnabled !== undefined ? { reconnectEnabled: body.reconnectEnabled } : {}),
+          ...(body.reconnectMaxAttempts !== undefined
+            ? { reconnectMaxAttempts: body.reconnectMaxAttempts }
+            : {}),
+        },
+        userId,
+      );
       if (body.secrets?.length) {
         await this.secrets.replaceSecrets(
           id,
           body.secrets.map((s) => ({ kind: s.kind, name: s.name, value: s.value })),
         );
       }
-      await this.connections.reconcile(LOCAL_USER_ID);
-      const row = await this.configs.findById(id);
+      await this.connections.reconcile(userId);
+      const row = await this.configs.findById(id, userId);
       if (!row) throw new Error('McpServerUpdateMissing');
-      return this.toView(row);
+      return this.toView(userId, row);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException({
@@ -130,45 +136,51 @@ export class McpAdminService {
     }
   }
 
-  async patchServer(id: string, body: McpPatchServerRequest): Promise<McpServerView> {
-    const existing = await this.configs.findById(id);
+  async patchServer(userId: string, id: string, body: McpPatchServerRequest): Promise<McpServerView> {
+    const existing = await this.configs.findById(id, userId);
     if (!existing) this.notFound();
-    await this.configs.update(id, {
-      ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
-      ...(body.defaultApproval !== undefined ? { defaultApproval: body.defaultApproval } : {}),
-      ...(body.required !== undefined ? { required: body.required } : {}),
-      ...(body.enabledTools !== undefined
-        ? { enabledTools: body.enabledTools ?? Prisma.JsonNull }
-        : {}),
-      ...(body.disabledTools !== undefined
-        ? { disabledTools: body.disabledTools ?? Prisma.JsonNull }
-        : {}),
-    });
-    await this.connections.reconcile(LOCAL_USER_ID);
-    const row = await this.configs.findById(id);
+    await this.configs.update(
+      id,
+      {
+        ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+        ...(body.defaultApproval !== undefined ? { defaultApproval: body.defaultApproval } : {}),
+        ...(body.required !== undefined ? { required: body.required } : {}),
+        ...(body.enabledTools !== undefined
+          ? { enabledTools: body.enabledTools ?? Prisma.JsonNull }
+          : {}),
+        ...(body.disabledTools !== undefined
+          ? { disabledTools: body.disabledTools ?? Prisma.JsonNull }
+          : {}),
+      },
+      userId,
+    );
+    await this.connections.reconcile(userId);
+    const row = await this.configs.findById(id, userId);
     if (!row) throw new Error('McpServerPatchMissing');
-    return this.toView(row);
+    return this.toView(userId, row);
   }
 
-  async deleteServer(id: string): Promise<void> {
-    const existing = await this.configs.findById(id);
+  async deleteServer(userId: string, id: string): Promise<void> {
+    const existing = await this.configs.findById(id, userId);
     if (!existing) this.notFound();
-    await this.configs.delete(id);
-    await this.connections.removeServer(existing.serverName);
-    await this.connections.reconcile(LOCAL_USER_ID);
+    await this.configs.delete(id, userId);
+    await this.connections.removeServer(userId, existing.serverName);
+    await this.connections.reconcile(userId);
   }
 
-  async testServer(id: string): Promise<McpServerTestResponse> {
-    const row = await this.configs.findById(id);
+  async testServer(userId: string, id: string): Promise<McpServerTestResponse> {
+    const row = await this.configs.findById(id, userId);
     if (!row) this.notFound();
     const result = await this.connections.probeConfig(row);
     return { ok: !result.error, toolNames: result.toolNames, error: result.error };
   }
 
-  private toView(row: Awaited<ReturnType<McpServerConfigRepository['findById']>> & object): McpServerView {
-    if (!row) throw new Error('McpServerViewMissing');
-    const runtime = this.connections.getServerRuntime(row.serverName);
-    const published = this.connections.getPublishedCatalog();
+  private toView(
+    userId: string,
+    row: NonNullable<Awaited<ReturnType<McpServerConfigRepository['findById']>>>,
+  ): McpServerView {
+    const runtime = this.connections.getServerRuntime(userId, row.serverName);
+    const published = this.connections.getPublishedCatalog(userId);
     const view = published.servers.get(row.serverName);
     return {
       id: row.id,
@@ -191,7 +203,7 @@ export class McpAdminService {
       toolCount: view?.toolCountExposed ?? view?.tools.length ?? 0,
       toolCountExposed: view?.toolCountExposed ?? view?.tools.length ?? 0,
       toolCountTotal: view?.toolCountTotal ?? view?.tools.length ?? 0,
-      catalogGeneration: this.connections.getCatalogGeneration(),
+      catalogGeneration: this.connections.getCatalogGeneration(userId),
       lastError: runtime?.lastError ?? view?.lastError ?? null,
       secretsConfigured: this.secrets.secretsConfigured(
         row.secrets as Array<{ kind: import('@prisma/client').McpSecretKind; name: string }>,

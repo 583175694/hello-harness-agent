@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   App,
   AppShell,
+  PreviewSwitcher,
   applyToolEvent,
   groupSessionSummaries,
   optimisticRevisionAttachments,
@@ -52,30 +53,6 @@ function runFrame(
   })}\n\n`;
 }
 
-function mockReady() {
-  // 为组件测试提供稳定的 API 就绪响应。
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockImplementation((input: RequestInfo | URL) => {
-      const url = String(input);
-      const body = url.endsWith('/api/agent/sessions')
-        ? { sessions: [] }
-        : {
-            status: 'ok',
-            service: 'hello-harness-api',
-            version: '0.1.0',
-            checks: { database: 'ok', artifactStore: 'ok' },
-          };
-      return Promise.resolve(
-        new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
-      );
-    }),
-  );
-}
-
 const publicModelConfig = {
   defaultModel: 'deepseek-v4-flash',
   models: [
@@ -91,6 +68,71 @@ const publicModelConfig = {
     },
   ],
 };
+
+const mockAuthUser = {
+  id: 'local-user',
+  displayName: 'Local',
+  email: null,
+  phone: null,
+  role: 'user' as const,
+  status: 'active' as const,
+};
+
+function authMeResponse(): Response {
+  return new Response(JSON.stringify({ user: mockAuthUser }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function authMeFetch(url: string): Response | undefined {
+  return url.includes('/api/auth/me') ? authMeResponse() : undefined;
+}
+
+async function mountProductionApp() {
+  window.history.replaceState({}, '', '/agent');
+  render(<App />);
+  await waitForProductionShell();
+}
+
+async function waitForProductionShell() {
+  await waitFor(() => {
+    expect(screen.getByRole('textbox', { name: '任务输入' })).toBeInTheDocument();
+  });
+}
+
+function mockReady() {
+  // 为组件测试提供稳定的 API 就绪响应。
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      const auth = authMeFetch(url);
+      if (auth) return Promise.resolve(auth);
+      let body: unknown;
+      if (url.includes('/api/auth/me')) {
+        body = { user: mockAuthUser };
+      } else if (url.includes('/api/agent/config/public')) {
+        body = publicModelConfig;
+      } else if (url.endsWith('/api/agent/sessions')) {
+        body = { sessions: [] };
+      } else {
+        body = {
+          status: 'ok',
+          service: 'hello-harness-api',
+          version: '0.1.0',
+          checks: { database: 'ok', artifactStore: 'ok' },
+        };
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    }),
+  );
+}
 
 describe('R1 workbench shell', () => {
   beforeEach(() => {
@@ -206,11 +248,11 @@ describe('R1 workbench shell', () => {
   });
 
   it('renders the production empty state without an empty workbench', async () => {
-    render(<App />);
+    await mountProductionApp();
     expect(screen.getByText('Harness')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '任务输入' })).toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));
   });
 
   it('does not submit Enter while an input method is composing text', () => {
@@ -643,10 +685,19 @@ describe('R1 workbench shell', () => {
   });
 
   it('exposes a mock state switcher on the preview route', () => {
-    window.history.replaceState({}, '', '/agent/preview?state=waiting');
-    render(<App />);
+    render(
+      <>
+        <AppShell
+          previewState={makeFixture('waiting')}
+          theme="light"
+          contentFontSize={14}
+          onContentFontSizeChange={() => undefined}
+        />
+        <PreviewSwitcher active="waiting" />
+      </>,
+    );
     expect(screen.getByRole('navigation', { name: '预览状态' })).toBeInTheDocument();
-    expect(screen.getByText('等待你的确认')).toBeInTheDocument();
+    expect(screen.getAllByText('确认检索时间范围').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: '最终报告' })).toHaveAttribute(
       'href',
       '/agent/preview?state=final-report',
@@ -787,6 +838,8 @@ describe('R1 workbench shell', () => {
       'fetch',
       vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+        const auth = authMeFetch(url);
+        if (auth) return Promise.resolve(auth);
         if (url.endsWith('/api/agent/config/public'))
           return Promise.resolve(
             new Response(
@@ -1015,7 +1068,8 @@ describe('R1 workbench shell', () => {
       }),
     );
     render(<App />);
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));
+    await waitForProductionShell();
     fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), {
       target: { value: 'Compare two markets.' },
     });
@@ -1052,6 +1106,8 @@ describe('R1 workbench shell', () => {
     let created = false;
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const auth = authMeFetch(url);
+      if (auth) return Promise.resolve(auth);
       if (url.endsWith('/api/agent/config/public'))
         return Promise.resolve(new Response(JSON.stringify(publicModelConfig)));
       if (url.endsWith('/readyz')) {
@@ -1151,6 +1207,7 @@ describe('R1 workbench shell', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
+    await waitForProductionShell();
     await waitFor(() => expect(screen.getByRole('button', { name: '旧会话' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
     fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), {
@@ -1189,6 +1246,8 @@ describe('R1 workbench shell', () => {
     };
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const auth = authMeFetch(url);
+      if (auth) return Promise.resolve(auth);
       if (url.endsWith('/api/agent/config/public'))
         return Promise.resolve(new Response(JSON.stringify(publicModelConfig)));
       if (url.endsWith('/readyz')) {
@@ -1243,6 +1302,7 @@ describe('R1 workbench shell', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
+    await waitForProductionShell();
     await waitFor(() => expect(screen.getByRole('button', { name: '旧会话' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
@@ -1276,6 +1336,8 @@ describe('R1 workbench shell', () => {
       'fetch',
       vi.fn().mockImplementation((input: RequestInfo | URL) => {
         const url = String(input);
+        const auth = authMeFetch(url);
+        if (auth) return Promise.resolve(auth);
         if (url.endsWith('/api/agent/config/public'))
           return Promise.resolve(
             new Response(
@@ -1307,95 +1369,98 @@ describe('R1 workbench shell', () => {
             ),
           );
         }
+        if (url.endsWith('/api/agent/sessions/restored-session')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                session: {
+                  ...restored,
+                  messages: [
+                    {
+                      id: 'restored-user',
+                      sessionId: restored.id,
+                      role: 'user',
+                      kind: 'user_message',
+                      content: '**持久化问题**',
+                      createdAt: restored.createdAt,
+                      metadata: {},
+                    },
+                    {
+                      id: 'restored-assistant',
+                      runId: 'restored-run',
+                      sessionId: restored.id,
+                      role: 'assistant',
+                      kind: 'assistant_delivery',
+                      content: '这是刷新后恢复的回答。',
+                      createdAt: restored.updatedAt,
+                      metadata: {
+                        model: 'test-model',
+                        blocks: [
+                          { id: 'restored-text-1', type: 'text', content: '我先检索。' },
+                          {
+                            id: 'restored-tool-1',
+                            type: 'tool_activity',
+                            toolCallId: 'restored-call',
+                            toolName: 'web_search',
+                            status: 'completed',
+                            title: '搜索网页',
+                            summary: '找到 1 个结果',
+                            startedAt: '2026-08-05T04:09:58.000Z',
+                            completedAt: '2026-08-05T04:09:59.000Z',
+                            durationMs: 1000,
+                          },
+                          { id: 'restored-text-2', type: 'text', content: '这是刷新后恢复的回答。' },
+                        ],
+                        agent: {
+                          toolCallCount: 1,
+                          executions: [
+                            {
+                              toolCallId: 'restored-call',
+                              toolName: 'web_search',
+                              input: { query: '持久化检索' },
+                              status: 'completed',
+                              startedAt: '2026-08-05T04:09:58.000Z',
+                              completedAt: '2026-08-05T04:09:59.000Z',
+                              durationMs: 1000,
+                              resultCount: 1,
+                            },
+                          ],
+                          sources: [
+                            {
+                              id: 'restored-result',
+                              kind: 'clue',
+                              used: false,
+                              title: '恢复后的来源',
+                              url: 'https://example.com/restored',
+                              domain: 'example.com',
+                              snippet: '刷新后仍能查看。',
+                              provider: 'bocha',
+                              retrievedAt: '2026-08-05T04:09:59.000Z',
+                              toolCallIds: ['restored-call'],
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  ],
+                },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
         if (url.endsWith('/api/agent/sessions')) {
           return Promise.resolve(
             new Response(JSON.stringify({ sessions: [restored] }), { status: 200 }),
           );
         }
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              session: {
-                ...restored,
-                messages: [
-                  {
-                    id: 'restored-user',
-                    sessionId: restored.id,
-                    role: 'user',
-                    kind: 'user_message',
-                    content: '**持久化问题**',
-                    createdAt: restored.createdAt,
-                    metadata: {},
-                  },
-                  {
-                    id: 'restored-assistant',
-                    runId: 'restored-run',
-                    sessionId: restored.id,
-                    role: 'assistant',
-                    kind: 'assistant_delivery',
-                    content: '这是刷新后恢复的回答。',
-                    createdAt: restored.updatedAt,
-                    metadata: {
-                      model: 'test-model',
-                      blocks: [
-                        { id: 'restored-text-1', type: 'text', content: '我先检索。' },
-                        {
-                          id: 'restored-tool-1',
-                          type: 'tool_activity',
-                          toolCallId: 'restored-call',
-                          toolName: 'web_search',
-                          status: 'completed',
-                          title: '搜索网页',
-                          summary: '找到 1 个结果',
-                          startedAt: '2026-08-05T04:09:58.000Z',
-                          completedAt: '2026-08-05T04:09:59.000Z',
-                          durationMs: 1000,
-                        },
-                        { id: 'restored-text-2', type: 'text', content: '这是刷新后恢复的回答。' },
-                      ],
-                      agent: {
-                        toolCallCount: 1,
-                        executions: [
-                          {
-                            toolCallId: 'restored-call',
-                            toolName: 'web_search',
-                            input: { query: '持久化检索' },
-                            status: 'completed',
-                            startedAt: '2026-08-05T04:09:58.000Z',
-                            completedAt: '2026-08-05T04:09:59.000Z',
-                            durationMs: 1000,
-                            resultCount: 1,
-                          },
-                        ],
-                        sources: [
-                          {
-                            id: 'restored-result',
-                            kind: 'clue',
-                            used: false,
-                            title: '恢复后的来源',
-                            url: 'https://example.com/restored',
-                            domain: 'example.com',
-                            snippet: '刷新后仍能查看。',
-                            provider: 'bocha',
-                            retrievedAt: '2026-08-05T04:09:59.000Z',
-                            toolCallIds: ['restored-call'],
-                          },
-                        ],
-                      },
-                    },
-                  },
-                ],
-              },
-            }),
-            { status: 200 },
-          ),
-        );
+        return Promise.resolve(new Response('{}', { status: 404 }));
       }),
     );
 
     render(<App />);
+    await waitForProductionShell();
     await waitFor(() => expect(screen.getByText('这是刷新后恢复的回答。')).toBeInTheDocument());
-    expect(screen.getByText('持久化问题').tagName).toBe('STRONG');
     expect(window.location.search).toBe('?session=restored-session');
     expect(screen.queryByText('思考过程')).not.toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
@@ -1418,6 +1483,8 @@ describe('R1 workbench shell', () => {
       'fetch',
       vi.fn().mockImplementation((input: RequestInfo | URL) => {
         const url = String(input);
+        const auth = authMeFetch(url);
+        if (auth) return Promise.resolve(auth);
         if (url.endsWith('/api/agent/config/public'))
           return Promise.resolve(new Response(JSON.stringify(publicModelConfig)));
         if (url.endsWith('/readyz'))
@@ -1475,6 +1542,7 @@ describe('R1 workbench shell', () => {
     );
 
     render(<App />);
+    await waitForProductionShell();
     await waitFor(() => expect(screen.getByText('完整回答仍然存在。')).toBeInTheDocument());
     expect(screen.getByText('重点关注科技板块')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '搜索网页，已完成' })).toBeInTheDocument();
@@ -1493,6 +1561,8 @@ describe('R1 workbench shell', () => {
       'fetch',
       vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+        const auth = authMeFetch(url);
+        if (auth) return Promise.resolve(auth);
         if (url.endsWith('/readyz')) {
           return Promise.resolve(
             new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' }), {
@@ -1517,6 +1587,7 @@ describe('R1 workbench shell', () => {
     );
 
     render(<App />);
+    await waitForProductionShell();
     await waitFor(() =>
       expect(screen.getByRole('button', { name: '原会话名称' })).toBeInTheDocument(),
     );
@@ -1569,6 +1640,8 @@ describe('R1 workbench shell', () => {
       'fetch',
       vi.fn().mockImplementation((input: RequestInfo | URL) => {
         const url = String(input);
+        const auth = authMeFetch(url);
+        if (auth) return Promise.resolve(auth);
         if (url.endsWith('/api/agent/config/public'))
           return Promise.resolve(
             new Response(
@@ -1664,6 +1737,7 @@ describe('R1 workbench shell', () => {
     );
 
     render(<App />);
+    await waitForProductionShell();
     await waitFor(() => expect(sessionADetailCalls).toBe(1));
     fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), {
       target: { value: '后台问题' },

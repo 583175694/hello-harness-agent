@@ -3,7 +3,10 @@ import { FilesService } from '../../../src/files/files.service';
 
 function makeService(overrides: Record<string, unknown> = {}) {
   const prisma = {
-    session: { findFirst: vi.fn() },
+    session: {
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+    },
     file: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
@@ -41,7 +44,7 @@ describe('FilesService importGeneratedBytes', () => {
   it('stores sandbox PNG collect as image with preview', async () => {
     const { service, prisma, storage } = makeService();
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
-    prisma.session.findFirst.mockResolvedValue({ id: 'session-1' });
+    prisma.session.findUnique.mockResolvedValue({ id: 'session-1', userId: 'local-user' });
     prisma.file.create.mockResolvedValue({});
     storage.putOriginal.mockImplementation(async (input) => ({
       objectKey: `sessions/session-1/files/${input.fileId}/original`,
@@ -200,7 +203,7 @@ describe('FilesService recovery', () => {
     });
     storage.readObject.mockRejectedValue(new Error('COS unavailable'));
 
-    await expect(service.retry('file-1')).rejects.toMatchObject({
+    await expect(service.retry('local-user', 'file-1')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'FILE_STORAGE_FAILED' }),
     });
     expect(logger.warn).toHaveBeenCalledWith(

@@ -8,7 +8,6 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { FileStorage, LocalFileStorage, type FileVariant } from '../file-storage/file-storage';
 import {
   FileProcessingService,
@@ -116,8 +115,9 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
       signal?: AbortSignal;
     },
   ) {
-    const session = await this.prisma.session.findFirst({
-      where: { id: input.sessionId, userId: LOCAL_USER_ID },
+    const session = await this.prisma.session.findUnique({
+      where: { id: input.sessionId },
+      select: { id: true, userId: true },
     });
     if (!session)
       throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
@@ -136,7 +136,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     await this.prisma.file.create({
       data: {
         id: fileId,
-        userId: LOCAL_USER_ID,
+        userId: session.userId,
         sessionId: input.sessionId,
         fileName: normalizedName,
         mediaType: prepared.mediaType,
@@ -222,7 +222,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async readOriginalBytes(fileId: string): Promise<Buffer> {
-    const file = await this.findOwned(fileId);
+    const file = await this.findFileById(fileId);
     if (!file.originalKey)
       throw new BadRequestException({
         code: AGENT_ERROR_CODES.fileNotReady,
@@ -241,8 +241,9 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     fileName: string;
     data: Uint8Array;
   }) {
-    const session = await this.prisma.session.findFirst({
-      where: { id: input.sessionId, userId: LOCAL_USER_ID },
+    const session = await this.prisma.session.findUnique({
+      where: { id: input.sessionId },
+      select: { id: true, userId: true },
     });
     if (!session)
       throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
@@ -268,7 +269,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     await this.prisma.file.create({
       data: {
         id: fileId,
-        userId: LOCAL_USER_ID,
+        userId: session.userId,
         sessionId: input.sessionId,
         fileName: input.fileName.trim(),
         mediaType,
@@ -353,8 +354,9 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     characterCount: number;
     size: number;
   }> {
-    const session = await this.prisma.session.findFirst({
-      where: { id: input.sessionId, userId: LOCAL_USER_ID },
+    const session = await this.prisma.session.findUnique({
+      where: { id: input.sessionId },
+      select: { id: true, userId: true },
     });
     if (!session)
       throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
@@ -382,7 +384,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     await this.prisma.file.create({
       data: {
         id: fileId,
-        userId: LOCAL_USER_ID,
+        userId: session.userId,
         sessionId: input.sessionId,
         fileName,
         mediaType: kind.mediaType,
@@ -466,7 +468,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
 
   // 恢复版本时逐字节复制已持久化的原文件和规范化正文，生成独立 File 身份。
   async cloneGeneratedFile(sourceFileId: string) {
-    const source = await this.findOwned(sourceFileId);
+    const source = await this.findFileById(sourceFileId);
     if (
       source.origin !== 'agent_generated' ||
       source.status !== 'ready' ||
@@ -493,7 +495,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     await this.prisma.file.create({
       data: {
         id: fileId,
-        userId: LOCAL_USER_ID,
+        userId: source.userId,
         sessionId: source.sessionId,
         fileName: source.fileName,
         mediaType: source.mediaType,
@@ -615,12 +617,13 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
 
   // 创建文件记录、保存原文件，并异步触发文本解析。
   async upload(
+    userId: string,
     sessionId: string,
     file: { buffer: Buffer; mimetype: string; originalname: string },
   ) {
     // 先校验和落库文件身份，再写对象；文本解析不阻塞上传响应。
     const session = await this.prisma.session.findFirst({
-      where: { id: sessionId, userId: LOCAL_USER_ID },
+      where: { id: sessionId, userId },
     });
     if (!session)
       throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
@@ -636,7 +639,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     await this.prisma.file.create({
       data: {
         id: fileId,
-        userId: LOCAL_USER_ID,
+        userId: session.userId,
         sessionId,
         fileName: prepared.fileName,
         mediaType: prepared.mediaType,
@@ -795,14 +798,14 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   // 返回脱敏后的公共文件引用。
-  async get(fileId: string) {
-    return this.toPublicRef(await this.findOwned(fileId), true);
+  async get(userId: string, fileId: string) {
+    return this.toPublicRef(await this.findOwned(userId, fileId), true);
   }
 
   // 从原始对象重新进入解析流程。
-  async retry(fileId: string) {
+  async retry(userId: string, fileId: string) {
     // 从原始对象恢复字节后重新进入后台解析，不信任上次失败时的临时状态。
-    const file = await this.findOwned(fileId);
+    const file = await this.findOwned(userId, fileId);
     if (!file.retryable || !file.originalKey)
       throw new BadRequestException({ code: 'FILE_NOT_RETRYABLE', detail: '该文件当前不可重试。' });
     this.logger.log(
@@ -839,9 +842,9 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   // 图片返回短期地址，文本类文件从 COS 读取规范化正文供受限预览。
-  async preview(fileId: string) {
+  async preview(userId: string, fileId: string) {
     // 图片返回短期 URL，文本返回受限的规范化正文预览。
-    const file = await this.findOwned(fileId);
+    const file = await this.findOwned(userId, fileId);
     if (file.status !== 'ready')
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
     if (file.fileKind !== 'image') {
@@ -862,12 +865,13 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
 
   // 消息绑定前校验文件归属和 ready 状态。
   async findReadyForSession(
+    userId: string,
     sessionId: string,
     fileId: string,
     notFoundCode = 'ATTACHMENT_NOT_FOUND',
   ) {
     const file = await this.prisma.file.findFirst({
-      where: { id: fileId, sessionId, userId: LOCAL_USER_ID },
+      where: { id: fileId, sessionId, userId },
     });
     if (!file)
       throw new NotFoundException({
@@ -885,8 +889,9 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   // 文件工具统一通过 Session 归属、ready 和规范化正文对象三层校验。
-  async searchFile(sessionId: string, input: FileSearchInput) {
+  async searchFile(userId: string, sessionId: string, input: FileSearchInput) {
     const file = await this.findReadyForSession(
+      userId,
       sessionId,
       input.fileId,
       AGENT_ERROR_CODES.fileNotFound,
@@ -949,13 +954,14 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   // 按行读取规范化正文，并为 PDF 行恢复最近的页码标记。
-  async readFileLines(sessionId: string, input: FileReadLinesInput) {
+  async readFileLines(userId: string, sessionId: string, input: FileReadLinesInput) {
     if (input.endLine - input.startLine + 1 > AGENT_PROTOCOL_LIMITS.fileReadLinesMax)
       throw new BadRequestException({
         code: AGENT_ERROR_CODES.fileReadRangeTooLarge,
         detail: `单次最多读取 ${AGENT_PROTOCOL_LIMITS.fileReadLinesMax} 行。`,
       });
     const file = await this.findReadyForSession(
+      userId,
       sessionId,
       input.fileId,
       AGENT_ERROR_CODES.fileNotFound,
@@ -1008,9 +1014,9 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   // 只删除未绑定消息的文件，存储失败时登记补偿任务。
-  async deleteUnbound(fileId: string): Promise<{ deletedFileId: string }> {
+  async deleteUnbound(userId: string, fileId: string): Promise<{ deletedFileId: string }> {
     const file = await this.prisma.file.findFirst({
-      where: { id: fileId, userId: LOCAL_USER_ID },
+      where: { id: fileId, userId },
       include: { attachments: { select: { id: true } } },
     });
     if (!file) throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件不存在。' });
@@ -1056,7 +1062,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async deleteGeneratedFile(fileId: string): Promise<void> {
-    const file = await this.findOwned(fileId);
+    const file = await this.findFileById(fileId);
     if (file.origin !== 'agent_generated') return;
     try {
       await this.storage.deleteFile({ sessionId: file.sessionId, fileId: file.id });
@@ -1092,13 +1098,14 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
   // 通过 fileId 校验归属后生成读取地址。
   async readUrlById(fileId: string) {
-    const file = await this.findReadyForOwner(fileId);
+    const row = await this.findFileById(fileId);
+    const file = await this.findReadyForOwner(row.userId, fileId);
     return this.readUrl(file);
   }
 
   // 本地存储专用读取路径，生产 COS 不经过这里。
-  async localContent(fileId: string, variant: FileVariant) {
-    const file = await this.findReadyForOwner(fileId);
+  async localContent(userId: string, fileId: string, variant: FileVariant) {
+    const file = await this.findReadyForOwner(userId, fileId);
     if (!(this.storage instanceof LocalFileStorage))
       throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件内容不存在。' });
     const result = await this.storage.readObject({
@@ -1110,8 +1117,19 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   // 查询当前用户拥有的文件。
-  private async findOwned(fileId: string) {
-    const file = await this.prisma.file.findFirst({ where: { id: fileId, userId: LOCAL_USER_ID } });
+  private async findFileById(fileId: string) {
+    const file = await this.prisma.file.findUnique({ where: { id: fileId } });
+    if (!file) throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件不存在。' });
+    if (file.errorCode === AGENT_ERROR_CODES.artifactDeleted)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.artifactDeleted,
+        detail: '产物已删除。',
+      });
+    return file;
+  }
+
+  private async findOwned(userId: string, fileId: string) {
+    const file = await this.prisma.file.findFirst({ where: { id: fileId, userId } });
     if (!file) throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件不存在。' });
     if (file.errorCode === AGENT_ERROR_CODES.artifactDeleted)
       throw new BadRequestException({
@@ -1121,8 +1139,8 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     return file;
   }
   // 只有 ready 且存在原始对象的文件才能被读取。
-  private async findReadyForOwner(fileId: string) {
-    const file = await this.findOwned(fileId);
+  private async findReadyForOwner(userId: string, fileId: string) {
+    const file = await this.findOwned(userId, fileId);
     if (file.status !== 'ready' || !file.originalKey)
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
     return file;

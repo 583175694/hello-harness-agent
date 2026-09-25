@@ -105,7 +105,7 @@ describe('ChatService session persistence', () => {
     );
     const { service, messageCreate, executions } = makeService(providerCreate);
 
-    const prepared = await service.prepareSessionStream('session-1', 'new question');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     prepared.reasoningEffort = 'max';
     expect(prepared.messages).toHaveLength(20);
@@ -179,7 +179,7 @@ describe('ChatService session persistence', () => {
   it('retains only the user message when the provider fails', async () => {
     const providerCreate = vi.fn().mockRejectedValue(new Error('provider unavailable'));
     const { service, messageCreate } = makeService(providerCreate);
-    const prepared = await service.prepareSessionStream('session-1', 'new question');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await expect(collect(service.streamPrepared(prepared))).rejects.toThrow();
@@ -198,7 +198,7 @@ describe('ChatService session persistence', () => {
       })(),
     );
     const { service, messageCreate } = makeService(providerCreate);
-    const prepared = await service.prepareSessionStream('session-1', 'new question');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await expect(collect(service.streamPrepared(prepared))).rejects.toMatchObject({
@@ -214,7 +214,7 @@ describe('ChatService session persistence', () => {
       })(),
     );
     const { service } = makeService(providerCreate);
-    const prepared = await service.prepareSessionStream('session-1', 'new question');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     prepared.reasoningEffort = 'off';
     prepared.messages = [
@@ -325,7 +325,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'search the web');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'search the web');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const onTranscriptItem = vi.fn();
     prepared.onTranscriptItem = onTranscriptItem;
@@ -430,7 +430,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'search the web');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'search the web');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events = await collect(service.streamPrepared(prepared));
 
@@ -595,7 +595,7 @@ describe('ChatService session persistence', () => {
       ),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'research AI');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'research AI');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events = await collect(service.streamPrepared(prepared));
 
@@ -668,7 +668,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'stop search');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'stop search');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events = await collect(service.streamPrepared(prepared));
 
@@ -732,7 +732,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'stop search');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'stop search');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events: unknown[] = [];
 
@@ -822,7 +822,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'compare sources');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'compare sources');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await collect(service.streamPrepared(prepared));
@@ -892,7 +892,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'research');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'research');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     const events = await collect(service.streamPrepared(prepared));
@@ -957,7 +957,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'research');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'research');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await expect(collect(service.streamPrepared(prepared))).resolves.toEqual(
@@ -1030,7 +1030,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'research extensively');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'research extensively');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await collect(service.streamPrepared(prepared));
@@ -1092,7 +1092,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'ping mcp');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'ping mcp');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events = await collect(service.streamPrepared(prepared));
 

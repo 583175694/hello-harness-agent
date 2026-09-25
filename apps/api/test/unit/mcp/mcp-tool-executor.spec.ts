@@ -53,7 +53,7 @@ describe('McpToolExecutor', () => {
       mockConnections({ generation: 4 }),
       mockCatalog(entry),
     );
-    const result = await executor.execute('mcp__demo__ping', {}, { runId: 'r1', sessionId: 's1' }, snapshot);
+    const result = await executor.execute('mcp__demo__ping', {}, { userId: 'local-user', runId: 'r1', sessionId: 's1', messageId: 'm1', toolCallId: 'c1' }, snapshot);
     expect(result.status).toBe('failed');
     if (result.status === 'failed') {
       expect(result.error.code).toBe(AGENT_ERROR_CODES.mcpCatalogStale);
@@ -66,7 +66,7 @@ describe('McpToolExecutor', () => {
       mockConnections({ generation: 3, runtime: { status: 'degraded' }, client: undefined }),
       mockCatalog(entry),
     );
-    const result = await executor.execute('mcp__demo__ping', {}, { runId: 'r1', sessionId: 's1' }, snapshot);
+    const result = await executor.execute('mcp__demo__ping', {}, { userId: 'local-user', runId: 'r1', sessionId: 's1', messageId: 'm1', toolCallId: 'c1' }, snapshot);
     expect(result.status).toBe('failed');
     if (result.status === 'failed') {
       expect(result.error.code).toBe(AGENT_ERROR_CODES.mcpUnavailable);
@@ -80,7 +80,7 @@ describe('McpToolExecutor', () => {
       mockConnections({ generation: 3, client: { callTool }, runtime: { status: 'connected' } }),
       mockCatalog(entry),
     );
-    const result = await executor.execute('mcp__demo__ping', {}, { runId: 'r1', sessionId: 's1' }, snapshot);
+    const result = await executor.execute('mcp__demo__ping', {}, { userId: 'local-user', runId: 'r1', sessionId: 's1', messageId: 'm1', toolCallId: 'c1' }, snapshot);
     expect(callTool).toHaveBeenCalledWith(
       { name: 'ping', arguments: {} },
       undefined,

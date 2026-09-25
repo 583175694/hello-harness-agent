@@ -9,7 +9,6 @@ import {
   type ToolExecutionSnapshot,
 } from '@harness/agent-protocol';
 import type { Prisma } from '@prisma/client';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
 import { formatLogDuration, shortLogId } from '../shared/logging.utils';
 
@@ -22,6 +21,7 @@ export class AssistantDeliveryRepository {
 
   // 以事务方式保存完整 assistant 消息并更新会话排序时间。
   async save(input: {
+    userId: string;
     sessionId: string;
     messageId: string;
     model: string;
@@ -52,7 +52,7 @@ export class AssistantDeliveryRepository {
       this.prisma.message.create({
         data: {
           id: input.messageId,
-          userId: LOCAL_USER_ID,
+          userId: input.userId,
           sessionId: input.sessionId,
           role: 'assistant',
           kind: 'assistant_delivery',

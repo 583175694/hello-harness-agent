@@ -128,7 +128,7 @@ export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
       if (input.run_in_background) {
         await this.manager.withSession(context.sessionId, async (session) => {
           if (input.inputFiles?.length) {
-            await this.workspace.stage(context.sessionId, session, input.inputFiles);
+            await this.workspace.stage(context.userId, context.sessionId, session, input.inputFiles);
           }
         });
         this.assertEgressAllowed(input, context);
@@ -149,7 +149,7 @@ export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
       this.assertEgressAllowed(input, context);
       const commandResult = await this.manager.withSession(context.sessionId, async (session) => {
         if (input.inputFiles?.length) {
-          await this.workspace.stage(context.sessionId, session, input.inputFiles);
+          await this.workspace.stage(context.userId, context.sessionId, session, input.inputFiles);
         }
         return session.execute({
           command: spec.command,

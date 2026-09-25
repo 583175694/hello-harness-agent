@@ -34,6 +34,7 @@ export * from './files/contracts.js';
 export * from './sandbox/contracts.js';
 export * from './sandbox/bash-render.js';
 export * from './mcp/contracts.js';
+export * from './auth/contracts.js';
 export * from './tools/external-tool.contracts.js';
 import {
   webFetchInputSchema,

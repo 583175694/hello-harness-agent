@@ -2,6 +2,7 @@ import type { ZodType } from 'zod';
 
 // 工具执行上下文，负责把会话关联信息和取消信号传给具体工具。
 export type ToolExecutionContext = {
+  userId: string;
   sessionId: string;
   runId?: string;
   messageId: string;

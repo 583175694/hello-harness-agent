@@ -21,6 +21,14 @@ import {
   mcpServerViewSchema,
   mcpServerTestResponseSchema,
   mcpCreateServerRequestSchema,
+  authMeResponseSchema,
+  authLoginResponseSchema,
+  authSendEmailCodeRequestSchema,
+  authVerifyEmailRequestSchema,
+  authSendPhoneCodeRequestSchema,
+  authVerifyPhoneRequestSchema,
+  authBindEmailRequestSchema,
+  authBindPhoneRequestSchema,
 } from '@harness/agent-protocol';
 import type {
   CancelRunResponse,
@@ -49,6 +57,7 @@ import type {
   McpCreateServerRequest,
   McpUpdateServerRequest,
   McpPatchServerRequest,
+  AuthUserView,
 } from '@harness/agent-protocol';
 import { publicAgentConfigSchema } from '@harness/agent-protocol';
 
@@ -68,6 +77,10 @@ export type ModelRoundCompletedEvent = Extract<RunPayload, { type: 'model.round.
 // 为空时通过 Vite 反向代理访问同源 API，部署时可覆盖为独立服务地址。
 // API 基地址为空时通过 Vite 代理访问同源后端。
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
+
+function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, { credentials: 'include', ...init });
+}
 
 // HTTP deployments are not a secure context, so older browsers may not expose
 // crypto.randomUUID(). Keep client-side idempotency keys available everywhere.
@@ -96,7 +109,7 @@ export class ApiProblem extends Error {
 
 // 读取 API 就绪状态，再启用生产 Composer 操作。
 export async function getReadiness(signal?: AbortSignal): Promise<ServiceStatus> {
-  const response = await fetch(`${apiBaseUrl}/readyz`, { signal });
+  const response = await apiFetch(`${apiBaseUrl}/readyz`, { signal });
   const data: unknown = await response.json();
 
   if (!response.ok) {
@@ -108,7 +121,7 @@ export async function getReadiness(signal?: AbortSignal): Promise<ServiceStatus>
 
 // 创建首次发送时才需要的持久化会话。
 export async function createSession(title: string): Promise<SessionSummary> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/sessions`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ title }),
@@ -118,7 +131,7 @@ export async function createSession(title: string): Promise<SessionSummary> {
 
 // 读取当前本地用户按更新时间排序的会话列表。
 export async function listSessions(signal?: AbortSignal): Promise<SessionSummary[]> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/sessions`, { signal });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions`, { signal });
   return listSessionsResponseSchema.parse(await parseResponse(response)).sessions;
 }
 
@@ -127,13 +140,13 @@ export async function getSession(
   sessionId: string,
   signal?: AbortSignal,
 ): Promise<SessionDetailResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}`, { signal });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}`, { signal });
   return sessionDetailResponseSchema.parse(await parseResponse(response));
 }
 
 // 删除指定会话及其级联消息。
 export async function deleteSession(sessionId: string): Promise<DeleteSessionResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}`, {
     method: 'DELETE',
   });
   return deleteSessionResponseSchema.parse(await parseResponse(response));
@@ -144,7 +157,7 @@ export async function updateSession(
   sessionId: string,
   input: UpdateSessionRequest,
 ): Promise<SessionSummary> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
@@ -156,7 +169,7 @@ export async function updateSession(
 export async function generateSessionTitle(
   sessionId: string,
 ): Promise<GenerateSessionTitleResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/title/generate`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/title/generate`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({}),
@@ -178,7 +191,7 @@ export async function createRun(
     changeSummary?: string;
   },
 ): Promise<CreateRunResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/runs`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/runs`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -194,7 +207,7 @@ export async function createRun(
 }
 
 export async function getArtifactSeries(seriesId: string): Promise<ArtifactSeriesRef> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/series/${encodeURIComponent(seriesId)}`);
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/artifacts/series/${encodeURIComponent(seriesId)}`);
   return artifactSeriesRefSchema.parse(await parseResponse(response));
 }
 
@@ -202,7 +215,7 @@ export async function restoreArtifact(
   artifactId: string,
   expectedCurrentArtifactId: string,
 ): Promise<RestoreArtifactResult> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${encodeURIComponent(artifactId)}/restore`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/artifacts/${encodeURIComponent(artifactId)}/restore`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ expectedCurrentArtifactId, idempotencyKey: createClientId() }),
@@ -217,7 +230,7 @@ export async function uploadFile(
 ): Promise<FileRef> {
   const body = new FormData();
   body.append('file', file);
-  const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/files`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/files`, {
     method: 'POST',
     body,
     signal,
@@ -227,7 +240,7 @@ export async function uploadFile(
 
 // 查询文件处理状态，供上传后的轮询使用。
 export async function getFile(fileId: string, signal?: AbortSignal): Promise<FileRef> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/files/${fileId}`, { signal });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/files/${fileId}`, { signal });
   return fileRefSchema.parse(await parseResponse(response));
 }
 
@@ -236,7 +249,7 @@ export async function getFilePreview(
   fileId: string,
   signal?: AbortSignal,
 ): Promise<{ fileId: string; content: string; contentType: string }> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/files/${fileId}/preview`, { signal });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/files/${fileId}/preview`, { signal });
   const content = await response.text();
   if (!response.ok) throw new Error(content || '文件预览不可用。');
   return {
@@ -248,18 +261,18 @@ export async function getFilePreview(
 
 // 请求服务端重新处理可恢复失败的文件。
 export async function retryFile(fileId: string): Promise<FileRef> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/files/${fileId}/retry`, { method: 'POST' });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/files/${fileId}/retry`, { method: 'POST' });
   return fileRefSchema.parse(await parseResponse(response));
 }
 
 export async function deleteFile(fileId: string): Promise<{ deletedFileId: string }> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/files/${fileId}`, { method: 'DELETE' });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/files/${fileId}`, { method: 'DELETE' });
   const data = await parseResponse(response);
   return { deletedFileId: String((data as { deletedFileId?: unknown }).deletedFileId) };
 }
 
 export async function getArtifact(artifactId: string, signal?: AbortSignal): Promise<ArtifactRef> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}`, { signal });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}`, { signal });
   return artifactRefSchema.parse(await parseResponse(response));
 }
 
@@ -296,7 +309,7 @@ export async function getArtifactPreview(
   artifactId: string,
   signal?: AbortSignal,
 ): Promise<{ artifactId: string; content: string; contentType: string }> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}/preview`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}/preview`, {
     signal,
   });
   const content = await response.text();
@@ -329,7 +342,7 @@ export function downloadArtifact(artifactId: string): void {
 export async function deleteArtifact(
   artifactId: string,
 ): Promise<{ deletedArtifactId: string; deletedFileId: string }> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/artifacts/${artifactId}`, {
     method: 'DELETE',
   });
   const data = await parseResponse(response);
@@ -340,7 +353,7 @@ export async function deleteArtifact(
 }
 
 export async function submitPendingInput(sessionId: string, content: string): Promise<unknown> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/pending-inputs`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/pending-inputs`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ content, idempotencyKey: createClientId() }),
@@ -348,13 +361,13 @@ export async function submitPendingInput(sessionId: string, content: string): Pr
   return parseResponse(response);
 }
 export async function promotePendingInput(inputId: string): Promise<unknown> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/pending-inputs/${inputId}/steer`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/pending-inputs/${inputId}/steer`, {
     method: 'POST',
   });
   return parseResponse(response);
 }
 export async function cancelPendingInput(inputId: string): Promise<unknown> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/pending-inputs/${inputId}/cancel`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/pending-inputs/${inputId}/cancel`, {
     method: 'POST',
   });
   return parseResponse(response);
@@ -368,26 +381,26 @@ export async function resumePendingQueue(sessionId: string): Promise<CreateRunRe
 }
 
 export async function sendPendingInput(inputId: string): Promise<CreateRunResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/pending-inputs/${inputId}/send`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/pending-inputs/${inputId}/send`, {
     method: 'POST',
   });
   return createRunResponseSchema.parse(await parseResponse(response));
 }
 
 export async function getPublicAgentConfig(signal?: AbortSignal): Promise<PublicAgentConfig> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/config/public`, { signal });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/config/public`, { signal });
   return publicAgentConfigSchema.parse(await parseResponse(response));
 }
 
 // 获取 Run 的完整恢复快照；服务端优先返回 Live Snapshot，否则退回 PostgreSQL Checkpoint。
 export async function getRun(runId: string, signal?: AbortSignal): Promise<RunSnapshot> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/runs/${runId}`, { signal });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/runs/${runId}`, { signal });
   return runSnapshotSchema.parse(await parseResponse(response));
 }
 
 // 发送独立、幂等的取消命令；取消不依赖当前 SSE 连接是否仍然存在。
 export async function cancelRun(runId: string): Promise<CancelRunResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/runs/${runId}/cancel`, { method: 'POST' });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/runs/${runId}/cancel`, { method: 'POST' });
   return cancelRunResponseSchema.parse(await parseResponse(response));
 }
 
@@ -395,7 +408,7 @@ export async function controlRun(
   runId: string,
   command: RunControlCommand,
 ): Promise<RunControlResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/runs/${runId}/commands`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/runs/${runId}/commands`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(command),
@@ -411,7 +424,7 @@ export async function subscribeRun(
   onEvent: (event: RunStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/runs/${runId}/events`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/runs/${runId}/events`, {
     headers: {
       accept: 'text/event-stream',
       ...(lastEventId !== undefined ? { 'Last-Event-ID': String(lastEventId) } : {}),
@@ -443,13 +456,13 @@ export async function subscribeRun(
 }
 
 export async function listMcpServers(signal?: AbortSignal): Promise<McpServerListResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/mcp/servers`, { signal });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/mcp/servers`, { signal });
   return mcpServerListResponseSchema.parse(await parseResponse(response));
 }
 
 export async function createMcpServer(body: McpCreateServerRequest): Promise<McpServerView> {
   mcpCreateServerRequestSchema.parse(body);
-  const response = await fetch(`${apiBaseUrl}/api/agent/mcp/servers`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/mcp/servers`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -458,7 +471,7 @@ export async function createMcpServer(body: McpCreateServerRequest): Promise<Mcp
 }
 
 export async function updateMcpServer(id: string, body: McpUpdateServerRequest): Promise<McpServerView> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/mcp/servers/${id}`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/mcp/servers/${id}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -467,7 +480,7 @@ export async function updateMcpServer(id: string, body: McpUpdateServerRequest):
 }
 
 export async function patchMcpServer(id: string, body: McpPatchServerRequest): Promise<McpServerView> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/mcp/servers/${id}`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/mcp/servers/${id}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -476,13 +489,99 @@ export async function patchMcpServer(id: string, body: McpPatchServerRequest): P
 }
 
 export async function deleteMcpServer(id: string): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/mcp/servers/${id}`, { method: 'DELETE' });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/mcp/servers/${id}`, { method: 'DELETE' });
   if (!response.ok) await parseResponse(response);
 }
 
 export async function testMcpServer(id: string): Promise<McpServerTestResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/agent/mcp/servers/${id}/test`, { method: 'POST' });
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/mcp/servers/${id}/test`, { method: 'POST' });
   return mcpServerTestResponseSchema.parse(await parseResponse(response));
+}
+
+export async function sendEmailCode(email: string): Promise<void> {
+  authSendEmailCodeRequestSchema.parse({ email });
+  const response = await apiFetch(`${apiBaseUrl}/api/auth/email/send-code`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) await parseResponse(response);
+}
+
+export async function verifyEmailLogin(email: string, code: string): Promise<AuthUserView> {
+  authVerifyEmailRequestSchema.parse({ email, code });
+  const response = await apiFetch(`${apiBaseUrl}/api/auth/email/verify`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, code }),
+  });
+  return parseAuthLoginUser(await parseResponse(response));
+}
+
+export async function sendPhoneCode(phone: string): Promise<void> {
+  authSendPhoneCodeRequestSchema.parse({ phone });
+  const response = await apiFetch(`${apiBaseUrl}/api/auth/phone/send-code`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ phone }),
+  });
+  if (!response.ok) await parseResponse(response);
+}
+
+export async function verifyPhoneLogin(phone: string, code: string): Promise<AuthUserView> {
+  authVerifyPhoneRequestSchema.parse({ phone, code });
+  const response = await apiFetch(`${apiBaseUrl}/api/auth/phone/verify`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ phone, code }),
+  });
+  return parseAuthLoginUser(await parseResponse(response));
+}
+
+export async function getMe(signal?: AbortSignal): Promise<AuthUserView> {
+  const response = await apiFetch(`${apiBaseUrl}/api/auth/me`, { signal });
+  return parseAuthMeUser(await parseResponse(response));
+}
+
+export async function logout(): Promise<void> {
+  const response = await apiFetch(`${apiBaseUrl}/api/auth/logout`, { method: 'POST' });
+  if (!response.ok) await parseResponse(response);
+}
+
+export async function bindEmail(email: string, code: string): Promise<AuthUserView> {
+  authBindEmailRequestSchema.parse({ email, code });
+  const response = await apiFetch(`${apiBaseUrl}/api/auth/bind/email`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, code }),
+  });
+  return parseAuthLoginUser(await parseResponse(response));
+}
+
+export async function bindPhone(phone: string, code: string): Promise<AuthUserView> {
+  authBindPhoneRequestSchema.parse({ phone, code });
+  const response = await apiFetch(`${apiBaseUrl}/api/auth/bind/phone`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ phone, code }),
+  });
+  return parseAuthLoginUser(await parseResponse(response));
+}
+
+const AUTH_RESPONSE_PARSE_ERROR = '登录状态同步失败，请刷新页面后重试。';
+
+function parseAuthLoginUser(data: unknown): AuthUserView {
+  const parsed = authLoginResponseSchema.safeParse(data);
+  if (parsed.success) return parsed.data.user;
+  if (import.meta.env.DEV) console.error('[auth] login response schema mismatch', parsed.error.flatten());
+  throw new Error(AUTH_RESPONSE_PARSE_ERROR);
+}
+
+function parseAuthMeUser(data: unknown): AuthUserView {
+  const parsed = authMeResponseSchema.safeParse(data);
+  if (parsed.success) return parsed.data.user;
+  if (import.meta.env.DEV) console.error('[auth] me response schema mismatch', parsed.error.flatten());
+  throw new Error(AUTH_RESPONSE_PARSE_ERROR);
 }
 
 // 统一解析 JSON API，并将 Problem Details 转换为前端异常。

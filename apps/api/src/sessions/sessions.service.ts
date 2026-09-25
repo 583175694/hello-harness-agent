@@ -19,7 +19,6 @@ import type {
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 
 import { SessionTitleService } from './session-title.service';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
 import { describeLogError, shortLogId } from '../shared/logging.utils';
 import { compareMessageOrder } from '../chat/message-order';
@@ -45,17 +44,17 @@ export class SessionsService implements OnModuleInit {
   }
 
   // 创建属于固定本地用户的持久化会话。
-  async create(title: string): Promise<{ session: SessionSummary }> {
+  async create(userId: string, title: string): Promise<{ session: SessionSummary }> {
     const session = await this.prisma.session.create({
-      data: { id: crypto.randomUUID(), userId: LOCAL_USER_ID, title },
+      data: { id: crypto.randomUUID(), userId, title },
     });
     return { session: this.toSummary(session) };
   }
 
   // 按最近更新时间返回本地用户的会话列表。
-  async list(): Promise<{ sessions: SessionSummary[] }> {
+  async list(userId: string): Promise<{ sessions: SessionSummary[] }> {
     const sessions = await this.prisma.session.findMany({
-      where: { userId: LOCAL_USER_ID },
+      where: { userId },
       orderBy: [{ isPinned: 'desc' }, { updatedAt: 'desc' }],
     });
     return { sessions: sessions.map((session) => this.toSummary(session)) };
@@ -63,10 +62,11 @@ export class SessionsService implements OnModuleInit {
 
   // 更新会话名称或置顶状态，并返回新的会话摘要。
   async update(
+    userId: string,
     sessionId: string,
     input: UpdateSessionRequest,
   ): Promise<{ session: SessionSummary }> {
-    await this.requireOwned(sessionId);
+    await this.requireOwned(userId, sessionId);
     const session = await this.prisma.session.update({
       where: { id: sessionId },
       data: input,
@@ -76,9 +76,9 @@ export class SessionsService implements OnModuleInit {
 
   // 返回会话及按创建顺序排列的全部普通消息。
   // 查询会话消息及附件元数据，生成可供 Web 恢复的会话详情。
-  async detail(sessionId: string): Promise<SessionDetailResponse> {
+  async detail(userId: string, sessionId: string): Promise<SessionDetailResponse> {
     const session = await this.prisma.session.findFirst({
-      where: { id: sessionId, userId: LOCAL_USER_ID },
+      where: { id: sessionId, userId },
       include: {
         messages: {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -168,8 +168,8 @@ export class SessionsService implements OnModuleInit {
 
   // 删除空闲会话，消息由数据库外键级联清理。
   // 删除空闲会话及数据库关系，并尽力清理对应的原图和预览对象。
-  async delete(sessionId: string): Promise<{ deletedSessionId: string }> {
-    await this.requireOwned(sessionId);
+  async delete(userId: string, sessionId: string): Promise<{ deletedSessionId: string }> {
+    await this.requireOwned(userId, sessionId);
     // 先清理已停止但数据库仍显示 active 的 Run，避免故障会话永久阻塞删除。
     await this.runs.interruptStaleForSession(sessionId);
     const active = await this.prisma.agentRun.findFirst({
@@ -182,7 +182,7 @@ export class SessionsService implements OnModuleInit {
       });
     }
     const files = await this.prisma.file.findMany({
-      where: { sessionId, userId: LOCAL_USER_ID },
+      where: { sessionId, userId },
       select: { id: true, sessionId: true },
     });
     await this.prisma.fileCleanupTask.createMany({
@@ -243,9 +243,9 @@ export class SessionsService implements OnModuleInit {
   }
 
   // 基于首轮问答生成标题，失败时保留已有临时标题。
-  async generateTitle(sessionId: string): Promise<GenerateSessionTitleResponse> {
+  async generateTitle(userId: string, sessionId: string): Promise<GenerateSessionTitleResponse> {
     const session = await this.prisma.session.findFirst({
-      where: { id: sessionId, userId: LOCAL_USER_ID },
+      where: { id: sessionId, userId },
       include: {
         messages: {
           where: { role: { in: ['user', 'assistant'] } },
@@ -276,9 +276,9 @@ export class SessionsService implements OnModuleInit {
   }
 
   // 校验会话属于固定本地用户。
-  async requireOwned(sessionId: string): Promise<Session> {
+  async requireOwned(userId: string, sessionId: string): Promise<Session> {
     const session = await this.prisma.session.findFirst({
-      where: { id: sessionId, userId: LOCAL_USER_ID },
+      where: { id: sessionId, userId },
     });
     if (!session) this.throwNotFound();
     return session;

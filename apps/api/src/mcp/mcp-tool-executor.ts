@@ -22,7 +22,7 @@ export class McpToolExecutor {
     context: ToolExecutionContext,
     snapshot?: RunMcpSnapshot,
   ): Promise<ToolExecutionResult<unknown>> {
-    const entry = this.catalog.lookupEntry(publicName, snapshot);
+    const entry = this.catalog.lookupEntry(publicName, snapshot, context.userId);
     if (!entry) {
       return {
         status: 'failed',
@@ -43,7 +43,7 @@ export class McpToolExecutor {
         },
       };
     }
-    const liveGeneration = this.connections.getCatalogGeneration();
+    const liveGeneration = this.connections.getCatalogGeneration(context.userId);
     if (snapshot && snapshot.catalogGeneration !== liveGeneration) {
       return {
         status: 'failed',
@@ -54,8 +54,8 @@ export class McpToolExecutor {
         },
       };
     }
-    const client = this.connections.getClient(entry.serverName);
-    const runtime = this.connections.getServerRuntime(entry.serverName);
+    const client = this.connections.getClient(context.userId, entry.serverName);
+    const runtime = this.connections.getServerRuntime(context.userId, entry.serverName);
     if (!client || runtime?.status !== 'connected') {
       return {
         status: 'failed',

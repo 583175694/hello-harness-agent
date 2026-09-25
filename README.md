@@ -21,7 +21,7 @@
   真实工具 Activity、Clue/已读/采用来源 Workbench 与刷新恢复
   可配置模型、base URL 和 API key
   PostgreSQL 连接和 Prisma migration
-  单个本地用户自动初始化
+  邮箱/短信验证码登录与按用户隔离（生产 AUTH_MODE=required；开发可 AUTH_MODE=local）
   本地 Artifact 目录 readiness 检查
   结构化日志、配置校验和敏感字段脱敏
   unit / integration；UI 手工与回归用 agent-browser
@@ -78,6 +78,13 @@ Model-led Tool Boundary 已实现：模型负责是否继续调查，Runtime 只
 完成首次初始化和迁移后，日常开发只需运行 `pnpm dev`；本机 PostgreSQL 由操作系统/Homebrew 服务持续运行。
 
 随后访问 `http://127.0.0.1:4317/agent`。
+
+### 账号与登录（本地测试）
+
+- 邮箱与短信是**同一 Harness 账号**的两种登录方式，不是两套独立账号。
+- 推荐路径：先用邮箱或手机**登录一次** → 打开 **设置 → 账号** → **绑定**另一种方式；之后两种方式进入同一会话与数据。
+- **请勿**用同一邮箱、同一手机号各登录一次做「两个测试号」，否则会生成两个 `users` 行，绑定时会提示已被其他账号占用；当前阶段不提供账号合并。
+- 开发环境未配置 SMTP/SMS 时，验证码会打印在 API 控制台日志中。
 
 **C3 沙箱（可选）**：在 `.env` 中配置 `SANDBOX_*` 并对模型暴露 `execute_command` 时，需先启动本机 OpenSandbox：`./dev/opensandbox-local/start.sh`。说明见 [`dev/opensandbox-local/README.md`](./dev/opensandbox-local/README.md) 与 [`docs/33-c3-agent-sandbox-cloud-execution.md`](./docs/33-c3-agent-sandbox-cloud-execution.md) §1.5。
 

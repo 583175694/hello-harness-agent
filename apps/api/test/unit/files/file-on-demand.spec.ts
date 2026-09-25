@@ -42,6 +42,7 @@ function createService(content = '第一行\n错误发生在这里\n第三行\n�
   const file = readyFile();
   const prisma = {
     file: { findFirst: vi.fn().mockResolvedValue(file) },
+    session: { findUnique: vi.fn().mockResolvedValue({ id: 'session-1', userId: 'local-user' }) },
   };
   const storage = {
     readObject: vi.fn().mockResolvedValue({ content: Buffer.from(content) }),
@@ -58,7 +59,7 @@ function createService(content = '第一行\n错误发生在这里\n第三行\n�
 describe('C1-B.2 file tools', () => {
   it('searches normalized COS text with bounded context and line locations', async () => {
     const { service, storage } = createService();
-    const result = await service.searchFile('session-1', {
+    const result = await service.searchFile('local-user', 'session-1', {
       fileId: 'file-1',
       query: '错误',
     });
@@ -83,26 +84,26 @@ describe('C1-B.2 file tools', () => {
     const { service, prisma } = createService();
     prisma.file.findFirst.mockResolvedValueOnce(null);
     await expect(
-      service.readFileLines('session-1', { fileId: 'file-1', startLine: 1, endLine: 1 }),
+      service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 1 }),
     ).rejects.toMatchObject({ response: { code: 'FILE_NOT_FOUND' } });
 
     prisma.file.findFirst.mockResolvedValueOnce(readyFile({ status: 'processing' }));
     await expect(
-      service.readFileLines('session-1', { fileId: 'file-1', startLine: 1, endLine: 1 }),
+      service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 1 }),
     ).rejects.toMatchObject({ response: { code: 'FILE_NOT_READY' } });
   });
 
   it('returns the dedicated error when the requested line range is too large', async () => {
     const { service } = createService('a\nb\nc');
     await expect(
-      service.readFileLines('session-1', { fileId: 'file-1', startLine: 1, endLine: 51 }),
+      service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 51 }),
     ).rejects.toMatchObject({ response: { code: 'FILE_READ_RANGE_TOO_LARGE' } });
   });
 
   it('reads a finite range and rejects an oversized result instead of truncating', async () => {
     const { service } = createService('a\nb\nc');
     await expect(
-      service.readFileLines('session-1', { fileId: 'file-1', startLine: 1, endLine: 3 }),
+      service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 3 }),
     ).resolves.toMatchObject({
       startLine: 1,
       endLine: 3,
@@ -116,14 +117,14 @@ describe('C1-B.2 file tools', () => {
 
     const large = createService('x'.repeat(12_001));
     await expect(
-      large.service.readFileLines('session-1', { fileId: 'file-1', startLine: 1, endLine: 1 }),
+      large.service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 1 }),
     ).rejects.toMatchObject({ response: { code: 'FILE_READ_RESULT_TOO_LARGE' } });
   });
 
   it('keeps the current PDF page when a read starts after the page marker', async () => {
     const { service } = createService('[[page:2]]\n标题\n正文第一行\n正文第二行');
     await expect(
-      service.readFileLines('session-1', { fileId: 'file-1', startLine: 3, endLine: 4 }),
+      service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 3, endLine: 4 }),
     ).resolves.toMatchObject({
       lines: [
         { line: 3, page: 2, text: '正文第一行' },
@@ -135,13 +136,13 @@ describe('C1-B.2 file tools', () => {
   it('keeps PDF page metadata out of search text and does not count markers as matches', async () => {
     const { service } = createService('[[page:2]]\n标题\n正文');
     await expect(
-      service.searchFile('session-1', { fileId: 'file-1', query: '标题' }),
+      service.searchFile('local-user', 'session-1', { fileId: 'file-1', query: '标题' }),
     ).resolves.toMatchObject({
       incomplete: false,
       matches: [{ lineStart: 2, lineEnd: 3, page: 2, text: '标题\n正文' }],
     });
     await expect(
-      service.searchFile('session-1', { fileId: 'file-1', query: 'page' }),
+      service.searchFile('local-user', 'session-1', { fileId: 'file-1', query: 'page' }),
     ).resolves.toMatchObject({ incomplete: false, matches: [] });
   });
 
@@ -157,7 +158,7 @@ describe('C1-B.2 file tools', () => {
     expect(tool.definition().name).toBe('search_file');
     const result = await tool.execute(
       { fileId: 'file-1', query: 'term' },
-      { sessionId: 'session-1', messageId: 'message-1', toolCallId: 'call-1' },
+      { userId: 'local-user', sessionId: 'session-1', messageId: 'message-1', toolCallId: 'call-1' },
     );
     expect(result).toMatchObject({
       status: 'failed',
@@ -184,7 +185,7 @@ describe('C1-B.2 file tools', () => {
     await expect(
       reader.execute(
         { fileId: 'file-1', startLine: 1, endLine: 1 },
-        { sessionId: 'session-1', messageId: 'message-1', toolCallId: 'call-2' },
+        { userId: 'local-user', sessionId: 'session-1', messageId: 'message-1', toolCallId: 'call-2' },
       ),
     ).resolves.toMatchObject({ status: 'succeeded' });
   });

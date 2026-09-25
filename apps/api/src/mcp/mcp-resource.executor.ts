@@ -42,7 +42,7 @@ export class McpResourceExecutor {
         },
       };
     }
-    const client = this.connections.getClient(serverName);
+    const client = this.connections.getClient(context.userId, serverName);
     if (!client) {
       return {
         status: 'failed',
@@ -53,7 +53,7 @@ export class McpResourceExecutor {
         },
       };
     }
-    const runtime = this.connections.getServerRuntime(serverName);
+    const runtime = this.connections.getServerRuntime(context.userId, serverName);
     const timeoutMs = runtime?.toolCallTimeoutMs ?? 60_000;
     const startedAt = Date.now();
     try {

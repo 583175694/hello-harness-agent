@@ -62,7 +62,9 @@ export class ToolRegistryService {
     const staticDefs = [...this.toolsByName.values()]
       .filter((tool) => tool.isAvailable())
       .map((tool) => tool.definition());
-    const mcpDefs = this.mcpCatalog.definitionsForRun(ctx?.mcpSnapshot);
+    const mcpDefs = ctx?.userId
+      ? this.mcpCatalog.definitionsForRun(ctx.mcpSnapshot, ctx.userId)
+      : [];
     const definitions = [...staticDefs, ...mcpDefs];
     return definitions.length ? definitions : undefined;
   }
@@ -70,7 +72,9 @@ export class ToolRegistryService {
   // 返回工具声明的不可由模型覆盖的外层执行策略。
   executionPolicy(name: string, ctx?: ToolRegistryContext): AgentTool['executionPolicy'] {
     if (isMcpPublicToolName(name)) {
-      const entry = this.mcpCatalog.lookupEntry(name, ctx?.mcpSnapshot);
+      const entry = ctx?.userId
+        ? this.mcpCatalog.lookupEntry(name, ctx.mcpSnapshot, ctx.userId)
+        : undefined;
       return {
         timeoutMs: entry?.toolCallTimeoutMs ?? 60_000,
         approval: entry?.defaultApproval ?? 'require_approval',
@@ -89,7 +93,7 @@ export class ToolRegistryService {
   // 按工具自身 schema 解析模型返回的 JSON 参数。
   parseInput(name: string, rawArguments: string, ctx?: ToolRegistryContext): unknown {
     if (isMcpPublicToolName(name)) {
-      if (!this.mcpCatalog.lookupEntry(name, ctx?.mcpSnapshot)) {
+      if (!ctx?.userId || !this.mcpCatalog.lookupEntry(name, ctx.mcpSnapshot, ctx.userId)) {
         throw new ToolInputValidationError(
           AGENT_ERROR_CODES.unknownTool,
           '未知的 MCP 工具。',

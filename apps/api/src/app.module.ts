@@ -13,12 +13,14 @@ import { ModelModule } from './model/model.module';
 import { FilesModule } from './files/files.module';
 import { ArtifactsModule } from './artifacts/artifacts.module';
 import { McpModule } from './mcp/mcp.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
     BootstrapConfigModule,
     LoggingModule,
     DatabaseModule,
+    AuthModule,
     ToolsModule,
     ChatModule,
     RunsModule,

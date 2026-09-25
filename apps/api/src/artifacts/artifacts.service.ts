@@ -5,7 +5,6 @@ import { createHash } from 'node:crypto';
 import type { ArtifactRef, ArtifactSeriesRef, CreateFileInput, CreateFileResult, CreateReportInput, CreateReportResult, ReportRef, RestoreArtifactResult } from '@harness/agent-protocol';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { FileStorage } from '../file-storage/file-storage';
 import { FilesService } from '../files/files.service';
 import { describeLogError } from '../shared/logging.utils';
@@ -18,6 +17,16 @@ export class ArtifactsService {
     @Inject(FileStorage) private readonly storage: FileStorage,
   ) {}
 
+  private async userIdForSession(sessionId: string): Promise<string> {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { userId: true },
+    });
+    if (!session)
+      throw new NotFoundException({ code: AGENT_ERROR_CODES.sessionNotFound, detail: '会话不存在。' });
+    return session.userId;
+  }
+
   async importFromSandbox(input: {
     sessionId: string;
     runId: string;
@@ -25,12 +34,13 @@ export class ArtifactsService {
     fileName: string;
     data: Uint8Array;
   }) {
+    const ownerUserId = await this.userIdForSession(input.sessionId);
     const existing = await this.prisma.artifact.findFirst({
       where: {
         runId: input.runId,
         toolCallId: input.toolCallId,
         sessionId: input.sessionId,
-        userId: LOCAL_USER_ID,
+        userId: ownerUserId,
       },
       include: { file: true, series: true },
     });
@@ -56,7 +66,7 @@ export class ArtifactsService {
       await tx.artifactSeries.create({
         data: {
           id: seriesId,
-          userId: LOCAL_USER_ID,
+          userId: ownerUserId,
           sessionId: input.sessionId,
           logicalName: input.fileName,
         },
@@ -65,7 +75,7 @@ export class ArtifactsService {
         data: {
           id: artifactId,
           fileId: file.fileId,
-          userId: LOCAL_USER_ID,
+          userId: ownerUserId,
           sessionId: input.sessionId,
           runId: input.runId,
           toolCallId: input.toolCallId,
@@ -96,12 +106,13 @@ export class ArtifactsService {
     toolCallId: string;
     signal?: AbortSignal;
   }): Promise<CreateFileResult> {
+    const ownerUserId = await this.userIdForSession(input.sessionId);
     const existingReplay = await this.prisma.artifact.findFirst({
       where: {
         runId: input.runId,
         toolCallId: input.toolCallId,
         sessionId: input.sessionId,
-        userId: LOCAL_USER_ID,
+        userId: ownerUserId,
       },
       include: { file: true, series: true },
     });
@@ -121,7 +132,7 @@ export class ArtifactsService {
       where: {
         id: input.runId,
         sessionId: input.sessionId,
-        session: { userId: LOCAL_USER_ID },
+        session: { userId: ownerUserId },
       },
       select: { id: true, metadata: true },
     });
@@ -149,7 +160,7 @@ export class ArtifactsService {
           await tx.artifactSeries.create({
             data: {
               id: seriesId,
-              userId: LOCAL_USER_ID,
+              userId: ownerUserId,
               sessionId: input.sessionId,
               logicalName: input.fileName,
             },
@@ -158,7 +169,7 @@ export class ArtifactsService {
             data: {
               id: artifactId,
               fileId: file.fileId,
-              userId: LOCAL_USER_ID,
+              userId: ownerUserId,
               sessionId: input.sessionId,
               runId: input.runId,
               toolCallId: input.toolCallId,
@@ -177,7 +188,7 @@ export class ArtifactsService {
             where: {
               id: versionContext.seriesId,
               sessionId: input.sessionId,
-              userId: LOCAL_USER_ID,
+              userId: ownerUserId,
             },
           });
           const base = await tx.artifact.findFirst({
@@ -185,7 +196,7 @@ export class ArtifactsService {
               id: versionContext.baseArtifactId,
               seriesId: versionContext.seriesId,
               sessionId: input.sessionId,
-              userId: LOCAL_USER_ID,
+              userId: ownerUserId,
               status: 'ready',
             },
           });
@@ -200,7 +211,7 @@ export class ArtifactsService {
             data: {
               id: artifactId,
               fileId: file.fileId,
-              userId: LOCAL_USER_ID,
+              userId: ownerUserId,
               sessionId: input.sessionId,
               runId: input.runId,
               toolCallId: input.toolCallId,
@@ -238,7 +249,7 @@ export class ArtifactsService {
       }
       if (this.isUniqueConflict(error)) {
         const replay = await this.prisma.artifact.findFirst({
-          where: { runId: input.runId, toolCallId: input.toolCallId, userId: LOCAL_USER_ID },
+          where: { runId: input.runId, toolCallId: input.toolCallId, userId: ownerUserId },
           include: { file: true, series: true },
         });
         if (replay)
@@ -253,22 +264,23 @@ export class ArtifactsService {
   }
 
   async createReport(input: CreateReportInput & { sessionId: string; runId: string; toolCallId: string }): Promise<CreateReportResult> {
-    const run = await this.prisma.agentRun.findFirst({ where: { id: input.runId, sessionId: input.sessionId, session: { userId: LOCAL_USER_ID } }, select: { id: true } });
+    const ownerUserId = await this.userIdForSession(input.sessionId);
+    const run = await this.prisma.agentRun.findFirst({ where: { id: input.runId, sessionId: input.sessionId, session: { userId: ownerUserId } }, select: { id: true } });
     if (!run) throw new NotFoundException({ code: AGENT_ERROR_CODES.runNotFound, detail: '运行不存在或不属于当前会话。' });
-    const existingReport = await this.prisma.report.findFirst({ where: { runId: input.runId, sessionId: input.sessionId, userId: LOCAL_USER_ID, artifact: { toolCallId: input.toolCallId } }, include: { artifact: { include: { file: true, series: true } } } });
+    const existingReport = await this.prisma.report.findFirst({ where: { runId: input.runId, sessionId: input.sessionId, userId: ownerUserId, artifact: { toolCallId: input.toolCallId } }, include: { artifact: { include: { file: true, series: true } } } });
     if (existingReport) {
       if (existingReport.status === 'deleted') throw new BadRequestException({ code: AGENT_ERROR_CODES.reportDeleted, detail: '报告已删除。' });
       return { report: this.reportRef(existingReport), artifact: this.toRef(existingReport.artifact), file: this.files.toPublicRef(existingReport.artifact.file, false, { artifactId: existingReport.artifact.id }) };
     }
     const fileIds = [...new Set(input.fileIds ?? [])];
     if (fileIds.length) {
-      const count = await this.prisma.file.count({ where: { id: { in: fileIds }, sessionId: input.sessionId, userId: LOCAL_USER_ID, status: 'ready' } });
+      const count = await this.prisma.file.count({ where: { id: { in: fileIds }, sessionId: input.sessionId, userId: ownerUserId, status: 'ready' } });
       if (count !== fileIds.length) throw new BadRequestException({ code: AGENT_ERROR_CODES.reportValidationFailed, detail: '报告引用了不存在、未就绪或越权的材料文件。' });
     }
     const sourceIds = [...new Set(input.sourceIds ?? [])];
     const created = await this.create({ sessionId: input.sessionId, runId: input.runId, toolCallId: input.toolCallId, fileName: input.fileName, content: input.content });
     try {
-      const report = await this.prisma.report.create({ data: { id: crypto.randomUUID(), artifactId: created.artifact.artifactId, runId: input.runId, userId: LOCAL_USER_ID, sessionId: input.sessionId, title: input.title, summary: input.summary, sourceIds, fileIds, status: 'ready' }, include: { artifact: { include: { file: true, series: true } } } });
+      const report = await this.prisma.report.create({ data: { id: crypto.randomUUID(), artifactId: created.artifact.artifactId, runId: input.runId, userId: ownerUserId, sessionId: input.sessionId, title: input.title, summary: input.summary, sourceIds, fileIds, status: 'ready' }, include: { artifact: { include: { file: true, series: true } } } });
       return { report: this.reportRef(report), artifact: created.artifact, file: created.file };
     } catch (error) {
       if (this.isUniqueConflict(error)) {
@@ -279,31 +291,31 @@ export class ArtifactsService {
     }
   }
 
-  async getReport(reportId: string) {
-    const report = await this.prisma.report.findFirst({ where: { id: reportId, userId: LOCAL_USER_ID }, include: { artifact: { include: { file: true, series: true } } } });
+  async getReport(userId: string, reportId: string) {
+    const report = await this.prisma.report.findFirst({ where: { id: reportId, userId }, include: { artifact: { include: { file: true, series: true } } } });
     if (!report) throw new NotFoundException({ code: AGENT_ERROR_CODES.reportNotFound, detail: '报告不存在。' });
     if (report.status === 'deleted') throw new BadRequestException({ code: AGENT_ERROR_CODES.reportDeleted, detail: '报告已删除。' });
     return { report: this.reportRef(report), artifact: this.toRef(report.artifact), file: this.files.toPublicRef(report.artifact.file, false, { artifactId: report.artifact.id }) };
   }
 
-  async deleteReport(reportId: string) {
-    const report = await this.prisma.report.findFirst({ where: { id: reportId, userId: LOCAL_USER_ID } });
+  async deleteReport(userId: string, reportId: string) {
+    const report = await this.prisma.report.findFirst({ where: { id: reportId, userId } });
     if (!report) throw new NotFoundException({ code: AGENT_ERROR_CODES.reportNotFound, detail: '报告不存在。' });
     if (report.status === 'deleted') throw new BadRequestException({ code: AGENT_ERROR_CODES.reportDeleted, detail: '报告已删除。' });
-    await this.delete(report.artifactId);
+    await this.delete(userId, report.artifactId);
     await this.prisma.report.update({ where: { id: report.id }, data: { status: 'deleted' } });
     return { deletedReportId: report.id, deletedArtifactId: report.artifactId };
   }
 
-  async get(artifactId: string) {
-    const artifact = await this.findOwned(artifactId);
+  async get(userId: string, artifactId: string) {
+    const artifact = await this.findOwned(userId, artifactId);
     if (artifact.status === 'deleted') throw this.deleted();
     return this.toRef(artifact);
   }
 
-  async getSeries(seriesId: string): Promise<ArtifactSeriesRef> {
+  async getSeries(userId: string, seriesId: string): Promise<ArtifactSeriesRef> {
     const series = await this.prisma.artifactSeries.findFirst({
-      where: { id: seriesId, userId: LOCAL_USER_ID },
+      where: { id: seriesId, userId },
       include: {
         artifacts: {
           where: { status: 'ready' },
@@ -317,8 +329,13 @@ export class ArtifactsService {
     return this.seriesRef(series);
   }
 
-  async restore(sourceArtifactId: string, expectedCurrentArtifactId: string, idempotencyKey: string): Promise<RestoreArtifactResult> {
-    const source = await this.findOwned(sourceArtifactId);
+  async restore(
+    userId: string,
+    sourceArtifactId: string,
+    expectedCurrentArtifactId: string,
+    idempotencyKey: string,
+  ): Promise<RestoreArtifactResult> {
+    const source = await this.findOwned(userId, sourceArtifactId);
     if (source.status !== 'ready') throw this.deleted();
     const restoreKey = `artifact-restore:${idempotencyKey}`;
     const replay = await this.prisma.agentRun.findFirst({
@@ -329,14 +346,20 @@ export class ArtifactsService {
       const artifact = replay.artifacts[0];
       if (!artifact || artifact.sourceArtifactId !== sourceArtifactId || artifact.seriesId !== source.seriesId)
         throw new ConflictException({ code: AGENT_ERROR_CODES.idempotencyConflict, detail: '相同幂等键已用于不同的恢复请求。' });
-      return { artifact: this.toRef(artifact), file: this.files.toPublicRef(artifact.file, false, { artifactId: artifact.id }), series: await this.getSeries(artifact.seriesId) };
+      return {
+        artifact: this.toRef(artifact),
+        file: this.files.toPublicRef(artifact.file, false, { artifactId: artifact.id }),
+        series: await this.getSeries(userId, artifact.seriesId),
+      };
     }
     if (source.series.currentArtifactId !== expectedCurrentArtifactId)
       throw new ConflictException({ code: AGENT_ERROR_CODES.artifactRestoreConflict, detail: '当前版本已变化，请确认最新版本后重试恢复。' });
     const cloned = await this.files.cloneGeneratedFile(source.fileId);
     try {
       const artifact = await this.prisma.$transaction(async (tx) => {
-        const currentSeries = await tx.artifactSeries.findFirst({ where: { id: source.seriesId, userId: LOCAL_USER_ID } });
+        const currentSeries = await tx.artifactSeries.findFirst({
+          where: { id: source.seriesId, userId },
+        });
         if (!currentSeries || currentSeries.currentArtifactId !== expectedCurrentArtifactId)
           throw new ConflictException({ code: AGENT_ERROR_CODES.artifactRestoreConflict, detail: '当前版本已变化，请确认最新版本后重试恢复。' });
         const current = await tx.artifact.findUnique({ where: { id: expectedCurrentArtifactId } });
@@ -367,11 +390,11 @@ export class ArtifactsService {
           },
         });
         await tx.message.createMany({ data: [
-          { id: userMessageId, userId: LOCAL_USER_ID, sessionId: source.sessionId, runId, role: 'user', kind: 'user_message', content: `恢复 ${source.series.logicalName} v${source.versionNumber}` },
-          { id: assistantMessageId, userId: LOCAL_USER_ID, sessionId: source.sessionId, runId, role: 'assistant', kind: 'assistant_delivery', content: `已恢复为新版本 v${(latest?.versionNumber ?? 0) + 1}`, metadata: { deliveryStatus: 'completed', runId, blocks: [] } },
+          { id: userMessageId, userId, sessionId: source.sessionId, runId, role: 'user', kind: 'user_message', content: `恢复 ${source.series.logicalName} v${source.versionNumber}` },
+          { id: assistantMessageId, userId, sessionId: source.sessionId, runId, role: 'assistant', kind: 'assistant_delivery', content: `已恢复为新版本 v${(latest?.versionNumber ?? 0) + 1}`, metadata: { deliveryStatus: 'completed', runId, blocks: [] } },
         ] });
         await tx.artifact.create({ data: {
-          id: artifactId, fileId: cloned.fileId, userId: LOCAL_USER_ID, sessionId: source.sessionId,
+          id: artifactId, fileId: cloned.fileId, userId, sessionId: source.sessionId,
           runId, toolCallId: `restore:${idempotencyKey}`, seriesId: source.seriesId,
           versionNumber: (latest?.versionNumber ?? 0) + 1, parentArtifactId: expectedCurrentArtifactId,
           sourceArtifactId, operation: 'restore', changeSummary: `恢复自 v${source.versionNumber}`, status: 'ready',
@@ -383,23 +406,32 @@ export class ArtifactsService {
         await tx.session.update({ where: { id: source.sessionId }, data: { updatedAt: now } });
         return created;
       });
-      return { artifact: this.toRef(artifact), file: this.files.toPublicRef(artifact.file, false, { artifactId: artifact.id }), series: await this.getSeries(artifact.seriesId) };
+      return {
+        artifact: this.toRef(artifact),
+        file: this.files.toPublicRef(artifact.file, false, { artifactId: artifact.id }),
+        series: await this.getSeries(userId, artifact.seriesId),
+      };
     } catch (error) {
       await this.files.deleteGeneratedFile(cloned.fileId).catch(() => undefined);
       if (this.isUniqueConflict(error)) {
         const existing = await this.prisma.agentRun.findFirst({ where: { sessionId: source.sessionId, idempotencyKey: restoreKey }, include: { artifacts: { include: { file: true, series: true } } } });
         const artifact = existing?.artifacts[0];
-        if (artifact) return { artifact: this.toRef(artifact), file: this.files.toPublicRef(artifact.file, false, { artifactId: artifact.id }), series: await this.getSeries(artifact.seriesId) };
+        if (artifact)
+          return {
+            artifact: this.toRef(artifact),
+            file: this.files.toPublicRef(artifact.file, false, { artifactId: artifact.id }),
+            series: await this.getSeries(userId, artifact.seriesId),
+          };
       }
       throw error;
     }
   }
 
-  async preview(artifactId: string) {
-    const artifact = await this.findOwned(artifactId);
+  async preview(userId: string, artifactId: string) {
+    const artifact = await this.findOwned(userId, artifactId);
     if (artifact.status === 'deleted') throw this.deleted();
     if (artifact.status !== 'ready') throw new BadRequestException({ code: AGENT_ERROR_CODES.fileNotReady, detail: '产物尚未准备好。' });
-    const result = await this.files.preview(artifact.fileId);
+    const result = await this.files.preview(userId, artifact.fileId);
     if ('content' in result)
       return {
         content: result.content,
@@ -411,8 +443,8 @@ export class ArtifactsService {
     return { url: result.url, contentType: artifact.file.mediaType };
   }
 
-  async download(artifactId: string) {
-    const artifact = await this.findOwned(artifactId);
+  async download(userId: string, artifactId: string) {
+    const artifact = await this.findOwned(userId, artifactId);
     if (artifact.status === 'deleted') throw this.deleted();
     if (artifact.status !== 'ready' || !artifact.file.originalKey)
       throw new BadRequestException({ code: AGENT_ERROR_CODES.fileNotReady, detail: '产物尚未准备好。' });
@@ -420,8 +452,8 @@ export class ArtifactsService {
     return { content: object.content, fileName: artifact.file.fileName, mediaType: artifact.file.mediaType };
   }
 
-  async delete(artifactId: string): Promise<{ deletedArtifactId: string; deletedFileId: string }> {
-    const artifact = await this.findOwned(artifactId);
+  async delete(userId: string, artifactId: string): Promise<{ deletedArtifactId: string; deletedFileId: string }> {
+    const artifact = await this.findOwned(userId, artifactId);
     if (artifact.status === 'deleted') throw this.deleted();
     if (artifact.file.origin !== 'agent_generated')
       throw new ConflictException({
@@ -460,7 +492,7 @@ export class ArtifactsService {
         },
       });
       const message = await tx.message.findFirst({
-        where: { runId: artifact.runId, role: 'assistant', userId: LOCAL_USER_ID },
+        where: { runId: artifact.runId, role: 'assistant', userId },
       });
       if (message) {
         const metadata = this.metadata(message.metadata);
@@ -491,8 +523,11 @@ export class ArtifactsService {
     return { deletedArtifactId: artifact.id, deletedFileId: artifact.fileId };
   }
 
-  private async findOwned(id: string) {
-    const artifact = await this.prisma.artifact.findFirst({ where: { id, userId: LOCAL_USER_ID }, include: { file: true, series: true } });
+  private async findOwned(userId: string, id: string) {
+    const artifact = await this.prisma.artifact.findFirst({
+      where: { id, userId },
+      include: { file: true, series: true },
+    });
     if (!artifact) throw new NotFoundException({ code: AGENT_ERROR_CODES.artifactNotFound, detail: '产物不存在。' });
     return artifact;
   }

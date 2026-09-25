@@ -12,6 +12,7 @@ import type { RuntimeLifecycleController } from './runtime-lifecycle';
 import type { RunMcpSnapshot } from '../mcp/mcp.types';
 
 export type AgentRuntimeInput = {
+  userId: string;
   sessionId: string;
   runId?: string;
   mcpSnapshot?: RunMcpSnapshot;

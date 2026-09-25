@@ -35,6 +35,11 @@
   transition: background 150ms ease;
 }
 
+.sidebar-settings-btn:focus,
+.sidebar-settings-btn:focus-visible {
+  outline: none;
+}
+
 .sidebar-settings-btn:hover {
   background: var(--sidebar-interactive-hover, rgb(38 49 72 / 6%));
 }
@@ -51,14 +56,53 @@
   background: var(--theme-surface-subtle);
 }
 
-.sidebar-settings-btn svg {
+.sidebar-settings-btn svg,
+.sidebar-settings-btn__icon {
   flex-shrink: 0;
   color: var(--theme-text-primary);
+}
+
+.sidebar-user-trigger {
+  gap: 10px;
+  padding-right: 12px;
+}
+
+.sidebar-user-trigger__avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-text-primary) 8%, var(--theme-surface));
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+:root[data-theme='dark'] .sidebar-user-trigger__avatar {
+  background: var(--theme-surface-subtle);
 }
 
 .sidebar-settings-btn__label {
   overflow: hidden;
   white-space: nowrap;
+}
+
+.sidebar-settings-btn__label--truncate {
+  text-overflow: ellipsis;
+}
+
+.sidebar-settings-btn--accent {
+  font-weight: 500;
+  color: var(--theme-accent);
+}
+
+.sidebar-footer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 /* DSH SettingsRoot panel (501:29947) — Harness theme tokens. */
@@ -87,6 +131,111 @@
   /* DSH ModelsSection / Button — border & label tones */
   --settings-border-l3: var(--h-border-l3);
   --settings-border-l4: color-mix(in srgb, var(--theme-border) 72%, transparent);
+}
+
+.ui-dialog-content.settings-dialog.settings-dialog--login {
+  width: min(440px, calc(100vw - 48px));
+  height: auto;
+  max-height: calc(100vh - 48px);
+}
+
+.settings-dialog__login-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 24px 28px;
+  overflow: auto;
+}
+
+.settings-dialog__header--login {
+  padding: 20px 0 8px;
+}
+
+.login-form__intro {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--theme-text-secondary);
+}
+
+.login-form__method {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--theme-surface-subtle, rgb(0 0 0 / 4%));
+}
+
+.login-form__method-btn {
+  flex: 1;
+  min-width: 72px;
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--theme-text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.login-form__method-btn.is-active {
+  color: var(--theme-text-primary);
+  background: var(--theme-surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
+}
+
+.login-form__sent-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--theme-text-secondary);
+}
+
+.login-form__sent-hint strong {
+  font-weight: 500;
+  color: var(--theme-text-primary);
+}
+
+.login-form__secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: -4px;
+}
+
+.login-form__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.login-form__primary {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 36px;
+  margin-top: 4px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 18px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--theme-accent-fg, #fff);
+  background: var(--theme-accent);
+  cursor: pointer;
+}
+
+.login-form__primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .settings-dialog__panel {
@@ -202,6 +351,11 @@
 
 .settings-dialog__close:hover {
   background: var(--theme-surface-hover);
+}
+
+.settings-dialog__close:focus,
+.settings-dialog__close:focus-visible {
+  outline: none;
 }
 
 .settings-dialog__options {
@@ -436,9 +590,67 @@
   cursor: default;
 }
 
-.settings-dialog__outline-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--settings-border-l3);
+.settings-dialog__outline-btn--danger {
+  color: var(--theme-danger);
+  border-color: color-mix(in srgb, var(--theme-danger) 35%, var(--settings-border-l3));
+}
+
+.settings-dialog__outline-btn--danger:hover:not(:disabled) {
+  color: var(--theme-danger);
+  background: color-mix(in srgb, var(--theme-danger) 8%, transparent);
+}
+
+.settings-dialog__account-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-dialog__account-hint {
+  margin: 0 0 8px;
+  padding-bottom: 12px;
+  border-bottom: 0.5px solid var(--settings-row-border, rgb(0 0 0 / 10%));
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--theme-text-muted);
+}
+
+.settings-dialog__inline-error--pre {
+  white-space: pre-line;
+}
+
+.settings-dialog__row-value {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: min(360px, 58%);
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--theme-text-secondary);
+  text-align: right;
+}
+
+.settings-dialog__row-value--primary {
+  color: var(--theme-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-dialog__account-bind {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0 16px;
+  border-bottom: 0.5px solid var(--settings-row-border, rgb(0 0 0 / 10%));
+}
+
+.settings-dialog__account-bind-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
 }
 
 .settings-dialog__mcp-cards {
@@ -494,12 +706,6 @@
   color: inherit;
   background: transparent;
   cursor: pointer;
-}
-
-.settings-dialog__mcp-card-trigger:focus-visible {
-  outline: 2px solid color-mix(in srgb, #2563eb 45%, transparent);
-  outline-offset: 1px;
-  border-radius: 6px;
 }
 
 .settings-dialog__mcp-chevron {
@@ -712,11 +918,6 @@
 
 .settings-dialog__switch input:checked + .settings-dialog__switch-track::after {
   transform: translateX(18px);
-}
-
-.settings-dialog__switch input:focus-visible + .settings-dialog__switch-track {
-  outline: 2px solid color-mix(in srgb, #2563eb 45%, transparent);
-  outline-offset: 2px;
 }
 
 .settings-dialog__switch input:disabled {

@@ -1,7 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { McpDefaultApproval, McpServerConfig, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 
 export type McpServerConfigRecord = McpServerConfig & {
   secrets: Array<{ kind: string; name: string }>;
@@ -11,7 +10,7 @@ export type McpServerConfigRecord = McpServerConfig & {
 export class McpServerConfigRepository {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async listForUser(userId: string = LOCAL_USER_ID): Promise<McpServerConfigRecord[]> {
+  async listForUser(userId: string): Promise<McpServerConfigRecord[]> {
     return this.prisma.mcpServerConfig.findMany({
       where: { userId, sessionId: null },
       include: { secrets: { select: { kind: true, name: true } } },
@@ -19,7 +18,7 @@ export class McpServerConfigRepository {
     });
   }
 
-  async listEnabled(userId: string = LOCAL_USER_ID): Promise<McpServerConfigRecord[]> {
+  async listEnabled(userId: string): Promise<McpServerConfigRecord[]> {
     return this.prisma.mcpServerConfig.findMany({
       where: { userId, sessionId: null, enabled: true },
       include: { secrets: true },
@@ -27,7 +26,7 @@ export class McpServerConfigRepository {
     });
   }
 
-  async findById(id: string, userId: string = LOCAL_USER_ID): Promise<McpServerConfigRecord | null> {
+  async findById(id: string, userId: string): Promise<McpServerConfigRecord | null> {
     return this.prisma.mcpServerConfig.findFirst({
       where: { id, userId },
       include: { secrets: true },
@@ -36,20 +35,20 @@ export class McpServerConfigRepository {
 
   async create(
     data: Omit<Prisma.McpServerConfigCreateInput, 'user' | 'sessionId'>,
-    userId: string = LOCAL_USER_ID,
+    userId: string,
   ): Promise<McpServerConfig> {
     return this.prisma.mcpServerConfig.create({
       data: { ...data, user: { connect: { id: userId } }, sessionId: null },
     });
   }
 
-  async update(id: string, data: Prisma.McpServerConfigUpdateInput, userId: string = LOCAL_USER_ID) {
+  async update(id: string, data: Prisma.McpServerConfigUpdateInput, userId: string) {
     const existing = await this.findById(id, userId);
     if (!existing) return null;
     return this.prisma.mcpServerConfig.update({ where: { id }, data });
   }
 
-  async delete(id: string, userId: string = LOCAL_USER_ID): Promise<boolean> {
+  async delete(id: string, userId: string): Promise<boolean> {
     const existing = await this.findById(id, userId);
     if (!existing) return false;
     await this.prisma.mcpServerConfig.delete({ where: { id } });

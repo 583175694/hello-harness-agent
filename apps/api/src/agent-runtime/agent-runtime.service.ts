@@ -74,7 +74,10 @@ export class AgentRuntimeService {
 
   // 执行受通用调用上限约束的模型-工具循环，并输出供应商无关的 Runtime 事件。
   async *run(input: AgentRuntimeInput): AsyncGenerator<AgentRuntimeEvent> {
-    const toolRegistryContext: ToolRegistryContext = { mcpSnapshot: input.mcpSnapshot };
+    const toolRegistryContext: ToolRegistryContext = {
+      userId: input.userId,
+      mcpSnapshot: input.mcpSnapshot,
+    };
     const runtimeStartedAt = Date.now();
     const runDeadlineSignal = AbortSignal.timeout(DEFAULT_RUNTIME_POLICY.runTimeoutMs);
     const runSignal = input.signal
@@ -961,6 +964,7 @@ export class AgentRuntimeService {
             call.name,
             toolInput,
             {
+              userId: input.userId,
               sessionId: input.sessionId,
               runId: input.runId,
               messageId: input.messageId,

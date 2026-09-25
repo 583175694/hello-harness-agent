@@ -82,6 +82,7 @@ async function collect(
 ) {
   const events = [];
   for await (const event of runtime.run({
+    userId: 'local-user',
     sessionId: 'session-1',
     messageId: 'message-1',
     model: 'test-model',
@@ -990,6 +991,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     await expect(
       (async () => {
         for await (const event of new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()).run({
+          userId: 'local-user',
           sessionId: 'session-1',
           messageId: 'message-1',
           model: 'test-model',

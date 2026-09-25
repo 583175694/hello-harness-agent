@@ -47,6 +47,9 @@ function createService() {
     message: { findFirst: vi.fn(), update: vi.fn() },
   };
   const prisma = {
+    session: {
+      findUnique: vi.fn().mockResolvedValue({ id: 'session-1', userId: 'local-user' }),
+    },
     agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
     artifact: { findFirst: vi.fn(), create: vi.fn(), count: vi.fn().mockResolvedValue(1) },
     artifactSeries: { findFirst: vi.fn() },
@@ -168,7 +171,7 @@ describe('ArtifactsService', () => {
     prisma.artifact.findFirst.mockResolvedValue(artifact);
     storage.readObject.mockResolvedValue({ content: Buffer.from('# source', 'utf8') });
 
-    await expect(service.download('artifact-1')).resolves.toMatchObject({
+    await expect(service.download('local-user', 'artifact-1')).resolves.toMatchObject({
       content: Buffer.from('# source', 'utf8'),
       fileName: 'result.md',
       mediaType: 'text/markdown',
@@ -188,7 +191,7 @@ describe('ArtifactsService', () => {
       metadata: { blocks: [{ type: 'artifact', artifactId: 'artifact-1' }, { type: 'text', id: 'text-1', content: 'done' }] },
     });
 
-    await expect(service.delete('artifact-1')).resolves.toEqual({ deletedArtifactId: 'artifact-1', deletedFileId: 'file-1' });
+    await expect(service.delete('local-user', 'artifact-1')).resolves.toEqual({ deletedArtifactId: 'artifact-1', deletedFileId: 'file-1' });
     expect(storage.deleteFile).toHaveBeenCalledWith({ sessionId: 'session-1', fileId: 'file-1' });
     expect(tx.artifact.update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'deleted', errorCode: null } }));
     expect(tx.file.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ errorCode: 'ARTIFACT_DELETED' }) }));
@@ -200,7 +203,7 @@ describe('ArtifactsService', () => {
     prisma.artifact.findFirst.mockResolvedValue(artifact);
     storage.deleteFile.mockRejectedValue(new Error('COS unavailable'));
 
-    await expect(service.delete('artifact-1')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.delete('local-user', 'artifact-1')).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.fileCleanupTask.upsert).toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });

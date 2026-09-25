@@ -61,7 +61,7 @@ export class FileSearchTool implements AgentTool<FileSearchInput, FileSearchResu
     // 将业务异常转换为 Tool Result，避免单次搜索错误直接打断 Run。
     try {
       const output = fileSearchResultSchema.parse(
-        await this.files.searchFile(context.sessionId, input),
+        await this.files.searchFile(context.userId, context.sessionId, input),
       );
       return {
         status: 'succeeded',

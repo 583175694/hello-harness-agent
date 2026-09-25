@@ -1,6 +1,5 @@
 import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { McpServerConfigRepository } from './mcp-server-config.repository';
 import { McpConnectionManager } from './mcp-connection.manager';
 import type { McpServerInstructionSnapshot, McpToolCatalogEntry, RunMcpSnapshot } from './mcp.types';
@@ -18,9 +17,10 @@ export class McpRunLatchService {
     @Inject(McpConnectionManager) private readonly connections: McpConnectionManager,
   ) {}
 
-  async captureForUser(userId: string = LOCAL_USER_ID, runId?: string): Promise<RunMcpSnapshot> {
+  async captureForUser(userId: string, runId?: string): Promise<RunMcpSnapshot> {
+    await this.connections.reconcile(userId);
     const enabled = await this.configs.listEnabled(userId);
-    const published = this.connections.getPublishedCatalog();
+    const published = this.connections.getPublishedCatalog(userId);
     const entries: McpToolCatalogEntry[] = [];
     const serverInstructions: McpServerInstructionSnapshot[] = [];
     const latchedServerNames: string[] = [];

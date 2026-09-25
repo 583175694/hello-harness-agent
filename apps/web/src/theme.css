@@ -65,6 +65,12 @@
   --color-info: var(--theme-info);
 }
 
+/* shadcn/ui Sonner host */
+.toaster {
+  font-family: var(--font-sans);
+  --width: min(420px, calc(100vw - 2rem));
+}
+
 @utility bubble-user {
   width: fit-content;
   max-width: min(82%, calc(var(--h-chat-content-width) * 0.702));

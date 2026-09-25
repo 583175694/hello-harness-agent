@@ -2,6 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { App } from './app';
+import { ConfirmProvider } from './components/ui/confirm-provider';
+import { ToastProvider } from './components/ui/toast';
 import './theme.css';
 import './styles.css';
 
@@ -13,6 +15,10 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <ConfirmProvider>
+      <ToastProvider>
+        <App />
+      </ToastProvider>
+    </ConfirmProvider>
   </StrictMode>,
 );

@@ -3,6 +3,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  define: {
+    'import.meta.env.DEV': JSON.stringify(process.env.NODE_ENV !== 'production'),
+    'import.meta.env.VITEST': 'true',
+  },
   plugins: [react(), tailwindcss()],
   server: {
     host: '127.0.0.1',

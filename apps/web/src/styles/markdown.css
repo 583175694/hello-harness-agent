@@ -235,10 +235,6 @@
   background: var(--theme-surface);
   outline: none;
 }
-.markdown-table-scroll:focus-visible {
-  border-color: #aaa9a4;
-  box-shadow: 0 0 0 2px rgb(23 23 23 / 8%);
-}
 .markdown-content table {
   width: 100%;
   max-width: 100%;

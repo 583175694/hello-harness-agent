@@ -44,7 +44,7 @@ describe('WebFetchTool', () => {
     const tool = new WebFetchTool({ fetch } as unknown as WebFetchService);
     const result = await tool.execute(
       { urls: ['https://example.com/a', 'https://example.com/a#fragment'] },
-      { sessionId: 'session-1', messageId: 'message-1', toolCallId: 'call-1' },
+      { userId: 'local-user', sessionId: 'session-1', messageId: 'message-1', toolCallId: 'call-1' },
     );
 
     expect(result.status).toBe('succeeded');
@@ -85,6 +85,7 @@ describe('WebFetchTool', () => {
     const result = await tool.execute(
       { urls: ['https://invented.example/article'] },
       {
+        userId: 'local-user',
         sessionId: 'session-1',
         messageId: 'message-1',
         toolCallId: 'call-model-proposed',
@@ -157,7 +158,7 @@ describe('WebFetchTool', () => {
     const tool = new WebFetchTool({ fetch } as unknown as WebFetchService);
     const result = await tool.execute(
       { urls },
-      { sessionId: 'session-1', messageId: 'message-1', toolCallId: 'call-mixed' },
+      { userId: 'local-user', sessionId: 'session-1', messageId: 'message-1', toolCallId: 'call-mixed' },
     );
 
     expect(result.status).toBe('succeeded');

@@ -42,7 +42,6 @@ import type {
   PlanSnapshot,
 } from '@harness/agent-protocol';
 import { ENV_KEYS } from '../bootstrap/env.constants';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
 import { AgentRuntimeService } from '../agent-runtime/agent-runtime.service';
 import { SessionExecutionRegistry } from '../sessions/session-execution.registry';
@@ -71,6 +70,7 @@ import {
 } from '../tools/external-tool-display';
 
 export type PreparedSessionStream = {
+  userId: string;
   sessionId: string;
   runId?: string;
   mcpSnapshot?: RunMcpSnapshot;
@@ -111,10 +111,14 @@ export class ChatService {
   ) {}
 
   // 在发送 SSE 头之前校验、加锁、持久化用户消息并读取数据库上下文。
-  async prepareSessionStream(sessionId: string, content: string): Promise<PreparedSessionStream> {
+  async prepareSessionStream(
+    userId: string,
+    sessionId: string,
+    content: string,
+  ): Promise<PreparedSessionStream> {
     const startedAt = Date.now();
     const session = await this.prisma.session.findFirst({
-      where: { id: sessionId, userId: LOCAL_USER_ID },
+      where: { id: sessionId, userId },
     });
     if (!session)
       throw new NotFoundException({
@@ -129,7 +133,7 @@ export class ChatService {
         this.prisma.message.create({
           data: {
             id: userMessageId,
-            userId: LOCAL_USER_ID,
+            userId,
             sessionId,
             role: 'user',
             kind: 'user_message',
@@ -139,7 +143,7 @@ export class ChatService {
         this.prisma.session.update({ where: { id: sessionId }, data: { updatedAt: new Date() } }),
       ]);
       const stored = await this.prisma.message.findMany({
-        where: { sessionId, userId: LOCAL_USER_ID, role: { in: ['user', 'assistant'] } },
+        where: { sessionId, userId, role: { in: ['user', 'assistant'] } },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: CHAT_CONTEXT_MESSAGE_LIMIT,
       });
@@ -149,6 +153,7 @@ export class ChatService {
         ChatService.name,
       );
       return {
+        userId,
         sessionId,
         userMessageId,
         assistantMessageId,
@@ -224,6 +229,7 @@ export class ChatService {
     };
 
     for await (const event of this.runtime.run({
+      userId: prepared.userId,
       sessionId: prepared.sessionId,
       runId: prepared.runId,
       mcpSnapshot: prepared.mcpSnapshot,
@@ -1216,6 +1222,7 @@ export class ChatService {
     await notifyProjection();
     if (options.persistFinal !== false)
       await this.delivery.save({
+        userId: prepared.userId,
         sessionId: prepared.sessionId,
         messageId: prepared.assistantMessageId,
         model,

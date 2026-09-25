@@ -14,11 +14,13 @@ import {
   X,
 } from 'lucide-react';
 import type {
+  AuthUserView,
   McpCreateServerRequest,
   McpPatchServerRequest,
   McpServerView,
   McpUpdateServerRequest,
 } from '@harness/agent-protocol';
+import { AccountSection } from '../../auth/account-section';
 import {
   ApiProblem,
   createMcpServer,
@@ -55,6 +57,10 @@ type SettingsDialogProps = {
   onThemeChange: (theme: Theme) => void;
   contentFontSize: number;
   onContentFontSizeChange: (size: number) => void;
+  authUser?: AuthUserView | null;
+  onAuthUserChange?: (user: AuthUserView) => void;
+  onLogout?: () => void;
+  onRequestLogin?: () => void;
 };
 
 const emptyForm: McpCreateServerRequest = {
@@ -227,6 +233,10 @@ export function SettingsDialog({
   onThemeChange,
   contentFontSize,
   onContentFontSizeChange,
+  authUser,
+  onAuthUserChange,
+  onLogout,
+  onRequestLogin,
 }: SettingsDialogProps) {
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -263,9 +273,10 @@ export function SettingsDialog({
     setMcpFormMode(null);
     setExpandedMcpIds(new Set());
     setError(null);
-    void refresh();
+    if (authUser) void refresh();
+    else setServers([]);
     closeRef.current?.focus();
-  }, [open, refresh]);
+  }, [open, refresh, authUser]);
 
   useEffect(() => {
     if (!open) return;
@@ -307,7 +318,7 @@ export function SettingsDialog({
       };
       await createMcpServer(body);
       setToken('');
-      toast('MCP Server 已保存并开始连接。', 'success');
+      toast.success('MCP Server 已保存并开始连接。');
       setMcpFormMode(null);
       await refresh();
     } catch (err) {
@@ -329,7 +340,7 @@ export function SettingsDialog({
       };
       await updateMcpServer(mcpFormMode.serverId, body);
       setToken('');
-      toast('MCP Server 已更新并开始连接。', 'success');
+      toast.success('MCP Server 已更新并开始连接。');
       setMcpFormMode(null);
       await refresh();
     } catch (err) {
@@ -349,7 +360,7 @@ export function SettingsDialog({
     try {
       await patchMcpServer(id, patch);
       await refresh();
-      toast(toastMessage, 'success');
+      toast.success(toastMessage);
     } catch (err) {
       setServers(snapshot);
       setError(err instanceof ApiProblem ? err.problem.detail : '更新 MCP 配置失败。');
@@ -373,9 +384,8 @@ export function SettingsDialog({
     const result = await testMcpServer(id);
     if (result.ok) {
       const count = result.toolNames.length;
-      toast(
+      toast.success(
         count > 0 ? `探测成功，共 ${count} 个工具` : '探测成功，未发现工具',
-        'success',
       );
       await refresh();
       return result.toolNames;
@@ -488,7 +498,6 @@ export function SettingsDialog({
                   <div className="settings-dialog__row">
                     <div className="settings-dialog__row-text">
                       <div className="settings-dialog__row-title">对话字号</div>
-                      <div className="settings-dialog__row-desc">仅影响对话正文与 Markdown 内容</div>
                     </div>
                     <div className="settings-dialog__font-control">
                       <div className="settings-dialog__stepper">
@@ -520,6 +529,30 @@ export function SettingsDialog({
                       ) : null}
                     </div>
                   </div>
+
+                  {authUser && onAuthUserChange && onLogout ? (
+                    <AccountSection
+                      user={authUser}
+                      onUserChange={onAuthUserChange}
+                      onLoggedOut={() => {
+                        onOpenChange(false);
+                        onLogout();
+                      }}
+                    />
+                  ) : onRequestLogin ? (
+                    <div className="settings-dialog__row">
+                      <div className="settings-dialog__row-text">
+                        <div className="settings-dialog__row-title">账号</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="settings-dialog__outline-btn"
+                        onClick={onRequestLogin}
+                      >
+                        登录
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -527,7 +560,11 @@ export function SettingsDialog({
                 <div className="settings-dialog__mcp-page">
                   {error ? <div className="settings-dialog__error-banner">{error}</div> : null}
 
-                  {!mcpFormVisible ? (
+                  {!authUser ? (
+                    <p className="settings-dialog__page-intro">请先登录后再配置 MCP Server。</p>
+                  ) : null}
+
+                  {!authUser ? null : !mcpFormVisible ? (
                     <>
                       <div className="settings-dialog__mcp-toolbar">
                         <div>
@@ -587,7 +624,7 @@ export function SettingsDialog({
                       onSubmit={(e) => void handleCreate(e)}
                       onCancel={() => setMcpFormMode(null)}
                     />
-                  ) : (
+                  ) : mcpFormMode?.kind === 'edit' ? (
                     <McpServerForm
                       key={mcpFormMode.serverId}
                       mode="edit"
@@ -600,7 +637,7 @@ export function SettingsDialog({
                       onSubmit={(e) => void handleUpdate(e)}
                       onCancel={() => setMcpFormMode(null)}
                     />
-                  )}
+                  ) : null}
                 </div>
               ) : null}
             </div>

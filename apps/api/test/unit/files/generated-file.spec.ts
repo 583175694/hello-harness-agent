@@ -4,7 +4,10 @@ import { FilesService } from '../../../src/files/files.service';
 
 function createService() {
   const prisma = {
-    session: { findFirst: vi.fn().mockResolvedValue({ id: 'session-1' }) },
+    session: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'session-1', userId: 'local-user' }),
+      findUnique: vi.fn().mockResolvedValue({ id: 'session-1', userId: 'local-user' }),
+    },
     file: {
       create: vi.fn(),
       update: vi.fn((input) => ({

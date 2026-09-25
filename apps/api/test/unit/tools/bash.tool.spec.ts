@@ -50,7 +50,7 @@ describe('BashTool', () => {
     );
     const result = await tool.execute(
       { command: 'echo x', description: 'echo', inputFiles: [{ fileId: 'f1', path: 'in.txt' }] },
-      { sessionId: 's1', runId: 'r1', messageId: 'm1', toolCallId: 'c1' },
+      { userId: 'local-user', sessionId: 's1', runId: 'r1', messageId: 'm1', toolCallId: 'c1' },
     );
     expect(execute).not.toHaveBeenCalled();
     expect(result.status).toBe('failed');
@@ -81,7 +81,7 @@ describe('BashTool', () => {
     );
     await tool.execute(
       { command: 'echo ok', description: 'echo' },
-      { sessionId: 'sess-abc', runId: 'r1', messageId: 'm1', toolCallId: 'c1' },
+      { userId: 'local-user', sessionId: 'sess-abc', runId: 'r1', messageId: 'm1', toolCallId: 'c1' },
     );
     expect(execute).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -119,6 +119,7 @@ describe('BashTool', () => {
         description: 'bad host',
       },
       {
+        userId: 'local-user',
         sessionId: 's1',
         runId: 'r1',
         messageId: 'm1',
@@ -128,8 +129,10 @@ describe('BashTool', () => {
     );
     expect(execute).not.toHaveBeenCalled();
     expect(result.status).toBe('failed');
-    expect(result.error?.code).toBe(AGENT_ERROR_CODES.sandboxUnavailable);
-    expect(result.error?.detail).toMatch(/allowlist: not-on-allowlist/);
+    if (result.status === 'failed') {
+      expect(result.error.code).toBe(AGENT_ERROR_CODES.sandboxUnavailable);
+      expect(result.error.detail).toMatch(/allowlist: not-on-allowlist/);
+    }
     expect(egressAudit.record).toHaveBeenCalledWith(
       expect.objectContaining({ decision: 'deny' }),
     );
@@ -168,6 +171,7 @@ describe('BashTool', () => {
         description: 'open egress',
       },
       {
+        userId: 'local-user',
         sessionId: 's1',
         runId: 'r1',
         messageId: 'm1',

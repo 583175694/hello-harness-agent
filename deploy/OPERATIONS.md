@@ -35,6 +35,26 @@ ss -ltn | grep -E ':(4317|4318|28473)\b'
 
 `readyz` 应返回 `status=ok`，并且 `database`、`artifactStore` 都为 `ok`。
 
+### 2.1 鉴权与 Cookie
+
+生产环境 `.env` 必须设置 `AUTH_MODE=required`，并配置 `WEB_ORIGIN` 与 Nginx 同源反代（当前 `4317` 反代 `/api` 到 `4318`），以便浏览器携带 `HttpOnly` Cookie（`AUTH_COOKIE_NAME`，默认 `harness_session`）。
+
+| 变量 | 说明 |
+| --- | --- |
+| `AUTH_MODE` | `required`（生产）或 `local`（仅开发/单用户） |
+| `AUTH_SESSION_TTL_DAYS` | 登录 Session 有效期，默认 30 天 |
+| `WEB_ORIGIN` | 必须与前端页面 Origin 一致，且 API 启用 CORS `credentials` |
+| SMTP / 腾讯云 SMS | 生产发码；未配置时非 production 会在 API 日志打印验证码 |
+
+HTTPS 入口需保证 Cookie `Secure` 生效（Nginx 需转发 `X-Forwarded-Proto: https`）。用户封禁后现有 Session 会被撤销，需重新登录。
+
+### 2.2 账号模型与测试习惯
+
+- 一个 Harness 账号可同时绑定邮箱与手机号，两种方式登录**同一用户数据**（`users.email` / `users.phone` 全局唯一）。
+- 若用户先用邮箱、再用手机各登录一次，会创建**两个账号**；在设置里绑定冲突时会返回 `IDENTITY_ALREADY_BOUND`，前端会引导用户改用已注册的方式登录并在原账号内绑定。**当前不提供账号合并**，勿在工单中承诺「后台帮合并」除非已排期开发。
+- 内部验收与 dogfood：**不要**用同一邮箱/手机各登一次当 A/B 隔离测试号；应「账号 A 登录 → 设置绑定另一种方式」，或使用两个不同的邮箱/手机号。
+- 管理员 bootstrap（`AUTH_BOOTSTRAP_ADMIN_EMAIL` / `AUTH_BOOTSTRAP_ADMIN_PHONE`）仅对**首次**以该标识登录创建的账号生效；请固定一种管理员登录方式，避免误用另一种标识注册成普通新用户。
+
 公网访问还需要同时满足：
 
 1. 腾讯云安全组入站允许来源 `0.0.0.0/0`、协议 `TCP`、端口 `4317`。

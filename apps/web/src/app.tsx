@@ -1,4 +1,15 @@
-import { Ellipsis, Menu, Moon, Pencil, Pin, PinOff, Plus, Settings, Sun, Trash2, X } from 'lucide-react';
+import {
+  Ellipsis,
+  Menu,
+  Moon,
+  Pencil,
+  Pin,
+  PinOff,
+  Plus,
+  Sun,
+  Trash2,
+  X,
+} from 'lucide-react';
 import {
   useEffect,
   useRef,
@@ -19,6 +30,7 @@ import {
   deleteSession,
   getRun,
   getReadiness,
+  getMe,
   getPublicAgentConfig,
   getSession,
   listSessions,
@@ -27,6 +39,7 @@ import {
   submitPendingInput,
   promotePendingInput,
   sendPendingInput,
+  logout,
   uploadFile,
   getFile,
   retryFile,
@@ -62,6 +75,7 @@ import type {
   AssistantArtifactBlock,
   ArtifactRef,
   BashTerminalView,
+  AuthUserView,
 } from '@harness/agent-protocol';
 import type {
   AgentUiState,
@@ -104,8 +118,12 @@ import {
 } from './features/agent/model/tool-copy';
 import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
+import { SidebarUserMenu } from './features/agent/components/sidebar-user-menu';
 import { SettingsDialog } from './features/agent/components/settings-dialog';
-import { ToastViewport } from './components/ui/toast';
+import { LoginDialog } from './features/auth/login-dialog';
+import { LOGOUT_CONFIRM, useConfirm } from './components/ui/confirm-provider';
+import { toast } from './components/ui/toast';
+import { LOGIN_SUCCESS_TOAST } from './features/auth/auth-messages';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
 import { AGENT_UI_COPY, SERVICE_STATE_LABELS } from './features/agent/config/ui.constants';
 import {
@@ -135,8 +153,11 @@ function getErrorMessage(error: unknown): string {
 
 // 仅在开发环境的预览路由中启用 fixture。
 function getPreviewState(): PreviewState | null {
-  if (!import.meta.env.DEV || window.location.pathname !== '/agent/preview') return null;
-  const value = new URLSearchParams(window.location.search).get('state') as PreviewState | null;
+  const previewAllowed =
+    import.meta.env.DEV || import.meta.env.MODE === 'test' || import.meta.env.VITEST === true;
+  const route = new URL(window.location.href, window.location.origin || 'http://127.0.0.1');
+  if (!previewAllowed || route.pathname !== '/agent/preview') return null;
+  const value = route.searchParams.get('state') as PreviewState | null;
   return value && PREVIEW_STATES.some((item) => item.id === value) ? value : 'empty';
 }
 
@@ -167,7 +188,6 @@ export function App() {
         />
       )}
       {preview ? <PreviewSwitcher active={preview} /> : null}
-      <ToastViewport theme={theme} />
     </>
   );
 }
@@ -955,6 +975,9 @@ function PersistentAgentApp({
   contentFontSize: number;
   onContentFontSizeChange: (size: number) => void;
 }) {
+  const confirm = useConfirm();
+  const [authUser, setAuthUser] = useState<AuthUserView | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
   // 会话列表与 sessionStates 分离：前者驱动 Sidebar，后者缓存各会话独立 UI 投影。
   const [serviceState, setServiceState] = useState<ServiceState>('checking');
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -978,6 +1001,9 @@ function PersistentAgentApp({
   const [pendingInputs, setPendingInputs] = useState<PendingUserInputView[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const pendingSubmitTaskRef = useRef<string | null>(null);
+  const skipClearPendingOnLoginCloseRef = useRef(false);
   const [reconnectRunId, setReconnectRunId] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('high');
@@ -997,6 +1023,15 @@ function PersistentAgentApp({
   const draftSubmissionTokenRef = useRef(0);
 
   useEffect(() => {
+    if (!authUser || pendingSubmitTaskRef.current === null) return;
+    const task = pendingSubmitTaskRef.current;
+    pendingSubmitTaskRef.current = null;
+    if (prompt.trim() !== task) return;
+    void handleSubmit({ preventDefault: () => {} } as FormEvent<HTMLFormElement>);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在登录成功后续接一次发送
+  }, [authUser]);
+
+  useEffect(() => {
     pendingSessionsRef.current = pendingSessions;
   }, [pendingSessions]);
 
@@ -1011,6 +1046,16 @@ function PersistentAgentApp({
   useEffect(() => {
     disposedRef.current = false;
     const controller = new AbortController();
+    void getMe(controller.signal)
+      .then(setAuthUser)
+      .catch((error) => {
+        if (error instanceof ApiProblem && error.problem.code === 'AUTH_REQUIRED') {
+          setAuthUser(null);
+          return;
+        }
+        setAuthUser(null);
+      })
+      .finally(() => setAuthChecking(false));
     void getPublicAgentConfig(controller.signal)
       .then((config) => {
         const selected =
@@ -1592,8 +1637,23 @@ function PersistentAgentApp({
     }
   }
 
-  // 首次进入时检查服务、加载列表并恢复 URL 指定或最近会话。
+  // 未登录时也检查 API 就绪，否则 Composer 会一直禁用，无法走「发送 → 登录」流程。
   useEffect(() => {
+    if (authChecking || authUser) return;
+    const controller = new AbortController();
+    void getReadiness(controller.signal)
+      .then(() => setServiceState('ready'))
+      .catch((requestError) => {
+        if (controller.signal.aborted) return;
+        setServiceState('unavailable');
+        setError(getErrorMessage(requestError));
+      });
+    return () => controller.abort();
+  }, [authChecking, authUser]);
+
+  // 首次登录后检查服务、加载列表并恢复 URL 指定或最近会话。
+  useEffect(() => {
+    if (!authUser) return;
     const controller = new AbortController();
     void Promise.all([getReadiness(controller.signal), listSessions(controller.signal)])
       .then(([, loadedSessions]) => {
@@ -1616,9 +1676,7 @@ function PersistentAgentApp({
         setError(getErrorMessage(requestError));
       });
     return () => controller.abort();
-    // 初始化只执行一次；后续会话加载由用户操作或 Run 驱动。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authUser]);
 
   // 从 API 覆盖指定会话缓存，以数据库结果作为最终事实。
   // Active Run 期间禁止旧详情覆盖本地 Live Projection，改由独立 Run Observer 负责增量恢复。
@@ -1979,6 +2037,12 @@ function PersistentAgentApp({
     const task = prompt.trim();
     const currentId = selectedSessionIdRef.current;
     if (!task) return;
+    if (authChecking) return;
+    if (!authUser) {
+      pendingSubmitTaskRef.current = task;
+      setLoginOpen(true);
+      return;
+    }
     // 运行中的消息进入 Pending User Input 收件箱，不创建第二个 Run。
     // 使用 ref 读取最新的运行态，避免 terminal/Follow-up 切换期间闭包里的
     // pendingSessions 旧值把消息误送到普通 Create Run（后端随后返回 active-run 冲突）。
@@ -2289,6 +2353,28 @@ function PersistentAgentApp({
     : draftPending;
   const hasWorkbench = Boolean(uiState.workbench?.open);
 
+  async function handleLogout(): Promise<void> {
+    if (!(await confirm(LOGOUT_CONFIRM))) return;
+    try {
+      await logout();
+    } catch {
+      // 仍清除本地态
+    }
+    setAuthUser(null);
+    setSessions([]);
+    setSelectedSession(null);
+    setSessionStatesState({});
+    toast.success('已退出登录。你的会话仍保存在该账号下，再次登录后可继续查看。');
+  }
+
+  if (authChecking) {
+    return (
+      <div className="auth-screen" data-theme={theme}>
+        <p className="auth-subtitle">正在验证登录状态…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-sidebar text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
       <Sidebar
@@ -2307,8 +2393,10 @@ function PersistentAgentApp({
         }}
         onRename={(sessionId, title) => modifySession(sessionId, { title })}
         onTogglePin={(sessionId, isPinned) => void modifySession(sessionId, { isPinned })}
+        authUser={authUser}
+        onRequestLogin={() => setLoginOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
-        settingsOpen={settingsOpen}
+        onLogout={() => void handleLogout()}
       />
       {mobileNavOpen ? (
         <button
@@ -2351,6 +2439,39 @@ function PersistentAgentApp({
         onThemeChange={onThemeChange}
         contentFontSize={contentFontSize}
         onContentFontSizeChange={onContentFontSizeChange}
+        authUser={authUser}
+        onAuthUserChange={setAuthUser}
+        onLogout={() => {
+          setSettingsOpen(false);
+          setAuthUser(null);
+          setSessions([]);
+          setSelectedSession(null);
+          setSessionStatesState({});
+          toast.success('已退出登录。你的会话仍保存在该账号下，再次登录后可继续查看。');
+        }}
+        onRequestLogin={() => {
+          setSettingsOpen(false);
+          setLoginOpen(true);
+        }}
+      />
+      <LoginDialog
+        open={loginOpen}
+        onOpenChange={(open) => {
+          setLoginOpen(open);
+          if (!open) {
+            if (skipClearPendingOnLoginCloseRef.current) {
+              skipClearPendingOnLoginCloseRef.current = false;
+            } else {
+              pendingSubmitTaskRef.current = null;
+            }
+          }
+        }}
+        onLoggedIn={(user) => {
+          skipClearPendingOnLoginCloseRef.current = true;
+          setAuthUser(user);
+          setLoginOpen(false);
+          toast.success(LOGIN_SUCCESS_TOAST);
+        }}
       />
       <main className="main-shell my-2 mr-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl bg-surface">
         <div
@@ -2585,7 +2706,7 @@ function PersistentAgentApp({
 }
 
 // 渲染仅开发环境可用的 fixture 状态切换器。
-function PreviewSwitcher({ active }: { active: PreviewState }) {
+export function PreviewSwitcher({ active }: { active: PreviewState }) {
   return (
     <div className="preview-switcher" role="navigation" aria-label="预览状态">
       <span className="preview-switcher__label">Mock</span>
@@ -2707,7 +2828,6 @@ export function AppShell({
         mobileNavOpen={mobileNavOpen}
         onClose={() => setMobileNavOpen(false)}
         onOpenSettings={() => setSettingsOpen(true)}
-        settingsOpen={settingsOpen}
       />
       {mobileNavOpen ? (
         <button
@@ -2820,7 +2940,9 @@ function Sidebar({
   onRename,
   onTogglePin,
   onOpenSettings,
-  settingsOpen = false,
+  authUser = null,
+  onRequestLogin,
+  onLogout,
 }: {
   serviceState: ServiceState;
   serviceLabel: string;
@@ -2835,7 +2957,9 @@ function Sidebar({
   onRename?: (sessionId: string, title: string) => Promise<void>;
   onTogglePin?: (sessionId: string, isPinned: boolean) => void;
   onOpenSettings?: () => void;
-  settingsOpen?: boolean;
+  authUser?: AuthUserView | null;
+  onRequestLogin?: () => void;
+  onLogout?: () => void;
 }) {
   // 菜单状态同时保存目标会话和视口坐标，避免菜单受侧栏滚动裁剪。
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
@@ -3056,21 +3180,14 @@ function Sidebar({
               <span className="local-badge">本地</span>
             </div>
           ) : null}
-          {onOpenSettings ? (
-            <div className="sidebar-settings-row">
-              <button
-                type="button"
-                className="sidebar-settings-btn"
-                aria-label="设置"
-                aria-haspopup="dialog"
-                aria-expanded={settingsOpen}
-                onClick={onOpenSettings}
-              >
-                <Settings size={16} strokeWidth={1.75} aria-hidden="true" />
-                <span className="sidebar-settings-btn__label">设置</span>
-              </button>
-            </div>
-          ) : null}
+          <div className="sidebar-footer-actions">
+            <SidebarUserMenu
+              authUser={authUser}
+              onRequestLogin={onRequestLogin}
+              onOpenSettings={onOpenSettings}
+              onLogout={onLogout}
+            />
+          </div>
         </div>
       </aside>
       {menuSessionId && menuAnchor && sessions

@@ -7,17 +7,21 @@ import type { McpToolCatalogEntry, RunMcpSnapshot } from './mcp.types';
 export class McpToolCatalogService {
   constructor(@Inject(McpConnectionManager) private readonly connections: McpConnectionManager) {}
 
-  getLiveGeneration(): number {
-    return this.connections.getCatalogGeneration();
+  getLiveGeneration(userId: string): number {
+    return this.connections.getCatalogGeneration(userId);
   }
 
-  lookupEntry(publicName: string, snapshot?: RunMcpSnapshot): McpToolCatalogEntry | undefined {
-    const entries = snapshot?.entries ?? this.connections.getPublishedEntries();
+  lookupEntry(
+    publicName: string,
+    snapshot: RunMcpSnapshot | undefined,
+    userId: string,
+  ): McpToolCatalogEntry | undefined {
+    const entries = snapshot?.entries ?? this.connections.getPublishedEntries(userId);
     return entries.find((entry) => entry.publicName === publicName);
   }
 
-  definitionsForRun(snapshot?: RunMcpSnapshot): AgentToolDefinition[] {
-    const entries = snapshot?.entries ?? this.connections.getPublishedEntries();
+  definitionsForRun(snapshot: RunMcpSnapshot | undefined, userId: string): AgentToolDefinition[] {
+    const entries = snapshot?.entries ?? this.connections.getPublishedEntries(userId);
     return entries.map((entry) => ({
       name: entry.publicName,
       description: entry.description || `MCP tool ${entry.rawName} on ${entry.serverName}`,

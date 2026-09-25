@@ -18,7 +18,6 @@ import {
 import type { ToolApprovalDecision } from '@harness/agent-protocol';
 import { PendingUserInputService } from './pending-user-input.service';
 import { McpRunLatchService } from '../mcp/mcp-run-latch.service';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 
 @Injectable()
 export class RunExecutor implements OnModuleDestroy {
@@ -128,11 +127,12 @@ export class RunExecutor implements OnModuleDestroy {
   // 执行完整 Run 生命周期：加载上下文、运行模型循环、持久化投影并提交终态。
   private async execute(runId: string): Promise<void> {
     const active = this.registry.get(runId);
-    const stored = await this.repository.findOwned(runId);
+    const stored = await this.repository.findOwnedInternal(runId);
     if (!active || !stored) return;
+    const ownerUserId = stored.session.userId;
     if (!active.mcpSnapshot) {
       try {
-        active.mcpSnapshot = await this.mcpLatch.captureForUser(LOCAL_USER_ID, runId);
+        active.mcpSnapshot = await this.mcpLatch.captureForUser(ownerUserId, runId);
       } catch (error) {
         const failure = this.mcpLatchFailure(error);
         this.logger.warn(
@@ -235,6 +235,7 @@ export class RunExecutor implements OnModuleDestroy {
       const messages = await this.repository.loadTranscript(runId);
       for await (const event of this.chat.streamPrepared(
         {
+          userId: ownerUserId,
           sessionId: stored.sessionId,
           runId,
           mcpSnapshot: active.mcpSnapshot,
@@ -375,6 +376,7 @@ export class RunExecutor implements OnModuleDestroy {
       // 已经执行完，不能再注入当前 Run。终态前最后一次条件降级确保它进入下一轮 Follow-up。
       await this.demotePendingSteersAtTerminal(runId, stored.sessionId);
       await this.startPendingFollowUp(
+        stored.session.userId,
         stored.sessionId,
         stored.model,
         stored.reasoningEffort as NonNullable<RunSnapshot['profile']>['reasoningEffort'],
@@ -473,6 +475,7 @@ export class RunExecutor implements OnModuleDestroy {
   }
 
   private async startPendingFollowUp(
+    userId: string,
     sessionId: string,
     model: string,
     reasoningEffort: NonNullable<RunSnapshot['profile']>['reasoningEffort'],
@@ -482,7 +485,7 @@ export class RunExecutor implements OnModuleDestroy {
     const { RunCommandService } = await import('./run-command.service');
     const commands = this.moduleRef.get(RunCommandService, { strict: false });
     if (!commands) return;
-    await commands.create(sessionId, {
+    await commands.create(userId, sessionId, {
       content: pending.content,
       idempotencyKey: `pending:${pending.id}`,
       model,

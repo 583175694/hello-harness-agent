@@ -25,7 +25,7 @@ describe('McpToolCatalogService', () => {
       getPublishedEntries: vi.fn(() => []),
     } as unknown as McpConnectionManager;
     const catalog = new McpToolCatalogService(connections);
-    expect(catalog.getLiveGeneration()).toBe(5);
+    expect(catalog.getLiveGeneration('local-user')).toBe(5);
   });
 
   it('definitionsForRun prefers frozen snapshot entries', () => {
@@ -42,7 +42,7 @@ describe('McpToolCatalogService', () => {
       getPublishedEntries: vi.fn(() => [live]),
     } as unknown as McpConnectionManager;
     const catalog = new McpToolCatalogService(connections);
-    const defs = catalog.definitionsForRun(snapshot);
+    const defs = catalog.definitionsForRun(snapshot, 'local-user');
     expect(defs).toHaveLength(1);
     expect(defs[0]?.name).toBe('mcp__demo__ping');
     expect(connections.getPublishedEntries).not.toHaveBeenCalled();
@@ -55,9 +55,18 @@ describe('McpToolCatalogService', () => {
       getPublishedEntries: vi.fn(() => []),
     } as unknown as McpConnectionManager;
     const catalog = new McpToolCatalogService(connections);
-    expect(catalog.lookupEntry('mcp__demo__ping', { catalogGeneration: 2, entries: [frozen] })).toEqual(
-      frozen,
-    );
-    expect(catalog.lookupEntry('missing')).toBeUndefined();
+    expect(
+      catalog.lookupEntry(
+        'mcp__demo__ping',
+        {
+          catalogGeneration: 2,
+          serverInstructions: [],
+          latchedServerNames: ['demo'],
+          entries: [frozen],
+        },
+        'local-user',
+      ),
+    ).toEqual(frozen);
+    expect(catalog.lookupEntry('missing', undefined, 'local-user')).toBeUndefined();
   });
 });

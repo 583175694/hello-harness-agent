@@ -54,23 +54,49 @@ export class SandboxJobWatcherService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async sessionUserId(sessionId: string): Promise<string | undefined> {
+    if (!this.prisma) return undefined;
+    const row = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { userId: true },
+    });
+    return row?.userId;
+  }
+
   private async deliverCompletion(sessionId: string, job: JobMeta): Promise<void> {
+    const userId = await this.sessionUserId(sessionId);
+    if (!userId) return;
     const config = readSandboxRuntimeConfig();
     const message = `background job ${job.jobId} (bash: ${job.description}) finished [status: ${job.status}]. Read its output with job_output.`;
     const busy = await this.hasActiveRun(sessionId);
     if (busy) {
-      await this.resolvePendingInputs()?.enqueueFollowUp(sessionId, message, `job-notice:${job.jobId}`);
+      await this.resolvePendingInputs()?.enqueueFollowUp(
+        userId,
+        sessionId,
+        message,
+        `job-notice:${job.jobId}`,
+      );
       this.jobs.markCompletionReported(sessionId, job.jobId);
       return;
     }
     if (config.jobCompletionDelivery === 'quiet') {
-      await this.resolvePendingInputs()?.enqueueFollowUp(sessionId, message, `job-notice:${job.jobId}`);
+      await this.resolvePendingInputs()?.enqueueFollowUp(
+        userId,
+        sessionId,
+        message,
+        `job-notice:${job.jobId}`,
+      );
       this.jobs.markCompletionReported(sessionId, job.jobId);
       return;
     }
     const budget = this.wakeBudget.get(sessionId) ?? 0;
     if (budget >= config.jobMaxConsecutiveWakes) {
-      await this.resolvePendingInputs()?.enqueueFollowUp(sessionId, message, `job-notice:${job.jobId}`);
+      await this.resolvePendingInputs()?.enqueueFollowUp(
+        userId,
+        sessionId,
+        message,
+        `job-notice:${job.jobId}`,
+      );
       this.jobs.markCompletionReported(sessionId, job.jobId);
       return;
     }
@@ -78,7 +104,7 @@ export class SandboxJobWatcherService implements OnModuleInit, OnModuleDestroy {
     if (!runCommands) return;
     const model = getConfiguredModel(process.env.DEFAULT_MODEL ?? 'deepseek-chat')?.id ?? 'deepseek-chat';
     try {
-      await runCommands.create(sessionId, {
+      await runCommands.create(userId, sessionId, {
         content: message,
         idempotencyKey: `job-wakeup:${job.jobId}`,
         model,

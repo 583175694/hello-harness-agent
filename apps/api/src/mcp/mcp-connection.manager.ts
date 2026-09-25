@@ -2,7 +2,6 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nest
 import { createHash } from 'node:crypto';
 import { Client, StreamableHTTPClientTransport } from './mcp-sdk.client';
 import type { McpDefaultApproval, McpServerConfig, McpServerSecret } from '@prisma/client';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { McpServerConfigRepository, type McpServerConfigRecord } from './mcp-server-config.repository';
 import { McpServerSecretsRepository } from './mcp-server-secrets.repository';
 import { SecretsCryptoService } from './secrets-crypto.service';
@@ -37,12 +36,16 @@ type ServerRuntimeState = {
   connection?: LiveConnection;
 };
 
+type UserMcpState = {
+  catalogGeneration: number;
+  published: McpPublishedCatalog;
+  runtimeByServer: Map<string, ServerRuntimeState>;
+};
+
 @Injectable()
 export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(McpConnectionManager.name);
-  private catalogGeneration = 0;
-  private published: McpPublishedCatalog = emptyCatalog(0);
-  private readonly runtimeByServer = new Map<string, ServerRuntimeState>();
+  private readonly byUser = new Map<string, UserMcpState>();
 
   constructor(
     @Inject(McpServerConfigRepository) private readonly configs: McpServerConfigRepository,
@@ -51,57 +54,73 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    await this.reconcile(LOCAL_USER_ID).catch((error) => {
-      this.logger.warn(`MCP 启动 reconcile 失败: ${String(error)}`);
-    });
+    // 按 userId lazy reconcile；不在启动时绑定单一本地用户。
   }
 
   async onModuleDestroy(): Promise<void> {
-    for (const state of this.runtimeByServer.values()) {
-      await this.closeConnection(state);
+    for (const userState of this.byUser.values()) {
+      for (const state of userState.runtimeByServer.values()) {
+        await this.closeConnection(state);
+      }
+      userState.runtimeByServer.clear();
     }
-    this.runtimeByServer.clear();
+    this.byUser.clear();
   }
 
-  getCatalogGeneration(): number {
-    return this.catalogGeneration;
+  private userState(userId: string): UserMcpState {
+    let state = this.byUser.get(userId);
+    if (!state) {
+      state = {
+        catalogGeneration: 0,
+        published: emptyCatalog(0),
+        runtimeByServer: new Map(),
+      };
+      this.byUser.set(userId, state);
+    }
+    return state;
   }
 
-  getPublishedCatalog(): McpPublishedCatalog {
-    return this.published;
+  getCatalogGeneration(userId: string): number {
+    return this.userState(userId).catalogGeneration;
   }
 
-  getPublishedEntries(): McpToolCatalogEntry[] {
-    return this.published.entries;
+  getPublishedCatalog(userId: string): McpPublishedCatalog {
+    return this.userState(userId).published;
   }
 
-  getServerRuntime(serverName: string): ServerRuntimeState | undefined {
-    return this.runtimeByServer.get(serverName);
+  getPublishedEntries(userId: string): McpToolCatalogEntry[] {
+    return this.userState(userId).published.entries;
   }
 
-  getClient(serverName: string): Client | undefined {
-    return this.runtimeByServer.get(serverName)?.connection?.client;
+  getServerRuntime(userId: string, serverName: string): ServerRuntimeState | undefined {
+    return this.userState(userId).runtimeByServer.get(serverName);
   }
 
-  async reconcile(userId: string = LOCAL_USER_ID): Promise<void> {
+  getClient(userId: string, serverName: string): Client | undefined {
+    return this.userState(userId).runtimeByServer.get(serverName)?.connection?.client;
+  }
+
+  async reconcile(userId: string): Promise<void> {
+    const userState = this.userState(userId);
+    const runtimeByServer = userState.runtimeByServer;
     const configs = await this.configs.listEnabled(userId);
     const enabledNames = new Set(configs.map((c) => c.serverName));
-    for (const name of [...this.runtimeByServer.keys()]) {
+    for (const name of [...runtimeByServer.keys()]) {
       if (!enabledNames.has(name)) {
-        const state = this.runtimeByServer.get(name)!;
+        const state = runtimeByServer.get(name)!;
         await this.closeConnection(state);
-        this.runtimeByServer.delete(name);
+        runtimeByServer.delete(name);
       }
     }
 
-    const previousEntriesByServer = groupEntriesByServer(this.published.entries);
+    const previousEntriesByServer = groupEntriesByServer(userState.published.entries);
     const nextServers = new Map<string, McpPublishedServerView>();
     const nextEntries: McpToolCatalogEntry[] = [];
-    const nextGeneration = this.catalogGeneration + 1;
+    const nextGeneration = userState.catalogGeneration + 1;
 
     for (const config of configs) {
       const prevTools = previousEntriesByServer.get(config.serverName) ?? [];
-      let state = this.runtimeByServer.get(config.serverName);
+      let state = runtimeByServer.get(config.serverName);
       if (!state) {
         state = {
           serverName: config.serverName,
@@ -116,7 +135,7 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
           instructions: null,
           toolCountTotal: 0,
         };
-        this.runtimeByServer.set(config.serverName, state);
+        runtimeByServer.set(config.serverName, state);
       } else {
         state.configId = config.id;
         state.required = config.required;
@@ -209,8 +228,8 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    this.catalogGeneration = nextGeneration;
-    this.published = { generation: nextGeneration, servers: nextServers, entries: nextEntries };
+    userState.catalogGeneration = nextGeneration;
+    userState.published = { generation: nextGeneration, servers: nextServers, entries: nextEntries };
   }
 
   async probeConfig(config: McpServerConfigRecord): Promise<{ toolNames: string[]; error: string | null }> {
@@ -229,11 +248,12 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async removeServer(serverName: string): Promise<void> {
-    const state = this.runtimeByServer.get(serverName);
+  async removeServer(userId: string, serverName: string): Promise<void> {
+    const runtimeByServer = this.userState(userId).runtimeByServer;
+    const state = runtimeByServer.get(serverName);
     if (state) {
       await this.closeConnection(state);
-      this.runtimeByServer.delete(serverName);
+      runtimeByServer.delete(serverName);
     }
   }
 

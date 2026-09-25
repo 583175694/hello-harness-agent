@@ -7,21 +7,73 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  user
+  admin
+}
+
+enum UserStatus {
+  active
+  suspended
+}
+
+enum VerificationChannel {
+  email
+  phone
+}
+
 model User {
-  id          String   @id
-  kind        String   @default("local")
-  displayName String   @map("display_name")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  sessions    Session[]
-  messages    Message[]
-  files       File[]
-  artifacts   Artifact[]
-  artifactSeries ArtifactSeries[]
-  reports     Report[]
+  id               String     @id
+  kind             String     @default("local")
+  displayName      String     @map("display_name")
+  email            String?    @unique
+  phone            String?    @unique
+  emailVerifiedAt  DateTime?  @map("email_verified_at")
+  phoneVerifiedAt  DateTime?  @map("phone_verified_at")
+  role             UserRole   @default(user)
+  status           UserStatus @default(active)
+  lastSeenAt       DateTime?  @map("last_seen_at")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+  sessions         Session[]
+  messages         Message[]
+  files            File[]
+  artifacts        Artifact[]
+  artifactSeries   ArtifactSeries[]
+  reports          Report[]
   mcpServerConfigs McpServerConfig[]
+  loginSessions    UserLoginSession[]
 
   @@map("users")
+}
+
+model UserLoginSession {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  tokenHash  String    @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId, expiresAt])
+  @@map("user_login_sessions")
+}
+
+model VerificationCode {
+  id           String              @id @default(uuid())
+  channel      VerificationChannel
+  target       String
+  codeHash     String              @map("code_hash")
+  expiresAt    DateTime            @map("expires_at")
+  consumedAt   DateTime?           @map("consumed_at")
+  attemptCount Int                 @default(0) @map("attempt_count")
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  @@index([channel, target, createdAt(sort: Desc)])
+  @@map("verification_codes")
 }
 
 enum MessageRole {

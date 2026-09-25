@@ -1,31 +1,34 @@
 import { Toaster as Sonner, type ToasterProps } from 'sonner';
+
 import type { Theme } from '../../theme';
 
 type HarnessToasterProps = ToasterProps & {
   theme: Theme;
 };
 
-/** shadcn-style Sonner host — top-center, Harness theme tokens. */
+/** shadcn/ui Sonner — neutral surface, theme tokens (no tinted success/error bars). */
 export function Toaster({ theme, className = '', ...props }: HarnessToasterProps) {
   return (
     <Sonner
       theme={theme}
       position="top-center"
-      offset={20}
-      duration={3200}
-      closeButton={false}
+      offset={16}
+      duration={4000}
+      closeButton
       richColors={false}
-      className={`harness-toaster ${className}`.trim()}
+      className={`toaster group ${className}`.trim()}
       toastOptions={{
-        unstyled: true,
         classNames: {
-          toast: 'harness-toast',
-          title: 'harness-toast__title',
-          description: 'harness-toast__description',
-          success: 'harness-toast--success',
-          error: 'harness-toast--error',
-          info: 'harness-toast--default',
-          warning: 'harness-toast--default',
+          toast:
+            'group toast group-[.toaster]:bg-surface group-[.toaster]:text-text-primary group-[.toaster]:border-border group-[.toaster]:shadow-prominent',
+          title: 'group-[.toast]:text-sm group-[.toast]:font-medium',
+          description: 'group-[.toast]:text-sm group-[.toast]:text-text-secondary',
+          actionButton:
+            'group-[.toast]:rounded-md group-[.toast]:bg-accent group-[.toast]:px-3 group-[.toast]:py-1.5 group-[.toast]:text-xs group-[.toast]:font-medium group-[.toast]:text-white',
+          cancelButton:
+            'group-[.toast]:rounded-md group-[.toast]:bg-surface-subtle group-[.toast]:px-3 group-[.toast]:py-1.5 group-[.toast]:text-xs group-[.toast]:font-medium group-[.toast]:text-text-secondary',
+          closeButton:
+            'group-[.toast]:border-border group-[.toast]:bg-surface group-[.toast]:text-text-secondary',
         },
       }}
       {...props}

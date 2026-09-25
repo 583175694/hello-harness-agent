@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createConnection } from 'node:net';
 
 // 根开发命令统一管理的子服务、固定端口和就绪地址。
@@ -141,6 +141,17 @@ async function main() {
       ),
     );
     process.exitCode = 1;
+    return;
+  }
+
+  console.log(colorize('构建 @harness/agent-protocol…', colors.dim));
+  const protocolBuild = spawnSync(command(), ['--filter', '@harness/agent-protocol', 'build'], {
+    cwd: process.cwd(),
+    env: process.env,
+    stdio: 'inherit',
+  });
+  if (protocolBuild.status !== 0) {
+    process.exitCode = protocolBuild.status ?? 1;
     return;
   }
 

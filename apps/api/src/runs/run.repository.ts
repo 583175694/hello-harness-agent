@@ -7,7 +7,6 @@ import {
   type RunContextDebug,
   type RunSnapshot,
 } from '@harness/agent-protocol';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { PrismaService } from '../database/prisma.service';
 import type { ChatProjectionSnapshot } from '../chat/chat.service';
 import type { ModelMessage, ModelToolCall } from '../model/model-adapter';
@@ -160,6 +159,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
   // 在一个事务中完成 Session 校验、幂等检查、并发检查和 Run 初始化。
   // 在单事务中创建 User Message、可选附件关系、AgentRun 和 transcript 首项。
   async create(input: {
+    userId: string;
     sessionId: string;
     content: string;
     idempotencyKey: string;
@@ -183,7 +183,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     // Session 校验、幂等判定、单 Session Active Run 限制和两条初始消息必须同事务完成。
     return this.prisma.$transaction(async (tx) => {
       const session = await tx.session.findFirst({
-        where: { id: input.sessionId, userId: LOCAL_USER_ID },
+        where: { id: input.sessionId, userId: input.userId },
       });
       if (!session) return { kind: 'not_found' as const };
       const existing = await tx.agentRun.findUnique({
@@ -226,7 +226,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
             create: [
               {
                 id: input.userMessageId,
-                userId: LOCAL_USER_ID,
+                userId: input.userId,
                 sessionId: input.sessionId,
                 role: 'user',
                 kind: 'user_message',
@@ -237,7 +237,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
               },
               {
                 id: input.assistantMessageId,
-                userId: LOCAL_USER_ID,
+                userId: input.userId,
                 sessionId: input.sessionId,
                 role: 'assistant',
                 kind: 'assistant_delivery',
@@ -289,17 +289,25 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
   }
 
   // 查询当前用户拥有的 Run，并带出 Assistant 消息。
-  async findOwned(runId: string) {
+  async findOwned(runId: string, userId: string) {
     return this.prisma.agentRun.findFirst({
-      where: { id: runId, session: { userId: LOCAL_USER_ID } },
-      include: { messages: { where: { role: 'assistant' } } },
+      where: { id: runId, session: { userId } },
+      include: { messages: { where: { role: 'assistant' } }, session: { select: { userId: true } } },
+    });
+  }
+
+  // Executor 内部使用：不校验 HTTP 用户，但返回 session.userId。
+  async findOwnedInternal(runId: string) {
+    return this.prisma.agentRun.findFirst({
+      where: { id: runId },
+      include: { messages: { where: { role: 'assistant' } }, session: { select: { userId: true } } },
     });
   }
 
   // 根据幂等键查询当前用户在指定 Session 下的历史 Run。
-  async findByIdempotency(sessionId: string, idempotencyKey: string) {
+  async findByIdempotency(sessionId: string, idempotencyKey: string, userId: string) {
     return this.prisma.agentRun.findFirst({
-      where: { sessionId, idempotencyKey, session: { userId: LOCAL_USER_ID } },
+      where: { sessionId, idempotencyKey, session: { userId } },
     });
   }
 
@@ -327,9 +335,9 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
   }
 
   // 从数据库中的 Run 和 Assistant Draft 组装可返回给客户端的 Snapshot。
-  async snapshot(runId: string): Promise<RunSnapshot | undefined> {
+  async snapshot(runId: string, userId?: string): Promise<RunSnapshot | undefined> {
     // PostgreSQL 保存完整 UI Snapshot，不保存可重放 Runtime Event Log。
-    const run = await this.findOwned(runId);
+    const run = userId ? await this.findOwned(runId, userId) : await this.findOwnedInternal(runId);
     if (!run) return undefined;
     const message = run.messages.find((item) => item.id === run.assistantMessageId);
     const metadata = assistantAgentMetadataSchema.safeParse(this.metadata(message?.metadata));

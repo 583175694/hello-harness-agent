@@ -63,7 +63,7 @@ export class FileReadLinesTool implements AgentTool<FileReadLinesInput, FileRead
     // 将读取结果校验后包装成统一的 Tool Result。
     try {
       const output = fileReadLinesResultSchema.parse(
-        await this.files.readFileLines(context.sessionId, input),
+        await this.files.readFileLines(context.userId, context.sessionId, input),
       );
       return {
         status: 'succeeded',

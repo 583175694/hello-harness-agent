@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { MarkdownContent } from '../../../components/markdown-content';
+import { useConfirm } from '../../../components/ui/confirm-provider';
 import { JsonViewer } from '../../../components/ui/json-viewer';
 
 import type {
@@ -203,6 +204,8 @@ function ArtifactView({
   onRevise?: (artifact: ArtifactRef) => void;
   onRestore?: (artifact: ArtifactRef) => void;
 }) {
+  const confirm = useConfirm();
+
   return (
     <div className="artifact-workbench-view">
       {artifacts.map((artifact) => (
@@ -259,8 +262,18 @@ function ArtifactView({
                 className="secondary-button"
                 type="button"
                 onClick={() => {
-                  if (window.confirm(`确认将 v${artifact.versionNumber} 恢复为新的最新版本？`))
+                  void (async () => {
+                    if (
+                      !(await confirm({
+                        title: '恢复此版本',
+                        description: `确认将 v${artifact.versionNumber} 恢复为新的最新版本？`,
+                        confirmLabel: '恢复',
+                      }))
+                    ) {
+                      return;
+                    }
                     onRestore(artifact);
+                  })();
                 }}
               >
                 恢复此版本

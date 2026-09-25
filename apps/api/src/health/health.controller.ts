@@ -2,8 +2,10 @@ import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/co
 
 import type { ServiceStatus } from '@harness/agent-protocol';
 
+import { Public } from '../auth/public.decorator';
 import { HealthService } from './health.service';
 
+@Public()
 @Controller()
 export class HealthController {
   constructor(@Inject(HealthService) private readonly health: HealthService) {}

@@ -651,7 +651,7 @@ C3 不是 Python Runner、Notebook 或 Code Interpreter 的同义词，而是 Ha
 - Python、Node.js、Shell 和任务 CLI。
 - 数据处理、图表、网站构建和格式转换。
 - C5 Website Generation 的构建、测试和预览。
-- C6 Browser Use 的浏览器进程和文件下载。
+- C7 Browser Use 的浏览器进程和文件下载。
 - Skills 封装的成熟命令流程。
 
 通用 **`bash`**（C3-B 起；C3-A 为 `execute_command`）与结构化领域 Tool 长期共存：前者提供开放式命令能力，后者提供更明确的参数、审批和 UI。
@@ -1091,8 +1091,8 @@ apps/web                     job 读/杀卡片；bash 审批 inputFiles 列表
 
 - **C4 MCP**：高权限 MCP、Credential 和业务系统连接默认留在 Host，不能因为 Sandbox 可运行程序就搬入执行面。
 - **C5 Website Generation**：使用 C3 安装依赖、构建和测试；源码与构建结果最终进入 Artifact，不以 Sandbox 路径交付。
-- **C6 Browser Use**：C3 管理浏览器进程、文件、网络和隔离；C6 管理动作语义、登录、页面副作用、截图和用户接管。
-- **C7 Skills**：Skill 可以封装命令流程，但不能扩大 Sandbox 权限或绕过 Tool Policy。
+- **C7 Browser Use**：C3 管理浏览器进程、文件、网络和隔离；C7 管理动作语义、登录、页面副作用、截图和用户接管（Capability 编号与 [implementation-status.md §7](./implementation-status.md) 一致，**客户端就绪后**启动）。
+- **C6 Skills**：Skill 可以封装命令流程，但不能扩大 Sandbox 权限或绕过 Tool Policy。
 
 ## 8. 后续开放问题
 

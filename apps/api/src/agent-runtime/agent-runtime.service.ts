@@ -58,6 +58,10 @@ class ToolExecutionTimeoutError extends Error {
   }
 }
 
+// 超时后给工具一个很短的收尾窗口，避免“调用方已返回、底层任务仍无限运行”。
+// 这个窗口不是新的业务超时；到期后 Runtime 仍会收敛当前 Tool Result。
+const TOOL_CANCELLATION_GRACE_MS = 5_000;
+
 @Injectable()
 export class AgentRuntimeService {
   constructor(
@@ -1362,7 +1366,9 @@ export class AgentRuntimeService {
       const graceMs =
         this.tools.resolveName(name) === AGENT_TOOL_NAMES.bash
           ? sandboxLimits.cancellationGraceMs
-          : 0;
+          : this.tools.resolveName(name) === AGENT_TOOL_NAMES.webFetch
+            ? TOOL_CANCELLATION_GRACE_MS
+            : 0;
       if (graceMs > 0) {
         const settled = await Promise.race([
           execution.then(

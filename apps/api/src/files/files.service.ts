@@ -935,21 +935,42 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         (!/^\[\[page:(\d+)\]\]$/u.test(line) && line.toLocaleLowerCase().includes(needle) ? 1 : 0),
       0,
     );
-    if (
-      [...matches.map((match) => match.text).join('\n')].length >
-      AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters
-    )
-      throw new BadRequestException({
-        code: AGENT_ERROR_CODES.fileSearchResultTooLarge,
-        detail: '搜索结果超过单次文件工具结果限制，请缩小关键词或结果数量。',
-      });
+    // 搜索是“定位”工具，不应因为命中内容稍大而整次失败。
+    // 按稳定的文件顺序保留预算内的前几条，剩余内容通过 incomplete 告知模型，
+    // 让它继续缩小关键词或改用 read_file_lines 精确读取。
+    const resultBudget = AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters;
+    let usedCharacters = 0;
+    let resultTruncated = false;
+    const boundedMatches = [] as typeof matches;
+    for (const match of matches) {
+      const separatorCharacters = boundedMatches.length > 0 ? 1 : 0;
+      const remaining = resultBudget - usedCharacters - separatorCharacters;
+      if (remaining <= 0) {
+        resultTruncated = true;
+        break;
+      }
+      const textCharacters = Array.from(match.text);
+      const text = textCharacters.length > remaining
+        ? textCharacters.slice(0, remaining).join('')
+        : match.text;
+      if (!text) {
+        resultTruncated = true;
+        break;
+      }
+      boundedMatches.push({ ...match, text });
+      usedCharacters += separatorCharacters + Array.from(text).length;
+      if (Array.from(text).length < textCharacters.length) {
+        resultTruncated = true;
+        break;
+      }
+    }
     return {
       fileId: file.id,
       fileName: file.fileName,
       mediaType: file.mediaType,
       query: input.query,
-      incomplete: totalMatches > matches.length,
-      matches,
+      incomplete: totalMatches > boundedMatches.length || resultTruncated,
+      matches: boundedMatches,
     };
   }
 
@@ -996,20 +1017,31 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
       }
       outputLines.push({ line: absoluteLine, ...(page ? { page } : {}), text });
     }
-    const characterCount = [...outputLines.map((line) => line.text).join('\n')].length;
-    if (characterCount > AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters)
-      throw new BadRequestException({
-        code: AGENT_ERROR_CODES.fileReadResultTooLarge,
-        detail: '读取结果超过单次文件工具结果限制，请缩小行范围。',
-      });
+    // 行读取也采用“尽量返回完整行”的策略：结果过大时保留预算内的前几行，
+    // 不截断单行，避免把半截 JSON、代码或句子交给模型；incomplete 告知模型
+    // 缩小范围后继续读取。若单行本身就超过预算，则该行无法在本次安全返回。
+    const resultBudget = AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters;
+    let usedCharacters = 0;
+    let resultTruncated = false;
+    const boundedLines: typeof outputLines = [];
+    for (const line of outputLines) {
+      const separatorCharacters = boundedLines.length > 0 ? 1 : 0;
+      const lineCharacters = Array.from(line.text).length;
+      if (usedCharacters + separatorCharacters + lineCharacters > resultBudget) {
+        resultTruncated = true;
+        break;
+      }
+      boundedLines.push(line);
+      usedCharacters += separatorCharacters + lineCharacters;
+    }
     return {
       fileId: file.id,
       fileName: file.fileName,
       mediaType: file.mediaType,
       startLine: input.startLine,
       endLine: Math.min(input.endLine, lines.length),
-      incomplete: input.endLine > lines.length,
-      lines: outputLines,
+      incomplete: input.endLine > lines.length || resultTruncated,
+      lines: boundedLines,
     };
   }
 

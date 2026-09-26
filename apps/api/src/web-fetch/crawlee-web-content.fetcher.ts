@@ -210,8 +210,20 @@ export class CrawleeWebContentFetcher {
       },
       configuration,
     );
+    // AbortSignal 触发后必须复用同一个 teardown Promise：重复 teardown 会让
+    // Crawlee 自己的清理竞态变得不可预测，也会留下未关闭的请求/stream。
+    let teardownPromise: Promise<void> | undefined;
+    const teardown = (): Promise<void> => {
+      teardownPromise ??= crawler.teardown().catch((error: unknown) => {
+        this.logger?.warn(
+          `网页抓取清理失败 | 错误=${describeLogError(error)}`,
+          CrawleeWebContentFetcher.name,
+        );
+      });
+      return teardownPromise;
+    };
     const cancel = (): void => {
-      void crawler.teardown();
+      void teardown();
     };
     signal?.addEventListener('abort', cancel, { once: true });
     try {
@@ -227,6 +239,9 @@ export class CrawleeWebContentFetcher {
       if (signal?.aborted) throw this.cancelledError();
     } finally {
       signal?.removeEventListener('abort', cancel);
+      // 正常完成也显式等待 Crawlee 收尾；取消路径则等待 abort handler
+      // 已经启动的同一个 teardown，避免把后台 crawler 留在进程里。
+      if (teardownPromise) await teardownPromise;
     }
     return {
       results: targets.map(

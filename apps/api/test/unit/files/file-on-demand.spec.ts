@@ -100,7 +100,7 @@ describe('C1-B.2 file tools', () => {
     ).rejects.toMatchObject({ response: { code: 'FILE_READ_RANGE_TOO_LARGE' } });
   });
 
-  it('reads a finite range and rejects an oversized result instead of truncating', async () => {
+  it('reads a finite range and returns complete lines when the result is oversized', async () => {
     const { service } = createService('a\nb\nc');
     await expect(
       service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 3 }),
@@ -115,10 +115,18 @@ describe('C1-B.2 file tools', () => {
       ],
     });
 
-    const large = createService('x'.repeat(12_001));
+    const large = createService(`${'x'.repeat(8_000)}\n${'y'.repeat(8_000)}`);
     await expect(
-      large.service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 1 }),
-    ).rejects.toMatchObject({ response: { code: 'FILE_READ_RESULT_TOO_LARGE' } });
+      large.service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 2 }),
+    ).resolves.toMatchObject({
+      incomplete: true,
+      lines: [{ line: 1, text: 'x'.repeat(8_000) }],
+    });
+
+    const singleLine = createService('x'.repeat(12_001));
+    await expect(
+      singleLine.service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 1 }),
+    ).resolves.toMatchObject({ incomplete: true, lines: [] });
   });
 
   it('keeps the current PDF page when a read starts after the page marker', async () => {
@@ -144,6 +152,20 @@ describe('C1-B.2 file tools', () => {
     await expect(
       service.searchFile('local-user', 'session-1', { fileId: 'file-1', query: 'page' }),
     ).resolves.toMatchObject({ incomplete: false, matches: [] });
+  });
+
+  it('truncates oversized search results instead of failing the tool call', async () => {
+    const { service } = createService(Array.from({ length: 20 }, (_, index) => `错误 ${index} ${'x'.repeat(900)}`).join('\n'));
+
+    const result = await service.searchFile('local-user', 'session-1', {
+      fileId: 'file-1',
+      query: '错误',
+      maxResults: 8,
+    });
+
+    expect(result.incomplete).toBe(true);
+    expect(result.matches.length).toBeGreaterThan(0);
+    expect([...result.matches.map((match) => match.text).join('\n')].length).toBeLessThanOrEqual(12_000);
   });
 
   it('exposes stable model tool declarations and maps storage errors safely', async () => {

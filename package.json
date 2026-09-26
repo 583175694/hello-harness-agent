@@ -17,6 +17,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:design-tokens": "node scripts/check-design-tokens.mjs",
+    "dev:mobile": "pnpm --filter @harness/mobile start",
     "setup": "node scripts/run-db.mjs setup",
     "db": "node scripts/run-db.mjs"
   },

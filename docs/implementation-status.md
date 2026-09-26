@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-25（**当前进度：C4 完成**；Agent 主线高优先级剩余：**C5、K5、C6（Skills/Memory）**；Browser/Computer Use 后置至客户端就绪后）
+> 最后更新：2026-09-26（**当前进度：C4 完成**；Agent 主线高优先级剩余：**C5、K5、C6**；**L6 Mobile** Stitch v3 UI 已 freeze，工程未启动，见 docs/36 §5.5）
 
 ## 1. 当前结论
 
@@ -52,6 +52,16 @@ C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@
 - B4：Host `list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource`。
 
 大 catalog 未配 allowlist 时仍 **整包 definitions**（过渡态）；按需 expose / CE 预算属后续 **Kernel K5** 规划，**暂无独立设计文档**。stdio、Session 级 MCP、OAuth 不在 C4 范围。
+
+### L6 Mobile Agent Frontend 状态
+
+**工程**：`apps/mobile` 未创建；共享包 `agent-client` / `agent-conversation` 未抽（里程碑 **P0**）。
+
+**UI 定案**：仅 **React Native Reusables + NativeWind**（`components/ui`）；Agent 块自研 `agent-elements`，无第二 UI 库（docs/36 §8.4.1）。
+
+**设计**（2026-09-26 freeze）：Stitch **五帧**（393×852）— A 会话 closed、B 来源 Tab、C Composer 内 HITL、D Session Drawer、产物 Sheet（下载 + 基于此版本修改）。Phone IA：**Workbench Bottom Sheet**（非底部 Tab）；HITL **不得**复用 Sheet。冻结决策（badge N、动态 Tab、Overlay 互斥、MVP P1–P5）见 [36-mobile-agent-frontend.md §5.5](./36-mobile-agent-frontend.md#55-设计定稿stitch-v32026-09-26)。
+
+**排期**：仍属 **L6**，不在 §7 Agent Capability 主线内；实现顺序见 docs/36 §13.2。
 
 ### C3-B 相对 C3-A 的能力快照（已对齐）
 
@@ -588,7 +598,7 @@ L5  Cost / Quality / Runtime Console             最后建设展示层
 L6  Mobile / Desktop Clients                     **独立于 §7 Agent 主线排期**
     - Web、桌面端和移动端均作为 Task/Run/Event/Artifact/Approval 的客户端
     - 不为多端重新定义 Agent Kernel 或业务协议
-    - Mobile 方案见 [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)；**C7 Browser/Computer Use 建议在 L6 客户端就绪后启动**
+    - Mobile：**Stitch v3 UI 已 freeze**（docs/36 §5.5）；RN 工程待 P0 起；**C7 Browser/Computer Use 建议在 L6 客户端就绪后启动**
 
 L7  Multi-user / Remote Storage / Operations      更后期
     - 认证、权限、Workspace、远程对象存储、多租户和团队协作

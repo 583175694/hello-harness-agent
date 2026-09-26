@@ -1,0 +1,47 @@
+{
+  "name": "@harness/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "start:clear": "expo start --clear",
+    "start:localhost": "expo start --localhost",
+    "android": "expo start --android",
+    "ios": "node scripts/open-ios-simulator.mjs && expo start --ios --localhost",
+    "ios:open": "node scripts/open-ios-simulator.mjs",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~57.0.16",
+    "@expo/vector-icons": "^15.0.3",
+    "@gorhom/bottom-sheet": "^5.2.8",
+    "@react-navigation/native": "^7.1.28",
+    "clsx": "^2.1.1",
+    "expo": "~57.0.25",
+    "expo-constants": "~57.0.19",
+    "expo-font": "~57.0.4",
+    "expo-linking": "~57.0.11",
+    "expo-router": "~57.0.23",
+    "expo-status-bar": "~57.0.1",
+    "lucide-react-native": "^0.562.0",
+    "nativewind": "^4.2.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-css-interop": "^0.2.7",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-reanimated": "~4.5.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.2",
+    "react-native-svg": "15.15.4",
+    "react-native-worklets": "0.10.1",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "babel-plugin-module-resolver": "^5.0.2",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~6.0.3"
+  }
+}

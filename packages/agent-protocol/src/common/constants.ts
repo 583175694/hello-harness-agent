@@ -74,6 +74,8 @@ export const AGENT_TOOL_NAMES = {
   listMcpResources: 'list_mcp_resources',
   listMcpResourceTemplates: 'list_mcp_resource_templates',
   readMcpResource: 'read_mcp_resource',
+  /** 校验并写入当前用户的 HTTP MCP Server（user scope + reconcile）；配置由模型从用户文本语义识别后传入。 */
+  mcpAddServer: 'mcp_add_server',
   // SSE 与 execution 快照中标识 MCP/外部工具的合成 discriminant。
   externalTool: 'external_tool',
 } as const;

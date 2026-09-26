@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../database/database.module';
 import { McpAdminController } from './mcp-admin.controller';
+import { McpAddServerService } from './mcp-add-server.service';
 import { McpAdminService } from './mcp-admin.service';
 import { McpConnectionManager } from './mcp-connection.manager';
 import { McpRunLatchService } from './mcp-run-latch.service';
@@ -24,8 +25,10 @@ import { SecretsCryptoService } from './secrets-crypto.service';
     McpResourceExecutor,
     McpRunLatchService,
     McpAdminService,
+    McpAddServerService,
   ],
   exports: [
+    McpAddServerService,
     McpToolCatalogService,
     McpToolExecutor,
     McpResourceExecutor,

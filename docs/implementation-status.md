@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-25（**当前进度：C4 完成**；Agent 主线高优先级剩余：**C5、K5、C6（Skills/Memory）**；Browser/Computer Use 后置至客户端就绪后）
+> 最后更新：2026-09-26（**C4-A/B 完成**；**C4-C 从消息添加 MCP** 按 [35-c4 §5.4/§7.3](./35-c4-mcp-client.md) 落地中；Agent 主线高优先级剩余：**C5、K5、C6**）
 
 ## 1. 当前结论
 
@@ -52,6 +52,8 @@ C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@
 - B4：Host `list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource`。
 
 大 catalog 未配 allowlist 时仍 **整包 definitions**（过渡态）；按需 expose / CE 预算属后续 **Kernel K5** 规划，**暂无独立设计文档**。stdio、Session 级 MCP、OAuth 不在 C4 范围。
+
+**C4-C（进行中）**：Host 工具 **`mcp_add_server`**；用户粘贴 JSON/CLI/混合文本，由**模型**识别 `serverName`/`url`/`headers` 后调用，Host 校验（HTTPS/SSRF）、加密凭证、user scope 写入并 reconcile（见 [35-c4 §5.4](./35-c4-mcp-client.md)）。
 
 ### C3-B 相对 C3-A 的能力快照（已对齐）
 

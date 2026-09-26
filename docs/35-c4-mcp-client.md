@@ -1,7 +1,7 @@
 # C4：Host MCP Client 与工具生态扩展
 
-> 文档状态：**C4 完成（C4-A / C4-B）**  
-> 最后更新：2026-09-24（§12.1 手工验收；Capability 进度见 [implementation-status](./implementation-status.md)）  
+> 文档状态：**C4 完成（C4-A / C4-B）**；**C4-C（从消息添加 MCP）** 按 §5.4 / §7.3 实施中  
+> 最后更新：2026-09-26（§5.4 方案冻结 + C4-C Tool 落点；Capability 见 [implementation-status](./implementation-status.md)）  
 > 关联：[implementation-status §7](./implementation-status.md)、[33-c3 §7](./33-c3-agent-sandbox-cloud-execution.md)  
 > 外部参考（只读对照）：DSH `docs/subsystems/mcp.md`、`dsh-mcp-client`；Codex 开源 `codex-rs/codex-mcp`、`core/src/mcp_tool_call.rs`
 
@@ -473,60 +473,38 @@ mcp_server_secrets
 - Sandbox 未启用时 MCP 仍可用（Host 能力）
 - 单个 server 启动失败：`failOnStartupError=false` 时跳过该 server 并打日志；不拖垮 API
 
-### 5.4 从消息添加 MCP（后续最小改造方案）
+### 5.4 从消息添加 MCP（C4-C 最小改造）
 
 **目标**：保留现有 user scope、DB、连接与 catalog 生命周期；增加一条低门槛入口，让用户把 MCP 配置片段或说明直接发给 Agent，由 Agent 提取 HTTP MCP 配置并添加到当前用户。该能力是现有 Settings CRUD 的补充，不改变 MCP Client 主架构。
 
 #### 范围与边界
 
 - 仅接受 **Streamable HTTP MCP**（`https` URL）；**stdio 一律不支持**。不执行用户文本里的 `npx`、shell 命令或安装步骤。
-- 用户输入不按 JSON、URL、CLI 命令或说明文档分支处理；统一作为任意文本交给模型做语义提取，归一化为同一个结构。
-- 新增两个职责分离的 Tool：`extract_mcp_config` 和 `mcp_add_server`。前者只提取/报告，不产生副作用；后者只接收规范化配置，执行校验、安全处理、按当前用户保存并 reconcile。
+- 用户输入不按 JSON、URL、CLI 命令或说明文档分支处理；**配置识别全部由模型**从任意文本语义完成，Host **不做**格式硬解析。
+- 仅一个 Host Tool：**`mcp_add_server`**。模型识别出 `serverName`、`url`、`headers` 后直接调用；Host 负责 schema/SSRF/凭证加密/落库/reconcile。
 - 新建配置默认 `enabled=true`、`required=false`，Server 配置的 `defaultApproval=auto_execute`（即新增后 MCP 工具默认无需逐次审批），但须服从更高层的安全/管理策略。用户明确要求关闭时可传 `enabled=false`。
 - 此默认值仅适用于该明确添加流程中新建的 Server；不隐式修改已有 Server。Settings 手工创建/更新的既有审批语义不因本功能改变。
 - “添加 Server 无需审批”与“调用 MCP 工具无需审批”是同一 MVP 的两个决策：按本方案新添加的 Server 默认工具调用无需审批。若未来引入组织策略、工具风险分级或安全策略，它们应能覆盖该默认值。不得把此默认值解释为放开 Host/Sandbox 其他工具的审批。
 
-#### Tool 1：`extract_mcp_config`
+#### Tool：`mcp_add_server`
 
-由模型在看到用户提交的配置/说明后调用。该 Tool 是纯提取能力，不连接远端、不写数据库、不启用 Server；同一输入中可提取多个 Server，并逐项标记不支持或缺失信息。提取本身不替代后端确定性校验。
+模型从用户消息中识别 HTTP MCP 配置后调用（**一次一条 Server**；多条则多次调用）。不接收原始 shell、不执行 npx。身份从当前认证上下文取得，禁止模型传入 `userId`。
 
-建议规范化输出：
+**模型侧约定**（写在 Tool description，非 Host 硬解析）：
 
-```json
-{
-  "servers": [
-    {
-      "name": "tinyfish",
-      "transport": "streamable_http",
-      "url": "https://agent.tinyfish.ai/mcp",
-      "headers": { "Authorization": "Bearer <secret>" }
-    }
-  ],
-  "unsupported": [
-    { "name": "local-example", "transport": "stdio", "reason": "当前仅支持 HTTP MCP Server" }
-  ],
-  "missing_fields": []
-}
-```
+- JSON、`mcpServers`、裸 URL、`codex/claude mcp add`、`npx … --url … --api-key …` 等 **统一语义理解**，输出同一组字段。
+- **npx/stdio 表示不执行本地命令**；若同一段文字里已有 `https` MCP URL 与 API Key，仍应添加 HTTP Server（例如 TinyFish：`url` + `Authorization: Bearer …`），并向用户说明未执行 npx。
+- 纯 stdio、无 HTTPS endpoint：勿调用本 Tool，用自然语言说明当前仅支持 HTTP MCP。
+- 缺 URL、名称或必要认证：先追问用户，勿编造。
+- Tool 参数可含完整 `headers`（落库前 Host 加密）；**面向用户的回复**不得回显密钥。
 
-约定：
-
-- 接受 JSON 配置、裸 URL、CLI 配置命令、复制来的服务商说明及其混合文本；不为这些输入类型分别实现解析器或要求用户选择格式。
-- 将可识别的 Server 映射为统一字段：`name`、固定支持值 `transport=streamable_http`、`url`、`headers`。命令行只解释其表达的配置，绝不执行。
-- `stdio`、`command`、`args`、`env` 等本地进程配置放入 `unsupported`，不转交添加 Tool。若输入同时包含 HTTP 与 stdio，只可继续添加 HTTP 条目，并清楚告知 stdio 被忽略。
-- 不猜测或编造缺失的 URL、Server 名称、认证值。信息不足时填写 `missing_fields`，由 Agent 向用户追问；不得为了凑齐配置而创建无效 Server。
-- 密钥可以在模型提取结果与 Tool 调用链路中短暂传递，但不得出现在最终回复、普通日志、遥测或非必要持久化字段中；添加 Tool 必须在落库前转入现有加密 secret 存储。
-
-#### Tool 2：`mcp_add_server`
-
-只接收 `extract_mcp_config` 产生/确认的单个规范化 Server 对象（或在一次调用中接收数组，按原子性约定逐项返回结果）。不接收任意原始 shell 命令，不做格式解析。身份从当前认证上下文取得，禁止模型传入或覆盖 `userId`。
+Host 固定 **Streamable HTTP**（§4.4）；模型不必传 `transport`。
 
 建议输入字段：
 
 ```json
 {
-  "name": "tinyfish",
-  "transport": "streamable_http",
+  "serverName": "tinyfish",
   "url": "https://agent.tinyfish.ai/mcp",
   "headers": { "Authorization": "Bearer <secret>" },
   "enabled": true,
@@ -539,7 +517,7 @@ mcp_server_secrets
 1. 对 schema 和字段做确定性校验；transport 必须是 `streamable_http`，URL 必须为合法 HTTPS MCP endpoint；拒绝 `command` / `args` / `env` 和非 HTTP transport。
 2. 应用 URL/网络安全校验，至少拒绝 loopback、link-local、私网与其他不允许的目标，避免 SSRF；重定向目标也必须受同一策略约束。
 3. 校验 Server 名称（user scope 内唯一）；按明确的重复规则处理：同名配置相同则幂等返回 `already_exists`；同名配置不同则默认拒绝并要求用户通过现有 Settings 编辑流程处理，避免无提示覆盖连接和凭证。
-4. 将 Authorization、API Key 等敏感 headers，以及 URL query 中的 `token` / `key` / `secret` 等凭证识别并写入现有 `mcp_server_secrets` 加密存储；主配置只保存非敏感 URL/headers。响应、错误和日志对凭证严格脱敏。
+4. 将 Authorization、API Key 等敏感 headers 写入现有 `mcp_server_secrets` 加密存储；非敏感键保留在 `headersPlain`。URL query 中的 `token` / `key` / `secret` **目标态**为提取后脱敏 URL + 托管凭证（C4-C 首期可与 Settings 相同暂存于 `url` 列，但 Tool 返回须 `urlRedacted`）；响应、错误和日志对凭证严格脱敏。
 5. 以当前 `userId` 写入配置：`sessionId=null`、`transport=streamable_http`、`enabled=true`（除非用户明确要求关闭）、`required=false`、`defaultApproval=auto_execute`；随后同步 reconcile + `listTools`，遵循现有失败保留 catalog、generation 和连接语义。
 6. 返回 `created` / `already_exists` / `created_with_warning` / `rejected` 等结构化结果。成功时返回 Server 名称、启用状态、连接状态和可用工具名；不得返回 secret。连接测试失败是否保留启用配置应与现有 API 一致，并明确报告 warning，不伪报成功。
 
@@ -547,20 +525,19 @@ mcp_server_secrets
 
 ```text
 用户消息（任意配置文本）
-  → Agent 调用 extract_mcp_config
-  → 检查 extracted / unsupported / missing_fields
-  → 对可添加项调用 mcp_add_server
-  → 后端校验、加密、user-scope 写入、同步 reconcile
-  → Agent 汇总结果（成功项、失败原因、stdio 不支持项）
+  → 模型语义识别 serverName / url / headers
+  → 调用 mcp_add_server（每条 Server 一次）
+  → Host 校验、加密、user-scope 写入、同步 reconcile
+  → 模型汇总 created / warning / rejected；混合 npx+HTTP 时说明未执行 npx
 ```
 
-Tool 分拆便于审计和测试提取结果，同时将有副作用的写入收敛到单一受校验入口。不要把用户看到的体验拆成“先选择格式”；用户只需粘贴信息，必要时补齐缺失字段。回复应确认添加/启用状态、连接测试结果及工具列表，并确认认证信息已安全保存；不得回显密钥。
+不要把用户看到的体验拆成“先选择格式”；用户只需粘贴信息，必要时补齐缺失字段。回复应确认添加/启用状态、连接测试结果及工具列表，并确认认证信息已安全保存；不得回显密钥。
 
 #### 验收要点
 
-- JSON、URL、CLI 命令、长说明及混合内容走相同提取 Tool，并归一化到同一 schema。
-- 提取 Tool 无网络/数据库副作用；添加 Tool 不执行任何命令，且仅接受 HTTP MCP。
-- stdio 纯输入不会创建配置；混合输入只添加 HTTP 部分并报告 stdio 未支持。
+- JSON、URL、CLI、长说明及混合内容均由 **模型** 识别后直接 `mcp_add_server`；Host 无格式分支解析器。
+- 添加 Tool 不执行任何命令，且仅接受 HTTP MCP（Agent 路径 stricter HTTPS + 禁私网，见后端 `mcp-url-security`）。
+- stdio 纯输入不会创建配置；混合输入应添加 HTTP 部分并在回复中说明 stdio/npx 未执行。
 - 配置与凭证严格限定当前用户，secret 加密且不经 API/日志/最终回复泄露。
 - 新建 Server 默认启用、`required=false`、`auto_execute`；该默认不覆盖既有 Server，也不绕过更高层策略。
 - 非法 URL、禁止网络目标、重复异配置、缺失必要字段均有可操作的结构化结果；添加后同步 reconcile 并报告真实连接状态。
@@ -689,6 +666,20 @@ flowchart TB
 
 **C4-B 不做清单（近期）**：stdio、Session 级 MCP 覆盖、OAuth、SSE `mcp_server_status`、MCP 图片 Attachment、Tool Search / deferred（→ 后续 Kernel K5）。
 
+### 7.3 C4-C — 从消息添加 MCP（**实施中**）
+
+**目标**：在不动 C4-A/B 主链路的前提下，为「不懂 Settings / JSON」的用户提供 **对话内添加 HTTP MCP Server** 能力；配置仍 **user scope + DB + reconcile**。
+
+| 任务 | 说明 |
+| --- | --- |
+| 协议 | `mcpAddServerAgentInputSchema`、`mcpAddServerResultSchema`；`AGENT_TOOL_NAMES.mcpAddServer` |
+| Tool | `mcp_add_server`：`McpAddServerService` → `McpAdminService.createServer` + `probeConfig`；SSRF；同名幂等 / 异配置拒绝；**识别在模型 + Tool description** |
+| 默认 | 新建：`enabled=true`、`required=false`、`defaultApproval=auto_execute`；两 Tool 本身 `auto_execute`（添加动作免审批） |
+| 测试 | `mcp-url-security`、`mcp-config-secrets` 单测；集成测可 mock Admin |
+| 非目标 | stdio、执行 npx/shell、平台级 Server 目录、OAuth、Marketplace |
+
+**完成标准**（与 §5.4 一致）：混合文本 → 模型 → `mcp_add_server` → reconcile；secret 加密；`already_exists` / `created_with_warning` 结构化返回。
+
 ---
 
 ## 8. 代码落点（建议）
@@ -705,6 +696,12 @@ apps/api/src/mcp/
   mcp-tool-executor.ts               # callTool + generation 校验
   mcp-result.mapper.ts
   mcp-admin.controller.ts              # /api/agent/mcp/*
+  mcp-add-server.service.ts            # C4-C：Agent Tool 写入 + 幂等 / SSRF
+  mcp-url-security.ts                  # C4-C：HTTPS + 私网拒绝 + URL 脱敏
+  mcp-config-secrets.ts                # C4-C：header → secrets 拆分
+
+apps/api/src/tools/
+  mcp-add-server.tool.ts               # C4-C：对话内添加 MCP
 
 apps/api/src/tools/tool-registry.service.ts
   # definitions(run?) / execute / approvalPolicy 合并 MCP（run 从 Runtime 传入）
@@ -815,6 +812,7 @@ C4-A 建议新加的 server 默认 **false**；只有关键集成才勾 true。
 | K5 Tool Exposure / search + hydrate | 📋 后续 Kernel（非 C4） |
 | 11-api-protocol MCP 章与 B1 UI 对齐 | ✅（§15 + `toolCountExposed`/`Total`） |
 | C4-B 手工验收（Workbench + Settings） | ✅ §12.1（2026-09-24） |
+| C4-C 对话内 `mcp_add_server`（模型识别 + Host 校验落库） | 🚧 见 §7.3 |
 | ModelScope / marketplace 自动导入 | ❌ 非 C4 |
 | K6 统一 Policy 平台 | ❌ 后置；C4 用 K3.2 + server `defaultApproval` |
 

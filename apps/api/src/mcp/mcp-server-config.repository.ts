@@ -33,6 +33,13 @@ export class McpServerConfigRepository {
     });
   }
 
+  async findByServerName(serverName: string, userId: string): Promise<McpServerConfigRecord | null> {
+    return this.prisma.mcpServerConfig.findFirst({
+      where: { userId, sessionId: null, serverName },
+      include: { secrets: true },
+    });
+  }
+
   async create(
     data: Omit<Prisma.McpServerConfigCreateInput, 'user' | 'sessionId'>,
     userId: string,

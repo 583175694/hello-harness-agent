@@ -16,6 +16,7 @@ import {
   classifyToolPresentation,
   type ToolPresentationKind,
 } from './tool-presentation';
+import { isToolEnabled } from './tool-availability';
 
 export class ToolInputValidationError extends Error {
   constructor(
@@ -61,6 +62,7 @@ export class ToolRegistryService {
   definitions(ctx?: ToolRegistryContext): AgentToolDefinition[] | undefined {
     const staticDefs = [...this.toolsByName.values()]
       .filter((tool) => tool.isAvailable())
+      .filter((tool) => isToolEnabled(tool.name))
       .map((tool) => tool.definition());
     const mcpDefs = ctx?.userId
       ? this.mcpCatalog.definitionsForRun(ctx.mcpSnapshot, ctx.userId)
@@ -146,7 +148,7 @@ export class ToolRegistryService {
       return this.mcpResourceExecutor.execute(name, input, context, ctx?.mcpSnapshot);
     }
     const tool = this.get(name);
-    if (!tool.isAvailable()) {
+    if (!isToolEnabled(tool.name) || !tool.isAvailable()) {
       return {
         status: 'failed',
         error: {

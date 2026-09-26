@@ -2345,6 +2345,7 @@ function PersistentAgentApp() {
     setSessions([]);
     setSelectedSession(null);
     setSessionStatesState({});
+    updateSessionUrl(null, true);
     toast.success('已退出登录');
   }
 
@@ -2416,6 +2417,7 @@ function PersistentAgentApp() {
           setSessions([]);
           setSelectedSession(null);
           setSessionStatesState({});
+          updateSessionUrl(null, true);
           toast.success('已退出登录');
         }}
         onRequestLogin={() => {

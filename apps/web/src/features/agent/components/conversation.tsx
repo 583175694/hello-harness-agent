@@ -20,6 +20,7 @@ import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 import { MarkdownContent } from '../../../components/markdown-content';
+import { copyTextToClipboard } from '../../../lib/clipboard';
 import {
   Message,
   MessageActions,
@@ -211,7 +212,7 @@ function splitFileName(fileName: string): { prefix: string; suffix: string } {
 export function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   async function copyMessage(): Promise<void> {
-    await navigator.clipboard.writeText(text);
+    await copyTextToClipboard(text);
     setCopied(true);
     window.setTimeout(() => setCopied(false), AGENT_UI_BEHAVIOR.copyFeedbackDurationMs);
   }

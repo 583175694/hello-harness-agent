@@ -21,6 +21,7 @@ import type {
   McpUpdateServerRequest,
 } from '@harness/agent-protocol';
 import { AccountSection } from '../../auth/account-section';
+import { copyTextToClipboard } from '../../../lib/clipboard';
 import {
   ApiProblem,
   createMcpServer,
@@ -391,7 +392,7 @@ export function SettingsDialog({
 
   async function copyUrl(url: string) {
     try {
-      await navigator.clipboard.writeText(url);
+      await copyTextToClipboard(url);
       toast('已复制');
     } catch {
       setError('复制失败，请手动选择 URL。');

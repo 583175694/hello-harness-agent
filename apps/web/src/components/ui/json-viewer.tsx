@@ -1,5 +1,6 @@
 import { Check, Copy } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
+import { copyTextToClipboard } from '../../lib/clipboard';
 
 const JSON_TOKEN_PATTERN =
   /("(?:\\.|[^"\\])*")(?=\s*:)|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\b(?:true|false|null)\b/g;
@@ -40,7 +41,7 @@ export function JsonViewer({ value }: { value: unknown }) {
   const json = JSON.stringify(value, null, 2);
 
   async function copy(): Promise<void> {
-    await navigator.clipboard.writeText(json);
+    await copyTextToClipboard(json);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1_500);
   }

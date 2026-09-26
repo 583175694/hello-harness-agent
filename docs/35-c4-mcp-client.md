@@ -473,6 +473,98 @@ mcp_server_secrets
 - Sandbox 未启用时 MCP 仍可用（Host 能力）
 - 单个 server 启动失败：`failOnStartupError=false` 时跳过该 server 并打日志；不拖垮 API
 
+### 5.4 从消息添加 MCP（后续最小改造方案）
+
+**目标**：保留现有 user scope、DB、连接与 catalog 生命周期；增加一条低门槛入口，让用户把 MCP 配置片段或说明直接发给 Agent，由 Agent 提取 HTTP MCP 配置并添加到当前用户。该能力是现有 Settings CRUD 的补充，不改变 MCP Client 主架构。
+
+#### 范围与边界
+
+- 仅接受 **Streamable HTTP MCP**（`https` URL）；**stdio 一律不支持**。不执行用户文本里的 `npx`、shell 命令或安装步骤。
+- 用户输入不按 JSON、URL、CLI 命令或说明文档分支处理；统一作为任意文本交给模型做语义提取，归一化为同一个结构。
+- 新增两个职责分离的 Tool：`extract_mcp_config` 和 `mcp_add_server`。前者只提取/报告，不产生副作用；后者只接收规范化配置，执行校验、安全处理、按当前用户保存并 reconcile。
+- 新建配置默认 `enabled=true`、`required=false`，Server 配置的 `defaultApproval=auto_execute`（即新增后 MCP 工具默认无需逐次审批），但须服从更高层的安全/管理策略。用户明确要求关闭时可传 `enabled=false`。
+- 此默认值仅适用于该明确添加流程中新建的 Server；不隐式修改已有 Server。Settings 手工创建/更新的既有审批语义不因本功能改变。
+- “添加 Server 无需审批”与“调用 MCP 工具无需审批”是同一 MVP 的两个决策：按本方案新添加的 Server 默认工具调用无需审批。若未来引入组织策略、工具风险分级或安全策略，它们应能覆盖该默认值。不得把此默认值解释为放开 Host/Sandbox 其他工具的审批。
+
+#### Tool 1：`extract_mcp_config`
+
+由模型在看到用户提交的配置/说明后调用。该 Tool 是纯提取能力，不连接远端、不写数据库、不启用 Server；同一输入中可提取多个 Server，并逐项标记不支持或缺失信息。提取本身不替代后端确定性校验。
+
+建议规范化输出：
+
+```json
+{
+  "servers": [
+    {
+      "name": "tinyfish",
+      "transport": "streamable_http",
+      "url": "https://agent.tinyfish.ai/mcp",
+      "headers": { "Authorization": "Bearer <secret>" }
+    }
+  ],
+  "unsupported": [
+    { "name": "local-example", "transport": "stdio", "reason": "当前仅支持 HTTP MCP Server" }
+  ],
+  "missing_fields": []
+}
+```
+
+约定：
+
+- 接受 JSON 配置、裸 URL、CLI 配置命令、复制来的服务商说明及其混合文本；不为这些输入类型分别实现解析器或要求用户选择格式。
+- 将可识别的 Server 映射为统一字段：`name`、固定支持值 `transport=streamable_http`、`url`、`headers`。命令行只解释其表达的配置，绝不执行。
+- `stdio`、`command`、`args`、`env` 等本地进程配置放入 `unsupported`，不转交添加 Tool。若输入同时包含 HTTP 与 stdio，只可继续添加 HTTP 条目，并清楚告知 stdio 被忽略。
+- 不猜测或编造缺失的 URL、Server 名称、认证值。信息不足时填写 `missing_fields`，由 Agent 向用户追问；不得为了凑齐配置而创建无效 Server。
+- 密钥可以在模型提取结果与 Tool 调用链路中短暂传递，但不得出现在最终回复、普通日志、遥测或非必要持久化字段中；添加 Tool 必须在落库前转入现有加密 secret 存储。
+
+#### Tool 2：`mcp_add_server`
+
+只接收 `extract_mcp_config` 产生/确认的单个规范化 Server 对象（或在一次调用中接收数组，按原子性约定逐项返回结果）。不接收任意原始 shell 命令，不做格式解析。身份从当前认证上下文取得，禁止模型传入或覆盖 `userId`。
+
+建议输入字段：
+
+```json
+{
+  "name": "tinyfish",
+  "transport": "streamable_http",
+  "url": "https://agent.tinyfish.ai/mcp",
+  "headers": { "Authorization": "Bearer <secret>" },
+  "enabled": true,
+  "defaultApproval": "auto_execute"
+}
+```
+
+后端处理顺序：
+
+1. 对 schema 和字段做确定性校验；transport 必须是 `streamable_http`，URL 必须为合法 HTTPS MCP endpoint；拒绝 `command` / `args` / `env` 和非 HTTP transport。
+2. 应用 URL/网络安全校验，至少拒绝 loopback、link-local、私网与其他不允许的目标，避免 SSRF；重定向目标也必须受同一策略约束。
+3. 校验 Server 名称（user scope 内唯一）；按明确的重复规则处理：同名配置相同则幂等返回 `already_exists`；同名配置不同则默认拒绝并要求用户通过现有 Settings 编辑流程处理，避免无提示覆盖连接和凭证。
+4. 将 Authorization、API Key 等敏感 headers，以及 URL query 中的 `token` / `key` / `secret` 等凭证识别并写入现有 `mcp_server_secrets` 加密存储；主配置只保存非敏感 URL/headers。响应、错误和日志对凭证严格脱敏。
+5. 以当前 `userId` 写入配置：`sessionId=null`、`transport=streamable_http`、`enabled=true`（除非用户明确要求关闭）、`required=false`、`defaultApproval=auto_execute`；随后同步 reconcile + `listTools`，遵循现有失败保留 catalog、generation 和连接语义。
+6. 返回 `created` / `already_exists` / `created_with_warning` / `rejected` 等结构化结果。成功时返回 Server 名称、启用状态、连接状态和可用工具名；不得返回 secret。连接测试失败是否保留启用配置应与现有 API 一致，并明确报告 warning，不伪报成功。
+
+#### 调用流程与用户反馈
+
+```text
+用户消息（任意配置文本）
+  → Agent 调用 extract_mcp_config
+  → 检查 extracted / unsupported / missing_fields
+  → 对可添加项调用 mcp_add_server
+  → 后端校验、加密、user-scope 写入、同步 reconcile
+  → Agent 汇总结果（成功项、失败原因、stdio 不支持项）
+```
+
+Tool 分拆便于审计和测试提取结果，同时将有副作用的写入收敛到单一受校验入口。不要把用户看到的体验拆成“先选择格式”；用户只需粘贴信息，必要时补齐缺失字段。回复应确认添加/启用状态、连接测试结果及工具列表，并确认认证信息已安全保存；不得回显密钥。
+
+#### 验收要点
+
+- JSON、URL、CLI 命令、长说明及混合内容走相同提取 Tool，并归一化到同一 schema。
+- 提取 Tool 无网络/数据库副作用；添加 Tool 不执行任何命令，且仅接受 HTTP MCP。
+- stdio 纯输入不会创建配置；混合输入只添加 HTTP 部分并报告 stdio 未支持。
+- 配置与凭证严格限定当前用户，secret 加密且不经 API/日志/最终回复泄露。
+- 新建 Server 默认启用、`required=false`、`auto_execute`；该默认不覆盖既有 Server，也不绕过更高层策略。
+- 非法 URL、禁止网络目标、重复异配置、缺失必要字段均有可操作的结构化结果；添加后同步 reconcile 并报告真实连接状态。
+
 ---
 
 ## 6. 安全与审批（K6 Policy 前置最小集）

@@ -57,7 +57,9 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
 
   // Web Fetch 是本地静态网页能力，不依赖外部搜索 Provider 配置。
   isAvailable(): boolean {
-    return true;
+    // 通过环境变量提供可逆的紧急开关。默认保持原有行为；生产环境
+    // 可以设置 WEB_FETCH_ENABLED=false，在不删除实现的情况下立即停用抓取。
+    return process.env.WEB_FETCH_ENABLED !== 'false';
   }
 
   // 返回受控 fetched-source payload，完整正文不会进入模型上下文。

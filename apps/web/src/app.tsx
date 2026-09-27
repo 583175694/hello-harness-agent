@@ -951,6 +951,9 @@ function PersistentAgentApp() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [sessionStates, setSessionStatesState] = useState<Record<string, AgentUiState>>({});
+  const [sessionDetailLoadingIds, setSessionDetailLoadingIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   // pendingSessions 允许不同会话并行生成，同时限制同一会话重复提交。
   const [pendingSessions, setPendingSessions] = useState<Record<string, boolean>>({});
   const [draftPending, setDraftPending] = useState(false);
@@ -1673,6 +1676,15 @@ function PersistentAgentApp() {
     // Mark the session as loaded at request start so rapid navigation cannot
     // schedule a second detail request during the initial response window.
     if (!force) loadedSessionDetailsRef.current.add(sessionId);
+    const trackLoadingPlaceholder = !sessionStatesRef.current[sessionId];
+    if (trackLoadingPlaceholder) {
+      setSessionDetailLoadingIds((current) => {
+        if (current.has(sessionId)) return current;
+        const next = new Set(current);
+        next.add(sessionId);
+        return next;
+      });
+    }
     try {
       const { session } = await getSession(sessionId);
       if (pendingSessionsRef.current[sessionId]) return;
@@ -1753,6 +1765,14 @@ function PersistentAgentApp() {
       setError(getErrorMessage(requestError));
     } finally {
       sessionDetailRequestsRef.current.delete(sessionId);
+      if (trackLoadingPlaceholder) {
+        setSessionDetailLoadingIds((current) => {
+          if (!current.has(sessionId)) return current;
+          const next = new Set(current);
+          next.delete(sessionId);
+          return next;
+        });
+      }
     }
   }
 
@@ -2327,6 +2347,11 @@ function PersistentAgentApp() {
         conversation: [],
       })
     : draftState;
+  const sessionContentLoading = Boolean(
+    selectedSessionId &&
+      !sessionStates[selectedSessionId] &&
+      sessionDetailLoadingIds.has(selectedSessionId),
+  );
   // activeRunId 作为 Durable/Snapshot 侧的第二个信号，覆盖 Follow-up 新 Run
   // 刚创建但 pendingSessions React 状态尚未完成刷新的短窗口。
   const submitting = selectedSessionId
@@ -2468,6 +2493,7 @@ function PersistentAgentApp() {
             </header>
             <Conversation
               scopeKey={selectedSessionId ?? 'draft'}
+              sessionLoading={sessionContentLoading}
               state={uiState}
               error={error}
               onDismissError={() => setError(null)}

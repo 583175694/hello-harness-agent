@@ -28,6 +28,7 @@ import {
 import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
+import { Skeleton } from '../../../components/ui/skeleton';
 import { MarkdownContent } from '../../../components/markdown-content';
 import { copyTextToClipboard } from '../../../lib/clipboard';
 import {
@@ -1039,6 +1040,46 @@ function ConversationMessageNavigator({
   );
 }
 
+function ConversationSessionSkeleton() {
+  return (
+    <div className="conversation-scroll-region flex min-h-0 flex-1 flex-col">
+      <ConversationContent
+        className="conversation-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+        aria-busy="true"
+        aria-label="加载会话"
+      >
+        <div className="message-list message-list--static mx-auto w-full max-w-chat conversation-session-skeleton">
+          <div className="message message--user">
+            <div className="user-message-content">
+              <Skeleton className="h-[46px] w-[min(240px,58%)] rounded-[22px]" />
+            </div>
+          </div>
+          <div className="message">
+            <Skeleton className="h-8 w-8 shrink-0 rounded-lg" aria-hidden="true" />
+            <div className="flex min-w-0 flex-1 flex-col gap-2.5 pt-0.5">
+              <Skeleton className="h-3.5 w-[92%]" />
+              <Skeleton className="h-3.5 w-[78%]" />
+              <Skeleton className="h-3.5 w-[64%]" />
+            </div>
+          </div>
+          <div className="message message--user">
+            <div className="user-message-content">
+              <Skeleton className="h-11 w-[min(180px,44%)] rounded-[22px]" />
+            </div>
+          </div>
+          <div className="message">
+            <Skeleton className="h-8 w-8 shrink-0 rounded-lg" aria-hidden="true" />
+            <div className="flex min-w-0 flex-1 flex-col gap-2.5 pt-0.5">
+              <Skeleton className="h-3.5 w-[88%]" />
+              <Skeleton className="h-3.5 w-[72%]" />
+            </div>
+          </div>
+        </div>
+      </ConversationContent>
+    </div>
+  );
+}
+
 // 渲染消息时间线、内联工具活动、错误提示和 Composer。
 export function Conversation({
   state,
@@ -1071,6 +1112,7 @@ export function Conversation({
   onAttachmentRetry,
   onAttachmentCancel,
   scopeKey = 'default',
+  sessionLoading = false,
 }: {
   state: AgentUiState;
   error: string | null;
@@ -1103,6 +1145,8 @@ export function Conversation({
   onAttachmentCancel?: (fileId: string) => void;
   /** 切换会话时变化，用于避免误触发首页输入框过渡动画 */
   scopeKey?: string;
+  /** 会话详情尚未就绪时展示消息区骨架屏，避免误显示新会话 landing */
+  sessionLoading?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
@@ -1293,7 +1337,7 @@ export function Conversation({
   const heroRef = useRef<HTMLDivElement>(null);
   const [heroExiting, setHeroExiting] = useState(false);
 
-  const isLandingSession = renderedConversation.length === 0;
+  const isLandingSession = !sessionLoading && renderedConversation.length === 0;
 
   useLayoutEffect(() => {
     pendingLandingComposerAnimRef.current = false;
@@ -1444,7 +1488,9 @@ export function Conversation({
       aria-label="对话"
     >
       <div ref={shellRef} className="conversation-shell relative flex min-h-0 flex-1 flex-col">
-        {renderedConversation.length > 0 ? (
+        {sessionLoading ? (
+          <ConversationSessionSkeleton />
+        ) : renderedConversation.length > 0 ? (
           <div className="conversation-scroll-region">
             <ConversationMessageNavigator
               anchors={userMessageAnchors}

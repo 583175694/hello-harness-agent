@@ -1,7 +1,37 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { AGENT_UI_COPY } from '../config/ui.constants';
 import { Composer, Conversation } from './conversation';
+
+function renderConversation(
+  props: Partial<ComponentProps<typeof Conversation>> = {},
+): ReturnType<typeof render> {
+  return render(
+    <Conversation
+      state={{ label: 'test', subtitle: '', conversation: [] }}
+      error={null}
+      onDismissError={() => undefined}
+      onFocusWorkbench={() => undefined}
+      prompt=""
+      submitting={false}
+      serviceState="ready"
+      composerMode="new-run"
+      onPromptChange={() => undefined}
+      onSubmit={() => undefined}
+      {...props}
+    />,
+  );
+}
+
+describe('Conversation session loading', () => {
+  it('shows message skeletons instead of the new-session landing', () => {
+    renderConversation({ sessionLoading: true });
+    expect(screen.getByLabelText('加载会话')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText(AGENT_UI_COPY.newSessionWelcome)).not.toBeInTheDocument();
+  });
+});
 
 describe('Composer image paste', () => {
   it('shows a stable file error and routes retry for a failed document', () => {

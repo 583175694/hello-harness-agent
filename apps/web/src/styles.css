@@ -380,6 +380,20 @@ summary:focus-visible {
     transform: translate(-50%, -50%) scale(1);
   }
 }
+.ui-skeleton {
+  border-radius: var(--radius-control, 8px);
+  background: color-mix(in srgb, var(--theme-text-muted) 16%, var(--theme-surface-subtle));
+  animation: ui-skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes ui-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
 .rename-dialog {
   width: min(460px, 100%);
   padding: 20px;

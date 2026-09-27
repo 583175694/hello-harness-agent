@@ -2,11 +2,15 @@ import { ChevronDown, Dot, type LucideIcon } from 'lucide-react';
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type HTMLAttributes,
   type ReactNode,
 } from 'react';
+
+const AUTO_COLLAPSE_DELAY_MS = 1000;
 
 function classes(...values: Array<string | undefined | false>): string {
   return values.filter(Boolean).join(' ');
@@ -15,6 +19,15 @@ function classes(...values: Array<string | undefined | false>): string {
 type ChainContextValue = {
   open: boolean;
   setOpen: (open: boolean, userInitiated?: boolean) => void;
+};
+
+export type ChainOfThoughtProps = HTMLAttributes<HTMLDivElement> & {
+  running?: boolean;
+  defaultOpen?: boolean;
+  /** When true, collapses after final output or when `running` becomes false. */
+  autoCollapse?: boolean;
+  /** Signals that the final assistant reply is visible (streaming or complete). */
+  finalOutputVisible?: boolean;
 };
 
 const ChainContext = createContext<ChainContextValue | null>(null);
@@ -30,14 +43,32 @@ export function ChainOfThought({
   className,
   running = false,
   defaultOpen,
+  autoCollapse = false,
+  finalOutputVisible = false,
   ...props
-}: HTMLAttributes<HTMLDivElement> & { running?: boolean; defaultOpen?: boolean }) {
+}: ChainOfThoughtProps) {
   const [open, setOpenState] = useState(defaultOpen ?? true);
+  const userExpandedRef = useRef(false);
+
+  const setOpen = (next: boolean, userInitiated?: boolean) => {
+    if (userInitiated) {
+      userExpandedRef.current = next;
+    }
+    setOpenState(next);
+  };
+
+  useEffect(() => {
+    if (!autoCollapse) return;
+    const shouldCollapse = finalOutputVisible || !running;
+    if (!shouldCollapse || userExpandedRef.current) return;
+    const timer = window.setTimeout(() => setOpenState(false), AUTO_COLLAPSE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [autoCollapse, finalOutputVisible, running]);
 
   const value = useMemo(
     () => ({
       open,
-      setOpen: (next: boolean) => setOpenState(next),
+      setOpen,
     }),
     [open],
   );

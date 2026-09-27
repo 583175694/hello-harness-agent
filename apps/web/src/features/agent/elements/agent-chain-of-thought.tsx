@@ -113,11 +113,13 @@ export function AgentChainOfThought({
   process,
   workbench,
   running,
+  finalOutputVisible = false,
   onFocusWorkbench,
 }: {
   process: AssistantProcessItem[];
   workbench?: WorkbenchState;
   running: boolean;
+  finalOutputVisible?: boolean;
   onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -132,7 +134,7 @@ export function AgentChainOfThought({
   // 只有进入终态后，才以最后一个已完成工具的时间作为结束点。
   const elapsed = processElapsed(start, end, running, now);
   return (
-    <ChainOfThought running={running}>
+    <ChainOfThought autoCollapse finalOutputVisible={finalOutputVisible} running={running}>
       <ChainOfThoughtHeader>{formatElapsed(elapsed)}</ChainOfThoughtHeader>
       <ChainOfThoughtContent>
         {process.map((item) => {

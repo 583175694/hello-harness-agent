@@ -124,7 +124,7 @@ import { LoginDialog } from './features/auth/login-dialog';
 import { LOGOUT_CONFIRM, useConfirm } from './components/ui/confirm-provider';
 import { toast } from './components/ui/toast';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
-import { AGENT_UI_COPY, SERVICE_STATE_LABELS } from './features/agent/config/ui.constants';
+import { AGENT_UI_COPY, APP_BRAND, SERVICE_STATE_LABELS } from './features/agent/config/ui.constants';
 import { toggleThemePreference, useDocumentTheme } from './theme';
 import {
   Dialog,
@@ -2467,6 +2467,7 @@ function PersistentAgentApp() {
               <ThemeToggle />
             </header>
             <Conversation
+              scopeKey={selectedSessionId ?? 'draft'}
               state={uiState}
               error={error}
               onDismissError={() => setError(null)}
@@ -2818,6 +2819,7 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
               <ThemeToggle />
             </header>
             <Conversation
+              scopeKey="preview"
               state={uiState}
               error={error}
               onDismissError={() => setError(null)}
@@ -2908,6 +2910,7 @@ function Sidebar({
   onRequestLogin?: () => void;
   onLogout?: () => void;
 }) {
+  const theme = useDocumentTheme();
   // 菜单状态同时保存目标会话和视口坐标，避免菜单受侧栏滚动裁剪。
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -3005,16 +3008,13 @@ function Sidebar({
         className={`session-sidebar flex h-screen min-h-screen min-w-0 flex-col overflow-hidden bg-sidebar p-[22px_0_16px_14px] max-[720px]:fixed max-[720px]:inset-y-0 max-[720px]:left-0 max-[720px]:z-20 max-[720px]:w-[min(286px,86vw)] max-[720px]:-translate-x-[102%] max-[720px]:transition-transform ${mobileNavOpen ? 'session-sidebar--open max-[720px]:translate-x-0' : ''}`}
       >
         <div className="brand-row flex items-center gap-2.5 px-2 pb-7 pr-[22px]">
-          <div
-            className="brand-mark grid h-8 w-8 place-items-center rounded-[9px] border border-accent bg-accent text-white"
-            aria-hidden="true"
-          >
-            H
-          </div>
-          <div className="min-w-0">
-            <strong className="block text-brand font-semibold">Harness</strong>
-            <span className="mt-0.5 block text-xs text-text-muted">Agent Workbench</span>
-          </div>
+          <img
+            className="brand-logo h-12 w-auto max-w-[min(240px,calc(100%-36px))] shrink object-contain object-left"
+            src={theme === 'dark' ? APP_BRAND.logoDarkSrc : APP_BRAND.logoLightSrc}
+            alt={APP_BRAND.name}
+            height={48}
+            decoding="async"
+          />
           <button
             className="icon-button close-mobile-nav"
             type="button"

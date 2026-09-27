@@ -8,18 +8,32 @@ export const AGENT_UI_BEHAVIOR = {
   stickToBottomThresholdPx: 32,
   // 超过该数量的纯文本粘贴会作为 TXT 附件上传。
   longPasteThresholdCodePoints: 4_000,
+  // 用户提问数超过该值时，定位条改为按会话进度比例分布的轨道模式。
+  conversationNavCompactMaxAnchors: 28,
+} as const;
+
+/** 面向用户展示的产品品牌信息。 */
+export const APP_BRAND = {
+  name: 'pipishrimp',
+  /** 侧栏左上角：图标 + 字标横版 Logo */
+  logoLightSrc: '/brand/logo-light.png',
+  logoDarkSrc: '/brand/logo-dark.png',
+  /** 全站统一 App 图标（与 apple-touch-icon 同源） */
+  iconAppSrc: '/brand/apple-touch-icon.png',
 } as const;
 
 // 集中维护跨页面重复使用的稳定界面文案。
 export const AGENT_UI_COPY = {
   // 没有持久化会话时显示的默认标题。
   defaultSessionTitle: '新任务',
+  // 新会话空状态欢迎语。
+  newSessionWelcome: '欢迎回来，想从哪里开始？',
   // 搜索 Workbench 的统一任务标题。
   searchWorkbenchTitle: '网页检索',
   // Composer 各运行模式下的输入提示。
   composerPlaceholders: {
     // 普通新任务的输入提示。
-    newRun: '描述你想完成的任务……',
+    newRun: '随便问，图片也可以',
     // 运行中允许 steer 时的输入提示。
     steer: '补充方向，将从下一步骤应用……',
     // 等待用户确认时的输入提示。

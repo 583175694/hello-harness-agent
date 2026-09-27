@@ -249,7 +249,7 @@ describe('R1 workbench shell', () => {
 
   it('renders the production empty state without an empty workbench', async () => {
     await mountProductionApp();
-    expect(screen.getByText('Harness')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'pipishrimp' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '任务输入' })).toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));

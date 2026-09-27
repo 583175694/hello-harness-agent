@@ -328,7 +328,7 @@
   color-scheme: dark;
 }
 
-:root[data-theme='dark'] .brand-mark,
+:root[data-theme='dark'] .brand-mark:not(.brand-mark--logo),
 :root[data-theme='dark'] .primary-button,
 :root[data-theme='dark'] .send-button,
 :root[data-theme='dark'] .preview-switcher__label,

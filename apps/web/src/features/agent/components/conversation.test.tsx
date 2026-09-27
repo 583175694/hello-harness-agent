@@ -59,6 +59,46 @@ describe('Composer image paste', () => {
     expect(screen.queryByText('重试')).not.toBeInTheDocument();
   });
 
+  it('routes dropped files through the attachment callback', () => {
+    const onAttachmentSelected = vi.fn();
+    const { container } = render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentSelected={onAttachmentSelected}
+      />,
+    );
+    const document = new File(['doc'], 'notes.md', { type: 'text/markdown' });
+    fireEvent.drop(container.querySelector('.composer')!, {
+      dataTransfer: { files: [document], items: [] },
+    });
+    expect(onAttachmentSelected).toHaveBeenCalledWith([document]);
+  });
+
+  it('routes clipboard document files through the attachment callback', () => {
+    const onAttachmentSelected = vi.fn();
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentSelected={onAttachmentSelected}
+      />,
+    );
+    const document = new File(['doc'], 'report.pdf', { type: 'application/pdf' });
+    fireEvent.paste(screen.getByRole('textbox', { name: '任务输入' }), {
+      clipboardData: { files: [document], getData: () => '' },
+    });
+    expect(onAttachmentSelected).toHaveBeenCalledWith([document]);
+  });
+
   it('routes clipboard images through the attachment callback', () => {
     const onAttachmentSelected = vi.fn();
     render(
@@ -430,6 +470,79 @@ describe('Composer image paste', () => {
     fireEvent(screen.getByRole('textbox', { name: '任务输入' }), event);
     expect(event.defaultPrevented).toBe(false);
     expect(onAttachmentSelected).not.toHaveBeenCalled();
+  });
+});
+
+describe('Conversation user message navigation', () => {
+  it('shows a tick per user message and jumps when a tick is clicked', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [
+            { id: 'user-1', kind: 'user', content: '第一个问题', createdAt: '2026-09-10T00:00:00.000Z' },
+            {
+              id: 'assistant-1',
+              kind: 'assistant',
+              blocks: [{ id: 'text-1', type: 'text', content: '第一次回答' }],
+            },
+            { id: 'user-2', kind: 'user', content: '第二个问题', createdAt: '2026-09-10T00:01:00.000Z' },
+            {
+              id: 'assistant-2',
+              kind: 'assistant',
+              blocks: [{ id: 'text-2', type: 'text', content: '第二次回答' }],
+            },
+          ],
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+    expect(screen.getByRole('navigation', { name: '对话定位' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '跳转到第 1 条提问' }));
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it('uses proportional track layout when there are many user questions', () => {
+    const conversation = Array.from({ length: 30 }, (_, index) => [
+      {
+        id: `user-${index}`,
+        kind: 'user' as const,
+        content: `问题 ${index + 1}`,
+        createdAt: '2026-09-10T00:00:00.000Z',
+      },
+      {
+        id: `assistant-${index}`,
+        kind: 'assistant' as const,
+        blocks: [{ id: `text-${index}`, type: 'text' as const, content: `回答 ${index + 1}` }],
+      },
+    ]).flat();
+    const { container } = render(
+      <Conversation
+        state={{ label: 'test', subtitle: '', conversation }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+    expect(container.querySelector('.conversation-message-nav--track')).toBeInTheDocument();
+    expect(container.querySelector('.conversation-message-nav__track')).toBeInTheDocument();
   });
 });
 

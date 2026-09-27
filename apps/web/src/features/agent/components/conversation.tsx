@@ -10,12 +10,21 @@ import {
   Paperclip,
   Plus,
   SlidersHorizontal,
-  Sparkles,
   Square,
   Trash2,
   X,
 } from 'lucide-react';
-import { memo, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type FormEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
@@ -77,7 +86,8 @@ import {
   type PendingUserInputView,
 } from '@harness/agent-protocol';
 import { flattenAssistantText } from '../model/conversation-blocks';
-import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
+import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY, APP_BRAND } from '../config/ui.constants';
+import { BrandIcon } from './brand-icon';
 import { getArtifactPreview, getArtifactPreviewUrl, getFilePreview } from '../../../api/client';
 import { presentAssistantBlocks } from '../elements/assistant-message-adapter';
 import { AgentChainOfThought } from '../elements/agent-chain-of-thought';
@@ -195,6 +205,60 @@ function nextPastedTextFileName(attachments: FileRef[]): string {
     const fileName = `pasted-text-${index}.txt`;
     if (!usedNames.has(fileName)) return fileName;
   }
+}
+
+function normalizeAttachmentFileName(file: File, index: number): File {
+  if (file.name) return file;
+  if (file.type.startsWith('image/')) {
+    return new File([file], `pasted-image-${index + 1}.png`, { type: file.type });
+  }
+  return new File([file], `dropped-file-${index + 1}`, {
+    type: file.type || 'application/octet-stream',
+  });
+}
+
+function attachmentFilesFromDataTransfer(dataTransfer: DataTransfer): File[] {
+  const direct = Array.from(dataTransfer.files).filter((file) => file.size > 0);
+  if (direct.length) return direct;
+  const collected: File[] = [];
+  for (const item of Array.from(dataTransfer.items ?? [])) {
+    if (item.kind !== 'file') continue;
+    const file = item.getAsFile();
+    if (file && file.size > 0) collected.push(file);
+  }
+  return collected;
+}
+
+function normalizeAttachmentFiles(files: File[]): File[] {
+  return files.map((file, index) => normalizeAttachmentFileName(file, index));
+}
+
+function dataTransferHasFiles(dataTransfer: DataTransfer): boolean {
+  if (dataTransfer.files?.length) return true;
+  return Array.from(dataTransfer.items ?? []).some((item) => item.kind === 'file');
+}
+
+function handleComposerAttachmentPaste(
+  event: ClipboardEvent,
+  canPasteAttachments: boolean,
+  attachments: FileRef[],
+  onAttachmentSelected?: (files: File[]) => void,
+): void {
+  if (!canPasteAttachments) return;
+  const clipboardFiles = normalizeAttachmentFiles(
+    attachmentFilesFromDataTransfer(event.clipboardData),
+  );
+  if (clipboardFiles.length) {
+    event.preventDefault();
+    onAttachmentSelected?.(clipboardFiles);
+    return;
+  }
+  const text = event.clipboardData.getData('text/plain');
+  if ([...text].length <= AGENT_UI_BEHAVIOR.longPasteThresholdCodePoints) return;
+  event.preventDefault();
+  onAttachmentSelected?.([
+    new File([text], nextPastedTextFileName(attachments), { type: 'text/plain' }),
+  ]);
 }
 
 function fileExtension(fileName: string): string {
@@ -584,7 +648,11 @@ const UserMessage = memo(function UserMessage({
     | null
   >(null);
   return (
-    <Message from="user" className="message message--user flex justify-end gap-3 text-text-primary">
+    <Message
+      from="user"
+      className="message message--user flex justify-end gap-3 text-text-primary"
+      data-user-message-anchor={item.id}
+    >
       <MessageContent className="user-message-content">
         {item.attachments?.length ? (
           <Attachments className="user-attachment-stack">
@@ -691,11 +759,11 @@ const AssistantMessage = memo(
       artifactBlocks.length > 0;
     return (
       <Message from="assistant" className="message message--assistant flex gap-3 text-text-primary">
-        <div className="message-avatar assistant-avatar">
-          <Sparkles size={15} />
+        <div className="message-avatar assistant-avatar assistant-avatar--brand">
+          <BrandIcon size={28} className="assistant-brand-icon" />
         </div>
         <MessageContent className="assistant-content min-w-0 flex-1 text-text-primary">
-          <div className="message-meta">Harness</div>
+          <div className="message-meta">{APP_BRAND.name}</div>
           {item.deliveryStatus === 'cancelled' ? (
             <div className="assistant-delivery-status">本次回答已取消</div>
           ) : item.deliveryStatus === 'failed' ? (
@@ -898,6 +966,79 @@ function FollowUpQueue({
   );
 }
 
+type UserMessageAnchor = { id: string; index: number; order: number };
+
+function fallbackAnchorRatio(index: number, totalCount: number): number {
+  if (totalCount <= 1) return 0;
+  return index / (totalCount - 1);
+}
+
+function ConversationMessageNavigator({
+  anchors,
+  anchorRatios,
+  activeUserMessageId,
+  layout,
+  onNavigate,
+}: {
+  anchors: UserMessageAnchor[];
+  anchorRatios: number[];
+  activeUserMessageId: string | null;
+  layout: 'compact' | 'track';
+  onNavigate: (renderIndex: number) => void;
+}) {
+  const listRef = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    if (layout !== 'compact' || !activeUserMessageId) return;
+    const activeButton = listRef.current?.querySelector(
+      `[data-nav-anchor="${CSS.escape(activeUserMessageId)}"]`,
+    );
+    activeButton?.scrollIntoView({ block: 'nearest' });
+  }, [activeUserMessageId, layout, anchors.length]);
+  if (anchors.length < 2) return null;
+  return (
+    <nav
+      className={`conversation-message-nav${layout === 'track' ? ' conversation-message-nav--track' : ''}`}
+      aria-label="对话定位"
+    >
+      {layout === 'track' ? (
+        <div className="conversation-message-nav__track">
+          {anchors.map((anchor, anchorIndex) => (
+            <button
+              key={anchor.id}
+              type="button"
+              data-nav-anchor={anchor.id}
+              className={`conversation-message-nav__tick conversation-message-nav__tick--track${activeUserMessageId === anchor.id ? ' is-active' : ''}`}
+              style={{ top: `${(anchorRatios[anchorIndex] ?? 0) * 100}%` }}
+              aria-label={`跳转到第 ${anchor.order} 条提问`}
+              aria-current={activeUserMessageId === anchor.id ? 'true' : undefined}
+              onClick={() => onNavigate(anchor.index)}
+            >
+              <span className="conversation-message-nav__tick-line" aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <ol ref={listRef} className="conversation-message-nav__list">
+          {anchors.map((anchor) => (
+            <li key={anchor.id}>
+              <button
+                type="button"
+                data-nav-anchor={anchor.id}
+                className={`conversation-message-nav__tick${activeUserMessageId === anchor.id ? ' is-active' : ''}`}
+                aria-label={`跳转到第 ${anchor.order} 条提问`}
+                aria-current={activeUserMessageId === anchor.id ? 'true' : undefined}
+                onClick={() => onNavigate(anchor.index)}
+              >
+                <span className="conversation-message-nav__tick-line" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </nav>
+  );
+}
+
 // 渲染消息时间线、内联工具活动、错误提示和 Composer。
 export function Conversation({
   state,
@@ -929,6 +1070,7 @@ export function Conversation({
   onAttachmentRemove,
   onAttachmentRetry,
   onAttachmentCancel,
+  scopeKey = 'default',
 }: {
   state: AgentUiState;
   error: string | null;
@@ -959,11 +1101,37 @@ export function Conversation({
   onAttachmentRemove?: (fileId: string) => void;
   onAttachmentRetry?: (fileId: string) => void;
   onAttachmentCancel?: (fileId: string) => void;
+  /** 切换会话时变化，用于避免误触发首页输入框过渡动画 */
+  scopeKey?: string;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerAnchorRef = useRef<HTMLDivElement>(null);
+  const composerMeasureRef = useRef<HTMLDivElement>(null);
+  const landingComposerTopRef = useRef<number | null>(null);
+  const pendingLandingComposerAnimRef = useRef(false);
   const stickToBottomRef = useRef(true);
   const scrollFrameRef = useRef<number | null>(null);
-  const renderedConversation = expandConversation(state.conversation);
+  const renderedConversation = useMemo(
+    () => expandConversation(state.conversation),
+    [state.conversation],
+  );
+  const prevConversationLengthRef = useRef(renderedConversation.length);
+  const userMessageAnchors = useMemo(() => {
+    let order = 0;
+    return renderedConversation.flatMap((item, index) => {
+      if (item.kind !== 'user') return [];
+      order += 1;
+      return [{ id: item.id, index, order }];
+    });
+  }, [renderedConversation]);
+  const [activeUserMessageId, setActiveUserMessageId] = useState<string | null>(null);
+  const [navAnchorRatios, setNavAnchorRatios] = useState<number[]>([]);
+  const navRatioCacheRef = useRef<Map<string, number>>(new Map());
+  const navRatioMeasureFrameRef = useRef<number | null>(null);
+  const conversationNavLayout =
+    userMessageAnchors.length > AGENT_UI_BEHAVIOR.conversationNavCompactMaxAnchors
+      ? 'track'
+      : 'compact';
   const latestAssistantId = [...renderedConversation]
     .reverse()
     .find((item) => item.kind === 'assistant')?.id;
@@ -992,16 +1160,113 @@ export function Conversation({
     },
   });
   function handleComposerSubmit(event: FormEvent<HTMLFormElement>): void {
+    if (renderedConversation.length === 0) {
+      pendingLandingComposerAnimRef.current = true;
+      if (composerMeasureRef.current) {
+        landingComposerTopRef.current = composerMeasureRef.current.getBoundingClientRect().top;
+      }
+    }
     stickToBottomRef.current = true;
     onSubmit(event);
   }
+  const remeasureNavAnchorRatios = useCallback(() => {
+    const scrollNode = scrollRef.current;
+    if (!scrollNode || userMessageAnchors.length === 0) {
+      setNavAnchorRatios([]);
+      return;
+    }
+    const scrollHeight = shouldVirtualize ? virtualizer.getTotalSize() : scrollNode.scrollHeight;
+    if (scrollHeight <= 0) return;
+    const scrollTop = scrollNode.scrollTop;
+    const scrollRectTop = scrollNode.getBoundingClientRect().top;
+    const ratios = userMessageAnchors.map((anchor) => {
+      const element = scrollNode.querySelector(
+        `[data-user-message-anchor="${CSS.escape(anchor.id)}"]`,
+      ) as HTMLElement | null;
+      if (element) {
+        const top = element.getBoundingClientRect().top - scrollRectTop + scrollTop;
+        const ratio = Math.min(1, Math.max(0, top / scrollHeight));
+        navRatioCacheRef.current.set(anchor.id, ratio);
+        return ratio;
+      }
+      return (
+        navRatioCacheRef.current.get(anchor.id) ??
+        fallbackAnchorRatio(anchor.index, renderedConversation.length)
+      );
+    });
+    setNavAnchorRatios(ratios);
+  }, [renderedConversation.length, shouldVirtualize, userMessageAnchors, virtualizer]);
+  const scheduleNavAnchorRatioMeasure = useCallback(() => {
+    if (conversationNavLayout !== 'track') return;
+    if (navRatioMeasureFrameRef.current !== null)
+      cancelAnimationFrame(navRatioMeasureFrameRef.current);
+    navRatioMeasureFrameRef.current = requestAnimationFrame(() => {
+      navRatioMeasureFrameRef.current = null;
+      remeasureNavAnchorRatios();
+    });
+  }, [conversationNavLayout, remeasureNavAnchorRatios]);
+  const syncActiveUserMessage = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node || userMessageAnchors.length === 0) return;
+    const marker = node.getBoundingClientRect().top + 96;
+    let activeId = userMessageAnchors[0]!.id;
+    for (const anchor of userMessageAnchors) {
+      const element = node.querySelector(`[data-user-message-anchor="${CSS.escape(anchor.id)}"]`);
+      if (!element) continue;
+      if (element.getBoundingClientRect().top <= marker) activeId = anchor.id;
+      else break;
+    }
+    setActiveUserMessageId(activeId);
+  }, [userMessageAnchors]);
+  const navigateToUserMessage = useCallback(
+    (renderIndex: number) => {
+      stickToBottomRef.current = false;
+      if (shouldVirtualize) virtualizer.scrollToIndex(renderIndex, { align: 'start' });
+      else {
+        const messageId = renderedConversation[renderIndex]?.id;
+        if (!messageId) return;
+        const element = scrollRef.current?.querySelector(
+          `[data-user-message-anchor="${CSS.escape(messageId)}"]`,
+        );
+        element?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
+      requestAnimationFrame(() => syncActiveUserMessage());
+    },
+    [renderedConversation, shouldVirtualize, syncActiveUserMessage, virtualizer],
+  );
   function handleConversationScroll(): void {
     const node = scrollRef.current;
     if (!node) return;
     stickToBottomRef.current =
       node.scrollHeight - node.scrollTop - node.clientHeight <
       AGENT_UI_BEHAVIOR.stickToBottomThresholdPx;
+    syncActiveUserMessage();
+    scheduleNavAnchorRatioMeasure();
   }
+  useEffect(() => {
+    syncActiveUserMessage();
+    setNavAnchorRatios(
+      userMessageAnchors.map(
+        (anchor) =>
+          navRatioCacheRef.current.get(anchor.id) ??
+          fallbackAnchorRatio(anchor.index, renderedConversation.length),
+      ),
+    );
+    remeasureNavAnchorRatios();
+  }, [renderedConversation.length, remeasureNavAnchorRatios, syncActiveUserMessage]);
+  useEffect(() => {
+    if (conversationNavLayout !== 'track') return undefined;
+    const handleResize = () => scheduleNavAnchorRatioMeasure();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [conversationNavLayout, scheduleNavAnchorRatioMeasure]);
+  useEffect(
+    () => () => {
+      if (navRatioMeasureFrameRef.current !== null)
+        cancelAnimationFrame(navRatioMeasureFrameRef.current);
+    },
+    [],
+  );
   // 在浏览器绘制前同步到底部，避免新 token 先以旧 scrollTop 绘制一帧后再跳动。
   useLayoutEffect(() => {
     if (!stickToBottomRef.current || !scrollRef.current) return;
@@ -1024,143 +1289,263 @@ export function Conversation({
     };
   }, [shouldVirtualize, state.conversation, renderedConversation.length, virtualizer]);
 
+  const shellRef = useRef<HTMLDivElement>(null);
+  const heroRef = useRef<HTMLDivElement>(null);
+  const [heroExiting, setHeroExiting] = useState(false);
+
+  const isLandingSession = renderedConversation.length === 0;
+
+  useLayoutEffect(() => {
+    pendingLandingComposerAnimRef.current = false;
+    prevConversationLengthRef.current = renderedConversation.length;
+    setHeroExiting(false);
+    const anchor = composerAnchorRef.current;
+    if (anchor) {
+      anchor.style.transition = '';
+      anchor.style.transform = '';
+    }
+  }, [scopeKey]);
+
+  useLayoutEffect(() => {
+    if (!isLandingSession) return;
+    const composer = composerMeasureRef.current;
+    if (composer) landingComposerTopRef.current = composer.getBoundingClientRect().top;
+  }, [isLandingSession, prompt, attachments.length, error]);
+
+  useLayoutEffect(() => {
+    const previousCount = prevConversationLengthRef.current;
+    const count = renderedConversation.length;
+
+    const anchor = composerAnchorRef.current;
+    const clearInlineMotion = () => {
+      if (!anchor) return;
+      anchor.style.transition = '';
+      anchor.style.transform = '';
+    };
+
+    if (count === 0) {
+      prevConversationLengthRef.current = count;
+      setHeroExiting(false);
+      clearInlineMotion();
+      return;
+    }
+
+    if (previousCount === 0 && count > 0) {
+      prevConversationLengthRef.current = count;
+      if (!pendingLandingComposerAnimRef.current) {
+        return;
+      }
+      pendingLandingComposerAnimRef.current = false;
+
+      setHeroExiting(true);
+      const measure = composerMeasureRef.current;
+      const landingTop = landingComposerTopRef.current;
+
+      if (anchor && measure && landingTop !== null) {
+        const deltaY = landingTop - measure.getBoundingClientRect().top;
+        if (Math.abs(deltaY) > 2) {
+          anchor.style.transition = 'none';
+          anchor.style.transform = `translate3d(0, ${deltaY}px, 0)`;
+          void anchor.offsetHeight;
+          anchor.style.transition = '';
+          requestAnimationFrame(() => {
+            anchor.style.transform = 'translate3d(0, 0, 0)';
+          });
+          const onTransitionEnd = (event: TransitionEvent) => {
+            if (event.propertyName !== 'transform') return;
+            anchor.removeEventListener('transitionend', onTransitionEnd);
+            clearInlineMotion();
+          };
+          anchor.addEventListener('transitionend', onTransitionEnd);
+          window.setTimeout(clearInlineMotion, 650);
+        }
+      }
+
+      window.setTimeout(() => setHeroExiting(false), 480);
+      return;
+    }
+
+    prevConversationLengthRef.current = count;
+  }, [renderedConversation.length]);
+
+  const composerArea = (
+    <div className="composer-area mx-auto w-full max-w-chat bg-surface pb-6">
+      {error ? (
+        <div className="error-notice" role="alert">
+          <CircleAlert size={17} />
+          <span>{error}</span>
+          {onReconnect ? (
+            <button className="text-button" type="button" onClick={onReconnect}>
+              重新连接
+            </button>
+          ) : null}
+          <button
+            className="icon-button icon-button--small"
+            type="button"
+            aria-label="关闭错误提示"
+            title="关闭错误提示"
+            onClick={onDismissError}
+          >
+            <X size={15} />
+          </button>
+        </div>
+      ) : null}
+      <div className={`composer-wrap ${submitting ? 'is-running' : ''}`}>
+        <PlanFloatingCard
+          plan={state.workbench?.plan}
+          visible={
+            submitting &&
+            ['running', 'queued', 'cancel_requested'].includes(
+              state.workbench?.activityStatus ?? 'running',
+            )
+          }
+        />
+        <FollowUpQueue
+          state={state}
+          pendingInputs={pendingInputs}
+          submitting={submitting}
+          onPromotePending={onPromotePending}
+          onCancelPending={onCancelPending}
+          onSendPending={onSendPending}
+        />
+        <Composer
+          prompt={prompt}
+          submitting={submitting}
+          serviceState={serviceState}
+          mode={composerMode}
+          onPromptChange={onPromptChange}
+          onSubmit={handleComposerSubmit}
+          onCancel={onCancel}
+          activeInterrupt={state.activeInterrupt ?? state.workbench?.activeInterrupt}
+          onClarificationRespond={onClarificationRespond}
+          onApprovalSubmit={onApprovalSubmit}
+          controlState={state.workbench?.activityStatus}
+          reasoningEffort={reasoningEffort}
+          models={models}
+          selectedModel={selectedModel}
+          onModelChange={onModelChange}
+          onReasoningEffortChange={onReasoningEffortChange}
+          attachments={attachments}
+          attachmentUploading={attachmentUploading}
+          onAttachmentSelected={onAttachmentSelected}
+          onAttachmentRemove={onAttachmentRemove}
+          onAttachmentRetry={onAttachmentRetry}
+          onAttachmentCancel={onAttachmentCancel}
+          context={state.context ?? state.workbench?.context}
+        />
+      </div>
+    </div>
+  );
+
   return (
     <AiConversation
       className="conversation flex min-h-0 min-w-0 flex-1 flex-col bg-surface text-text-primary"
       aria-label="对话"
     >
-      <ConversationContent
-        className="conversation-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
-        ref={scrollRef}
-        onScroll={handleConversationScroll}
-        onMouseEnter={(event) => event.currentTarget.classList.add('is-scroll-active')}
-        onMouseLeave={(event) => event.currentTarget.classList.remove('is-scroll-active')}
-      >
-        {renderedConversation.length === 0 ? (
-          <div className="conversation-empty flex min-h-[500px] flex-col items-center justify-center gap-3 text-text-muted">
-            <div className="empty-icon grid h-[50px] w-[50px] place-items-center rounded-xl border border-border bg-surface-subtle text-text-secondary">
-              <Sparkles size={22} />
-            </div>
-            <h1 className="m-0 text-[19px] font-semibold text-text-primary">
-              今天想完成什么任务？
-            </h1>
-          </div>
-        ) : (
-          <div
-            className={`message-list mx-auto w-full max-w-chat ${shouldVirtualize ? '' : 'message-list--static'}`}
-            style={shouldVirtualize ? { height: virtualizer.getTotalSize() } : undefined}
-          >
-            {shouldVirtualize
-              ? virtualizer.getVirtualItems().map((virtualRow) => {
-                  const item = renderedConversation[virtualRow.index];
-                  if (!item) return null;
-                  return (
-                    <div
-                      className="message-list__row"
-                      data-index={virtualRow.index}
-                      key={virtualRow.key}
-                      ref={virtualizer.measureElement}
-                      style={{ transform: `translateY(${virtualRow.start}px)` }}
-                    >
-                      {item.kind === 'user' ? (
-                        <UserMessage item={item} />
-                      ) : (
-                        <AssistantMessage
-                          item={item}
-                          showThinking={
-                            Boolean(item.pending) || (submitting && item.id === latestAssistantId)
-                          }
-                          isAnimating={submitting && item.id === latestAssistantId}
-                          onFocusWorkbench={onFocusWorkbench}
-                        />
-                      )}
-                    </div>
-                  );
-                })
-              : renderedConversation.map((item) => (
-                  <div className="message-list__row message-list__row--static" key={item.id}>
-                    {item.kind === 'user' ? (
-                      <UserMessage item={item} />
-                    ) : (
-                      <AssistantMessage
-                        item={item}
-                        showThinking={
-                          Boolean(item.pending) || (submitting && item.id === latestAssistantId)
-                        }
-                        isAnimating={submitting && item.id === latestAssistantId}
-                        onFocusWorkbench={onFocusWorkbench}
-                      />
-                    )}
-                  </div>
-                ))}
-          </div>
-        )}
-      </ConversationContent>
-      <div className="composer-area mx-auto w-full max-w-chat bg-surface pb-6">
-        {error ? (
-          <div className="error-notice" role="alert">
-            <CircleAlert size={17} />
-            <span>{error}</span>
-            {onReconnect ? (
-              <button className="text-button" type="button" onClick={onReconnect}>
-                重新连接
-              </button>
-            ) : null}
-            <button
-              className="icon-button icon-button--small"
-              type="button"
-              aria-label="关闭错误提示"
-              title="关闭错误提示"
-              onClick={onDismissError}
+      <div ref={shellRef} className="conversation-shell relative flex min-h-0 flex-1 flex-col">
+        {renderedConversation.length > 0 ? (
+          <div className="conversation-scroll-region">
+            <ConversationMessageNavigator
+              anchors={userMessageAnchors}
+              anchorRatios={navAnchorRatios}
+              layout={conversationNavLayout}
+              activeUserMessageId={activeUserMessageId}
+              onNavigate={navigateToUserMessage}
+            />
+            <ConversationContent
+              className="conversation-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+              ref={scrollRef}
+              onScroll={handleConversationScroll}
+              onMouseEnter={(event) => event.currentTarget.classList.add('is-scroll-active')}
+              onMouseLeave={(event) => event.currentTarget.classList.remove('is-scroll-active')}
             >
-              <X size={15} />
-            </button>
+              <div
+                className={`message-list mx-auto w-full max-w-chat ${shouldVirtualize ? '' : 'message-list--static'}`}
+                style={shouldVirtualize ? { height: virtualizer.getTotalSize() } : undefined}
+              >
+                {shouldVirtualize
+                  ? virtualizer.getVirtualItems().map((virtualRow) => {
+                      const item = renderedConversation[virtualRow.index];
+                      if (!item) return null;
+                      return (
+                        <div
+                          className="message-list__row"
+                          data-index={virtualRow.index}
+                          key={virtualRow.key}
+                          ref={virtualizer.measureElement}
+                          style={{ transform: `translateY(${virtualRow.start}px)` }}
+                        >
+                          {item.kind === 'user' ? (
+                            <UserMessage item={item} />
+                          ) : (
+                            <AssistantMessage
+                              item={item}
+                              showThinking={
+                                Boolean(item.pending) ||
+                                (submitting && item.id === latestAssistantId)
+                              }
+                              isAnimating={submitting && item.id === latestAssistantId}
+                              onFocusWorkbench={onFocusWorkbench}
+                            />
+                          )}
+                        </div>
+                      );
+                    })
+                  : renderedConversation.map((item) => (
+                      <div className="message-list__row message-list__row--static" key={item.id}>
+                        {item.kind === 'user' ? (
+                          <UserMessage item={item} />
+                        ) : (
+                          <AssistantMessage
+                            item={item}
+                            showThinking={
+                              Boolean(item.pending) || (submitting && item.id === latestAssistantId)
+                            }
+                            isAnimating={submitting && item.id === latestAssistantId}
+                            onFocusWorkbench={onFocusWorkbench}
+                          />
+                        )}
+                      </div>
+                    ))}
+              </div>
+            </ConversationContent>
           </div>
         ) : null}
-        <div className={`composer-wrap ${submitting ? 'is-running' : ''}`}>
-          <PlanFloatingCard
-            plan={state.workbench?.plan}
-            visible={
-              submitting &&
-              ['running', 'queued', 'cancel_requested'].includes(
-                state.workbench?.activityStatus ?? 'running',
-              )
-            }
-          />
-          <FollowUpQueue
-            state={state}
-            pendingInputs={pendingInputs}
-            submitting={submitting}
-            onPromotePending={onPromotePending}
-            onCancelPending={onCancelPending}
-            onSendPending={onSendPending}
-          />
-          <Composer
-            prompt={prompt}
-            submitting={submitting}
-            serviceState={serviceState}
-            mode={composerMode}
-            onPromptChange={onPromptChange}
-            onSubmit={handleComposerSubmit}
-            onCancel={onCancel}
-            activeInterrupt={state.activeInterrupt ?? state.workbench?.activeInterrupt}
-            onClarificationRespond={onClarificationRespond}
-            onApprovalSubmit={onApprovalSubmit}
-            controlState={state.workbench?.activityStatus}
-            reasoningEffort={reasoningEffort}
-            models={models}
-            selectedModel={selectedModel}
-            onModelChange={onModelChange}
-            onReasoningEffortChange={onReasoningEffortChange}
-            attachments={attachments}
-            attachmentUploading={attachmentUploading}
-            onAttachmentSelected={onAttachmentSelected}
-            onAttachmentRemove={onAttachmentRemove}
-            onAttachmentRetry={onAttachmentRetry}
-            onAttachmentCancel={onAttachmentCancel}
-            context={state.context ?? state.workbench?.context}
-          />
+
+        <div
+          ref={composerAnchorRef}
+          className={
+            isLandingSession
+              ? 'conversation-landing-stack flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-5'
+              : 'composer-anchor relative w-full shrink-0 px-5'
+          }
+        >
+          {isLandingSession ? (
+            <div
+              ref={heroRef}
+              className="conversation-empty-hero flex max-w-full flex-row items-center justify-center gap-3.5 text-left"
+            >
+              <BrandIcon size={40} className="empty-brand-icon empty-brand-icon--inline shrink-0" />
+              <p className="m-0 text-[18px] font-medium leading-snug text-text-primary">
+                {AGENT_UI_COPY.newSessionWelcome}
+              </p>
+            </div>
+          ) : null}
+          <div ref={composerMeasureRef} className="w-full">
+            {composerArea}
+          </div>
         </div>
+
+        {heroExiting ? (
+          <div className="conversation-landing-layer conversation-landing-layer--exit pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-5">
+            <div className="conversation-empty-hero flex max-w-full flex-row items-center justify-center gap-3.5 text-left">
+              <BrandIcon size={40} className="empty-brand-icon empty-brand-icon--inline shrink-0" />
+              <p className="m-0 text-[18px] font-medium leading-snug text-text-primary">
+                {AGENT_UI_COPY.newSessionWelcome}
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
     </AiConversation>
   );
@@ -1216,6 +1601,8 @@ export function Composer({
   context?: RunContextDebug;
 }) {
   const composingRef = useRef(false);
+  const composerDragDepthRef = useRef(0);
+  const [composerDragOver, setComposerDragOver] = useState(false);
   const [interruptState, setInterruptState] = useState<{
     interruptId?: string;
     answer: string;
@@ -1256,6 +1643,14 @@ export function Composer({
     !attachmentUploading &&
     serviceState === 'ready' &&
     controlState !== 'waiting_for_user';
+  const ingestAttachmentFiles = useCallback(
+    (dataTransfer: DataTransfer) => {
+      if (!canPasteAttachments) return;
+      const files = normalizeAttachmentFiles(attachmentFilesFromDataTransfer(dataTransfer));
+      if (files.length) onAttachmentSelected?.(files);
+    },
+    [canPasteAttachments, onAttachmentSelected],
+  );
   useEffect(() => {
     if (!attachmentMenuOpen) return undefined;
     const handleOutsidePointerDown = (event: PointerEvent) => {
@@ -1269,9 +1664,39 @@ export function Composer({
     activeInterrupt?.kind === 'clarification' || activeInterrupt?.kind === 'tool_approval';
   return (
     <PromptInput
-      className="composer rounded-[14px] border-0 bg-surface shadow-composer"
+      className={`composer rounded-[14px] border-0 bg-surface shadow-composer${composerDragOver ? ' is-drag-over' : ''}`}
       onSubmit={onSubmit}
+      onDragEnter={(event) => {
+        if (!canPasteAttachments || !dataTransferHasFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        composerDragDepthRef.current += 1;
+        setComposerDragOver(true);
+      }}
+      onDragLeave={() => {
+        composerDragDepthRef.current -= 1;
+        if (composerDragDepthRef.current <= 0) {
+          composerDragDepthRef.current = 0;
+          setComposerDragOver(false);
+        }
+      }}
+      onDragOver={(event) => {
+        if (!canPasteAttachments || !dataTransferHasFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+      }}
+      onDrop={(event) => {
+        composerDragDepthRef.current = 0;
+        setComposerDragOver(false);
+        if (!canPasteAttachments) return;
+        event.preventDefault();
+        ingestAttachmentFiles(event.dataTransfer);
+      }}
     >
+      {composerDragOver ? (
+        <div className="composer-drop-overlay" aria-hidden="true">
+          拖放文件或图片以添加附件
+        </div>
+      ) : null}
       {activeInterrupt?.kind === 'clarification' ? (
         <div className="composer-hitl-panel composer-confirmation-panel" aria-label="需要补充信息">
           <Confirmation approval={{ id: activeInterrupt.interruptId }} state="approval-requested">
@@ -1554,30 +1979,14 @@ export function Composer({
               mode === 'disabled' || controlState === 'waiting_for_user' || Boolean(activeInterrupt)
             }
             onChange={(event) => onPromptChange(event.target.value)}
-            onPaste={(event) => {
-              if (!canPasteAttachments) return;
-              const imageFiles = Array.from(event.clipboardData.files).filter((file) =>
-                file.type.startsWith('image/'),
-              );
-              if (imageFiles.length) {
-                event.preventDefault();
-                onAttachmentSelected?.(
-                  imageFiles.map((file, index) =>
-                    file.name
-                      ? file
-                      : new File([file], `pasted-image-${index + 1}.png`, { type: file.type }),
-                  ),
-                );
-                return;
-              }
-
-              const text = event.clipboardData.getData('text/plain');
-              if ([...text].length <= AGENT_UI_BEHAVIOR.longPasteThresholdCodePoints) return;
-              event.preventDefault();
-              onAttachmentSelected?.([
-                new File([text], nextPastedTextFileName(attachments), { type: 'text/plain' }),
-              ]);
-            }}
+            onPaste={(event) =>
+              handleComposerAttachmentPaste(
+                event,
+                canPasteAttachments,
+                attachments,
+                onAttachmentSelected,
+              )
+            }
             onCompositionStart={() => {
               composingRef.current = true;
             }}

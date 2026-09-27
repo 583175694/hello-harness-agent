@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-26（**C4-A/B 完成**；**C4-C 从消息添加 MCP** 按 [35-c4 §5.4/§7.3](./35-c4-mcp-client.md) 落地中；Agent 主线高优先级剩余：**C5、K5、C6**）
+> 最后更新：2026-09-28（**C4-A/B 完成**；**C4-C 从消息添加 MCP** 按 [35-c4 §5.4/§7.3](./35-c4-mcp-client.md) 落地中；Agent 主线高优先级剩余：**C5、K5、C6**；**C8 MCP 市场、C9 Skills 市场** 已单列规划，专项文档待建）
 
 ## 1. 当前结论
 
@@ -455,7 +455,7 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 
 > 本节是 Context Engineering 第一阶段之后的执行顺序。规划区分 **Agent Kernel（内核）** 与 **Capability（功能能力）**；Capability 通过统一 Action/Artifact/Source 协议接入，不反向改变 Runtime 语义。编号是规划编号，不表示已经实现。
 >
-> **当前阶段（2026-09-25）**：**C4 为 Capability 主线最新完成项**。**Agent 侧**下一批高优先级仅 **C5 Website Preview、K5 Context Engineering 全面优化、C6 Skills & User Memory**（见 §7.0、§7.4）。**C7 Browser / Computer Use** 排在 **独立客户端集成完成之后**，不纳入当前 Agent 切片。**L6 客户端**不在本节排期。K6/K7 仍为后置治理与交付质量；K5 专项文档待建；写操作继续复用 **K3.2 `tool_approval`** 与 Sandbox 策略。
+> **当前阶段（2026-09-28）**：**C4 为 Capability 主线最新完成项**。**Agent 侧**下一批高优先级仅 **C5 Website Preview、K5 Context Engineering 全面优化、C6 Skills & User Memory**（见 §7.0、§7.4）。**C7** 与 **C8/C9 市场类能力** 均排在 C6 之后，专项文档待建。**C7 Browser / Computer Use** 仍依赖 **独立客户端集成完成**。**L6 客户端**不在本节排期。K6/K7 仍为后置治理与交付质量；K5 专项文档待建；写操作继续复用 **K3.2 `tool_approval`** 与 Sandbox 策略。
 
 ### 7.0 当前 Agent 侧高优先级（共识快照）
 
@@ -547,6 +547,8 @@ C3  Agent Sandbox & Cloud Execution Environment   高优先级
 C4  MCP Client & Tool Ecosystem                   **已闭环（C4-A / C4-B）**（[35-c4-mcp-client.md](./35-c4-mcp-client.md)）
     - C4-A：HTTP MCP、Registry 合并、Run 快照 + generation 护栏、Settings（含折叠卡片、启用/批准 PATCH）、凭证加密、`tool_approval`
     - C4-B（§12.1）：**已落地 + 2026-09-24 手工签字** — B1 Settings（PUT/allowlist、「可用/共」）、B2 instructions→CE、B3 Context/degraded/stale、B4 Host list/read resource（**Tinyfish**）；**不做** stdio / Session 覆盖 / OAuth
+    - C4-C（进行中）：`mcp_add_server` / 从消息添加 MCP（§5.4）
+
 C5  Website Generation & Workbench Preview        **未启动**（C4 之后，**当前 Capability 首选**）
     - HTML/CSS/JS Artifact 生成和版本迭代（生成可运行的网站并支持修改版本）
     - 基于 C3 Agent Sandbox 的构建/校验（在隔离环境中构建并检查网站）
@@ -562,6 +564,14 @@ C7  Browser Use / Computer Use                    **后置**（**客户端集成
     - Computer Use 与客户端侧交互形态一并规划，避免先在 Host/Web 重复造「远程桌面」体验
     - 先支持公开网页和受限流程，再扩展登录态和写操作；统一 **K6** 页面写策略 **后置**
     - C7 原「Notes / TODO / Memory」中的 Memory 已前移到 **C6**；Notes/TODO 文件不在路线内
+
+C8  MCP Marketplace                               **规划，未启动**（C 系列后置；专项文档待建）
+    - MCP 连接器/Server 的发现、目录与安装体验（在 C4 Host Client 之上；不改变 DB+reconcile 事实源）
+    - 与 C4 Settings、`mcp_add_server`、K5 大 catalog 暴露策略有依赖关系；**非**通用 runtime 插件商店（与 [00-agent-core-roadmap](./00-agent-core-roadmap.md) 一致）
+
+C9  Skills Marketplace                            **规划，未启动**（C 系列后置；专项文档待建）
+    - 可安装 Skills/能力包的发现与分发（依赖 **C6** 本体语义；**非** IDE 插件热加载、**非**远程 Nest 工具市场）
+    - 与 C8 分轨：C8 偏工具/MCP 扩展，C9 偏工作流与能力组合
 ```
 
 文件和图片上传共享同一 Artifact/Source 底座；Artifact 生成依赖文件和结构化产物模型；Website Generation 依赖 Artifact、C3 Agent Sandbox 和 Workbench Preview；Browser/Computer Use 的执行引擎仍在 C3 Sandbox（C3-D），产品语义属于 **C7（后置）**。MCP 接入时保持 **Registry + 现有 HITL**；**K6** 全量 Policy 在 Capability 形态稳定后收口；Context 膨胀与大 catalog 见 **K5（当前高优先级）**。
@@ -575,6 +585,7 @@ L1  Retrieved Image Rendering                    低优先级
 L2  Third-party Connectors                       低优先级
     - GitHub、Notion、Slack、钉钉、飞书、Drive、邮箱、Jira 等
     - 优先通过 MCP 接入；受资质、授权和维护成本影响，暂不作为核心前置
+    - 目录与一键安装类体验见 **C8 MCP Marketplace**，不在 L2 重复展开
 
 L3  Background Tasks / Schedule                  低优先级
     - 定时任务、后台运行、通知、长期监控和 Gateway/Queue 能力
@@ -615,6 +626,10 @@ K3 Control & HITL Kernel（基本完成）
 【Capability 后置（客户端就绪后）】
   -> C7 Browser Use / Computer Use（C3-D 底座已具备）
 
+【Capability 后置（市场与生态，专项文档待建）】
+  -> C8 MCP Marketplace（建议在 C4-C 稳定、K5 推进后）
+  -> C9 Skills Marketplace（建议在 C6 本体落地后）
+
 【后置：治理与交付质量】
   -> K6 Side-effect Policy & Governance（MCP/C7/Sandbox 写能力统一 Policy 与审计）
   -> K7 Evidence / Citation / Completion Verification（报告/回答引用与交付检查）
@@ -628,7 +643,7 @@ K3 Control & HITL Kernel（基本完成）
   -> L6 Desktop / Mobile（独立排期；完成后启动 C7）
 ```
 
-第三方连接器优先走 C4 MCP；Background Tasks 非当前前置；L5 控制台最后建设。
+第三方连接器优先走 C4 MCP；**C8/C9** 为后置市场类 Capability，不改变 Host MCP 主架构；Background Tasks 非当前前置；L5 控制台最后建设。
 
 本阶段的产品目标是建设 **AI Agent 工作台（Host + Web）**：用户可以输入文字、文件和图片，Agent 在可控、可恢复、可验证的 Task Loop 中调用内置工具、Agent Sandbox、MCP，并生成回答、报告、表格或可预览网站；**Browser/Computer Use 与独立客户端**在 Agent 能力就绪后复用同一套 canonical protocol，但不阻塞当前 C5/K5/C6 切片。
 

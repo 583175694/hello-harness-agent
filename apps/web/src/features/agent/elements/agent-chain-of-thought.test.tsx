@@ -78,6 +78,35 @@ describe('AgentChainOfThought elapsed time', () => {
     expect(screen.getByRole('button', { name: '已用时 41 秒' })).toBeInTheDocument();
   });
 
+  it('collapses when final output is visible and the stream has finished', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-21T00:00:02.000Z'));
+    const { rerender } = render(
+      <AgentChainOfThought
+        process={process}
+        running
+        onFocusWorkbench={() => undefined}
+      />,
+    );
+
+    const header = screen.getByRole('button', { name: /^已用时/ });
+    expect(header).toHaveAttribute('aria-expanded', 'true');
+
+    rerender(
+      <AgentChainOfThought
+        process={process}
+        running={false}
+        finalOutputVisible
+        onFocusWorkbench={() => undefined}
+      />,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('uses the last completed tool time after the assistant reaches a terminal state', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-21T00:00:40.000Z'));

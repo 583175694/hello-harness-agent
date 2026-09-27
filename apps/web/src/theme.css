@@ -146,6 +146,11 @@
   box-shadow: var(--h-elevation-prominent);
 }
 
+@utility shadow-composer {
+  border: 1px solid var(--theme-composer-border);
+  box-shadow: var(--h-elevation-soft);
+}
+
 :root {
   color-scheme: light;
 

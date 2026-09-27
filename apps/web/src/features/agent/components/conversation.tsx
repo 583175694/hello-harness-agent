@@ -1299,10 +1299,10 @@ export function Conversation({
     pendingLandingComposerAnimRef.current = false;
     prevConversationLengthRef.current = renderedConversation.length;
     setHeroExiting(false);
-    const anchor = composerAnchorRef.current;
-    if (anchor) {
-      anchor.style.transition = '';
-      anchor.style.transform = '';
+    const measure = composerMeasureRef.current;
+    if (measure) {
+      measure.style.transition = '';
+      measure.style.transform = '';
     }
   }, [scopeKey]);
 
@@ -1316,11 +1316,11 @@ export function Conversation({
     const previousCount = prevConversationLengthRef.current;
     const count = renderedConversation.length;
 
-    const anchor = composerAnchorRef.current;
+    const measureEl = composerMeasureRef.current;
     const clearInlineMotion = () => {
-      if (!anchor) return;
-      anchor.style.transition = '';
-      anchor.style.transform = '';
+      if (!measureEl) return;
+      measureEl.style.transition = '';
+      measureEl.style.transform = '';
     };
 
     if (count === 0) {
@@ -1333,6 +1333,7 @@ export function Conversation({
     if (previousCount === 0 && count > 0) {
       prevConversationLengthRef.current = count;
       if (!pendingLandingComposerAnimRef.current) {
+        clearInlineMotion();
         return;
       }
       pendingLandingComposerAnimRef.current = false;
@@ -1341,22 +1342,22 @@ export function Conversation({
       const measure = composerMeasureRef.current;
       const landingTop = landingComposerTopRef.current;
 
-      if (anchor && measure && landingTop !== null) {
+      if (measureEl && measure && landingTop !== null) {
         const deltaY = landingTop - measure.getBoundingClientRect().top;
         if (Math.abs(deltaY) > 2) {
-          anchor.style.transition = 'none';
-          anchor.style.transform = `translate3d(0, ${deltaY}px, 0)`;
-          void anchor.offsetHeight;
-          anchor.style.transition = '';
+          measureEl.style.transition = 'none';
+          measureEl.style.transform = `translate3d(0, ${deltaY}px, 0)`;
+          void measureEl.offsetHeight;
+          measureEl.style.transition = '';
           requestAnimationFrame(() => {
-            anchor.style.transform = 'translate3d(0, 0, 0)';
+            measureEl.style.transform = 'translate3d(0, 0, 0)';
           });
           const onTransitionEnd = (event: TransitionEvent) => {
             if (event.propertyName !== 'transform') return;
-            anchor.removeEventListener('transitionend', onTransitionEnd);
+            measureEl.removeEventListener('transitionend', onTransitionEnd);
             clearInlineMotion();
           };
-          anchor.addEventListener('transitionend', onTransitionEnd);
+          measureEl.addEventListener('transitionend', onTransitionEnd);
           window.setTimeout(clearInlineMotion, 650);
         }
       }
@@ -1517,7 +1518,7 @@ export function Conversation({
           className={
             isLandingSession
               ? 'conversation-landing-stack flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-5'
-              : 'composer-anchor relative w-full shrink-0 px-5'
+              : 'composer-anchor relative mt-auto flex w-full shrink-0 justify-center px-5'
           }
         >
           {isLandingSession ? (
@@ -1531,7 +1532,7 @@ export function Conversation({
               </p>
             </div>
           ) : null}
-          <div ref={composerMeasureRef} className="w-full">
+          <div ref={composerMeasureRef} className="composer-measure mx-auto w-full">
             {composerArea}
           </div>
         </div>
@@ -1664,7 +1665,7 @@ export function Composer({
     activeInterrupt?.kind === 'clarification' || activeInterrupt?.kind === 'tool_approval';
   return (
     <PromptInput
-      className={`composer rounded-[14px] border-0 bg-surface shadow-composer${composerDragOver ? ' is-drag-over' : ''}`}
+      className={`composer rounded-[14px] bg-surface${composerDragOver ? ' is-drag-over' : ''}`}
       onSubmit={onSubmit}
       onDragEnter={(event) => {
         if (!canPasteAttachments || !dataTransferHasFiles(event.dataTransfer)) return;

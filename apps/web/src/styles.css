@@ -764,19 +764,28 @@ summary:focus-visible {
 .conversation-landing-stack {
   width: 100%;
 }
-.conversation-landing-stack,
-.composer-anchor {
+.composer-measure {
+  width: 100%;
+  max-width: var(--h-chat-content-width);
   transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: transform;
+}
+.composer-anchor {
+  margin-top: auto;
 }
 @media (prefers-reduced-motion: reduce) {
-  .conversation-landing-stack,
-  .composer-anchor {
+  .composer-measure {
     transition: none;
   }
   .conversation-landing-layer {
     transition: none;
   }
+}
+.ai-prompt-input.composer {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--theme-composer-border);
+  box-shadow: var(--h-elevation-soft);
 }
 .message-meta {
   margin: 1px 0 6px;

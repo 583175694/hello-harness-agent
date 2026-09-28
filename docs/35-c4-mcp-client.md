@@ -1,7 +1,7 @@
 # C4：Host MCP Client 与工具生态扩展
 
-> 文档状态：**C4 完成（C4-A / C4-B）**；**C4-C（从消息添加 MCP）** 按 §5.4 / §7.3 实施中  
-> 最后更新：2026-09-26（§5.4 方案冻结 + C4-C Tool 落点；Capability 见 [implementation-status](./implementation-status.md)）  
+> 文档状态：**C4 完成（C4-A / C4-B / C4-C）**  
+> 最后更新：2026-09-28（C4-C `mcp_add_server` 落地；Capability 见 [implementation-status](./implementation-status.md)）  
 > 关联：[implementation-status §7](./implementation-status.md)、[33-c3 §7](./33-c3-agent-sandbox-cloud-execution.md)  
 > 外部参考（只读对照）：DSH `docs/subsystems/mcp.md`、`dsh-mcp-client`；Codex 开源 `codex-rs/codex-mcp`、`core/src/mcp_tool_call.rs`
 
@@ -666,7 +666,7 @@ flowchart TB
 
 **C4-B 不做清单（近期）**：stdio、Session 级 MCP 覆盖、OAuth、SSE `mcp_server_status`、MCP 图片 Attachment、Tool Search / deferred（→ 后续 Kernel K5）。
 
-### 7.3 C4-C — 从消息添加 MCP（**实施中**）
+### 7.3 C4-C — 从消息添加 MCP（**已落地**）
 
 **目标**：在不动 C4-A/B 主链路的前提下，为「不懂 Settings / JSON」的用户提供 **对话内添加 HTTP MCP Server** 能力；配置仍 **user scope + DB + reconcile**。
 
@@ -674,7 +674,7 @@ flowchart TB
 | --- | --- |
 | 协议 | `mcpAddServerAgentInputSchema`、`mcpAddServerResultSchema`；`AGENT_TOOL_NAMES.mcpAddServer` |
 | Tool | `mcp_add_server`：`McpAddServerService` → `McpAdminService.createServer` + `probeConfig`；SSRF；同名幂等 / 异配置拒绝；**识别在模型 + Tool description** |
-| 默认 | 新建：`enabled=true`、`required=false`、`defaultApproval=auto_execute`；两 Tool 本身 `auto_execute`（添加动作免审批） |
+| 默认 | 新建：`enabled=true`、`required=false`、`defaultApproval=auto_execute`；`mcp_add_server` 本身 `auto_execute`（添加动作免审批） |
 | 测试 | `mcp-url-security`、`mcp-config-secrets` 单测；集成测可 mock Admin |
 | 非目标 | stdio、执行 npx/shell、平台级 Server 目录、OAuth、Marketplace |
 
@@ -812,7 +812,7 @@ C4-A 建议新加的 server 默认 **false**；只有关键集成才勾 true。
 | K5 Tool Exposure / search + hydrate | 📋 后续 Kernel（非 C4） |
 | 11-api-protocol MCP 章与 B1 UI 对齐 | ✅（§15 + `toolCountExposed`/`Total`） |
 | C4-B 手工验收（Workbench + Settings） | ✅ §12.1（2026-09-24） |
-| C4-C 对话内 `mcp_add_server`（模型识别 + Host 校验落库） | 🚧 见 §7.3 |
+| C4-C 对话内 `mcp_add_server`（模型识别 + Host 校验落库） | ✅ 见 §7.3、§12.2 |
 | ModelScope / marketplace 自动导入 | ❌ 非 C4 |
 | K6 统一 Policy 平台 | ❌ 后置；C4 用 K3.2 + server `defaultApproval` |
 
@@ -830,9 +830,22 @@ C4-A 建议新加的 server 默认 **false**；只有关键集成才勾 true。
 | B3 | 改 allowlist 后 **新开 Run** 对齐 | ✅ | gen/toolCount 与 definitions 更新 |
 | B4 | `list_mcp_resources` + `read_mcp_resource` | ✅ | **Tinyfish** → `ui://tinyfish/automation`（MCP App HTML）；非 `mcp__*` 注册 |
 
-**C4 结论**：C4-A/B 代码与上述手工项通过；**Capability C4 完成**。
+**C4-B 结论**：C4-A/B 代码与上述手工项通过。
 
 **仍可有意的二期项**：MCP 图片 → Attachment、进程外 Run 恢复时的 MCP 快照持久化、stdio MCP（单独立项）。
+
+### 12.2 C4-C 验收（2026-09-28）
+
+实现提交：`0b4e19c`（`McpAddServerTool`、`McpAddServerService`、`mcp-url-security`、`mcp-config-secrets`、协议 schema）。
+
+| 项 | 结果 | 备注 |
+| --- | --- | --- |
+| 协议与注册 | ✅ | `mcpAddServerAgentInputSchema` / `mcpAddServerResultSchema`；`tool-catalog` |
+| Host 写入 | ✅ | `createServer` + `reconcile` + `probeConfig`；SSRF / 幂等 / 异配置拒绝 |
+| 单测 | ✅ | `mcp-url-security`、`mcp-config-secrets`；`pnpm --filter @harness/api test` 通过 |
+| 手工对话冒烟 | 📋 可选 | 粘贴 TinyFish/JSON → Settings 可见 → 下一 Run 可调 MCP；未单独签字时可补 |
+
+**C4 结论**：C4-A/B/C 代码与 §5.4 完成标准对齐；**Capability C4 闭环**。后续大 catalog 按需暴露见 **K5**，非 C4 范围。
 
 ---
 

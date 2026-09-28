@@ -291,8 +291,8 @@ export class ArtifactsService {
     }
   }
 
-  async getReport(userId: string, reportId: string) {
-    const report = await this.prisma.report.findFirst({ where: { id: reportId, userId }, include: { artifact: { include: { file: true, series: true } } } });
+  async getReport(_userId: string, reportId: string) {
+    const report = await this.prisma.report.findFirst({ where: { id: reportId }, include: { artifact: { include: { file: true, series: true } } } });
     if (!report) throw new NotFoundException({ code: AGENT_ERROR_CODES.reportNotFound, detail: '报告不存在。' });
     if (report.status === 'deleted') throw new BadRequestException({ code: AGENT_ERROR_CODES.reportDeleted, detail: '报告已删除。' });
     return { report: this.reportRef(report), artifact: this.toRef(report.artifact), file: this.files.toPublicRef(report.artifact.file, false, { artifactId: report.artifact.id }) };
@@ -307,15 +307,15 @@ export class ArtifactsService {
     return { deletedReportId: report.id, deletedArtifactId: report.artifactId };
   }
 
-  async get(userId: string, artifactId: string) {
-    const artifact = await this.findOwned(userId, artifactId);
+  async get(_userId: string, artifactId: string) {
+    const artifact = await this.findSharedReadable(artifactId);
     if (artifact.status === 'deleted') throw this.deleted();
     return this.toRef(artifact);
   }
 
-  async getSeries(userId: string, seriesId: string): Promise<ArtifactSeriesRef> {
+  async getSeries(_userId: string, seriesId: string): Promise<ArtifactSeriesRef> {
     const series = await this.prisma.artifactSeries.findFirst({
-      where: { id: seriesId, userId },
+      where: { id: seriesId },
       include: {
         artifacts: {
           where: { status: 'ready' },
@@ -428,7 +428,7 @@ export class ArtifactsService {
   }
 
   async preview(userId: string, artifactId: string) {
-    const artifact = await this.findOwned(userId, artifactId);
+    const artifact = await this.findSharedReadable(artifactId);
     if (artifact.status === 'deleted') throw this.deleted();
     if (artifact.status !== 'ready') throw new BadRequestException({ code: AGENT_ERROR_CODES.fileNotReady, detail: '产物尚未准备好。' });
     const result = await this.files.preview(userId, artifact.fileId);
@@ -444,7 +444,7 @@ export class ArtifactsService {
   }
 
   async download(userId: string, artifactId: string) {
-    const artifact = await this.findOwned(userId, artifactId);
+    const artifact = await this.findSharedReadable(artifactId);
     if (artifact.status === 'deleted') throw this.deleted();
     if (artifact.status !== 'ready' || !artifact.file.originalKey)
       throw new BadRequestException({ code: AGENT_ERROR_CODES.fileNotReady, detail: '产物尚未准备好。' });
@@ -526,6 +526,15 @@ export class ArtifactsService {
   private async findOwned(userId: string, id: string) {
     const artifact = await this.prisma.artifact.findFirst({
       where: { id, userId },
+      include: { file: true, series: true },
+    });
+    if (!artifact) throw new NotFoundException({ code: AGENT_ERROR_CODES.artifactNotFound, detail: '产物不存在。' });
+    return artifact;
+  }
+
+  private async findSharedReadable(id: string) {
+    const artifact = await this.prisma.artifact.findFirst({
+      where: { id },
       include: { file: true, series: true },
     });
     if (!artifact) throw new NotFoundException({ code: AGENT_ERROR_CODES.artifactNotFound, detail: '产物不存在。' });

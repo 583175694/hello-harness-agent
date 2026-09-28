@@ -319,7 +319,7 @@ export class RunCommandService {
 
   // 请求取消 Run，并根据当前执行位置选择立即终止或交给 Executor 收尾。
   async cancel(runId: string, userId: string) {
-    const snapshot = await this.repository.snapshot(runId, userId);
+    const snapshot = await this.repository.snapshot(runId, userId, { requireOwnership: true });
     if (!snapshot) this.notFound();
     if (
       snapshot.status === 'completed' ||

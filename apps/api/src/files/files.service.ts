@@ -799,7 +799,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
 
   // 返回脱敏后的公共文件引用。
   async get(userId: string, fileId: string) {
-    return this.toPublicRef(await this.findOwned(userId, fileId), true);
+    return this.toPublicRef(await this.findSharedReadable(userId, fileId), true);
   }
 
   // 从原始对象重新进入解析流程。
@@ -844,7 +844,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   // 图片返回短期地址，文本类文件从 COS 读取规范化正文供受限预览。
   async preview(userId: string, fileId: string) {
     // 图片返回短期 URL，文本返回受限的规范化正文预览。
-    const file = await this.findOwned(userId, fileId);
+    const file = await this.findSharedReadable(userId, fileId);
     if (file.status !== 'ready')
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
     if (file.fileKind !== 'image') {
@@ -1130,14 +1130,13 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
   // 通过 fileId 校验归属后生成读取地址。
   async readUrlById(fileId: string) {
-    const row = await this.findFileById(fileId);
-    const file = await this.findReadyForOwner(row.userId, fileId);
+    const file = await this.findReadyForSharedReadable('', fileId);
     return this.readUrl(file);
   }
 
   // 本地存储专用读取路径，生产 COS 不经过这里。
   async localContent(userId: string, fileId: string, variant: FileVariant) {
-    const file = await this.findReadyForOwner(userId, fileId);
+    const file = await this.findReadyForSharedReadable(userId, fileId);
     if (!(this.storage instanceof LocalFileStorage))
       throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件内容不存在。' });
     const result = await this.storage.readObject({
@@ -1170,6 +1169,27 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
       });
     return file;
   }
+
+  // 会话链接分享：已登录用户凭 fileId 可读会话内附件（与 session detail 同能力边界）。
+  private async findSharedReadable(_userId: string, fileId: string) {
+    const file = await this.prisma.file.findFirst({ where: { id: fileId } });
+    if (!file) throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件不存在。' });
+    if (file.errorCode === AGENT_ERROR_CODES.artifactDeleted)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.artifactDeleted,
+        detail: '产物已删除。',
+      });
+    return file;
+  }
+
+  // 只有 ready 且存在原始对象的文件才能被读取。
+  private async findReadyForSharedReadable(userId: string, fileId: string) {
+    const file = await this.findSharedReadable(userId, fileId);
+    if (file.status !== 'ready' || !file.originalKey)
+      throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
+    return file;
+  }
+
   // 只有 ready 且存在原始对象的文件才能被读取。
   private async findReadyForOwner(userId: string, fileId: string) {
     const file = await this.findOwned(userId, fileId);

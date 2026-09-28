@@ -296,6 +296,19 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private async findReadableRun(
+    runId: string,
+    userId?: string,
+    requireOwnership?: boolean,
+  ) {
+    if (requireOwnership && userId) return this.findOwned(runId, userId);
+    if (userId) {
+      const owned = await this.findOwned(runId, userId);
+      if (owned) return owned;
+    }
+    return this.findOwnedInternal(runId);
+  }
+
   // Executor 内部使用：不校验 HTTP 用户，但返回 session.userId。
   async findOwnedInternal(runId: string) {
     return this.prisma.agentRun.findFirst({
@@ -335,9 +348,13 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
   }
 
   // 从数据库中的 Run 和 Assistant Draft 组装可返回给客户端的 Snapshot。
-  async snapshot(runId: string, userId?: string): Promise<RunSnapshot | undefined> {
+  async snapshot(
+    runId: string,
+    userId?: string,
+    options?: { requireOwnership?: boolean },
+  ): Promise<RunSnapshot | undefined> {
     // PostgreSQL 保存完整 UI Snapshot，不保存可重放 Runtime Event Log。
-    const run = userId ? await this.findOwned(runId, userId) : await this.findOwnedInternal(runId);
+    const run = await this.findReadableRun(runId, userId, options?.requireOwnership);
     if (!run) return undefined;
     const message = run.messages.find((item) => item.id === run.assistantMessageId);
     const metadata = assistantAgentMetadataSchema.safeParse(this.metadata(message?.metadata));

@@ -76,9 +76,10 @@ export class SessionsService implements OnModuleInit {
 
   // 返回会话及按创建顺序排列的全部普通消息。
   // 查询会话消息及附件元数据，生成可供 Web 恢复的会话详情。
-  async detail(userId: string, sessionId: string): Promise<SessionDetailResponse> {
+  // 任意已登录用户凭 sessionId 可读（链接分享）；写操作仍走 requireOwned。
+  async detail(_userId: string, sessionId: string): Promise<SessionDetailResponse> {
     const session = await this.prisma.session.findFirst({
-      where: { id: sessionId, userId },
+      where: { id: sessionId },
       include: {
         messages: {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],

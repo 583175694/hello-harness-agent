@@ -1462,6 +1462,86 @@ describe('R1 workbench shell', () => {
     expect(screen.getByText('持久化检索')).toBeInTheDocument();
   });
 
+  it('opens a shared session from URL when it is not in the sidebar list', async () => {
+    const shared = {
+      id: 'shared-session',
+      title: '他人分享的会话',
+      status: 'active',
+      isPinned: false,
+      createdAt: '2026-08-05T04:00:00.000Z',
+      updatedAt: '2026-08-05T04:10:00.000Z',
+    };
+    const own = {
+      id: 'own-session',
+      title: '我的会话',
+      status: 'active',
+      isPinned: false,
+      createdAt: '2026-08-05T03:00:00.000Z',
+      updatedAt: '2026-08-05T03:30:00.000Z',
+    };
+    window.history.replaceState({}, '', '/agent?session=shared-session');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        const auth = authMeFetch(url);
+        if (auth) return Promise.resolve(auth);
+        if (url.endsWith('/api/agent/config/public'))
+          return Promise.resolve(new Response(JSON.stringify(publicModelConfig)));
+        if (url.endsWith('/readyz'))
+          return Promise.resolve(
+            new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' })),
+          );
+        if (url.endsWith('/api/agent/sessions/shared-session')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                session: {
+                  ...shared,
+                  messages: [
+                    {
+                      id: 'shared-user',
+                      sessionId: shared.id,
+                      role: 'user',
+                      kind: 'user_message',
+                      content: '分享的问题',
+                      createdAt: shared.createdAt,
+                      metadata: {},
+                    },
+                    {
+                      id: 'shared-assistant',
+                      sessionId: shared.id,
+                      role: 'assistant',
+                      kind: 'assistant_delivery',
+                      content: '分享可见的回答。',
+                      createdAt: shared.updatedAt,
+                      metadata: { deliveryStatus: 'completed', blocks: [] },
+                    },
+                  ],
+                  pendingUserInputs: [],
+                  artifactSeries: [],
+                  activeRun: null,
+                },
+              }),
+            ),
+          );
+        }
+        if (url.endsWith('/api/agent/sessions')) {
+          return Promise.resolve(new Response(JSON.stringify({ sessions: [own] })));
+        }
+        return Promise.resolve(new Response('{}', { status: 404 }));
+      }),
+    );
+
+    render(<App />);
+    await waitForProductionShell();
+    await waitFor(() => expect(screen.getByText('分享可见的回答。')).toBeInTheDocument());
+    expect(window.location.search).toBe('?session=shared-session');
+    expect(screen.queryByRole('button', { name: '他人分享的会话' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '我的会话' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: '任务输入' })).not.toBeInTheDocument();
+  });
+
   it('recovers tools and legacy Steer blocks independently after refresh', async () => {
     const restored = {
       id: 'legacy-steer-session',

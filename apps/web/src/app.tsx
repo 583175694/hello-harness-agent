@@ -1644,12 +1644,21 @@ function PersistentAgentApp() {
         setServiceState('ready');
         setSessions(loadedSessions);
         const requestedId = new URLSearchParams(window.location.search).get('session');
-        const target =
-          loadedSessions.find((session) => session.id === requestedId) ?? loadedSessions[0];
-        if (target) {
-          setSelectedSession(target.id);
-          updateSessionUrl(target.id, true);
-          void loadSessionDetail(target.id);
+        const ownedTarget = requestedId
+          ? loadedSessions.find((session) => session.id === requestedId)
+          : undefined;
+        if (ownedTarget) {
+          setSelectedSession(ownedTarget.id);
+          updateSessionUrl(ownedTarget.id, true);
+          void loadSessionDetail(ownedTarget.id);
+        } else if (requestedId) {
+          setSelectedSession(requestedId);
+          updateSessionUrl(requestedId, true);
+          void loadSessionDetail(requestedId);
+        } else if (loadedSessions[0]) {
+          setSelectedSession(loadedSessions[0].id);
+          updateSessionUrl(loadedSessions[0].id, true);
+          void loadSessionDetail(loadedSessions[0].id);
         } else {
           updateSessionUrl(null, true);
         }
@@ -2340,6 +2349,9 @@ function PersistentAgentApp() {
   }
 
   // 以下派生状态统一决定当前 Conversation、Composer 和 Workbench 布局。
+  const isSharedSessionView = Boolean(
+    selectedSessionId && !sessions.some((session) => session.id === selectedSessionId),
+  );
   const uiState = selectedSessionId
     ? (sessionStates[selectedSessionId] ?? {
         label: sessions.find((session) => session.id === selectedSessionId)?.title ?? '加载中…',
@@ -2510,6 +2522,7 @@ function PersistentAgentApp() {
               prompt={prompt}
               submitting={submitting}
               serviceState={serviceState}
+              hideComposer={isSharedSessionView}
               composerMode={submitting && !uiState.activeInterrupt ? 'steer' : 'new-run'}
               pendingInputs={pendingInputs}
               onPromotePending={

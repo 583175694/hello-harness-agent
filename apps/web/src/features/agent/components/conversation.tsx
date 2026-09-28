@@ -1113,6 +1113,7 @@ export function Conversation({
   onAttachmentCancel,
   scopeKey = 'default',
   sessionLoading = false,
+  hideComposer = false,
 }: {
   state: AgentUiState;
   error: string | null;
@@ -1147,6 +1148,8 @@ export function Conversation({
   scopeKey?: string;
   /** 会话详情尚未就绪时展示消息区骨架屏，避免误显示新会话 landing */
   sessionLoading?: boolean;
+  /** 链接分享只读：不展示底部输入区 */
+  hideComposer?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
@@ -1413,74 +1416,80 @@ export function Conversation({
     prevConversationLengthRef.current = count;
   }, [renderedConversation.length]);
 
+  const errorNotice = error ? (
+    <div className="error-notice" role="alert">
+      <CircleAlert size={17} />
+      <span>{error}</span>
+      {onReconnect ? (
+        <button className="text-button" type="button" onClick={onReconnect}>
+          重新连接
+        </button>
+      ) : null}
+      <button
+        className="icon-button icon-button--small"
+        type="button"
+        aria-label="关闭错误提示"
+        title="关闭错误提示"
+        onClick={onDismissError}
+      >
+        <X size={15} />
+      </button>
+    </div>
+  ) : null;
+
   const composerArea = (
     <div className="composer-area mx-auto w-full max-w-chat bg-surface pb-6">
-      {error ? (
-        <div className="error-notice" role="alert">
-          <CircleAlert size={17} />
-          <span>{error}</span>
-          {onReconnect ? (
-            <button className="text-button" type="button" onClick={onReconnect}>
-              重新连接
-            </button>
-          ) : null}
-          <button
-            className="icon-button icon-button--small"
-            type="button"
-            aria-label="关闭错误提示"
-            title="关闭错误提示"
-            onClick={onDismissError}
-          >
-            <X size={15} />
-          </button>
+      {errorNotice}
+      {hideComposer ? null : (
+        <div className={`composer-wrap ${submitting ? 'is-running' : ''}`}>
+          <PlanFloatingCard
+            plan={state.workbench?.plan}
+            visible={
+              submitting &&
+              ['running', 'queued', 'cancel_requested'].includes(
+                state.workbench?.activityStatus ?? 'running',
+              )
+            }
+          />
+          <FollowUpQueue
+            state={state}
+            pendingInputs={pendingInputs}
+            submitting={submitting}
+            onPromotePending={onPromotePending}
+            onCancelPending={onCancelPending}
+            onSendPending={onSendPending}
+          />
+          <Composer
+            prompt={prompt}
+            submitting={submitting}
+            serviceState={serviceState}
+            mode={composerMode}
+            onPromptChange={onPromptChange}
+            onSubmit={handleComposerSubmit}
+            onCancel={onCancel}
+            activeInterrupt={state.activeInterrupt ?? state.workbench?.activeInterrupt}
+            onClarificationRespond={onClarificationRespond}
+            onApprovalSubmit={onApprovalSubmit}
+            controlState={state.workbench?.activityStatus}
+            reasoningEffort={reasoningEffort}
+            models={models}
+            selectedModel={selectedModel}
+            onModelChange={onModelChange}
+            onReasoningEffortChange={onReasoningEffortChange}
+            attachments={attachments}
+            attachmentUploading={attachmentUploading}
+            onAttachmentSelected={onAttachmentSelected}
+            onAttachmentRemove={onAttachmentRemove}
+            onAttachmentRetry={onAttachmentRetry}
+            onAttachmentCancel={onAttachmentCancel}
+            context={state.context ?? state.workbench?.context}
+          />
         </div>
-      ) : null}
-      <div className={`composer-wrap ${submitting ? 'is-running' : ''}`}>
-        <PlanFloatingCard
-          plan={state.workbench?.plan}
-          visible={
-            submitting &&
-            ['running', 'queued', 'cancel_requested'].includes(
-              state.workbench?.activityStatus ?? 'running',
-            )
-          }
-        />
-        <FollowUpQueue
-          state={state}
-          pendingInputs={pendingInputs}
-          submitting={submitting}
-          onPromotePending={onPromotePending}
-          onCancelPending={onCancelPending}
-          onSendPending={onSendPending}
-        />
-        <Composer
-          prompt={prompt}
-          submitting={submitting}
-          serviceState={serviceState}
-          mode={composerMode}
-          onPromptChange={onPromptChange}
-          onSubmit={handleComposerSubmit}
-          onCancel={onCancel}
-          activeInterrupt={state.activeInterrupt ?? state.workbench?.activeInterrupt}
-          onClarificationRespond={onClarificationRespond}
-          onApprovalSubmit={onApprovalSubmit}
-          controlState={state.workbench?.activityStatus}
-          reasoningEffort={reasoningEffort}
-          models={models}
-          selectedModel={selectedModel}
-          onModelChange={onModelChange}
-          onReasoningEffortChange={onReasoningEffortChange}
-          attachments={attachments}
-          attachmentUploading={attachmentUploading}
-          onAttachmentSelected={onAttachmentSelected}
-          onAttachmentRemove={onAttachmentRemove}
-          onAttachmentRetry={onAttachmentRetry}
-          onAttachmentCancel={onAttachmentCancel}
-          context={state.context ?? state.workbench?.context}
-        />
-      </div>
+      )}
     </div>
   );
+
+  const showComposerAnchor = !hideComposer || Boolean(error);
 
   return (
     <AiConversation
@@ -1559,29 +1568,31 @@ export function Conversation({
           </div>
         ) : null}
 
-        <div
-          ref={composerAnchorRef}
-          className={
-            isLandingSession
-              ? 'conversation-landing-stack flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-5'
-              : 'composer-anchor relative mt-auto flex w-full shrink-0 justify-center px-5'
-          }
-        >
-          {isLandingSession ? (
-            <div
-              ref={heroRef}
-              className="conversation-empty-hero flex max-w-full flex-row items-center justify-center gap-3.5 text-left"
-            >
-              <BrandIcon size={40} className="empty-brand-icon empty-brand-icon--inline shrink-0" />
-              <p className="m-0 text-[18px] font-medium leading-snug text-text-primary">
-                {AGENT_UI_COPY.newSessionWelcome}
-              </p>
+        {showComposerAnchor ? (
+          <div
+            ref={composerAnchorRef}
+            className={
+              isLandingSession
+                ? 'conversation-landing-stack flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-5'
+                : 'composer-anchor relative mt-auto flex w-full shrink-0 justify-center px-5'
+            }
+          >
+            {isLandingSession ? (
+              <div
+                ref={heroRef}
+                className="conversation-empty-hero flex max-w-full flex-row items-center justify-center gap-3.5 text-left"
+              >
+                <BrandIcon size={40} className="empty-brand-icon empty-brand-icon--inline shrink-0" />
+                <p className="m-0 text-[18px] font-medium leading-snug text-text-primary">
+                  {AGENT_UI_COPY.newSessionWelcome}
+                </p>
+              </div>
+            ) : null}
+            <div ref={composerMeasureRef} className="composer-measure mx-auto w-full">
+              {composerArea}
             </div>
-          ) : null}
-          <div ref={composerMeasureRef} className="composer-measure mx-auto w-full">
-            {composerArea}
           </div>
-        </div>
+        ) : null}
 
         {heroExiting ? (
           <div className="conversation-landing-layer conversation-landing-layer--exit pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-5">

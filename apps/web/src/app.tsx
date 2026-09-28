@@ -2807,13 +2807,13 @@ function PersistentAgentApp() {
                 if (!selectedSessionId) return;
                 startTransition(() => {
                   setSessionStates((current) => {
-                    const workbench = current[selectedSessionId]?.workbench;
-                    if (!workbench) return current;
+                    const state = current[selectedSessionId];
+                    if (!state?.workbench) return current;
                     return {
                       ...current,
                       [selectedSessionId]: {
-                        ...current[selectedSessionId],
-                        workbench: resumeWorkbenchAutoFollow(workbench),
+                        ...state,
+                        workbench: resumeWorkbenchAutoFollow(state.workbench),
                       },
                     };
                   });

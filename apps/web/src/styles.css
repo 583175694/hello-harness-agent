@@ -1968,7 +1968,6 @@ summary:focus-visible {
 }
 .deliverables-page-header {
   flex-shrink: 0;
-  margin-bottom: 10px;
   padding: 2px 2px 0;
 }
 .deliverables-page-header__row {

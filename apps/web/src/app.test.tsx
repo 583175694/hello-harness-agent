@@ -257,7 +257,7 @@ describe('R1 workbench shell', () => {
     await mountProductionApp();
     expect(screen.getByRole('img', { name: 'pipishrimp' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '任务输入' })).toBeInTheDocument();
-    expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('complementary', { name: /实时跟随/ })).not.toBeInTheDocument();
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(4));
   });
 
@@ -374,9 +374,9 @@ describe('R1 workbench shell', () => {
         }}
       />,
     );
-    expect(screen.getByRole('complementary', { name: '工作区' })).toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: /实时跟随/ })).toBeInTheDocument();
     expect(screen.getByText('来源标题')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '工具结果' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: '实时跟随' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('produces the same canonical sources during streaming and persisted recovery', () => {
@@ -572,7 +572,10 @@ describe('R1 workbench shell', () => {
       blockSequence: 0,
     };
     const streamed = applyToolEvent(undefined, started, true);
-    expect(streamed).toMatchObject({ title: '文件读取', subtitle: '1 次文件调用' });
+    expect(streamed).toMatchObject({
+      title: '文件读取',
+      subtitle: '正在读取 · 1 次文件调用',
+    });
 
     const restored = workbenchFromPersistedMessage({
       id: 'assistant-file',
@@ -612,7 +615,10 @@ describe('R1 workbench shell', () => {
         },
       },
     });
-    expect(restored).toMatchObject({ title: '文件读取', subtitle: '2 次文件调用' });
+    expect(restored).toMatchObject({
+      title: '文件读取',
+      subtitle: '读取完成 · 2 次文件调用',
+    });
   });
 
   it('opens the artifact workbench as soon as create_report completes', () => {
@@ -682,9 +688,18 @@ describe('R1 workbench shell', () => {
     const streamed = applyToolEvent(applyToolEvent(undefined, started, false), completed, true);
     expect(streamed).toMatchObject({
       open: true,
-      activeView: 'deliverables',
+      activeView: 'tool_results',
       artifacts: [expect.objectContaining({ artifactId: 'artifact-report', fileName: 'report.md' })],
-      focusTarget: { kind: 'artifact', artifactId: 'artifact-report' },
+      focusTarget: {
+        kind: 'tool_call',
+        toolCallId: 'call-report',
+      },
+      executions: [
+        expect.objectContaining({
+          toolCallId: 'call-report',
+          artifactId: 'artifact-report',
+        }),
+      ],
     });
   });
 
@@ -799,13 +814,13 @@ describe('R1 workbench shell', () => {
   it('opens the workbench from an inline tool activity and focuses the selected call', () => {
     window.history.replaceState({}, '', '/agent/preview?state=tool-running');
     renderWithProviders(<App />);
-    expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
-    expect(document.querySelector('[aria-label="工作区"]')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.queryByRole('complementary', { name: /实时跟随/ })).not.toBeInTheDocument();
+    expect(document.querySelector('[aria-label^="实时跟随"]')).toHaveAttribute('aria-hidden', 'true');
     fireEvent.click(screen.getByRole('button', { name: '交叉验证关键结论，执行中' }));
-    expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
-    expect(screen.getByRole('tab', { name: '工具结果' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('complementary', { name: /实时跟随/ })).toHaveClass('is-open');
+    expect(screen.getByRole('tab', { name: '实时跟随' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByText('调用时间线')).not.toBeInTheDocument();
-    const workspace = screen.getByRole('complementary', { name: '工作区' });
+    const workspace = screen.getByRole('complementary', { name: /实时跟随/ });
     expect(within(workspace).getByText(/交叉验证关键结论/)).toBeInTheDocument();
   });
 
@@ -1071,7 +1086,7 @@ describe('R1 workbench shell', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送任务' }));
     expect(screen.getByRole('textbox', { name: '任务输入' })).toHaveValue('');
     await waitFor(() => expect(screen.getByText('你好，我已经接入模型了。')).toBeInTheDocument());
-    expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
+    expect(screen.getByRole('complementary', { name: /实时跟随/ })).toHaveClass('is-open');
     expect(screen.getByText('市场数据来源')).toBeInTheDocument();
     expect(screen.queryByText('思考过程')).not.toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(

@@ -10,7 +10,7 @@ export function Slider({
       <SliderPrimitive.Track className="ui-slider__track">
         <SliderPrimitive.Range className="ui-slider__range" />
       </SliderPrimitive.Track>
-      <SliderPrimitive.Thumb className="ui-slider__thumb" aria-label="选择工具调用" />
+      <SliderPrimitive.Thumb className="ui-slider__thumb" aria-label="选择步骤" />
     </SliderPrimitive.Root>
   );
 }

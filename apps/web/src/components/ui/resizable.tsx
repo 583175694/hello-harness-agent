@@ -1,4 +1,3 @@
-import { GripVertical } from 'lucide-react';
 import { Separator } from 'react-resizable-panels';
 import type { ComponentProps } from 'react';
 
@@ -25,11 +24,7 @@ export function ResizableHandle({
       aria-label="调整会话与工作台宽度"
       {...props}
     >
-      {withHandle ? (
-        <span className="ui-resize-handle__grip" aria-hidden="true">
-          <GripVertical size={14} strokeWidth={2} />
-        </span>
-      ) : null}
+      {withHandle ? <span className="ui-resize-handle__grip" aria-hidden="true" /> : null}
     </Separator>
   );
 }

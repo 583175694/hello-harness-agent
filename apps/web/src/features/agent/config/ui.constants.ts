@@ -30,6 +30,12 @@ export const AGENT_UI_COPY = {
   newSessionWelcome: '欢迎回来，想从哪里开始？',
   // 搜索 Workbench 的统一任务标题。
   searchWorkbenchTitle: '网页检索',
+  /** 右侧工作区 Tab：面向用户的短标签（内部 id 仍为 tool_results / deliverables） */
+  workbenchTabLabels: {
+    toolResults: '实时跟随',
+    deliverables: '文件',
+    context: '调试上下文',
+  },
   // Composer 各运行模式下的输入提示。
   composerPlaceholders: {
     // 普通新任务的输入提示。

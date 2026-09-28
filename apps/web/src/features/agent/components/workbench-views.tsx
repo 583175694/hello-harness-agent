@@ -1,19 +1,35 @@
 import {
   ArrowUpRight,
-  Braces,
   ChevronLeft,
   ChevronRight,
   Download,
+  Ellipsis,
+  Eye,
   FileText,
+  Link2,
   PanelRight,
+  Pencil,
   Search,
-  SlidersHorizontal,
-  Wrench,
-  type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { MarkdownContent } from '../../../components/markdown-content';
 import { useConfirm } from '../../../components/ui/confirm-provider';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../../../components/ui/dropdown-menu';
 import { JsonViewer } from '../../../components/ui/json-viewer';
 import { Slider } from '../../../components/ui/slider';
 
@@ -27,109 +43,321 @@ import type {
 } from '../model/types';
 import type { ArtifactRef } from '@harness/agent-protocol';
 import { BashTerminalPanel } from '../elements/bash-terminal-panel';
-import { downloadArtifact, getArtifactPreviewUrl } from '../../../api/client';
+import { downloadArtifact, getArtifactPreview, getArtifactPreviewUrl } from '../../../api/client';
+import { AGENT_UI_COPY } from '../config/ui.constants';
 
-const WORKBENCH_TABS: Array<{ id: WorkspaceView; label: string; icon: LucideIcon }> = [
-  { id: 'tool_results', label: '工具结果', icon: Wrench },
-  { id: 'deliverables', label: '交付物', icon: FileText },
-  { id: 'context', label: 'Context', icon: Braces },
+const WORKBENCH_TABS: Array<{ id: WorkspaceView; label: string }> = [
+  { id: 'tool_results', label: AGENT_UI_COPY.workbenchTabLabels.toolResults },
+  { id: 'deliverables', label: AGENT_UI_COPY.workbenchTabLabels.deliverables },
+  { id: 'context', label: AGENT_UI_COPY.workbenchTabLabels.context },
 ];
+
+const WORKBENCH_TAB_PANEL_ID: Record<WorkspaceView, string> = {
+  tool_results: 'workbench-panel-tool-results',
+  deliverables: 'workbench-panel-deliverables',
+  context: 'workbench-panel-context',
+};
+
+const WORKBENCH_VIEW_ARIA_LABEL: Record<WorkspaceView, string> = {
+  tool_results: AGENT_UI_COPY.workbenchTabLabels.toolResults,
+  deliverables: AGENT_UI_COPY.workbenchTabLabels.deliverables,
+  context: AGENT_UI_COPY.workbenchTabLabels.context,
+};
+
+export function workbenchAsideAriaLabel(state: Pick<WorkbenchState, 'activeView' | 'title'>): string {
+  const viewLabel = WORKBENCH_VIEW_ARIA_LABEL[state.activeView];
+  return state.title ? `${viewLabel} · ${state.title}` : viewLabel;
+}
+
+export function workbenchTablistAriaLabel(
+  tabs: Array<{ id: WorkspaceView; label: string }>,
+): string {
+  return tabs.map((tab) => tab.label).join('、');
+}
+
+function buildSourceSummary(items: SourceView[]): string {
+  const usedCount = items.filter((source) => source.kind === 'fetched' && source.used).length;
+  const fetchedCount = items.filter((source) => source.kind === 'fetched').length;
+  const clueCount = items.filter((source) => source.kind === 'clue').length;
+  return fetchedCount
+    ? `${usedCount} 个回答采用 · ${fetchedCount} 个已读取 · ${clueCount} 个搜索线索`
+    : `${clueCount} 个搜索线索`;
+}
 
 export function resolveToolCallIndex(
   executions: ToolCallView[],
   focusTarget?: WorkbenchFocusTarget,
+  artifacts?: ArtifactRef[],
 ): number {
   if (!executions.length) return 0;
   if (focusTarget?.kind === 'tool_call') {
     const index = executions.findIndex((tool) => tool.toolCallId === focusTarget.toolCallId);
     if (index >= 0) return index;
   }
+  if (focusTarget?.kind === 'artifact') {
+    const byArtifactId = executions.findIndex(
+      (tool) => tool.artifactId === focusTarget.artifactId,
+    );
+    if (byArtifactId >= 0) return byArtifactId;
+    const artifact = artifacts?.find((item) => item.artifactId === focusTarget.artifactId);
+    if (artifact) {
+      const byFileName = executions.findIndex(
+        (tool) =>
+          ARTIFACT_TOOL_NAMES.has(tool.toolName) &&
+          (tool.title.includes(artifact.fileName) ||
+            tool.inputSummary.includes(artifact.fileName)),
+      );
+      if (byFileName >= 0) return byFileName;
+    }
+  }
   return executions.length - 1;
 }
 
-export function WorkbenchShell({
-  state,
-  onClose,
-  onViewChange,
-  onExecutionSelect,
-  onReviseArtifact,
-  onRestoreArtifact,
-}: {
+const ARTIFACT_TOOL_NAMES = new Set(['create_file', 'create_report']);
+
+export function resolveArtifactForTool(
+  tool: ToolCallView,
+  artifacts?: ArtifactRef[],
+): ArtifactRef | undefined {
+  if (!artifacts?.length) return undefined;
+  if (tool.artifactId) {
+    return artifacts.find((item) => item.artifactId === tool.artifactId);
+  }
+  if (!ARTIFACT_TOOL_NAMES.has(tool.toolName)) return undefined;
+  return undefined;
+}
+
+type WorkbenchShellProps = {
   state: WorkbenchState;
   onClose: () => void;
   onViewChange: (view: WorkspaceView) => void;
   onExecutionSelect: (tool: ToolCallView) => void;
+  onResumeAutoFollow?: () => void;
   onReviseArtifact?: (artifact: ArtifactRef) => void;
   onRestoreArtifact?: (artifact: ArtifactRef) => void;
-}) {
-  const toolIndex = resolveToolCallIndex(state.executions, state.focusTarget);
+};
+
+/** 输入框等 App 层 state 变化时不应带动整块 Workbench 重绘（尤其 Context JSON / 预览 Markdown）。 */
+function workbenchShellPropsAreEqual(prev: WorkbenchShellProps, next: WorkbenchShellProps): boolean {
+  if (prev.state === next.state) return true;
+  const a = prev.state;
+  const b = next.state;
+  return (
+    a.open === b.open &&
+    a.activeView === b.activeView &&
+    a.runId === b.runId &&
+    a.title === b.title &&
+    a.subtitle === b.subtitle &&
+    a.activityStatus === b.activityStatus &&
+    a.executions === b.executions &&
+    a.sources === b.sources &&
+    a.context === b.context &&
+    a.artifacts === b.artifacts &&
+    a.artifactSeries === b.artifactSeries &&
+    a.focusTarget === b.focusTarget &&
+    a.report === b.report &&
+    a.followMode === b.followMode &&
+    a.plan === b.plan &&
+    a.activeInterrupt === b.activeInterrupt
+  );
+}
+
+export const WorkbenchShell = memo(function WorkbenchShell({
+  state,
+  onClose,
+  onViewChange,
+  onExecutionSelect,
+  onResumeAutoFollow,
+  onReviseArtifact,
+  onRestoreArtifact,
+}: WorkbenchShellProps) {
+  const toolIndex = resolveToolCallIndex(
+    state.executions,
+    state.focusTarget,
+    state.artifacts,
+  );
   const showToolSlider =
     state.activeView === 'tool_results' && state.executions.length > 1;
+  const runStillActive =
+    state.activityStatus === 'running' ||
+    state.activityStatus === 'queued' ||
+    state.activityStatus === 'cancelling' ||
+    state.activityStatus === 'resuming' ||
+    state.activityStatus === 'pause_requested';
+  const behindLatest =
+    state.executions.length > 0 && toolIndex < state.executions.length - 1;
+  const showResumeAutoFollow =
+    state.activeView === 'tool_results' &&
+    state.followMode === 'pinned' &&
+    onResumeAutoFollow &&
+    (behindLatest || runStillActive);
+  const tabListId = useId();
+  const visibleTabs = useMemo(
+    () =>
+      WORKBENCH_TABS.filter(
+        (tab) => tab.id !== 'deliverables' || workbenchHasDeliverablesTab(state),
+      ),
+    [state.artifacts, state.artifactSeries, state.report],
+  );
+
+  useEffect(() => {
+    if (state.activeView === 'deliverables' && !workbenchHasDeliverablesTab(state)) {
+      onViewChange('tool_results');
+    }
+  }, [state.activeView, state.artifacts, state.artifactSeries, state.report, onViewChange]);
 
   return (
     <aside
       className={`resource-workspace flex h-full min-h-0 min-w-0 flex-col text-text-primary ${state.open ? 'is-open' : ''}`}
-      aria-label="工作区"
+      aria-label={workbenchAsideAriaLabel(state)}
       aria-hidden={!state.open}
       inert={!state.open}
     >
-      <header className="workbench-chrome">
-        <div className="workbench-chrome__top">
-          <div className="workbench-chrome__heading">
-            <PanelRight size={15} className="workbench-chrome__icon" aria-hidden />
-            <span className="workbench-chrome__kicker">工作台</span>
-            <span className="workbench-chrome__sep" aria-hidden />
-            <h2 className="workbench-chrome__title">{state.title}</h2>
-          </div>
-          <button
-            className="icon-button workbench-chrome__close"
-            type="button"
-            aria-label="收起工作区"
-            title="收起工作区"
-            onClick={onClose}
-          >
-            <PanelRight size={17} />
-          </button>
-        </div>
-        {state.subtitle ? <p className="workbench-chrome__subtitle">{state.subtitle}</p> : null}
-        <div className="workspace-tabs workbench-chrome__tabs" role="tablist" aria-label="工作区视图">
-          {WORKBENCH_TABS.map(({ id, label, icon: TabIcon }) => (
+      {state.open ? (
+        <>
+          <header className="workbench-chrome workbench-chrome--minimal">
+            <WorkbenchTabList
+              tabListId={tabListId}
+              tabs={visibleTabs}
+              activeView={state.activeView}
+              tablistAriaLabel={workbenchTablistAriaLabel(visibleTabs)}
+              onViewChange={onViewChange}
+            />
             <button
-              className={`workspace-tab ${state.activeView === id ? 'is-active' : ''}`}
-              key={id}
+              className="icon-button workbench-chrome__close"
               type="button"
-              role="tab"
-              aria-selected={state.activeView === id}
-              onClick={() => onViewChange(id)}
+              aria-label="收起工作区"
+              title="收起工作区"
+              onClick={onClose}
             >
-              <TabIcon size={15} />
-              {label}
+              <PanelRight size={17} />
             </button>
-          ))}
-        </div>
-      </header>
-      <div className="workspace-content workbench-stage flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <WorkbenchActiveView
-            state={state}
-            toolIndex={toolIndex}
-            onExecutionSelect={onExecutionSelect}
-            onReviseArtifact={onReviseArtifact}
-            onRestoreArtifact={onRestoreArtifact}
-          />
-        </div>
-        {showToolSlider ? (
-          <ToolCallSliderFooter
-            executions={state.executions}
-            index={toolIndex}
-            onIndexChange={(nextIndex) => {
-              const tool = state.executions[nextIndex];
-              if (tool) onExecutionSelect(tool);
-            }}
-          />
-        ) : null}
-      </div>
+          </header>
+          <div className="workspace-content workbench-stage flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div
+              key={state.activeView}
+              className="workbench-tabpanel workbench-tabpanel--animated min-h-0 flex-1 overflow-y-auto"
+              role="tabpanel"
+              id={WORKBENCH_TAB_PANEL_ID[state.activeView]}
+              aria-labelledby={`workbench-tab-${state.activeView}`}
+            >
+              <WorkbenchActiveView
+                state={state}
+                toolIndex={toolIndex}
+                onExecutionSelect={onExecutionSelect}
+                onReviseArtifact={onReviseArtifact}
+                onRestoreArtifact={onRestoreArtifact}
+              />
+            </div>
+            {showResumeAutoFollow ? (
+              <div className="workbench-follow-resume-float">
+                <button
+                  type="button"
+                  className="workbench-follow-resume-fab"
+                  onClick={onResumeAutoFollow}
+                >
+                  回到最新
+                </button>
+              </div>
+            ) : null}
+            {showToolSlider ? (
+              <ToolCallSliderFooter
+                executions={state.executions}
+                index={toolIndex}
+                onIndexChange={(nextIndex) => {
+                  const tool = state.executions[nextIndex];
+                  if (tool) onExecutionSelect(tool);
+                }}
+              />
+            ) : null}
+          </div>
+        </>
+      ) : null}
     </aside>
+  );
+}, workbenchShellPropsAreEqual);
+
+function WorkbenchTabList({
+  tabListId,
+  tabs,
+  activeView,
+  tablistAriaLabel,
+  onViewChange,
+}: {
+  tabListId: string;
+  tabs: Array<{ id: WorkspaceView; label: string }>;
+  activeView: WorkspaceView;
+  tablistAriaLabel: string;
+  onViewChange: (view: WorkspaceView) => void;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const [indicator, setIndicator] = useState({ left: 0, width: 0 });
+
+  const syncIndicator = useCallback(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const activeTab = list.querySelector<HTMLElement>(`#workbench-tab-${activeView}`);
+    if (!activeTab) return;
+    setIndicator({ left: activeTab.offsetLeft, width: activeTab.offsetWidth });
+  }, [activeView]);
+
+  useLayoutEffect(() => {
+    syncIndicator();
+  }, [syncIndicator, tabs.length]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || typeof ResizeObserver === 'undefined') return;
+    let frame: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        syncIndicator();
+      });
+    });
+    observer.observe(list);
+    return () => {
+      observer.disconnect();
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [syncIndicator]);
+
+  return (
+    <div
+      ref={listRef}
+      className="workspace-tabs workspace-tabs--workbench workbench-chrome__tabs"
+      role="tablist"
+      id={tabListId}
+      aria-label={tablistAriaLabel}
+    >
+      {tabs.map(({ id, label }) => {
+        const tabId = `workbench-tab-${id}`;
+        return (
+          <button
+            className={`workspace-tab ${activeView === id ? 'is-active' : ''}`}
+            key={id}
+            id={tabId}
+            type="button"
+            role="tab"
+            aria-selected={activeView === id}
+            aria-controls={WORKBENCH_TAB_PANEL_ID[id]}
+            tabIndex={activeView === id ? 0 : -1}
+            onClick={() => onViewChange(id)}
+          >
+            {label}
+          </button>
+        );
+      })}
+      <span
+        className="workspace-tabs__indicator"
+        aria-hidden="true"
+        style={{
+          width: indicator.width,
+          transform: `translateX(${indicator.left}px)`,
+        }}
+      />
+    </div>
   );
 }
 
@@ -146,7 +374,7 @@ function ToolCallSliderFooter({
   return (
     <footer className="workbench-tool-slider">
       <div className="workbench-tool-slider__label">
-        工具调用 {index + 1} / {executions.length}
+        步骤 {index + 1} / {executions.length}
       </div>
       <Slider
         className="workbench-tool-slider__control"
@@ -190,6 +418,8 @@ function WorkbenchActiveView({
     <ToolResultsView
       executions={state.executions}
       sources={state.sources}
+      artifacts={state.artifacts}
+      focusTarget={state.focusTarget}
       toolIndex={toolIndex}
       onSelectByIndex={(nextIndex) => {
         const tool = state.executions[nextIndex];
@@ -202,14 +432,20 @@ function WorkbenchActiveView({
 function ToolResultsView({
   executions,
   sources,
+  artifacts,
+  focusTarget,
   toolIndex,
   onSelectByIndex,
 }: {
   executions: ToolCallView[];
   sources: SourceView[];
+  artifacts?: ArtifactRef[];
+  focusTarget?: WorkbenchFocusTarget;
   toolIndex: number;
   onSelectByIndex: (index: number) => void;
 }) {
+  const focusArtifactId =
+    focusTarget?.kind === 'artifact' ? focusTarget.artifactId : undefined;
   const selectedTool = executions[toolIndex];
   const relatedSources = useMemo(() => {
     if (!selectedTool) return sources;
@@ -222,7 +458,9 @@ function ToolResultsView({
   if (!executions.length) {
     if (sources.length) return <SourcesView sources={sources} />;
     return (
-      <div className="execution-empty m-4">暂无工具调用结果，完成一次工具执行后会显示在这里。</div>
+      <div className="execution-empty m-4">
+        暂无过程记录，助手的检索、读取与命令执行会显示在这里。
+      </div>
     );
   }
 
@@ -233,10 +471,9 @@ function ToolResultsView({
     <div className="tool-results-view">
       <div className="workbench-subheader">
         <div className="workbench-subheader__main">
-          <span className="workbench-subheader__eyebrow">当前</span>
-          <strong className="workbench-subheader__title">
-            {selectedTool?.title ?? selectedTool?.toolName ?? '工具调用'}
-          </strong>
+          <span className="workbench-subheader__title">
+            {selectedTool?.title ?? selectedTool?.toolName ?? '执行步骤'}
+          </span>
           {selectedTool ? (
             <span className="workbench-subheader__meta">{selectedTool.elapsed}</span>
           ) : null}
@@ -245,7 +482,7 @@ function ToolResultsView({
           <button
             className="icon-button"
             type="button"
-            aria-label="上一项工具调用"
+            aria-label="上一步"
             disabled={!canPrev}
             onClick={() => onSelectByIndex(toolIndex - 1)}
           >
@@ -254,7 +491,7 @@ function ToolResultsView({
           <button
             className="icon-button"
             type="button"
-            aria-label="下一项工具调用"
+            aria-label="下一步"
             disabled={!canNext}
             onClick={() => onSelectByIndex(toolIndex + 1)}
           >
@@ -263,7 +500,12 @@ function ToolResultsView({
         </div>
       </div>
       {selectedTool ? (
-        <ToolResultBody tool={selectedTool} sources={relatedSources} />
+        <ToolResultBody
+          tool={selectedTool}
+          sources={relatedSources}
+          artifacts={artifacts}
+          focusArtifactId={focusArtifactId}
+        />
       ) : (
         <div className="execution-empty">执行详情暂不可用</div>
       )}
@@ -271,7 +513,17 @@ function ToolResultsView({
   );
 }
 
-function ToolResultBody({ tool, sources }: { tool: ToolCallView; sources: SourceView[] }) {
+function ToolResultBody({
+  tool,
+  sources,
+  artifacts,
+  focusArtifactId,
+}: {
+  tool: ToolCallView;
+  sources: SourceView[];
+  artifacts?: ArtifactRef[];
+  focusArtifactId?: string;
+}) {
   if (tool.toolName === 'bash' && tool.terminal) {
     return (
       <BashTerminalPanel
@@ -288,6 +540,20 @@ function ToolResultBody({ tool, sources }: { tool: ToolCallView; sources: Source
   ) {
     return <SourcesView sources={sources} compact />;
   }
+  const artifact =
+    resolveArtifactForTool(tool, artifacts) ??
+    (focusArtifactId && tool.artifactId === focusArtifactId
+      ? artifacts?.find((item) => item.artifactId === focusArtifactId)
+      : focusArtifactId && ARTIFACT_TOOL_NAMES.has(tool.toolName)
+        ? artifacts?.find((item) => item.artifactId === focusArtifactId)
+        : undefined);
+  if (artifact && tool.status === 'completed') {
+    return (
+      <div className="tool-result-artifact" key={tool.toolCallId}>
+        <ArtifactPreviewBody artifact={artifact} />
+      </div>
+    );
+  }
   return (
     <article className="execution-detail" key={tool.toolCallId} tabIndex={-1}>
       <div className="execution-detail-heading">
@@ -295,7 +561,9 @@ function ToolResultBody({ tool, sources }: { tool: ToolCallView; sources: Source
           <span className="tool-name">{tool.toolName}</span>
           <h3>{tool.title}</h3>
         </div>
-        <span className={`execution-status execution-status--${tool.status}`}>{tool.status}</span>
+        <span className={`execution-status execution-status--${tool.status}`}>
+          {TOOL_STATUS_COPY[tool.status] ?? tool.status}
+        </span>
       </div>
       <p>{tool.detail}</p>
       <dl>
@@ -323,26 +591,51 @@ function sourceCaption(source: SourceView): string {
   return '已读取并保存相关原文';
 }
 
+const TOOL_STATUS_COPY: Record<ToolCallView['status'], string> = {
+  pending: '等待中',
+  running: '执行中',
+  waiting: '等待确认',
+  cancelling: '取消中',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+};
+
 function SourcesView({ sources: items, compact }: { sources: SourceView[]; compact?: boolean }) {
-  const usedCount = items.filter((source) => source.kind === 'fetched' && source.used).length;
-  const fetchedCount = items.filter((source) => source.kind === 'fetched').length;
-  const clueCount = items.filter((source) => source.kind === 'clue').length;
-  const sourceSummary = fetchedCount
-    ? `${usedCount} 个回答采用 · ${fetchedCount} 个已读取 · ${clueCount} 个搜索线索`
-    : `${clueCount} 个搜索线索`;
+  if (compact) {
+    return (
+      <div className="sources-view sources-view--compact">
+        <ul className="source-result-list" role="list">
+          {items.map((source) => (
+            <li className="source-result-row" key={source.id}>
+              <a
+                className="source-result-row__title"
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Link2 className="source-result-row__icon" size={15} aria-hidden />
+                <span>{source.title}</span>
+              </a>
+              {source.excerpt ? (
+                <p className="source-result-row__snippet">{source.excerpt}</p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  const sourceSummary = buildSourceSummary(items);
   return (
-    <div className={`sources-view ${compact ? 'sources-view--compact' : ''}`}>
-      {!compact ? (
-        <div className="view-toolbar">
-          <div>
-            <strong>来源</strong>
-            <span>{sourceSummary}</span>
-          </div>
-          <button className="icon-button" type="button" aria-label="筛选来源" title="筛选来源">
-            <SlidersHorizontal size={16} />
-          </button>
+    <div className="sources-view">
+      <div className="sources-view__summary">
+        <div className="sources-view__summary-text">
+          <span className="sources-view__summary-label">来源</span>
+          <span>{sourceSummary}</span>
         </div>
-      ) : null}
+      </div>
       <div className="source-list">
         {items.map((source) => (
           <article className="source-item" key={source.id}>
@@ -426,6 +719,55 @@ function collectDeliverableArtifacts(state: WorkbenchState): ArtifactRef[] {
   return state.artifacts ?? [];
 }
 
+export function workbenchHasDeliverablesTab(state: WorkbenchState): boolean {
+  return collectDeliverableArtifacts(state).length > 0 || Boolean(state.report);
+}
+
+function DeliverablesPageHeader({
+  leading,
+  title,
+  trailing,
+  footer,
+}: {
+  leading?: ReactNode;
+  title?: ReactNode;
+  trailing?: ReactNode;
+  footer?: ReactNode;
+}) {
+  if (!leading && !title && !trailing && !footer) return null;
+
+  return (
+    <header className="deliverables-page-header">
+      <div
+        className={`deliverables-page-header__row ${!title && !leading ? 'deliverables-page-header__row--trailing-only' : ''}`}
+      >
+        <div className="deliverables-page-header__leading">
+          {leading}
+          {title ? (
+            <div className="deliverables-page-header__title-block">
+              <div className="deliverables-page-header__title">{title}</div>
+            </div>
+          ) : null}
+        </div>
+        {trailing ? <div className="deliverables-page-header__trailing">{trailing}</div> : null}
+      </div>
+      {footer ? <div className="deliverables-page-header__footer">{footer}</div> : null}
+    </header>
+  );
+}
+
+function deliverablesForList(state: WorkbenchState): ArtifactRef[] {
+  if (state.artifactSeries?.length) {
+    return state.artifactSeries
+      .map((series) => {
+        const current = series.versions.find((item) => item.artifactId === series.currentArtifactId);
+        return current ?? series.versions.at(-1);
+      })
+      .filter((item): item is ArtifactRef => Boolean(item));
+  }
+  return state.artifacts ?? [];
+}
+
 function DeliverablesView({
   state,
   onRevise,
@@ -435,87 +777,118 @@ function DeliverablesView({
   onRevise?: (artifact: ArtifactRef) => void;
   onRestore?: (artifact: ArtifactRef) => void;
 }) {
-  const artifacts = collectDeliverableArtifacts(state);
+  const allArtifacts = collectDeliverableArtifacts(state);
+  const listArtifacts = deliverablesForList(state);
   const focusArtifactId =
     state.focusTarget?.kind === 'artifact' ? state.focusTarget.artifactId : undefined;
-  const [selectedId, setSelectedId] = useState<string | undefined>(
-    focusArtifactId ?? artifacts.find((item) => item.isCurrent)?.artifactId ?? artifacts.at(-1)?.artifactId,
+  const [detailArtifactId, setDetailArtifactId] = useState<string | null>(
+    focusArtifactId ?? null,
   );
 
   useEffect(() => {
-    if (focusArtifactId) setSelectedId(focusArtifactId);
+    if (focusArtifactId) setDetailArtifactId(focusArtifactId);
   }, [focusArtifactId]);
 
-  const selected =
-    artifacts.find((item) => item.artifactId === selectedId) ?? artifacts.at(-1);
+  const detailArtifact =
+    detailArtifactId !== null
+      ? allArtifacts.find((item) => item.artifactId === detailArtifactId) ??
+        listArtifacts.find((item) => item.artifactId === detailArtifactId)
+      : undefined;
 
-  if (state.report && !artifacts.length) {
+  const seriesVersions =
+    detailArtifact?.seriesId != null
+      ? allArtifacts.filter((item) => item.seriesId === detailArtifact.seriesId)
+      : [];
+
+  if (state.report && !allArtifacts.length) {
     return <ReportView report={state.report} sources={state.sources} />;
   }
 
-  if (!artifacts.length) {
+  if (!allArtifacts.length) {
     return (
-      <div className="deliverables-empty m-4">
-        <strong>暂无交付物</strong>
-        <span>模型生成的报告、网页或文件会出现在这里。</span>
+      <div className="deliverables-empty deliverables-empty--centered m-4">
+        <strong>暂无文件</strong>
+        <span>助手生成的报告、网页或可下载文件会出现在这里。</span>
       </div>
     );
   }
 
-  if (!state.artifactSeries?.length && artifacts.length > 1) {
+  if (!detailArtifact) {
     return (
       <div className="deliverables-view deliverables-view--list">
-        {artifacts.map((artifact) => (
-          <ArtifactDetailPanel
-            key={artifact.artifactId}
-            artifact={artifact}
-            onRevise={onRevise}
-            onRestore={onRestore}
-          />
-        ))}
-      </div>
-    );
-  }
-
-  const seriesVersions = selected?.seriesId
-    ? artifacts.filter((item) => item.seriesId === selected.seriesId)
-    : artifacts;
-
-  return (
-    <div className="deliverables-view">
-      <div className="workbench-subheader view-toolbar">
-        <div className="deliverables-breadcrumb">
-          <span>交付物</span>
-          <ChevronRight size={14} aria-hidden />
-          <strong>{selected?.logicalName ?? selected?.fileName ?? '文件'}</strong>
-          {selected?.versionNumber ? (
-            <>
-              <ChevronRight size={14} aria-hidden />
-              <span>v{selected.versionNumber}</span>
-            </>
-          ) : null}
+        <div className="deliverables-list">
+          {listArtifacts.map((artifact) => (
+            <ArtifactListCard
+              key={artifact.artifactId}
+              artifact={artifact}
+              onPreview={() => setDetailArtifactId(artifact.artifactId)}
+              onRevise={onRevise}
+            />
+          ))}
         </div>
-        {seriesVersions.length > 1 ? (
-          <div className="deliverables-version-chips" role="tablist" aria-label="版本">
-            {seriesVersions.map((artifact) => (
-              <button
-                key={artifact.artifactId}
-                type="button"
-                role="tab"
-                aria-selected={artifact.artifactId === selected?.artifactId}
-                className={`deliverables-version-chip ${artifact.artifactId === selected?.artifactId ? 'is-active' : ''}`}
-                onClick={() => setSelectedId(artifact.artifactId)}
-              >
-                v{artifact.versionNumber ?? 1}
-                {artifact.isCurrent ? ' · 当前' : ''}
-              </button>
-            ))}
+        {state.report ? (
+          <div className="deliverables-report-addon">
+            <ReportView report={state.report} sources={state.sources} />
           </div>
         ) : null}
       </div>
-      {selected ? (
-        <ArtifactDetailPanel artifact={selected} onRevise={onRevise} onRestore={onRestore} />
-      ) : null}
+    );
+  }
+
+  return (
+    <div className="deliverables-view deliverables-view--detail">
+      <DeliverablesPageHeader
+        leading={
+          <button
+            type="button"
+            className="deliverables-back-button"
+            onClick={() => setDetailArtifactId(null)}
+          >
+            <ChevronLeft size={16} aria-hidden />
+            返回
+          </button>
+        }
+        title={
+          <>
+            <span className="deliverables-page-header__filename">
+              {detailArtifact.logicalName ?? detailArtifact.fileName}
+            </span>
+            {detailArtifact.versionNumber ? (
+              <span className="deliverables-page-header__version">
+                v{detailArtifact.versionNumber}
+              </span>
+            ) : null}
+          </>
+        }
+        trailing={
+          <ArtifactActionsMenu
+            artifact={detailArtifact}
+            onPreview={() => setDetailArtifactId(detailArtifact.artifactId)}
+            onRevise={onRevise}
+            onRestore={onRestore}
+            triggerClassName="artifact-workbench-item__menu-trigger"
+          />
+        }
+        footer={
+          seriesVersions.length > 1 ? (
+            <div className="deliverables-version-chips" role="group" aria-label="版本">
+              {seriesVersions.map((artifact) => (
+                <button
+                  key={artifact.artifactId}
+                  type="button"
+                  aria-pressed={artifact.artifactId === detailArtifact.artifactId}
+                  className={`deliverables-version-chip ${artifact.artifactId === detailArtifact.artifactId ? 'is-active' : ''}`}
+                  onClick={() => setDetailArtifactId(artifact.artifactId)}
+                >
+                  v{artifact.versionNumber ?? 1}
+                  {artifact.isCurrent ? ' · 当前' : ''}
+                </button>
+              ))}
+            </div>
+          ) : null
+        }
+      />
+      <ArtifactPreviewBody artifact={detailArtifact} />
       {state.report ? (
         <div className="deliverables-report-addon">
           <ReportView report={state.report} sources={state.sources} />
@@ -525,66 +898,69 @@ function DeliverablesView({
   );
 }
 
-function ArtifactDetailPanel({
+function ArtifactActionsMenu({
   artifact,
+  onPreview,
   onRevise,
   onRestore,
+  triggerClassName = '',
 }: {
   artifact: ArtifactRef;
+  onPreview: () => void;
   onRevise?: (artifact: ArtifactRef) => void;
   onRestore?: (artifact: ArtifactRef) => void;
+  triggerClassName?: string;
 }) {
   const confirm = useConfirm();
-  const previewUrl = getArtifactPreviewUrl(artifact.artifactId);
-  const isHtml = artifact.fileKind === 'html' || artifact.mediaType === 'text/html';
+  const canRevise = Boolean(onRevise && artifact.seriesId && artifact.versionNumber);
+  const canRestore = Boolean(
+    onRestore && artifact.seriesId && artifact.versionNumber && !artifact.isCurrent,
+  );
 
   return (
-    <article className="artifact-workbench-item">
-      <div className="artifact-workbench-heading">
-        <div className="artifact-workbench-file-icon" aria-hidden="true">
-          <FileText size={20} />
-        </div>
-        <div className="artifact-workbench-title">
-          <div>
-            <strong>{artifact.logicalName ?? artifact.fileName}</strong>
-            {artifact.versionNumber ? (
-              <span className="artifact-version">v{artifact.versionNumber}</span>
-            ) : null}
-            {artifact.isCurrent ? <span className="artifact-current-badge">当前版本</span> : null}
-          </div>
-          <p className="artifact-workbench-meta">
-            <span className="artifact-workbench-operation">
-              {artifactOperationCopy[artifact.operation ?? 'create']}
-            </span>
-            <span>{artifact.fileKind.toUpperCase()}</span>
-            <span>{formatArtifactSize(artifact.size)}</span>
-            <span>{new Date(artifact.createdAt).toLocaleString('zh-CN')}</span>
-            {artifact.runId ? <span>Run {artifact.runId.slice(0, 8)}</span> : null}
-          </p>
-        </div>
-      </div>
-      <div className="artifact-workbench-actions">
-        <a className="secondary-button" href={previewUrl} target="_blank" rel="noreferrer">
-          在新窗口打开
-        </a>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
         <button
-          className="secondary-button"
           type="button"
-          onClick={() => downloadArtifact(artifact.artifactId)}
+          className={`icon-button artifact-card-menu-trigger ${triggerClassName}`.trim()}
+          aria-label={`更多操作 ${artifact.logicalName ?? artifact.fileName}`}
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
         >
-          <Download size={14} />
-          下载
+          <Ellipsis size={16} />
         </button>
-        {onRevise && artifact.seriesId && artifact.versionNumber ? (
-          <button className="secondary-button" type="button" onClick={() => onRevise(artifact)}>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="artifact-card-menu">
+        <DropdownMenuItem
+          onSelect={() => {
+            downloadArtifact(artifact.artifactId);
+          }}
+        >
+          <Download size={15} />
+          下载
+        </DropdownMenuItem>
+        {canRevise ? (
+          <DropdownMenuItem
+            onSelect={() => {
+              onRevise?.(artifact);
+            }}
+          >
+            <Pencil size={15} />
             基于此版本修改
-          </button>
+          </DropdownMenuItem>
         ) : null}
-        {onRestore && artifact.seriesId && artifact.versionNumber && !artifact.isCurrent ? (
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => {
+        <DropdownMenuItem
+          onSelect={() => {
+            onPreview();
+          }}
+        >
+          <Eye size={15} />
+          预览
+        </DropdownMenuItem>
+        {canRestore ? (
+          <DropdownMenuItem
+            variant="destructive"
+            onSelect={() => {
               void (async () => {
                 if (
                   !(await confirm({
@@ -595,27 +971,248 @@ function ArtifactDetailPanel({
                 ) {
                   return;
                 }
-                onRestore(artifact);
+                onRestore?.(artifact);
               })();
             }}
           >
             恢复此版本
-          </button>
+          </DropdownMenuItem>
         ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ArtifactListCard({
+  artifact,
+  onPreview,
+  onRevise,
+}: {
+  artifact: ArtifactRef;
+  onPreview: () => void;
+  onRevise?: (artifact: ArtifactRef) => void;
+}) {
+  return (
+    <article
+      className="artifact-workbench-item artifact-workbench-item--list"
+      role="button"
+      tabIndex={0}
+      onClick={() => onPreview()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onPreview();
+        }
+      }}
+    >
+      <div className="artifact-workbench-heading">
+        <div className="artifact-workbench-file-icon" aria-hidden="true">
+          <FileText size={18} />
+        </div>
+        <div className="artifact-workbench-title">
+          <div className="artifact-workbench-title-row">
+            <span className="artifact-workbench-filename">
+              {artifact.logicalName ?? artifact.fileName}
+            </span>
+            {artifact.versionNumber ? (
+              <span className="artifact-version">v{artifact.versionNumber}</span>
+            ) : null}
+            {artifact.isCurrent ? <span className="artifact-current-badge">当前版本</span> : null}
+          </div>
+          <p className="artifact-workbench-meta artifact-workbench-meta--compact">
+            <span className="artifact-workbench-operation">
+              {artifactOperationCopy[artifact.operation ?? 'create']}
+            </span>
+            <span>{artifact.fileKind.toUpperCase()}</span>
+            <span>{formatArtifactSize(artifact.size)}</span>
+            <span>{new Date(artifact.createdAt).toLocaleString('zh-CN')}</span>
+          </p>
+        </div>
+        <ArtifactActionsMenu artifact={artifact} onPreview={onPreview} onRevise={onRevise} />
       </div>
-      {isHtml ? (
-        <iframe
-          className="deliverables-preview-frame"
-          title={`预览 ${artifact.fileName}`}
-          src={previewUrl}
-          sandbox="allow-scripts allow-same-origin"
-        />
-      ) : (
-        <a className="secondary-button deliverables-preview-link" href={previewUrl} target="_blank" rel="noreferrer">
-          预览
-        </a>
-      )}
     </article>
+  );
+}
+
+/** 工具事件会换掉 Artifact 对象引用，但同一份预览的展示字段不变。 */
+function sameArtifactPreview(prev: ArtifactRef, next: ArtifactRef): boolean {
+  return (
+    prev.artifactId === next.artifactId &&
+    prev.fileKind === next.fileKind &&
+    prev.mediaType === next.mediaType &&
+    prev.fileName === next.fileName &&
+    prev.logicalName === next.logicalName
+  );
+}
+
+const ArtifactPreviewBody = memo(function ArtifactPreviewBody({ artifact }: { artifact: ArtifactRef }) {
+  const previewUrl = getArtifactPreviewUrl(artifact.artifactId);
+  const isHtml = artifact.fileKind === 'html' || artifact.mediaType === 'text/html';
+  const isInlineText =
+    artifact.fileKind === 'markdown' ||
+    artifact.fileKind === 'text' ||
+    artifact.fileKind === 'json' ||
+    (artifact.mediaType?.startsWith('text/') ?? false);
+
+  return (
+    <section
+      className="artifact-workbench-preview artifact-workbench-preview--detail"
+      aria-label={`${artifact.logicalName ?? artifact.fileName} 预览`}
+    >
+      {isHtml ? (
+        <ArtifactHtmlPreview artifact={artifact} previewUrl={previewUrl} />
+      ) : isInlineText ? (
+        <ArtifactTextPreview artifactId={artifact.artifactId} fileKind={artifact.fileKind} />
+      ) : (
+        <ArtifactFallbackPreview artifact={artifact} previewUrl={previewUrl} />
+      )}
+    </section>
+  );
+}, (prev, next) => sameArtifactPreview(prev.artifact, next.artifact));
+
+function DeliverablePreviewSkeleton({ overlay }: { overlay?: boolean }) {
+  return (
+    <div
+      className={`deliverables-preview-panel deliverables-preview-panel--skeleton ${overlay ? 'deliverables-preview-panel--skeleton-overlay' : ''}`}
+      aria-busy="true"
+      aria-label="正在加载预览"
+    >
+      <div className="deliverable-preview-skeleton">
+        <div className="deliverable-preview-skeleton__heading" />
+        <div className="deliverable-preview-skeleton__subheading" />
+        <div className="deliverable-preview-skeleton__paragraph">
+          <div className="deliverable-preview-skeleton__line" />
+          <div className="deliverable-preview-skeleton__line" />
+          <div className="deliverable-preview-skeleton__line" />
+          <div className="deliverable-preview-skeleton__line deliverable-preview-skeleton__line--short" />
+        </div>
+        <div className="deliverable-preview-skeleton__heading deliverable-preview-skeleton__heading--section" />
+        <div className="deliverable-preview-skeleton__paragraph">
+          <div className="deliverable-preview-skeleton__line" />
+          <div className="deliverable-preview-skeleton__line" />
+          <div className="deliverable-preview-skeleton__line deliverable-preview-skeleton__line--medium" />
+          <div className="deliverable-preview-skeleton__line deliverable-preview-skeleton__line--short" />
+        </div>
+        <div className="deliverable-preview-skeleton__paragraph deliverable-preview-skeleton__paragraph--fade">
+          <div className="deliverable-preview-skeleton__line" />
+          <div className="deliverable-preview-skeleton__line deliverable-preview-skeleton__line--medium" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const ArtifactTextPreview = memo(function ArtifactTextPreview({
+  artifactId,
+  fileKind,
+}: {
+  artifactId: string;
+  fileKind: string;
+}) {
+  const [state, setState] = useState<
+    { status: 'loading' } | { status: 'ready'; content: string } | { status: 'error'; message: string }
+  >({ status: 'loading' });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setState({ status: 'loading' });
+    void (async () => {
+      try {
+        const preview = await getArtifactPreview(artifactId, controller.signal);
+        setState({ status: 'ready', content: preview.content });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setState({
+          status: 'error',
+          message: error instanceof Error ? error.message : '预览加载失败，请下载或在 new window 打开。',
+        });
+      }
+    })();
+    return () => controller.abort();
+  }, [artifactId]);
+
+  if (state.status === 'loading') {
+    return <DeliverablePreviewSkeleton />;
+  }
+  if (state.status === 'error') {
+    return (
+      <div className="deliverables-preview-panel deliverables-preview-panel--error" role="alert">
+        <strong>无法内联预览</strong>
+        <span>{state.message}</span>
+      </div>
+    );
+  }
+  if (fileKind === 'markdown' || fileKind === 'text') {
+    return (
+      <div className="deliverables-preview-panel deliverables-preview-panel--markdown">
+        <MarkdownContent>{state.content}</MarkdownContent>
+      </div>
+    );
+  }
+  if (fileKind === 'json') {
+    return (
+      <div className="deliverables-preview-panel deliverables-preview-panel--text">
+        <pre>{state.content}</pre>
+      </div>
+    );
+  }
+  return (
+    <div className="deliverables-preview-panel deliverables-preview-panel--text">
+      <pre>{state.content}</pre>
+    </div>
+  );
+});
+
+const ArtifactHtmlPreview = memo(function ArtifactHtmlPreview({
+  artifact,
+  previewUrl,
+}: {
+  artifact: ArtifactRef;
+  previewUrl: string;
+}) {
+  const [frameState, setFrameState] = useState<'loading' | 'ready' | 'error'>('loading');
+
+  return (
+    <div className="deliverables-preview-panel deliverables-preview-panel--iframe">
+      {frameState === 'loading' ? <DeliverablePreviewSkeleton overlay /> : null}
+      {frameState === 'error' ? (
+        <div className="deliverables-preview-panel deliverables-preview-panel--error" role="alert">
+          <strong>网页预览加载失败</strong>
+          <span>请使用「在新窗口打开」查看 {artifact.fileName}。</span>
+        </div>
+      ) : null}
+      <iframe
+        className={`deliverables-preview-frame ${frameState === 'ready' ? 'is-ready' : ''}`}
+        title={`预览 ${artifact.fileName}`}
+        src={previewUrl}
+        sandbox="allow-scripts allow-same-origin"
+        onLoad={() => setFrameState('ready')}
+        onError={() => setFrameState('error')}
+      />
+    </div>
+  );
+}, (prev, next) =>
+  prev.previewUrl === next.previewUrl &&
+  prev.artifact.artifactId === next.artifact.artifactId &&
+  prev.artifact.fileName === next.artifact.fileName,
+);
+
+function ArtifactFallbackPreview({
+  artifact,
+  previewUrl,
+}: {
+  artifact: ArtifactRef;
+  previewUrl: string;
+}) {
+  const kind = artifact.fileKind.toUpperCase();
+  return (
+    <div className="deliverables-preview-panel deliverables-preview-panel--fallback">
+      <strong>{kind} 文件暂不支持内联预览</strong>
+      <span>下载或在浏览器新窗口中打开以查看完整内容。</span>
+      <a className="secondary-button" href={previewUrl} target="_blank" rel="noreferrer">
+        在新窗口打开
+      </a>
+    </div>
   );
 }
 
@@ -630,17 +1227,16 @@ function ContextView({ context }: { context?: WorkbenchState['context'] }) {
   }
 
   return (
-    <div className="context-view">
-      <div className="view-toolbar m-4">
+    <div className="context-view context-view--panel">
+      <div className="context-view__meta view-toolbar">
         <div>
-          <strong>Model Round {context.roundSequence}</strong>
+          <span className="context-view__meta-title">模型轮次 {context.roundSequence}</span>
           <span>
-            {context.estimatedInputTokens.toLocaleString()} estimated tokens · attempt{' '}
-            {context.attempt}
+            约 {context.estimatedInputTokens.toLocaleString()} 输入 token · 第 {context.attempt} 次尝试
           </span>
           {context.mcp ? (
             <span>
-              MCP gen {context.mcp.catalogGeneration} · {context.mcp.toolCount} tools latched
+              MCP 目录 gen {context.mcp.catalogGeneration} · 已挂载 {context.mcp.toolCount} 个工具
             </span>
           ) : null}
         </div>
@@ -658,10 +1254,6 @@ function ReportView({ report, sources: items }: { report: ReportView; sources: S
           <strong>{report.title}</strong>
           <span>{report.updated}</span>
         </div>
-        <button className="secondary-button" type="button">
-          <FileText size={15} />
-          文件
-        </button>
       </div>
       <div className="report-document">
         {report.content}

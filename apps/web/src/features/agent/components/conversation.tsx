@@ -81,7 +81,6 @@ import {
   type ReasoningEffort,
   type ToolApprovalDecision,
   type FileRef,
-  type ArtifactRef,
   type AssistantArtifactBlock,
   type RunContextDebug,
   type PendingUserInputView,
@@ -89,7 +88,7 @@ import {
 import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY, APP_BRAND } from '../config/ui.constants';
 import { BrandIcon } from './brand-icon';
-import { getArtifactPreview, getArtifactPreviewUrl, getFilePreview } from '../../../api/client';
+import { getFilePreview } from '../../../api/client';
 import { presentAssistantBlocks } from '../elements/assistant-message-adapter';
 import { AgentChainOfThought } from '../elements/agent-chain-of-thought';
 import { toolInputSummary, toolTitle, type ToolCopyInput } from '../model/tool-copy';
@@ -420,136 +419,6 @@ function FilePreviewDialog({
   );
 }
 
-function ArtifactPreviewDialog({
-  artifact,
-  onClose,
-}: {
-  artifact: ArtifactRef;
-  onClose: () => void;
-}) {
-  const isImageArtifact =
-    artifact.fileKind === 'image' || artifact.mediaType.startsWith('image/');
-  const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (isImageArtifact) return;
-    const controller = new AbortController();
-    void getArtifactPreview(artifact.artifactId, controller.signal)
-      .then((result) => setContent(result.content))
-      .catch((requestError: unknown) => {
-        if ((requestError as Error).name !== 'AbortError')
-          setError(requestError instanceof Error ? requestError.message : '文件预览不可用。');
-      });
-    return () => controller.abort();
-  }, [artifact.artifactId, isImageArtifact]);
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-  if (isImageArtifact) {
-    return createPortal(
-      <div
-        className="file-preview-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${artifact.fileName}预览`}
-        onMouseDown={(event) => {
-          if (event.currentTarget === event.target) onClose();
-        }}
-      >
-        <section
-          className="file-preview-dialog__panel"
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <header className="file-preview-dialog__header">
-            <div>
-              <span
-                className={`file-card-icon file-card-icon--${fileExtension(artifact.fileName).toLowerCase()}`}
-              >
-                {fileExtension(artifact.fileName)}
-              </span>
-              <strong title={artifact.fileName}>{artifact.fileName}</strong>
-            </div>
-            <button
-              type="button"
-              className="file-preview-dialog__close"
-              aria-label="关闭文件预览"
-              title="关闭预览"
-              onClick={onClose}
-            >
-              <X size={19} />
-            </button>
-          </header>
-          <div className="file-preview-dialog__body">
-            <img
-              src={getArtifactPreviewUrl(artifact.artifactId)}
-              alt={artifact.fileName}
-              style={{ maxWidth: '100%', height: 'auto' }}
-            />
-          </div>
-        </section>
-      </div>,
-      document.body,
-    );
-  }
-  return createPortal(
-    <div
-      className="file-preview-dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`${artifact.fileName}预览`}
-      onMouseDown={(event) => {
-        if (event.currentTarget === event.target) onClose();
-      }}
-    >
-      <section
-        className="file-preview-dialog__panel"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="file-preview-dialog__header">
-          <div>
-            <span
-              className={`file-card-icon file-card-icon--${fileExtension(artifact.fileName).toLowerCase()}`}
-            >
-              {fileExtension(artifact.fileName)}
-            </span>
-            <strong title={artifact.fileName}>{artifact.fileName}</strong>
-          </div>
-          <button
-            type="button"
-            className="file-preview-dialog__close"
-            aria-label="关闭文件预览"
-            title="关闭预览"
-            onClick={onClose}
-          >
-            <X size={19} />
-          </button>
-        </header>
-        <div className="file-preview-dialog__body">
-          {error ? <p className="file-preview-dialog__error">{error}</p> : null}
-          {content === null && !error ? (
-            <div className="file-preview-dialog__loading" role="status">
-              <LoaderCircle className="spin" size={18} />
-              <span>正在加载预览</span>
-            </div>
-          ) : null}
-          {content !== null ? (
-            artifact.fileKind === 'json' ? (
-              <pre className="file-preview-dialog__code">{content}</pre>
-            ) : (
-              <MarkdownContent>{content}</MarkdownContent>
-            )
-          ) : null}
-        </div>
-      </section>
-    </div>,
-    document.body,
-  );
-}
-
 function ArtifactCard({
   block,
   runId,
@@ -559,7 +428,6 @@ function ArtifactCard({
   runId: string;
   onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
 }) {
-  const [previewOpen, setPreviewOpen] = useState(false);
   const statusLabel = artifactStatusLabel(block.status);
   return (
     <Artifact className="assistant-artifact-file">
@@ -567,10 +435,9 @@ function ArtifactCard({
         <button
           type="button"
           className="user-attachment-button user-attachment-document"
-          aria-label={`预览${block.fileName}`}
+          aria-label={`在实时跟随中查看 ${block.fileName}`}
           disabled={block.status !== 'ready'}
           onClick={() => {
-            setPreviewOpen(true);
             onFocusWorkbench({ kind: 'artifact', runId, artifactId: block.artifactId });
           }}
         >
@@ -592,9 +459,6 @@ function ArtifactCard({
           </span>
         </button>
       </ArtifactHeader>
-      {previewOpen ? (
-        <ArtifactPreviewDialog artifact={block} onClose={() => setPreviewOpen(false)} />
-      ) : null}
     </Artifact>
   );
 }
@@ -1080,8 +944,76 @@ function ConversationSessionSkeleton() {
   );
 }
 
+type ConversationProps = {
+  state: AgentUiState;
+  error: string | null;
+  onDismissError: () => void;
+  onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
+  prompt: string;
+  submitting: boolean;
+  serviceState: ServiceState;
+  composerMode: 'new-run' | 'steer' | 'clarification' | 'disabled';
+  onPromptChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onCancel?: () => void;
+  onClarificationRespond?: (interruptId: string, answer: string) => void;
+  onApprovalSubmit?: (interruptId: string, decisions: ToolApprovalDecision[]) => void;
+  pendingInputs?: PendingUserInputView[];
+  onPromotePending?: (inputId: string) => void;
+  onCancelPending?: (inputId: string) => void;
+  onSendPending?: (inputId: string) => void;
+  onReconnect?: () => void;
+  reasoningEffort?: ReasoningEffort;
+  models?: PublicModelConfig[];
+  selectedModel?: string;
+  onModelChange?: (model: string) => void;
+  onReasoningEffortChange?: (value: ReasoningEffort) => void;
+  attachments?: FileRef[];
+  attachmentUploading?: boolean;
+  onAttachmentSelected?: (files: File[]) => void;
+  onAttachmentRemove?: (fileId: string) => void;
+  onAttachmentRetry?: (fileId: string) => void;
+  onAttachmentCancel?: (fileId: string) => void;
+  scopeKey?: string;
+  sessionLoading?: boolean;
+  hideComposer?: boolean;
+};
+
+/** Workbench Tab / focus 变化不必重绘整段对话（Streamdown 重绘是 click 300ms+ 的主因）。 */
+function conversationPropsAreEqual(prev: ConversationProps, next: ConversationProps): boolean {
+  const prevWb = prev.state.workbench;
+  const nextWb = next.state.workbench;
+  if (prev.prompt !== next.prompt) return false;
+  if (prev.error !== next.error) return false;
+  if (prev.submitting !== next.submitting) return false;
+  if (prev.serviceState !== next.serviceState) return false;
+  if (prev.composerMode !== next.composerMode) return false;
+  if (prev.sessionLoading !== next.sessionLoading) return false;
+  if (prev.scopeKey !== next.scopeKey) return false;
+  if (prev.hideComposer !== next.hideComposer) return false;
+  if (prev.selectedModel !== next.selectedModel) return false;
+  if (prev.reasoningEffort !== next.reasoningEffort) return false;
+  if (prev.models !== next.models) return false;
+  if (prev.attachments !== next.attachments) return false;
+  if (prev.attachmentUploading !== next.attachmentUploading) return false;
+  if (prev.pendingInputs !== next.pendingInputs) return false;
+  if (prev.state.conversation !== next.state.conversation) return false;
+  if (prev.state.activeRunId !== next.state.activeRunId) return false;
+  if (prev.state.activeInterrupt !== next.state.activeInterrupt) return false;
+  if (prev.state.context !== next.state.context) return false;
+  if (prevWb !== nextWb) {
+    if (!prevWb || !nextWb) return false;
+    if (prevWb.open !== nextWb.open) return false;
+    if (prevWb.activityStatus !== nextWb.activityStatus) return false;
+    if (prevWb.plan !== nextWb.plan) return false;
+    if (prevWb.activeInterrupt !== nextWb.activeInterrupt) return false;
+    if (prevWb.context !== nextWb.context) return false;
+  }
+  return true;
+}
+
 // 渲染消息时间线、内联工具活动、错误提示和 Composer。
-export function Conversation({
+function ConversationBody({
   state,
   error,
   onDismissError,
@@ -1114,43 +1046,7 @@ export function Conversation({
   scopeKey = 'default',
   sessionLoading = false,
   hideComposer = false,
-}: {
-  state: AgentUiState;
-  error: string | null;
-  onDismissError: () => void;
-  onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
-  prompt: string;
-  submitting: boolean;
-  serviceState: ServiceState;
-  composerMode: 'new-run' | 'steer' | 'clarification' | 'disabled';
-  onPromptChange: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onCancel?: () => void;
-  onClarificationRespond?: (interruptId: string, answer: string) => void;
-  onApprovalSubmit?: (interruptId: string, decisions: ToolApprovalDecision[]) => void;
-  pendingInputs?: PendingUserInputView[];
-  onPromotePending?: (inputId: string) => void;
-  onCancelPending?: (inputId: string) => void;
-  onSendPending?: (inputId: string) => void;
-  onReconnect?: () => void;
-  reasoningEffort?: ReasoningEffort;
-  models?: PublicModelConfig[];
-  selectedModel?: string;
-  onModelChange?: (model: string) => void;
-  onReasoningEffortChange?: (value: ReasoningEffort) => void;
-  attachments?: FileRef[];
-  attachmentUploading?: boolean;
-  onAttachmentSelected?: (files: File[]) => void;
-  onAttachmentRemove?: (fileId: string) => void;
-  onAttachmentRetry?: (fileId: string) => void;
-  onAttachmentCancel?: (fileId: string) => void;
-  /** 切换会话时变化，用于避免误触发首页输入框过渡动画 */
-  scopeKey?: string;
-  /** 会话详情尚未就绪时展示消息区骨架屏，避免误显示新会话 landing */
-  sessionLoading?: boolean;
-  /** 链接分享只读：不展示底部输入区 */
-  hideComposer?: boolean;
-}) {
+}: ConversationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
   const composerMeasureRef = useRef<HTMLDivElement>(null);
@@ -1608,6 +1504,8 @@ export function Conversation({
     </AiConversation>
   );
 }
+
+export const Conversation = memo(ConversationBody, conversationPropsAreEqual);
 
 export function Composer({
   prompt,

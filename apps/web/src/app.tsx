@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  startTransition,
   useEffect,
   useRef,
   useState,
@@ -211,25 +212,97 @@ function preferredProvenance(
   return left && priority[left] >= priority[right] ? left : right;
 }
 
-function workbenchHeader(executions: ReadonlyArray<{ toolName: string }>, sourceCount: number) {
+type WorkbenchHeaderSource = { kind?: 'clue' | 'fetched'; used?: boolean };
+
+type WorkbenchHeaderExecution = {
+  toolName: string;
+  status?: string;
+  elapsed?: string;
+};
+
+function formatSourceEvidenceSubtitle(sources: ReadonlyArray<WorkbenchHeaderSource>): string | undefined {
+  if (!sources.length) return undefined;
+  const usedCount = sources.filter((source) => source.kind === 'fetched' && source.used).length;
+  const fetchedCount = sources.filter((source) => source.kind === 'fetched').length;
+  const clueCount = sources.filter((source) => source.kind === 'clue').length;
+  if (fetchedCount) {
+    return `${usedCount} 个回答采用 · ${fetchedCount} 个已读取 · ${clueCount} 个搜索线索`;
+  }
+  return `${clueCount} 个搜索线索`;
+}
+
+function workbenchExecutionPhase(
+  executions: ReadonlyArray<WorkbenchHeaderExecution>,
+): 'running' | 'completed' | 'idle' {
+  if (!executions.length) return 'idle';
+  if (
+    executions.some(
+      (item) =>
+        item.status === 'running' ||
+        item.status === 'pending' ||
+        item.status === 'waiting' ||
+        item.status === 'cancelling',
+    )
+  ) {
+    return 'running';
+  }
+  if (executions.every((item) => item.status === 'completed')) return 'completed';
+  return 'idle';
+}
+
+function workbenchElapsedHint(executions: ReadonlyArray<WorkbenchHeaderExecution>): string {
+  const elapsed = executions.at(-1)?.elapsed;
+  if (!elapsed || elapsed === '进行中') return '';
+  return ` · 最近 ${elapsed}`;
+}
+
+function workbenchHeader(
+  executions: ReadonlyArray<WorkbenchHeaderExecution>,
+  sources: ReadonlyArray<WorkbenchHeaderSource>,
+) {
   // 根据当前调用集合选择 Workbench 标题和摘要。
   const isFileTool = (toolName: string) =>
     toolName === 'search_file' || toolName === 'read_file_lines';
   const isWebTool = (toolName: string) => toolName === 'web_search' || toolName === 'web_fetch';
-  if (executions.length > 0 && executions.every((item) => isFileTool(item.toolName))) {
-    return { title: '文件读取', subtitle: `${executions.length} 次文件调用` };
+  const phase = workbenchExecutionPhase(executions);
+  const evidence = formatSourceEvidenceSubtitle(sources);
+  const elapsedHint = workbenchElapsedHint(executions);
+  const callCount = executions.length;
+
+  if (callCount > 0 && executions.every((item) => isFileTool(item.toolName))) {
+    const phaseCopy =
+      phase === 'running'
+        ? `正在读取 · ${callCount} 次文件调用${elapsedHint}`
+        : phase === 'completed'
+          ? `读取完成 · ${callCount} 次文件调用`
+          : `${callCount} 次文件调用`;
+    return { title: '文件读取', subtitle: phaseCopy };
   }
-  if (executions.length > 0 && executions.every((item) => isWebTool(item.toolName))) {
+  if (callCount > 0 && executions.every((item) => isWebTool(item.toolName))) {
+    const subtitle =
+      phase === 'running'
+        ? `正在执行 · ${callCount} 次调用${elapsedHint}`
+        : phase === 'completed' && evidence
+          ? `复核完成 · ${evidence}`
+          : evidence
+            ? `${callCount} 次调用 · ${evidence}`
+            : `${callCount} 次调用 · ${sources.length} 个来源`;
     return {
       title: AGENT_UI_COPY.searchWorkbenchTitle,
-      subtitle: `${executions.length} 次调用 · ${sourceCount} 个来源`,
+      subtitle,
     };
   }
+  const subtitle =
+    phase === 'running'
+      ? `正在执行 · ${callCount} 次调用${elapsedHint}`
+      : phase === 'completed' && evidence
+        ? `执行完成 · ${evidence}`
+        : sources.length
+          ? `${callCount} 次调用 · ${sources.length} 个来源`
+          : `${callCount} 次调用`;
   return {
     title: '工具执行',
-    subtitle: sourceCount
-      ? `${executions.length} 次调用 · ${sourceCount} 个来源`
-      : `${executions.length} 次调用`,
+    subtitle,
   };
 }
 
@@ -301,7 +374,7 @@ export function workbenchFromPersistedMessage(
       toolCallIds: source.toolCallIds,
     };
   });
-  const header = workbenchHeader(executions, sourceViews.length);
+  const header = workbenchHeader(executions, sourceViews);
   const artifacts = artifactBlocks.map((block) => ({
     artifactId: block.artifactId,
     fileId: block.fileId,
@@ -367,6 +440,13 @@ export function workbenchFromPersistedMessage(
         resultCount: execution.resultCount,
         sourceCount:
           execution.toolName === 'web_fetch' ? execution.succeededCount : execution.resultCount,
+        ...(execution.status === 'completed' &&
+        (execution.toolName === 'create_file' || execution.toolName === 'create_report')
+          ? (() => {
+              const matched = artifacts.find((item) => item.fileName === execution.input.fileName);
+              return matched ? { artifactId: matched.artifactId } : {};
+            })()
+          : {}),
       };
     }),
     followMode: 'auto',
@@ -431,7 +511,7 @@ export function applyToolEvent(
     const executions = base.executions.some((item) => item.toolCallId === event.toolCallId)
       ? base.executions
       : [...base.executions, tool];
-    const header = workbenchHeader(executions, base.sources.length);
+    const header = workbenchHeader(executions, base.sources);
     return {
       ...base,
       open,
@@ -439,12 +519,16 @@ export function applyToolEvent(
       subtitle: header.subtitle,
       activityStatus: 'running',
       executions,
-      focusTarget: {
-        kind: 'tool_call',
-        runId: event.messageId,
-        stepId: event.toolCallId,
-        toolCallId: event.toolCallId,
-      },
+      ...(base.followMode === 'auto'
+        ? {
+            focusTarget: {
+              kind: 'tool_call' as const,
+              runId: event.messageId,
+              stepId: event.toolCallId,
+              toolCallId: event.toolCallId,
+            },
+          }
+        : {}),
     };
   }
 
@@ -463,6 +547,7 @@ export function applyToolEvent(
     completedEvent?.toolName === 'create_file' ? completedEvent : undefined;
   const completedCreateReport =
     completedEvent?.toolName === 'create_report' ? completedEvent : undefined;
+  const completedArtifact = completedCreateFile ?? completedCreateReport;
   const fetchSucceeded =
     completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
   const resultCount = liveToolCounts(
@@ -503,6 +588,9 @@ export function applyToolEvent(
                     : 0,
               })
             : (cancelledEvent?.detail ?? failedEvent?.detail),
+          ...(completedArtifact
+            ? { artifactId: completedArtifact.result.artifact.artifactId }
+            : {}),
           resultCount,
           sourceCount,
         }
@@ -616,8 +704,7 @@ export function applyToolEvent(
       }
     }
   }
-  const header = workbenchHeader(executions, sources.length);
-  const completedArtifact = completedCreateFile ?? completedCreateReport;
+  const header = workbenchHeader(executions, sources);
   const artifacts =
     completedArtifact &&
     !(base.artifacts ?? []).some(
@@ -631,19 +718,17 @@ export function applyToolEvent(
     title: header.title,
     activityStatus: cancelledEvent ? 'cancelled' : base.activityStatus,
     subtitle: header.subtitle,
-    activeView: completedArtifact
-      ? 'deliverables'
-      : event.type === 'tool.completed'
-        ? 'tool_results'
-        : base.activeView,
+    activeView:
+      completedArtifact || event.type === 'tool.completed' ? 'tool_results' : base.activeView,
     executions,
     sources,
-    ...(completedArtifact
+    ...(completedArtifact && base.followMode === 'auto'
       ? {
           focusTarget: {
-            kind: 'artifact' as const,
+            kind: 'tool_call' as const,
             runId: base.runId,
-            artifactId: completedArtifact.result.artifact.artifactId,
+            stepId: event.toolCallId,
+            toolCallId: event.toolCallId,
           },
         }
       : {}),
@@ -869,8 +954,28 @@ function snapshotActivityStatus(
 
 function workbenchViewFromTarget(kind: WorkbenchFocusTarget['kind']): WorkspaceView {
   if (kind === 'source' || kind === 'tool_call' || kind === 'activity') return 'tool_results';
-  if (kind === 'report' || kind === 'artifact') return 'deliverables';
+  if (kind === 'report') return 'deliverables';
+  if (kind === 'artifact') return 'tool_results';
   return 'tool_results';
+}
+
+function resumeWorkbenchAutoFollow(workbench: WorkbenchState): WorkbenchState {
+  const last = workbench.executions.at(-1);
+  return {
+    ...workbench,
+    followMode: 'auto',
+    activeView: 'tool_results',
+    ...(last
+      ? {
+          focusTarget: {
+            kind: 'tool_call' as const,
+            runId: last.runId,
+            stepId: last.stepId,
+            toolCallId: last.toolCallId,
+          },
+        }
+      : {}),
+  };
 }
 
 function runTerminalStatus(type: 'run.completed' | 'run.failed' | 'run.cancelled') {
@@ -1855,7 +1960,8 @@ function PersistentAgentApp() {
   function focusCurrentWorkbench(target: WorkbenchFocusTarget): void {
     const sessionId = selectedSessionIdRef.current ?? selectedSessionId;
     if (!sessionId) return;
-    setSessionStates((current) => {
+    startTransition(() => {
+      setSessionStates((current) => {
       const state = current[sessionId];
       if (!state) return current;
       const historicalItem = state.conversation.find(
@@ -1881,6 +1987,7 @@ function PersistentAgentApp() {
           },
         },
       };
+      });
     });
   }
 
@@ -2657,59 +2764,81 @@ function PersistentAgentApp() {
               onRestoreArtifact={(artifact) => void restoreArtifactVersion(artifact)}
               onViewChange={(activeView) => {
                 if (!selectedSessionId) return;
-                setSessionStates((current) =>
-                  current[selectedSessionId]?.workbench
-                    ? {
-                        ...current,
-                        [selectedSessionId]: {
-                          ...current[selectedSessionId],
-                          workbench: { ...current[selectedSessionId].workbench!, activeView },
-                        },
-                      }
-                    : current,
-                );
+                startTransition(() => {
+                  setSessionStates((current) =>
+                    current[selectedSessionId]?.workbench
+                      ? {
+                          ...current,
+                          [selectedSessionId]: {
+                            ...current[selectedSessionId],
+                            workbench: { ...current[selectedSessionId].workbench!, activeView },
+                          },
+                        }
+                      : current,
+                  );
+                });
               }}
               onExecutionSelect={(tool) => {
                 if (!selectedSessionId) return;
-                setSessionStates((current) =>
-                  current[selectedSessionId]?.workbench
-                    ? {
-                        ...current,
-                        [selectedSessionId]: {
-                          ...current[selectedSessionId],
-                          workbench: {
-                            ...current[selectedSessionId].workbench!,
-                            followMode: 'pinned',
-                            focusTarget: {
-                              kind: 'tool_call',
-                              runId: tool.runId,
-                              stepId: tool.stepId,
-                              toolCallId: tool.toolCallId,
+                startTransition(() => {
+                  setSessionStates((current) =>
+                    current[selectedSessionId]?.workbench
+                      ? {
+                          ...current,
+                          [selectedSessionId]: {
+                            ...current[selectedSessionId],
+                            workbench: {
+                              ...current[selectedSessionId].workbench!,
+                              followMode: 'pinned',
+                              focusTarget: {
+                                kind: 'tool_call',
+                                runId: tool.runId,
+                                stepId: tool.stepId,
+                                toolCallId: tool.toolCallId,
+                              },
                             },
                           },
-                        },
-                      }
-                    : current,
-                );
+                        }
+                      : current,
+                  );
+                });
+              }}
+              onResumeAutoFollow={() => {
+                if (!selectedSessionId) return;
+                startTransition(() => {
+                  setSessionStates((current) => {
+                    const workbench = current[selectedSessionId]?.workbench;
+                    if (!workbench) return current;
+                    return {
+                      ...current,
+                      [selectedSessionId]: {
+                        ...current[selectedSessionId],
+                        workbench: resumeWorkbenchAutoFollow(workbench),
+                      },
+                    };
+                  });
+                });
               }}
               onClose={() => {
                 if (!selectedSessionId) return;
-                setSessionStates((current) => {
-                  const state = current[selectedSessionId];
-                  if (!state?.workbench) return current;
-                  return {
-                    ...current,
-                    [selectedSessionId]: {
-                      ...state,
-                      autoOpenSuppressedRunIds: [
-                        ...new Set([
-                          ...(state.autoOpenSuppressedRunIds ?? []),
-                          state.workbench.runId,
-                        ]),
-                      ],
-                      workbench: { ...state.workbench, open: false },
-                    },
-                  };
+                startTransition(() => {
+                  setSessionStates((current) => {
+                    const state = current[selectedSessionId];
+                    if (!state?.workbench) return current;
+                    return {
+                      ...current,
+                      [selectedSessionId]: {
+                        ...state,
+                        autoOpenSuppressedRunIds: [
+                          ...new Set([
+                            ...(state.autoOpenSuppressedRunIds ?? []),
+                            state.workbench.runId,
+                          ]),
+                        ],
+                        workbench: { ...state.workbench, open: false },
+                      },
+                    };
+                  });
                 });
               }}
             />
@@ -2885,10 +3014,12 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
             <WorkbenchShell
               state={uiState.workbench}
               onViewChange={(activeView) =>
-                setUiState((current) =>
-                  current.workbench
-                    ? { ...current, workbench: { ...current.workbench, activeView } }
-                    : current,
+                startTransition(() =>
+                  setUiState((current) =>
+                    current.workbench
+                      ? { ...current, workbench: { ...current.workbench, activeView } }
+                      : current,
+                  ),
                 )
               }
               onExecutionSelect={(tool) =>
@@ -2899,20 +3030,31 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
                   toolCallId: tool.toolCallId,
                 })
               }
+              onResumeAutoFollow={() => {
+                startTransition(() => {
+                  setUiState((current) =>
+                    current.workbench
+                      ? { ...current, workbench: resumeWorkbenchAutoFollow(current.workbench) }
+                      : current,
+                  );
+                });
+              }}
               onClose={() =>
-                setUiState((current) => {
-                  if (!current.workbench) return current;
-                  return {
-                    ...current,
-                    autoOpenSuppressedRunIds: [
-                      ...new Set([
-                        ...(current.autoOpenSuppressedRunIds ?? []),
-                        current.workbench.runId,
-                      ]),
-                    ],
-                    workbench: { ...current.workbench, open: false },
-                  };
-                })
+                startTransition(() =>
+                  setUiState((current) => {
+                    if (!current.workbench) return current;
+                    return {
+                      ...current,
+                      autoOpenSuppressedRunIds: [
+                        ...new Set([
+                          ...(current.autoOpenSuppressedRunIds ?? []),
+                          current.workbench.runId,
+                        ]),
+                      ],
+                      workbench: { ...current.workbench, open: false },
+                    };
+                  }),
+                )
               }
             />
           ) : null

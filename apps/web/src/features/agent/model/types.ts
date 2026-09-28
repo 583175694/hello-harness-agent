@@ -45,7 +45,7 @@ export type PreviewState =
   | 'fetch-running'
   | 'fetch-candidate'
   | 'fetch-failed';
-/** C5 Workbench Tab：工具结果 | 交付物 | Context（docs/37） */
+/** C5 Workbench Tab：workbench | 文件 | 上下文（内部 id：tool_results | deliverables | context） */
 export type WorkspaceView = 'tool_results' | 'deliverables' | 'context';
 export type ActivityStatus =
   | 'queued'
@@ -107,6 +107,8 @@ export type ToolCallView = {
   resultCount?: number;
   sourceCount?: number;
   terminal?: BashTerminalView;
+  /** create_file / create_report 等工具完成后关联的 Artifact，用于实时跟随内联预览。 */
+  artifactId?: string;
 };
 
 export type SourceView = {

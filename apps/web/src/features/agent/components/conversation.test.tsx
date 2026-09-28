@@ -626,7 +626,7 @@ describe('Conversation tool activity navigation', () => {
       />,
     );
 
-    const fileCard = screen.getByRole('button', { name: '预览result.md' });
+    const fileCard = screen.getByRole('button', { name: '在实时跟随中查看 result.md' });
     expect(fileCard).toHaveClass('user-attachment-button', 'user-attachment-document');
     expect(screen.queryByRole('button', { name: '下载result.md' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '删除result.md' })).not.toBeInTheDocument();
@@ -683,7 +683,9 @@ describe('Conversation tool activity navigation', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: '预览report.md' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '在实时跟随中查看 report.md' }),
+    ).toBeInTheDocument();
   });
 
   it('opens the parsed preview for a historical document attachment', async () => {

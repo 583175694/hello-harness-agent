@@ -116,6 +116,7 @@ import {
   streamToolTitle,
   toolRunningDetail,
 } from './features/agent/model/tool-copy';
+import { AgentSplitLayout } from './features/agent/components/agent-split-layout';
 import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
 import { SidebarUserMenu } from './features/agent/components/sidebar-user-menu';
@@ -390,7 +391,7 @@ export function applyToolEvent(
     runId: event.messageId,
     title: AGENT_UI_COPY.searchWorkbenchTitle,
     subtitle: '正在搜索公开网页',
-    activeView: 'activity',
+    activeView: 'tool_results',
     activityStatus: 'running',
     executions: [],
     followMode: 'auto',
@@ -631,9 +632,9 @@ export function applyToolEvent(
     activityStatus: cancelledEvent ? 'cancelled' : base.activityStatus,
     subtitle: header.subtitle,
     activeView: completedArtifact
-      ? 'artifact'
-      : event.type === 'tool.completed' && sources.length
-        ? 'sources'
+      ? 'deliverables'
+      : event.type === 'tool.completed'
+        ? 'tool_results'
         : base.activeView,
     executions,
     sources,
@@ -867,10 +868,9 @@ function snapshotActivityStatus(
 }
 
 function workbenchViewFromTarget(kind: WorkbenchFocusTarget['kind']): WorkspaceView {
-  if (kind === 'source') return 'sources';
-  if (kind === 'report') return 'report';
-  if (kind === 'artifact') return 'artifact';
-  return 'activity';
+  if (kind === 'source' || kind === 'tool_call' || kind === 'activity') return 'tool_results';
+  if (kind === 'report' || kind === 'artifact') return 'deliverables';
+  return 'tool_results';
 }
 
 function runTerminalStatus(type: 'run.completed' | 'run.failed' | 'run.cancelled') {
@@ -1370,7 +1370,7 @@ function PersistentAgentApp() {
           runId: event.runId,
           title: '执行计划',
           subtitle: '正在按计划执行',
-          activeView: 'activity' as const,
+          activeView: 'tool_results' as const,
           activityStatus: 'running' as const,
           executions: [],
           followMode: 'auto' as const,
@@ -2369,7 +2369,8 @@ function PersistentAgentApp() {
   const submitting = selectedSessionId
     ? Boolean(pendingSessions[selectedSessionId] || sessionStates[selectedSessionId]?.activeRunId)
     : draftPending;
-  const hasWorkbench = Boolean(uiState.workbench?.open);
+  const workbenchPresent = Boolean(uiState.workbench);
+  const workbenchOpen = Boolean(uiState.workbench?.open);
 
   async function handleLogout(): Promise<void> {
     if (!(await confirm(LOGOUT_CONFIRM))) return;
@@ -2387,7 +2388,7 @@ function PersistentAgentApp() {
   }
 
   return (
-    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-sidebar text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
+    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-canvas text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
       <Sidebar
         serviceState={serviceState}
         serviceLabel=""
@@ -2482,9 +2483,10 @@ function PersistentAgentApp() {
         }}
       />
       <main className="main-shell my-2 mr-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl bg-surface">
-        <div
-          className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}
-        >
+        <AgentSplitLayout
+          workbenchPresent={workbenchPresent}
+          workbenchOpen={workbenchOpen}
+          conversation={
           <section className="conversation-column">
             <header className="topbar flex min-h-14 items-center gap-2.5 bg-surface px-5 text-text-primary max-[720px]:min-h-[58px] max-[720px]:px-4">
               <button
@@ -2646,7 +2648,9 @@ function PersistentAgentApp() {
               }
             />
           </section>
-          {uiState.workbench ? (
+          }
+          workbench={
+          uiState.workbench ? (
             <WorkbenchShell
               state={uiState.workbench}
               onReviseArtifact={beginArtifactRevision}
@@ -2709,8 +2713,9 @@ function PersistentAgentApp() {
                 });
               }}
             />
-          ) : null}
-        </div>
+          ) : null
+          }
+        />
       </main>
     </div>
   );
@@ -2813,7 +2818,8 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
   }
 
   const serviceLabel = SERVICE_STATE_LABELS[serviceState];
-  const hasWorkbench = Boolean(uiState.workbench?.open);
+  const workbenchPresent = Boolean(uiState.workbench);
+  const workbenchOpen = Boolean(uiState.workbench?.open);
   return (
     <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-canvas text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
       <Sidebar
@@ -2833,9 +2839,10 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
       ) : null}
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <main className="main-shell flex h-screen min-h-0 min-w-0 flex-col overflow-hidden bg-surface max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
-        <div
-          className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}
-        >
+        <AgentSplitLayout
+          workbenchPresent={workbenchPresent}
+          workbenchOpen={workbenchOpen}
+          conversation={
           <section className="conversation-column">
             <header className="topbar flex min-h-14 items-center gap-2.5 bg-surface px-5 text-text-primary max-[720px]:min-h-[58px] max-[720px]:px-4">
               <button
@@ -2872,7 +2879,9 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
               onSubmit={handleSubmit}
             />
           </section>
-          {uiState.workbench ? (
+          }
+          workbench={
+          uiState.workbench ? (
             <WorkbenchShell
               state={uiState.workbench}
               onViewChange={(activeView) =>
@@ -2906,8 +2915,9 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
                 })
               }
             />
-          ) : null}
-        </div>
+          ) : null
+          }
+        />
       </main>
     </div>
   );

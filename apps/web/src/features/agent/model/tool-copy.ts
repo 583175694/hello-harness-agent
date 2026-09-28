@@ -232,12 +232,11 @@ export function persistedActivityStatus(
 }
 
 export function persistedActiveView(
-  sourceCount: number,
+  _sourceCount: number,
   contextOnly: boolean,
-): 'sources' | 'context' | 'activity' {
-  if (sourceCount) return 'sources';
+): 'tool_results' | 'context' | 'deliverables' {
   if (contextOnly) return 'context';
-  return 'activity';
+  return 'tool_results';
 }
 
 export function liveToolCounts(

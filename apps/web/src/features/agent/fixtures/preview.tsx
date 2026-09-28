@@ -53,10 +53,9 @@ function previewToolStatus(status: ActivityStatus): ToolCallStatus {
 function previewWorkbenchView(
   reportState: boolean,
   state: PreviewState,
-): 'report' | 'sources' | 'activity' {
-  if (reportState) return 'report';
-  if (state === 'sources') return 'sources';
-  return 'activity';
+): 'deliverables' | 'tool_results' {
+  if (reportState) return 'deliverables';
+  return 'tool_results';
 }
 
 // 开发预览数据与生产状态完全隔离，避免 Mock 逻辑进入 API 流程。
@@ -210,7 +209,7 @@ function makeFetchFixture(
     runId,
     title: '网页证据读取',
     subtitle: fetchSubtitle(running, failed),
-    activeView: state === 'fetch-candidate' ? ('sources' as const) : ('activity' as const),
+    activeView: 'tool_results' as const,
     activityStatus: running ? ('running' as const) : ('completed' as const),
     executions: [fetchTool],
     focusTarget: {
@@ -372,7 +371,7 @@ function makeArtifactFixture(): AgentUiState {
     runId,
     title: '交付文件',
     subtitle: `${previewArtifacts.length} 个文件已就绪`,
-    activeView: 'artifact' as const,
+    activeView: 'deliverables' as const,
     activityStatus: 'completed' as const,
     controlPhase: 'terminal' as const,
     executions: [],

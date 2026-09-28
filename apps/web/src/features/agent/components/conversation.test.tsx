@@ -605,7 +605,7 @@ describe('Conversation tool activity navigation', () => {
                 runId: 'run-1',
                 title: 'Artifact',
                 subtitle: '',
-                activeView: 'artifact',
+                activeView: 'deliverables',
                 executions: [],
                 followMode: 'auto',
                 sources: [],
@@ -662,7 +662,7 @@ describe('Conversation tool activity navigation', () => {
                 runId: 'run-1',
                 title: 'Artifact',
                 subtitle: '',
-                activeView: 'artifact',
+                activeView: 'deliverables',
                 executions: [],
                 followMode: 'auto',
                 sources: [],
@@ -1107,10 +1107,10 @@ describe('Conversation tool activity navigation', () => {
       [...container.querySelectorAll('.ai-chain-step__label')].map((block) => block.textContent),
     ).toEqual([expect.stringContaining('搜索网页')]);
     const processToggle = screen.getByRole('button', { name: '已用时 1 秒' });
-    expect(processToggle).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.click(processToggle);
     expect(processToggle).toHaveAttribute('aria-expanded', 'false');
-    expect(container.querySelector('.ai-chain__content')).toHaveAttribute('aria-hidden', 'true');
+    fireEvent.click(processToggle);
+    expect(processToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(container.querySelector('.ai-chain__content')).toHaveAttribute('aria-hidden', 'false');
     expect(screen.getByText('这是最终回答。')).toBeInTheDocument();
   });
 
@@ -1255,7 +1255,7 @@ describe('Conversation tool activity navigation', () => {
                 runId: 'server-message-1',
                 title: '网页检索',
                 subtitle: '执行中',
-                activeView: 'activity',
+                activeView: 'tool_results',
                 executions: [],
                 followMode: 'auto',
                 sources: [],

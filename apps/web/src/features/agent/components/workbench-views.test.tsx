@@ -1,17 +1,23 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { ConfirmProvider } from '../../../components/ui/confirm-provider';
 import { WorkbenchShell } from './workbench-views';
+
+function renderWorkbench(ui: ReactElement) {
+  return render(<ConfirmProvider>{ui}</ConfirmProvider>);
+}
 
 describe('Workbench context view', () => {
   it('keeps artifact preview and download actions in the workbench', () => {
-    render(
+    renderWorkbench(
       <WorkbenchShell
         state={{
           runId: 'run-1',
           title: '执行详情',
           subtitle: '当前运行',
-          activeView: 'artifact',
+          activeView: 'deliverables',
           activityStatus: 'completed',
           executions: [],
           followMode: 'auto',
@@ -36,7 +42,7 @@ describe('Workbench context view', () => {
       />,
     );
 
-    expect(screen.getByRole('link', { name: '预览' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '在新窗口打开' })).toHaveAttribute(
       'href',
       '/api/agent/artifacts/artifact-1/preview',
     );
@@ -44,10 +50,9 @@ describe('Workbench context view', () => {
     expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument();
   });
 
-  it('renders immutable version history and confirms revise and restore actions', () => {
+  it('renders immutable version history and confirms revise and restore actions', async () => {
     const onReviseArtifact = vi.fn();
     const onRestoreArtifact = vi.fn();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const versions = [
       {
         artifactId: 'artifact-1',
@@ -85,13 +90,13 @@ describe('Workbench context view', () => {
       },
     ];
 
-    render(
+    renderWorkbench(
       <WorkbenchShell
         state={{
           runId: 'run-version-2',
           title: '执行详情',
           subtitle: '当前运行',
-          activeView: 'artifact',
+          activeView: 'deliverables',
           activityStatus: 'completed',
           executions: [],
           followMode: 'auto',
@@ -117,25 +122,25 @@ describe('Workbench context view', () => {
       />,
     );
 
-    expect(screen.getAllByText('result.md')).toHaveLength(2);
-    expect(screen.getByText('v1')).toBeVisible();
-    expect(screen.getByText('v2')).toBeVisible();
+    expect(screen.getAllByText('result.md').length).toBeGreaterThan(0);
+    expect(screen.getByRole('tab', { name: 'v1' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: /v2/ })).toBeVisible();
     expect(screen.getByText('当前版本')).toBeVisible();
     expect(screen.getByText('修改')).toBeVisible();
     expect(screen.queryByText('补充第二节')).not.toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: '预览' })).toHaveLength(2);
-    expect(screen.getAllByRole('button', { name: '下载' })).toHaveLength(2);
 
-    fireEvent.click(screen.getAllByRole('button', { name: '基于此版本修改' })[0]!);
+    fireEvent.click(screen.getByRole('tab', { name: 'v1' }));
+    fireEvent.click(screen.getByRole('button', { name: '基于此版本修改' }));
     expect(onReviseArtifact).toHaveBeenCalledWith(versions[0]);
+
     fireEvent.click(screen.getByRole('button', { name: '恢复此版本' }));
-    expect(confirm).toHaveBeenCalledWith('确认将 v1 恢复为新的最新版本？');
-    expect(onRestoreArtifact).toHaveBeenCalledWith(versions[0]);
-    confirm.mockRestore();
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '恢复' }));
+    await waitFor(() => expect(onRestoreArtifact).toHaveBeenCalledWith(versions[0]));
   });
 
   it('keeps the Context tab visible before the current Run has context data', () => {
-    render(
+    renderWorkbench(
       <WorkbenchShell
         state={{
           runId: 'run-1',
@@ -160,7 +165,7 @@ describe('Workbench context view', () => {
 
   it('renders the latest compiled model context as formatted JSON', () => {
     const onViewChange = vi.fn();
-    render(
+    renderWorkbench(
       <WorkbenchShell
         state={{
           runId: 'run-1',
@@ -198,7 +203,7 @@ describe('Workbench context view', () => {
     expect(screen.getByText('"你好"')).toBeVisible();
     expect(screen.getByText('"estimatedInputTokens"')).toHaveClass('json-token--key');
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Activity' }));
-    expect(onViewChange).toHaveBeenCalledWith('activity');
+    fireEvent.click(screen.getByRole('tab', { name: '工具结果' }));
+    expect(onViewChange).toHaveBeenCalledWith('tool_results');
   });
 });

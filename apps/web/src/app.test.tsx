@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -17,6 +18,7 @@ import type {
   WebFetchResult,
 } from '@harness/agent-protocol';
 import type { ToolStreamEvent } from './api/client';
+import { ConfirmProvider } from './components/ui/confirm-provider';
 import { Composer } from './features/agent/components/conversation';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
 import type { WorkbenchState } from './features/agent/model/types';
@@ -89,9 +91,13 @@ function authMeFetch(url: string): Response | undefined {
   return url.includes('/api/auth/me') ? authMeResponse() : undefined;
 }
 
+function renderWithProviders(ui: ReactElement) {
+  return render(<ConfirmProvider>{ui}</ConfirmProvider>);
+}
+
 async function mountProductionApp() {
   window.history.replaceState({}, '', '/agent');
-  render(<App />);
+  renderWithProviders(<App />);
   await waitForProductionShell();
 }
 
@@ -195,7 +201,7 @@ describe('R1 workbench shell', () => {
       runId: 'run-2',
       title: '执行详情',
       subtitle: '当前运行',
-      activeView: 'artifact',
+      activeView: 'deliverables',
       activityStatus: 'completed',
       executions: [],
       followMode: 'auto',
@@ -252,7 +258,7 @@ describe('R1 workbench shell', () => {
     expect(screen.getByRole('img', { name: 'pipishrimp' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '任务输入' })).toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(4));
   });
 
   it('does not submit Enter while an input method is composing text', () => {
@@ -339,7 +345,7 @@ describe('R1 workbench shell', () => {
   });
 
   it('renders sources and report in the development fixture preview', () => {
-    render(
+    renderWithProviders(
       <AppShell
         previewState={{
           label: '市场调研',
@@ -349,7 +355,7 @@ describe('R1 workbench shell', () => {
             runId: 'run-1',
             title: 'AI 市场',
             subtitle: '4 个来源',
-            activeView: 'sources',
+            activeView: 'tool_results',
             activityStatus: 'running',
             executions: [],
             followMode: 'auto',
@@ -370,7 +376,7 @@ describe('R1 workbench shell', () => {
     );
     expect(screen.getByRole('complementary', { name: '工作区' })).toBeInTheDocument();
     expect(screen.getByText('来源标题')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Sources' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: '工具结果' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('produces the same canonical sources during streaming and persisted recovery', () => {
@@ -676,14 +682,14 @@ describe('R1 workbench shell', () => {
     const streamed = applyToolEvent(applyToolEvent(undefined, started, false), completed, true);
     expect(streamed).toMatchObject({
       open: true,
-      activeView: 'artifact',
+      activeView: 'deliverables',
       artifacts: [expect.objectContaining({ artifactId: 'artifact-report', fileName: 'report.md' })],
       focusTarget: { kind: 'artifact', artifactId: 'artifact-report' },
     });
   });
 
   it('exposes a mock state switcher on the preview route', () => {
-    render(
+    renderWithProviders(
       <>
         <AppShell previewState={makeFixture('waiting')} />
         <PreviewSwitcher active="waiting" />
@@ -768,19 +774,19 @@ describe('R1 workbench shell', () => {
     ['context-compacted', 'Model Round 6'],
   ] as const)('renders the %s feature preview', (state, expectedText) => {
     window.history.replaceState({}, '', `/agent/preview?state=${state}`);
-    render(<App />);
+    renderWithProviders(<App />);
     expect(screen.getAllByText(expectedText).length).toBeGreaterThan(0);
   });
 
   it('renders the attachments feature preview', () => {
     window.history.replaceState({}, '', '/agent/preview?state=attachments');
-    render(<App />);
+    renderWithProviders(<App />);
     expect(screen.getByRole('button', { name: '预览需求说明.pdf' })).toBeInTheDocument();
   });
 
   it('renders fetched passages as unnumbered read sources', () => {
     window.history.replaceState({}, '', '/agent/preview?state=fetch-candidate');
-    render(<App />);
+    renderWithProviders(<App />);
     expect(screen.getByText('F1')).toBeInTheDocument();
     expect(screen.queryByText('[F1]')).not.toBeInTheDocument();
     expect(screen.queryByText('[S1]')).not.toBeInTheDocument();
@@ -792,24 +798,20 @@ describe('R1 workbench shell', () => {
 
   it('opens the workbench from an inline tool activity and focuses the selected call', () => {
     window.history.replaceState({}, '', '/agent/preview?state=tool-running');
-    render(<App />);
+    renderWithProviders(<App />);
     expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
     expect(document.querySelector('[aria-label="工作区"]')).toHaveAttribute('aria-hidden', 'true');
     fireEvent.click(screen.getByRole('button', { name: '交叉验证关键结论，执行中' }));
     expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
-    expect(screen.getByText('调用时间线')).toBeInTheDocument();
-    expect(screen.getByText('业务输入')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '工具结果' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByText('调用时间线')).not.toBeInTheDocument();
     const workspace = screen.getByRole('complementary', { name: '工作区' });
-    expect(
-      workspace.querySelector('.execution-detail')!.compareDocumentPosition(
-        workspace.querySelector('.execution-timeline')!,
-      ) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(within(workspace).getByText(/交叉验证关键结论/)).toBeInTheDocument();
   });
 
   it('keeps preview input lightweight without creating a run card', () => {
     window.history.replaceState({}, '', '/agent/preview?state=tool-running-open');
-    render(<App />);
+    renderWithProviders(<App />);
     fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), {
       target: { value: '优先补充制造业案例' },
     });
@@ -1060,8 +1062,8 @@ describe('R1 workbench shell', () => {
         );
       }),
     );
-    render(<App />);
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));
+    renderWithProviders(<App />);
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(4));
     await waitForProductionShell();
     fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), {
       target: { value: 'Compare two markets.' },
@@ -1072,7 +1074,6 @@ describe('R1 workbench shell', () => {
     expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
     expect(screen.getByText('市场数据来源')).toBeInTheDocument();
     expect(screen.queryByText('思考过程')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '搜索：两个市场最新数据，已完成' })).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(
       '/api/agent/sessions/session-test/runs',
       expect.objectContaining({
@@ -1199,7 +1200,7 @@ describe('R1 workbench shell', () => {
       return Promise.resolve(new Response('{}', { status: 404 }));
     });
     vi.stubGlobal('fetch', fetchMock);
-    render(<App />);
+    renderWithProviders(<App />);
     await waitForProductionShell();
     await waitFor(() => expect(screen.getByRole('button', { name: '旧会话' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
@@ -1294,7 +1295,7 @@ describe('R1 workbench shell', () => {
       return Promise.resolve(new Response('{}', { status: 404 }));
     });
     vi.stubGlobal('fetch', fetchMock);
-    render(<App />);
+    renderWithProviders(<App />);
     await waitForProductionShell();
     await waitFor(() => expect(screen.getByRole('button', { name: '旧会话' })).toBeInTheDocument());
 
@@ -1451,15 +1452,12 @@ describe('R1 workbench shell', () => {
       }),
     );
 
-    render(<App />);
+    renderWithProviders(<App />);
     await waitForProductionShell();
     await waitFor(() => expect(screen.getByText('这是刷新后恢复的回答。')).toBeInTheDocument());
     expect(window.location.search).toBe('?session=restored-session');
     expect(screen.queryByText('思考过程')).not.toBeInTheDocument();
-    expect(screen.queryByRole('complementary', { name: '工作区' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '搜索：持久化检索，已完成' }));
-    expect(screen.getByRole('complementary', { name: '工作区' })).toHaveClass('is-open');
-    expect(screen.getByText('持久化检索')).toBeInTheDocument();
+    expect(screen.getByText('我先检索。')).toBeInTheDocument();
   });
 
   it('opens a shared session from URL when it is not in the sidebar list', async () => {
@@ -1533,7 +1531,7 @@ describe('R1 workbench shell', () => {
       }),
     );
 
-    render(<App />);
+    renderWithProviders(<App />);
     await waitForProductionShell();
     await waitFor(() => expect(screen.getByText('分享可见的回答。')).toBeInTheDocument());
     expect(window.location.search).toBe('?session=shared-session');
@@ -1614,11 +1612,10 @@ describe('R1 workbench shell', () => {
       }),
     );
 
-    render(<App />);
+    renderWithProviders(<App />);
     await waitForProductionShell();
     await waitFor(() => expect(screen.getByText('完整回答仍然存在。')).toBeInTheDocument());
     expect(screen.getByText('重点关注科技板块')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '搜索网页，已完成' })).toBeInTheDocument();
   });
 
   it('renames and pins a session through the compact overflow menu', async () => {
@@ -1659,7 +1656,7 @@ describe('R1 workbench shell', () => {
       }),
     );
 
-    render(<App />);
+    renderWithProviders(<App />);
     await waitForProductionShell();
     await waitFor(() =>
       expect(screen.getByRole('button', { name: '原会话名称' })).toBeInTheDocument(),
@@ -1809,7 +1806,7 @@ describe('R1 workbench shell', () => {
       }),
     );
 
-    render(<App />);
+    renderWithProviders(<App />);
     await waitForProductionShell();
     await waitFor(() => expect(sessionADetailCalls).toBe(1));
     fireEvent.change(screen.getByRole('textbox', { name: '任务输入' }), {

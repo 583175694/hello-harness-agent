@@ -549,7 +549,7 @@ C4  MCP Client & Tool Ecosystem                   **已闭环（C4-A / C4-B / C4
     - C4-C（已完成）：`mcp_add_server` / 从消息添加 MCP（§5.4、§12.2）
 
 C5  Workbench 升级 & Website Preview（分三期，**当前 Capability 首选**）  **未启动**
-    - **C5-1（优先）Workbench 全面升级**：信息架构、Tab/资源模型、Activity/Sources/Artifact（含版本链）/Context、focus/pin/auto-open、MCP·bash·外部工具统一呈现、桌面/移动布局与 [19-agent-frontend](./19-agent-frontend.md) / [20-agent-workbench](./20-agent-workbench.md) 对齐；不依赖新 Sandbox 能力即可交付
+    - **C5-1（优先）Workbench 全面升级**：**工具结果 | 交付物 | Context** 三 Tab；底栏 **shadcn Slider** 切换 tool_call；会话与工作台 **shadcn Resizable**；契约见 [37-c5-workbench-ui-and-preview.md](./37-c5-workbench-ui-and-preview.md)；不重复 Activity/Sources 时间线；不依赖新 Sandbox 能力即可交付
     - **C5-2（其次）HTML 网站预览生成与持续迭代**：在 C2 Artifact + C2-D 版本链上，Workbench **安全 iframe/预览** 与「改一版 → revise → 再预览」闭环；首期可复用 C2 `create_file` + `.html`（Host 渲染管线），逐步扩展可运行站点语义
     - **C5-3（再次）Sandbox 在 Workbench 的展示逻辑**：Terminal/job 与 Run 深度联动、构建日志、（可选）dev server / dist 代理预览、Collect 产物入口；**C3 内 install/build/test** 与 egress 策略随本阶段接入，不阻塞 C5-1/2
 
@@ -662,6 +662,7 @@ P8 的完成标准仍然不是“再增加一个工具”，而是现有 `Chat -
 - Connection-Durable Agent Loop：[docs/26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)
 - C3 Agent Sandbox 与云端执行环境：[docs/33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md)
 - C4 MCP Client：[docs/35-c4-mcp-client.md](./35-c4-mcp-client.md)
+- C5 Workbench UI：[docs/37-c5-workbench-ui-and-preview.md](./37-c5-workbench-ui-and-preview.md)
 
 ## 9. 维护规则
 

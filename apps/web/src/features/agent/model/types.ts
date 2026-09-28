@@ -45,7 +45,8 @@ export type PreviewState =
   | 'fetch-running'
   | 'fetch-candidate'
   | 'fetch-failed';
-export type WorkspaceView = 'activity' | 'context' | 'sources' | 'report' | 'plan' | 'artifact';
+/** C5 Workbench Tab：工具结果 | 交付物 | Context（docs/37） */
+export type WorkspaceView = 'tool_results' | 'deliverables' | 'context';
 export type ActivityStatus =
   | 'queued'
   | 'final_answer'

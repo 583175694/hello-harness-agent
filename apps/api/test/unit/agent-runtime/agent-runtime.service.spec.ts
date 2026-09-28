@@ -201,6 +201,137 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     expect(model.streamRound).toHaveBeenCalledTimes(2);
   });
 
+  it('auto-boosts bash network without tool approval', async () => {
+    const bashInput = {
+      command: 'curl -fsS https://example.com/doc',
+      description: 'fetch doc',
+    };
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'bash-network',
+              name: AGENT_TOOL_NAMES.bash,
+              arguments: JSON.stringify(bashInput),
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '完成' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const tools = registry({
+      resolveName: vi.fn((name: string) =>
+        name === AGENT_TOOL_NAMES.bash ? AGENT_TOOL_NAMES.bash : name,
+      ),
+      parseInput: vi.fn((_name: string, raw: string) => JSON.parse(raw)),
+      execute: vi.fn().mockResolvedValue({
+        status: 'succeeded',
+        output: {
+          exitCode: 0,
+          stdout: 'ok',
+          stderr: '',
+          timedOut: false,
+          aborted: false,
+          timeoutMs: 120_000,
+          durationMs: 1,
+        },
+      }),
+    });
+    const lifecycle = new RuntimeLifecycleController('run-bash-network');
+    const execution = collect(
+      new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()),
+      undefined,
+      lifecycle,
+    );
+    await vi.waitFor(() => expect(tools.execute).toHaveBeenCalled());
+    expect(lifecycle.snapshot().activeInterrupt).toBeUndefined();
+    await execution;
+    expect(tools.execute).toHaveBeenCalledWith(
+      AGENT_TOOL_NAMES.bash,
+      bashInput,
+      expect.objectContaining({ bashEgressBoost: true }),
+      expect.objectContaining({ userId: 'local-user' }),
+    );
+  });
+
+  it('requires approval for bash install before egress boost', async () => {
+    const bashInput = {
+      command: 'pip install requests',
+      description: 'install deps',
+    };
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'bash-install',
+              name: AGENT_TOOL_NAMES.bash,
+              arguments: JSON.stringify(bashInput),
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '完成' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const tools = registry({
+      resolveName: vi.fn((name: string) =>
+        name === AGENT_TOOL_NAMES.bash ? AGENT_TOOL_NAMES.bash : name,
+      ),
+      parseInput: vi.fn((_name: string, raw: string) => JSON.parse(raw)),
+      execute: vi.fn().mockResolvedValue({
+        status: 'succeeded',
+        output: {
+          exitCode: 0,
+          stdout: 'installed',
+          stderr: '',
+          timedOut: false,
+          aborted: false,
+          timeoutMs: 120_000,
+          durationMs: 1,
+        },
+      }),
+    });
+    const lifecycle = new RuntimeLifecycleController('run-bash-install');
+    const execution = collect(
+      new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()),
+      undefined,
+      lifecycle,
+    );
+    await vi.waitFor(() =>
+      expect(lifecycle.snapshot().activeInterrupt?.kind).toBe('tool_approval'),
+    );
+    expect(tools.execute).not.toHaveBeenCalled();
+    const interrupt = lifecycle.snapshot().activeInterrupt!;
+    if (interrupt.kind !== 'tool_approval') throw new Error('expected tool approval');
+    const item = interrupt.payload.items[0]!;
+    lifecycle.decideApproval(interrupt.interruptId, [
+      {
+        itemId: item.itemId,
+        toolCallId: item.toolCallId,
+        argumentsHash: item.argumentsHash,
+        decision: 'approve',
+      },
+    ]);
+    await execution;
+    expect(tools.execute).toHaveBeenCalledWith(
+      AGENT_TOOL_NAMES.bash,
+      bashInput,
+      expect.objectContaining({ bashEgressBoost: true }),
+      expect.objectContaining({ userId: 'local-user' }),
+    );
+  });
+
   it.each([
     ['approve', true, 'approved_by_user'],
     ['reject', false, 'rejected_by_user'],

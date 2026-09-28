@@ -84,7 +84,7 @@ docker image inspect harness-sandbox-browser:local --format '{{.Id}}'
 pnpm --filter @harness/api test
 ```
 
-单测（fake Provider）覆盖 bash / egress / job 等协议；真实 OpenSandbox 用下文 **UI 冒烟** 或容器内 `agent-browser` 手工 POC。公网/生产建议在 `.env` 设 `SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED=true`（开放阶段默认 false，见 `.env.example`）。
+单测（fake Provider）覆盖 bash / egress / job 等协议；真实 OpenSandbox 用下文 **UI 冒烟** 或容器内 `agent-browser` 手工 POC。bash **network 免批**；收紧 egress 时改 `sandbox-config.ts` 中 `SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED`（默认 false，命令内域名动态放行）。
 
 ## UI 冒烟（需审批）
 

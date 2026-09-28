@@ -1,5 +1,11 @@
 export const SANDBOX_WORKSPACE_ROOT = '/workspace';
 
+/**
+ * 为 true 时：network/install boost 仅放开 merged 固定白名单，且 bash 校验命令内 host。
+ * 当前产品阶段固定 false（命令内 HTTPS 域名动态放行）；需收紧时在代码中改为 true。
+ */
+export const SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED = false;
+
 export const sandboxEgressAllowlistV1 = [
   'example.com',
   'pypi.org',
@@ -48,8 +54,6 @@ export type SandboxRuntimeConfig = {
   image?: string;
   ttlMs: number;
   maxTtlMs: number;
-  /** true = C3-C v2 Host 域名白名单；false = 审批 network 后按命令 URL 动态放行（当前默认） */
-  egressHostAllowlistEnforced: boolean;
   egressAllowlistExtra: readonly string[];
   jobCompletionDelivery: SandboxJobCompletionDelivery;
   jobMaxConsecutiveWakes: number;
@@ -67,9 +71,6 @@ export function readSandboxRuntimeConfig(
   const ttlMs = ttlRaw ? Number(ttlRaw) : sandboxLimits.ttlMs;
   const maxTtlRaw = env.SANDBOX_MAX_TTL_MS;
   const maxTtlMs = maxTtlRaw ? Number(maxTtlRaw) : sandboxLimits.maxTtlMs;
-  const allowlistEnforcedRaw = env.SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED?.trim().toLowerCase();
-  const egressHostAllowlistEnforced =
-    allowlistEnforcedRaw === 'true' || allowlistEnforcedRaw === '1';
   const extraRaw = env.SANDBOX_EGRESS_ALLOWLIST_EXTRA;
   const egressAllowlistExtra = extraRaw
     ? extraRaw
@@ -99,7 +100,6 @@ export function readSandboxRuntimeConfig(
     domain: emptyToUndefined(env.SANDBOX_DOMAIN),
     apiKey: emptyToUndefined(env.SANDBOX_API_KEY),
     image: emptyToUndefined(env.SANDBOX_IMAGE),
-    egressHostAllowlistEnforced,
     ttlMs: Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : sandboxLimits.ttlMs,
     maxTtlMs: Number.isFinite(maxTtlMs) && maxTtlMs > 0 ? maxTtlMs : sandboxLimits.maxTtlMs,
     egressAllowlistExtra,
@@ -146,10 +146,10 @@ export type NetworkRulePatch = { action: 'allow'; target: string };
 
 export function buildEgressBoostRules(input: {
   commandHosts: readonly string[];
-  config?: Pick<SandboxRuntimeConfig, 'egressHostAllowlistEnforced' | 'egressAllowlistExtra'>;
+  config?: Pick<SandboxRuntimeConfig, 'egressAllowlistExtra'>;
 }): NetworkRulePatch[] {
   const config = input.config ?? readSandboxRuntimeConfig();
-  if (config.egressHostAllowlistEnforced) {
+  if (SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED) {
     return mergedEgressAllowlist(config).map((target) => ({ action: 'allow', target }));
   }
   const targets = new Set<string>(sandboxEgressAllowlistV1);

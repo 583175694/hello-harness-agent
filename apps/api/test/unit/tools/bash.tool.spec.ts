@@ -94,54 +94,7 @@ describe('BashTool', () => {
     );
   });
 
-  it('denies agent-browser egress when boosted host is outside allowlist', async () => {
-    const prev = process.env.SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED;
-    process.env.SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED = 'true';
-    const execute = vi.fn();
-    const egressAudit = { record: vi.fn() };
-    const tool = new BashTool(
-      {
-        isAvailable: () => true,
-        acquireRunLease: vi.fn(),
-        withSession: vi.fn(),
-      } as never,
-      { stage: vi.fn() } as never,
-      {} as never,
-      {} as never,
-      {
-        classify: () => 'network',
-      } as never,
-      egressAudit as never,
-    );
-    const result = await tool.execute(
-      {
-        command: 'agent-browser open https://not-on-allowlist.invalid.example/',
-        description: 'bad host',
-      },
-      {
-        userId: 'local-user',
-        sessionId: 's1',
-        runId: 'r1',
-        messageId: 'm1',
-        toolCallId: 'c1',
-        bashEgressBoost: true,
-      },
-    );
-    expect(execute).not.toHaveBeenCalled();
-    expect(result.status).toBe('failed');
-    if (result.status === 'failed') {
-      expect(result.error.code).toBe(AGENT_ERROR_CODES.sandboxUnavailable);
-      expect(result.error.detail).toMatch(/allowlist: not-on-allowlist/);
-    }
-    expect(egressAudit.record).toHaveBeenCalledWith(
-      expect.objectContaining({ decision: 'deny' }),
-    );
-    process.env.SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED = prev;
-  });
-
-  it('allows egress boost without host allowlist when enforcement is off', async () => {
-    const prev = process.env.SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED;
-    delete process.env.SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED;
+  it('allows egress boost for command hosts under dynamic egress policy', async () => {
     const execute = vi.fn(async () => ({
       exitCode: 0,
       signal: null,
@@ -189,7 +142,5 @@ describe('BashTool', () => {
     expect(egressAudit.record).toHaveBeenCalledWith(
       expect.objectContaining({ decision: 'allow' }),
     );
-    if (prev === undefined) delete process.env.SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED;
-    else process.env.SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED = prev;
   });
 });

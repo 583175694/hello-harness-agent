@@ -114,10 +114,14 @@ describe('AgentChainOfThought elapsed time', () => {
       <AgentChainOfThought
         process={process}
         running={false}
+        finalOutputVisible
         onFocusWorkbench={() => undefined}
       />,
     );
 
-    expect(screen.getByRole('button', { name: '已用时 2 秒' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '已用时 2 秒' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
   });
 });

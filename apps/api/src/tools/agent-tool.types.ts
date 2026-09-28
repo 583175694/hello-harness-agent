@@ -8,7 +8,7 @@ export type ToolExecutionContext = {
   messageId: string;
   toolCallId: string;
   signal?: AbortSignal;
-  /** 用户已批准 network/install 后，当次命令临时放宽 Sandbox egress。 */
+  /** network 自动或 install 批准后，当次命令临时放宽 Sandbox egress。 */
   bashEgressBoost?: boolean;
 };
 

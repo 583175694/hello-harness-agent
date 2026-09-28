@@ -12,6 +12,22 @@ afterEach(() => {
 });
 
 describe('ChainOfThought autoCollapse', () => {
+  it('starts collapsed for completed messages without a delay', () => {
+    render(
+      <ChainOfThought autoCollapse running={false} finalOutputVisible>
+        <ChainOfThoughtHeader>处理过程</ChainOfThoughtHeader>
+        <ChainOfThoughtContent>
+          <p>步骤</p>
+        </ChainOfThoughtContent>
+      </ChainOfThought>,
+    );
+
+    expect(screen.getByRole('button', { name: '处理过程' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+
   it('collapses when final output becomes visible', () => {
     vi.useFakeTimers();
     const { rerender } = render(

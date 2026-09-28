@@ -39,7 +39,7 @@ C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@
 
 **C3-C 已落地（代码 + 单测；live 手工签字见 docs/33 §6.3.4）**：Session 级 Sandbox + Prisma `sandbox_instances` + Run **lease**（`releaseRunLease`）；`bash.run_in_background` 与 `job_output` / `job_list` / `job_kill`；`SandboxJobWatcher` 默认 **wakeup**（`quiet` / `maxConsecutiveWakes`）；egress v2 词法 host + 扩展 allowlist + 结构化 audit；orphan 扫描骨架；审批 UI 展示 bash `inputFiles`；模型 definitions 不再暴露 `execute_command` 别名（Snapshot 只读保留）。
 
-**C3-D 已落地（D0–D3）**：专用镜像 [`dev/opensandbox-local/Dockerfile.harness-sandbox-browser`](../dev/opensandbox-local/Dockerfile.harness-sandbox-browser)；`bash` 注入 `AGENT_BROWSER_SESSION*`；`agent-browser` + URL → network 策略；PNG 等截图 **`output` Collect** → Artifact（`fileKind: image`）；OpenSandbox 回归靠 Workbench 冒烟与单测。**当前阶段** Sandbox 在用户 **network 审批** 后默认 **不启用 Host 域名白名单**（命令内 HTTPS 域名动态放行 OpenSandbox egress）；恢复 C3-C v2 白名单：`SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED=true`。实施方案与验收 [docs/34](./34-c3-d-session-browser-agent.md)、[docs/33 §6.4.4](./33-c3-agent-sandbox-cloud-execution.md#644-c3-d-验收与冒烟)。D4 薄 Tool / 规模化 **后置**。
+**C3-D 已落地（D0–D3）**：专用镜像 [`dev/opensandbox-local/Dockerfile.harness-sandbox-browser`](../dev/opensandbox-local/Dockerfile.harness-sandbox-browser)；`bash` 注入 `AGENT_BROWSER_SESSION*`；`agent-browser` + URL → network 策略；PNG 等截图 **`output` Collect** → Artifact（`fileKind: image`）；OpenSandbox 回归靠 Workbench 冒烟与单测。**当前阶段** Sandbox **network 类 bash 免批**，按命令内 HTTPS 域名动态放行 OpenSandbox egress；**install 仍 K3.2 审批**。固定 Host 白名单模式见 `apps/api/src/sandbox/sandbox-config.ts` 内 `SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED`（代码常量，默认 false）。实施方案与验收 [docs/34](./34-c3-d-session-browser-agent.md)、[docs/33 §6.4.4](./33-c3-agent-sandbox-cloud-execution.md#644-c3-d-验收与冒烟)。D4 薄 Tool / 规模化 **后置**。
 
 ### C4 MCP Client 状态
 
@@ -62,7 +62,7 @@ C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@
 | 工具名 | `bash`（definitions）；`execute_command` → 同 Handler 别名 |
 | 参数 | 必填 `description`；`workdir`（入参 `cwd` 兼容一轮） |
 | timeout | 默认 120s，上限 600s（外层 +10s grace） |
-| 审批 | 静态 `auto_execute`；network/install 由 Host 策略 interrupt |
+| 审批 | 静态 `auto_execute`；bash **install** 由 Host 策略 interrupt；**network 自动 egress boost** |
 | 模型 Tool Message | 成功时 `renderBashResult()` 纯文本 |
 | 截断 / spill | tail 优先；超长 → Host Artifact + `artifact:<id>` 行 |
 | 容器 env | `NO_COLOR` / `TERM=dumb` / `HARNESS_*` |

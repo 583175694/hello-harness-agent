@@ -38,6 +38,17 @@ function useChain(): ChainContextValue {
   return value;
 }
 
+function resolveInitialOpen(
+  defaultOpen: boolean | undefined,
+  autoCollapse: boolean,
+  running: boolean,
+  finalOutputVisible: boolean,
+): boolean {
+  if (defaultOpen !== undefined) return defaultOpen;
+  if (autoCollapse && (finalOutputVisible || !running)) return false;
+  return true;
+}
+
 export function ChainOfThought({
   children,
   className,
@@ -47,8 +58,11 @@ export function ChainOfThought({
   finalOutputVisible = false,
   ...props
 }: ChainOfThoughtProps) {
-  const [open, setOpenState] = useState(defaultOpen ?? true);
+  const [open, setOpenState] = useState(() =>
+    resolveInitialOpen(defaultOpen, autoCollapse, running, finalOutputVisible),
+  );
   const userExpandedRef = useRef(false);
+  const sawActiveProcessRef = useRef(running && !finalOutputVisible);
 
   const setOpen = (next: boolean, userInitiated?: boolean) => {
     if (userInitiated) {
@@ -58,9 +72,19 @@ export function ChainOfThought({
   };
 
   useEffect(() => {
+    if (running && !finalOutputVisible) {
+      sawActiveProcessRef.current = true;
+    }
+  }, [running, finalOutputVisible]);
+
+  useEffect(() => {
     if (!autoCollapse) return;
     const shouldCollapse = finalOutputVisible || !running;
     if (!shouldCollapse || userExpandedRef.current) return;
+    if (!sawActiveProcessRef.current) {
+      setOpenState(false);
+      return;
+    }
     const timer = window.setTimeout(() => setOpenState(false), AUTO_COLLAPSE_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [autoCollapse, finalOutputVisible, running]);

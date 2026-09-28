@@ -799,7 +799,7 @@ export class AgentRuntimeService {
       if (dispatchReadyWait) await dispatchReadyWait;
       this.assertRunActive(input.signal, runDeadlineSignal);
 
-      const bashApprovalPermission = new Map<string, 'network' | 'install'>();
+      const bashInstallApproval = new Set<string>();
       const approvalItems = dispatchPlan
         .filter(
           (item): item is Extract<PreparedDispatch, { status: 'ready' }> => item.status === 'ready',
@@ -810,8 +810,8 @@ export class AgentRuntimeService {
           if (resolved === AGENT_TOOL_NAMES.bash) {
             const bashInput = item.input as BashInput;
             const policyClass = this.bashPolicy.classify(bashInput);
-            if (!policyClass) return [];
-            bashApprovalPermission.set(item.call.id, policyClass);
+            if (policyClass !== 'install') return [];
+            bashInstallApproval.add(item.call.id);
             const base = hashBashApprovalBase(bashInput);
             return [
               {
@@ -962,8 +962,13 @@ export class AgentRuntimeService {
         };
         let result: ToolExecutionResult<unknown>;
         try {
-          const bashEgressBoost =
-            approvalDecisions.get(call.id) === 'approve' && bashApprovalPermission.has(call.id);
+          const bashEgressBoost = this.shouldBoostBashEgress(
+            call.name,
+            toolInput as BashInput,
+            approvalDecisions.get(call.id),
+            bashInstallApproval,
+            call.id,
+          );
           result = await this.executeTool(
             call.name,
             toolInput,
@@ -1214,6 +1219,22 @@ export class AgentRuntimeService {
       return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)));
     });
     return createHash('sha256').update(`${toolName}:${ordered}`).digest('hex');
+  }
+
+  private shouldBoostBashEgress(
+    toolName: string,
+    bashInput: BashInput,
+    approvalDecision: 'approve' | 'reject' | undefined,
+    bashInstallApproval: ReadonlySet<string>,
+    toolCallId: string,
+  ): boolean {
+    if (this.tools.resolveName(toolName) !== AGENT_TOOL_NAMES.bash) return false;
+    const policyClass = this.bashPolicy.classify(bashInput);
+    if (policyClass === 'network') return true;
+    if (policyClass === 'install') {
+      return approvalDecision === 'approve' && bashInstallApproval.has(toolCallId);
+    }
+    return false;
   }
 
   private approvalPolicy(

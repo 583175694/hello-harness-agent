@@ -359,6 +359,25 @@ describe('ContextEngineeringService', () => {
           content: null,
           toolCalls: [
             {
+              id: 'oldest',
+              name: 'web_search',
+              arguments: '{}',
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          toolCallId: 'oldest',
+          content:
+            '[Tool Result truncated: originalTokens=9000, retainedTokens=800, strategy=head-tail, fileId=aaaaaaaa-bbbb-4ccc-8ddd-111111111111, fileName=web_search_oldest.txt, lineCount=40]\n最旧预览正文不要进入下一轮',
+        },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
               id: 'old',
               name: 'web_search',
               arguments: '{}',
@@ -371,7 +390,7 @@ describe('ContextEngineeringService', () => {
           role: 'tool',
           toolCallId: 'old',
           content:
-            '[Tool Result truncated: originalTokens=9000, retainedTokens=800, strategy=head-tail, fileId=aaaaaaaa-bbbb-4ccc-8ddd-111111111111, fileName=web_search_old.txt, lineCount=40]\n预览正文不要进入下一轮',
+            '[Tool Result truncated: originalTokens=9000, retainedTokens=800, strategy=head-tail, fileId=aaaaaaaa-bbbb-4ccc-8ddd-222222222222, fileName=web_search_old.txt, lineCount=40]\n预览正文不要进入下一轮',
         },
         {
           role: 'assistant',
@@ -403,18 +422,173 @@ describe('ContextEngineeringService', () => {
         { role: 'tool', toolCallId: 'new', content: '最新结果仍保留' },
       ],
     });
+    const oldest = compiled.messages.find(
+      (message) => message.role === 'tool' && message.toolCallId === 'oldest',
+    );
     const old = compiled.messages.find(
       (message) => message.role === 'tool' && message.toolCallId === 'old',
     );
     const latest = compiled.messages.find(
       (message) => message.role === 'tool' && message.toolCallId === 'new',
     );
-    expect(old).toMatchObject({
+    expect(oldest).toMatchObject({
       role: 'tool',
       content: expect.stringContaining('[Tool Result stored:'),
     });
-    expect(old && 'content' in old ? old.content : '').not.toContain('预览正文不要进入下一轮');
+    expect(oldest && 'content' in oldest ? oldest.content : '').not.toContain(
+      '最旧预览正文不要进入下一轮',
+    );
+    expect(old).toMatchObject({ role: 'tool', content: expect.stringContaining('预览正文不要进入下一轮') });
     expect(latest).toMatchObject({ role: 'tool', content: '最新结果仍保留' });
+    expect(files.createToolResultFile).not.toHaveBeenCalled();
+  });
+
+  it('keeps collapsed file-tool results inline while non-file tools still become stored', async () => {
+    const { service, files } = createService();
+    const filePayload = '{"lines":[{"n":1,"text":"审阅正文片段"}]}'.repeat(400);
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: '审阅 docx' },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'file-old',
+              name: 'read_file',
+              arguments: '{}',
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        { role: 'tool', toolCallId: 'file-old', content: filePayload },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'web-oldest',
+              name: 'web_search',
+              arguments: '{}',
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        { role: 'tool', toolCallId: 'web-oldest', content: '联网历史结果'.repeat(200) },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'web-mid',
+              name: 'web_search',
+              arguments: '{}',
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        { role: 'tool', toolCallId: 'web-mid', content: '中间联网结果' },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'web-mid2',
+              name: 'web_search',
+              arguments: '{}',
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        { role: 'tool', toolCallId: 'web-mid2', content: '次近联网结果' },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'web-new',
+              name: 'web_search',
+              arguments: '{}',
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        { role: 'tool', toolCallId: 'web-new', content: '最新联网结果' },
+      ],
+    });
+    const fileTool = compiled.messages.find(
+      (message) => message.role === 'tool' && message.toolCallId === 'file-old',
+    );
+    const webOld = compiled.messages.find(
+      (message) => message.role === 'tool' && message.toolCallId === 'web-oldest',
+    );
+    expect(fileTool).toMatchObject({ role: 'tool', content: filePayload });
+    expect(fileTool?.content).not.toContain('[Tool Result stored:');
+    expect(webOld?.content).toContain('[Tool Result stored:');
+    expect(files.createToolResultFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not store read_file_lines alias results during historical collapse', async () => {
+    const { service, files } = createService();
+    const payload = 'alias-read-lines-body';
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: '读行' },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'lines-old',
+              name: 'read_file_lines',
+              arguments: '{}',
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        { role: 'tool', toolCallId: 'lines-old', content: payload },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            { id: 'w1', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
+          ],
+        },
+        { role: 'tool', toolCallId: 'w1', content: 'a'.repeat(500) },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            { id: 'w2', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
+          ],
+        },
+        { role: 'tool', toolCallId: 'w2', content: 'b'.repeat(500) },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            { id: 'w3', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
+          ],
+        },
+        { role: 'tool', toolCallId: 'w3', content: 'c'.repeat(500) },
+      ],
+    });
+    const lines = compiled.messages.find(
+      (message) => message.role === 'tool' && message.toolCallId === 'lines-old',
+    );
+    expect(lines).toMatchObject({ content: payload });
     expect(files.createToolResultFile).not.toHaveBeenCalled();
   });
 
@@ -428,10 +602,24 @@ describe('ContextEngineeringService', () => {
         role: 'assistant' as const,
         content: null,
         toolCalls: [
+          {
+            id: 'oldest',
+            name: 'web_search',
+            arguments: '{}',
+            blockSequence: 0,
+            providerIndex: 0,
+          },
+        ],
+      },
+      { role: 'tool' as const, toolCallId: 'oldest', content: oldContent },
+      {
+        role: 'assistant' as const,
+        content: null,
+        toolCalls: [
           { id: 'old', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
         ],
       },
-      { role: 'tool' as const, toolCallId: 'old', content: oldContent },
+      { role: 'tool' as const, toolCallId: 'old', content: '次旧结果仍保留' },
       {
         role: 'assistant' as const,
         content: null,
@@ -456,8 +644,11 @@ describe('ContextEngineeringService', () => {
     });
     expect(files.createToolResultFile).toHaveBeenCalledOnce();
     service.applyCollapsedToolPointers(live, compiled.messages);
+    expect(
+      live.find((message) => message.role === 'tool' && message.toolCallId === 'oldest'),
+    ).toEqual(expect.objectContaining({ content: expect.stringContaining('[Tool Result stored:') }));
     expect(live.find((message) => message.role === 'tool' && message.toolCallId === 'old')).toEqual(
-      expect.objectContaining({ content: expect.stringContaining('[Tool Result stored:') }),
+      expect.objectContaining({ content: '次旧结果仍保留' }),
     );
     files.createToolResultFile.mockClear();
     await service.compileRound({

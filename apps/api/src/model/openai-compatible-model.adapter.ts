@@ -102,13 +102,14 @@ export function fileRefMetadataText(block: Extract<UserContentBlock, { type: 'fi
   if (block.pageCount !== undefined) extras.push(`pages=${block.pageCount}`);
   const extraSuffix = extras.length > 0 ? `, ${extras.join(', ')}` : '';
   const lineCount = block.lineCount ?? 0;
+  const sizeBytes = block.size ?? 0;
   const isLarge =
     lineCount > AGENT_PROTOCOL_LIMITS.fileReadLinesMax / 2 ||
-    block.size > AGENT_PROTOCOL_LIMITS.fileReadSmallMaxCodePoints * 4;
+    sizeBytes > AGENT_PROTOCOL_LIMITS.fileReadSmallMaxCodePoints * 4;
   const readPlaybook = isLarge
     ? ` Large attachment: read_file(scope=file) for outline, then read_file(scope=section) for each section (or scope=lines blocks covering lines 1..${lineCount || 'lineCount'} without gaps). Use search_file to locate terms, then read_file for full paragraphs. Do not treat a small lines window as reading the whole file.`
     : ' Use read_file(scope=file) for structure or full text; search_file to locate keywords.';
-  return `[Attached file metadata: ${block.fileName}, fileId=${block.fileId}, mediaType=${block.mediaType}, size=${block.size} bytes${extraSuffix}.${readPlaybook}]`;
+  return `[Attached file metadata: ${block.fileName}, fileId=${block.fileId}, mediaType=${block.mediaType}, size=${sizeBytes} bytes${extraSuffix}.${readPlaybook}]`;
 }
 
 function requestSignal(signal?: AbortSignal): { signal: AbortSignal } | undefined {

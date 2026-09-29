@@ -31,7 +31,7 @@ import type { McpServerInstructionSnapshot } from '../mcp/mcp.types';
 const SAFETY_MINIMUM = 4_096;
 const SUMMARY_MAX_TOKENS = 8_192;
 const COMPACTION_TIMEOUT_MS = 120_000;
-const RECENT_TOOL_UNITS_TO_KEEP = 2;
+const RECENT_TOOL_UNITS_TO_KEEP = 3;
 const PROTECTED_RECENT_UNITS = 4;
 const FILE_ID_PATTERN =
   /fileId=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/;
@@ -587,21 +587,37 @@ export class ContextEngineeringService {
         nextHistory.push(...unit.messages);
         continue;
       }
+      const toolNameByCallId = this.toolNamesByCallIdInUnit(unit);
       for (const message of unit.messages) {
         if (message.role !== 'tool') {
           nextHistory.push(message);
           continue;
         }
-        nextHistory.push(await this.collapseToolMessage(message, sessionId));
+        const toolName = toolNameByCallId.get(message.toolCallId);
+        nextHistory.push(await this.collapseToolMessage(message, sessionId, toolName));
       }
     }
     return [...(system ? [system] : []), ...nextHistory];
   }
 
+  private toolNamesByCallIdInUnit(unit: TranscriptUnit): Map<string, string> {
+    const names = new Map<string, string>();
+    const assistant = unit.messages.find(
+      (message) => message.role === 'assistant' && message.toolCalls?.length,
+    );
+    if (assistant?.role !== 'assistant' || !assistant.toolCalls?.length) return names;
+    for (const call of assistant.toolCalls) {
+      names.set(call.id, call.name);
+    }
+    return names;
+  }
+
   private async collapseToolMessage(
     message: Extract<ModelMessage, { role: 'tool' }>,
     sessionId: string,
+    toolName?: string,
   ): Promise<Extract<ModelMessage, { role: 'tool' }>> {
+    if (toolName && this.isFileTool(toolName)) return message;
     const existing = this.parseStoredToolResult(message.content);
     if (existing && message.content.startsWith('[Tool Result stored:')) return message;
     if (existing) {

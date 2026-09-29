@@ -1,6 +1,6 @@
 # C1 文件读取工具演进（read_file / search_file / spill）
 
-> 决策状态：**P0 已实现**（2026-09-29）；P1 compile 分轨 / search `sectionId` 仍待做。本文是 `search_file` 与 `read_file`（取代 `read_file_lines`）、任务分轨、Section 索引及 spill 边界的权威说明；与 C1 基线关系见 [30-c1-file-multimodal-foundation.md](./30-c1-file-multimodal-foundation.md)。  
+> 决策状态：**P0 + CE P0.5 已实现**（2026-09-30）。**读稿产品口径**（`search_file` 维持、`lines` vs `section`、P1-a/b 不做）见 **§14**；compile 分轨 / search `sectionId` 仍为可选 P1。本文是 `search_file` 与 `read_file`（取代 `read_file_lines`）、任务分轨、Section 索引及 spill 边界的权威说明；与 C1 基线关系见 [30-c1-file-multimodal-foundation.md](./30-c1-file-multimodal-foundation.md)。  
 > **不在本文**：Run 工具轮次/次数预算、RAG/向量检索、沙箱读文件、DSML、`search_file` 与 `read_file` 合并。
 
 ## 1. 背景与目标
@@ -56,7 +56,7 @@ user message / file_ref  →  fileId 已确定
 - 文章/报告：`read(scope=file)` →（可选）`search_file` → `read(section|lines)`  
 - 代码/日志：`search_file` → `read(lines)`；避免从第 1 行机械扫全文  
 
-**检索优先于滚动**：先用 search 或 outline 里的章节 **定位**，再 read 块；不要用 `read(lines)` 当全文阅读器。
+**定位 vs 通读**（见 §14.2）：点查、spill 回读、Markdown **大标题** 少段结构 → 优先 search / **section**；**无标题 docx 全文审阅** → 允许 **`lines` 分块**（每块 ≤ `fileReadLinesMax`、覆盖 `1..lineCount`），**不**把「0 次 section」视为失败。仍禁止 **无规划地从第 1 行单行号扫到末尾**（应分块且块间尽量不遗漏）。
 
 ---
 
@@ -198,8 +198,9 @@ sections: [
 | 场景 | 是否 spill |
 |------|-------------|
 | 用户上传 File 正文 | **否**；身份始终为用户 `fileId`；大文用 outline + section/lines |
-| `read_file` / `search_file` 结果超大 | **否（静默）**；`FILE_CONTEXT_TOO_LARGE`，要求缩小 scope |
-| Fetch 等 tool 结果超大 | **是**（现逻辑） |
+| **`read_file` / `search_file` 同轮超大**（`trimToolResults`） | **否**；`FILE_CONTEXT_RESULT_TOO_LARGE`，要求缩小 scope |
+| **Fetch 等 同轮超大** | **是**（head-tail + `tool_result`） |
+| **历史 compile 折叠**（`collapseOldToolResults`） | **非 file-tool** → `[Tool Result stored]`；**file-tool** → **不 stored**，inline 保留（[03](./03-context-engineering.md) §13） |
 
 ### 7.3 与 read 的配合
 
@@ -215,10 +216,10 @@ sections: [
 
 ## 8. System / Tool 文案要点
 
-- 大文件 **禁止** 从第 1 行扫到尾；先 `read(scope=file)`。  
-- **search** = 定位；**read** = 取内容。  
+- 大文件先 `read(scope=file)`；通读时用 **规划好的 section 或 lines 分块**，禁止无规划的单次超长 lines 或从第 1 行逐屏扫到尾。  
+- **search** = 定位（**独立工具维持**，非 docx 通读必需）；**read** = 取内容。  
 - 同一 assistant 响应可 **多个 read**（不同 section/行范围）。  
-- search 命中后优先 **read(section)**。
+- search 命中后优先 **read(section)**；Markdown 大段标题优先 **section**；docx 段落级 section 密、全文任务见 §14.2。
 
 ---
 
@@ -226,9 +227,10 @@ sections: [
 
 | 阶段 | 交付 |
 |------|------|
-| **P0** | Section 索引；`read_file` 三 scope；下线 `read_file_lines`；协议限额 + CE file-tool 对齐 |
+| **P0** | Section 索引；`read_file` 三 scope；下线 `read_file_lines`；协议限额 + CE **同轮** file-tool 不 spill |
 | **P0** | `search_file` 文案；错误码与单测（file-on-demand、CE file 不 spill） |
-| **P1** | compile 任务分轨；search 命中可选 `sectionId` |
+| **P0.5** | CE **历史折叠**不对 file-tool 做 `storeToolResult`；`RECENT_TOOL_UNITS_TO_KEEP` 3（[03](./03-context-engineering.md) §13）— **已完成** |
+| **P1** | compile 任务分轨；search 命中可选 `sectionId`（§14：其余读稿项暂不实施） |
 | **P1.1** | 超长单行 character offset（可选） |
 
 **依赖**：不要求 Run 工具预算改造。
@@ -237,11 +239,48 @@ sections: [
 
 ## 10. 验收标准
 
-1. **small 文件**：总结类问题，0～1 次 read 或 inline 即可，无机械 50 行滚动。  
-2. **large 文件**：以 **outline + section** 为主；`read(lines)` 仅续读/代码场景。  
-3. **search → read**：评测用例覆盖「定位 + 精读」链。  
+1. **small 文件**：总结类问题，0～1 次 read 或 inline 即可，无机械单行号扫全文。  
+2. **large 文件**：先 **outline**；**Markdown 大标题** 优先 **section**；**无标题 docx 全文审阅** 允许 **lines 分块读满**（见 §14.2、335d 冒烟）。  
+3. **search → read**（可选链）：点查 / spill 场景评测「定位 + 精读」；**不要求** 每次附件任务都调用 `search_file`。  
 4. **FILE_CONTEXT_TOO_LARGE** 率相对基线不升；调大窗口后 CE 单测通过。  
-5. **spill**：用户上传不会自动变 `tool_result`；Fetch spill 仍可 search/read 回读。
+5. **spill**：用户上传不会自动变 `tool_result`；Fetch spill 仍可 search/read 回读。  
+6. **CE P0.5 后**：长 run 多轮 `read_file` 不应因 **历史 stored 指针** 被迫反复读 `tool_call_*.json`；超预算仍走明确错误而非 file-tool 静默外置。  
+7. **冒烟（2026-09-30）**：Session `335d9f96-e8c6-4de9-a242-f99e7a64c769` docx 审阅（9× `read_file`、lines 分块 ~10–236 行、0× section、0× `search_file`）与 CE P0.5 意图一致；产品口径见 §14。
+
+---
+
+## 14. 产品决策与 backlog（2026-09-30）
+
+CE P0.5 解决 **历史折叠抹掉 file-tool 正文**。下列为读稿与协议 **是否继续投入** 的结论，避免过度设计。
+
+### 14.1 维持现状（不改代码）
+
+| 项 | 决策 | 理由（摘要） |
+|----|------|----------------|
+| **`search_file` 独立工具** | **保留、不合并、不降级** | 点查 / spill 回读 / 稿内定位仍有协议价值；docx **全文审阅** 可 0 次调用（335d），**非任务失败条件**。 |
+| **P1-a outline `sections[]` 封顶** | **暂不实施** | 335d 未触顶；属极端大 outline **保险**；有线上 `FILE_CONTEXT` / outline 过大再开。 |
+| **P1-b `readingGuide` 字段** | **暂不实施** | 与「docx 通读可用 lines」易冲突；软提示边际低；若将来做应写 **lines 分块** 而非强推 section。 |
+| **强制模型多用 `scope=section`** | **不实施** | docx 无 `#` 时 section≈**段落**（可 100+ 段），通读用 section **比少量 lines 块更费轮次**；335d lines 6 块读满为 **合理路径**。 |
+| **CE retainTokens / DSH pruner** | **Defer** | P0.5 已够；除非 budget 再次成为主因。 |
+
+### 14.2 `lines` vs `section`（验收口径）
+
+| 文件形态 | Section 索引粒度 | 全文理解 / 审阅 | 点查 / 矛盾核查 |
+|----------|------------------|-----------------|-----------------|
+| **Markdown 等（`#` 标题）** | 少而大（章/节） | 优先 **`read(section)`** 逐节 | optional `search_file` → section/lines |
+| **docx 等（无标题，空行段落）** | 多而碎（≈段） | **`read(scope=file)` + `lines` 分块** 覆盖 `1..lineCount` 为 **合格** | 可用 `search_file` 或 lines，不强制 section |
+| **代码 / 日志** | — | **`lines`** | `search_file` → `lines` |
+
+**不视为回归**：docx 审阅 run 中 **0 次 `search_file`、0 次 `section`**，只要分块 lines **覆盖任务所需行范围** 且 CE 未将 file-tool 收成 stored（§7、§10.6）。
+
+### 14.3 仍可选的后续（有需求再做）
+
+| 项 | 说明 |
+|----|------|
+| **P1-c** | spill 指针：JSON `tool_result` 建议 `read(scope=lines)` 而非 `scope=file`（文案级，低成本） |
+| **P1 compile 分轨** | medium/large 仅 `file_ref`（原 P1） |
+| **P2** | `search_file` 命中带 `sectionId` |
+| **P2+** | docx **粗粒度 section**（Heading/合并短段）— 仅当产品 insist「按章读 docx」 |
 
 ---
 

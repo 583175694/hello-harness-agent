@@ -122,6 +122,61 @@
   flex-shrink: 0;
 }
 
+.resource-workspace .tool-results-view--fill .tool-result-artifact {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  margin-top: 8px;
+}
+
+.resource-workspace .tool-results-view--fill .tool-result-artifact .artifact-workbench-preview--detail {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  margin-top: 0;
+}
+
+.resource-workspace .tool-results-view--fill .tool-result-artifact .deliverables-preview-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  margin-top: 0;
+  overflow: hidden;
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 14px;
+  background: var(--theme-surface);
+  box-shadow: 0 1px 2px rgb(15 15 15 / 4%);
+}
+
+.resource-workspace .tool-results-view--fill .tool-result-artifact .deliverables-preview-panel--iframe {
+  min-height: 0;
+}
+
+.resource-workspace .tool-results-view--fill .tool-result-artifact .deliverables-preview-panel--iframe .deliverables-preview-frame {
+  min-height: 0;
+  height: 100%;
+  flex: 1;
+  border-radius: 0;
+}
+
+.resource-workspace .tool-results-view--fill .tool-result-artifact .deliverables-preview-panel--markdown,
+.resource-workspace .tool-results-view--fill .tool-result-artifact .deliverables-preview-panel--text {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.resource-workspace .tool-results-view--fill .tool-result-artifact .deliverables-preview-panel--skeleton,
+.resource-workspace .tool-results-view--fill .tool-result-artifact .deliverables-preview-panel--error,
+.resource-workspace .tool-results-view--fill .tool-result-artifact .deliverables-preview-panel--fallback {
+  flex: 1;
+  min-height: 0;
+}
+
 .resource-workspace .tool-results-view--fill .execution-detail--mcp-panel {
   display: flex;
   min-height: 0;

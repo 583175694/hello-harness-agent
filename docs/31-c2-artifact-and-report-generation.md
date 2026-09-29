@@ -2,7 +2,7 @@
 
 > 文档状态：**C2-A–C2-D 已实施**。后续 Workbench 重构、模板/产物组等见各节「明确不做 / 后续升级」。
 >
-> 最后更新：2026-09-23。
+> 最后更新：2026-09-29（`create_file` 增加 `contentMode: html` 原生 HTML 交付）。
 >
 > 本文记录 C2 产物与报告生成能力的阶段方向、冻结契约与验收标准。当前 C2-B 仍复用 Artifact 查看与下载链路，不冻结专用 Report Workbench。
 
@@ -528,7 +528,7 @@ C2-C 在现有 File、Artifact、COS 和规范化正文链路上增加 Markdown�
 
 统一发生在工具、存储和交付层，不强求所有格式共享同一种内容表示：
 
-- Markdown、HTML、PDF、DOCX 属于文档类输出，统一使用 Markdown 作为生成源；
+- Markdown、HTML、PDF、DOCX 属于文档类输出；**默认**统一使用 Markdown 作为生成源；**`.html` 可选 `contentMode: html`** 交付完整原生 HTML（见 §6.2、§6.4 HTML）；
 - XLSX 属于结构化工作簿输出，使用最小 `sheets/rows` 数据结构；
 - 模型不直接生成 PDF 二进制、Office Open XML、Base64 文件或服务端路径；
 - C2-C 不新增 Artifact Runtime、渲染微服务、任务队列、模板数据库或通用 Document AST。
@@ -544,6 +544,9 @@ C2-C 在现有 File、Artifact、COS 和规范化正文链路上增加 Markdown�
 ```ts
 type CreateFileInput = {
   fileName: string;
+
+  /** 省略 = Markdown 源（默认）。仅 `.html` 可设为 `html`，表示 content 为完整 HTML 文档。 */
+  contentMode?: 'html';
 
   // txt、md、markdown、json、html、pdf、docx 使用
   content?: string;
@@ -562,7 +565,8 @@ type CreateFileInput = {
 - 其他受支持格式必须提供非空 `content`，且不得提供 `sheets`；
 - `fileName` 仍只能是普通文件名，不能包含路径、对象 key 或空字节；
 - Markdown 文档源继续受字符数和字节数限制，XLSX 单独限制 Sheet 数、总行数、总单元格数和最终文件大小；
-- 工具描述必须明确：HTML、PDF 和 DOCX 的 `content` 是 Markdown，不是原始 HTML、XML 或 Base64；
+- **默认**：HTML、PDF 和 DOCX 的 `content` 是 Markdown，不是原始 HTML、XML 或 Base64；
+- **`contentMode: 'html'`**（可选）：仅当 `fileName` 以 `.html` 结尾；`content` 为完整 UTF-8 HTML 文档（`<!doctype html>` 或 `<html>`）；与 Markdown 模式互斥于同一调用（仍走 `create_file`，不增新工具）；
 - JSON Schema 保持扁平，由 Zod `superRefine` 完成扩展名相关的条件校验，不为首版引入复杂工具 schema。
 
 首版规模上限冻结为：最多 10 个 Sheet、每个 Sheet 最多 5,000 行、单次总计最多 100,000 个单元格、单个字符串单元格最多 32,000 个 Unicode 字符、最终 XLSX 文件最多 10 MB。Sheet 名最长 31 个 Unicode 字符；超出输入边界直接拒绝，不截断工作簿内容。
@@ -573,6 +577,16 @@ type CreateFileInput = {
 {
   "fileName": "industry-report.pdf",
   "content": "# 行业调研报告\n\n## 结论\n\n正文……"
+}
+```
+
+原生 HTML 单页示例（交互/动画、inline 资源；Workbench 预览见 [37-c5 §5.3–§5.5](./37-c5-workbench-ui-and-preview.md)）：
+
+```json
+{
+  "fileName": "landing.html",
+  "contentMode": "html",
+  "content": "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>Demo</title><style>body{font-family:system-ui;margin:0;padding:2rem}</style></head><body><h1 id=\"t\">Hello</h1><script>document.getElementById('t').textContent='Ready';</script></body></html>"
 }
 ```
 
@@ -641,16 +655,37 @@ create_file input
 
 #### HTML
 
+**模式 A — 默认（Markdown → HTML）**
+
 ```text
 Markdown
 -> remark/rehype 受控解析
--> 固定 HTML 文档外壳和基础 CSS
+-> 固定 HTML 文档外壳和基础 CSS（含 <base target="_blank">）
 -> UTF-8 HTML Buffer
 ```
 
 首版支持标题、段落、粗体、斜体、删除线、列表、链接、引用、代码块、分隔线和 GFM 表格。首版不支持图片、原始 HTML、脚本、iframe、事件属性、数学公式、脚注、Mermaid、SVG、模型自定义 CSS、`data:` 资源和自动远程资源加载。普通 `https://` 超链接可以保留，但 HTML/PDF 生成不得自动访问链接目标。HTML 的规范化正文仍为输入 Markdown。
 
-`.html` 的 `content` 仍然是 Markdown，不是原始 HTML。服务端必须拒绝或转义原始 HTML，不能将模型提供的标签直接作为 HTML 文档执行。
+省略 `contentMode` 时，`.html` 的 `content` **必须是 Markdown**，不是原始 HTML。服务端必须拒绝或转义原始 HTML，不能将模型提供的标签直接作为 HTML 文档执行。
+
+**模式 B — `contentMode: 'html'`（原生 HTML 交付）**
+
+```text
+完整 HTML 字符串
+-> 服务端校验（禁外链 script/stylesheet、禁 iframe/embed 等）
+-> 必要时注入 <base target="_blank">
+-> originalKey 保存与 download 一致的字节；normalizedKey 为去标签文本摘要（供 search_file）
+```
+
+| 项 | 契约 |
+| --- | --- |
+| 适用 | 复杂单页落地页、inline CSS/JS、scroll 动画等；与 C5-B Workbench iframe 预览对齐（inline script 可运行；外链 CDN 仍可能被 preview CSP 拦截，见 37 号文档） |
+| 允许 | inline `<script>` / `<style>`、`https://` 普通超链接 |
+| 拒绝 | `<script src="https://…">`、外链 `<link rel="stylesheet">`、`@import url(https://…)`、`<iframe>` / `<object>` / `<embed>` |
+| 体积 | 与文档类相同：`content` 字符数 / 字节上限与最终 10 MB 文件上限 |
+| PDF/DOCX | **不**支持原生 HTML 模式；仍仅 Markdown 源 |
+
+模型应在用户要「可交互网页 / 落地页 / 动画单页」时使用 `contentMode: 'html'`；仅要「报告型网页排版」时用默认 Markdown + `.html` 即可。
 
 #### PDF
 

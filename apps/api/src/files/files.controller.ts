@@ -14,6 +14,7 @@ import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { RequestUser } from '../auth/auth.types';
+import { applyArtifactHtmlPreviewHeaders } from './artifact-html-preview.constants';
 import { FilesService } from './files.service';
 import { MAX_FILE_BYTES } from './file-processing.service';
 
@@ -52,6 +53,9 @@ export class FilesController {
     const result = await this.files.preview(user.id, fileId);
     if ('url' in result && result.url) return response.redirect(302, result.url);
     if ('content' in result) {
+      if ('htmlPreview' in result && result.htmlPreview) {
+        applyArtifactHtmlPreviewHeaders(response, result.fileName);
+      }
       response.type(result.contentType ?? 'text/plain');
       return response.send(result.content);
     }

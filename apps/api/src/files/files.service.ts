@@ -841,26 +841,40 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     return this.toPublicRef({ ...file, status: 'processing', errorCode: null }, false);
   }
 
-  // 图片返回短期地址，文本类文件从 COS 读取规范化正文供受限预览。
+  // 图片返回短期地址；Agent 生成 HTML 读 original；其余文本类读 normalized 正文预览。
   async preview(userId: string, fileId: string) {
-    // 图片返回短期 URL，文本返回受限的规范化正文预览。
     const file = await this.findSharedReadable(userId, fileId);
     if (file.status !== 'ready')
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
-    if (file.fileKind !== 'image') {
-      const content = await this.readNormalizedContent(file);
-      return { fileId, content, contentType: 'text/plain' };
-    }
-    if (!file.previewKey)
-      throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
-    return {
-      fileId,
-      url: await this.storage.createReadUrl({
-        sessionId: file.sessionId,
+    if (file.fileKind === 'image') {
+      if (!file.previewKey)
+        throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
+      return {
         fileId,
-        variant: 'preview',
-      }),
-    };
+        url: await this.storage.createReadUrl({
+          sessionId: file.sessionId,
+          fileId,
+          variant: 'preview',
+        }),
+      };
+    }
+    if (file.fileKind === 'html' && file.origin === 'agent_generated') {
+      const ready = await this.findReadyForSharedReadable(userId, fileId);
+      const object = await this.storage.readObject({
+        sessionId: ready.sessionId,
+        fileId: ready.id,
+        variant: 'original',
+      });
+      return {
+        fileId,
+        content: object.content,
+        contentType: 'text/html; charset=utf-8',
+        htmlPreview: true as const,
+        fileName: ready.fileName,
+      };
+    }
+    const content = await this.readNormalizedContent(file);
+    return { fileId, content, contentType: 'text/plain' };
   }
 
   // 消息绑定前校验文件归属和 ready 状态。

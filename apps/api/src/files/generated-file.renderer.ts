@@ -89,13 +89,17 @@ export async function renderGeneratedFile(
         normalizedContent,
       };
     } else if (extension === 'html') {
-      const html = await markdownToHtml(content);
-      result = {
-        buffer: Buffer.from(html, 'utf8'),
-        mediaType: 'text/html; charset=utf-8',
-        fileKind: 'html',
-        normalizedContent: content,
-      };
+      if (input.contentMode === 'html') {
+        result = renderNativeHtmlDocument(content);
+      } else {
+        const html = await markdownToHtml(content);
+        result = {
+          buffer: Buffer.from(html, 'utf8'),
+          mediaType: 'text/html; charset=utf-8',
+          fileKind: 'html',
+          normalizedContent: content,
+        };
+      }
     } else if (extension === 'pdf') {
       const html = await markdownToHtml(content);
       result = {
@@ -144,6 +148,72 @@ async function parseMarkdown(content: string): Promise<MarkdownNode> {
   return tree;
 }
 
+export function renderNativeHtmlDocument(content: string): RenderedGeneratedFile {
+  validateNativeHtmlDocument(content);
+  const withBase = ensureHtmlDocumentBase(content);
+  return {
+    buffer: Buffer.from(withBase, 'utf8'),
+    mediaType: 'text/html; charset=utf-8',
+    fileKind: 'html',
+    normalizedContent: htmlDocumentToNormalizedText(content),
+  };
+}
+
+function validateNativeHtmlDocument(content: string): void {
+  if (!/<!doctype\s+html\b|<html[\s>]/iu.test(content)) {
+    throw new GeneratedFileRenderError(
+      'GENERATED_FILE_RENDER_FAILED',
+      '原生 HTML 需以 <!doctype html> 或 <html> 开头。',
+    );
+  }
+  if (/<script\b[^>]*\bsrc\s*=\s*["']?(?:https?:|\/\/)/iu.test(content)) {
+    throw new GeneratedFileRenderError(
+      'GENERATED_FILE_RENDER_FAILED',
+      '原生 HTML 不支持外链 script，请将脚本内联。',
+    );
+  }
+  if (
+    /<link\b[^>]*\brel\s*=\s*["']stylesheet["'][^>]*\bhref\s*=\s*["']?(?:https?:|\/\/)/iu.test(
+      content,
+    )
+  ) {
+    throw new GeneratedFileRenderError(
+      'GENERATED_FILE_RENDER_FAILED',
+      '原生 HTML 不支持外链 stylesheet，请将 CSS 内联。',
+    );
+  }
+  if (/@import\s+(?:url\s*\(\s*)?["']?(?:https?:|\/\/)/iu.test(content)) {
+    throw new GeneratedFileRenderError(
+      'GENERATED_FILE_RENDER_FAILED',
+      '原生 HTML 不支持外链 @import，请将 CSS 内联。',
+    );
+  }
+  if (/<(?:iframe|frame|object|embed)\b/iu.test(content)) {
+    throw new GeneratedFileRenderError(
+      'GENERATED_FILE_RENDER_FAILED',
+      '原生 HTML 不支持 iframe、object 或 embed。',
+    );
+  }
+}
+
+function ensureHtmlDocumentBase(content: string): string {
+  if (/<base\b/iu.test(content)) return content;
+  if (/<head[\s>]/iu.test(content)) {
+    return content.replace(/<head(\s[^>]*)?>/iu, (match) => `${match}
+<base target="_blank" rel="noopener noreferrer">`);
+  }
+  return content;
+}
+
+function htmlDocumentToNormalizedText(content: string): string {
+  return content
+    .replace(/<script[\s\S]*?<\/script>/giu, ' ')
+    .replace(/<style[\s\S]*?<\/style>/giu, ' ')
+    .replace(/<[^>]+>/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
 async function markdownToHtml(content: string): Promise<string> {
   const tree = await parseMarkdown(content);
   const processor = unified()
@@ -152,6 +222,7 @@ async function markdownToHtml(content: string): Promise<string> {
   const body = processor.stringify(await processor.run(tree));
   return `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<base target="_blank" rel="noopener noreferrer">
 <title>Generated document</title><style>${documentCss()}</style></head><body><main>${body}</main></body></html>`;
 }
 

@@ -328,7 +328,7 @@ type ArtifactMetadata = {
 };
 ```
 
-Content endpoint 必须验证 Artifact 属于当前 local user，并设置安全 `Content-Type` / `Content-Disposition`。
+Content endpoint 必须验证 Artifact 属于当前 local user，并设置安全 `Content-Type` / `Content-Disposition`。Agent 生成的 `fileKind: html` 预览（`GET …/artifacts/:id/preview`）返回 **original** UTF-8 HTML（与 download 字节一致），并附带冻结的 `Content-Security-Policy`、`Referrer-Policy: no-referrer` 与 `Content-Disposition: inline`；非 HTML 预览仍为规范化文本或图片短期 URL。
 
 ## 14. Public Config
 

@@ -147,6 +147,7 @@ export class ArtifactsService {
       sessionId: input.sessionId,
       fileName: input.fileName,
       ...(input.content !== undefined ? { content: input.content } : {}),
+      ...(input.contentMode !== undefined ? { contentMode: input.contentMode } : {}),
       ...(input.sheets !== undefined ? { sheets: input.sheets } : {}),
       signal: input.signal,
     });
@@ -432,7 +433,15 @@ export class ArtifactsService {
     if (artifact.status === 'deleted') throw this.deleted();
     if (artifact.status !== 'ready') throw new BadRequestException({ code: AGENT_ERROR_CODES.fileNotReady, detail: '产物尚未准备好。' });
     const result = await this.files.preview(userId, artifact.fileId);
-    if ('content' in result)
+    if ('htmlPreview' in result && result.htmlPreview) {
+      return {
+        content: result.content,
+        contentType: result.contentType,
+        htmlPreview: true as const,
+        fileName: result.fileName ?? artifact.file.fileName,
+      };
+    }
+    if ('content' in result) {
       return {
         content: result.content,
         contentType:
@@ -440,6 +449,7 @@ export class ArtifactsService {
             ? 'application/json; charset=utf-8'
             : 'text/markdown; charset=utf-8',
       };
+    }
     return { url: result.url, contentType: artifact.file.mediaType };
   }
 

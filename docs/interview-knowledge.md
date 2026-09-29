@@ -4,16 +4,16 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering（Tool Result 外置/指针/compaction trigger / transcript unit 压缩）、K3 Runtime Control/HITL/Steer/Follow-up、K4 Agent Task Semantics、C1 File & Multimodal Foundation、C2 Artifact/Report 生成与多格式交付、**C3 Agent Sandbox（C3-A～C3-D）**，以及 **C4 Host MCP Client（C4-A/B）**。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering（Tool Result 外置/指针/compaction trigger / transcript unit 压缩）、K3 Runtime Control/HITL/Steer/Follow-up、K4 Agent Task Semantics、C1 File & Multimodal Foundation、C2 Artifact/Report 生成与多格式交付（含 **`contentMode: html` 原生 HTML**）、**C5-A/B Workbench 与 HTML 安全预览**、**C3 Agent Sandbox（C3-A～C3-D）**，以及 **C4 Host MCP Client（C4-A/B/C）**。
 
 ## 1. 项目一句话介绍
 
-这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答/正式报告`、Connection-Durable Run、可断线恢复的 Conversation/Workbench、Model Round 级的 Context 编译/Token 预算/Tool Result 外置与指针回收/历史压缩、C1 文件与多模态输入、C2 生成文件/报告 Artifact 与多格式交付、C3 OpenSandbox 隔离执行（bash / 后台 job / 沙箱内 agent-browser）、以及 C4 Host 外连 HTTP MCP 与 Settings 管理闭环。
+这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答/正式报告`、Connection-Durable Run、可断线恢复的 Conversation/Workbench、Model Round 级的 Context 编译/Token 预算/Tool Result 外置与指针回收/历史压缩、C1 文件与多模态输入、C2 生成文件/报告 Artifact 与多格式交付（含原生 HTML 落地页）、C5 Workbench 三 Tab/Slider/Resizable 与 HTML iframe 安全预览、C3 OpenSandbox 隔离执行（bash / 后台 job / 沙箱内 agent-browser）、以及 C4 Host 外连 HTTP MCP 与 Settings 管理闭环。
 
 面试时需要主动区分：
 
 ```text
-已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch、Workbench（Activity/Sources/Artifact/Terminal/Context Debug）、`external_tool` 统一投影、Context Engineering（Tool Result 外置/指针/40k compaction / transcript unit 切分）、C2 的 `create_file`/`create_report` 与 Artifact 预览下载及线性版本（C2-D）、C1 附件全链路、C3 Session 级 Sandbox（`bash`、`job_*`、策略升权审批、Collect/spill Artifact、agent-browser 截图）、C4 HTTP MCP（Registry 合并、凭证加密、allowlist、instructions→CE、Resource 三工具、`mcpCatalogStale` 护栏）
+已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch、Workbench（实时跟随/文件/Context、Slider、Resizable、Artifact 内联预览）、`external_tool` 统一投影、Context Engineering（Tool Result 外置/指针/40k compaction / transcript unit 切分）、C2 的 `create_file`/`create_report`（含 `contentMode: html`）与 Artifact 预览下载及线性版本（C2-D）、C5-B HTML Host preview（CSP + iframe sandbox）、C1 附件全链路、C3 Session 级 Sandbox（`bash`、`job_*`、策略升权审批、Collect/spill Artifact、agent-browser 截图）、C4 HTTP MCP（Registry 合并、凭证加密、allowlist、instructions→CE、Resource 三工具、`mcp_add_server`、`mcpCatalogStale` 护栏）
 ```
 
 ## 2. 阶段一：工程基线
@@ -252,7 +252,8 @@ Agent Runtime / Event Stream
 - Conversation 用有序文本与 Tool Activity block 还原真实执行时间线；Tool Activity 点击后定位 Workbench，避免再用 RunCard 重复展示同一工具状态。
 - **MCP、Sandbox bash 等工具**在协议层仍是独立 Tool Name，但 UI 统一走 **`external_tool` 投影**：服务端 `tool-presentation` / `external-tool-display` 产出展示类型与摘要字段，Web 的 `tool-copy` 与 Conversation block 只消费 canonical 展示结构，避免为每个连接器写一套卡片。
 - **`bash` Terminal 视图**展示完整命令、分栏 stdin/stdout、主题感知 ANSI 与结构化 `exitCode`；超长输出在 Host 侧 spill 为 Artifact 时，Workbench 仍保留 Terminal 摘要，不把整段日志塞进 Chat 流。
-- Workbench 根据当前 Run 是否存在可查看内容展开；没有内容时不渲染空视图。Activity、Sources、Artifact、Terminal 共享同一 Run 投影，不应由各 Tab 各自维护 execution 状态。
+- **C5-A**：**实时跟随 | 文件 | 调试上下文** 三 Tab；底栏 Slider 切换 business tool_call；会话与工作台 Resizable + 本地比例持久化；`create_file`/`create_report` 可在 **实时跟随** 内联预览交付物（非仅摘要卡片）。
+- Workbench 根据当前 Run 是否存在可查看内容展开；没有内容时不渲染空视图。工具结果、交付物、Terminal、Context 共享同一 Run 投影，不应由各 Tab 各自维护 execution 状态。
 - 用户手动收起 Workbench 后，本次 run 内由 `pinned/auto-follow` 语义阻止自动重新打开；这类交互状态必须与运行事实分开保存。
 - K3.2 的 Clarification 与 Tool Approval 在前端复用 **Confirmation** 组件，与 Steer/Follow-up 队列分离；控制语义仍由 Runtime Interrupt 驱动，UI 只负责一致交互壳。
 
@@ -889,7 +890,7 @@ C2：agent_generated File + Artifact (+ Report) -> 用户 Workbench 预览/下�
 
 答：模型提供受控文件名和内容（或 XLSX 的 `sheets/rows`），服务端推导 MIME、渲染/保存、创建 `agent_generated` File，再在事务中创建 `ArtifactSeries`（v1）或追加版本，最后返回 `artifact` + `file` 引用。工具不能指定路径、object key 或覆盖用户文件；同一 `runId + toolCallId` 重放返回同一结果，不重复落盘。Conversation 展示工具活动与 Artifact 卡片，Workbench 提供预览和下载；刷新后从 assistant metadata 中的 `artifact` block 恢复。
 
-首版文本格式（TXT/Markdown/JSON）走 UTF-8 直写；C2-C 在同一工具上扩展 HTML/PDF/DOCX（Markdown 源）和 XLSX（结构化 rows），由 `renderGeneratedFile` 在内存渲染后再走既有 FilesService 存储链路。
+首版文本格式（TXT/Markdown/JSON）走 UTF-8 直写；C2-C 在同一工具上扩展 HTML/PDF/DOCX（**默认** Markdown 源）和 XLSX（结构化 rows），由 `renderGeneratedFile` 在内存渲染后再走既有 FilesService 存储链路。**2026-09-29 起** `.html` 可选 **`contentMode: 'html'`**：`content` 为完整 HTML 文档，服务端校验后直写 `original`（允许 inline script/style，拒绝外链 script/stylesheet 与 iframe/embed），规范化正文为去标签文本摘要；复杂落地页与 C5-B iframe 预览同链，不必再依赖 bash Collect。
 
 ### 问：`create_file` 和 `create_report` 如何分工？
 
@@ -928,7 +929,7 @@ Runtime 对两类工具的 SSE/快照/日志使用 `publicToolInput`：只暴露
 
 ### 18.1 C2 面试口述版
 
-> C2 把 Agent 输出从聊天文本升级成可持久化的交付物。C1 管读，C2 管写：模型通过 `create_file` 或 `create_report` 触发受控写入，File 层统一存 COS 和规范化正文，Artifact 层表达交付关系，报告再多一张 Report 表存标题、摘要和材料引用。多格式不增加新工具，只在 `create_file` 里按扩展名走 `renderGeneratedFile`。SSE 和快照里不 inline 巨型正文，Conversation 只展示工具活动和 Artifact 卡片，完整内容在 Workbench 预览下载。C2-D 在此基础上用 ArtifactSeries 做线性不可变版本：修改和恢复都追加新版本，current 指针用乐观并发更新，避免多 Run 静默覆盖。这样调研类任务可以 `web_search -> web_fetch -> create_report` 闭环，又不会把 Passage 和报告正文反复堆进 prompt。
+> C2 把 Agent 输出从聊天文本升级成可持久化的交付物。C1 管读，C2 管写：模型通过 `create_file` 或 `create_report` 触发受控写入，File 层统一存 COS 和规范化正文，Artifact 层表达交付关系，报告再多一张 Report 表存标题、摘要和材料引用。多格式不增加新工具，只在 `create_file` 里按扩展名走 `renderGeneratedFile`；复杂 HTML 落地页用 `contentMode: html` 走原生文档路径，与 C5-B iframe 预览衔接。SSE 和快照里不 inline 巨型正文，Conversation 只展示工具活动和 Artifact 卡片，完整内容在 Workbench 预览下载。C2-D 在此基础上用 ArtifactSeries 做线性不可变版本：修改和恢复都追加新版本，current 指针用乐观并发更新，避免多 Run 静默覆盖。这样调研类任务可以 `web_search -> web_fetch -> create_report` 或 `create_file` HTML 报表闭环，又不会把 Passage 和报告正文反复堆进 prompt。
 
 ## 19. C3 Agent Sandbox & Cloud Execution
 
@@ -1023,11 +1024,37 @@ Settings / Admin API (PUT/PATCH + secrets[])
 
 > C4 解决的是“工具生态不能绑死在发版上”。我在 Host 里做 HTTP MCP Client：配置进 DB、凭证加密、reconcile 出 catalog，Run 创建时冻结 generation 和 definitions，执行期 stale 就明确失败。工具名统一 `mcp__server__tool`，审批复用 K3.2。大 Server 用 enabledTools 做人工子集，instructions 进 Context Engineering，Resources 则用三个 Host 工具按需读，避免把 resource 列表塞进 definitions。UI 层用 external_tool 统一 MCP 和 Sandbox 的卡片语义，和内置 web_search 的 Activity 投影解耦。
 
-## 21. 面试表达模板
+## 21. C5 Workbench 升级与 HTML 安全预览
+
+> 契约见 [37-c5-workbench-ui-and-preview.md](./37-c5-workbench-ui-and-preview.md)；与 C2 原生 HTML 见 [31 §6.4](./31-c2-artifact-and-report-generation.md)。
+
+### 问：C5-A 相对旧 Workbench 改了什么？
+
+答：右侧工作台 IA 收敛为 **实时跟随（工具结果）| 文件（交付物）| 调试上下文**；不再在 Workbench 内重复整条执行时间线（过程感在对话区内联 tool_activity + Composer 上 Plan）。桌面端 **Resizable** 调整会话/工作台宽度并持久化；**工具结果 Tab** 用底栏 **Slider** 在同一 Run 的 business tool_call 序列间切换；手动拖 Slider 后 **pinned**，可「回到最新」。`create_file`/`create_report` 完成后可在 **实时跟随** 直接内联预览 Artifact（Markdown 或 HTML iframe），而不只显示工具摘要。
+
+### 问：C5-B 为什么要 Host preview + CSP + iframe sandbox？
+
+答：Agent 生成的 `.html` 不可信。若 preview 仍返回 Markdown 纯文本或 iframe 无策略，用户看不到真实网页，也存在脚本/外连风险。C5-B 让 **`GET …/artifacts/:id/preview`** 对 `agent_generated` + `html` 读 **original**（与 download 字节一致），响应带 **Content-Security-Policy**（如 `connect-src 'none'`、`script-src 'unsafe-inline'`）、**Referrer-Policy: no-referrer**、**Cache-Control: private, no-store**；Workbench 用 **同源 preview URL** 的 `<iframe sandbox="allow-scripts allow-same-origin allow-popups">` 嵌套，配合 C2 文档里的 **`<base target="_blank">`**，外链尽量新标签打开、减少 iframe 内钓鱼导航。
+
+**要解决的问题**：不可信 HTML 在同源 cookie 环境下执行；preview URL 泄露；跨站 embed；inline 落地页与下载体验不一致。
+
+**不做的代价（若不做）**：要么只显示 Markdown 源码，要么 `allow-scripts` 无 CSP 导致 XSS/外连；要么禁止 JS 导致 scroll/reveal 单页空白。
+
+**当前代价**：preview 比 `file://` 下载更严——**外链 CDN script/CSS/字体/图片**常被 CSP 拦截（`img-src 'self' data:`），COS 直链图在 preview 里也可能不显示；**独立 preview 子域**（Phase 2）未做，同源 + inline JS 是可接受的折中。
+
+### 问：C5-B 和 C2 `contentMode: html` 如何配合？
+
+答：C2 负责 **写入**：默认 Markdown→受控 HTML；`contentMode: 'html'` 写入完整单页（校验 inline 资源边界）。C5-B 负责 **读取展示**：同一 `originalKey` 预览与下载；版本/revise 换 `artifactId` 即换 preview URL；Workbench **文件 Tab** 与 **实时跟随** 共用 `ArtifactPreviewBody`。
+
+### 21.1 C5 面试口述版
+
+> C5 把 Workbench 从“旁路调试面板”收成交付中心：Slider 对齐 Lovart 式单步工具视图，Resizable 对齐桌面效率，文件 Tab 承载 C2-D 版本与预览下载。C5-B 单独解决 HTML 不可信：我不把 HTML 当 Markdown 文本预览，而是 Host 出带 CSP 的 preview 响应，再用受限 sandbox iframe 嵌入；为复杂单页放行 inline script 但禁外连。生成侧用 C2 的 contentMode html 把落地页收进 create_file 主路径，避免 bash Collect 绕路。已知 preview 与下载在 CDN 资源上仍可能不一致，这是安全壳的 deliberate 代价，后续可以用 img-src 扩展或同源代理补。
+
+## 22. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
-答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、C1 文件与多模态输入、C2 生成文件/报告 Artifact 与多格式交付、C3 OpenSandbox 执行面（bash/job/agent-browser）、C4 HTTP MCP Client 与 Settings、Activity/Sources/Artifact/Terminal 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、Tool Result 外置、transcript unit 压缩与工具链 integrity 校验。
+答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、C1 文件与多模态输入、C2 生成文件/报告 Artifact 与多格式交付（含原生 HTML）、C5 Workbench 升级与 HTML 安全预览、C3 OpenSandbox 执行面（bash/job/agent-browser）、C4 HTTP MCP Client 与 Settings、工具结果/交付物/Terminal 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、Tool Result 外置、transcript unit 压缩与工具链 integrity 校验。
 
 ### 问：SSE 为什么没有直接使用 WebSocket？
 
@@ -1153,7 +1180,11 @@ Settings / Admin API (PUT/PATCH + secrets[])
 
 本轮已手动验证 K3 核心交互：`final_answer` 阶段 Steer 会自动降级并启动下一轮；Stop 后队列保留；Follow-up 支持按条发送；队列上限为 3 条且第 4 条明确拒绝；删除/发送会释放容量；刷新、断线和重复点击后状态保持一致。Continue 的上下文恢复仍归入后续 Context Engineering 阶段，不作为 K3 已验收能力。
 
-## 22. 追加规则
+### 问：为什么 HTML 预览和下载有时看起来不一样？
+
+答：下载后在浏览器打开没有 Host CSP；Workbench preview 有 CSP 和 sandbox，故意限制外链 script、stylesheet、`fetch` 和多数外链图片（当前 `img-src 'self' data:`）。单文件 inline 的 JS/CSS 应对齐；依赖 CDN 的模板在 preview 里可能缺样式或动效。这不是两套文件内容，而是 **预览安全壳** 与 **本地完整浏览器** 的差异；后续可扩展 CSP 或同源代理 COS 图片。
+
+## 23. 追加规则
 
 每个阶段只追加四类内容：
 

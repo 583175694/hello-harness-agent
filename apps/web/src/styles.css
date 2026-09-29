@@ -937,7 +937,9 @@ summary:focus-visible {
   position: absolute;
   z-index: 1;
   inset: 0;
-  border-radius: 12px;
+  margin: 0;
+  border: none;
+  border-radius: inherit;
   background: var(--theme-surface);
 }
 .deliverable-preview-skeleton {
@@ -2051,13 +2053,14 @@ summary:focus-visible {
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  margin-top: 0;
+  margin-top: 8px;
 }
 .artifact-workbench-preview--detail .deliverables-preview-panel {
   display: flex;
   min-height: 0;
   flex: 1;
   flex-direction: column;
+  margin-top: 0;
 }
 .artifact-workbench-preview--detail .deliverables-preview-panel--markdown,
 .artifact-workbench-preview--detail .deliverables-preview-panel--text {

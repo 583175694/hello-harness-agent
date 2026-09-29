@@ -1268,10 +1268,16 @@ export class AgentRuntimeService {
       input === null
     )
       return input;
-    const value = input as { fileName?: unknown; content?: unknown; sheets?: unknown };
+    const value = input as {
+      fileName?: unknown;
+      content?: unknown;
+      sheets?: unknown;
+      contentMode?: unknown;
+    };
     const content = typeof value.content === 'string' ? value.content : '';
     const base = {
       fileName: typeof value.fileName === 'string' ? value.fileName : '',
+      ...(value.contentMode === 'html' ? { contentMode: 'html' as const } : {}),
       contentCharacterCount: [...content].length,
       contentByteCount: Buffer.byteLength(content, 'utf8'),
     };

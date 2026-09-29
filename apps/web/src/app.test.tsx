@@ -566,7 +566,7 @@ describe('R1 workbench shell', () => {
       toolCallId: 'call-1',
       toolName: 'bash',
       title: 'bash',
-      input: { command: 'echo hi' },
+      input: { command: 'echo hi', description: 'echo hi' },
       startedAt: '2026-09-08T04:00:00.000Z',
       roundId: 'round-1',
       roundSequence: 1,

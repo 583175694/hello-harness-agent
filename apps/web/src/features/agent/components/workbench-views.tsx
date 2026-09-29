@@ -915,13 +915,18 @@ function DeliverablesView({
           </>
         }
         trailing={
-          <ArtifactActionsMenu
-            artifact={detailArtifact}
-            onPreview={() => setDetailArtifactId(detailArtifact.artifactId)}
-            onRevise={onRevise}
-            onRestore={onRestore}
-            triggerClassName="artifact-workbench-item__menu-trigger"
-          />
+          <>
+            {detailArtifact.fileKind === 'html' || detailArtifact.mediaType === 'text/html' ? (
+              <ArtifactHtmlDetailActions artifact={detailArtifact} />
+            ) : null}
+            <ArtifactActionsMenu
+              artifact={detailArtifact}
+              onPreview={() => setDetailArtifactId(detailArtifact.artifactId)}
+              onRevise={onRevise}
+              onRestore={onRestore}
+              triggerClassName="artifact-workbench-item__menu-trigger"
+            />
+          </>
         }
         footer={
           seriesVersions.length > 1 ? (
@@ -1217,6 +1222,33 @@ const ArtifactTextPreview = memo(function ArtifactTextPreview({
   );
 });
 
+function ArtifactHtmlDetailActions({ artifact }: { artifact: ArtifactRef }) {
+  const previewUrl = getArtifactPreviewUrl(artifact.artifactId);
+  return (
+    <div className="artifact-html-detail-actions">
+      <a
+        className="secondary-button artifact-html-detail-actions__link"
+        href={previewUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <ArrowUpRight size={16} aria-hidden />
+        在新窗口打开
+      </a>
+      <button
+        type="button"
+        className="secondary-button"
+        onClick={() => {
+          void downloadArtifact(artifact.artifactId);
+        }}
+      >
+        <Download size={16} aria-hidden />
+        下载
+      </button>
+    </div>
+  );
+}
+
 const ArtifactHtmlPreview = memo(function ArtifactHtmlPreview({
   artifact,
   previewUrl,
@@ -1226,20 +1258,26 @@ const ArtifactHtmlPreview = memo(function ArtifactHtmlPreview({
 }) {
   const [frameState, setFrameState] = useState<'loading' | 'ready' | 'error'>('loading');
 
+  useEffect(() => {
+    setFrameState('loading');
+  }, [artifact.artifactId, previewUrl]);
+
   return (
     <div className="deliverables-preview-panel deliverables-preview-panel--iframe">
       {frameState === 'loading' ? <DeliverablePreviewSkeleton overlay /> : null}
       {frameState === 'error' ? (
         <div className="deliverables-preview-panel deliverables-preview-panel--error" role="alert">
           <strong>网页预览加载失败</strong>
-          <span>请使用「在新窗口打开」查看 {artifact.fileName}。</span>
+          <span>请使用「在新窗口打开」或「下载」查看 {artifact.fileName}。</span>
+          <ArtifactHtmlDetailActions artifact={artifact} />
         </div>
       ) : null}
       <iframe
+        key={artifact.artifactId}
         className={`deliverables-preview-frame ${frameState === 'ready' ? 'is-ready' : ''}`}
         title={`预览 ${artifact.fileName}`}
         src={previewUrl}
-        sandbox="allow-scripts allow-same-origin"
+        sandbox="allow-scripts allow-same-origin allow-popups"
         onLoad={() => setFrameState('ready')}
         onError={() => setFrameState('error')}
       />

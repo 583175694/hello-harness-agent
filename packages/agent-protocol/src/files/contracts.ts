@@ -103,9 +103,13 @@ export const restoreArtifactResultSchema = z.object({
   series: artifactSeriesRefSchema,
 });
 
+export const createFileContentModeSchema = z.literal('html');
+
 export const createFileInputSchema = z
   .object({
     fileName: z.string().trim().min(1).max(255),
+    /** Omit for Markdown-backed formats. Set to `html` with a `.html` file name to deliver native HTML. */
+    contentMode: createFileContentModeSchema.optional(),
     content: z.string().min(1).optional(),
     sheets: z
       .array(
@@ -187,6 +191,13 @@ export const createFileInputSchema = z
         });
       }
     }
+    if (value.contentMode === 'html' && !/\.html$/iu.test(value.fileName)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['contentMode'],
+        message: 'html content mode requires an .html file name',
+      });
+    }
     if (workbook && value.sheets) {
       let totalCells = 0;
       for (const [sheetIndex, sheet] of value.sheets.entries()) {
@@ -228,6 +239,7 @@ export const createFileInputSummarySchema = z.union([
     .object({
       inputType: z.literal('document').default('document'),
       fileName: z.string().min(1).max(255),
+      contentMode: createFileContentModeSchema.optional(),
       contentCharacterCount: z.number().int().nonnegative(),
       contentByteCount: z.number().int().nonnegative(),
     })

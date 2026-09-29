@@ -103,6 +103,24 @@ describe('foundation protocol', () => {
     });
     expect(
       createFileInputSchema.parse({
+        fileName: 'landing.html',
+        contentMode: 'html',
+        content: '<!doctype html><html><head></head><body>Hi</body></html>',
+      }),
+    ).toEqual({
+      fileName: 'landing.html',
+      contentMode: 'html',
+      content: '<!doctype html><html><head></head><body>Hi</body></html>',
+    });
+    expect(() =>
+      createFileInputSchema.parse({
+        fileName: 'report.md',
+        contentMode: 'html',
+        content: '<!doctype html><html></html>',
+      }),
+    ).toThrow();
+    expect(
+      createFileInputSchema.parse({
         fileName: 'report.xlsx',
         sheets: [
           {

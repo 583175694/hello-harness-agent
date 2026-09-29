@@ -1,6 +1,6 @@
 # C1 文件读取工具演进（read_file / search_file / spill）
 
-> 决策状态：**设计稿（待实现）**。本文是 `search_file` 与 `read_file`（取代 `read_file_lines`）、任务分轨、Section 索引及 spill 边界的权威说明；与 C1 基线关系见 [30-c1-file-multimodal-foundation.md](./30-c1-file-multimodal-foundation.md)。  
+> 决策状态：**P0 已实现**（2026-09-29）；P1 compile 分轨 / search `sectionId` 仍待做。本文是 `search_file` 与 `read_file`（取代 `read_file_lines`）、任务分轨、Section 索引及 spill 边界的权威说明；与 C1 基线关系见 [30-c1-file-multimodal-foundation.md](./30-c1-file-multimodal-foundation.md)。  
 > **不在本文**：Run 工具轮次/次数预算、RAG/向量检索、沙箱读文件、DSML、`search_file` 与 `read_file` 合并。
 
 ## 1. 背景与目标
@@ -245,13 +245,13 @@ sections: [
 
 ---
 
-## 11. 待决项（实现前）
+## 11. 待决项（P0 默认选择，2026-09-29）
 
-1. **T_small**（tokens / code points）。  
-2. **small**：compile inline 还是仅 `read(scope=file)`。  
-3. **`sectionId` 生成规则**（稳定、可复现）。  
-4. **`fileReadLinesMax` / `fileReadResultMaxCharacters` 具体数字**。  
-5. **`read_file_lines` 别名保留策略**。
+1. **T_small**：`AGENT_PROTOCOL_LIMITS.fileReadSmallMaxCodePoints = 4_000`（Unicode code points）；medium/large 以 4× 为 large 档 heuristic。  
+2. **small compile**：P0 保持 **仅 `file_ref` + 模型调 `read(scope=file)`**；bounded inline 留 P1。  
+3. **`sectionId`**：`s-{startLine}-{ordinal}`（解析顺序 ordinal，与 `contentHash`/parser 绑定）。  
+4. **限额**：`fileReadLinesMax = 150`，`fileReadResultMaxCharacters = 24_000`。  
+5. **`read_file_lines`**：不出现在模型 definitions；**Registry `resolveName` 别名**映射到 `read_file`（legacy 参数转 `scope=lines`）；SSE/快照保留历史 discriminant。
 
 ---
 

@@ -285,7 +285,7 @@ export const fileSearchResultSchema = z.object({
   ),
 });
 
-// 文件行读取工具的输入约束，限制单次读取范围。
+// 文件行读取工具的输入约束，限制单次读取范围（历史 transcript 与别名解析）。
 export const fileReadLinesInputSchema = z
   .object({
     fileId: z.string().min(1),
@@ -296,11 +296,12 @@ export const fileReadLinesInputSchema = z
   .refine((value) => value.endLine >= value.startLine, {
     message: 'endLine must be greater than or equal to startLine',
   })
-  .refine((value) => value.endLine - value.startLine + 1 <= 50, {
-    message: 'line range is too large',
-  });
+  .refine(
+    (value) => value.endLine - value.startLine + 1 <= AGENT_PROTOCOL_LIMITS.fileReadLinesMax,
+    { message: 'line range is too large' },
+  );
 
-// 文件行读取工具返回的带行号和可选页码的内容。
+// 文件行读取工具返回的带行号和可选页码的内容（历史 SSE / 快照）。
 export const fileReadLinesResultSchema = z.object({
   fileId: z.string().min(1),
   fileName: z.string().min(1),
@@ -316,6 +317,102 @@ export const fileReadLinesResultSchema = z.object({
     }),
   ),
 });
+
+export const fileSectionOutlineSchema = z.object({
+  sectionId: z.string().min(1),
+  title: z.string().optional(),
+  level: z.number().int().positive().optional(),
+  startLine: z.number().int().positive(),
+  endLine: z.number().int().positive(),
+  pageStart: z.number().int().positive().optional(),
+  pageEnd: z.number().int().positive().optional(),
+});
+
+const fileReadLineSchema = z.object({
+  line: z.number().int().positive(),
+  page: z.number().int().positive().optional(),
+  text: z.string(),
+});
+
+const fileReadBaseResultSchema = z.object({
+  fileId: z.string().min(1),
+  fileName: z.string().min(1),
+  mediaType: z.string().min(1),
+  incomplete: z.boolean(),
+});
+
+export const fileReadInputSchema = z
+  .object({
+    fileId: z.string().min(1),
+    scope: z.enum(['file', 'section', 'lines']),
+    sectionId: z.string().min(1).optional(),
+    startLine: z.number().int().positive().optional(),
+    endLine: z.number().int().positive().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.scope === 'section' && !value.sectionId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['sectionId'],
+        message: 'sectionId is required when scope is section',
+      });
+    }
+    if (value.scope === 'lines') {
+      if (value.startLine === undefined || value.endLine === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['startLine'],
+          message: 'startLine and endLine are required when scope is lines',
+        });
+        return;
+      }
+      if (value.endLine < value.startLine) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['endLine'],
+          message: 'endLine must be greater than or equal to startLine',
+        });
+      }
+      if (value.endLine - value.startLine + 1 > AGENT_PROTOCOL_LIMITS.fileReadLinesMax) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['endLine'],
+          message: 'line range is too large',
+        });
+      }
+    }
+  });
+
+export const fileReadResultSchema = z.discriminatedUnion('scope', [
+  fileReadBaseResultSchema.extend({
+    scope: z.literal('file'),
+    sizeTier: z.enum(['small', 'medium', 'large']),
+    lineCount: z.number().int().nonnegative(),
+    pageCount: z.number().int().positive().optional(),
+    content: z.string().optional(),
+    sections: z.array(fileSectionOutlineSchema).optional(),
+    preview: z
+      .object({
+        head: z.string().min(1),
+        tail: z.string().min(1),
+      })
+      .optional(),
+  }),
+  fileReadBaseResultSchema.extend({
+    scope: z.literal('section'),
+    sectionId: z.string().min(1),
+    startLine: z.number().int().positive(),
+    endLine: z.number().int().positive(),
+    lines: z.array(fileReadLineSchema),
+  }),
+  fileReadBaseResultSchema.extend({
+    scope: z.literal('lines'),
+    startLine: z.number().int().positive(),
+    endLine: z.number().int().positive(),
+    lines: z.array(fileReadLineSchema),
+  }),
+]);
 
 export type FileProcessingStatus = z.infer<typeof fileProcessingStatusSchema>;
 export type FileOrigin = z.infer<typeof fileOriginSchema>;
@@ -401,3 +498,6 @@ export type FileSearchInput = z.infer<typeof fileSearchInputSchema>;
 export type FileSearchResult = z.infer<typeof fileSearchResultSchema>;
 export type FileReadLinesInput = z.infer<typeof fileReadLinesInputSchema>;
 export type FileReadLinesResult = z.infer<typeof fileReadLinesResultSchema>;
+export type FileReadInput = z.infer<typeof fileReadInputSchema>;
+export type FileReadResult = z.infer<typeof fileReadResultSchema>;
+export type FileSectionOutline = z.infer<typeof fileSectionOutlineSchema>;

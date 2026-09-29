@@ -1207,7 +1207,11 @@ export class AgentRuntimeService {
   }
 
   private isFileTool(toolName: string): boolean {
-    return toolName === AGENT_TOOL_NAMES.searchFile || toolName === AGENT_TOOL_NAMES.readFileLines;
+    return (
+      toolName === AGENT_TOOL_NAMES.searchFile ||
+      toolName === AGENT_TOOL_NAMES.readFile ||
+      toolName === AGENT_TOOL_NAMES.readFileLines
+    );
   }
 
   // create_file 的正文只进入工具执行，不进入 SSE、快照、日志或历史 metadata。

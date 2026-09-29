@@ -283,7 +283,7 @@ export class ConversationBlockCollector {
     if (toolName === 'web_search') return '搜索网页';
     if (toolName === 'web_fetch') return '读取网页';
     if (toolName === 'search_file') return '搜索文件';
-    if (toolName === 'read_file_lines') return '读取文件';
+    if (toolName === 'read_file_lines' || toolName === 'read_file') return '读取文件';
     if (toolName === 'create_file') return '生成文件';
     if (toolName === 'execute_command') return '执行命令';
     if (toolName === 'bash') return 'Bash';

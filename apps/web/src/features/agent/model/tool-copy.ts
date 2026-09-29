@@ -49,6 +49,8 @@ export type ToolCopyInput = {
   query?: string;
   message?: string;
   fileId?: string;
+  scope?: 'file' | 'section' | 'lines';
+  sectionId?: string;
   startLine?: number;
   endLine?: number;
   fileName?: string;
@@ -69,6 +71,11 @@ export function toolInputSummary(toolName: string, input: ToolCopyInput): string
   if (toolName === 'approval_test') return input.message ?? '';
   if (toolName === 'get_current_time') return '获取当前日期和时间';
   if (toolName === 'search_file') return `${input.fileId} · ${input.query}`;
+  if (toolName === 'read_file') {
+    if (input.scope === 'file') return `${input.fileId} · outline`;
+    if (input.scope === 'section') return `${input.fileId} · ${input.sectionId ?? 'section'}`;
+    return `${input.fileId} · ${input.startLine}-${input.endLine} 行`;
+  }
   if (toolName === 'read_file_lines') return `${input.fileId} · ${input.startLine}-${input.endLine} 行`;
   if (toolName === 'create_file') return input.fileName ?? '';
   if (toolName === 'create_report') return input.title ?? '';
@@ -101,6 +108,11 @@ export function toolTitle(toolName: string, input: ToolCopyInput): string {
   if (toolName === 'approval_test') return '运行审批测试';
   if (toolName === 'get_current_time') return '获取当前日期和时间';
   if (toolName === 'search_file') return `搜索文件：${input.query}`;
+  if (toolName === 'read_file') {
+    if (input.scope === 'file') return '读取文件 outline';
+    if (input.scope === 'section') return `读取章节：${input.sectionId ?? ''}`.trim();
+    return `读取文件：${input.startLine}-${input.endLine} 行`;
+  }
   if (toolName === 'read_file_lines') return `读取文件：${input.startLine}-${input.endLine} 行`;
   if (toolName === 'create_file') return `生成文件：${input.fileName}`;
   if (toolName === 'create_report') return `生成报告：${input.title}`;
@@ -159,7 +171,8 @@ export function toolRunningDetail(toolName: string): string {
   if (toolName === 'web_fetch') return '正在读取和过滤网页正文';
   if (toolName === 'approval_test') return '正在执行已批准的无副作用工具';
   if (toolName === 'get_current_time') return '正在获取当前日期和时间';
-  if (toolName === 'search_file' || toolName === 'read_file_lines') return '正在读取用户文件';
+  if (toolName === 'search_file' || toolName === 'read_file' || toolName === 'read_file_lines')
+    return '正在读取用户文件';
   if (toolName === 'create_file') return '正在保存生成文件';
   if (toolName === 'create_report') return '正在保存正式报告';
   if (toolName === 'bash') return '正在终端执行';
@@ -174,7 +187,7 @@ export function persistedCompletedDetail(toolName: string): string {
   if (toolName === 'web_fetch') return '网页原文读取已完成';
   if (toolName === 'approval_test') return '审批测试已完成';
   if (toolName === 'search_file') return '文件关键词搜索已完成';
-  if (toolName === 'read_file_lines') return '文件行读取已完成';
+  if (toolName === 'read_file' || toolName === 'read_file_lines') return '文件读取已完成';
   if (toolName === 'create_file') return '生成文件已完成';
   if (toolName === 'create_report') return '生成报告已完成';
   if (toolName === 'bash') return '终端命令已完成';
@@ -218,7 +231,8 @@ export function persistedOutputSummary(input: {
     return `成功 ${input.succeededCount ?? 0} 个，失败 ${input.failedCount ?? 0} 个，提取 ${input.passageCount ?? 0} 段原文`;
   }
   if (input.toolName === 'search_file') return `返回 ${input.resultCount ?? 0} 个文件命中`;
-  if (input.toolName === 'read_file_lines') return `返回 ${input.resultCount ?? 0} 行文件内容`;
+  if (input.toolName === 'read_file' || input.toolName === 'read_file_lines')
+    return `返回 ${input.resultCount ?? 0} 行文件内容`;
   if (input.toolName === 'create_file') return `已生成 ${input.fileName}`;
   if (input.toolName === 'create_report') return `生成报告：${input.title}`;
   if (input.toolName === 'execute_command') return '命令执行已完成';
@@ -286,6 +300,11 @@ export function liveToolCounts(
     | undefined,
   fileSearch?: { result: { matches: unknown[] } },
   fileReadLines?: { result: { lines: unknown[] } },
+  fileRead?: {
+    result:
+      | { scope: 'file'; sections?: unknown[] }
+      | { scope: 'section' | 'lines'; lines: unknown[] };
+  },
 ): number | undefined {
   if (
     completedEvent &&
@@ -295,6 +314,10 @@ export function liveToolCounts(
     return result?.results?.length;
   }
   if (fileSearch) return fileSearch.result.matches.length;
+  if (fileRead) {
+    if (fileRead.result.scope === 'file') return fileRead.result.sections?.length ?? 0;
+    return fileRead.result.lines.length;
+  }
   if (fileReadLines) return fileReadLines.result.lines.length;
   return undefined;
 }

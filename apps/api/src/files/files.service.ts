@@ -20,9 +20,15 @@ import {
   AGENT_ERROR_CODES,
   AGENT_PROTOCOL_LIMITS,
   type CreateFileInput,
+  type FileReadInput,
   type FileReadLinesInput,
   type FileSearchInput,
 } from '@harness/agent-protocol';
+import {
+  buildSectionIndex,
+  parseSectionIndexFromOverview,
+  type FileSectionIndexEntry,
+} from './file-section-index';
 import { createHash } from 'node:crypto';
 import {
   closeGeneratedFileRenderer,
@@ -951,7 +957,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     );
     // 搜索是“定位”工具，不应因为命中内容稍大而整次失败。
     // 按稳定的文件顺序保留预算内的前几条，剩余内容通过 incomplete 告知模型，
-    // 让它继续缩小关键词或改用 read_file_lines 精确读取。
+    // 让它继续缩小关键词或改用 read_file(scope=lines) 精确读取。
     const resultBudget = AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters;
     let usedCharacters = 0;
     let resultTruncated = false;
@@ -988,6 +994,21 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     };
   }
 
+  async readFile(userId: string, sessionId: string, input: FileReadInput) {
+    if (input.scope === 'lines') {
+      const linesResult = await this.readFileLines(userId, sessionId, {
+        fileId: input.fileId,
+        startLine: input.startLine!,
+        endLine: input.endLine!,
+      });
+      return { scope: 'lines' as const, ...linesResult };
+    }
+    if (input.scope === 'section') {
+      return this.readFileSection(userId, sessionId, input.fileId, input.sectionId!);
+    }
+    return this.readFileOutline(userId, sessionId, input.fileId);
+  }
+
   // 按行读取规范化正文，并为 PDF 行恢复最近的页码标记。
   async readFileLines(userId: string, sessionId: string, input: FileReadLinesInput) {
     if (input.endLine - input.startLine + 1 > AGENT_PROTOCOL_LIMITS.fileReadLinesMax)
@@ -995,10 +1016,91 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         code: AGENT_ERROR_CODES.fileReadRangeTooLarge,
         detail: `单次最多读取 ${AGENT_PROTOCOL_LIMITS.fileReadLinesMax} 行。`,
       });
+    const { file, lines } = await this.loadReadableTextFile(userId, sessionId, input.fileId);
+    if (input.startLine > lines.length)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileLineOutOfRange,
+        detail: '请求的起始行超出文件范围。',
+      });
+    const outputLines = this.extractContentLines(lines, input.startLine, input.endLine);
+    const bounded = this.boundLinesToCharacterBudget(outputLines);
+    return {
+      fileId: file.id,
+      fileName: file.fileName,
+      mediaType: file.mediaType,
+      startLine: input.startLine,
+      endLine: Math.min(input.endLine, lines.length),
+      incomplete: input.endLine > lines.length || bounded.truncated,
+      lines: bounded.lines,
+    };
+  }
+
+  private async readFileSection(userId: string, sessionId: string, fileId: string, sectionId: string) {
+    const { file, content, lines } = await this.loadReadableTextFile(userId, sessionId, fileId);
+    const sections = this.resolveSectionIndex(file, content);
+    const section = sections.find((item) => item.sectionId === sectionId);
+    if (!section)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileSectionNotFound,
+        detail: '未找到对应的 sectionId，请先 read(scope=file) 查看 outline。',
+      });
+    const outputLines = this.extractContentLines(lines, section.startLine, section.endLine);
+    const bounded = this.boundLinesToCharacterBudget(outputLines);
+    return {
+      scope: 'section' as const,
+      fileId: file.id,
+      fileName: file.fileName,
+      mediaType: file.mediaType,
+      sectionId: section.sectionId,
+      startLine: section.startLine,
+      endLine: section.endLine,
+      incomplete: bounded.truncated,
+      lines: bounded.lines,
+    };
+  }
+
+  private async readFileOutline(userId: string, sessionId: string, fileId: string) {
+    const { file, content, lines } = await this.loadReadableTextFile(userId, sessionId, fileId);
+    const codePoints = [...content].length;
+    const sections = this.resolveSectionIndex(file, content);
+    const lineCount = lines.length;
+    const pageCount = file.pageCount ?? undefined;
+    const base = {
+      scope: 'file' as const,
+      fileId: file.id,
+      fileName: file.fileName,
+      mediaType: file.mediaType,
+      lineCount,
+      ...(pageCount ? { pageCount } : {}),
+      sections,
+    };
+    if (codePoints <= AGENT_PROTOCOL_LIMITS.fileReadSmallMaxCodePoints) {
+      const bounded = this.boundTextToCharacterBudget(content);
+      return {
+        ...base,
+        sizeTier: 'small' as const,
+        incomplete: bounded.truncated,
+        content: bounded.text,
+      };
+    }
+    const previewLines = AGENT_PROTOCOL_LIMITS.fileReadOutlinePreviewLines;
+    const head = this.formatPreviewLines(lines.slice(0, previewLines), 0);
+    const tailStart = Math.max(0, lines.length - previewLines);
+    const tail = this.formatPreviewLines(lines.slice(tailStart), tailStart);
+    const sizeTier = codePoints > AGENT_PROTOCOL_LIMITS.fileReadSmallMaxCodePoints * 4 ? 'large' : 'medium';
+    return {
+      ...base,
+      sizeTier,
+      incomplete: false,
+      preview: head && tail ? { head, tail } : undefined,
+    };
+  }
+
+  private async loadReadableTextFile(userId: string, sessionId: string, fileId: string) {
     const file = await this.findReadyForSession(
       userId,
       sessionId,
-      input.fileId,
+      fileId,
       AGENT_ERROR_CODES.fileNotFound,
     );
     if (file.fileKind === 'image' || !file.normalizedKey)
@@ -1007,23 +1109,33 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         detail: '该文件没有可读取的规范化正文。',
       });
     const content = await this.readNormalizedContent(file);
-    const lines = content.split('\n');
-    if (input.startLine > lines.length)
-      throw new BadRequestException({
-        code: AGENT_ERROR_CODES.fileLineOutOfRange,
-        detail: '请求的起始行超出文件范围。',
-      });
-    // 先截取请求范围，再过滤内部页码标记，避免把控制信息交给模型。
-    const selected = lines.slice(input.startLine - 1, Math.min(input.endLine, lines.length));
+    return { file, content, lines: content.split('\n') };
+  }
+
+  private resolveSectionIndex(
+    file: { overview: unknown; fileKind: string },
+    content: string,
+  ): FileSectionIndexEntry[] {
+    return (
+      parseSectionIndexFromOverview(file.overview) ??
+      buildSectionIndex(content, file.fileKind).sections
+    );
+  }
+
+  private extractContentLines(
+    lines: string[],
+    startLine: number,
+    endLine: number,
+  ): Array<{ line: number; page?: number; text: string }> {
+    const selected = lines.slice(startLine - 1, Math.min(endLine, lines.length));
     const outputLines: Array<{ line: number; page?: number; text: string }> = [];
-    // 读取范围可能从 PDF 页内中间行开始，先恢复范围起点之前最近的页标记。
     let page: number | undefined;
-    for (let index = 0; index < input.startLine - 1; index += 1) {
+    for (let index = 0; index < startLine - 1; index += 1) {
       const marker = lines[index]?.match(/^\[\[page:(\d+)\]\]$/u);
       if (marker) page = Number(marker[1]);
     }
     for (const [offset, text] of selected.entries()) {
-      const absoluteLine = input.startLine + offset;
+      const absoluteLine = startLine + offset;
       const marker = text.match(/^\[\[page:(\d+)\]\]$/u);
       if (marker) {
         page = Number(marker[1]);
@@ -1031,32 +1143,42 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
       }
       outputLines.push({ line: absoluteLine, ...(page ? { page } : {}), text });
     }
-    // 行读取也采用“尽量返回完整行”的策略：结果过大时保留预算内的前几行，
-    // 不截断单行，避免把半截 JSON、代码或句子交给模型；incomplete 告知模型
-    // 缩小范围后继续读取。若单行本身就超过预算，则该行无法在本次安全返回。
+    return outputLines;
+  }
+
+  private boundLinesToCharacterBudget(
+    outputLines: Array<{ line: number; page?: number; text: string }>,
+  ): { lines: typeof outputLines; truncated: boolean } {
     const resultBudget = AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters;
     let usedCharacters = 0;
-    let resultTruncated = false;
+    let truncated = false;
     const boundedLines: typeof outputLines = [];
     for (const line of outputLines) {
       const separatorCharacters = boundedLines.length > 0 ? 1 : 0;
       const lineCharacters = Array.from(line.text).length;
       if (usedCharacters + separatorCharacters + lineCharacters > resultBudget) {
-        resultTruncated = true;
+        truncated = true;
         break;
       }
       boundedLines.push(line);
       usedCharacters += separatorCharacters + lineCharacters;
     }
-    return {
-      fileId: file.id,
-      fileName: file.fileName,
-      mediaType: file.mediaType,
-      startLine: input.startLine,
-      endLine: Math.min(input.endLine, lines.length),
-      incomplete: input.endLine > lines.length || resultTruncated,
-      lines: boundedLines,
-    };
+    return { lines: boundedLines, truncated };
+  }
+
+  private boundTextToCharacterBudget(text: string): { text: string; truncated: boolean } {
+    const resultBudget = AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters;
+    const characters = Array.from(text);
+    if (characters.length <= resultBudget) return { text, truncated: false };
+    return { text: characters.slice(0, resultBudget).join(''), truncated: true };
+  }
+
+  private formatPreviewLines(lines: string[], lineOffset: number): string {
+    const visible = lines
+      .map((line, index) => ({ line: lineOffset + index + 1, text: line }))
+      .filter(({ text }) => !/^\[\[page:(\d+)\]\]$/u.test(text))
+      .map(({ line, text }) => `${line}: ${text}`);
+    return visible.join('\n').trim();
   }
 
   // 只删除未绑定消息的文件，存储失败时登记补偿任务。

@@ -122,7 +122,7 @@ describe('ContextEngineeringService', () => {
       [
         {
           toolCallId: 'file-one',
-          toolName: 'read_file_lines',
+          toolName: 'read_file',
           content: '文件'.repeat(20_000),
           truncatable: false,
         },

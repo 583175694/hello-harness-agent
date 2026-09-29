@@ -182,7 +182,10 @@ export class ContextEngineeringService {
       const candidate = candidates[index]!;
       const fullTokens = originalTokens[index]!;
       const roundShare = share + reclaimed;
-      const target = Math.min(fullTokens, profile.toolResultMaxTokens, roundShare);
+      const perResultCap = this.isFileTool(candidate.toolName)
+        ? Math.floor(profile.toolResultMaxTokens * 1.5)
+        : profile.toolResultMaxTokens;
+      const target = Math.min(fullTokens, perResultCap, roundShare);
       reclaimed = Math.max(0, roundShare - Math.min(fullTokens, target));
       if (target >= fullTokens) {
         output.push({
@@ -467,7 +470,11 @@ export class ContextEngineeringService {
   }
 
   private isFileTool(toolName: string): boolean {
-    return toolName === AGENT_TOOL_NAMES.searchFile || toolName === AGENT_TOOL_NAMES.readFileLines;
+    return (
+      toolName === AGENT_TOOL_NAMES.searchFile ||
+      toolName === AGENT_TOOL_NAMES.readFile ||
+      toolName === AGENT_TOOL_NAMES.readFileLines
+    );
   }
 
   private async replaceWithStoredResult(
@@ -530,7 +537,7 @@ export class ContextEngineeringService {
   ): string {
     return (
       `[Tool Result truncated: originalTokens=${originalTokens}, retainedTokens=${retainedTokens}, strategy=head-tail, fileId=${stored.fileId}, fileName=${stored.fileName}, lineCount=${stored.lineCount}]\n` +
-      '完整结果已保存。需要中间内容时用 search_file 或 read_file_lines 读取该 fileId，不要把预览当成全文。'
+      '完整结果已保存。需要中间内容时用 search_file 或 read_file 读取该 fileId，不要把预览当成全文。'
     );
   }
 
@@ -542,7 +549,7 @@ export class ContextEngineeringService {
   }): string {
     return (
       `[Tool Result stored: originalTokens=${stored.originalTokens}, fileId=${stored.fileId}, fileName=${stored.fileName}, lineCount=${stored.lineCount}]\n` +
-      '完整结果已外置。需要内容时用 search_file 或 read_file_lines 读取该 fileId，不要把本条说明当成正文。'
+      '完整结果已外置。需要内容时用 search_file 或 read_file 读取该 fileId，不要把本条说明当成正文。'
     );
   }
 

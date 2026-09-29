@@ -262,7 +262,7 @@ function workbenchHeader(
 ) {
   // 根据当前调用集合选择 Workbench 标题和摘要。
   const isFileTool = (toolName: string) =>
-    toolName === 'search_file' || toolName === 'read_file_lines';
+    toolName === 'search_file' || toolName === 'read_file' || toolName === 'read_file_lines';
   const isWebTool = (toolName: string) => toolName === 'web_search' || toolName === 'web_fetch';
   const phase = workbenchExecutionPhase(executions);
   const evidence = formatSourceEvidenceSubtitle(sources);
@@ -564,6 +564,8 @@ export function applyToolEvent(
     completedEvent?.toolName === 'approval_test' ? completedEvent : undefined;
   const completedFileSearch =
     completedEvent?.toolName === 'search_file' ? completedEvent : undefined;
+  const completedFileRead =
+    completedEvent?.toolName === 'read_file' ? completedEvent : undefined;
   const completedFileReadLines =
     completedEvent?.toolName === 'read_file_lines' ? completedEvent : undefined;
   const completedCreateFile =
@@ -579,6 +581,7 @@ export function applyToolEvent(
     completedEvent,
     completedFileSearch,
     completedFileReadLines,
+    completedFileRead,
   );
   const sourceCount = completedFetch ? fetchSucceeded.length : resultCount;
   const executions = base.executions.map((tool) =>
@@ -610,7 +613,11 @@ export function applyToolEvent(
                 fetchStats: completedFetch?.result.stats,
                 approvalEcho: completedApproval?.result.echoed,
                 fileSearchCount: completedFileSearch?.result.matches.length,
-                fileReadLineCount: completedFileReadLines?.result.lines.length,
+                fileReadLineCount:
+                  completedFileRead?.result.scope === 'file'
+                    ? undefined
+                    : (completedFileRead?.result.lines.length ??
+                      completedFileReadLines?.result.lines.length),
                 fileName: completedCreateFile?.result.file.fileName,
                 reportTitle: completedCreateReport?.result.report.title,
                 searchResultCount:
@@ -1606,6 +1613,11 @@ function PersistentAgentApp() {
           (toolEvent.type === 'tool.completed' &&
             toolEvent.toolName === 'search_file' &&
             toolEvent.result.matches.length > 0) ||
+          (toolEvent.type === 'tool.completed' &&
+            toolEvent.toolName === 'read_file' &&
+            ((toolEvent.result.scope === 'file' &&
+              (toolEvent.result.sections?.length ?? 0) > 0) ||
+              (toolEvent.result.scope !== 'file' && toolEvent.result.lines.length > 0))) ||
           (toolEvent.type === 'tool.completed' &&
             toolEvent.toolName === 'read_file_lines' &&
             toolEvent.result.lines.length > 0) ||

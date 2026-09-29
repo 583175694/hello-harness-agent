@@ -26,8 +26,12 @@ export const AGENT_PROTOCOL_LIMITS = {
   fileSearchQueryMaxLength: 500,
   fileSearchResultsMax: 8,
   fileSearchContextLines: 1,
-  fileReadLinesMax: 50,
-  fileReadResultMaxCharacters: 12_000,
+  fileReadLinesMax: 150,
+  fileReadResultMaxCharacters: 24_000,
+  /** scope=file 小文件全文阈值（Unicode code points）；超出则返回 outline。 */
+  fileReadSmallMaxCodePoints: 4_000,
+  /** 大文件 read(scope=file) outline 可选 head/tail 预览行数。 */
+  fileReadOutlinePreviewLines: 12,
   // 用户上传文件解析为正文后的最大 Unicode 字符数（code points）。
   uploadParsedContentMaxCodePoints: 60_000,
   generatedFileMaxBytes: 10 * 1024 * 1024,
@@ -58,6 +62,8 @@ export const AGENT_TOOL_NAMES = {
   // 网页读取工具在 Function Calling 协议中的稳定名称。
   webFetch: 'web_fetch',
   searchFile: 'search_file',
+  readFile: 'read_file',
+  /** @deprecated 仅历史 transcript / 别名解析；新调用使用 read_file。 */
   readFileLines: 'read_file_lines',
   // 无副作用的审批链路验证工具；生产工具策略保持不变。
   approvalTest: 'approval_test',
@@ -172,6 +178,7 @@ export const AGENT_ERROR_CODES = {
   fileSearchResultTooLarge: 'FILE_SEARCH_RESULT_TOO_LARGE',
   fileReadRangeTooLarge: 'FILE_READ_RANGE_TOO_LARGE',
   fileLineOutOfRange: 'FILE_LINE_OUT_OF_RANGE',
+  fileSectionNotFound: 'FILE_SECTION_NOT_FOUND',
   fileReadResultTooLarge: 'FILE_READ_RESULT_TOO_LARGE',
   fileContextResultTooLarge: 'FILE_CONTEXT_RESULT_TOO_LARGE',
   fileStorageFailed: 'FILE_STORAGE_FAILED',

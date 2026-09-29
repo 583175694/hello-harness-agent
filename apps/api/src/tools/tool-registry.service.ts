@@ -1,5 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
+import {
+  AGENT_ERROR_CODES,
+  AGENT_TOOL_NAMES,
+  fileReadLinesInputSchema,
+} from '@harness/agent-protocol';
 import { McpToolCatalogService } from '../mcp/mcp-tool-catalog.service';
 import { McpResourceExecutor } from '../mcp/mcp-resource.executor';
 import { McpToolExecutor } from '../mcp/mcp-tool-executor';
@@ -51,6 +55,7 @@ export class ToolRegistryService {
   resolveName(name: string): string {
     if (isMcpPublicToolName(name)) return name;
     if (name === AGENT_TOOL_NAMES.executeCommand) return AGENT_TOOL_NAMES.bash;
+    if (name === AGENT_TOOL_NAMES.readFileLines) return AGENT_TOOL_NAMES.readFile;
     return name;
   }
 
@@ -110,7 +115,8 @@ export class ToolRegistryService {
         );
       }
     }
-    const tool = this.get(name);
+    const resolved = this.resolveName(name);
+    const tool = this.get(resolved);
     let value: unknown;
     try {
       value = JSON.parse(rawArguments);
@@ -119,6 +125,16 @@ export class ToolRegistryService {
         AGENT_ERROR_CODES.invalidToolArguments,
         '工具参数不是有效的 JSON。',
       );
+    }
+    if (name === AGENT_TOOL_NAMES.readFileLines) {
+      const legacy = fileReadLinesInputSchema.safeParse(value);
+      if (!legacy.success) {
+        throw new ToolInputValidationError(
+          tool.inputErrorCode ?? AGENT_ERROR_CODES.invalidToolArguments,
+          '工具参数校验失败。',
+        );
+      }
+      return { scope: 'lines' as const, ...legacy.data };
     }
     const parsed = tool.inputSchema.safeParse(value);
     if (!parsed.success) {

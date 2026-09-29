@@ -3,6 +3,7 @@ import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
 import { PDFParse } from 'pdf-parse';
 import { OfficeParser } from 'officeparser';
 import { createHash } from 'node:crypto';
+import { buildSectionIndex } from './file-section-index';
 
 // C1 文件大小、会话容量、正文字符数和 PDF 页数上限。
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -183,11 +184,14 @@ export class FileProcessingService {
       ...prepared,
       normalizedContent,
       contentHash: sha256(Buffer.from(normalizedContent)),
-      parserVersion: 'c1-b2-v1',
+      parserVersion: 'c1-read-v1',
       pageCount,
       lineCount: normalizedContent ? normalizedContent.split('\n').length : 0,
       characterCount,
-      overview,
+      overview: {
+        ...overview,
+        sections: buildSectionIndex(normalizedContent, prepared.fileKind).sections,
+      },
       locations: locations ?? lineLocations(normalizedContent),
     };
   }

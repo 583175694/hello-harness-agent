@@ -155,10 +155,12 @@ EvidenceSource       can be cited as [Sx]
 - valid downstream action dispatched
 - waiting_for_user
 - runtime cancel/timeout
-- 40 次 Tool Call 上限或其他通用执行边界触发
+- **Tool Turn 预算触顶**（investigation → delivery → final_only）或其他通用执行边界触发；权威语义见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) §4
 - unrecoverable validation/model failure
 
-当前普通 Agent 是否继续调查或回答由模型决定；Runtime 只在取消、单次超时、协议失败或 40 次 Tool Call 上限时确定性改变流程。未来 durable workflow 的完成协议尚未冻结。
+**Runtime（P0）**：40 个 **investigation tool turn**（同轮多 call 计 1 turn）→ 3 个 **delivery turn**（仅 `create_file` / `create_report`）→ **final_only**；`toolCallCount` 仅观测。权威语义见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) §4。
+
+当前普通 Agent 是否继续调查或回答由模型决定；Runtime 只在取消、单次超时、协议失败或 Tool Turn / 现网 call 上限时确定性改变流程。未来 durable workflow 的完成协议尚未冻结。
 
 ## 13. Streaming
 

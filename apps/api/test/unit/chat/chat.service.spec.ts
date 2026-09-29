@@ -849,8 +849,8 @@ describe('ChatService session persistence', () => {
     });
   });
 
-  it('forces a tool-free final model round after the shared 40-call limit is reached', async () => {
-    // 模拟模型连续请求工具的轮次，用于验证跨轮共享的调用次数上限。
+  it('enters delivery phase after 40 investigation tool turns and completes with a text-only round', async () => {
+    // 模拟 40 轮调查工具调用，验证第 41 轮进入 delivery（仍可能有交付工具）且最终可无工具回答。
     let modelRound = 0;
     const providerCreate = vi.fn().mockImplementation(() => {
       modelRound += 1;
@@ -916,7 +916,10 @@ describe('ChatService session persistence', () => {
       expect.objectContaining({ tools: expect.any(Array) }),
     );
     expect(providerCreate.mock.calls[0]?.[0]).not.toHaveProperty('tool_choice');
-    expect(providerCreate.mock.calls[40]?.[0]).not.toHaveProperty('tools');
+    const deliveryRoundRequest = providerCreate.mock.calls[40]?.[0] as {
+      tools?: Array<{ function: { name: string } }>;
+    };
+    expect(deliveryRoundRequest.tools?.map((tool) => tool.function.name)).not.toContain('web_search');
     expect(providerCreate.mock.calls[40]?.[0]).not.toHaveProperty('tool_choice');
     expect(registry.execute).toHaveBeenCalledTimes(40);
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({

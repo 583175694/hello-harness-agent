@@ -224,7 +224,7 @@ Workbench 的 Context Tab 只保留当前 Run 最后一轮快照，Run 结束和
 - C1 Composer 附件交互已完成：支持多附件有序管理、图片剪贴板粘贴、长文本粘贴自动外置为 TXT、失败重试、取消/移除、Office/PDF/TXT 等文件预览和无障碍附件操作。
 - Workbench 已增加当前 Run 的 Context 调试视图；Run 结束及刷新后保留最后一轮快照，JSON 分离展示模型输入 `messages` 与本轮输出 `response`，并支持主题色、长内容换行和复制。
 - 评估体系已从当前工作区移除；普通 unit、integration、E2E 与 `agent-testkit` 工程回归能力保留。
-- 已实现每个 assistant run 最多 40 次 Tool Call 的模型-工具循环，支持分片 arguments 聚合、参数校验、串行执行、错误回传和达到调用上限后的无工具最终回答。
+- 已实现 **Tool Turn 预算与调查/交付分池**（[25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) §4）：默认 40 investigation turn + 3 delivery turn（仅 `create_file` / `create_report`），`update_plan` 不计 turn；`toolCallCount` 仅观测。支持分片 arguments 聚合、参数校验、串行执行、phase 拒绝与 `final_only` 无工具最终回答。
 - 模型调用已通过 `ModelAdapter` 与 OpenAI SDK 隔离；`AgentRuntimeService` 只依赖 canonical message、模型事件和工具契约。
 - 工具层已拆为 `AgentTool`、集中式 Tool Catalog 和通用 Registry；新增工具不再需要把业务逻辑写入 Registry。
 - Chat 链路已拆出 Runtime、搜索投影、assistant 交付仓库、标题服务和 SSE Writer，`ChatService` 只保留会话准备与兼容事件编排。

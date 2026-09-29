@@ -8,8 +8,12 @@ export const AGENT_PROTOCOL_LIMITS = {
   sessionImageAttachmentsMax: 4,
   // 无状态 Chat 请求允许携带的最大历史消息数。
   chatHistoryMaxMessages: 40,
-  // 单次 Agent 运行允许执行的工具调用总数。
+  // 单次 Agent 运行允许执行的工具调用总数（metadata / schema；Run 主收敛改由 Tool Turn 分池）。
   agentToolMaxCalls: 40,
+  // 调查阶段带业务工具的 Model Turn 上限（同轮多 call 计 1 turn）。
+  agentInvestigationToolTurnMax: 40,
+  // 交付阶段带业务工具的 Model Turn 上限（仅 create_file / create_report）。
+  agentDeliveryToolTurnMax: 3,
   // 单条 assistant 消息允许持久化的有序内容块总数。
   assistantContentBlocksMax: 128,
   // 单次网页搜索允许提交的查询字符串最大长度。
@@ -123,6 +127,8 @@ export const AGENT_ERROR_CODES = {
   modelTranscriptIntegrityError: 'MODEL_TRANSCRIPT_INTEGRITY_ERROR',
   // 当前 assistant run 已达到模型工具调用次数上限。
   toolCallLimitExceeded: 'TOOL_CALL_LIMIT_EXCEEDED',
+  // 当前 Tool Phase 不允许该工具（例如交付阶段禁止 read_file / web_search）。
+  toolPhaseRestricted: 'TOOL_PHASE_RESTRICTED',
   // 工具未在自身声明的外层执行时间内完成。
   toolTimeout: 'TOOL_TIMEOUT',
   // 模型返回的工具参数无法通过工具 Schema 校验。

@@ -36,6 +36,13 @@ import type { ToolRegistryContext } from '../tools/tool-registry.types';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import type { AgentRuntimeEvent, AgentRuntimeInput } from './agent-runtime.types';
 import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
+import {
+  applyToolBatchTurnCount,
+  evaluateToolDispatchBudget,
+  filterToolDefinitionsForPhase,
+  INVESTIGATION_DELIVERY_SYSTEM_NOTICE,
+  type ToolPhase,
+} from './tool-turn-budget';
 import { recoverTruncatedModelRound } from './output-limit-recovery';
 import { ContextEngineeringService } from '../context-engineering/context-engineering.service';
 import type { ToolResultCandidate } from '../context-engineering/context-engineering.types';
@@ -92,9 +99,13 @@ export class AgentRuntimeService {
       { role: 'system', content: input.systemPrompt },
       ...input.messages,
     ];
-    // 分别记录工具调用次数、交付模式、最终正文和已向客户端展示的文本。
+    // 分别记录 Tool Turn 分池、工具调用次数（观测）、交付模式、最终正文和已向客户端展示的文本。
+    let toolPhase: ToolPhase = 'investigation';
+    let investigationToolTurns = 0;
+    let deliveryToolTurns = 0;
     let toolCallCount = 0;
     let finalResponseOnly = false;
+    let deliveryPhaseNoticeAdded = false;
     let finalInstructionAdded = false;
     let finalContent = '';
     let visibleContent = '';
@@ -111,11 +122,21 @@ export class AgentRuntimeService {
       // 同一批 Tool Call 必须先补齐全部 Tool Message，最终回答指令在批次结束后追加。
       if (finalResponseOnly) return;
       finalResponseOnly = true;
+      toolPhase = 'final_only';
+    };
+
+    const enterDeliveryPhase = () => {
+      if (deliveryPhaseNoticeAdded) return;
+      deliveryPhaseNoticeAdded = true;
+      messages.push({
+        role: 'system',
+        content: INVESTIGATION_DELIVERY_SYSTEM_NOTICE,
+      });
     };
 
     // 每次外层循环对应一次独立模型请求，也就是一个稳定的 Model Round。
     // 每一轮要么得到最终文本，要么执行工具并把结果追加到下一轮上下文。
-    runtimeLoop: while (modelRounds <= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
+    runtimeLoop: while (modelRounds < DEFAULT_RUNTIME_POLICY.maxModelRounds) {
       this.assertRunActive(input.signal, runDeadlineSignal);
       modelRounds += 1;
       const beforeModelWait = this.reachLifecycle(input, 'before_model_request', {
@@ -150,17 +171,20 @@ export class AgentRuntimeService {
         });
       }
       this.logger.log(
-        `模型 Loop 即将开始 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | 轮次=${modelRounds} | 阶段=${finalResponseOnly ? 'final_answer' : 'tool_loop'} | 暂停状态=${input.lifecycle?.snapshot().state ?? 'none'}`,
+        `模型 Loop 即将开始 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | 轮次=${modelRounds} | toolPhase=${toolPhase} | 调查Turn=${investigationToolTurns} | 交付Turn=${deliveryToolTurns} | 阶段=${finalResponseOnly ? 'final_answer' : 'tool_loop'} | 暂停状态=${input.lifecycle?.snapshot().state ?? 'none'}`,
         AgentRuntimeService.name,
       );
       // 最终回答阶段从请求参数层面移除工具，不能只依赖 Prompt 约束模型。
       // 最终回答阶段主动撤掉所有工具，防止模型在收尾时再次发起调用。
       const definitions = finalResponseOnly
         ? undefined
-        : [
-            ...(this.tools.definitions(toolRegistryContext) ?? []),
-            ...builtinToolDefinitions(),
-          ];
+        : filterToolDefinitionsForPhase(
+            [
+              ...(this.tools.definitions(toolRegistryContext) ?? []),
+              ...builtinToolDefinitions(),
+            ],
+            toolPhase,
+          );
       // 每次模型尝试都重新收集文本、工具调用和结束原因，污染重试不得混入上一轮内容。
       let compiled;
       try {
@@ -683,23 +707,25 @@ export class AgentRuntimeService {
 
       // Dispatch Plan 在任何工具开始前一次性完成，供生命周期策略安全审查。
       for (const call of normalizedCalls) {
-        // 计划工具是控制工具，不占用 Business Tool 调用配额。
-        if (
-          call.name !== AGENT_TOOL_NAMES.updatePlan &&
-          toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls
-        ) {
+        const budgetDecision = evaluateToolDispatchBudget({
+          toolName: call.name,
+          phase: toolPhase,
+          deliveryToolTurns,
+          maxDeliveryToolTurns: DEFAULT_RUNTIME_POLICY.maxDeliveryToolTurns,
+        });
+        if (budgetDecision.action === 'reject') {
           dispatchPlan.push({
             status: 'rejected',
             call,
             error: {
-              code: AGENT_ERROR_CODES.toolCallLimitExceeded,
-              detail: '工具调用已达到当前 assistant run 的次数上限。',
+              code: budgetDecision.code,
+              detail: budgetDecision.detail,
               retryable: false,
             },
-            enterFinalAnswer: true,
+            enterFinalAnswer: budgetDecision.enterFinalAnswer,
           });
           this.logger.warn(
-            `工具调用已达到上限 | 会话=${shortLogId(input.sessionId)} | 上限=${DEFAULT_RUNTIME_POLICY.maxToolCalls} 次`,
+            `工具调用被 Tool Turn 策略拒绝 | 会话=${shortLogId(input.sessionId)} | toolPhase=${toolPhase} | 工具=${call.name} | 错误码=${budgetDecision.code}`,
             AgentRuntimeService.name,
           );
           continue;
@@ -732,7 +758,7 @@ export class AgentRuntimeService {
               detail,
               retryable: false,
             },
-            enterFinalAnswer: toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls,
+            enterFinalAnswer: false,
           });
           this.logger.warn(
             `工具参数无效 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 错误码=${code} | 原因=${detail}`,
@@ -745,7 +771,7 @@ export class AgentRuntimeService {
           status: 'ready',
           call,
           input: toolInput,
-          enterFinalAnswer: toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls,
+          enterFinalAnswer: false,
         });
       }
 
@@ -1124,6 +1150,21 @@ export class AgentRuntimeService {
       });
       if (batchCommittedWait) await batchCommittedWait;
       this.assertRunActive(input.signal, runDeadlineSignal);
+
+      const turnUpdate = applyToolBatchTurnCount({
+        phase: toolPhase,
+        declaredCalls: normalizedCalls,
+        investigationToolTurns,
+        deliveryToolTurns,
+        maxInvestigationToolTurns: DEFAULT_RUNTIME_POLICY.maxInvestigationToolTurns,
+        maxDeliveryToolTurns: DEFAULT_RUNTIME_POLICY.maxDeliveryToolTurns,
+      });
+      investigationToolTurns = turnUpdate.investigationToolTurns;
+      deliveryToolTurns = turnUpdate.deliveryToolTurns;
+      toolPhase = turnUpdate.phase;
+      if (turnUpdate.enterDelivery) enterDeliveryPhase();
+      if (turnUpdate.enterFinalAnswer) enterFinalAnswer();
+
       // 整批 assistant Tool Calls 已逐一配对后，再追加一次无工具最终回答约束。
       if (finalResponseOnly && !finalInstructionAdded) {
         finalInstructionAdded = true;

@@ -59,6 +59,37 @@ describe('AgentChainOfThought bash transparent events', () => {
   });
 });
 
+describe('AgentChainOfThought MCP inline label', () => {
+  it('shows business input only without duplicating server title', () => {
+    render(
+      <AgentChainOfThought
+        process={[
+          {
+            kind: 'tool',
+            block: {
+              id: 'tool-mcp',
+              type: 'tool_activity',
+              toolCallId: 'call-mcp',
+              toolName: 'mcp__tinyfish__search',
+              title: 'tinyfish · search',
+              summary: 'search 泰永长征, purpose=了解基本面',
+              status: 'completed',
+              startedAt: '2026-09-21T00:00:00.000Z',
+              completedAt: '2026-09-21T00:00:01.000Z',
+              durationMs: 1_000,
+            },
+          },
+        ]}
+        running={false}
+        onFocusWorkbench={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText('search 泰永长征, purpose=了解基本面')).toBeInTheDocument();
+    expect(screen.queryByText('tinyfish · search')).not.toBeInTheDocument();
+  });
+});
+
 describe('AgentChainOfThought elapsed time', () => {
   it('keeps ticking every second while the assistant is running after a tool completes', () => {
     vi.useFakeTimers();

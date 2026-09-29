@@ -22,6 +22,7 @@ import {
 } from '../../../components/ai-elements/chain-of-thought';
 import type { SourceView, WorkbenchFocusTarget, WorkbenchState } from '../model/types';
 import { bashCoTLabel, isBashTransparentTool } from '../model/bash-transparent';
+import { isMcpPublicToolName, mcpInlineActivityLabel } from '../model/tool-copy';
 import type { AssistantProcessItem } from './assistant-message-adapter';
 import {
   Reasoning,
@@ -166,19 +167,23 @@ export function AgentChainOfThought({
             (execution) => execution.toolCallId === item.block.toolCallId,
           )?.title;
           const bashStep = isBashTransparentTool(item.block);
+          const mcpStep = isMcpPublicToolName(item.block.toolName);
           const toolTitle = bashStep
             ? bashCoTLabel(item.block)
-            : item.block.toolName === 'web_search'
-              ? (workbenchTitle ??
-                (item.block.summary ? `搜索：${item.block.summary}` : item.block.title))
-              : item.block.title;
+            : mcpStep
+              ? mcpInlineActivityLabel(item.block)
+              : item.block.toolName === 'web_search'
+                ? (workbenchTitle ??
+                  (item.block.summary ? `搜索：${item.block.summary}` : item.block.title))
+                : item.block.title;
           return (
             <button
-              className="agent-chain-tool"
+              className={`agent-chain-tool${mcpStep ? ' agent-chain-tool--mcp' : ''}`}
               type="button"
               key={item.block.id}
               disabled={!workbench}
               aria-label={`${toolTitle}，${toolStatusLabel(item.block.status)}`}
+              title={mcpStep ? toolTitle : undefined}
               onClick={() =>
                 workbench &&
                 onFocusWorkbench({
@@ -198,7 +203,8 @@ export function AgentChainOfThought({
                     </span>
                     {item.block.summary &&
                     item.block.toolName !== 'web_search' &&
-                    !bashStep ? (
+                    !bashStep &&
+                    !mcpStep ? (
                       <span className="agent-chain-tool__summary">{item.block.summary}</span>
                     ) : null}
                     {StateIcon ? <StateIcon size={13} aria-hidden="true" /> : null}

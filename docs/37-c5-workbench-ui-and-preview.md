@@ -1,9 +1,10 @@
 # C5：Workbench UI 与预览（产品 / 前端契约）
 
-> 文档状态：**C5-1 设计冻结（待实施）**  
-> 最后更新：2026-09-28  
+> 文档状态：**C5-A 已落地（Workbench 升级告一段落）**；**C5-B / C5-C 待启动**  
+> 最后更新：2026-09-29  
 > 关联：[19-agent-frontend.md](./19-agent-frontend.md)（对话与跨面板导航）、[20-agent-workbench.md](./20-agent-workbench.md)（历史参考，C5 实施后以本文 Workbench IA 为准）、[31-c2-artifact-and-report-generation.md](./31-c2-artifact-and-report-generation.md)、[implementation-status.md §7.2 C5](./implementation-status.md)  
-> 视觉参考：pipishrimp Lovart 稿（1920×1080；工具结果 + 交付物 + Context；底栏工具 Slider）
+> 视觉参考：pipishrimp Lovart 稿（1920×1080；工具结果 + 交付物 + Context；底栏工具 Slider）  
+> 切片命名：**C5-A** Workbench 升级与交互壳；**C5-B** HTML 预览与安全迭代；**C5-C** Sandbox 在工作台的深化展示（与 C4-A/B/C 命名一致，替代原 C5-1/2/3 编号）
 
 ## 1. 目标与非目标
 
@@ -16,13 +17,14 @@
 - **Context** Tab 保留最后一轮 CE 调试视图（与现网一致，非主营销能力）。
 - 桌面端使用 **shadcn/ui Resizable** 调整 **会话区 | 工作台** 宽度；Workbench 底栏使用 **shadcn/ui Slider** 在 **同一 Run 的 tool_call 序列** 间切换查看。
 
-### 1.2 非目标（C5-1）
+### 1.2 非目标（C5-A）
 
 - Workbench 内 **Activity 时间线 Tab**、独立 **Sources Tab**（调研来源并入「工具结果」中 `web_search` / `web_fetch` 视图）。
 - Manus 式虚拟电脑全屏浏览器、Devin 式 IDE 三栏常驻。
 - Workbench 底部 **Plan 阶段五步条**（Plan 只在 Composer 上方展示 K4 `PlanSnapshot`）。
 - 左侧「本次工具调用」竖列表、交付物 Tab 内「版本」竖栏（改由顶栏 Chip/下拉 + 面包屑，主区全宽）。
-- Mobile 端 Resizable（见 §8）；C5-2 HTML iframe 安全策略细则（见 §6，C5-1 可占位预览）。
+- Mobile 端 Resizable（见 §8）；**C5-B** HTML iframe 安全策略细则（见 §6，C5-A 仅占位预览）。
+- **视觉精修专项**（间距、动效、与设计稿像素级对齐）：不阻塞 C5-A 收口；需要时单独开一轮样式优化，不占用 C5-B/C 编号。
 
 ---
 
@@ -64,11 +66,11 @@
 
 | Tab | 用户问题 | 数据来源（服务端投影） | C5 阶段 |
 | --- | --- | --- | --- |
-| **工具结果** | 这次 tool 到底搜到了/读到了/跑出了什么？ | `tool_activity` + execution 快照；search/fetch/bash/MCP 结构化结果 | C5-1 |
-| **交付物** | 报告/网页/文件在哪，哪一版，能否预览与改？ | C2 Artifact + C2-D 版本链；预览/下载 API | C5-1 列表+预览壳；C5-2 HTML iframe |
-| **Context** | 最后一轮模型输入长什么样？ | Run Context Debug 快照 | C5-1 |
+| **工具结果** | 这次 tool 到底搜到了/读到了/跑出了什么？ | `tool_activity` + execution 快照；search/fetch/bash/MCP 结构化结果 | C5-A |
+| **交付物** | 报告/网页/文件在哪，哪一版，能否预览与改？ | C2 Artifact + C2-D 版本链；预览/下载 API | C5-A 列表+预览壳；C5-B HTML iframe |
+| **Context** | 最后一轮模型输入长什么样？ | Run Context Debug 快照 | C5-A |
 
-**命名（UI 中文）**：Tab 文案固定为 **工具结果**、**交付物**、**Context**（Context 可副标题「调试」）。
+**命名（UI 中文）**：契约 Tab 语义为 **工具结果**、**交付物**、**Context**。**C5-A 已交付** Web 文案为 **实时跟随**、**文件**、**调试上下文**（`AGENT_UI_COPY.workbenchTabLabels`）；后续若统一文案，属样式/ copy 迭代，不重新打开 C5-A 功能范围。
 
 ---
 
@@ -83,7 +85,7 @@
 | --- | --- | --- |
 | `web_search` | 结果卡片列表 | 标题、域名、snippet；不称 Sources Tab |
 | `web_fetch` | 网页读取 | URL、状态、相关 passage 摘要（可展开）；质量 gate 失败展示可读错误 |
-| `bash` / `job_*` | 终端只读块 | ANSI 渲染；结构化 `exitCode`；C5-3 可加强 job 卡片 |
+| `bash` / `job_*` | 终端只读块 | ANSI 渲染；结构化 `exitCode`；C5-C 可加强 job 卡片 |
 | MCP / `external_tool` | 结构化摘要 | 工具名、server、结果摘要；不展示 secret |
 | `tool_approval` 等待 | 审批面板 | 展开 `input` 摘要；批准/拒绝（K3.2，与对话区可并存，Workbench 提供大屏） |
 
@@ -106,7 +108,7 @@
 - **顶栏**：面包屑 `交付物 › {fileName} › v{n}`；**版本 Segmented 或 Select**（v1 / v2 / **v3 当前**）；**在新窗口打开**、**下载**。
 - **主区域全宽**：
   - Markdown / 报告：`MarkdownContent` 或等价预览。
-  - HTML（C5-2）：**sandbox iframe** + CSP；Host preview URL。
+  - HTML（C5-B）：**sandbox iframe** + CSP；Host preview URL（C5-A 已提供基础 iframe 预览，不含安全策略验收）。
   - 其他：沿用现有 Artifact 预览能力（PDF 等按 C2）。
 - **底栏主按钮**：**基于此版本修改** → 触发 C2-D `revise` 流程（与现网语义一致）。
 
@@ -162,7 +164,7 @@
 
 ## 9. 跨面板导航（相对 19 的演进）
 
-C5-1 实施时需扩展 `WorkbenchFocusTarget` / reducer（具体字段在 `agent-protocol` 与 19 中同步修改）：
+C5-A 实施时需扩展 `WorkbenchFocusTarget` / reducer（具体字段在 `agent-protocol` 与 19 中同步修改）：
 
 ```text
 tool_call  → 打开工作台 · 工具结果 Tab · Slider 索引 = 该 toolCallId
@@ -170,21 +172,21 @@ artifact   → 打开工作台 · 交付物 Tab · 选中 artifactId + versionId
 ```
 
 - 废弃或不再暴露：`kind: 'source'` 独立 Tab 跳转（改为 `tool_call` 定位到对应 fetch/search）。
-- `activity` 总览：C5-1 **不提供**独立 Activity Tab；若 focus 失败，降级到 **工具结果 Tab 最后一格** 或 **交付物 Tab 最新 Artifact**。
+- `activity` 总览：C5-A **不提供**独立 Activity Tab；若 focus 失败，降级到 **工具结果 Tab 最后一格** 或 **交付物 Tab 最新 Artifact**。
 
 ---
 
 ## 10. C5 分期与本文关系
 
-| 阶段 | 本文范围 |
-| --- | --- |
-| **C5-1** | 本文 §2–§9：Resizable、三 Tab、Slider、工具结果视图矩阵、交付物顶栏版本、Context；对接现有 API/投影 |
-| **C5-2** | §5 HTML iframe 预览与安全策略；交付物 Tab 内站点预览验收 |
-| **C5-3** | §4 bash/job 终端增强；可选 dev server 预览；不新增顶 Tab |
+| 阶段 | 本文范围 | 状态 |
+| --- | --- | --- |
+| **C5-A** | 本文 §2–§9：**仅 Workbench 升级** — Resizable、三 Tab、Slider、工具结果主视图、交付物列表/详情与版本、Context；对接现有 API/投影 | **已落地**（`feature/c5-workbench-ui`，2026-09-29 收口） |
+| **C5-B** | §5 HTML iframe 预览与安全策略；交付物 Tab 内站点预览与「改一版 → revise → 再预览」验收 | 未启动 |
+| **C5-C** | §4 bash/job 终端增强；可选 dev server 预览；不新增顶 Tab | 未启动 |
 
 ---
 
-## 11. 验收标准（C5-1 Release Gate）
+## 11. 验收标准（C5-A Release Gate）
 
 1. 桌面：**Resizable** 拖动会话/工作台宽度，刷新后比例保持；min/max 不破坏布局。
 2. **工具结果**：全宽展示 search 列表；点击对话内 tool → 3s 内 Slider 与内容对齐同一 `toolCallId`。
@@ -193,21 +195,23 @@ artifact   → 打开工作台 · 交付物 Tab · 选中 artifactId + versionId
 5. **Context**：Run 结束后仍可看最后一轮快照。
 6. **1280px** 宽度下无横向溢出；Mobile 不要求 Resizable。
 
+**C5-A 收口说明（2026-09-29）**：上述能力已在 Web 主路径交付；单元测试覆盖 split 持久化、Workbench 交付物 revise/restore 等。已知与本文契约的**非阻塞差异**留待后续 copy/样式或 C5-B 一并处理：Tab 中文文案见 §3；`<1280` 仍用 Resizable 直至 720px 分段（§8 理想态）；对话内 artifact focus 当前仍进工具结果 Tab；HTML 为占位 iframe。产品侧认定 **C5-A 功能阶段告一段落**；若要做 Lovart 级视觉精修，单独排期，不占用 C5-B。
+
 ---
 
-## 12. 实施落点（建议）
+## 12. 实施落点
+
+**C5-A 实际落点**（`apps/web`）：
 
 ```text
 apps/web/src/features/agent/
-  components/agent-shell.tsx          # ResizablePanelGroup 包裹会话 + Workbench
-  components/workbench-views.tsx      # 三 Tab 重构
-  components/workbench-tool-slider.tsx  # Slider + 索引状态
-  model/workbench-tool-index.ts       # Run 内 toolCallId 有序列表（由 projection 推导）
-  hooks/use-workbench-split-persist.ts
+  components/agent-split-layout.tsx     # ResizablePanelGroup 包裹会话 + Workbench
+  components/workbench-views.tsx        # 三 Tab、Slider 底栏、工具/交付物/Context 视图
+  hooks/use-agent-split-layout.ts       # 比例持久化（pipishrimp.agent.split）
 
 apps/web/src/components/ui/
-  resizable.tsx                       # shadcn add
-  slider.tsx                          # shadcn add
+  resizable.tsx
+  slider.tsx
 ```
 
 ---
@@ -215,8 +219,8 @@ apps/web/src/components/ui/
 ## 13. 文档维护
 
 - Workbench IA 变更：**先改本文**，再更新 [19-agent-frontend.md](./19-agent-frontend.md) §14/§16 中与 Tab/focus 冲突的段落。
-- C5-2 HTML 安全预览：**在本文 §5 增补** 或引用独立安全小节。
-- 实施后更新 [implementation-status.md](./implementation-status.md) C5-1 状态与验证记录。
+- C5-B HTML 安全预览：**在本文 §5 增补** 或引用独立安全小节。
+- 切片状态同步 [implementation-status.md](./implementation-status.md) §7.2 C5。
 
 ---
 

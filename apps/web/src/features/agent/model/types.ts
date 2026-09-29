@@ -104,6 +104,9 @@ export type ToolCallView = {
   elapsed: string;
   inputSummary: string;
   outputSummary?: string;
+  /** MCP / external_tool 完成后的 Host 侧结果预览（协议 outputPreview / SSE result.preview） */
+  outputPreview?: string;
+  outputPreviewTruncated?: boolean;
   resultCount?: number;
   sourceCount?: number;
   terminal?: BashTerminalView;

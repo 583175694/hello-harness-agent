@@ -36,6 +36,7 @@ export * from './sandbox/bash-render.js';
 export * from './mcp/contracts.js';
 export * from './auth/contracts.js';
 export * from './tools/external-tool.contracts.js';
+export * from './tools/mcp-display.js';
 import {
   webFetchInputSchema,
   webFetchPassageSchema,
@@ -849,6 +850,7 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     toolName: z.literal(AGENT_TOOL_NAMES.externalTool),
     publicName: z.string().min(1),
     subKind: externalToolSubKindSchema,
+    input: externalToolInputSchema,
     completedAt: z.string().datetime(),
     durationMs: z.number().int().nonnegative(),
     result: externalToolResultSchema,

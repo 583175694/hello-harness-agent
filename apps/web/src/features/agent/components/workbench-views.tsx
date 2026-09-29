@@ -44,7 +44,9 @@ import type {
 import type { ArtifactRef } from '@harness/agent-protocol';
 import { BashTerminalPanel } from '../elements/bash-terminal-panel';
 import { downloadArtifact, getArtifactPreview, getArtifactPreviewUrl } from '../../../api/client';
+import { parseJsonPreviewText } from '../../../lib/parse-json-preview';
 import { AGENT_UI_COPY } from '../config/ui.constants';
+import { isMcpPublicToolName } from '../model/tool-copy';
 
 const WORKBENCH_TABS: Array<{ id: WorkspaceView; label: string }> = [
   { id: 'tool_results', label: AGENT_UI_COPY.workbenchTabLabels.toolResults },
@@ -490,7 +492,7 @@ function ToolResultsView({
   }
 
   return (
-    <div className="tool-results-view">
+    <div className="tool-results-view tool-results-view--fill">
       <DeliverablesPageHeader
         title={
           <>
@@ -561,6 +563,9 @@ function ToolResultBody({
       </div>
     );
   }
+  if (isMcpPublicToolName(tool.toolName)) {
+    return <McpToolResultView key={tool.toolCallId} tool={tool} />;
+  }
   return (
     <article className="execution-detail" key={tool.toolCallId} tabIndex={-1}>
       <div className="execution-detail-heading">
@@ -588,6 +593,55 @@ function ToolResultBody({
           {tool.sourceCount !== undefined ? <span>{tool.sourceCount} 个来源</span> : null}
         </div>
       </dl>
+    </article>
+  );
+}
+
+function McpToolResultView({ tool }: { tool: ToolCallView }) {
+  const callDescription = tool.outputSummary ?? tool.inputSummary;
+  const parsedOutput = useMemo(
+    () =>
+      tool.outputPreview !== undefined && tool.outputPreview.length > 0
+        ? parseJsonPreviewText(tool.outputPreview)
+        : null,
+    [tool.outputPreview],
+  );
+
+  return (
+    <article
+      className="execution-detail execution-detail--mcp execution-detail--mcp-panel"
+      key={tool.toolCallId}
+      tabIndex={-1}
+    >
+      <div className="execution-detail-heading mcp-tool-result-header">
+        <div className="execution-detail-heading__copy">
+          <div className="execution-detail-heading__title">{tool.title}</div>
+        </div>
+        <span className={`execution-status execution-status--${tool.status}`}>
+          {TOOL_STATUS_COPY[tool.status] ?? tool.status}
+        </span>
+      </div>
+      <div className="mcp-tool-result-call">
+        <span className="mcp-tool-result-call__label">调用说明</span>
+        <p className="mcp-tool-result-call__text" title={callDescription || undefined}>
+          {callDescription || '—'}
+        </p>
+      </div>
+      {parsedOutput ? (
+        <div className="mcp-tool-result-json">
+          <JsonViewer
+            value={parsedOutput}
+            label="工具返回"
+            copyAriaLabel="复制工具返回 JSON"
+            regionAriaLabel="MCP 工具返回 JSON"
+          />
+        </div>
+      ) : tool.status === 'completed' ? (
+        <p className="execution-detail__empty mcp-tool-result-empty">暂无可展示的 JSON 预览。</p>
+      ) : null}
+      <footer className="mcp-tool-result-footer execution-metrics">
+        <span>耗时 {tool.elapsed}</span>
+      </footer>
     </article>
   );
 }
@@ -1241,7 +1295,11 @@ function ContextView({ context }: { context?: WorkbenchState['context'] }) {
           ) : null}
         </div>
       </div>
-      <JsonViewer value={context} />
+      <JsonViewer
+        value={context}
+        copyAriaLabel="复制 Context JSON"
+        regionAriaLabel="Context JSON"
+      />
     </div>
   );
 }

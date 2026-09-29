@@ -99,8 +99,94 @@
   flex-shrink: 0;
 }
 
+.resource-workspace .workbench-tabpanel:has(.tool-results-view--fill),
+.resource-workspace .workbench-tabpanel:has(.execution-detail--mcp-panel) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .resource-workspace .tool-results-view {
   padding: 10px 12px 12px;
+}
+
+.resource-workspace .tool-results-view--fill {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 10px 12px 12px;
+}
+
+.resource-workspace .tool-results-view--fill .deliverables-page-header {
+  flex-shrink: 0;
+}
+
+.resource-workspace .tool-results-view--fill .execution-detail--mcp-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  margin-top: 0;
+}
+
+.resource-workspace .execution-detail--mcp-panel .mcp-tool-result-header {
+  flex-shrink: 0;
+}
+
+.resource-workspace .execution-detail--mcp-panel .mcp-tool-result-call {
+  flex-shrink: 0;
+  margin-top: 10px;
+}
+
+.resource-workspace .mcp-tool-result-call__label {
+  display: block;
+  color: var(--h-label-tertiary);
+  font-size: 12px;
+}
+
+.resource-workspace .mcp-tool-result-call__text {
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--h-label-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-workspace .execution-detail--mcp-panel .mcp-tool-result-json {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  margin-top: 12px;
+}
+
+.resource-workspace .execution-detail--mcp-panel .json-viewer {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  margin: 0;
+}
+
+.resource-workspace .execution-detail--mcp-panel .json-viewer__viewport {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+}
+
+.resource-workspace .execution-detail--mcp-panel .mcp-tool-result-footer {
+  flex-shrink: 0;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--theme-border-subtle);
+}
+
+.resource-workspace .execution-detail--mcp-panel .mcp-tool-result-empty {
+  flex-shrink: 0;
+  margin-top: 12px;
 }
 
 .resource-workspace .execution-detail-heading__copy {
@@ -186,4 +272,9 @@
 
 .resource-workspace .candidate-passage {
   border-left-color: var(--theme-border);
+}
+
+.resource-workspace .execution-detail--mcp .execution-detail__empty {
+  color: var(--theme-text-muted);
+  font-size: 12px;
 }

@@ -1,4 +1,32 @@
-const MCP_PUBLIC_PREFIX = 'mcp__';
+import {
+  isMcpPublicToolName,
+  mcpToolBusinessSummary as protocolMcpToolBusinessSummary,
+  MCP_PUBLIC_TOOL_PREFIX as MCP_PUBLIC_PREFIX,
+  parseMcpPublicToolName,
+} from '@harness/agent-protocol';
+
+export { isMcpPublicToolName, parseMcpPublicToolName };
+
+export function mcpToolBusinessSummary(
+  publicName: string,
+  input: ToolCopyInput | Record<string, unknown>,
+): string {
+  return protocolMcpToolBusinessSummary(publicName, input as Record<string, unknown>);
+}
+
+/** 对话区内联 MCP 步骤：只展示业务输入一行，不重复「server · tool + rawName」。 */
+export function mcpInlineActivityLabel(block: {
+  toolName: string;
+  title: string;
+  summary?: string;
+}): string {
+  if (!isMcpPublicToolName(block.toolName)) return block.title;
+  const summary = block.summary?.trim();
+  const parsed = parseMcpPublicToolName(block.toolName);
+  const rawName = parsed?.rawName;
+  if (summary && (!rawName || summary !== rawName)) return summary;
+  return summary || block.title;
+}
 
 export function mcpFriendlyToolTitle(publicName: string): string {
   if (publicName.startsWith(MCP_PUBLIC_PREFIX)) {
@@ -63,10 +91,7 @@ export function toolInputSummary(toolName: string, input: ToolCopyInput): string
   if (toolName === 'execute_command') return input.command ?? '';
   if (toolName === 'web_search') return input.query ?? '';
   if (toolName.startsWith(MCP_PUBLIC_PREFIX)) {
-    const parts = Object.entries(input)
-      .slice(0, 5)
-      .map(([key, value]) => `${key}=${String(value).slice(0, 48)}`);
-    return parts.join(', ');
+    return mcpToolBusinessSummary(toolName, input);
   }
   return '';
 }
@@ -123,6 +148,9 @@ export function streamToolInputSummary(event: {
   input?: unknown;
   publicName?: string;
 }): string {
+  if (event.toolName === 'external_tool' && event.publicName) {
+    return mcpToolBusinessSummary(event.publicName, asToolCopyInput(event.input));
+  }
   const displayName = resolveActivityToolName(event.toolName, event.publicName);
   return toolInputSummary(displayName, asToolCopyInput(event.input));
 }
@@ -169,6 +197,8 @@ export function persistedToolDetail(status: string, toolName: string): string {
 export function persistedOutputSummary(input: {
   status: string;
   toolName: string;
+  publicName?: string;
+  toolInput?: unknown;
   fileName?: string;
   title?: string;
   succeededCount?: number;
@@ -178,6 +208,12 @@ export function persistedOutputSummary(input: {
   errorDetail?: string;
 }): string | undefined {
   if (input.status !== 'completed') return input.errorDetail;
+  if (input.toolName === 'external_tool' && input.publicName) {
+    return mcpToolBusinessSummary(input.publicName, asToolCopyInput(input.toolInput));
+  }
+  if (isMcpPublicToolName(input.toolName)) {
+    return mcpToolBusinessSummary(input.toolName, asToolCopyInput(input.toolInput));
+  }
   if (input.toolName === 'web_fetch') {
     return `成功 ${input.succeededCount ?? 0} 个，失败 ${input.failedCount ?? 0} 个，提取 ${input.passageCount ?? 0} 段原文`;
   }
@@ -192,6 +228,8 @@ export function persistedOutputSummary(input: {
 
 export function liveOutputSummary(input: {
   toolName: string;
+  publicName?: string;
+  toolInput?: unknown;
   fetchStats?: {
     succeededCount: number;
     failedCount: number;
@@ -206,6 +244,9 @@ export function liveOutputSummary(input: {
   reportTitle?: string;
   searchResultCount?: number;
 }): string {
+  if (input.toolName === 'external_tool' && input.publicName) {
+    return mcpToolBusinessSummary(input.publicName, asToolCopyInput(input.toolInput));
+  }
   if (input.fetchStats) {
     return `成功 ${input.fetchStats.succeededCount} 个，失败 ${input.fetchStats.failedCount} 个，跳过 ${input.fetchStats.skippedCount} 个，网络请求 ${input.fetchStats.networkAttemptCount} 次，提取 ${input.fetchStats.passageCount} 段原文`;
   }

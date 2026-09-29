@@ -8,6 +8,7 @@ import { bootstrapAppearance } from './theme';
 import './theme.css';
 import './styles.css';
 import './styles/workbench.css';
+import './styles/agent-chain.css';
 
 bootstrapAppearance();
 

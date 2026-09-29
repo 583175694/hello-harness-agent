@@ -199,6 +199,7 @@ describe('foundation protocol', () => {
         toolName: 'external_tool',
         publicName: 'mcp__demo__ping',
         subKind: 'mcp',
+        input: { query: 'demo' },
         completedAt: '2026-09-23T10:00:00.000Z',
         durationMs: 12,
         result: { preview: 'pong', charCount: 4, truncated: false },

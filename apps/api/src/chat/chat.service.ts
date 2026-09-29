@@ -392,7 +392,7 @@ export class ChatService {
           const parsed = jobKillInputSchema.safeParse(event.input);
           toolSummary = parsed.success ? `终止 job ${parsed.data.job_id}` : '终止后台 job';
         } else if (isExternalTool) {
-          toolSummary = externalToolInputSummary(event.input);
+          toolSummary = externalToolInputSummary(event.toolName, event.input);
         }
         const bashStartedInput =
           isBash ? executeCommandInputSummarySchema.safeParse(event.input) : undefined;
@@ -809,7 +809,9 @@ export class ChatService {
             jobToolResult,
             jobToolName: isJobTool ? event.toolName : undefined,
             searchResult,
-            externalOutputPreview,
+            externalTool: isExternalTool
+              ? { publicName: event.toolName, input: event.input }
+              : undefined,
           }),
           ...(bashTerminalView
             ? {
@@ -1058,6 +1060,7 @@ export class ChatService {
             toolName: AGENT_TOOL_NAMES.externalTool,
             publicName: event.toolName,
             subKind: externalSubKind(event.toolName),
+            input: summarizeExternalToolInput(event.input),
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: externalOutputPreview,
@@ -1495,7 +1498,7 @@ export class ChatService {
     jobToolResult?: { text: string };
     jobToolName?: string;
     searchResult?: SearchToolResult;
-    externalOutputPreview?: { charCount: number; truncated?: boolean };
+    externalTool?: { publicName: string; input: unknown };
   }): string {
     if (input.fetchResult) {
       const { stats } = input.fetchResult;
@@ -1525,8 +1528,8 @@ export class ChatService {
     if (input.searchResult) {
       return `找到 ${input.searchResult.results?.length ?? 0} 个结果`;
     }
-    if (input.externalOutputPreview) {
-      return externalToolCompletedSummary(input.externalOutputPreview);
+    if (input.externalTool) {
+      return externalToolCompletedSummary(input.externalTool.publicName, input.externalTool.input);
     }
     return '工具调用已完成';
   }

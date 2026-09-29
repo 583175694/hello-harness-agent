@@ -8,7 +8,10 @@ import type {
 } from '@harness/agent-protocol';
 
 import type { ToolStreamEvent } from '../../../api/client';
+import { parseMcpPublicToolName } from '@harness/agent-protocol';
+
 import {
+  mcpToolBusinessSummary,
   resolveActivityToolName,
   toolInputSummary,
   toolStreamTitle,
@@ -45,9 +48,9 @@ function activityToolName(event: ToolStreamEvent): string {
 
 function toolActivityStartSummary(event: Extract<ToolStreamEvent, { type: 'tool.started' }>): string {
   if (event.toolName === 'external_tool') {
-    return toolInputSummary(
-      activityToolName(event),
-      (event.input ?? {}) as Parameters<typeof toolInputSummary>[1],
+    return mcpToolBusinessSummary(
+      streamPublicName(event) ?? activityToolName(event),
+      (event.input ?? {}) as Record<string, unknown>,
     );
   }
   if (event.toolName === 'web_fetch' || event.toolName === 'create_report') {
@@ -92,9 +95,12 @@ function toolActivityCompletedSummary(
   currentSummary: string,
 ): string {
   if (event.toolName === 'external_tool') {
-    const result = event.result;
-    const count = result.charCount ?? result.preview.length;
-    return `返回 ${count} 字符${result.truncated ? '（预览已截断）' : ''}`;
+    const next = mcpToolBusinessSummary(event.publicName, (event.input ?? {}) as Record<string, unknown>);
+    const rawName = parseMcpPublicToolName(event.publicName)?.rawName;
+    if (rawName && next === rawName && currentSummary.trim() && currentSummary !== rawName) {
+      return currentSummary;
+    }
+    return next;
   }
   if (event.toolName === 'web_search') return currentSummary;
   if (event.toolName === 'web_fetch') {

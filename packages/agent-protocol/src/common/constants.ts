@@ -47,8 +47,8 @@ export const AGENT_PROTOCOL_LIMITS = {
   planStepMaxLength: 500,
   // 计划快照序列化后的最大 UTF-8 字节数。
   planJsonMaxBytes: 16_384,
-  // 外部/MCP 工具结果写入 SSE 与 execution 快照时的预览上限。
-  externalToolOutputPreviewMax: 2_000,
+  // 外部/MCP 工具结果写入 SSE 与 execution 快照时的预览上限（Workbench 全量展示，仅超大结果截断）。
+  externalToolOutputPreviewMax: 131_072,
 } as const;
 
 // 集中维护协议中稳定的工具标识。

@@ -1,4 +1,4 @@
-import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
+import { AGENT_PROTOCOL_LIMITS, mcpToolBusinessSummary } from '@harness/agent-protocol';
 
 import { parseMcpPublicToolName } from '../mcp/parse-mcp-public-tool-name';
 
@@ -9,16 +9,8 @@ export function summarizeExternalToolInput(input: unknown): Record<string, unkno
   return {};
 }
 
-export function externalToolInputSummary(input: unknown): string {
-  const record = summarizeExternalToolInput(input);
-  const parts = Object.entries(record)
-    .slice(0, 5)
-    .map(([key, value]) => {
-      const text = typeof value === 'string' ? value : JSON.stringify(value);
-      const clipped = text.length > 48 ? `${text.slice(0, 45)}…` : text;
-      return `${key}=${clipped}`;
-    });
-  return parts.join(', ') || '执行中';
+export function externalToolInputSummary(publicName: string, input: unknown): string {
+  return mcpToolBusinessSummary(publicName, summarizeExternalToolInput(input));
 }
 
 export function externalToolOutputPreview(
@@ -38,10 +30,10 @@ export function externalToolTitle(publicName: string): string {
   return `运行工具 ${publicName}`;
 }
 
-export function externalToolCompletedSummary(preview: {
-  charCount: number;
-  truncated?: boolean;
-}): string {
-  const suffix = preview.truncated ? '（预览已截断）' : '';
-  return `返回 ${preview.charCount} 字符${suffix}`;
+/** @deprecated 使用 mcpToolBusinessSummary；保留别名避免旧引用。 */
+export function externalToolCompletedSummary(
+  publicName: string,
+  input: unknown,
+): string {
+  return mcpToolBusinessSummary(publicName, summarizeExternalToolInput(input));
 }

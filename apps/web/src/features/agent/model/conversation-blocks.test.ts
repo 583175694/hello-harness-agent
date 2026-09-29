@@ -394,4 +394,40 @@ describe('conversation blocks reducer', () => {
     });
     expect(blocks.map((block) => block.type)).toEqual(['user_intervention', 'text']);
   });
+
+  it('keeps MCP business summary on complete when input is omitted', () => {
+    const started = applyToolActivityEvent([], {
+      type: 'tool.started',
+      messageId: 'message-1',
+      blockId: 'tool-mcp',
+      toolCallId: 'call-mcp',
+      toolName: 'external_tool',
+      publicName: 'mcp__tinyfish__search',
+      subKind: 'mcp',
+      title: 'tinyfish · search',
+      input: { query: '泰永长征', purpose: '了解基本面' },
+      startedAt: '2026-09-21T09:00:00.000Z',
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 0,
+    });
+    const blocks = applyToolActivityEvent(started, {
+      type: 'tool.completed',
+      messageId: 'message-1',
+      blockId: 'tool-mcp',
+      toolCallId: 'call-mcp',
+      toolName: 'external_tool',
+      publicName: 'mcp__tinyfish__search',
+      subKind: 'mcp',
+      completedAt: '2026-09-21T09:00:01.000Z',
+      durationMs: 100,
+      result: { preview: 'ok', charCount: 2, truncated: false },
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 0,
+    });
+    expect(blocks[0]).toMatchObject({
+      summary: 'search 泰永长征, purpose=了解基本面',
+    });
+  });
 });

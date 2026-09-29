@@ -428,7 +428,9 @@ export function workbenchFromPersistedMessage(
         ...(terminal ? { terminal } : {}),
         outputSummary: persistedOutputSummary({
           status: execution.status,
-          toolName: displayToolName,
+          toolName: execution.toolName,
+          publicName,
+          toolInput: execution.input,
           fileName: input.fileName,
           title: input.title,
           succeededCount: execution.succeededCount,
@@ -437,6 +439,14 @@ export function workbenchFromPersistedMessage(
           resultCount: execution.resultCount,
           errorDetail: execution.error?.detail,
         }),
+        ...(execution.toolName === 'external_tool' && execution.outputPreview !== undefined
+          ? {
+              outputPreview: execution.outputPreview,
+              outputPreviewTruncated:
+                execution.outputCharCount !== undefined &&
+                execution.outputPreview.length < execution.outputCharCount,
+            }
+          : {}),
         resultCount: execution.resultCount,
         sourceCount:
           execution.toolName === 'web_fetch' ? execution.succeededCount : execution.resultCount,
@@ -560,6 +570,8 @@ export function applyToolEvent(
     completedEvent?.toolName === 'create_file' ? completedEvent : undefined;
   const completedCreateReport =
     completedEvent?.toolName === 'create_report' ? completedEvent : undefined;
+  const completedExternal =
+    completedEvent?.toolName === 'external_tool' ? completedEvent : undefined;
   const completedArtifact = completedCreateFile ?? completedCreateReport;
   const fetchSucceeded =
     completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
@@ -589,6 +601,12 @@ export function applyToolEvent(
           outputSummary: completedEvent
             ? liveOutputSummary({
                 toolName: completedEvent.toolName,
+                publicName:
+                  completedEvent.toolName === 'external_tool'
+                    ? completedEvent.publicName
+                    : undefined,
+                toolInput:
+                  completedEvent.toolName === 'external_tool' ? completedEvent.input : undefined,
                 fetchStats: completedFetch?.result.stats,
                 approvalEcho: completedApproval?.result.echoed,
                 fileSearchCount: completedFileSearch?.result.matches.length,
@@ -601,6 +619,12 @@ export function applyToolEvent(
                     : 0,
               })
             : (cancelledEvent?.detail ?? failedEvent?.detail),
+          ...(completedExternal
+            ? {
+                outputPreview: completedExternal.result.preview,
+                outputPreviewTruncated: completedExternal.result.truncated,
+              }
+            : {}),
           ...(completedArtifact
             ? { artifactId: completedArtifact.result.artifact.artifactId }
             : {}),

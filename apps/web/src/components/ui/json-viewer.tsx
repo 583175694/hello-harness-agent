@@ -46,7 +46,20 @@ const JsonLine = memo(function JsonLine({ line }: { line: string }) {
   return <code className="json-viewer__line">{content}</code>;
 });
 
-export function JsonViewer({ value }: { value: unknown }) {
+export type JsonViewerProps = {
+  value: unknown;
+  /** 工具栏左侧标签，默认 JSON */
+  label?: string;
+  copyAriaLabel?: string;
+  regionAriaLabel?: string;
+};
+
+export function JsonViewer({
+  value,
+  label = 'JSON',
+  copyAriaLabel = '复制 JSON',
+  regionAriaLabel = 'JSON 内容',
+}: JsonViewerProps) {
   const [copied, setCopied] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const json = useMemo(() => JSON.stringify(value, null, 2), [value]);
@@ -70,18 +83,24 @@ export function JsonViewer({ value }: { value: unknown }) {
   return (
     <div className="json-viewer">
       <div className="json-viewer__toolbar">
-        <span>JSON</span>
+        <span>{label}</span>
         <button
           className="icon-button icon-button--small"
           type="button"
-          aria-label="复制 Context JSON"
-          title="复制 Context JSON"
+          aria-label={copyAriaLabel}
+          title={copyAriaLabel}
           onClick={() => void copy()}
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
       </div>
-      <div ref={scrollRef} className="json-viewer__viewport" tabIndex={0} role="region" aria-label="Context JSON">
+      <div
+        ref={scrollRef}
+        className="json-viewer__viewport"
+        tabIndex={0}
+        role="region"
+        aria-label={regionAriaLabel}
+      >
         <div
           className="json-viewer__virtual-spacer"
           style={{ height: virtualizer.getTotalSize() }}

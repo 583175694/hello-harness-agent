@@ -6,7 +6,8 @@
 
 > **本轮交付口径**：本轮只验收 C1-A0 图片闭环；C1-A0 只支持单图，C1-A1 才扩展到多图、失败恢复和图片粘贴。TXT、Markdown、CSV、JSON、PDF 的解析、文本注入和页码/行号定位属于后续 C1-B，不进入本轮验收。
 
-> **C1-B 交付口径（2026-09-07）**：C1-B.1 完成 TXT、Markdown、CSV、JSON、PDF 的基础解析和 Web 文件问答闭环；C1-B.2 将文件正文改为按需读取；C1-B.3 增加长文本粘贴外置为 TXT 附件。原始文件和规范化文本保存在 COS，数据库只保存文件元数据、状态和内容引用。模型通过 `search_file` 和 `read_file_lines` 获取有限文件材料，不默认把全文注入 Context。C1-B.2 不引入预分块、向量检索、CLI Provider 或复杂索引系统。
+> **C1-B 交付口径（2026-09-07）**：C1-B.1 完成 TXT、Markdown、CSV、JSON、PDF 的基础解析和 Web 文件问答闭环；C1-B.2 将文件正文改为按需读取；C1-B.3 增加长文本粘贴外置为 TXT 附件。原始文件和规范化文本保存在 COS，数据库只保存文件元数据、状态和内容引用。模型通过 `search_file` 和 `read_file_lines` 获取有限文件材料，不默认把全文注入 Context。C1-B.2 不引入预分块、向量检索、CLI Provider 或复杂索引系统。  
+> **C1-B.3+ 设计（待实现）**：`read_file`（file/section/lines scope）、Section 索引与 spill 边界见 [38-c1-file-read-and-search-tools.md](./38-c1-file-read-and-search-tools.md)。
 
 ## 1. 一句话定义
 

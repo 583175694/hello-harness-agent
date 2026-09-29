@@ -236,13 +236,11 @@ export class AgentRuntimeService {
       let roundId = crypto.randomUUID();
       let textBlockSequence = 0;
       let textPhase: 'pending' | 'commentary' | 'final_answer' | null | undefined;
-      // 普通调查轮只调用一次；最终回答遇到协议污染时允许有限重试。
+      // 普通调查轮只调用一次；最终回答在输出预算截断时允许有限重试。
       const maxAttempts = finalResponseOnly
-        ? DEFAULT_RUNTIME_POLICY.finalAnswerProtocolRetries +
-          DEFAULT_RUNTIME_POLICY.outputLimitRecoveryAttempts +
-          1
+        ? DEFAULT_RUNTIME_POLICY.outputLimitRecoveryAttempts + 1
         : 1;
-      // 内层循环只负责一次模型轮次及最终回答协议校验，不执行任何工具。
+      // 内层循环只负责一次模型轮次及输出预算恢复，不执行任何工具。
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         roundId = crypto.randomUUID();
         const attemptStartedAt = Date.now();
@@ -508,43 +506,7 @@ export class AgentRuntimeService {
             detail: '模型没有返回可显示的文本，请稍后重试。',
           });
         }
-        // 最终回答中再次出现结构化 Tool Call 或 DSML 标记，说明模型泄漏了内部控制协议。
-        if (finalResponseOnly && (calls.length > 0 || this.containsDsmlProtocol(roundContent))) {
-          this.logger.warn(
-            `最终回答协议污染 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 尝试=${attempt}/${maxAttempts} | DSML=${this.containsDsmlProtocol(roundContent) ? '是' : '否'} | 工具调用=${calls.length} 个 | 文本=${roundContent.length} 字`,
-            AgentRuntimeService.name,
-          );
-          // 首次污染时丢弃整轮并追加纠偏指令，绝不把污染文本写入客户端或上下文。
-          if (attempt < maxAttempts) {
-            visibleContent = visibleContent.slice(0, attemptVisibleStart);
-            yield {
-              type: 'text.discarded',
-              roundId,
-              roundSequence: modelRounds,
-              blockSequence: textBlockSequence,
-            };
-            messages.push({
-              role: 'system',
-              content:
-                '上一次最终回答包含无效的工具协议，已被丢弃。请只输出面向用户的最终自然语言回答，不得输出 DSML、工具调用或控制标记。',
-            });
-            continue;
-          }
-          visibleContent = visibleContent.slice(0, attemptVisibleStart);
-          yield {
-            type: 'text.discarded',
-            roundId,
-            roundSequence: modelRounds,
-            blockSequence: textBlockSequence,
-          };
-          // 达到重试上限仍被污染时终止交付，避免保存伪工具协议。
-          throw new ServiceUnavailableException({
-            code: AGENT_ERROR_CODES.modelStreamFailed,
-            detail: '模型连续返回了无效的工具协议，本次回答未保存。',
-          });
-        }
-
-        // 当前尝试已经成功完成，退出协议重试循环并进入本轮结果处理。
+        // 当前尝试已经成功完成，退出重试循环并进入本轮结果处理。
         break;
       }
 
@@ -1343,11 +1305,6 @@ export class AgentRuntimeService {
         code: AGENT_ERROR_CODES.runDeadlineExceeded,
         detail: '本次任务已达到总执行时间上限。',
       });
-  }
-
-  // DeepSeek 等兼容供应商偶发把内部 DSML 控制协议作为正文返回。
-  private containsDsmlProtocol(content: string): boolean {
-    return /<[|｜]DSML[|｜]/iu.test(content);
   }
 
   // 将工具提供的安全结构化字段格式化为统一日志片段。

@@ -18,6 +18,4 @@ export const DEFAULT_RUNTIME_POLICY = {
   outputLimitRecoveryAttempts: 1,
   // 调查轮达到该次数仍未交付时，插入一次尽早完成的系统提示。
   deliveryNudgeAfterRounds: 10,
-  // 最终回答出现供应商协议污染后允许重试的次数。
-  finalAnswerProtocolRetries: 1,
 } as const;

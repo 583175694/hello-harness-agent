@@ -16,7 +16,7 @@
 
 C1 已完整实现并收口。图片链路覆盖最多四个附件的有序绑定、旧单附件请求兼容、失败保留与手动重试、取消上传、未绑定文件删除、剪贴板图片粘贴、多图预览、视觉模型输入和 Session 删除后的 COS 清理补偿。文件链路覆盖 TXT、Markdown、CSV、JSON、PDF 以及现代 DOCX/XLSX 的类型校验、异步解析、状态恢复、受限预览、规范化正文保存和基础定位信息；模型通过 `search_file` 与 `read_file_lines` 按需读取有限材料，不默认把完整正文注入 Context。Composer 已支持文件选择、拖拽、图片优先的剪贴板分流、长文本粘贴自动生成 TXT 附件、附件重试/取消/移除和多种文件预览。
 
-C1 的数据库 migration、协议、FileStorage/COS、文件处理、Model Adapter、Run Context、Tool、Projection、Session 恢复和 Web Composer 均已接入。C1 的完成验证覆盖 API/Web/Protocol 单测、类型检查、lint、production build、数据库集成和真实浏览器交互；现代 Office 解析和 Office/PDF/TXT 文件预览已纳入本次完成范围并通过回归。C1 不包含 C2 Artifact/Report 生成，也不承诺 OCR、音视频转写、复杂 Office 版式、压缩包递归解析、密码保护文件、向量检索或全文索引。
+C1 的数据库 migration、协议、FileStorage/COS、文件处理、Model Adapter、Run Context、Tool、Projection、Session 恢复和 Web Composer 均已接入。C1 的完成验证覆盖 API/Web/Protocol 单测、类型检查、lint、production build、数据库集成和真实浏览器交互；现代 Office 解析和 Office/PDF/TXT 文件预览已纳入本次完成范围并通过回归。C1 不包含 C2 Artifact/Report 生成，也不承诺 OCR、音视频转写、复杂 Office 版式、压缩包递归解析、密码保护文件、向量检索或全文索引。`read_file`（file/section/lines）、Section 索引与 spill 边界的 **待实现设计** 见 [38-c1-file-read-and-search-tools.md](./38-c1-file-read-and-search-tools.md)。
 
 ### C2 Artifact & Report Generation 状态
 

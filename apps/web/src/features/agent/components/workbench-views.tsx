@@ -371,22 +371,44 @@ function ToolCallSliderFooter({
   onIndexChange: (index: number) => void;
 }) {
   const max = Math.max(0, executions.length - 1);
+  const canPrev = index > 0;
+  const canNext = index < max;
   return (
     <footer className="workbench-tool-slider">
       <div className="workbench-tool-slider__label">
         步骤 {index + 1} / {executions.length}
       </div>
-      <Slider
-        className="workbench-tool-slider__control"
-        min={0}
-        max={max}
-        step={1}
-        value={[index]}
-        onValueChange={(value) => {
-          const next = value[0];
-          if (next !== undefined) onIndexChange(next);
-        }}
-      />
+      <div className="workbench-tool-slider__row">
+        <button
+          className="icon-button workbench-tool-slider__step"
+          type="button"
+          aria-label="上一步"
+          disabled={!canPrev}
+          onClick={() => onIndexChange(index - 1)}
+        >
+          <ChevronLeft size={18} />
+        </button>
+        <Slider
+          className="workbench-tool-slider__control"
+          min={0}
+          max={max}
+          step={1}
+          value={[index]}
+          onValueChange={(value) => {
+            const next = value[0];
+            if (next !== undefined) onIndexChange(next);
+          }}
+        />
+        <button
+          className="icon-button workbench-tool-slider__step"
+          type="button"
+          aria-label="下一步"
+          disabled={!canNext}
+          onClick={() => onIndexChange(index + 1)}
+        >
+          <ChevronRight size={18} />
+        </button>
+      </div>
     </footer>
   );
 }
@@ -458,47 +480,29 @@ function ToolResultsView({
   if (!executions.length) {
     if (sources.length) return <SourcesView sources={sources} />;
     return (
-      <div className="execution-empty m-4">
-        暂无过程记录，助手的检索、读取与命令执行会显示在这里。
+      <div className="execution-empty workbench-empty-state m-4">
+        <span className="workbench-empty-state__title">暂无过程记录</span>
+        <span className="workbench-empty-state__hint">
+          助手的检索、读取与命令执行会显示在这里。
+        </span>
       </div>
     );
   }
 
-  const canPrev = toolIndex > 0;
-  const canNext = toolIndex < executions.length - 1;
-
   return (
     <div className="tool-results-view">
-      <div className="workbench-subheader">
-        <div className="workbench-subheader__main">
-          <span className="workbench-subheader__title">
-            {selectedTool?.title ?? selectedTool?.toolName ?? '执行步骤'}
-          </span>
-          {selectedTool ? (
-            <span className="workbench-subheader__meta">{selectedTool.elapsed}</span>
-          ) : null}
-        </div>
-        <div className="workbench-subheader__nav">
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="上一步"
-            disabled={!canPrev}
-            onClick={() => onSelectByIndex(toolIndex - 1)}
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="下一步"
-            disabled={!canNext}
-            onClick={() => onSelectByIndex(toolIndex + 1)}
-          >
-            <ChevronRight size={18} />
-          </button>
-        </div>
-      </div>
+      <DeliverablesPageHeader
+        title={
+          <>
+            <span className="deliverables-page-header__filename">
+              {selectedTool?.title ?? selectedTool?.toolName ?? '执行步骤'}
+            </span>
+            {selectedTool?.elapsed ? (
+              <span className="deliverables-page-header__version">{selectedTool.elapsed}</span>
+            ) : null}
+          </>
+        }
+      />
       {selectedTool ? (
         <ToolResultBody
           tool={selectedTool}
@@ -507,7 +511,10 @@ function ToolResultsView({
           focusArtifactId={focusArtifactId}
         />
       ) : (
-        <div className="execution-empty">执行详情暂不可用</div>
+        <div className="execution-empty workbench-empty-state">
+          <span className="workbench-empty-state__title">执行详情暂不可用</span>
+          <span className="workbench-empty-state__hint">请切换上一步或下一步，或等待当前工具完成。</span>
+        </div>
       )}
     </div>
   );
@@ -557,9 +564,9 @@ function ToolResultBody({
   return (
     <article className="execution-detail" key={tool.toolCallId} tabIndex={-1}>
       <div className="execution-detail-heading">
-        <div>
+        <div className="execution-detail-heading__copy">
           <span className="tool-name">{tool.toolName}</span>
-          <h3>{tool.title}</h3>
+          <div className="execution-detail-heading__title">{tool.title}</div>
         </div>
         <span className={`execution-status execution-status--${tool.status}`}>
           {TOOL_STATUS_COPY[tool.status] ?? tool.status}
@@ -779,15 +786,8 @@ function DeliverablesView({
 }) {
   const allArtifacts = collectDeliverableArtifacts(state);
   const listArtifacts = deliverablesForList(state);
-  const focusArtifactId =
-    state.focusTarget?.kind === 'artifact' ? state.focusTarget.artifactId : undefined;
-  const [detailArtifactId, setDetailArtifactId] = useState<string | null>(
-    focusArtifactId ?? null,
-  );
-
-  useEffect(() => {
-    if (focusArtifactId) setDetailArtifactId(focusArtifactId);
-  }, [focusArtifactId]);
+  // 文件 Tab 默认展示列表；预览仅由用户在列表中点击触发（不跟随全局 artifact focusTarget）。
+  const [detailArtifactId, setDetailArtifactId] = useState<string | null>(null);
 
   const detailArtifact =
     detailArtifactId !== null

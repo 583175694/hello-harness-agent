@@ -5,6 +5,7 @@ export {
   Group as ResizablePanelGroup,
   Panel as ResizablePanel,
   useDefaultLayout as useResizableDefaultLayout,
+  useGroupRef,
   usePanelRef,
 } from 'react-resizable-panels';
 

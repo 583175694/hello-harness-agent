@@ -438,6 +438,7 @@
 }
 
 :root[data-theme='dark'] .resource-workspace .execution-detail-heading h3,
+:root[data-theme='dark'] .resource-workspace .execution-detail-heading__title,
 :root[data-theme='dark'] .resource-workspace .view-toolbar strong {
   color: #eeeeee;
 }

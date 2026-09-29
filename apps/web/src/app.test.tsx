@@ -7,6 +7,7 @@ import {
   AppShell,
   PreviewSwitcher,
   applyToolEvent,
+  resolveWorkbenchOpenOnToolEvent,
   groupSessionSummaries,
   optimisticRevisionAttachments,
   workbenchFromPersistedMessage,
@@ -555,6 +556,34 @@ describe('R1 workbench shell', () => {
       executions: [],
       sources: [],
     });
+  });
+
+  it('auto-opens workbench on tool.started unless the user suppressed this run', () => {
+    const started: ToolStreamEvent = {
+      type: 'tool.started',
+      messageId: 'assistant-run-2',
+      blockId: 'tool-block',
+      toolCallId: 'call-1',
+      toolName: 'bash',
+      title: 'bash',
+      input: { command: 'echo hi' },
+      startedAt: '2026-09-08T04:00:00.000Z',
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 0,
+    };
+    expect(
+      resolveWorkbenchOpenOnToolEvent(undefined, started, {
+        suppressed: false,
+        hasNewResource: false,
+      }),
+    ).toBe(true);
+    expect(
+      resolveWorkbenchOpenOnToolEvent(false, started, {
+        suppressed: true,
+        hasNewResource: false,
+      }),
+    ).toBe(false);
   });
 
   it('labels file-only tool activity as file reading in streaming and recovery', () => {

@@ -50,7 +50,7 @@
 ### 2.2 会话区 | 工作台：shadcn Resizable
 
 - 使用 **shadcn/ui `ResizablePanelGroup`**（`direction="horizontal"`）：左 Panel 会话，右 Panel 工作台。
-- **默认比例**：约 **42% / 58%**（1920 下会话 ~800px、工作台 ~1120px，可配置常量）。
+- **默认比例**：约 **40% / 60%**（4:6，见 `DEFAULT_AGENT_SPLIT`）。
 - **约束**：会话 `minSize` 建议 32%、`maxSize` 55%；工作台 `minSize` 45%。防止工作台不可读或会话不可输入。
 - **持久化**：将 `defaultLayout`（或比例）写入 `localStorage`（键如 `pipishrimp.agent.split`），刷新后恢复。
 - **手柄**：`ResizableHandle` 带可见 drag 区域与 `aria-label="调整会话与工作台宽度"`；支持键盘微调（若 shadcn 示例含则一并接入）。

@@ -458,6 +458,19 @@ export function workbenchFromPersistedMessage(
   };
 }
 
+/** 工具流事件是否应展开 Workbench（用户对本 run 点过收起则不再自动展开）。 */
+export function resolveWorkbenchOpenOnToolEvent(
+  existingOpen: boolean | undefined,
+  event: ToolStreamEvent,
+  options: { suppressed: boolean; hasNewResource: boolean },
+): boolean {
+  if (options.suppressed) return existingOpen === true;
+  if (existingOpen === true) return true;
+  if (event.type === 'tool.started' || event.type === 'tool.failed') return true;
+  if (options.hasNewResource) return true;
+  return false;
+}
+
 // 将实时工具生命周期事件增量投影到当前 Workbench 状态。
 // eslint-disable-next-line react-refresh/only-export-components -- 导出纯投影函数供实时/恢复一致性单测复用。
 export function applyToolEvent(
@@ -1582,7 +1595,10 @@ function PersistentAgentApp() {
         const workbench = applyToolEvent(
           existing,
           toolEvent,
-          existing?.open === true || (!suppressed && hasNewResource),
+          resolveWorkbenchOpenOnToolEvent(existing?.open, toolEvent, {
+            suppressed,
+            hasNewResource,
+          }),
           currentUserUrls,
         );
         workbench.runId = event.runId;

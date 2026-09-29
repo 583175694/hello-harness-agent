@@ -1,0 +1,189 @@
+/* Research Workbench surfaces — token-aligned polish scoped to .resource-workspace */
+
+.workbench-grid {
+  --conversation-split: 40%;
+}
+
+.agent-split-layout--solo {
+  position: relative;
+}
+
+.agent-split-workbench-host {
+  position: absolute;
+  overflow: hidden;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.deliverables-breadcrumb {
+  color: var(--theme-text-secondary);
+}
+
+.deliverables-version-chip {
+  min-height: 28px;
+  border-color: var(--theme-border-subtle);
+  color: var(--theme-text-secondary);
+  transition:
+    border-color 160ms ease,
+    color 160ms ease,
+    background-color 160ms ease;
+}
+
+.deliverables-version-chip:hover:not(.is-active) {
+  border-color: var(--theme-border);
+  color: var(--theme-text-primary);
+  background: var(--theme-surface-hover);
+}
+
+.deliverables-version-chip:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--theme-accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.resource-workspace .workbench-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 28px 20px;
+  color: var(--theme-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.tool-results-view .workbench-empty-state {
+  border: 1px dashed var(--theme-border-subtle);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-surface) 72%, var(--theme-canvas));
+}
+
+.workbench-empty-state__title {
+  color: var(--theme-text-primary);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.workbench-empty-state__hint {
+  max-width: 320px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.resource-workspace .workbench-tool-slider__step.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.resource-workspace .workbench-tool-slider__step.icon-button:disabled:hover {
+  border-color: transparent;
+  background: transparent;
+}
+
+.resource-workspace .workbench-tool-slider__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.resource-workspace .workbench-tool-slider__control.ui-slider {
+  min-width: 0;
+  flex: 1;
+  width: auto;
+}
+
+.resource-workspace .workbench-tool-slider__step {
+  flex-shrink: 0;
+}
+
+.resource-workspace .tool-results-view {
+  padding: 10px 12px 12px;
+}
+
+.resource-workspace .execution-detail-heading__copy {
+  min-width: 0;
+}
+
+.resource-workspace .execution-detail-heading__title {
+  overflow: hidden;
+  margin: 4px 0 0;
+  color: var(--h-label-primary);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+}
+
+.resource-workspace .execution-detail > p,
+.resource-workspace .execution-detail dd {
+  color: var(--h-label-secondary);
+  font-size: 13px;
+}
+
+.resource-workspace .execution-detail dt {
+  color: var(--h-label-tertiary);
+}
+
+.resource-workspace .execution-detail .execution-metrics,
+.resource-workspace .execution-detail .tool-name {
+  color: var(--h-label-tertiary);
+}
+
+.resource-workspace .execution-detail dl > div {
+  border-top-color: var(--theme-border-subtle);
+}
+
+.resource-workspace .execution-status {
+  flex-shrink: 0;
+  color: var(--theme-text-secondary);
+  background: var(--theme-surface-subtle);
+}
+
+.resource-workspace .execution-status--failed {
+  color: var(--theme-danger, #8c4037);
+  background: color-mix(in srgb, var(--theme-danger, #8c4037) 12%, var(--theme-surface));
+}
+
+.resource-workspace .execution-status--running,
+.resource-workspace .execution-status--cancelling,
+.resource-workspace .execution-status--pending,
+.resource-workspace .execution-status--waiting {
+  color: var(--theme-text-secondary);
+  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface));
+}
+
+.resource-workspace .sources-view:not(.sources-view--compact) {
+  padding: 16px;
+}
+
+.resource-workspace .source-item-top {
+  color: var(--theme-text-muted);
+}
+
+.resource-workspace .source-item-top a {
+  color: var(--theme-text-secondary);
+}
+
+.resource-workspace .source-item-top a:hover,
+.resource-workspace .source-item-top a:focus-visible {
+  color: var(--theme-accent);
+}
+
+.resource-workspace .source-item small {
+  color: var(--theme-text-muted);
+}
+
+.resource-workspace .candidate-label {
+  border-color: var(--theme-border-subtle);
+}
+
+.resource-workspace .candidate-passages {
+  border-top-color: var(--theme-border-subtle);
+}
+
+.resource-workspace .candidate-passage {
+  border-left-color: var(--theme-border);
+}

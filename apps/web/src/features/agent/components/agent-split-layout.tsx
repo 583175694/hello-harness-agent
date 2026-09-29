@@ -1,10 +1,10 @@
-import { useCallback, useEffect, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, type ReactNode } from 'react';
 
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
-  usePanelRef,
+  useGroupRef,
 } from '../../../components/ui/resizable';
 import { useAgentSplitLayout } from '../hooks/use-agent-split-layout';
 
@@ -24,24 +24,21 @@ export function AgentSplitLayout({
   conversation: ReactNode;
   workbench: ReactNode;
 }) {
-  const { defaultLayout, onLayoutChanged } = useAgentSplitLayout();
-  const workbenchPanelRef = usePanelRef();
+  const { defaultLayout: openLayout, onLayoutChanged } = useAgentSplitLayout();
+  const groupRef = useGroupRef();
 
   const handleLayoutChanged = useCallback(
-    (layout: { conversation?: number; workbench?: number }) => {
+    (layout: { conversation?: number; workbench?: number }, meta: { isUserInteraction: boolean }) => {
       if (!workbenchOpen) return;
-      onLayoutChanged(layout);
+      onLayoutChanged(layout, meta);
     },
     [workbenchOpen, onLayoutChanged],
   );
 
-  useEffect(() => {
-    if (useLegacySplitLayout) return;
-    const panel = workbenchPanelRef.current;
-    if (!panel || !workbenchPresent) return;
-    if (workbenchOpen) panel.expand();
-    else panel.collapse();
-  }, [workbenchOpen, workbenchPresent, workbenchPanelRef]);
+  useLayoutEffect(() => {
+    if (useLegacySplitLayout || !workbenchPresent || !workbenchOpen) return;
+    groupRef.current?.setLayout(openLayout);
+  }, [workbenchOpen, workbenchPresent, openLayout, groupRef]);
 
   if (!workbenchPresent) {
     return (
@@ -57,36 +54,46 @@ export function AgentSplitLayout({
         className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${workbenchOpen ? 'has-workbench' : 'without-workbench'}`}
       >
         {conversation}
-        {workbench}
+        {workbenchOpen ? workbench : null}
+      </div>
+    );
+  }
+
+  if (!workbenchOpen) {
+    return (
+      <div className="agent-split-layout agent-split-layout--solo flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="workbench-grid without-workbench min-h-0 min-w-0 flex-1 overflow-hidden">
+          {conversation}
+        </div>
+        <div className="agent-split-workbench-host" aria-hidden="true" inert>
+          {workbench}
+        </div>
       </div>
     );
   }
 
   return (
     <ResizablePanelGroup
-      className={`agent-split-layout${workbenchOpen ? '' : ' agent-split-layout--solo'}`}
+      className="agent-split-layout min-h-0 min-w-0 flex-1"
       id="pipishrimp-agent-split"
+      groupRef={groupRef}
       orientation="horizontal"
-      defaultLayout={defaultLayout}
+      defaultLayout={openLayout}
       onLayoutChanged={handleLayoutChanged}
     >
       <ResizablePanel
         id="conversation"
         className="agent-split-panel agent-split-panel--conversation"
-        minSize={workbenchOpen ? '32%' : undefined}
-        maxSize={workbenchOpen ? '55%' : '100%'}
+        minSize="28%"
+        maxSize="55%"
       >
         {conversation}
       </ResizablePanel>
-      {workbenchOpen ? <ResizableHandle withHandle /> : null}
+      <ResizableHandle withHandle />
       <ResizablePanel
         id="workbench"
         className="agent-split-panel agent-split-panel--workbench"
-        panelRef={workbenchPanelRef}
-        collapsible
-        collapsedSize="0%"
-        minSize={workbenchOpen ? '45%' : '0%'}
-        defaultSize={`${workbenchOpen ? defaultLayout.workbench : 0}%`}
+        minSize="45%"
       >
         {workbench}
       </ResizablePanel>

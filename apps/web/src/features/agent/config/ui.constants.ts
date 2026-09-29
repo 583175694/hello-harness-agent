@@ -34,8 +34,12 @@ export const AGENT_UI_COPY = {
   workbenchTabLabels: {
     toolResults: '实时跟随',
     deliverables: '文件',
-    context: '调试上下文',
+    context: 'Context',
   },
+  openWorkbench: '打开工作台',
+  openWorkbenchLabel: 'WORKBENCH',
+  openWorkbenchUnavailable: '当前会话尚无工作台内容',
+  workbenchAlreadyOpen: '工作台已打开',
   // Composer 各运行模式下的输入提示。
   composerPlaceholders: {
     // 普通新任务的输入提示。

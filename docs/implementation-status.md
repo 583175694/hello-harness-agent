@@ -2,13 +2,15 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-29（**C5-A/B 已落地**；**C2 原生 HTML 交付（`contentMode: html`）** 已落地；**C5-C** 未启动；Agent 主线高优先级：**K5、C6**；**C8/C9 市场** 专项文档待建）
+> 最后更新：2026-09-29（**C5 产品阶段已完成**（C5-A/B）；**C5-C / job 工作台深化** 后置 Backlog；**C2 原生 HTML** 已落地；Agent **当前研发**：**K5、C6**；**C8/C9 市场** 专项文档待建）
+
+**用户反馈 / Bug 台账**：[38-user-feedback-bugs.md](./38-user-feedback-bugs.md)（解决后在该文档更新状态为「已解决」）。
 
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 **C2 Artifact & Report Generation（C2-A–C2-D）**。C3-A 已把 Sandbox 作为普通 Tool 接入 Runtime；**C3-B** 已将主工具改为 **`bash`**（`execute_command` 仅迁移期别名）：DSH 式 `renderBashResult()` 文本 Tool Message、默认 `auto_execute`、Host `BashCommandPolicyService` 触发的 network/install 升权审批、批准后当次 v1 egress allowlist、Terminal 投影与 spill Artifact 已落地，并在**本机 OpenSandbox + Docker**（`dev/opensandbox-local`）完成 Workbench 手工冒烟（echo/非零退出、普通命令不批、pip/curl 审批、Collect）。Sandbox 默认关闭，需 `SANDBOX_ENABLED` 与 Domain/API Key/带 digest 的镜像后才对模型可见。CI 使用 fake Provider（`pnpm --filter @harness/api test`）；真实 OpenSandbox 见 `dev/opensandbox-local` 与 docs/33 §1.5 UI 冒烟。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成 Markdown Report，或通过 `create_file` 生成 Markdown/HTML/PDF/DOCX/XLSX 等 Artifact；同一逻辑产物支持 **C2-D** 线性版本（`ArtifactSeries`、`revise`/`restore`、Workbench「基于此版本修改」）。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics、C1–C3 与 **C4 MCP Client（C4-A/B/C）** 已落地；**C5-A Workbench 升级与 C5-B HTML 安全预览已交付**，Capability 主线下一批为 **K5 / C6**”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
+当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics、C1–C4 与 **C5 Workbench（C5-A/B）** 已落地；**C5 产品切片收口**，Sandbox job / dev server 类 **C5-C 后置**；Capability 与 Kernel **当前研发**为 **K5 / C6**（可穿插）”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
 评估体系当前暂缓建设。相关实现、配置、命令、数据和专题文档已于 2026-08-17 移除；普通 unit、integration、E2E 与 `agent-testkit` 回归测试继续保留。后续评估能力作为独立模块重新设计，不再阻塞当前 Context Engineering 或功能开发。
 
@@ -67,7 +69,13 @@ C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@
 
 **C5-B 已完成**（[37-c5 §15–§16](./37-c5-workbench-ui-and-preview.md)）：Agent 生成 `.html` 的 preview 读 **original**（与 download 字节一致）并返回 `text/html` + 冻结 CSP（含 `script-src 'unsafe-inline'`、`connect-src 'none'`）/ `Referrer-Policy: no-referrer`；Workbench iframe `sandbox="allow-scripts allow-same-origin allow-popups"`；交付物详情与 **实时跟随** 内联 artifact 预览（iframe 高度拉满、圆角壳）；顶栏「在新窗口打开 / 下载」；C2 Markdown→HTML / 原生 HTML 外壳可含 `<base target="_blank">`。**已知**：preview CSP 下外链 CDN 资源可能与下载本地打开不一致；COS 直链图片需后续 `img-src` 或同源代理方案。
 
-**C5 范围外（后续）**：C5-C Sandbox job/构建日志等；可选 **Workbench 视觉精修**。
+**C5 产品阶段**：**已完成**（C5-A + C5-B 满足 Workbench IA、交付物预览与 Agent 生成 HTML 安全预览；前台 `bash` 终端已在 C5-A 覆盖）。**不阻塞**后续 Kernel/Capability 切片。
+
+**C5 后置 Backlog（低优先级）**：
+
+- **C5-C**：Sandbox **job 卡片**、构建日志跟随、spill/Collect 深链、（可选）dev server / dist **代理预览** — 触发条件：Sandbox 建站/长构建 Run 占比升高或用户反馈 job 摘要难用；日常以前台 `bash` + C5-B 静态 Artifact 为主时可不做。
+- **Workbench 视觉精修**（Lovart 级间距/动效）、Tab copy 统一、artifact focus 直达文件 Tab — 独立样式迭代。
+- **Preview 增强**：COS/外链图片与 CSP 对齐、独立 preview 子域 — 与 C2/C5 安全策略单独立项。
 
 ### C3-B 相对 C3-A 的能力快照（已对齐）
 
@@ -469,17 +477,16 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 
 > 本节是 Context Engineering 第一阶段之后的执行顺序。规划区分 **Agent Kernel（内核）** 与 **Capability（功能能力）**；Capability 通过统一 Action/Artifact/Source 协议接入，不反向改变 Runtime 语义。编号是规划编号，不表示已经实现。
 >
-> **当前阶段（2026-09-29）**：**C5-A/B（Workbench + HTML 安全预览）与 C2 原生 HTML 交付已落地**（契约 [37-c5](./37-c5-workbench-ui-and-preview.md)、[31 §6.4](./31-c2-artifact-and-report-generation.md)）。**Agent 侧**下一批高优先级 **K5、C6**；**C5-C**（Sandbox 在工作台展示）未启动。**C7** 与 **C8/C9 市场类能力** 均排在 C6 之后，专项文档待建。**C7 Browser / Computer Use** 仍依赖 **独立客户端集成完成**。**L6 客户端**不在本节排期。K6/K7 仍为后置治理与交付质量；K5 专项文档待建；写操作继续复用 **K3.2 `tool_approval`** 与 Sandbox 策略。
+> **当前阶段（2026-09-29）**：**C5 已完成**（C5-A/B + C2 原生 HTML，契约 [37-c5](./37-c5-workbench-ui-and-preview.md)、[31 §6.4](./31-c2-artifact-and-report-generation.md)）。**Agent 侧当前研发**：**K5、C6**（可穿插；K5 专项文档待建）。**C5-C**（job/构建日志/dev server 工作台深化）**后置 Backlog**，不占用当前排期。**C7** 与 **C8/C9** 排在 C6 之后。**C7 Browser / Computer Use** 仍依赖 **独立客户端集成**。**L6** 不在本节排期。K6/K7 为后置治理与交付质量；写操作继续复用 **K3.2 `tool_approval`** 与 Sandbox 策略。
 
 ### 7.0 当前 Agent 侧高优先级（共识快照）
 
 | 编号 | 项 | 状态 | 说明 |
 | --- | --- | --- | --- |
-| C5-A | Workbench 升级（三 Tab、Resizable、工具 Slider） | **已完成** | 仅壳层与交互；见 [37-c5](./37-c5-workbench-ui-and-preview.md) §10–§11；视觉精修不阻塞收口 |
-| C5-B | HTML 站预览/持续迭代 | **已完成** | 契约 [37-c5 §15–§16](./37-c5-workbench-ui-and-preview.md)；Host original HTML preview + CSP + sandbox iframe |
-| C5-C | Sandbox 在工作台展示 | 未启动 | job/构建日志/dev server 等；不阻塞 C5-B |
-| K5 | Context Engineering 全面优化 | 未启动 | CE 分池、大 catalog Tool Exposure；与 C5/C6 可穿插，MCP 大目录强相关 |
-| C6 | Skills & User Memory | 未启动 | 可复用 Skill、用户 Memory 读写与治理；**不含** `NOTES.md`、**不含** `TODO.md`（任务分解已由 K4 `update_plan` 覆盖） |
+| C5 | Workbench + HTML 安全预览（C5-A/B） | **已完成** | 产品阶段收口；见 [37-c5](./37-c5-workbench-ui-and-preview.md) |
+| C5-C | Sandbox job / 构建 / dev server 工作台 | **Backlog（低）** | job 卡片、日志跟随、代理预览等；按需启动，不阻塞 K5/C6 |
+| K5 | Context Engineering 全面优化 | **当前研发** | CE 分池、大 catalog Tool Exposure；专项文档待建；与 C6 可穿插 |
+| C6 | Skills & User Memory | **当前研发** | 可复用 Skill、用户 Memory 读写与治理；**不含** `NOTES.md`、**不含** `TODO.md`（K4 Plan 覆盖任务分解） |
 | C7 | Browser Use / Computer Use | **后置** | 依赖 C3-D；结构化 Browser Tool 等与 **客户端就绪后** 再立项，避免与 Host/Web 预览形态重复建设 |
 
 **明确不在当前 Agent 高优先级**：文件化 Notes、`TODO.md`、Goal Reminder 文件、L6 Mobile/Desktop 客户端工程（客户端单独规划，例如 [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)）。
@@ -511,7 +518,7 @@ K4  Agent Task Semantics                         已完成：Plan and Execute、
     - Re-plan / no-progress 检测（发现计划失效或长时间没有进展时重新规划）
     - Task State 持久化并按预算注入 Context（保存任务状态，并在上下文预算内恢复给模型）
 
-K5  Context Engineering 全面优化                 后续（开工时再写专项文档）
+K5  Context Engineering 全面优化                 **当前研发**（专项文档待建；与 C6 可穿插）
     - CE 预算与 compile 分池；Tool Exposure（大 catalog 按需 hydrate；跨 MCP/builtin）
 
 K6  Side-effect Policy & Governance               后置加强
@@ -531,7 +538,7 @@ K7  Evidence / Citation / Completion Verification 后置加强（横切，与 K6
     - 最终交付前的任务完成检查与限制说明（交付前检查是否完成，并明确已知局限）
 ```
 
-K3 已经完成通用控制和 HITL 机制；K4 已完成轻量任务语义与计划投影。**C4 已闭环**；**C5-A/B 已落地**；**K5、C6 为当前 Agent 主线高优先级**（§7.4 顺序可穿插）；K6/K7 为后置 Kernel 加强项，实施时再拆文档与里程碑。
+K3 已经完成通用控制和 HITL 机制；K4 已完成轻量任务语义与计划投影。**C4 已闭环**；**C5（C5-A/B）已收口**，C5-C 后置；**K5、C6 为当前 Agent 研发主线**（§7.4，可穿插）；K6/K7 为后置 Kernel 加强项，实施时再拆文档与里程碑。
 
 ### 7.2 Capability 主线
 
@@ -566,12 +573,12 @@ C4  MCP Client & Tool Ecosystem                   **已闭环（C4-A / C4-B / C4
     - C4-B（§12.1）：**已落地 + 2026-09-24 手工签字** — B1 Settings（PUT/allowlist、「可用/共」）、B2 instructions→CE、B3 Context/degraded/stale、B4 Host list/read resource（**Tinyfish**）；**不做** stdio / Session 覆盖 / OAuth
     - C4-C（已完成）：`mcp_add_server` / 从消息添加 MCP（§5.4、§12.2）
 
-C5  Workbench 升级 & Website Preview（分三期：C5-A/B/C）  **C5-A/B 已完成**
-    - **C5-A（Workbench 升级）**：**已完成** — **实时跟随 | 文件 | 调试上下文** 三 Tab；底栏 **shadcn Slider** 切换 tool_call；会话与工作台 **shadcn Resizable** + `localStorage` 比例；`create_file`/`create_report` 产物可在 **实时跟随** 内联预览；契约见 [37-c5-workbench-ui-and-preview.md](./37-c5-workbench-ui-and-preview.md)
-    - **C5-B（HTML 安全预览）**：**已完成** — Host `GET …/preview` 读 agent 生成 HTML **original**；CSP + `Referrer-Policy`；iframe sandbox；交付物/实时跟随预览 UI；配合 C2 **`contentMode: html`** 与 Markdown→HTML 两条生成路径
-    - **C5-C（未启动）Sandbox 在 Workbench 的展示逻辑**：Terminal/job 与 Run 深度联动、构建日志、（可选）dev server / dist 代理预览、Collect 产物入口
+C5  Workbench 升级 & Website Preview              **已完成**（产品阶段：C5-A + C5-B）
+    - **C5-A**：三 Tab、Resizable、Slider、交付物列表/版本/Context；前台 **bash** 终端主视图
+    - **C5-B**：Agent 生成 HTML Host preview + CSP + iframe sandbox；配合 C2 **`contentMode: html`**
+    - **C5-C（Backlog，低优先级）**：job 卡片、构建日志、dev server 代理预览等 — 见 §7.0；不阻塞当前主线
 
-C6  Skills & User Memory                          **未启动**（C5 之后或与 K5 穿插）
+C6  Skills & User Memory                          **当前研发**（与 K5 穿插）
     - 可复用 Skill、任务模板和输出契约（把常用工作流程封装成可重复能力）
     - User Memory：写入需有来源、置信度、可见性和用户删除能力（可追溯、可管理、可删除）
     - **本阶段不做**：`NOTES.md` 文件化笔记、`TODO.md` 文件化待办（待办/步骤由 K4 Plan 承担，不重复建设）
@@ -591,7 +598,7 @@ C9  Skills Marketplace                            **规划，未启动**（C 系
     - 与 C8 分轨：C8 偏工具/MCP 扩展，C9 偏工作流与能力组合
 ```
 
-文件和图片上传共享同一 Artifact/Source 底座；**C5** 先强化 Workbench 壳层与 HTML 预览迭代（C2/C2-D），再在 Workbench 中深化 **C3 Sandbox** 投影；完整 Browser/Computer Use 的执行引擎仍在 C3 Sandbox（C3-D），产品语义属于 **C7（后置）**。MCP 接入时保持 **Registry + 现有 HITL**；**K6** 全量 Policy 在 Capability 形态稳定后收口；Context 膨胀与大 catalog 见 **K5（当前高优先级）**。
+文件和图片上传共享同一 Artifact/Source 底座；**C5 产品阶段已完成**（Workbench + 静态 HTML 预览）；**C3 Sandbox** 执行面已具备，**C5-C** 级 job/dev server 工作台深化按需再做。Browser/Computer Use 执行在 C3-D，产品语义 **C7（后置）**。MCP 保持 **Registry + HITL**；**K6** Policy 后置；Context 与大 catalog 见 **K5（当前研发）**。
 
 ### 7.3 低优先级扩展
 
@@ -634,13 +641,15 @@ K3 Control & HITL Kernel（基本完成）
   -> C2 Artifact & Report（C2-A–C2-D，已完成，docs/31）
   -> C3 Sandbox（C3-A–C3-D，已完成，docs/33 / docs/34）
   -> C4 MCP Client（C4-A/B/C，已完成，docs/35）
-  -> C5-A/B Workbench + HTML 安全预览（已完成，docs/37）
+  -> C5 Workbench + HTML 安全预览（C5-A/B，已完成，docs/37）
   -> C2 原生 HTML（`contentMode: html`，已完成，docs/31 §6.4）
 
-【当前 Agent 主线高优先级】
-  -> C5-C Sandbox 工作台展示（未启动）
+【当前 Agent 研发主线】
   -> K5 Context Engineering 全面优化（专项文档待建；可与 C6 穿插）
   -> C6 Skills & User Memory（不含 NOTES.md / TODO.md）
+
+【Capability Backlog（低优先级，按需）】
+  -> C5-C Sandbox job / 构建日志 / dev server 工作台深化（见 docs/37 §10）
 
 【Capability 后置（客户端就绪后）】
   -> C7 Browser Use / Computer Use（C3-D 底座已具备）

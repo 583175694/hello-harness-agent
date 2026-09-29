@@ -139,6 +139,38 @@ summary:focus-visible {
   width: 26px;
   height: 26px;
 }
+.workbench-open-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--theme-text-secondary);
+  font: inherit;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.workbench-open-button:hover:not(:disabled) {
+  border-color: var(--theme-border);
+  background: var(--theme-surface-hover);
+  color: var(--theme-text-primary);
+}
+.workbench-open-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+.workbench-open-button__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
 .session-list {
   min-height: 0;
   flex: 1;
@@ -3447,6 +3479,7 @@ summary:focus-visible {
   align-items: stretch;
   gap: 4px;
   padding-right: 8px;
+  height: 56px;
 }
 .workbench-chrome--minimal .workbench-chrome__tabs {
   min-width: 0;
@@ -3457,7 +3490,9 @@ summary:focus-visible {
 }
 .workbench-chrome--minimal .workbench-chrome__close {
   align-self: center;
-  margin-right: 4px;
+  width: auto;
+  height: 32px;
+  margin-right: 8px;
 }
 .workbench-chrome__top {
   display: flex;

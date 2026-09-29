@@ -11,11 +11,7 @@
       (function () {
         var key = 'harness-theme';
         var stored = localStorage.getItem(key);
-        var dark =
-          stored === 'dark' ||
-          (stored !== 'light' &&
-            typeof matchMedia !== 'undefined' &&
-            matchMedia('(prefers-color-scheme: dark)').matches);
+        var dark = stored === 'dark';
         var root = document.documentElement;
         root.dataset.theme = dark ? 'dark' : 'light';
         root.style.colorScheme = dark ? 'dark' : 'light';

@@ -1,12 +1,11 @@
 import {
   Ellipsis,
   Menu,
-  Moon,
+  PanelRight,
   Pencil,
   Pin,
   PinOff,
   Plus,
-  Sun,
   Trash2,
   X,
 } from 'lucide-react';
@@ -127,7 +126,7 @@ import { LOGOUT_CONFIRM, useConfirm } from './components/ui/confirm-provider';
 import { toast } from './components/ui/toast';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
 import { AGENT_UI_COPY, APP_BRAND, SERVICE_STATE_LABELS } from './features/agent/config/ui.constants';
-import { toggleThemePreference, useDocumentTheme } from './theme';
+import { useDocumentTheme } from './theme';
 import {
   Dialog,
   DialogAction,
@@ -1068,17 +1067,26 @@ export function groupSessionSummaries(
   return groups.filter((group) => group.sessions.length > 0);
 }
 
-function ThemeToggle() {
-  const theme = useDocumentTheme();
+function WorkbenchOpenButton({
+  disabled,
+  title,
+  onClick,
+}: {
+  disabled: boolean;
+  title: string;
+  onClick: () => void;
+}) {
   return (
     <button
-      className="icon-button ml-auto border border-transparent text-text-secondary hover:border-border hover:bg-surface-hover"
+      className="workbench-open-button ml-auto shrink-0"
       type="button"
-      aria-label={theme === 'dark' ? '切换浅色主题' : '切换暗色主题'}
-      title={theme === 'dark' ? '切换浅色主题' : '切换暗色主题'}
-      onClick={toggleThemePreference}
+      aria-label={AGENT_UI_COPY.openWorkbench}
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
     >
-      {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+      <PanelRight size={18} strokeWidth={1.75} aria-hidden="true" />
+      <span className="workbench-open-button__label">{AGENT_UI_COPY.openWorkbenchLabel}</span>
     </button>
   );
 }
@@ -1265,7 +1273,7 @@ function PersistentAgentApp() {
           ? { error: { code: snapshot.error.code, detail: snapshot.error.detail } }
           : {}),
         agent: {
-          toolCallCount: snapshot.toolCallCount,
+          toolTurnCount: snapshot.toolTurnCount,
           executions: snapshot.executions,
           sources: snapshot.sources,
         },
@@ -2031,6 +2039,24 @@ function PersistentAgentApp() {
     });
   }
 
+  function openCurrentWorkbenchPanel(): void {
+    const sessionId = selectedSessionIdRef.current ?? selectedSessionId;
+    if (!sessionId) return;
+    startTransition(() => {
+      setSessionStates((current) => {
+        const state = current[sessionId];
+        if (!state?.workbench) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...state,
+            workbench: { ...state.workbench, open: true },
+          },
+        };
+      });
+    });
+  }
+
   // 删除确认后的会话，并按最新列表决定恢复落点。
   async function removeSession(sessionId: string): Promise<void> {
     try {
@@ -2645,12 +2671,22 @@ function PersistentAgentApp() {
               >
                 <Menu size={18} />
               </button>
-              <div className="task-title flex min-w-0 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
+              <div className="task-title flex min-w-0 flex-1 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
                 <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-content font-medium">
                   {uiState.label}
                 </span>
               </div>
-              <ThemeToggle />
+              <WorkbenchOpenButton
+                disabled={!workbenchPresent || workbenchOpen}
+                title={
+                  !workbenchPresent
+                    ? AGENT_UI_COPY.openWorkbenchUnavailable
+                    : workbenchOpen
+                      ? AGENT_UI_COPY.workbenchAlreadyOpen
+                      : AGENT_UI_COPY.openWorkbench
+                }
+                onClick={openCurrentWorkbenchPanel}
+              />
             </header>
             <Conversation
               scopeKey={selectedSessionId ?? 'draft'}
@@ -2936,6 +2972,18 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
     submitting && !uiState.activeInterrupt ? ('steer' as const) : ('new-run' as const);
 
   // 打开 Workbench 并记录用户是否固定了当前定位。
+  function openWorkbenchPanel(): void {
+    startTransition(() => {
+      setUiState((current) => {
+        if (!current.workbench) return current;
+        return {
+          ...current,
+          workbench: { ...current.workbench, open: true },
+        };
+      });
+    });
+  }
+
   function focusWorkbench(target: WorkbenchFocusTarget, pinned = true) {
     setUiState((current) => {
       if (!current.workbench || current.workbench.runId !== target.runId) return current;
@@ -3023,7 +3071,7 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
               >
                 <Menu size={18} />
               </button>
-              <div className="task-title flex min-w-0 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
+              <div className="task-title flex min-w-0 flex-1 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
                 <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-content font-medium">
                   {uiState.label}
                 </span>
@@ -3031,7 +3079,17 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
                   <span className="task-title__meta">{uiState.subtitle}</span>
                 ) : null}
               </div>
-              <ThemeToggle />
+              <WorkbenchOpenButton
+                disabled={!workbenchPresent || workbenchOpen}
+                title={
+                  !workbenchPresent
+                    ? AGENT_UI_COPY.openWorkbenchUnavailable
+                    : workbenchOpen
+                      ? AGENT_UI_COPY.workbenchAlreadyOpen
+                      : AGENT_UI_COPY.openWorkbench
+                }
+                onClick={openWorkbenchPanel}
+              />
             </header>
             <Conversation
               scopeKey="preview"

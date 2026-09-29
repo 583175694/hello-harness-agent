@@ -226,13 +226,14 @@ export const WorkbenchShell = memo(function WorkbenchShell({
               onViewChange={onViewChange}
             />
             <button
-              className="icon-button workbench-chrome__close"
+              className="workbench-open-button workbench-chrome__close"
               type="button"
               aria-label="收起工作区"
               title="收起工作区"
               onClick={onClose}
             >
-              <PanelRight size={17} />
+              <PanelRight size={18} strokeWidth={1.75} aria-hidden="true" />
+              <span className="workbench-open-button__label">{AGENT_UI_COPY.openWorkbenchLabel}</span>
             </button>
           </header>
           <div className="workspace-content workbench-stage flex min-h-0 flex-1 flex-col overflow-hidden">

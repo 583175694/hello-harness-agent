@@ -4,7 +4,7 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering（Tool Result 外置/指针/compaction trigger / transcript unit 压缩）、K3 Runtime Control/HITL/Steer/Follow-up、K4 Agent Task Semantics、C1 File & Multimodal Foundation、C2 Artifact/Report 生成与多格式交付（含 **`contentMode: html` 原生 HTML**）、**C5-A/B Workbench 与 HTML 安全预览**、**C3 Agent Sandbox（C3-A～C3-D）**，以及 **C4 Host MCP Client（C4-A/B/C）**。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering（Tool Result 外置/指针/compaction trigger / transcript unit 压缩）、K3 Runtime Control/HITL/Steer/Follow-up、K4 Agent Task Semantics、C1 File & Multimodal Foundation、C2 Artifact/Report 生成与多格式交付（含 **`contentMode: html` 原生 HTML**）、**C5 Workbench 与 HTML 安全预览（C5-A/B 已完成；C5-C job/dev server 后置）**、**C3 Agent Sandbox（C3-A～C3-D）**，以及 **C4 Host MCP Client（C4-A/B/C）**。
 
 ## 1. 项目一句话介绍
 

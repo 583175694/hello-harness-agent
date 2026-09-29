@@ -1,7 +1,7 @@
 # C5：Workbench UI 与预览（产品 / 前端契约）
 
-> 文档状态：**C5-A 已落地**；**C5-B 已落地（§15–§16）**；**C5-C 待启动**  
-> 最后更新：2026-09-29（C5-B 实施收口）  
+> 文档状态：**C5 产品阶段已完成**（C5-A + C5-B）；**C5-C 后置 Backlog（低优先级）**  
+> 最后更新：2026-09-29（规划：C5 收口，研发主线转 K5/C6，见 [implementation-status.md §7](./implementation-status.md)）  
 > 关联：[19-agent-frontend.md](./19-agent-frontend.md)（对话与跨面板导航）、[20-agent-workbench.md](./20-agent-workbench.md)（历史参考，C5 实施后以本文 Workbench IA 为准）、[31-c2-artifact-and-report-generation.md](./31-c2-artifact-and-report-generation.md)、[implementation-status.md §7.2 C5](./implementation-status.md)  
 > 视觉参考：pipishrimp Lovart 稿（1920×1080；工具结果 + 交付物 + Context；底栏工具 Slider）  
 > 切片命名：**C5-A** Workbench 升级与交互壳；**C5-B** HTML 预览与安全迭代；**C5-C** Sandbox 在工作台的深化展示（与 C4-A/B/C 命名一致，替代原 C5-1/2/3 编号）
@@ -209,7 +209,9 @@ artifact   → 打开工作台 · 交付物 Tab · 选中 artifactId + versionId
 | --- | --- | --- |
 | **C5-A** | 本文 §2–§9：**仅 Workbench 升级** — Resizable、三 Tab、Slider、工具结果主视图、交付物列表/详情与版本、Context；对接现有 API/投影 | **已落地**（`feature/c5-workbench-ui`，2026-09-29 收口） |
 | **C5-B** | §5.3–§5.5、§15–§16：HTML Host preview + CSP + sandbox iframe；revise 后再预览验收 | **已落地**（2026-09-29） |
-| **C5-C** | §4 bash/job 终端增强；可选 dev server 预览；不新增顶 Tab | 未启动 |
+| **C5-C** | §4 bash/job 终端增强；可选 dev server 预览；不新增顶 Tab | **Backlog（低）**：job 使用少时可不做；触发后再立项 |
+
+**产品收口（2026-09-29）**：C5-A/B 满足 Workbench 与 Agent 生成 HTML 预览的主路径；前台 `bash` 终端已覆盖常见 Sandbox I/O。**C5-C**（job 卡片、构建日志、dev server 代理等）不阻塞 **K5 / C6**，见 implementation-status §7.4。
 
 ---
 

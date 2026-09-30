@@ -89,6 +89,10 @@ import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY, APP_BRAND } from '../config/ui.constants';
 import { BrandIcon } from './brand-icon';
 import { getFilePreview } from '../../../api/client';
+import {
+  DeliverableMarkdownPanel,
+  isNormalizedDocumentPreview,
+} from './deliverable-document-preview';
 import { presentAssistantBlocks } from '../elements/assistant-message-adapter';
 import { AgentChainOfThought } from '../elements/agent-chain-of-thought';
 import { toolInputSummary, toolTitle, type ToolCopyInput } from '../model/tool-copy';
@@ -411,7 +415,16 @@ function FilePreviewDialog({
               <span>正在加载预览</span>
             </div>
           ) : null}
-          {content !== null ? <MarkdownContent>{content}</MarkdownContent> : null}
+          {content !== null ? (
+            fileName.toLowerCase().endsWith('.json') ? (
+              <pre className="file-preview-dialog__json">{content}</pre>
+            ) : (
+              <DeliverableMarkdownPanel
+                content={content}
+                showFormatNotice={isNormalizedDocumentPreview('', fileName)}
+              />
+            )
+          ) : null}
         </div>
       </section>
     </div>,

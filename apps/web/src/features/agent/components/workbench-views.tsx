@@ -23,6 +23,11 @@ import {
   type ReactNode,
 } from 'react';
 import { MarkdownContent } from '../../../components/markdown-content';
+import {
+  DeliverableMarkdownPanel,
+  isNormalizedDocumentPreview,
+  NORMALIZED_DOCUMENT_FILE_KINDS,
+} from './deliverable-document-preview';
 import { useConfirm } from '../../../components/ui/confirm-provider';
 import {
   DropdownMenu,
@@ -1113,6 +1118,7 @@ const ArtifactPreviewBody = memo(function ArtifactPreviewBody({ artifact }: { ar
     artifact.fileKind === 'text' ||
     artifact.fileKind === 'json' ||
     (artifact.mediaType?.startsWith('text/') ?? false);
+  const isNormalizedDocument = isNormalizedDocumentPreview(artifact.fileKind, artifact.fileName);
 
   return (
     <section
@@ -1121,8 +1127,12 @@ const ArtifactPreviewBody = memo(function ArtifactPreviewBody({ artifact }: { ar
     >
       {isHtml ? (
         <ArtifactHtmlPreview artifact={artifact} previewUrl={previewUrl} />
-      ) : isInlineText ? (
-        <ArtifactTextPreview artifactId={artifact.artifactId} fileKind={artifact.fileKind} />
+      ) : isInlineText || isNormalizedDocument ? (
+        <ArtifactTextPreview
+          artifactId={artifact.artifactId}
+          fileKind={artifact.fileKind}
+          fileName={artifact.fileName}
+        />
       ) : (
         <ArtifactFallbackPreview artifact={artifact} previewUrl={previewUrl} />
       )}
@@ -1165,9 +1175,11 @@ function DeliverablePreviewSkeleton({ overlay }: { overlay?: boolean }) {
 const ArtifactTextPreview = memo(function ArtifactTextPreview({
   artifactId,
   fileKind,
+  fileName,
 }: {
   artifactId: string;
   fileKind: string;
+  fileName: string;
 }) {
   const [state, setState] = useState<
     { status: 'loading' } | { status: 'ready'; content: string } | { status: 'error'; message: string }
@@ -1202,11 +1214,17 @@ const ArtifactTextPreview = memo(function ArtifactTextPreview({
       </div>
     );
   }
-  if (fileKind === 'markdown' || fileKind === 'text') {
+  if (
+    fileKind === 'markdown' ||
+    fileKind === 'text' ||
+    NORMALIZED_DOCUMENT_FILE_KINDS.has(fileKind) ||
+    isNormalizedDocumentPreview(fileKind, fileName)
+  ) {
     return (
-      <div className="deliverables-preview-panel deliverables-preview-panel--markdown">
-        <MarkdownContent>{state.content}</MarkdownContent>
-      </div>
+      <DeliverableMarkdownPanel
+        content={state.content}
+        showFormatNotice={isNormalizedDocumentPreview(fileKind, fileName)}
+      />
     );
   }
   if (fileKind === 'json') {

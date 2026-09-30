@@ -40,6 +40,9 @@ export const AGENT_UI_COPY = {
   openWorkbenchLabel: 'WORKBENCH',
   openWorkbenchUnavailable: '当前会话尚无工作台内容',
   workbenchAlreadyOpen: '工作台已打开',
+  /** docx / pdf / xlsx 文本预览与下载二进制版式不一致时的说明 */
+  deliverableBinaryFormatPreviewNotice:
+    '当前为文本结构预览，版式、字体与颜色可能与下载的 Word / Excel / PDF 不一致；正式排版请下载后查看。',
   // Composer 各运行模式下的输入提示。
   composerPlaceholders: {
     // 普通新任务的输入提示。

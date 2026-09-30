@@ -940,6 +940,55 @@ summary:focus-visible {
   overflow: auto;
   padding: 16px 18px;
 }
+.deliverables-preview-panel--document {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.deliverable-preview-format-notice {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--theme-border-subtle);
+  background: var(--theme-surface-muted, var(--theme-surface));
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.deliverable-preview-markdown-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px;
+}
+.file-preview-dialog__body .deliverables-preview-panel--document {
+  max-height: none;
+  margin-top: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+.file-preview-dialog__body .deliverables-preview-panel--markdown:not(.deliverables-preview-panel--document) {
+  max-height: none;
+  margin-top: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+.file-preview-dialog__json {
+  margin: 0;
+  overflow: auto;
+  color: var(--theme-text-secondary);
+  font:
+    12px/1.55 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .deliverables-preview-panel--text pre {
   margin: 0;
   color: var(--theme-text-secondary);
@@ -2100,6 +2149,13 @@ summary:focus-visible {
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+.artifact-workbench-preview--detail .deliverables-preview-panel--document {
+  overflow: hidden;
+}
+.artifact-workbench-preview--detail .deliverable-preview-markdown-body {
+  flex: 1;
+  min-height: 0;
 }
 .artifact-workbench-preview--detail .deliverables-preview-panel--iframe {
   display: flex;

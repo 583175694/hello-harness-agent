@@ -170,6 +170,15 @@
   overflow: auto;
 }
 
+.resource-workspace .tool-results-view--fill .tool-result-artifact .deliverables-preview-panel--document {
+  overflow: hidden;
+}
+
+.resource-workspace .tool-results-view--fill .tool-result-artifact .deliverable-preview-markdown-body {
+  flex: 1;
+  min-height: 0;
+}
+
 .resource-workspace .tool-results-view--fill .tool-result-artifact .deliverables-preview-panel--skeleton,
 .resource-workspace .tool-results-view--fill .tool-result-artifact .deliverables-preview-panel--error,
 .resource-workspace .tool-results-view--fill .tool-result-artifact .deliverables-preview-panel--fallback {

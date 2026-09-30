@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ConfirmProvider } from '../../../components/ui/confirm-provider';
+import { AGENT_UI_COPY } from '../config/ui.constants';
 import { WorkbenchShell, workbenchAsideAriaLabel } from './workbench-views';
 
 vi.mock('../../../api/client', async (importOriginal) => {
@@ -332,5 +333,62 @@ describe('Workbench context view', () => {
     expect(screen.queryByText('结果摘要')).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('Hello')).toBeVisible());
     expect(screen.getByRole('region', { name: 'report.md 预览' })).toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      fileName: '审阅意见.docx',
+      fileKind: 'docx' as const,
+      mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    },
+    {
+      fileName: '摘要.pdf',
+      fileKind: 'pdf' as const,
+      mediaType: 'application/pdf',
+    },
+    {
+      fileName: '数据.xlsx',
+      fileKind: 'xlsx' as const,
+      mediaType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    },
+  ])('previews normalized $fileKind deliverables via preview API', async ({ fileName, fileKind, mediaType }) => {
+    renderWorkbench(
+      <WorkbenchShell
+        state={{
+          runId: 'run-office',
+          title: '交付文件',
+          subtitle: '1 个文件',
+          activeView: 'deliverables',
+          activityStatus: 'completed',
+          executions: [],
+          followMode: 'auto',
+          sources: [],
+          artifacts: [
+            {
+              artifactId: 'artifact-office',
+              fileId: 'file-office',
+              fileName,
+              mediaType,
+              fileKind,
+              size: 4096,
+              status: 'ready',
+              createdAt: '2026-09-21T09:00:01.000Z',
+            },
+          ],
+          open: true,
+        }}
+        onClose={() => undefined}
+        onViewChange={() => undefined}
+        onExecutionSelect={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByText(fileName));
+    await waitFor(() => expect(screen.getByText('Hello')).toBeVisible());
+    expect(screen.getByRole('note')).toHaveTextContent(
+      AGENT_UI_COPY.deliverableBinaryFormatPreviewNotice,
+    );
+    expect(screen.queryByText(/暂不支持内联预览/u)).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: `${fileName} 预览` })).toBeInTheDocument();
   });
 });

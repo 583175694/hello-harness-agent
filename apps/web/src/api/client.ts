@@ -325,6 +325,21 @@ export function getArtifactPreviewUrl(artifactId: string): string {
   return `${apiBaseUrl}/api/agent/artifacts/${encodeURIComponent(artifactId)}/preview`;
 }
 
+/** 带 Cookie 拉取产物图片预览，返回可绑定 `<img src>` 的 object URL（调用方需在卸载时 revoke）。 */
+export async function loadArtifactPreviewImageObjectUrl(
+  artifactId: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const response = await apiFetch(getArtifactPreviewUrl(artifactId), { signal });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(detail || '图片预览不可用。');
+  }
+  const blob = await response.blob();
+  if (blob.size === 0) throw new Error('图片预览不可用。');
+  return URL.createObjectURL(blob);
+}
+
 export function getArtifactDownloadUrl(artifactId: string): string {
   return `${apiBaseUrl}/api/agent/artifacts/${encodeURIComponent(artifactId)}/download`;
 }

@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { ArtifactRef } from '@harness/agent-protocol';
+
 import { ConfirmProvider } from '../../../components/ui/confirm-provider';
 import { AGENT_UI_COPY } from '../config/ui.constants';
 import { WorkbenchShell, workbenchAsideAriaLabel } from './workbench-views';
@@ -15,6 +17,7 @@ vi.mock('../../../api/client', async (importOriginal) => {
       content: '# Preview\n\nHello',
       contentType: 'text/markdown',
     })),
+    loadArtifactPreviewImageObjectUrl: vi.fn(async () => 'blob:mock-image-preview'),
   };
 });
 
@@ -390,5 +393,85 @@ describe('Workbench context view', () => {
     );
     expect(screen.queryByText(/暂不支持内联预览/u)).not.toBeInTheDocument();
     expect(screen.getByRole('region', { name: `${fileName} 预览` })).toBeInTheDocument();
+  });
+
+  it('previews image artifacts inline via preview URL', async () => {
+    renderWorkbench(
+      <WorkbenchShell
+        state={{
+          runId: 'run-image',
+          title: '截图',
+          subtitle: '1 个文件',
+          activeView: 'deliverables',
+          activityStatus: 'completed',
+          executions: [],
+          followMode: 'auto',
+          sources: [],
+          artifacts: [
+            {
+              artifactId: 'artifact-image',
+              fileId: 'file-image',
+              fileName: 'preview.png',
+              mediaType: 'image/png',
+              fileKind: 'image',
+              size: 872_000,
+              status: 'ready',
+              createdAt: '2026-09-21T09:00:01.000Z',
+            },
+          ],
+          open: true,
+        }}
+        onClose={() => undefined}
+        onViewChange={() => undefined}
+        onExecutionSelect={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('preview.png'));
+    const region = screen.getByRole('region', { name: 'preview.png 预览' });
+    await waitFor(() =>
+      expect(within(region).getByRole('img', { name: 'preview.png' })).toHaveAttribute(
+        'src',
+        'blob:mock-image-preview',
+      ),
+    );
+    expect(screen.queryByText(/暂不支持内联预览/u)).not.toBeInTheDocument();
+  });
+
+  it('previews pptx deliverables via normalized preview API', async () => {
+    renderWorkbench(
+      <WorkbenchShell
+        state={{
+          runId: 'run-pptx',
+          title: '演示文稿',
+          subtitle: '1 个文件',
+          activeView: 'deliverables',
+          activityStatus: 'completed',
+          executions: [],
+          followMode: 'auto',
+          sources: [],
+          artifacts: [
+            {
+              artifactId: 'artifact-pptx',
+              fileId: 'file-pptx',
+              fileName: 'slides.pptx',
+              mediaType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+              fileKind: 'pptx' satisfies ArtifactRef['fileKind'],
+              size: 4096,
+              status: 'ready',
+              createdAt: '2026-09-21T09:00:01.000Z',
+            },
+          ],
+          open: true,
+        }}
+        onClose={() => undefined}
+        onViewChange={() => undefined}
+        onExecutionSelect={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('slides.pptx'));
+    await waitFor(() => expect(screen.getByText('Hello')).toBeVisible());
+    expect(screen.queryByText(/暂不支持内联预览/u)).not.toBeInTheDocument();
   });
 });

@@ -441,6 +441,13 @@ export class ArtifactsService {
         fileName: result.fileName ?? artifact.file.fileName,
       };
     }
+    if ('binaryPreview' in result && result.binaryPreview) {
+      return {
+        content: result.content,
+        contentType: result.contentType,
+        binaryPreview: true as const,
+      };
+    }
     if ('content' in result) {
       return {
         content: result.content,
@@ -450,7 +457,10 @@ export class ArtifactsService {
             : 'text/markdown; charset=utf-8',
       };
     }
-    return { url: result.url, contentType: artifact.file.mediaType };
+    throw new BadRequestException({
+      code: AGENT_ERROR_CODES.fileNotReady,
+      detail: '预览不可用。',
+    });
   }
 
   async download(userId: string, artifactId: string) {

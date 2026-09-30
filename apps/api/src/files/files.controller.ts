@@ -51,7 +51,11 @@ export class FilesController {
     @Res() response: Response,
   ) {
     const result = await this.files.preview(user.id, fileId);
-    if ('url' in result && result.url) return response.redirect(302, result.url);
+    if ('binaryPreview' in result && result.binaryPreview) {
+      response.type(result.contentType ?? 'application/octet-stream');
+      response.set('Cache-Control', 'private, no-store');
+      return response.send(result.content);
+    }
     if ('content' in result) {
       if ('htmlPreview' in result && result.htmlPreview) {
         applyArtifactHtmlPreviewHeaders(response, result.fileName);

@@ -879,21 +879,26 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     return this.toPublicRef({ ...file, status: 'processing', errorCode: null }, false);
   }
 
-  // 图片返回短期地址；Agent 生成 HTML 读 original；其余文本类读 normalized 正文预览。
+  // 图片经 API 直出字节（避免 302 外链导致 Workbench `<img>` 鉴权失败）；HTML 读 original；其余文本类读 normalized。
   async preview(userId: string, fileId: string) {
     const file = await this.findSharedReadable(userId, fileId);
     if (file.status !== 'ready')
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
     if (file.fileKind === 'image') {
-      if (!file.previewKey)
+      const variant = file.previewKey ? 'preview' : file.originalKey ? 'original' : null;
+      if (!variant)
         throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
+      const object = await this.storage.readObject({
+        sessionId: file.sessionId,
+        fileId: file.id,
+        variant,
+      });
       return {
         fileId,
-        url: await this.storage.createReadUrl({
-          sessionId: file.sessionId,
-          fileId,
-          variant: 'preview',
-        }),
+        content: object.content,
+        contentType:
+          variant === 'preview' && object.contentType ? object.contentType : file.mediaType,
+        binaryPreview: true as const,
       };
     }
     if (file.fileKind === 'html' && file.origin === 'agent_generated') {

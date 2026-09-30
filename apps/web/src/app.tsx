@@ -2155,7 +2155,7 @@ function PersistentAgentApp() {
         // 先写入空会话缓存，避免 loadSessionDetail 期间出现整页 skeleton 导致输入框闪动。
         setSessionStates((current) => ({
           ...current,
-          [sessionId]: {
+          [created.id]: {
             label: created.title,
             subtitle: '',
             conversation: [],

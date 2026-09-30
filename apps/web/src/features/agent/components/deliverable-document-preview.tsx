@@ -1,7 +1,22 @@
 import { MarkdownContent } from '../../../components/markdown-content';
 import { AGENT_UI_COPY } from '../config/ui.constants';
 
-export const NORMALIZED_DOCUMENT_FILE_KINDS = new Set(['docx', 'pdf', 'xlsx']);
+export const NORMALIZED_DOCUMENT_FILE_KINDS = new Set(['docx', 'pdf', 'xlsx', 'pptx']);
+
+const IMAGE_FILE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg']);
+
+export function isArtifactImagePreview(
+  fileKind: string,
+  mediaType?: string | null,
+  fileName?: string,
+): boolean {
+  if (fileKind === 'image') return true;
+  if (mediaType?.startsWith('image/') && fileKind !== 'html') return true;
+  if (!fileName) return false;
+  const dot = fileName.lastIndexOf('.');
+  if (dot <= 0) return false;
+  return IMAGE_FILE_EXTENSIONS.has(fileName.slice(dot + 1).toLowerCase());
+}
 
 export function isNormalizedDocumentPreview(fileKind: string, fileName: string): boolean {
   if (NORMALIZED_DOCUMENT_FILE_KINDS.has(fileKind)) return true;

@@ -88,6 +88,40 @@ describe('FilesService HTML preview (C5-B)', () => {
   });
 });
 
+describe('FilesService image preview', () => {
+  it('streams preview bytes for images instead of redirecting', async () => {
+    const { service, prisma, storage } = makeService();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    prisma.file.findFirst.mockResolvedValue({
+      id: 'file-img',
+      sessionId: 'session-1',
+      userId: 'local-user',
+      status: 'ready',
+      fileKind: 'image',
+      mediaType: 'image/png',
+      previewKey: 'sessions/session-1/files/file-img/preview',
+      originalKey: 'sessions/session-1/files/file-img/original',
+      fileName: 'shot.png',
+    });
+    storage.readObject.mockResolvedValue({ content: png, contentType: 'image/png' });
+
+    const result = await service.preview('local-user', 'file-img');
+
+    expect(storage.readObject).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      fileId: 'file-img',
+      variant: 'preview',
+    });
+    expect(result).toMatchObject({
+      fileId: 'file-img',
+      content: png,
+      contentType: 'image/png',
+      binaryPreview: true,
+    });
+    expect(storage.createReadUrl).not.toHaveBeenCalled();
+  });
+});
+
 describe('artifact HTML preview constants', () => {
   it('freezes CSP baseline for integration assertions', () => {
     expect(ARTIFACT_HTML_PREVIEW_CSP).toContain("default-src 'none'");

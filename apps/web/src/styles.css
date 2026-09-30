@@ -1010,6 +1010,27 @@ summary:focus-visible {
   min-height: 280px;
   border-radius: 12px;
 }
+.deliverables-preview-panel--image {
+  position: relative;
+  display: flex;
+  min-height: 200px;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--theme-surface-subtle) 88%, transparent);
+}
+.deliverables-preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: min(70vh, 720px);
+  object-fit: contain;
+  border-radius: 10px;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.deliverables-preview-image.is-ready {
+  opacity: 1;
+}
 .deliverables-preview-panel--skeleton {
   min-height: 200px;
   padding: 20px 22px;
@@ -2168,6 +2189,14 @@ summary:focus-visible {
   min-height: 0;
   height: auto;
   flex: 1;
+}
+.artifact-workbench-preview--detail .deliverables-preview-panel--image {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.artifact-workbench-preview--detail .deliverables-preview-image {
+  max-height: none;
 }
 .artifact-workbench-preview--detail .deliverables-preview-panel--skeleton,
 .artifact-workbench-preview--detail .deliverables-preview-panel--error,

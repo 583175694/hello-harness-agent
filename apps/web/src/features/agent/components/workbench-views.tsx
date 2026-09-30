@@ -25,6 +25,7 @@ import {
 import { MarkdownContent } from '../../../components/markdown-content';
 import {
   DeliverableMarkdownPanel,
+  isArtifactImagePreview,
   isNormalizedDocumentPreview,
   NORMALIZED_DOCUMENT_FILE_KINDS,
 } from './deliverable-document-preview';
@@ -48,7 +49,12 @@ import type {
 } from '../model/types';
 import type { ArtifactRef } from '@harness/agent-protocol';
 import { BashTerminalPanel } from '../elements/bash-terminal-panel';
-import { downloadArtifact, getArtifactPreview, getArtifactPreviewUrl } from '../../../api/client';
+import {
+  downloadArtifact,
+  getArtifactPreview,
+  getArtifactPreviewUrl,
+  loadArtifactPreviewImageObjectUrl,
+} from '../../../api/client';
 import { parseJsonPreviewText } from '../../../lib/parse-json-preview';
 import { AGENT_UI_COPY } from '../config/ui.constants';
 import { isMcpPublicToolName } from '../model/tool-copy';
@@ -1113,10 +1119,16 @@ function sameArtifactPreview(prev: ArtifactRef, next: ArtifactRef): boolean {
 const ArtifactPreviewBody = memo(function ArtifactPreviewBody({ artifact }: { artifact: ArtifactRef }) {
   const previewUrl = getArtifactPreviewUrl(artifact.artifactId);
   const isHtml = artifact.fileKind === 'html' || artifact.mediaType === 'text/html';
+  const isImage = isArtifactImagePreview(
+    artifact.fileKind,
+    artifact.mediaType,
+    artifact.fileName,
+  );
   const isInlineText =
     artifact.fileKind === 'markdown' ||
     artifact.fileKind === 'text' ||
     artifact.fileKind === 'json' ||
+    artifact.fileKind === 'csv' ||
     (artifact.mediaType?.startsWith('text/') ?? false);
   const isNormalizedDocument = isNormalizedDocumentPreview(artifact.fileKind, artifact.fileName);
 
@@ -1127,6 +1139,8 @@ const ArtifactPreviewBody = memo(function ArtifactPreviewBody({ artifact }: { ar
     >
       {isHtml ? (
         <ArtifactHtmlPreview artifact={artifact} previewUrl={previewUrl} />
+      ) : isImage ? (
+        <ArtifactImagePreview artifact={artifact} previewUrl={previewUrl} />
       ) : isInlineText || isNormalizedDocument ? (
         <ArtifactTextPreview
           artifactId={artifact.artifactId}
@@ -1306,6 +1320,75 @@ const ArtifactHtmlPreview = memo(function ArtifactHtmlPreview({
   prev.previewUrl === next.previewUrl &&
   prev.artifact.artifactId === next.artifact.artifactId &&
   prev.artifact.fileName === next.artifact.fileName,
+);
+
+const ArtifactImagePreview = memo(function ArtifactImagePreview({
+  artifact,
+  previewUrl,
+}: {
+  artifact: ArtifactRef;
+  previewUrl: string;
+}) {
+  const [imageState, setImageState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setImageState('loading');
+    setObjectUrl((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
+      return null;
+    });
+    void (async () => {
+      try {
+        const url = await loadArtifactPreviewImageObjectUrl(artifact.artifactId, controller.signal);
+        if (controller.signal.aborted) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        setObjectUrl(url);
+      } catch {
+        if (controller.signal.aborted) return;
+        setImageState('error');
+      }
+    })();
+    return () => {
+      controller.abort();
+      setObjectUrl((previous) => {
+        if (previous) URL.revokeObjectURL(previous);
+        return null;
+      });
+    };
+  }, [artifact.artifactId]);
+
+  return (
+    <div className="deliverables-preview-panel deliverables-preview-panel--image">
+      {imageState === 'loading' ? <DeliverablePreviewSkeleton overlay /> : null}
+      {imageState === 'error' ? (
+        <div className="deliverables-preview-panel deliverables-preview-panel--error" role="alert">
+          <strong>图片预览加载失败</strong>
+          <span>请使用「在新窗口打开」或「下载」查看 {artifact.fileName}。</span>
+          <a className="secondary-button" href={previewUrl} target="_blank" rel="noreferrer">
+            在新窗口打开
+          </a>
+        </div>
+      ) : null}
+      {objectUrl ? (
+        <img
+          className={`deliverables-preview-image ${imageState === 'ready' ? 'is-ready' : ''}`}
+          src={objectUrl}
+          alt={artifact.logicalName ?? artifact.fileName}
+          onLoad={() => setImageState('ready')}
+          onError={() => setImageState('error')}
+        />
+      ) : null}
+    </div>
+  );
+}, (prev, next) =>
+  prev.previewUrl === next.previewUrl &&
+  prev.artifact.artifactId === next.artifact.artifactId &&
+  prev.artifact.fileName === next.artifact.fileName &&
+  prev.artifact.logicalName === next.artifact.logicalName,
 );
 
 function ArtifactFallbackPreview({

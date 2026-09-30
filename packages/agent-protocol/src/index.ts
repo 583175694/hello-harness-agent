@@ -456,8 +456,14 @@ export const assistantAgentMetadataSchema = z.object({
   error: z.object({ code: z.string().min(1), detail: z.string().min(1) }).optional(),
   agent: z
     .object({
-      toolCallCount: z.number().int().nonnegative().max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
-      executions: z.array(toolExecutionSnapshotSchema).max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
+      toolCallCount: z
+        .number()
+        .int()
+        .nonnegative()
+        .max(AGENT_PROTOCOL_LIMITS.agentMetadataExecutionsMax),
+      executions: z
+        .array(toolExecutionSnapshotSchema)
+        .max(AGENT_PROTOCOL_LIMITS.agentMetadataExecutionsMax),
       sources: z.array(researchSourceSnapshotSchema),
     })
     .optional(),

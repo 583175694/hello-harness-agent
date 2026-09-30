@@ -48,6 +48,9 @@ const PERMANENT_PARSE_FAILURES = new Set([
   'PDF_TEXT_UNAVAILABLE',
 ]);
 
+/** 沙箱收集的二进制 Office/PDF 须走与上传相同的解析，不能 buffer.toString('utf8')。 */
+const SANDBOX_DOCUMENT_PARSE_KINDS = new Set(['pdf', 'docx', 'xlsx', 'pptx']);
+
 @Injectable()
 export class FilesService implements OnModuleInit, OnApplicationShutdown {
   constructor(
@@ -316,7 +319,35 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         });
         return this.toPublicRef(file, true);
       }
-      const normalizedContent = buffer.toString('utf8');
+      let normalizedContent: string;
+      let parserVersion: string;
+      let contentHash: string;
+      let lineCount: number;
+      let characterCount: number;
+      let pageCount: number | undefined;
+      let overview: Record<string, unknown>;
+      if (SANDBOX_DOCUMENT_PARSE_KINDS.has(fileKind)) {
+        const parsed = await this.processor.parse({
+          buffer,
+          mimetype: mediaType,
+          originalname: input.fileName.trim(),
+        });
+        normalizedContent = parsed.normalizedContent ?? '';
+        parserVersion = parsed.parserVersion ?? 'c1-read-v1';
+        contentHash =
+          parsed.contentHash ?? createHash('sha256').update(normalizedContent, 'utf8').digest('hex');
+        lineCount = parsed.lineCount ?? normalizedContent.split('\n').length;
+        characterCount = parsed.characterCount ?? [...normalizedContent].length;
+        pageCount = parsed.pageCount;
+        overview = { ...(parsed.overview ?? {}), format: parsed.fileKind, source: 'sandbox' };
+      } else {
+        normalizedContent = buffer.toString('utf8');
+        parserVersion = 'c3-a-sandbox';
+        contentHash = createHash('sha256').update(normalizedContent, 'utf8').digest('hex');
+        lineCount = normalizedContent.split('\n').length;
+        characterCount = [...normalizedContent].length;
+        overview = { format: fileKind, source: 'sandbox' };
+      }
       const normalized = await this.storage.putNormalized({
         sessionId: input.sessionId,
         fileId,
@@ -328,11 +359,12 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         data: {
           originalKey: original.objectKey,
           normalizedKey: normalized.objectKey,
-          contentHash: createHash('sha256').update(normalizedContent, 'utf8').digest('hex'),
-          parserVersion: 'c3-a-sandbox',
-          lineCount: normalizedContent.split('\n').length,
-          characterCount: [...normalizedContent].length,
-          overview: { format: fileKind, source: 'sandbox' },
+          contentHash,
+          parserVersion,
+          ...(pageCount != null ? { pageCount } : {}),
+          lineCount,
+          characterCount,
+          overview: overview as never,
           status: 'ready',
           retryable: false,
           processingCompletedAt: new Date(),
@@ -1334,10 +1366,38 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     return file;
   }
 
+  /** 旧版 c3-a-sandbox 把 docx/xlsx 等 ZIP 二进制误存为 UTF-8 文本，预览会出现 PK 乱码。 */
+  private isMisencodedBinaryDocumentPreview(content: string, fileKind: string): boolean {
+    if (!SANDBOX_DOCUMENT_PARSE_KINDS.has(fileKind)) return false;
+    return content.startsWith('PK');
+  }
+
+  private async normalizedTextFromOriginal(file: {
+    id: string;
+    sessionId: string;
+    fileName: string;
+    mediaType: string;
+  }): Promise<string> {
+    const object = await this.storage.readObject({
+      sessionId: file.sessionId,
+      fileId: file.id,
+      variant: 'original',
+    });
+    const parsed = await this.processor.parse({
+      buffer: object.content,
+      mimetype: file.mediaType,
+      originalname: file.fileName,
+    });
+    return parsed.normalizedContent ?? '';
+  }
+
   private async readNormalizedContent(file: {
     id: string;
     sessionId: string;
     normalizedKey: string | null;
+    fileKind?: string;
+    fileName?: string;
+    mediaType?: string;
   }) {
     // 只允许读取数据库已登记的 normalized 对象，并统一转换为 UTF-8 文本。
     if (!file.normalizedKey)
@@ -1351,7 +1411,21 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         fileId: file.id,
         variant: 'normalized',
       });
-      return new TextDecoder('utf-8', { fatal: false }).decode(result.content);
+      let content = new TextDecoder('utf-8', { fatal: false }).decode(result.content);
+      if (
+        file.fileKind &&
+        file.fileName &&
+        file.mediaType &&
+        this.isMisencodedBinaryDocumentPreview(content, file.fileKind)
+      ) {
+        content = await this.normalizedTextFromOriginal({
+          id: file.id,
+          sessionId: file.sessionId,
+          fileName: file.fileName,
+          mediaType: file.mediaType,
+        });
+      }
+      return content;
     } catch (error) {
       this.logger.warn(
         `文件正文读取失败 | 文件=${shortLogId(file.id)} | 原因=${describeLogError(error)}`,

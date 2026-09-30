@@ -2152,6 +2152,15 @@ function PersistentAgentApp() {
         const created = await createSession('文件任务');
         sessionId = created.id;
         setSessions((current) => [created, ...current]);
+        // 先写入空会话缓存，避免 loadSessionDetail 期间出现整页 skeleton 导致输入框闪动。
+        setSessionStates((current) => ({
+          ...current,
+          [sessionId]: {
+            label: created.title,
+            subtitle: '',
+            conversation: [],
+          },
+        }));
         setSelectedSession(sessionId);
         updateSessionUrl(sessionId, true);
         await loadSessionDetail(sessionId);

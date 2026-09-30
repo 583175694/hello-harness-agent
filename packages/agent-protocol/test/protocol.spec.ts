@@ -659,6 +659,31 @@ describe('foundation protocol', () => {
       }),
     ).toThrow();
   });
+
+  it('accepts persisted agent snapshots above legacy agentToolMaxCalls cap', () => {
+    const execution = {
+      toolCallId: 'call-1',
+      toolName: 'web_search' as const,
+      input: { query: 'test' },
+      status: 'completed' as const,
+      startedAt: '2026-08-08T02:00:00.000Z',
+      completedAt: '2026-08-08T02:00:01.000Z',
+      durationMs: 1000,
+    };
+    const parsed = assistantAgentMetadataSchema.parse({
+      model: 'test-model',
+      agent: {
+        toolCallCount: 42,
+        executions: Array.from({ length: 41 }, (_, index) => ({
+          ...execution,
+          toolCallId: `call-${index + 1}`,
+        })),
+        sources: [],
+      },
+    });
+    expect(parsed.agent?.executions).toHaveLength(41);
+    expect(parsed.agent?.toolCallCount).toBe(42);
+  });
 });
 
 describe('MCP admin protocol', () => {

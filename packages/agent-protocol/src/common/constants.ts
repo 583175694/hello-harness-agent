@@ -10,6 +10,8 @@ export const AGENT_PROTOCOL_LIMITS = {
   chatHistoryMaxMessages: 40,
   // 单次 Agent 运行允许执行的工具调用总数（metadata / schema；Run 主收敛改由 Tool Turn 分池）。
   agentToolMaxCalls: 40,
+  // assistant metadata 中 agent 快照（executions / toolCallCount）读路径上限；须覆盖调查+交付阶段持久化的历史 Run。
+  agentMetadataExecutionsMax: 128,
   // 调查阶段带业务工具的 Model Turn 上限（同轮多 call 计 1 turn）。
   agentInvestigationToolTurnMax: 40,
   // 交付阶段带业务工具的 Model Turn 上限（仅 create_file / create_report）。

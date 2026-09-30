@@ -53,7 +53,7 @@ C1 采用“先最小闭环，再稳定增强，最后扩展文件类型”的�
 | C1-A0 最小图片闭环    | P0     | PNG/JPEG/WebP             | 单图上传、服务端校验、COS 保存、缩略图、ready、单图视觉问答、附件恢复                               |
 | C1-A1 稳定图片能力    | P0     | C1-A0 增强                | 多图同消息、取消/重试、失败状态、模型视觉能力提示、图片粘贴、短期签名 URL、删除清理和安全回归       |
 | C1-B.1 文件基础       | P1     | TXT/Markdown/CSV/JSON/PDF | 基础解析、异步处理、受限预览、MVP 限制内全文注入、基础页码/行号定位                                 |
-| C1-B.2 按需读取文件   | P1     | C1-B.1 增强               | COS 规范化正文、`search_file`、`read_file_lines`、有限工具结果和 Context 预算控制                   |
+| C1-B.2 按需读取文件   | P1     | C1-B.1 增强               | COS 规范化正文、`search_file`、`read_file`（三 scope）、有限工具结果和 Context 预算控制（见 [38](./38-c1-file-read-and-search-tools.md)） |
 | C1-B.3 长文本粘贴外置 | P1     | Composer 输入入口增强     | 超过阈值的纯文本粘贴自动生成 TXT 附件，并复用现有上传、解析、预览和按需读取链路；不新增文件领域模型 |
 | C1-C 后续增强         | P2     | 非 MVP 能力               | 直传/分片上传、异步 Worker 恢复、OCR、复杂来源投影、更多格式和供应商 Files API                      |
 
@@ -84,7 +84,7 @@ C1-A0 完成真实模型验证后进入 C1-A1；C1-A1 稳定后再进入 C1-B。
 ### 5.3 Agent 上下文接入
 
 - C1-B.1 中，文件就绪后在首版文件内容上限内注入完整规范化内容；创建 Run/编译 Context 时仍必须检查当前 Session 历史、附件总量和所选模型的实际可用预算。文件处理上限与模型上下文上限是两个独立边界，任一超限都必须明确失败，不得静默丢弃文件或截断内容。
-- C1-B.2 将全文注入替换为按需读取；`file_ref` 只携带文件身份和元数据，`search_file`/`read_file_lines` 返回的有限材料才进入当前 Context。不改变 `fileId`、附件绑定和文件生命周期协议。
+- C1-B.2 将全文注入替换为按需读取；`file_ref` 只携带文件身份和元数据，`search_file`/`read_file` 返回的有限材料才进入当前 Context。不改变 `fileId`、附件绑定和文件生命周期协议。
 - 图片以模型适配器支持的 canonical image content 表示；模型目录必须声明 `supportsVision`，不支持视觉的模型在发送前给出明确提示或阻止发送。DeepSeek、GLM 的具体请求格式差异只能收敛在 Model Adapter 内。
 - 每个附件带稳定 `fileId`、`messageId` 和 `sourceRef`，工具、投影和后续 C2 可复用。
 - 文件解析结果与用户原文分离，外部文本作为不可信材料注入 Tool/Document message。
@@ -258,8 +258,8 @@ type CreateRunInput = {
 ### 11.4 C1-B.2 按需读取文件内容
 
 1. 原始文件和规范化文本保存于 COS；File 只保存元数据、状态、hash、解析器版本和对象引用，正文不再作为新链路的数据库主存储。
-2. `file_ref` 只携带 `fileId`、文件名、类型、大小及行数/页数等元数据；模型需要内容时调用 `search_file` 或 `read_file_lines`。
-3. `search_file` 支持普通关键词搜索，返回有限命中、行号/页码和少量上下文；`read_file_lines` 支持有限行范围读取，单次最多 50 行且首尾行都包含在范围内。需要读取更大范围时必须拆分为多个不重叠调用，例如 `1-50`、`51-100`，不得提交超过 50 行的单次请求。两者均校验 Session 归属和 `ready` 状态。
+2. `file_ref` 只携带 `fileId`、文件名、类型、大小及行数/页数等元数据；模型需要内容时调用 `search_file` 或 **`read_file`**（`scope`: file / section / lines）。
+3. `search_file` 支持普通关键词搜索，返回有限命中、行号/页码和少量上下文。`read_file` 三 scope、行块上限（现网 `fileReadLinesMax = 150`）、Section 索引与 CE file-tool 不 spill 规则见 [38-c1-file-read-and-search-tools.md](./38-c1-file-read-and-search-tools.md)。两者均校验 Session 归属和 `ready` 状态。
 4. 工具结果进入当前 Context，并受单次结果、单轮结果和模型 Context 预算限制；超限不得静默截断或丢弃。
 5. 本版本不实现预分块、`FileChunk`、向量检索、Embedding、自动摘要、复杂正则/JSONPath、CLI Provider 或 COS Range 优化。
 
@@ -302,7 +302,7 @@ type CreateRunInput = {
 ### C1-B.2：按需读取文件内容
 
 1. 将规范化正文从数据库主存储迁移到 COS，`file_ref` 只保留文件身份和元数据。
-2. 增加 `search_file` 普通关键词搜索和 `read_file_lines` 有限行范围读取；结果带文件名、`fileId` 和行号/页码范围。`read_file_lines` 单次最多读取 50 行，超过范围必须由模型拆成多个调用。
+2. 增加 `search_file` 与 **`read_file`**（file/section/lines）；结果带文件名、`fileId` 和行号/页码范围。限额与 spill 边界以 [38](./38-c1-file-read-and-search-tools.md) 为准。
 3. 工具结果受单次、单轮和模型 Context 预算约束；超限明确报错或标记不完整，不静默截断。
 4. 保持文件权限、Session 归属、`ready` 校验和不可信材料边界；不实现预分块、向量检索、摘要、CLI Provider 或复杂索引。
 

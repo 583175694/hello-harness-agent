@@ -808,7 +808,7 @@ C2-C 继续复用 C2-A 的 `runId + toolCallId` 幂等约束和 Artifact/File �
 C2-C 不新增预览工具。Conversation 和 Artifact Workbench 继续使用现有文件卡片、下载和恢复链路：
 
 - Markdown 和 HTML 可以继续使用受控文本/Markdown 预览；
-- PDF、DOCX、XLSX 首版可以展示规范化正文预览并提供真实原文件下载；
+- PDF、DOCX、XLSX：Workbench 展示 **normalized 正文** 的 Markdown 结构预览（`DeliverableMarkdownPanel`），并提示下载二进制为版式权威；真实原文件仍走 **download**（契约见 [37-c5 §5.1](./37-c5-workbench-ui-and-preview.md)）；
 - 如果浏览器已有稳定 PDF 内嵌预览能力，可以复用，但不作为后端多格式生成完成的阻断项；
 - 不在本阶段开发 Word 或 Excel 浏览器编辑器。
 

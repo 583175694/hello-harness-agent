@@ -26,7 +26,7 @@
 - 向量索引、Embedding、OpenAI `file_search` 式 RAG  
 - Sandbox 内 `cat`/脚本读文件  
 - 将 `search_file` 与 `read_file` 合并为一个工具  
-- Run 调查/交付轮次预算（独立立项）
+- Run **Tool Turn** 预算（已由 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) §4 落地，与读稿工具正交）
 
 ---
 
@@ -296,5 +296,5 @@ CE P0.5 解决 **历史折叠抹掉 file-tool 正文**。下列为读稿与协�
 
 ## 12. 与现网 C1 文档的关系
 
-- [30-c1-file-multimodal-foundation.md](./30-c1-file-multimodal-foundation.md) 描述 **已实现的 C1-B.2**（`read_file_lines` + 50 行上限）。  
-- **本文为实现目标**；落地后应回写 C1 文档与 `implementation-status.md`，并将本文决策状态改为「已实现」。
+- [30-c1-file-multimodal-foundation.md](./30-c1-file-multimodal-foundation.md) 描述 C1 基线与按需读稿；**现网工具名为 `read_file`**（`read_file_lines` 仅历史 transcript / Registry 别名）。  
+- **P0 / P0.5 已落地**（2026-09-30）；状态快照见 [implementation-status.md](./implementation-status.md) C1 与 CE 条目。

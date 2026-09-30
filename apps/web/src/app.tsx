@@ -1280,7 +1280,7 @@ function PersistentAgentApp() {
           ? { error: { code: snapshot.error.code, detail: snapshot.error.detail } }
           : {}),
         agent: {
-          toolTurnCount: snapshot.toolTurnCount,
+          toolCallCount: snapshot.toolCallCount,
           executions: snapshot.executions,
           sources: snapshot.sources,
         },

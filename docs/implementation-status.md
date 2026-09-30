@@ -2,13 +2,13 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-29（**C5 产品阶段已完成**（C5-A/B）；**C5-C / job 工作台深化** 后置 Backlog；**C2 原生 HTML** 已落地；Agent **当前研发**：**K5、C6**；**C8/C9 市场** 专项文档待建）
+> 最后更新：2026-09-30（**C5 产品阶段已完成**（C5-A/B + 交付物 Office/PDF 文本预览）；**Tool Turn 调查/交付分池** 已落地；**C5-C / job 工作台深化** 后置 Backlog；Agent **当前研发**：**K5、C6**；**C8/C9 市场** 专项文档待建）
 
 **用户反馈 / Bug 台账**：[38-user-feedback-bugs.md](./38-user-feedback-bugs.md)（解决后在该文档更新状态为「已解决」）。
 
 ## 1. 当前结论
 
-项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 **C2 Artifact & Report Generation（C2-A–C2-D）**。C3-A 已把 Sandbox 作为普通 Tool 接入 Runtime；**C3-B** 已将主工具改为 **`bash`**（`execute_command` 仅迁移期别名）：DSH 式 `renderBashResult()` 文本 Tool Message、默认 `auto_execute`、Host `BashCommandPolicyService` 触发的 network/install 升权审批、批准后当次 v1 egress allowlist、Terminal 投影与 spill Artifact 已落地，并在**本机 OpenSandbox + Docker**（`dev/opensandbox-local`）完成 Workbench 手工冒烟（echo/非零退出、普通命令不批、pip/curl 审批、Collect）。Sandbox 默认关闭，需 `SANDBOX_ENABLED` 与 Domain/API Key/带 digest 的镜像后才对模型可见。CI 使用 fake Provider（`pnpm --filter @harness/api test`）；真实 OpenSandbox 见 `dev/opensandbox-local` 与 docs/33 §1.5 UI 冒烟。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成 Markdown Report，或通过 `create_file` 生成 Markdown/HTML/PDF/DOCX/XLSX 等 Artifact；同一逻辑产物支持 **C2-D** 线性版本（`ArtifactSeries`、`revise`/`restore`、Workbench「基于此版本修改」）。Runtime 只保留每个 assistant run 最多 40 次 Tool Call、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
+项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 **C2 Artifact & Report Generation（C2-A–C2-D）**。C3-A 已把 Sandbox 作为普通 Tool 接入 Runtime；**C3-B** 已将主工具改为 **`bash`**（`execute_command` 仅迁移期别名）：DSH 式 `renderBashResult()` 文本 Tool Message、默认 `auto_execute`、Host `BashCommandPolicyService` 触发的 network/install 升权审批、批准后当次 v1 egress allowlist、Terminal 投影与 spill Artifact 已落地，并在**本机 OpenSandbox + Docker**（`dev/opensandbox-local`）完成 Workbench 手工冒烟（echo/非零退出、普通命令不批、pip/curl 审批、Collect）。Sandbox 默认关闭，需 `SANDBOX_ENABLED` 与 Domain/API Key/带 digest 的镜像后才对模型可见。CI 使用 fake Provider（`pnpm --filter @harness/api test`）；真实 OpenSandbox 见 `dev/opensandbox-local` 与 docs/33 §1.5 UI 冒烟。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成 Markdown Report，或通过 `create_file` 生成 Markdown/HTML/PDF/DOCX/XLSX 等 Artifact；同一逻辑产物支持 **C2-D** 线性版本（`ArtifactSeries`、`revise`/`restore`、Workbench「基于此版本修改」）。Runtime 只保留 **Tool Turn 预算**（默认 40 investigation turn + 3 delivery turn，同轮多 call 计 1 turn；见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) §4）、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
 
 当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics、C1–C4 与 **C5 Workbench（C5-A/B）** 已落地；**C5 产品切片收口**，Sandbox job / dev server 类 **C5-C 后置**；Capability 与 Kernel **当前研发**为 **K5 / C6**（可穿插）”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
 
@@ -68,6 +68,10 @@ C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@
 - Context：最后一轮 CE 调试 JSON。
 
 **C5-B 已完成**（[37-c5 §15–§16](./37-c5-workbench-ui-and-preview.md)）：Agent 生成 `.html` 的 preview 读 **original**（与 download 字节一致）并返回 `text/html` + 冻结 CSP（含 `script-src 'unsafe-inline'`、`connect-src 'none'`）/ `Referrer-Policy: no-referrer`；Workbench iframe `sandbox="allow-scripts allow-same-origin allow-popups"`；交付物详情与 **实时跟随** 内联 artifact 预览（iframe 高度拉满、圆角壳）；顶栏「在新窗口打开 / 下载」；C2 Markdown→HTML / 原生 HTML 外壳可含 `<base target="_blank">`。**已知**：preview CSP 下外链 CDN 资源可能与下载本地打开不一致；COS 直链图片需后续 `img-src` 或同源代理方案。
+
+**C5 交付物预览补充（2026-09-30）**：Agent 生成的 **DOCX / PDF / XLSX** 在 Workbench **文件** Tab 与实时跟随内联卡片中，通过现有 preview API 读取 **normalized 正文**，用 `DeliverableMarkdownPanel`（`MarkdownContent variant="report"`）展示结构预览，并提示 **下载的 Office/PDF 二进制才是版式权威**（见 [37-c5 §5.1](./37-c5-workbench-ui-and-preview.md)）。Markdown / 文本 / HTML 路径不变。
+
+**C5 壳层（2026-09-29）**：默认 **浅色** 主题；主题切换迁入 **设置**；会话顶栏 **WORKBENCH** 打开工作台（关闭侧文案对称）。**工具结果**：MCP / 业务工具输入与结果使用 **JsonViewer** 全高布局与业务摘要（非字符数截断预览）。
 
 **C5 产品阶段**：**已完成**（C5-A + C5-B 满足 Workbench IA、交付物预览与 Agent 生成 HTML 安全预览；前台 `bash` 终端已在 C5-A 覆盖）。**不阻塞**后续 Kernel/Capability 切片。
 
@@ -241,7 +245,7 @@ Workbench 的 Context Tab 只保留当前 Run 最后一轮快照，Run 结束和
 - 模型同时可以调用 `web_fetch({urls, query?})`，每次读取 1-5 个公开静态网页；批量结果支持逐项 `succeeded/failed/skipped` 的部分成功语义和无控制含义的单次 `stats`。
 - Runtime 不创建或传递领域 run state；Tool 上下文只包含 session/message/tool-call 标识和组合取消信号。
 - Search 与 Fetch 在可用时同时暴露；模型可以 Fetch 任意通过安全 Guard 的公开 URL，Projection 将来源派生为 `user_provided/search_clue/model_proposed/unknown`。
-- 每个 assistant run 最多执行 40 次 Tool Call。普通模型单轮最多 120 秒，最终回答单轮最多 30 秒，Search 外层 Tool timeout 为 10 秒，Fetch 整批外层 Tool timeout 为 45 秒，Fetch 单 URL transport timeout 为 20 秒。
+- 每个 assistant run 按 **Tool Turn** 分池收敛（默认 40 investigation + 3 delivery → `final_only`）；`toolCallCount` 仅观测。普通模型单轮最多 120 秒，最终回答单轮最多 30 秒，Search 外层 Tool timeout 为 10 秒，Fetch 整批外层 Tool timeout 为 45 秒，Fetch 单 URL transport timeout 为 20 秒。
 - `DocumentQualityGate` 在写入 LRU 和 Passage Ranking 前拒绝过短正文、登录/付费墙/验证码、JavaScript 空壳和高度重复模板；query 无相关 Passage 返回稳定错误。
 - Web Fetch 使用无持久化 Crawlee `HttpCrawler`、最小 URL/DNS/逐跳重定向安全校验、5 MiB 流式响应上限、20 秒超时和一次有限重试；不携带 Cookie、Authorization、代理或用户 Header。
 - HTML 通过 JSDOM、Mozilla Readability、Turndown + GFM 转换为 canonical Markdown；字符 n-gram Ranker 只返回连续抽取式原文，Locator 同时保存 quote、Unicode code-point position 和 sectionPath。
@@ -457,9 +461,9 @@ git diff --check
 - [x] 用户直链 Fetch Prompt、普通模型单轮 120 秒超时、最终回答单轮 30 秒超时和用户 Abort 分离；Agent run 无总截止时间。
 - [x] Workbench 展示本次成功/失败/跳过、网络请求、相关 Passage 和采用/已读/线索数量。
 - [ ] 公网/多用户部署前的连接 IP pinning、网络出口隔离和完整 DNS rebinding 防护仍属后续安全加固。
-- [x] Model-led Tool Boundary：已删除 Tool 控制意图、`modelContent`、Web 跨调用规划状态和 URL allowlist；Runtime 统一序列化 `output/error`，保留 40 次 Tool Call、Tool 外层超时及 Fetch 能力安全，由 Projection 派生 provenance 和 canonical source。
+- [x] Model-led Tool Boundary：已删除 Tool 控制意图、`modelContent`、Web 跨调用规划状态和 URL allowlist；Runtime 统一序列化 `output/error`，保留 **Tool Turn** 分池（§25）、Tool 外层超时及 Fetch 能力安全，由 Projection 派生 provenance 和 canonical source。
 
-Model-led 迁移的完成标准已经满足：对需要联网的普通用户问题，Agent 能自主找到并读取公开静态网页，由模型根据 Tool Result 决定继续、换源或回答；Tool 失败不会自动终止 Runtime，达到 40 次 Tool Call 后能够基于已有材料平稳收尾。Fetch 继续过滤非法、无效和低质量内容，Execution 完整保留，Workbench 的重复来源由 Projection 归并。
+Model-led 迁移的完成标准已经满足：对需要联网的普通用户问题，Agent 能自主找到并读取公开静态网页，由模型根据 Tool Result 决定继续、换源或回答；Tool 失败不会自动终止 Runtime，**Tool Turn 预算**触顶（investigation → delivery → `final_only`）后能够基于已有材料平稳收尾。Fetch 继续过滤非法、无效和低质量内容，Execution 完整保留，Workbench 的重复来源由 Projection 归并。
 
 ### Runtime 工具名称中立化（历史步骤，Model-led 迁移已完成）
 

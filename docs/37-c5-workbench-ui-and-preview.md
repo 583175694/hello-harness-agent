@@ -1,7 +1,7 @@
 # C5：Workbench UI 与预览（产品 / 前端契约）
 
 > 文档状态：**C5 产品阶段已完成**（C5-A + C5-B）；**C5-C 后置 Backlog（低优先级）**  
-> 最后更新：2026-09-29（规划：C5 收口，研发主线转 K5/C6，见 [implementation-status.md §7](./implementation-status.md)）  
+> 最后更新：2026-09-30（C5 收口 + 交付物 Office/PDF 文本预览 + 顶栏 WORKBENCH；研发主线 K5/C6，见 [implementation-status.md §7](./implementation-status.md)）  
 > 关联：[19-agent-frontend.md](./19-agent-frontend.md)（对话与跨面板导航）、[20-agent-workbench.md](./20-agent-workbench.md)（历史参考，C5 实施后以本文 Workbench IA 为准）、[31-c2-artifact-and-report-generation.md](./31-c2-artifact-and-report-generation.md)、[implementation-status.md §7.2 C5](./implementation-status.md)  
 > 视觉参考：pipishrimp Lovart 稿（1920×1080；工具结果 + 交付物 + Context；底栏工具 Slider）  
 > 切片命名：**C5-A** Workbench 升级与交互壳；**C5-B** HTML 预览与安全迭代；**C5-C** Sandbox 在工作台的深化展示（与 C4-A/B/C 命名一致，替代原 C5-1/2/3 编号）
@@ -34,7 +34,7 @@
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ 顶栏：pipishrimp · Session · 标题 · Live · 模型 · 设置                      │
+│ 顶栏：pipishrimp · Session · 标题 · Live · 模型 · WORKBENCH · 设置          │
 ├───────────────────────────────┬──────────────────────────────────────────┤
 │                               │  工作台  [工具结果|交付物|Context]  Pin × │
 │  ResizablePanel：会话区         │  ─────────────────────────────────────  │
@@ -59,6 +59,12 @@
 - **Workbench 关闭**：若用户关闭工作台，Resizable 退化为会话 **100%**；再次打开时恢复上次比例。
 
 **工程**：在 `apps/web` 通过 shadcn CLI 添加 `resizable` 组件（依赖 `react-resizable-panels`），路径 `@/components/ui/resizable`。
+
+### 2.3 顶栏与主题（2026-09-29）
+
+- **默认主题**：**浅色**（`apps/web/src/theme.ts`）；深色仍可用。
+- **主题切换**：迁入 **设置** 面板；顶栏不再提供独立主题 toggle。
+- **WORKBENCH**：顶栏 **WORKBENCH**（文案 `AGENT_UI_COPY.openWorkbenchLabel`）打开右侧工作台；工作台 chrome 关闭动作为对称文案。无可用工作台内容时按钮 disabled 并提示（`openWorkbenchUnavailable`）。
 
 ---
 
@@ -86,7 +92,7 @@
 | `web_search` | 结果卡片列表 | 标题、域名、snippet；不称 Sources Tab |
 | `web_fetch` | 网页读取 | URL、状态、相关 passage 摘要（可展开）；质量 gate 失败展示可读错误 |
 | `bash` / `job_*` | 终端只读块 | ANSI 渲染；结构化 `exitCode`；C5-C 可加强 job 卡片 |
-| MCP / `external_tool` | 结构化摘要 | 工具名、server、结果摘要；不展示 secret |
+| MCP / `external_tool` | **JsonViewer** + 业务摘要 | 工具名、server、结构化 input/output（共享 `JsonViewer` 全高）；不展示 secret |
 | `tool_approval` 等待 | 审批面板 | 展开 `input` 摘要；批准/拒绝（K3.2，与对话区可并存，Workbench 提供大屏） |
 
 - **禁止**：原始 provider JSON、完整 request/response、未脱敏 header。
@@ -107,9 +113,10 @@
 
 - **顶栏**：面包屑 `交付物 › {fileName} › v{n}`；**版本 Segmented 或 Select**（v1 / v2 / **v3 当前**）；**在新窗口打开**、**下载**。
 - **主区域全宽**：
-  - Markdown / 报告：`MarkdownContent` 或等价预览。
+  - Markdown / 报告 / 纯文本：`MarkdownContent` 或等价预览。
+  - **DOCX / PDF / XLSX（Agent 生成，2026-09-30）**：preview API 返回 **normalized 正文**；Workbench 使用 **`DeliverableMarkdownPanel`**（`MarkdownContent variant="report"`）展示 **文本结构预览**，并固定展示 **版式说明**（下载的 Word / Excel / PDF 为正式排版权威；见 `AGENT_UI_COPY.deliverableBinaryFormatPreviewNotice`）。不内嵌 Office/PDF 二进制渲染器。
   - HTML（C5-B）：**sandbox iframe** + CSP；Host preview URL（C5-A 已提供基础 iframe 预览，不含安全策略验收）。
-  - 其他：沿用现有 Artifact 预览能力（PDF 等按 C2）。
+  - 图片等：沿用现有 Artifact 预览能力。
 - **底栏主按钮**：**基于此版本修改** → 触发 C2-D `revise` 流程（与现网语义一致）。
 
 **C5-A 与 C5-B 边界**：列表/详情/版本/revise/restore/下载与 iframe 壳层已在 C5-A 交付；C5-B 补齐 **HTML 预览语义**、**Host CSP**、**iframe sandbox 终态** 与验收（详见 §15）。
@@ -255,6 +262,7 @@ apps/api/src/artifacts/
   artifacts.controller.ts               # preview 响应头：CSP、inline disposition
 
 apps/web/src/features/agent/components/
+  deliverable-document-preview.tsx      # DOCX/PDF/XLSX normalized Markdown 壳层 + 版式说明
   workbench-views.tsx                   # ArtifactHtmlPreview sandbox、顶栏打开/下载、key 换版
 
 apps/api/test/

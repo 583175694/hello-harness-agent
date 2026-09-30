@@ -1,7 +1,7 @@
-import BottomSheet from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChatTopBar } from '../components/chat-top-bar';
 import { ComposerStack } from '../components/composer-stack';
@@ -14,12 +14,11 @@ import type { WorkspaceView } from '../fixtures/ui-fixtures';
 
 type ChatScreenProps = {
   previewState?: MobilePreviewState | 'default';
-  /** 预览帧覆盖 Composer 模式（如 HITL 帧） */
   composerMode?: 'default' | 'hitl' | 'clarification';
   showDrawer?: boolean;
 };
 
-export function ChatScreen({
+function ChatScreenInner({
   previewState = 'default',
   composerMode,
   showDrawer = false,
@@ -35,37 +34,47 @@ export function ChatScreen({
 
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const sheetRef = useRef<BottomSheet>(null);
+  const sheetRef = useRef<BottomSheetModal>(null);
   const [drawerOpen, setDrawerOpen] = useState(showDrawer);
   const [workbenchView, setWorkbenchView] = useState<WorkspaceView>(
     fixture.workbench?.initialView ?? 'activity',
   );
-  const [workbenchIndex, setWorkbenchIndex] = useState(fixture.workbench?.initialSheetIndex ?? -1);
   const workbenchCount = fixture.workbench?.workbenchCount ?? 3;
 
-  useEffect(() => {
-    setWorkbenchView(fixture.workbench?.initialView ?? 'activity');
-    setWorkbenchIndex(fixture.workbench?.initialSheetIndex ?? -1);
-  }, [previewState, fixture.workbench?.initialView, fixture.workbench?.initialSheetIndex]);
-
-  const openWorkbench = useCallback((view: WorkspaceView = 'activity', index = 1) => {
+  const openWorkbench = useCallback((view: WorkspaceView = 'activity', snapIndex = 1) => {
     setDrawerOpen(false);
     setWorkbenchView(view);
-    setWorkbenchIndex(index);
+    sheetRef.current?.present();
+    // present() 异步挂载 portal，稍后再 snap 到 60% detent
+    setTimeout(() => {
+      sheetRef.current?.snapToIndex(snapIndex);
+    }, 80);
   }, []);
 
   const closeWorkbench = useCallback(() => {
-    setWorkbenchIndex(-1);
+    sheetRef.current?.dismiss();
   }, []);
 
   const openDrawer = useCallback(() => {
-    setWorkbenchIndex(-1);
+    closeWorkbench();
     setDrawerOpen(true);
-  }, []);
+  }, [closeWorkbench]);
+
+  // 仅 Stitch 预览帧：自动打开 Sheet（主路径 index 不跑 dismiss）
+  useEffect(() => {
+    if (previewState === 'default') {
+      return;
+    }
+    setWorkbenchView(fixture.workbench?.initialView ?? 'activity');
+    const initialIndex = fixture.workbench?.initialSheetIndex ?? -1;
+    if (initialIndex >= 0) {
+      openWorkbench(fixture.workbench?.initialView ?? 'activity', initialIndex);
+    }
+  }, [previewState, fixture.workbench?.initialView, fixture.workbench?.initialSheetIndex, openWorkbench]);
 
   return (
-    <View className="flex-1 bg-canvas">
-      <View className="flex-1" style={{ paddingTop: insets.top }}>
+    <>
+      <View className="flex-1 bg-canvas" style={{ paddingTop: insets.top }}>
         <ChatTopBar
           title={fixture.title}
           onOpenDrawer={openDrawer}
@@ -74,21 +83,18 @@ export function ChatScreen({
         <ConversationPanel
           conversation={fixture.conversation}
           bottomInset={insets.bottom + 160}
-          onOpenWorkbench={openWorkbench}
+          onOpenWorkbench={(view) => openWorkbench(view ?? 'activity')}
         />
         <ComposerStack {...composer} bottomInset={insets.bottom} />
       </View>
 
-      <View style={styles.sheetHost} pointerEvents="box-none">
-        <WorkbenchSheet
-          ref={sheetRef}
-          activeView={workbenchView}
-          workbenchCount={workbenchCount}
-          sheetIndex={workbenchIndex}
-          onSheetIndexChange={setWorkbenchIndex}
-          onClose={closeWorkbench}
-        />
-      </View>
+      <WorkbenchSheet
+        ref={sheetRef}
+        activeView={workbenchView}
+        workbenchCount={workbenchCount}
+        onRequestClose={closeWorkbench}
+        onViewChange={setWorkbenchView}
+      />
 
       <SessionDrawer
         visible={drawerOpen}
@@ -98,14 +104,14 @@ export function ChatScreen({
           router.push('/settings');
         }}
       />
-    </View>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  sheetHost: {
-    ...StyleSheet.absoluteFill,
-    zIndex: 30,
-    elevation: 30,
-  },
-});
+export function ChatScreen(props: ChatScreenProps) {
+  return (
+    <BottomSheetModalProvider>
+      <ChatScreenInner {...props} />
+    </BottomSheetModalProvider>
+  );
+}

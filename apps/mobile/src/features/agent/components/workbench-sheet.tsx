@@ -1,6 +1,11 @@
-import BottomSheet, { BottomSheetBackdrop, type BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetScrollView,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet';
 import { forwardRef, useCallback, useMemo } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { X } from 'lucide-react-native';
 import { Text } from '@/components/ui/text';
 import type { WorkspaceView } from '../fixtures/ui-fixtures';
@@ -14,13 +19,13 @@ import { WorkbenchSourcesView } from './workbench-sources-view';
 type WorkbenchSheetProps = {
   activeView: WorkspaceView;
   workbenchCount?: number;
-  sheetIndex: number;
-  onSheetIndexChange?: (index: number) => void;
-  onClose?: () => void;
+  onDismiss?: () => void;
+  onRequestClose?: () => void;
+  onViewChange?: (view: WorkspaceView) => void;
 };
 
-export const WorkbenchSheet = forwardRef<BottomSheet, WorkbenchSheetProps>(function WorkbenchSheet(
-  { activeView, workbenchCount = 3, sheetIndex, onSheetIndexChange, onClose },
+export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(function WorkbenchSheet(
+  { activeView, workbenchCount = 3, onDismiss, onRequestClose, onViewChange },
   ref,
 ) {
   const snapPoints = useMemo(() => ['38%', '60%', '92%'], []);
@@ -44,14 +49,11 @@ export const WorkbenchSheet = forwardRef<BottomSheet, WorkbenchSheetProps>(funct
   );
 
   return (
-    <BottomSheet
+    <BottomSheetModal
       ref={ref}
-      index={sheetIndex}
-      onChange={onSheetIndexChange}
       snapPoints={snapPoints}
       enablePanDownToClose
-      style={styles.sheet}
-      containerStyle={styles.sheetContainer}
+      onDismiss={onDismiss}
       backdropComponent={renderBackdrop}
       handleIndicatorStyle={{ backgroundColor: '#dededb', width: 36 }}
       backgroundStyle={{
@@ -62,21 +64,21 @@ export const WorkbenchSheet = forwardRef<BottomSheet, WorkbenchSheetProps>(funct
         borderColor: '#dededb',
       }}
     >
-      <View className="flex-1">
+      <BottomSheetScrollView contentContainerStyle={{ paddingBottom: 24 }}>
         <View className="gap-3 border-b border-composer-border px-4 pb-2.5 pt-1">
           <View className="flex-row items-center justify-between">
             <Text variant="headline" className="text-[15px]">
               工作台 ({workbenchCount})
             </Text>
             <Pressable
-              onPress={onClose}
+              onPress={onRequestClose}
               className="h-7 w-7 items-center justify-center rounded-full active:bg-subtle"
               accessibilityLabel="关闭工作台"
             >
               <X size={20} color="#555551" />
             </Pressable>
           </View>
-          <WorkbenchSegmentedTabs tabs={tabs} active={activeView} />
+          <WorkbenchSegmentedTabs tabs={tabs} active={activeView} onTabPress={onViewChange} />
         </View>
         {activeView === 'sources' ? (
           <WorkbenchSourcesView />
@@ -89,17 +91,7 @@ export const WorkbenchSheet = forwardRef<BottomSheet, WorkbenchSheetProps>(funct
         ) : (
           <WorkbenchActivityView />
         )}
-      </View>
-    </BottomSheet>
+      </BottomSheetScrollView>
+    </BottomSheetModal>
   );
-});
-
-const styles = StyleSheet.create({
-  sheetContainer: {
-    ...StyleSheet.absoluteFill,
-    zIndex: 30,
-  },
-  sheet: {
-    flex: 1,
-  },
 });

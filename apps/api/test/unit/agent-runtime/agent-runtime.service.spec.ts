@@ -1171,7 +1171,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     expect(order).toEqual([AGENT_TOOL_NAMES.webSearch, AGENT_TOOL_NAMES.webFetch]);
   });
 
-  it('counts every declared call, skips the 41st, then requires a tool-free answer', async () => {
+  it('executes every call in one batch and counts a single investigation turn', async () => {
     const calls = Array.from({ length: 41 }, (_, index) => ({
       id: `call-${index + 1}`,
       name: AGENT_TOOL_NAMES.webSearch,
@@ -1183,30 +1183,182 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         { type: 'round.completed', finishReason: 'tool_calls' },
       ],
       [
-        { type: 'text.delta', delta: '达到调用上限后的最终回答' },
+        { type: 'text.delta', delta: '同轮多 call 后的最终回答' },
         { type: 'round.completed', finishReason: 'stop' },
       ],
     ]);
     const tools = registry();
     const events = await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
 
-    expect(tools.execute).toHaveBeenCalledTimes(40);
-    expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(40);
+    expect(tools.execute).toHaveBeenCalledTimes(41);
+    expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(41);
     expect(events.at(-1)).toEqual({
       type: 'run.completed',
-      content: '达到调用上限后的最终回答',
-      toolCallCount: 40,
+      content: '同轮多 call 后的最终回答',
+      toolCallCount: 41,
     });
-    const finalInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
-    expect(finalInput.tools).toBeUndefined();
-    expect(
-      finalInput.messages.find(
-        (message) => message.role === 'tool' && message.toolCallId === 'call-41',
-      )?.content,
-    ).toContain(AGENT_ERROR_CODES.toolCallLimitExceeded);
+    const secondRoundInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
+    expect(secondRoundInput.tools?.map((tool) => tool.name)).toContain(AGENT_TOOL_NAMES.webSearch);
   });
 
-  it('counts success, failure, invalid arguments, and unknown tools toward one shared limit', async () => {
+  it('enters delivery after 40 investigation turns and allows create_report only', async () => {
+    const investigationRounds = Array.from({ length: 40 }, (_, index) => [
+      {
+        type: 'tool_calls.completed' as const,
+        calls: [
+          {
+            id: `call-${index + 1}`,
+            name: AGENT_TOOL_NAMES.webSearch,
+            arguments: '{"query":"x"}',
+          },
+        ],
+      },
+      { type: 'round.completed' as const, finishReason: 'tool_calls' },
+    ]);
+    const model = modelFromRounds([
+      ...investigationRounds,
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'delivery-call',
+              name: AGENT_TOOL_NAMES.createReport,
+              arguments: '{"title":"t","content":"body"}',
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '交付完成' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const tools = registry({
+      definitions: vi.fn(() => [
+        { name: AGENT_TOOL_NAMES.webSearch, description: '搜索网页', parameters: {} },
+        { name: AGENT_TOOL_NAMES.createReport, description: '写报告', parameters: {} },
+      ]),
+    });
+    await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
+
+    const deliveryRoundInput = model.streamRound.mock.calls[40]![0] as ModelRoundInput;
+    expect(deliveryRoundInput.tools?.map((tool) => tool.name).sort()).toEqual(
+      [AGENT_TOOL_NAMES.createReport, AGENT_TOOL_NAMES.updatePlan].sort(),
+    );
+    expect(
+      deliveryRoundInput.messages.some(
+        (message) => message.role === 'system' && message.content.includes('交付阶段'),
+      ),
+    ).toBe(true);
+  });
+
+  it('rejects read_file in delivery phase with TOOL_PHASE_RESTRICTED', async () => {
+    const investigationRounds = Array.from({ length: 40 }, (_, index) => [
+      {
+        type: 'tool_calls.completed' as const,
+        calls: [
+          {
+            id: `call-${index + 1}`,
+            name: AGENT_TOOL_NAMES.webSearch,
+            arguments: '{"query":"x"}',
+          },
+        ],
+      },
+      { type: 'round.completed' as const, finishReason: 'tool_calls' },
+    ]);
+    const model = modelFromRounds([
+      ...investigationRounds,
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'read-delivery',
+              name: AGENT_TOOL_NAMES.readFile,
+              arguments: '{"path":"a.txt","scope":"file"}',
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '最终回答' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const tools = registry({
+      definitions: vi.fn(() => [
+        { name: AGENT_TOOL_NAMES.webSearch, description: '搜索网页', parameters: {} },
+        { name: AGENT_TOOL_NAMES.readFile, description: '读文件', parameters: {} },
+      ]),
+      parseInput: vi.fn((name: string, raw: string) => JSON.parse(raw)),
+    });
+    await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
+
+    const deliveryRoundInput = model.streamRound.mock.calls[40]![0] as ModelRoundInput;
+    expect(
+      deliveryRoundInput.messages.find(
+        (message) => message.role === 'tool' && message.toolCallId === 'read-delivery',
+      )?.content,
+    ).toContain(AGENT_ERROR_CODES.toolPhaseRestricted);
+    expect(tools.execute).not.toHaveBeenCalledWith(
+      AGENT_TOOL_NAMES.readFile,
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('enters final_only after delivery turns are exhausted without counting the final text round', async () => {
+    const investigationRounds = Array.from({ length: 40 }, (_, index) => [
+      {
+        type: 'tool_calls.completed' as const,
+        calls: [
+          {
+            id: `inv-${index + 1}`,
+            name: AGENT_TOOL_NAMES.webSearch,
+            arguments: '{"query":"x"}',
+          },
+        ],
+      },
+      { type: 'round.completed' as const, finishReason: 'tool_calls' },
+    ]);
+    const deliveryRounds = Array.from({ length: 3 }, (_, index) => [
+      {
+        type: 'tool_calls.completed' as const,
+        calls: [
+          {
+            id: `del-${index + 1}`,
+            name: AGENT_TOOL_NAMES.createReport,
+            arguments: '{"title":"t","content":"c"}',
+          },
+        ],
+      },
+      { type: 'round.completed' as const, finishReason: 'tool_calls' },
+    ]);
+    const model = modelFromRounds([
+      ...investigationRounds,
+      ...deliveryRounds,
+      [
+        { type: 'text.delta', delta: '无工具最终回答' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const tools = registry({
+      definitions: vi.fn(() => [
+        { name: AGENT_TOOL_NAMES.webSearch, description: '搜索网页', parameters: {} },
+        { name: AGENT_TOOL_NAMES.createReport, description: '写报告', parameters: {} },
+      ]),
+    });
+    await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
+
+    const finalRoundInput = model.streamRound.mock.calls[43]![0] as ModelRoundInput;
+    expect(finalRoundInput.tools).toBeUndefined();
+    expect(finalRoundInput.messages.some((message) => message.role === 'tool')).toBe(true);
+  });
+
+  it('dispatches mixed outcomes in one batch without per-call turn cap', async () => {
     const calls = [
       {
         id: 'call-success',
@@ -1236,7 +1388,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         { type: 'round.completed', finishReason: 'tool_calls' },
       ],
       [
-        { type: 'text.delta', delta: '混合调用达到上限后的回答' },
+        { type: 'text.delta', delta: '混合调用后的回答' },
         { type: 'round.completed', finishReason: 'stop' },
       ],
     ]);
@@ -1263,15 +1415,15 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ) as ToolRegistryService['execute'],
     });
     const events = await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
-    const finalInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
-    const toolMessages = finalInput.messages.filter((message) => message.role === 'tool');
+    const secondRoundInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
+    const toolMessages = secondRoundInput.messages.filter((message) => message.role === 'tool');
 
-    expect(tools.execute).toHaveBeenCalledTimes(38);
-    expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(38);
+    expect(tools.execute).toHaveBeenCalledTimes(39);
+    expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(39);
     expect(events.at(-1)).toEqual({
       type: 'run.completed',
-      content: '混合调用达到上限后的回答',
-      toolCallCount: 40,
+      content: '混合调用后的回答',
+      toolCallCount: 41,
     });
     expect(toolMessages).toHaveLength(41);
     expect(
@@ -1282,6 +1434,6 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     ).toContain(AGENT_ERROR_CODES.unknownTool);
     expect(
       toolMessages.find((message) => message.toolCallId === 'call-extra-37')?.content,
-    ).toContain(AGENT_ERROR_CODES.toolCallLimitExceeded);
+    ).not.toContain(AGENT_ERROR_CODES.toolCallLimitExceeded);
   });
 });

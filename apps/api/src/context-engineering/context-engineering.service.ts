@@ -31,7 +31,7 @@ import type { McpServerInstructionSnapshot } from '../mcp/mcp.types';
 const SAFETY_MINIMUM = 4_096;
 const SUMMARY_MAX_TOKENS = 8_192;
 const COMPACTION_TIMEOUT_MS = 120_000;
-const RECENT_TOOL_UNITS_TO_KEEP = 2;
+const RECENT_TOOL_UNITS_TO_KEEP = 3;
 const PROTECTED_RECENT_UNITS = 4;
 const FILE_ID_PATTERN =
   /fileId=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/;
@@ -182,7 +182,10 @@ export class ContextEngineeringService {
       const candidate = candidates[index]!;
       const fullTokens = originalTokens[index]!;
       const roundShare = share + reclaimed;
-      const target = Math.min(fullTokens, profile.toolResultMaxTokens, roundShare);
+      const perResultCap = this.isFileTool(candidate.toolName)
+        ? Math.floor(profile.toolResultMaxTokens * 1.5)
+        : profile.toolResultMaxTokens;
+      const target = Math.min(fullTokens, perResultCap, roundShare);
       reclaimed = Math.max(0, roundShare - Math.min(fullTokens, target));
       if (target >= fullTokens) {
         output.push({
@@ -467,7 +470,11 @@ export class ContextEngineeringService {
   }
 
   private isFileTool(toolName: string): boolean {
-    return toolName === AGENT_TOOL_NAMES.searchFile || toolName === AGENT_TOOL_NAMES.readFileLines;
+    return (
+      toolName === AGENT_TOOL_NAMES.searchFile ||
+      toolName === AGENT_TOOL_NAMES.readFile ||
+      toolName === AGENT_TOOL_NAMES.readFileLines
+    );
   }
 
   private async replaceWithStoredResult(
@@ -530,7 +537,7 @@ export class ContextEngineeringService {
   ): string {
     return (
       `[Tool Result truncated: originalTokens=${originalTokens}, retainedTokens=${retainedTokens}, strategy=head-tail, fileId=${stored.fileId}, fileName=${stored.fileName}, lineCount=${stored.lineCount}]\n` +
-      '完整结果已保存。需要中间内容时用 search_file 或 read_file_lines 读取该 fileId，不要把预览当成全文。'
+      '完整结果已保存。需要中间内容时用 search_file 或 read_file 读取该 fileId，不要把预览当成全文。'
     );
   }
 
@@ -542,7 +549,7 @@ export class ContextEngineeringService {
   }): string {
     return (
       `[Tool Result stored: originalTokens=${stored.originalTokens}, fileId=${stored.fileId}, fileName=${stored.fileName}, lineCount=${stored.lineCount}]\n` +
-      '完整结果已外置。需要内容时用 search_file 或 read_file_lines 读取该 fileId，不要把本条说明当成正文。'
+      '完整结果已外置。需要内容时用 search_file 或 read_file 读取该 fileId，不要把本条说明当成正文。'
     );
   }
 
@@ -580,21 +587,37 @@ export class ContextEngineeringService {
         nextHistory.push(...unit.messages);
         continue;
       }
+      const toolNameByCallId = this.toolNamesByCallIdInUnit(unit);
       for (const message of unit.messages) {
         if (message.role !== 'tool') {
           nextHistory.push(message);
           continue;
         }
-        nextHistory.push(await this.collapseToolMessage(message, sessionId));
+        const toolName = toolNameByCallId.get(message.toolCallId);
+        nextHistory.push(await this.collapseToolMessage(message, sessionId, toolName));
       }
     }
     return [...(system ? [system] : []), ...nextHistory];
   }
 
+  private toolNamesByCallIdInUnit(unit: TranscriptUnit): Map<string, string> {
+    const names = new Map<string, string>();
+    const assistant = unit.messages.find(
+      (message) => message.role === 'assistant' && message.toolCalls?.length,
+    );
+    if (assistant?.role !== 'assistant' || !assistant.toolCalls?.length) return names;
+    for (const call of assistant.toolCalls) {
+      names.set(call.id, call.name);
+    }
+    return names;
+  }
+
   private async collapseToolMessage(
     message: Extract<ModelMessage, { role: 'tool' }>,
     sessionId: string,
+    toolName?: string,
   ): Promise<Extract<ModelMessage, { role: 'tool' }>> {
+    if (toolName && this.isFileTool(toolName)) return message;
     const existing = this.parseStoredToolResult(message.content);
     if (existing && message.content.startsWith('[Tool Result stored:')) return message;
     if (existing) {

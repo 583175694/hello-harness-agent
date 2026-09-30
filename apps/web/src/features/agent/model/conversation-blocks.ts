@@ -111,6 +111,15 @@ function toolActivityCompletedSummary(
   if (event.toolName === 'approval_test') return '审批测试已完成';
   if (event.toolName === 'get_current_time') return '当前时间已获取';
   if (event.toolName === 'search_file') return `找到 ${event.result.matches.length} 个文件命中`;
+  if (event.toolName === 'read_file') {
+    if (event.result.scope === 'file') {
+      return event.result.sizeTier === 'small'
+        ? '已读取小文件全文'
+        : `outline · ${event.result.sections?.length ?? 0} sections`;
+    }
+    if (event.result.scope === 'section') return `读取章节 ${event.result.lines.length} 行`;
+    return `读取 ${event.result.lines.length} 行文件内容`;
+  }
   if (event.toolName === 'read_file_lines') return `读取 ${event.result.lines.length} 行文件内容`;
   if (event.toolName === 'create_file') return `已生成 ${event.result.file.fileName}`;
   if (event.toolName === 'create_report') return `生成报告：${event.result.report.title}`;

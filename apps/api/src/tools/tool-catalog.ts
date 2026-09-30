@@ -4,7 +4,7 @@ import type { AgentTool } from './agent-tool.types';
 import { ApprovalTestTool } from './approval-test.tool';
 import { GetCurrentTimeTool } from './get-current-time.tool';
 import { FileSearchTool } from './file-search.tool';
-import { FileReadLinesTool } from './file-read-lines.tool';
+import { FileReadTool } from './file-read.tool';
 import { FileCreateTool } from './file-create.tool';
 import { ReportCreateTool } from './report-create.tool';
 import { BashTool } from './bash.tool';
@@ -28,7 +28,7 @@ export const AGENT_TOOL_CLASSES = [
   ApprovalTestTool,
   GetCurrentTimeTool,
   FileSearchTool,
-  FileReadLinesTool,
+  FileReadTool,
   FileCreateTool,
   ReportCreateTool,
   BashTool,

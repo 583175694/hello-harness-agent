@@ -8,7 +8,11 @@ import type {
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
 import type { ResponseStreamEvent } from 'openai/resources/responses/responses';
-import type { ReasoningCapability, ReasoningEffort } from '@harness/agent-protocol';
+import {
+  AGENT_PROTOCOL_LIMITS,
+  type ReasoningCapability,
+  type ReasoningEffort,
+} from '@harness/agent-protocol';
 import { getDeepSeekV3TokenEstimator, type DeepSeekMessage } from '@harness/deepseek-v3-tokenizer';
 
 import { ENV_KEYS } from '../bootstrap/env.constants';
@@ -91,12 +95,21 @@ function stringOrFallback(value: unknown, fallback: string | null): string | nul
   return fallback;
 }
 
-function fileRefMetadataText(block: Extract<UserContentBlock, { type: 'file_ref' }>): string {
+/** 用户消息里 file_ref 附带的读稿提示（与 read_file / search_file 工具文案一致）。 */
+export function fileRefMetadataText(block: Extract<UserContentBlock, { type: 'file_ref' }>): string {
   const extras: string[] = [];
   if (block.lineCount !== undefined) extras.push(`lines=${block.lineCount}`);
   if (block.pageCount !== undefined) extras.push(`pages=${block.pageCount}`);
   const extraSuffix = extras.length > 0 ? `, ${extras.join(', ')}` : '';
-  return `[Attached file metadata: ${block.fileName}, fileId=${block.fileId}, mediaType=${block.mediaType}, size=${block.size} bytes${extraSuffix}. Use search_file or read_file_lines to inspect content.]`;
+  const lineCount = block.lineCount ?? 0;
+  const sizeBytes = block.size ?? 0;
+  const isLarge =
+    lineCount > AGENT_PROTOCOL_LIMITS.fileReadLinesMax / 2 ||
+    sizeBytes > AGENT_PROTOCOL_LIMITS.fileReadSmallMaxCodePoints * 4;
+  const readPlaybook = isLarge
+    ? ` Large attachment: read_file(scope=file) for outline, then read_file(scope=section) for each section (or scope=lines blocks covering lines 1..${lineCount || 'lineCount'} without gaps). Use search_file to locate terms, then read_file for full paragraphs. Do not treat a small lines window as reading the whole file.`
+    : ' Use read_file(scope=file) for structure or full text; search_file to locate keywords.';
+  return `[Attached file metadata: ${block.fileName}, fileId=${block.fileId}, mediaType=${block.mediaType}, size=${sizeBytes} bytes${extraSuffix}.${readPlaybook}]`;
 }
 
 function requestSignal(signal?: AbortSignal): { signal: AbortSignal } | undefined {

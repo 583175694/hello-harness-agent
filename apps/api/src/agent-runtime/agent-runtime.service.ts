@@ -36,6 +36,13 @@ import type { ToolRegistryContext } from '../tools/tool-registry.types';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import type { AgentRuntimeEvent, AgentRuntimeInput } from './agent-runtime.types';
 import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
+import {
+  applyToolBatchTurnCount,
+  evaluateToolDispatchBudget,
+  filterToolDefinitionsForPhase,
+  INVESTIGATION_DELIVERY_SYSTEM_NOTICE,
+  type ToolPhase,
+} from './tool-turn-budget';
 import { recoverTruncatedModelRound } from './output-limit-recovery';
 import { ContextEngineeringService } from '../context-engineering/context-engineering.service';
 import type { ToolResultCandidate } from '../context-engineering/context-engineering.types';
@@ -92,9 +99,13 @@ export class AgentRuntimeService {
       { role: 'system', content: input.systemPrompt },
       ...input.messages,
     ];
-    // 分别记录工具调用次数、交付模式、最终正文和已向客户端展示的文本。
+    // 分别记录 Tool Turn 分池、工具调用次数（观测）、交付模式、最终正文和已向客户端展示的文本。
+    let toolPhase: ToolPhase = 'investigation';
+    let investigationToolTurns = 0;
+    let deliveryToolTurns = 0;
     let toolCallCount = 0;
     let finalResponseOnly = false;
+    let deliveryPhaseNoticeAdded = false;
     let finalInstructionAdded = false;
     let finalContent = '';
     let visibleContent = '';
@@ -111,11 +122,21 @@ export class AgentRuntimeService {
       // 同一批 Tool Call 必须先补齐全部 Tool Message，最终回答指令在批次结束后追加。
       if (finalResponseOnly) return;
       finalResponseOnly = true;
+      toolPhase = 'final_only';
+    };
+
+    const enterDeliveryPhase = () => {
+      if (deliveryPhaseNoticeAdded) return;
+      deliveryPhaseNoticeAdded = true;
+      messages.push({
+        role: 'system',
+        content: INVESTIGATION_DELIVERY_SYSTEM_NOTICE,
+      });
     };
 
     // 每次外层循环对应一次独立模型请求，也就是一个稳定的 Model Round。
     // 每一轮要么得到最终文本，要么执行工具并把结果追加到下一轮上下文。
-    runtimeLoop: while (modelRounds <= DEFAULT_RUNTIME_POLICY.maxToolCalls) {
+    runtimeLoop: while (modelRounds < DEFAULT_RUNTIME_POLICY.maxModelRounds) {
       this.assertRunActive(input.signal, runDeadlineSignal);
       modelRounds += 1;
       const beforeModelWait = this.reachLifecycle(input, 'before_model_request', {
@@ -150,17 +171,20 @@ export class AgentRuntimeService {
         });
       }
       this.logger.log(
-        `模型 Loop 即将开始 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | 轮次=${modelRounds} | 阶段=${finalResponseOnly ? 'final_answer' : 'tool_loop'} | 暂停状态=${input.lifecycle?.snapshot().state ?? 'none'}`,
+        `模型 Loop 即将开始 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | 轮次=${modelRounds} | toolPhase=${toolPhase} | 调查Turn=${investigationToolTurns} | 交付Turn=${deliveryToolTurns} | 阶段=${finalResponseOnly ? 'final_answer' : 'tool_loop'} | 暂停状态=${input.lifecycle?.snapshot().state ?? 'none'}`,
         AgentRuntimeService.name,
       );
       // 最终回答阶段从请求参数层面移除工具，不能只依赖 Prompt 约束模型。
       // 最终回答阶段主动撤掉所有工具，防止模型在收尾时再次发起调用。
       const definitions = finalResponseOnly
         ? undefined
-        : [
-            ...(this.tools.definitions(toolRegistryContext) ?? []),
-            ...builtinToolDefinitions(),
-          ];
+        : filterToolDefinitionsForPhase(
+            [
+              ...(this.tools.definitions(toolRegistryContext) ?? []),
+              ...builtinToolDefinitions(),
+            ],
+            toolPhase,
+          );
       // 每次模型尝试都重新收集文本、工具调用和结束原因，污染重试不得混入上一轮内容。
       let compiled;
       try {
@@ -236,13 +260,11 @@ export class AgentRuntimeService {
       let roundId = crypto.randomUUID();
       let textBlockSequence = 0;
       let textPhase: 'pending' | 'commentary' | 'final_answer' | null | undefined;
-      // 普通调查轮只调用一次；最终回答遇到协议污染时允许有限重试。
+      // 普通调查轮只调用一次；最终回答在输出预算截断时允许有限重试。
       const maxAttempts = finalResponseOnly
-        ? DEFAULT_RUNTIME_POLICY.finalAnswerProtocolRetries +
-          DEFAULT_RUNTIME_POLICY.outputLimitRecoveryAttempts +
-          1
+        ? DEFAULT_RUNTIME_POLICY.outputLimitRecoveryAttempts + 1
         : 1;
-      // 内层循环只负责一次模型轮次及最终回答协议校验，不执行任何工具。
+      // 内层循环只负责一次模型轮次及输出预算恢复，不执行任何工具。
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         roundId = crypto.randomUUID();
         const attemptStartedAt = Date.now();
@@ -508,43 +530,7 @@ export class AgentRuntimeService {
             detail: '模型没有返回可显示的文本，请稍后重试。',
           });
         }
-        // 最终回答中再次出现结构化 Tool Call 或 DSML 标记，说明模型泄漏了内部控制协议。
-        if (finalResponseOnly && (calls.length > 0 || this.containsDsmlProtocol(roundContent))) {
-          this.logger.warn(
-            `最终回答协议污染 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 尝试=${attempt}/${maxAttempts} | DSML=${this.containsDsmlProtocol(roundContent) ? '是' : '否'} | 工具调用=${calls.length} 个 | 文本=${roundContent.length} 字`,
-            AgentRuntimeService.name,
-          );
-          // 首次污染时丢弃整轮并追加纠偏指令，绝不把污染文本写入客户端或上下文。
-          if (attempt < maxAttempts) {
-            visibleContent = visibleContent.slice(0, attemptVisibleStart);
-            yield {
-              type: 'text.discarded',
-              roundId,
-              roundSequence: modelRounds,
-              blockSequence: textBlockSequence,
-            };
-            messages.push({
-              role: 'system',
-              content:
-                '上一次最终回答包含无效的工具协议，已被丢弃。请只输出面向用户的最终自然语言回答，不得输出 DSML、工具调用或控制标记。',
-            });
-            continue;
-          }
-          visibleContent = visibleContent.slice(0, attemptVisibleStart);
-          yield {
-            type: 'text.discarded',
-            roundId,
-            roundSequence: modelRounds,
-            blockSequence: textBlockSequence,
-          };
-          // 达到重试上限仍被污染时终止交付，避免保存伪工具协议。
-          throw new ServiceUnavailableException({
-            code: AGENT_ERROR_CODES.modelStreamFailed,
-            detail: '模型连续返回了无效的工具协议，本次回答未保存。',
-          });
-        }
-
-        // 当前尝试已经成功完成，退出协议重试循环并进入本轮结果处理。
+        // 当前尝试已经成功完成，退出重试循环并进入本轮结果处理。
         break;
       }
 
@@ -721,23 +707,25 @@ export class AgentRuntimeService {
 
       // Dispatch Plan 在任何工具开始前一次性完成，供生命周期策略安全审查。
       for (const call of normalizedCalls) {
-        // 计划工具是控制工具，不占用 Business Tool 调用配额。
-        if (
-          call.name !== AGENT_TOOL_NAMES.updatePlan &&
-          toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls
-        ) {
+        const budgetDecision = evaluateToolDispatchBudget({
+          toolName: call.name,
+          phase: toolPhase,
+          deliveryToolTurns,
+          maxDeliveryToolTurns: DEFAULT_RUNTIME_POLICY.maxDeliveryToolTurns,
+        });
+        if (budgetDecision.action === 'reject') {
           dispatchPlan.push({
             status: 'rejected',
             call,
             error: {
-              code: AGENT_ERROR_CODES.toolCallLimitExceeded,
-              detail: '工具调用已达到当前 assistant run 的次数上限。',
+              code: budgetDecision.code,
+              detail: budgetDecision.detail,
               retryable: false,
             },
-            enterFinalAnswer: true,
+            enterFinalAnswer: budgetDecision.enterFinalAnswer,
           });
           this.logger.warn(
-            `工具调用已达到上限 | 会话=${shortLogId(input.sessionId)} | 上限=${DEFAULT_RUNTIME_POLICY.maxToolCalls} 次`,
+            `工具调用被 Tool Turn 策略拒绝 | 会话=${shortLogId(input.sessionId)} | toolPhase=${toolPhase} | 工具=${call.name} | 错误码=${budgetDecision.code}`,
             AgentRuntimeService.name,
           );
           continue;
@@ -770,7 +758,7 @@ export class AgentRuntimeService {
               detail,
               retryable: false,
             },
-            enterFinalAnswer: toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls,
+            enterFinalAnswer: false,
           });
           this.logger.warn(
             `工具参数无效 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 错误码=${code} | 原因=${detail}`,
@@ -783,7 +771,7 @@ export class AgentRuntimeService {
           status: 'ready',
           call,
           input: toolInput,
-          enterFinalAnswer: toolCallCount >= DEFAULT_RUNTIME_POLICY.maxToolCalls,
+          enterFinalAnswer: false,
         });
       }
 
@@ -1162,6 +1150,21 @@ export class AgentRuntimeService {
       });
       if (batchCommittedWait) await batchCommittedWait;
       this.assertRunActive(input.signal, runDeadlineSignal);
+
+      const turnUpdate = applyToolBatchTurnCount({
+        phase: toolPhase,
+        declaredCalls: normalizedCalls,
+        investigationToolTurns,
+        deliveryToolTurns,
+        maxInvestigationToolTurns: DEFAULT_RUNTIME_POLICY.maxInvestigationToolTurns,
+        maxDeliveryToolTurns: DEFAULT_RUNTIME_POLICY.maxDeliveryToolTurns,
+      });
+      investigationToolTurns = turnUpdate.investigationToolTurns;
+      deliveryToolTurns = turnUpdate.deliveryToolTurns;
+      toolPhase = turnUpdate.phase;
+      if (turnUpdate.enterDelivery) enterDeliveryPhase();
+      if (turnUpdate.enterFinalAnswer) enterFinalAnswer();
+
       // 整批 assistant Tool Calls 已逐一配对后，再追加一次无工具最终回答约束。
       if (finalResponseOnly && !finalInstructionAdded) {
         finalInstructionAdded = true;
@@ -1245,7 +1248,11 @@ export class AgentRuntimeService {
   }
 
   private isFileTool(toolName: string): boolean {
-    return toolName === AGENT_TOOL_NAMES.searchFile || toolName === AGENT_TOOL_NAMES.readFileLines;
+    return (
+      toolName === AGENT_TOOL_NAMES.searchFile ||
+      toolName === AGENT_TOOL_NAMES.readFile ||
+      toolName === AGENT_TOOL_NAMES.readFileLines
+    );
   }
 
   // create_file 的正文只进入工具执行，不进入 SSE、快照、日志或历史 metadata。
@@ -1343,11 +1350,6 @@ export class AgentRuntimeService {
         code: AGENT_ERROR_CODES.runDeadlineExceeded,
         detail: '本次任务已达到总执行时间上限。',
       });
-  }
-
-  // DeepSeek 等兼容供应商偶发把内部 DSML 控制协议作为正文返回。
-  private containsDsmlProtocol(content: string): boolean {
-    return /<[|｜]DSML[|｜]/iu.test(content);
   }
 
   // 将工具提供的安全结构化字段格式化为统一日志片段。

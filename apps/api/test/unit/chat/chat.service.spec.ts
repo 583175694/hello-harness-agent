@@ -849,132 +849,8 @@ describe('ChatService session persistence', () => {
     });
   });
 
-  it('does not infer a forced-final transition from tool-owned control fields', async () => {
-    let modelRound = 0;
-    const providerCreate = vi.fn().mockImplementation(() => {
-      modelRound += 1;
-      if (modelRound === 1) {
-        return Promise.resolve(
-          (async function* () {
-            yield {
-              choices: [
-                {
-                  delta: {
-                    tool_calls: [
-                      {
-                        index: 0,
-                        id: 'call-search',
-                        function: { name: 'web_search', arguments: '{"query":"test"}' },
-                      },
-                    ],
-                  },
-                  finish_reason: 'tool_calls',
-                },
-              ],
-            };
-          })(),
-        );
-      }
-      const content = modelRound === 2 ? '<｜DSML｜tool_calls>污染内容' : '经过校验的最终回答';
-      return Promise.resolve(
-        (async function* () {
-          yield { choices: [{ delta: { content }, finish_reason: 'stop' }] };
-        })(),
-      );
-    });
-    const registry = {
-      definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
-      parseInput: vi.fn(() => ({ query: 'test' })),
-      execute: vi.fn().mockResolvedValue({
-        status: 'succeeded',
-        output: { query: 'test', provider: 'serp', results: [] },
-        logFields: { durationMs: 1, resultCount: 0 },
-      }),
-    };
-    const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'research');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
-
-    const events = await collect(service.streamPrepared(prepared));
-
-    expect(events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: 'message.delta', delta: '<｜DSML｜tool_calls>污染内容' }),
-      ]),
-    );
-    expect(providerCreate).toHaveBeenCalledTimes(2);
-    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
-      data: { content: '<｜DSML｜tool_calls>污染内容' },
-    });
-  });
-
-  it('keeps ordinary model text independent from removed tool force-final controls', async () => {
-    let modelRound = 0;
-    const providerCreate = vi.fn().mockImplementation(() => {
-      modelRound += 1;
-      if (modelRound === 1) {
-        return Promise.resolve(
-          (async function* () {
-            yield {
-              choices: [
-                {
-                  delta: {
-                    tool_calls: [
-                      {
-                        index: 0,
-                        id: 'call-search',
-                        function: { name: 'web_search', arguments: '{"query":"test"}' },
-                      },
-                    ],
-                  },
-                  finish_reason: 'tool_calls',
-                },
-              ],
-            };
-          })(),
-        );
-      }
-      return Promise.resolve(
-        (async function* () {
-          yield {
-            choices: [
-              {
-                delta: { content: '<|DSML|tool_calls>污染内容' },
-                finish_reason: 'stop',
-              },
-            ],
-          };
-        })(),
-      );
-    });
-    const registry = {
-      definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
-      parseInput: vi.fn(() => ({ query: 'test' })),
-      execute: vi.fn().mockResolvedValue({
-        status: 'succeeded',
-        output: { query: 'test', provider: 'serp', results: [] },
-        logFields: { durationMs: 1, resultCount: 0 },
-      }),
-    };
-    const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'research');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
-
-    await expect(collect(service.streamPrepared(prepared))).resolves.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: 'message.delta', delta: '<|DSML|tool_calls>污染内容' }),
-      ]),
-    );
-
-    expect(providerCreate).toHaveBeenCalledTimes(2);
-    expect(messageCreate).toHaveBeenCalledTimes(2);
-    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
-      data: { role: 'assistant', content: '<|DSML|tool_calls>污染内容' },
-    });
-  });
-
-  it('forces a tool-free final model round after the shared 40-call limit is reached', async () => {
-    // 模拟模型连续请求工具的轮次，用于验证跨轮共享的调用次数上限。
+  it('enters delivery phase after 40 investigation tool turns and completes with a text-only round', async () => {
+    // 模拟 40 轮调查工具调用，验证第 41 轮进入 delivery（仍可能有交付工具）且最终可无工具回答。
     let modelRound = 0;
     const providerCreate = vi.fn().mockImplementation(() => {
       modelRound += 1;
@@ -1040,7 +916,10 @@ describe('ChatService session persistence', () => {
       expect.objectContaining({ tools: expect.any(Array) }),
     );
     expect(providerCreate.mock.calls[0]?.[0]).not.toHaveProperty('tool_choice');
-    expect(providerCreate.mock.calls[40]?.[0]).not.toHaveProperty('tools');
+    const deliveryRoundRequest = providerCreate.mock.calls[40]?.[0] as {
+      tools?: Array<{ function: { name: string } }>;
+    };
+    expect(deliveryRoundRequest.tools?.map((tool) => tool.function.name)).not.toContain('web_search');
     expect(providerCreate.mock.calls[40]?.[0]).not.toHaveProperty('tool_choice');
     expect(registry.execute).toHaveBeenCalledTimes(40);
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({

@@ -16,9 +16,9 @@
 
 ### C1 File & Multimodal Foundation 状态
 
-C1 已完整实现并收口。图片链路覆盖最多四个附件的有序绑定、旧单附件请求兼容、失败保留与手动重试、取消上传、未绑定文件删除、剪贴板图片粘贴、多图预览、视觉模型输入和 Session 删除后的 COS 清理补偿。文件链路覆盖 TXT、Markdown、CSV、JSON、PDF 以及现代 DOCX/XLSX 的类型校验、异步解析、状态恢复、受限预览、规范化正文保存和基础定位信息；模型通过 `search_file` 与 `read_file_lines` 按需读取有限材料，不默认把完整正文注入 Context。Composer 已支持文件选择、拖拽、图片优先的剪贴板分流、长文本粘贴自动生成 TXT 附件、附件重试/取消/移除和多种文件预览。
+C1 已完整实现并收口。图片链路覆盖最多四个附件的有序绑定、旧单附件请求兼容、失败保留与手动重试、取消上传、未绑定文件删除、剪贴板图片粘贴、多图预览、视觉模型输入和 Session 删除后的 COS 清理补偿。文件链路覆盖 TXT、Markdown、CSV、JSON、PDF 以及现代 DOCX/XLSX 的类型校验、异步解析、状态恢复、受限预览、规范化正文保存和基础定位信息；模型通过 `search_file` 定位关键词、通过 **`read_file`（`scope`: file / section / lines）** 按需读取（小文件一次给够、大文件 outline + 块读），不默认把完整正文注入 Context。解析阶段写入 Section 索引（`File.overview.sections`）；用户附件与 file-tool 结果 **不静默 spill**（见 [38-c1-file-read-and-search-tools.md](./38-c1-file-read-and-search-tools.md)）。Composer 已支持文件选择、拖拽、图片优先的剪贴板分流、长文本粘贴自动生成 TXT 附件、附件重试/取消/移除和多种文件预览。
 
-C1 的数据库 migration、协议、FileStorage/COS、文件处理、Model Adapter、Run Context、Tool、Projection、Session 恢复和 Web Composer 均已接入。C1 的完成验证覆盖 API/Web/Protocol 单测、类型检查、lint、production build、数据库集成和真实浏览器交互；现代 Office 解析和 Office/PDF/TXT 文件预览已纳入本次完成范围并通过回归。C1 不包含 C2 Artifact/Report 生成，也不承诺 OCR、音视频转写、复杂 Office 版式、压缩包递归解析、密码保护文件、向量检索或全文索引。
+C1 的数据库 migration、协议、FileStorage/COS、文件处理、Model Adapter、Run Context、Tool、Projection、Session 恢复和 Web Composer 均已接入。C1 的完成验证覆盖 API/Web/Protocol 单测、类型检查、lint、production build、数据库集成和真实浏览器交互；现代 Office 解析和 Office/PDF/TXT 文件预览已纳入本次完成范围并通过回归。C1 不包含 C2 Artifact/Report 生成，也不承诺 OCR、音视频转写、复杂 Office 版式、压缩包递归解析、密码保护文件、向量检索或全文索引。Compile 任务分轨（medium/large 仅 file_ref）、search 命中 `sectionId` 为 **P1**（设计见 doc 38）。
 
 ### C2 Artifact & Report Generation 状态
 
@@ -226,11 +226,13 @@ Workbench 的 Context Tab 只保留当前 Run 最后一轮快照，Run 结束和
 - DeepSeek V4 Thinking + Tool Calling 已通过 Model Adapter 做上下文特化：解码 `reasoning_content` 分片并由 Runtime 聚合，仅对历史 Tool Call 原子单元做 native replay，最终回答 reasoning 不进入下一轮请求；provider/format 兼容检查、Run reasoning profile 和用户投影隐藏边界均已落地并有单测覆盖。
 - Context Engineering 第一阶段已接入每个 Model Round：本地 DeepSeek V3 tokenizer 统一估算 messages 与 Tool Definitions，按 Model Profile 预留最大输出和安全空间，支持 Tool Result 批次裁剪、封闭历史前缀压缩、Session 级摘要状态和明确的最终超限错误。
 - C1 文件与多模态基础已完成：支持图片、TXT、Markdown、CSV、JSON、PDF、DOCX、XLSX 附件的上传、校验、解析、状态恢复、预览、消息绑定和模型消费；原始文件与规范化正文通过 FileStorage/COS 保存，数据库只保存文件元数据、状态、哈希、解析器版本和对象引用。
-- C1 文件按需读取已完成：模型可通过 `search_file` 进行关键词搜索、通过 `read_file_lines` 读取有界行范围；工具结果带文件名、`fileId` 和行号/页码定位，并执行 Session 归属、`ready` 状态和结果预算校验。
+- C1 文件按需读取（C1-B.2+ / doc 38 P0）：`read_file` 三 scope + Section 索引；`read_file_lines` 仅历史 transcript / Registry 别名解析；`search_file` 独立定位；`fileReadLinesMax` 150、`fileReadResultMaxCharacters` 24_000、CE file-tool 1.5× `toolResultMaxTokens`；**同轮** file-tool 超限返回 `FILE_CONTEXT_RESULT_TOO_LARGE` 不 spill。Tool / System 读稿 playbook 已加强（`read_file`、`search_file`、`CHAT_SYSTEM_PROMPT`、`file_ref` 大文件 hint）。
+- **CE P0.5（已实现，2026-09-30）**：历史折叠不对 file-tool 做 `[Tool Result stored]`；`RECENT_TOOL_UNITS_TO_KEEP = 3`；单测见 `context-engineering.service.spec.ts`。docx 审阅冒烟：Session `335d9f96-e8c6-4de9-a242-f99e7a64c769`。详见 [03-context-engineering.md](./03-context-engineering.md) §13、[38-c1-file-read-and-search-tools.md](./38-c1-file-read-and-search-tools.md) §7 / §14。
+- **C1 读稿产品口径（2026-09-30，无代码变更）**：`search_file` 维持独立工具；无标题 docx 全文任务 **允许 lines 分块读满**（不强制 section/search）；**暂不**做 outline sections 封顶（P1-a）与 `readingGuide`（P1-b）。见 [38-c1-file-read-and-search-tools.md](./38-c1-file-read-and-search-tools.md) §14。
 - C1 Composer 附件交互已完成：支持多附件有序管理、图片剪贴板粘贴、长文本粘贴自动外置为 TXT、失败重试、取消/移除、Office/PDF/TXT 等文件预览和无障碍附件操作。
 - Workbench 已增加当前 Run 的 Context 调试视图；Run 结束及刷新后保留最后一轮快照，JSON 分离展示模型输入 `messages` 与本轮输出 `response`，并支持主题色、长内容换行和复制。
 - 评估体系已从当前工作区移除；普通 unit、integration、E2E 与 `agent-testkit` 工程回归能力保留。
-- 已实现每个 assistant run 最多 40 次 Tool Call 的模型-工具循环，支持分片 arguments 聚合、参数校验、串行执行、错误回传和达到调用上限后的无工具最终回答。
+- 已实现 **Tool Turn 预算与调查/交付分池**（[25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) §4）：默认 40 investigation turn + 3 delivery turn（仅 `create_file` / `create_report`），`update_plan` 不计 turn；`toolCallCount` 仅观测。支持分片 arguments 聚合、参数校验、串行执行、phase 拒绝与 `final_only` 无工具最终回答。
 - 模型调用已通过 `ModelAdapter` 与 OpenAI SDK 隔离；`AgentRuntimeService` 只依赖 canonical message、模型事件和工具契约。
 - 工具层已拆为 `AgentTool`、集中式 Tool Catalog 和通用 Registry；新增工具不再需要把业务逻辑写入 Registry。
 - Chat 链路已拆出 Runtime、搜索投影、assistant 交付仓库、标题服务和 SSE Writer，`ChatService` 只保留会话准备与兼容事件编排。

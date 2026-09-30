@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConfigService } from '@nestjs/config';
 import {
+  fileRefMetadataText,
   normalizeProviderUsage,
   OpenAICompatibleModelAdapter,
 } from '../../../src/model/openai-compatible-model.adapter';
@@ -476,5 +477,27 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
       expect.objectContaining({ type: 'text.delta', phase: 'pending', delta: '前置文本' }),
       { type: 'text.phase.completed', blockSequence: 0, phase: 'commentary' },
     ]);
+  });
+});
+
+describe('fileRefMetadataText', () => {
+  const base = {
+    type: 'file_ref' as const,
+    fileId: 'file-1',
+    fileName: '正文.docx',
+    mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    size: 1024,
+  };
+
+  it('uses a short hint for small attachments', () => {
+    expect(fileRefMetadataText({ ...base, lineCount: 10 })).toContain('read_file(scope=file)');
+    expect(fileRefMetadataText({ ...base, lineCount: 10 })).not.toContain('scope=section');
+  });
+
+  it('uses a long-document playbook when line count or size is large', () => {
+    const text = fileRefMetadataText({ ...base, lineCount: 236, size: 221_538 });
+    expect(text).toContain('scope=section');
+    expect(text).toContain('lines 1..236');
+    expect(text).toContain('search_file');
   });
 });

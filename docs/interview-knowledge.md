@@ -1184,7 +1184,26 @@ Settings / Admin API (PUT/PATCH + secrets[])
 
 答：下载后在浏览器打开没有 Host CSP；Workbench preview 有 CSP 和 sandbox，故意限制外链 script、stylesheet、`fetch` 和多数外链图片（当前 `img-src 'self' data:`）。单文件 inline 的 JS/CSS 应对齐；依赖 CDN 的模板在 preview 里可能缺样式或动效。这不是两套文件内容，而是 **预览安全壳** 与 **本地完整浏览器** 的差异；后续可扩展 CSP 或同源代理 COS 图片。
 
-## 23. 追加规则
+## 23. C1 长附件通读：读工具演进 + CE 补丁（2026-09）
+
+> 上文 §17、§14 保留当时实现口径；本节是同一问题线上复盘后的**补充**，细节见 [38-c1-file-read-and-search-tools.md](./38-c1-file-read-and-search-tools.md)、CE [03](./03-context-engineering.md) §13。
+
+**现象**：用户上传长 docx 要求通读/审阅，Run 里 **Tool 很多、每次只读几十行**，常读不全；坏 case 里还有 bash 解 docx 绕读工具。
+
+**根因（两层）**  
+1. **读工具**：原先主要是 `read_file_lines`，单次行数 cap 小，模型容易从第 1 行机械分页；缺少「先 outline / 小文一次给够，再块读」的分轨。  
+2. **Context Engineering**：历史折叠把 **`read_file` 结果也收成 stored 指针**，模型像「读失忆」，反复 read 或误读 spill 文件。
+
+**改动（简述）**  
+- **P0**：`read_file`（`file | section | lines`）+ 厘清 `search_file`（定位）；调大 lines cap；补 System / tool / `file_ref` 读稿说明。  
+- **P0.5 CE**：file-tool **历史不 stored**；最近 Tool Unit 多保留 1 个（2→3）。  
+- **验收**：docx 通读允许 **规划好的 lines 分块** 读满全文，不强制 search/section（无标题 docx 用 section 反而更费轮次）。
+
+**面试口述（约 1 分钟）**  
+
+> 长附件审阅 Tool 爆炸，不只看模型，我用 Run 回放拆成读粒度和 CE 两层：行读 cap 太小导致机械分页；CE 又把 read 结果折叠成指针造成读失忆。我做了 read_file 三 scope、search 只做定位，以及 file-tool 在 CE 里既不静默 spill 也不历史 stored，并用 docx 冒烟对比前后 read 次数和行覆盖。
+
+## 24. 追加规则
 
 每个阶段只追加四类内容：
 

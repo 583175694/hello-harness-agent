@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
 import { FilesService } from '../../../src/files/files.service';
-import { FileReadLinesTool } from '../../../src/tools/file-read-lines.tool';
+import { FileReadTool } from '../../../src/tools/file-read.tool';
 import { FileSearchTool } from '../../../src/tools/file-search.tool';
 import type { FileStorage } from '../../../src/file-storage/file-storage';
 
@@ -96,7 +96,7 @@ describe('C1-B.2 file tools', () => {
   it('returns the dedicated error when the requested line range is too large', async () => {
     const { service } = createService('a\nb\nc');
     await expect(
-      service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 51 }),
+      service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 151 }),
     ).rejects.toMatchObject({ response: { code: 'FILE_READ_RANGE_TOO_LARGE' } });
   });
 
@@ -115,15 +115,15 @@ describe('C1-B.2 file tools', () => {
       ],
     });
 
-    const large = createService(`${'x'.repeat(8_000)}\n${'y'.repeat(8_000)}`);
+    const large = createService(`${'x'.repeat(16_000)}\n${'y'.repeat(16_000)}`);
     await expect(
       large.service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 2 }),
     ).resolves.toMatchObject({
       incomplete: true,
-      lines: [{ line: 1, text: 'x'.repeat(8_000) }],
+      lines: [{ line: 1, text: 'x'.repeat(16_000) }],
     });
 
-    const singleLine = createService('x'.repeat(12_001));
+    const singleLine = createService('x'.repeat(24_001));
     await expect(
       singleLine.service.readFileLines('local-user', 'session-1', { fileId: 'file-1', startLine: 1, endLine: 1 }),
     ).resolves.toMatchObject({ incomplete: true, lines: [] });
@@ -165,7 +165,7 @@ describe('C1-B.2 file tools', () => {
 
     expect(result.incomplete).toBe(true);
     expect(result.matches.length).toBeGreaterThan(0);
-    expect([...result.matches.map((match) => match.text).join('\n')].length).toBeLessThanOrEqual(12_000);
+    expect([...result.matches.map((match) => match.text).join('\n')].length).toBeLessThanOrEqual(24_000);
   });
 
   it('exposes stable model tool declarations and maps storage errors safely', async () => {
@@ -187,8 +187,9 @@ describe('C1-B.2 file tools', () => {
       error: { code: 'FILE_NOT_READY', retryable: false },
     });
 
-    const reader = new FileReadLinesTool({
-      readFileLines: vi.fn().mockResolvedValue({
+    const reader = new FileReadTool({
+      readFile: vi.fn().mockResolvedValue({
+        scope: 'lines',
         fileId: 'file-1',
         fileName: 'a.txt',
         mediaType: 'text/plain',
@@ -199,16 +200,65 @@ describe('C1-B.2 file tools', () => {
       }),
     } as never);
     const definition = reader.definition();
-    expect(definition.description).toContain('单次最多读取 50 行');
-    expect(definition.description).toContain('1-50、51-100');
-    expect(definition.parameters.properties.endLine.description).toContain(
-      'endLine - startLine + 1',
-    );
+    expect(definition.name).toBe('read_file');
+    expect(definition.description).toContain('单次最多 150 行');
+    expect(definition.description).toContain('scope=file');
+    expect(definition.description).toContain('Tool Result stored');
+    expect(tool.definition().description).toContain('read_file');
     await expect(
       reader.execute(
-        { fileId: 'file-1', startLine: 1, endLine: 1 },
+        { fileId: 'file-1', scope: 'lines', startLine: 1, endLine: 1 },
         { userId: 'local-user', sessionId: 'session-1', messageId: 'message-1', toolCallId: 'call-2' },
       ),
     ).resolves.toMatchObject({ status: 'succeeded' });
+  });
+
+  it('read(scope=file) returns full content for small files and outline for large files', async () => {
+    const small = createService('短文章\n第二段');
+    await expect(
+      small.service.readFile('local-user', 'session-1', { fileId: 'file-1', scope: 'file' }),
+    ).resolves.toMatchObject({
+      scope: 'file',
+      sizeTier: 'small',
+      incomplete: false,
+      content: '短文章\n第二段',
+    });
+
+    const large = createService(`${'段落内容。\n'.repeat(2_000)}结尾`);
+    const outline = await large.service.readFile('local-user', 'session-1', {
+      fileId: 'file-1',
+      scope: 'file',
+    });
+    expect(outline).toMatchObject({
+      scope: 'file',
+      sizeTier: expect.stringMatching(/medium|large/),
+      incomplete: false,
+    });
+    expect(outline.scope === 'file' && (outline.sections?.length ?? 0)).toBeGreaterThan(0);
+  });
+
+  it('read(scope=section) returns section body by sectionId', async () => {
+    const content = '# 标题\n\n正文第一段\n\n## 小节\n\n小节内容';
+    const { service } = createService(content);
+    const outline = await service.readFile('local-user', 'session-1', {
+      fileId: 'file-1',
+      scope: 'file',
+    });
+    const sectionId =
+      outline.scope === 'file' ? outline.sections?.find((s) => s.title === '小节')?.sectionId : undefined;
+    expect(sectionId).toBeTruthy();
+    const section = await service.readFile('local-user', 'session-1', {
+      fileId: 'file-1',
+      scope: 'section',
+      sectionId: sectionId!,
+    });
+    expect(section).toMatchObject({
+      scope: 'section',
+      sectionId,
+      incomplete: false,
+    });
+    expect(section.scope === 'section' && section.lines.some((line) => line.text.includes('小节内容'))).toBe(
+      true,
+    );
   });
 });

@@ -8,8 +8,12 @@ export const AGENT_PROTOCOL_LIMITS = {
   sessionImageAttachmentsMax: 4,
   // 无状态 Chat 请求允许携带的最大历史消息数。
   chatHistoryMaxMessages: 40,
-  // 单次 Agent 运行允许执行的工具调用总数。
+  // 单次 Agent 运行允许执行的工具调用总数（metadata / schema；Run 主收敛改由 Tool Turn 分池）。
   agentToolMaxCalls: 40,
+  // 调查阶段带业务工具的 Model Turn 上限（同轮多 call 计 1 turn）。
+  agentInvestigationToolTurnMax: 40,
+  // 交付阶段带业务工具的 Model Turn 上限（仅 create_file / create_report）。
+  agentDeliveryToolTurnMax: 3,
   // 单条 assistant 消息允许持久化的有序内容块总数。
   assistantContentBlocksMax: 128,
   // 单次网页搜索允许提交的查询字符串最大长度。
@@ -26,8 +30,12 @@ export const AGENT_PROTOCOL_LIMITS = {
   fileSearchQueryMaxLength: 500,
   fileSearchResultsMax: 8,
   fileSearchContextLines: 1,
-  fileReadLinesMax: 50,
-  fileReadResultMaxCharacters: 12_000,
+  fileReadLinesMax: 150,
+  fileReadResultMaxCharacters: 24_000,
+  /** scope=file 小文件全文阈值（Unicode code points）；超出则返回 outline。 */
+  fileReadSmallMaxCodePoints: 4_000,
+  /** 大文件 read(scope=file) outline 可选 head/tail 预览行数。 */
+  fileReadOutlinePreviewLines: 12,
   // 用户上传文件解析为正文后的最大 Unicode 字符数（code points）。
   uploadParsedContentMaxCodePoints: 60_000,
   generatedFileMaxBytes: 10 * 1024 * 1024,
@@ -58,6 +66,8 @@ export const AGENT_TOOL_NAMES = {
   // 网页读取工具在 Function Calling 协议中的稳定名称。
   webFetch: 'web_fetch',
   searchFile: 'search_file',
+  readFile: 'read_file',
+  /** @deprecated 仅历史 transcript / 别名解析；新调用使用 read_file。 */
   readFileLines: 'read_file_lines',
   // 无副作用的审批链路验证工具；生产工具策略保持不变。
   approvalTest: 'approval_test',
@@ -117,6 +127,8 @@ export const AGENT_ERROR_CODES = {
   modelTranscriptIntegrityError: 'MODEL_TRANSCRIPT_INTEGRITY_ERROR',
   // 当前 assistant run 已达到模型工具调用次数上限。
   toolCallLimitExceeded: 'TOOL_CALL_LIMIT_EXCEEDED',
+  // 当前 Tool Phase 不允许该工具（例如交付阶段禁止 read_file / web_search）。
+  toolPhaseRestricted: 'TOOL_PHASE_RESTRICTED',
   // 工具未在自身声明的外层执行时间内完成。
   toolTimeout: 'TOOL_TIMEOUT',
   // 模型返回的工具参数无法通过工具 Schema 校验。
@@ -172,6 +184,7 @@ export const AGENT_ERROR_CODES = {
   fileSearchResultTooLarge: 'FILE_SEARCH_RESULT_TOO_LARGE',
   fileReadRangeTooLarge: 'FILE_READ_RANGE_TOO_LARGE',
   fileLineOutOfRange: 'FILE_LINE_OUT_OF_RANGE',
+  fileSectionNotFound: 'FILE_SECTION_NOT_FOUND',
   fileReadResultTooLarge: 'FILE_READ_RESULT_TOO_LARGE',
   fileContextResultTooLarge: 'FILE_CONTEXT_RESULT_TOO_LARGE',
   fileStorageFailed: 'FILE_STORAGE_FAILED',

@@ -25,9 +25,12 @@ hello-harness-agent/
   apps/
     web/
     api/
+    mobile/                 # L6 React Native（Expo）；见 docs/36
   packages/
     agent-protocol/
     agent-testkit/
+    agent-client/             # P0 计划；HTTP + SSE（docs/36 §13.3）
+    agent-conversation/       # P0 计划；Run reducer / 投影（docs/36 §13.3）
   docs/
   artifacts/
   scripts/
@@ -42,8 +45,11 @@ hello-harness-agent/
 ```text
 apps/web                 终端用户任务工作台
 apps/api                 NestJS API + modular Agent backend
+apps/mobile              Mobile Agent 客户端（Stitch UI + 后续 API 联调，docs/36）
 packages/agent-protocol  唯一跨模块 schema/type 来源
 packages/agent-testkit   deterministic fixtures and contracts
+packages/agent-client    （P0）Web/Mobile 共享 API 客户端
+packages/agent-conversation  （P0）Web/Mobile 共享 Run/Conversation 归约
 scripts                  本地开发、启动和 PostgreSQL 初始化脚本
 artifacts                本地 Artifact 内容根目录；P1 仅用于 readiness
 ```

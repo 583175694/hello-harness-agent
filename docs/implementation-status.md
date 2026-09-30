@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-09-26（**当前进度：C4 完成**；Agent 主线高优先级剩余：**C5、K5、C6**；**L6 Mobile** Stitch v3 UI 已 freeze，工程未启动，见 docs/36 §5.5）
+> 最后更新：2026-09-30（**L6 Mobile**：`apps/mobile` Stitch UI 骨架已落地；**P0 共享包与 API 联调未启动**，见 docs/36 §13.3–§13.7）
 
 ## 1. 当前结论
 
@@ -55,13 +55,15 @@ C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@
 
 ### L6 Mobile Agent Frontend 状态
 
-**工程**：`apps/mobile` 未创建；共享包 `agent-client` / `agent-conversation` 未抽（里程碑 **P0**）。
+**工程（2026-09-30）**：
 
-**UI 定案**：仅 **React Native Reusables + NativeWind**（`components/ui`）；Agent 块自研 `agent-elements`，无第二 UI 库（docs/36 §8.4.1）。
+- **`apps/mobile` 已创建**：Expo Router、`pnpm dev:mobile`；主会话与 Workbench 为 **fixture 驱动**，未接 API。
+- **共享包**：`agent-client` / `agent-conversation` **未抽**（里程碑 **P0**，文件清单见 [36 §13.3](./36-mobile-agent-frontend.md#133-p0--共享包切分文件清单)）。
+- **下一里程碑**：P0 抽包 → P1 Settings URL + Session Drawer CRUD → P2 Run/SSE（见 [36 §13.4](./36-mobile-agent-frontend.md#134-p1p2--最小可聊文件清单与验收)）。
 
-**设计**（2026-09-26 freeze）：Stitch **五帧**（393×852）— A 会话 closed、B 来源 Tab、C Composer 内 HITL、D Session Drawer、产物 Sheet（下载 + 基于此版本修改）。Phone IA：**Workbench Bottom Sheet**（非底部 Tab）；HITL **不得**复用 Sheet。冻结决策（badge N、动态 Tab、Overlay 互斥、MVP P1–P5）见 [36-mobile-agent-frontend.md §5.5](./36-mobile-agent-frontend.md#55-设计定稿stitch-v32026-09-26)。
+**UI 定案**：**NativeWind + 自研 `agent-elements`**（`components/ui` 为基础原语）；Stitch v3 五帧与 `/preview`、`ui-catalog` 已可本地预览（docs/36 §5.5、§13.5）。
 
-**排期**：仍属 **L6**，不在 §7 Agent Capability 主线内；实现顺序见 docs/36 §13.2。
+**排期**：仍属 **L6**，不在 §7 Agent Capability 主线内；工程顺序以 **docs/36 §13.2–§13.7** 为准（原 §13.2 里程碑表不变，§13.3 起为可执行文件清单）。
 
 ### C3-B 相对 C3-A 的能力快照（已对齐）
 

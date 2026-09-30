@@ -1,7 +1,7 @@
 # Mobile Agent Frontend（React Native）
 
-> 文档状态：**移动端产品与技术方案（待实施）；Phone UI Stitch v3 已 freeze**  
-> 最后更新：2026-09-26（Manus 式 Workbench Sheet、Composer 内 HITL、五帧设计定稿见 §5.5）  
+> 文档状态：**Stitch v3 UI 骨架已落地（fixture / 预览）；P0 共享包与 API 联调按 §13.3–§13.4 待实施**  
+> 最后更新：2026-09-30（§13.3–§13.7 工程文件清单与当前进度；共享逻辑切至 `packages/` 见 §13.3）  
 > 关联：[19-agent-frontend.md](./19-agent-frontend.md)（Web 产品契约，Mobile 须语义 parity）、[11-api-protocol.md](./11-api-protocol.md)、[26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)、[18-project-structure.md](./18-project-structure.md)、[35-c4-mcp-client.md](./35-c4-mcp-client.md)（MCP Settings parity）  
 > 范围：**`apps/mobile` React Native 客户端，覆盖当前 Web `/agent` 已实现的全部 Agent 能力**，不是精简版或只读伴侣。
 
@@ -677,6 +677,8 @@ apps/mobile/
 
 不提前创建空模块；按里程碑递增（与 [19-agent-frontend.md §21](./19-agent-frontend.md) 精神一致）。
 
+**当前（2026-09-30）**：`apps/mobile` 已存在（Expo Router、`src/features/agent/*`、`app/preview/*`），目录较上文 **更扁平**（组件暂集中在 `components/`，尚无 `hooks/`、`providers/`）。数据仍走 **fixture**，未依赖 `@harness/agent-client`。随 **P1** 起按 §13.4 引入 `lib/`、`hooks/`、`providers/`；`composer/`、`workbench/` 子目录可在 **P5** 前再拆，避免空壳模块。
+
 ### 8.6 脚本与 CI
 
 ```text
@@ -834,7 +836,7 @@ Stitch 源文件由设计侧保管；工程以 **本文 §5.5 + §6 + Web 组件
 | 阶段 | 交付 | 依赖 |
 | --- | --- | --- |
 | **P0** | `agent-client` + `agent-conversation` 抽包；Web 引用无回归 | 无 mobile |
-| **P1** | `apps/mobile` 脚手架；Settings API URL；Session CRUD + **Session Drawer（D）**；ready | P0 |
+| **P1** | Settings API URL；Session CRUD + **Session Drawer（D）**；ready（`apps/mobile` 脚手架与 Stitch 预览 **已完成**，见 §13.5） | P0 |
 | **P1.5** | （可选）Composer **peek 条** → 同一 Workbench Sheet | P1 |
 | **P2** | createRun + SSE + Snapshot 恢复 + cancel；对话 text/tool_activity | P1 |
 | **P3** | Composer 全量（模型/推理/附件/粘贴/队列/Plan/Context 环） | P2 |
@@ -843,6 +845,151 @@ Stitch 源文件由设计侧保管；工程以 **本文 §5.5 + §6 + Web 组件
 | **P6** | Bash Terminal + Artifact revise/restore + Report Reader | P5 |
 | **P7** | Settings MCP 全表单 + Test | P5 |
 | **P8** | 推送、Maestro、iPad 分屏、性能与硬ening | P6–P7 |
+
+### 13.3 P0 — 共享包切分（文件清单）
+
+**原则**：把 Web 与 Mobile 都要 **同一语义** 的无 UI 逻辑迁入 `packages/`，避免双份 SSE / Run reducer。Web 在 P0 改为 **import 包**（行为不变），不是为 Mobile 单独改产品行为。Mobile 仅消费包 + 保留 Native 壳。
+
+**P0 最小切片**（够支撑 §13.4 P1–P2；MCP 全量、auth、附件 API 等留在 Web 薄封装或后续补全）：
+
+#### `packages/agent-client/`
+
+| 路径 | 职责 |
+| --- | --- |
+| `package.json` | `@harness/agent-client`，依赖 `@harness/agent-protocol` |
+| `tsconfig.json` | 继承根 `tsconfig.base.json` |
+| `src/index.ts` | 导出 |
+| `src/types.ts` | `ApiClientConfig`（`baseUrl`、可注入 `fetch`、`getAuthHeaders?`）、`ConnectionState` |
+| `src/http.ts` | `apiFetch`、`parseResponse`、`ApiProblem`（自 Web `apps/web/src/api/client.ts` 拆出） |
+| `src/sse.ts` | SSE frame 解析 + `subscribeRun`（与 Web 相同：`fetch` + `ReadableStream`） |
+| `src/readiness.ts` | `getReadiness` |
+| `src/sessions.ts` | `listSessions`、`createSession`、`getSession`、`updateSession`、`deleteSession` |
+| `src/runs.ts` | `createRun`、`getRun`、`cancelRun`（P2 可不导 `controlRun`） |
+| `src/config.ts` | `getPublicAgentConfig` |
+| `src/create-client.ts` | `createAgentClient(config)` |
+
+#### `packages/agent-conversation/`
+
+| 路径 | 职责 |
+| --- | --- |
+| `package.json` | `@harness/agent-conversation` |
+| `src/index.ts` | 导出 |
+| `src/types.ts` | 自 Web 迁入：`AgentUiState`、`ConversationItem`、`WorkbenchState` 等（P2 可先子集） |
+| `src/conversation-blocks.ts` | 自 Web 迁入（或先 re-export 再物理迁移） |
+| `src/tool-copy.ts` | tool_activity 标题 |
+| `src/bash-transparent.ts` | `applyToolEvent` 依赖 |
+| `src/source-identifiers.ts` | Snapshot → conversation 需要则迁入 |
+| `src/workbench-projection.ts` | 自 `app.tsx` 拆：`applyToolEvent`、workbench 纯投影 |
+| `src/run-reducer.ts` | 自 `app.tsx` 拆：**纯函数** `applyRunSnapshot` / `applyRunEvent`（无 React `setState`） |
+| `src/run-observer.ts` | `observeRun`：Snapshot 对齐 → SSE → seq gap 时 `getRun` |
+| `src/session-state.ts` | `createEmptySessionState`、`mergeSessionDetail`、`pendingSessions` 辅助 |
+| `src/run-reducer.test.ts` | 与 `agent-testkit` 对齐：duplicate seq、gap、tool_activity 顺序 |
+
+#### Web 迁移（P0 验收：引用无回归）
+
+| 路径 | 变更 |
+| --- | --- |
+| `apps/web/package.json` | 依赖 `@harness/agent-client`、`@harness/agent-conversation` |
+| `apps/web/src/api/client.ts` | 薄封装：默认 `baseUrl` 仍读 `VITE_*`，委托 `agent-client` |
+| `apps/web/src/features/agent/model/*.ts` | 改为从 package re-export 或删重复 |
+| `apps/web/src/app.tsx` | Run 循环改调 `run-reducer` + `run-observer` |
+| 根 `package.json` | `check` 纳入新包 typecheck/test |
+
+**可选加速**：先建 package、**仅 Mobile 引用**，Web 暂不改 import；稳定后再让 Web 迁完，完成单源（见 §15 双端漂移对策）。
+
+### 13.4 P1–P2 — 最小可聊（文件清单与验收）
+
+**目标**：配置 API → 选 Session → 发 Run → SSE 看到 **user + assistant 流式 text + 内联 tool_activity** → **cancel** → 切 Session 不串线 → 冷启动 **Snapshot 恢复** 同一 assistant 轮。
+
+**本阶段不做**（仍用 fixture 或占位）：Markdown/CoT、Workbench 真数据、HITL、`controlRun`、附件上传、MCP 表单、登录 UI、FlashList、推送。
+
+#### P1 — 连接 + Session Drawer
+
+| 路径 | 新建 / 修改 | 职责 |
+| --- | --- | --- |
+| `apps/mobile/src/lib/storage.ts` | 新建 | AsyncStorage 封装 |
+| `apps/mobile/src/lib/agent-client.ts` | 新建 | 读持久化 `apiBaseUrl` → `createAgentClient` |
+| `apps/mobile/src/features/agent/model/mobile-chrome.types.ts` | 新建 | `MobileChromeState`（§9.2） |
+| `apps/mobile/src/features/agent/hooks/use-service-state.ts` | 新建 | `checking \| ready \| unavailable` |
+| `apps/mobile/src/features/agent/hooks/use-api-base-url.ts` | 新建 | Base URL 读写 |
+| `apps/mobile/src/features/agent/hooks/use-session-list.ts` | 新建 | `listSessions` + refresh |
+| `apps/mobile/src/features/agent/hooks/use-session-detail.ts` | 新建 | `getSession` → conversation 状态 |
+| `apps/mobile/src/features/agent/providers/agent-host-provider.tsx` | 新建 | Context：client、service、sessions、selectedSessionId |
+| `apps/mobile/src/features/agent/components/service-banner.tsx` | 新建 | 未 ready 提示 + 重试 |
+| `apps/mobile/src/features/agent/components/session-drawer-menu.tsx` | 新建 | 重命名 / 置顶 / 删除（确认） |
+| `apps/mobile/package.json` | 修改 | `@harness/agent-protocol`、`agent-client`、`agent-conversation`、AsyncStorage |
+| `apps/mobile/app/_layout.tsx` | 修改 | 包 `AgentHostProvider` |
+| `apps/mobile/app/settings/index.tsx` | 修改 | API URL 可编辑持久化 |
+| `apps/mobile/src/features/agent/components/session-drawer.tsx` | 修改 | 真列表、新建、选中、搜索 |
+| `apps/mobile/src/features/agent/components/chat-top-bar.tsx` | 修改 | 真标题；可选 ⚙ → Settings |
+| `apps/mobile/src/features/agent/screens/chat-screen.tsx` | 修改 | 去掉默认 fixture 数据源 |
+| `apps/mobile/app/index.tsx` | 修改 | 生产路径仅 `ChatScreen`（`/preview` 保留） |
+
+**P1 验收**：改 URL → ready → Drawer 与 API 一致 → 新建/删/置顶/改名生效。
+
+#### P2 — Run + SSE + 最小 Composer
+
+| 路径 | 新建 / 修改 | 职责 |
+| --- | --- | --- |
+| `apps/mobile/src/features/agent/hooks/use-run-observer.ts` | 新建 | 包装 `observeRun`；每 session 单 AbortController |
+| `apps/mobile/src/features/agent/hooks/use-active-run.ts` | 新建 | `createRun` / `cancelRun`；`activeRunId`、连接态 |
+| `apps/mobile/src/features/agent/hooks/use-public-config.ts` | 新建 | 默认 model（reasoning 可先固定 `off`） |
+| `apps/mobile/src/features/agent/model/map-conversation-to-mobile.ts` | 新建 | `ConversationItem[]` → 现有 RN 块 props（P3 可删） |
+| `apps/mobile/src/features/agent/components/composer-run-controls.tsx` | 新建 | 发送 / Stop / submitting / cancelling |
+| `apps/mobile/src/features/agent/components/connection-pill.tsx` | 新建 | `idle \| connecting \| live \| reconnecting \| offline` |
+| `apps/mobile/src/features/agent/components/composer-stack.tsx` | 修改 | `onSubmit` / `onCancel`；仅 `new-run` + disabled |
+| `apps/mobile/src/features/agent/components/conversation-panel.tsx` | 修改 | 真 conversation 数据 |
+| `apps/mobile/src/features/agent/components/assistant-turn-content.tsx` | 修改 | live tool_activity |
+| `apps/mobile/src/features/agent/components/tool-activity-row.tsx` | 修改 | 状态与 Web `tool-copy` 对齐 |
+| `apps/mobile/src/features/agent/screens/chat-screen.tsx` | 修改 | 挂载 observer；进 Session 续订 Run |
+| `apps/mobile/src/features/agent/components/agent-elements/user-message-bubble.tsx` | 修改 | `createdAt`、attachment 展示名 |
+| `apps/mobile/src/features/agent/components/assistant-text-block.tsx` | 可选 | 纯 Text 流式正文（暂不引 Markdown 包） |
+
+**P2 验收**：发消息 → 流式字 + tool 行 → Cancel → 杀 App 再进同 Session 恢复。
+
+#### 测试（与 P2 同步）
+
+| 路径 | 职责 |
+| --- | --- |
+| `packages/agent-conversation/src/run-reducer.test.ts` | reducer 契约 |
+| `apps/mobile/src/features/agent/model/map-conversation-to-mobile.test.ts` | 块顺序不丢 |
+| 根 `package.json` / CI | `@harness/agent-conversation` test + `@harness/mobile` typecheck |
+
+Maestro（`apps/mobile/maestro/p2-smoke.yaml`）建议在 P2 通过后补，不阻塞首次联调。
+
+### 13.5 当前工程现状（2026-09-30）
+
+| 项 | 状态 |
+| --- | --- |
+| `apps/mobile` | **已创建**：Expo 57 + Expo Router + NativeWind；`pnpm dev:mobile` |
+| Stitch 五帧 + UI Catalog | **已实现**：`/preview/*`、`ui-catalog`；`ChatScreen` 等走 **fixture** |
+| Workbench Bottom Sheet | **壳已接**：`WorkbenchSheet` + 五 Tab 视图均为 **静态样例** |
+| Settings | **占位**：API URL 不可编辑；MCP 假数据列表 |
+| `@harness/agent-client` / `agent-conversation` | **未创建**（P0） |
+| 与 API 联调 | **未开始**（P1 起） |
+
+**保留策略**：`fixtures/*`、`app/preview/*` 继续服务设计与无后端回归；生产路由（`app/index.tsx`）在 P1 起 **不得** 再默认 import fixture。
+
+### 13.6 建议实施顺序（PR 链）
+
+```text
+1. agent-client（sessions + runs + sse + readiness + public config）
+2. agent-conversation（types + conversation-blocks + run-reducer + tests）
+3. Web 改引用 → pnpm check 绿
+4. Mobile lib + Provider + Settings URL + ServiceBanner
+5. Session Drawer 真 CRUD
+6. Composer + createRun + observer + conversation 映射
+7. cancel + 冷启动 Snapshot 恢复
+```
+
+### 13.7 P3+ 与现有 Mobile 文件（刻意不动项）
+
+| 模块 | 里程碑 | 说明 |
+| --- | --- | --- |
+| `WorkbenchSheet`、`workbench-*-view` | P5–P6 | P2 仍可用 fixture；P5 接动态 Tab / focus |
+| `ComposerHitlPanel`、Clarification | P4 | 预览帧保留，生产不接 |
+| `AgentChainOfThought`、`MarkdownView` | P3 / P6 | 见 §18 附录 A |
+| FlashList | P2 后性能项 | P2 仍可用 ScrollView |
 
 ---
 
@@ -883,11 +1030,12 @@ Stitch 源文件由设计侧保管；工程以 **本文 §5.5 + §6 + Web 组件
 ## 17. 阅读顺序（Mobile 专项）
 
 1. 本文 §5.5 设计定稿（Stitch v3）+ §4 Parity 矩阵  
-2. [19-agent-frontend.md](./19-agent-frontend.md) — Composer / Workbench 语义  
-3. [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) — SSE/cursor  
-4. [35-c4-mcp-client.md](./35-c4-mcp-client.md) — MCP Settings  
-5. [31-c2-artifact-and-report-generation.md](./31-c2-artifact-and-report-generation.md) — Artifact 版本链  
-6. [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md) — Bash/Terminal 投影  
+2. 本文 §13.3–§13.7 — **P0 抽包与 P1–P2 文件清单、当前进度**  
+3. [19-agent-frontend.md](./19-agent-frontend.md) — Composer / Workbench 语义  
+4. [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) — SSE/cursor  
+5. [35-c4-mcp-client.md](./35-c4-mcp-client.md) — MCP Settings  
+6. [31-c2-artifact-and-report-generation.md](./31-c2-artifact-and-report-generation.md) — Artifact 版本链  
+7. [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md) — Bash/Terminal 投影  
 
 ---
 

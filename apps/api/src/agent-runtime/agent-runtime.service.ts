@@ -50,6 +50,7 @@ import type { CompactionState } from '../context-engineering/context-engineering
 import { type PlanSnapshot } from '@harness/agent-protocol';
 import { PlanHandler } from './plan.handler';
 import { builtinToolDefinitions } from '../tools/builtin-tool-definitions';
+import { SkillRegistryService } from '../skills/skill-registry.service';
 import type {
   RuntimeLifecycleBoundary,
   RuntimeLifecycleContextMap,
@@ -79,6 +80,7 @@ export class AgentRuntimeService {
     @Optional()
     @Inject(ContextEngineeringService)
     private readonly context?: ContextEngineeringService,
+    @Optional() @Inject(SkillRegistryService) private readonly skills?: SkillRegistryService,
   ) {}
 
   private readonly planHandler = new PlanHandler();
@@ -95,10 +97,24 @@ export class AgentRuntimeService {
       ? AbortSignal.any([input.signal, runDeadlineSignal])
       : runDeadlineSignal;
     // System Prompt 与历史消息共同组成第一轮模型上下文，后续轮次只在该数组末尾追加。
+    const explicitNames = this.extractSkillNames(input.messages);
     const messages: ModelMessage[] = [
       { role: 'system', content: input.systemPrompt },
-      ...input.messages,
+      ...this.stripSkillCommand(input.messages, explicitNames.length > 0),
     ];
+    const registry = this.skills ?? new SkillRegistryService();
+    const selectedSkills = explicitNames.length
+      ? explicitNames.map((name) => {
+          const skill = registry.read(name);
+          return { skillId: skill.name, version: skill.version, content: registry.render(skill) };
+        })
+      : input.skills?.length
+        ? input.skills
+        : registry.list().map((entry) => ({
+          skillId: `catalog:${entry.name}`,
+          version: entry.version,
+          content: `<skill name="${entry.name}" version="${entry.version}" source="${entry.source}"><description>${entry.description.slice(0, 500)}</description></skill>`,
+          }));
     // 分别记录 Tool Turn 分池、工具调用次数（观测）、交付模式、最终正文和已向客户端展示的文本。
     let toolPhase: ToolPhase = 'investigation';
     let investigationToolTurns = 0;
@@ -200,6 +216,7 @@ export class AgentRuntimeService {
               ...(input.mcpSnapshot?.serverInstructions.length
                 ? { mcpInstructions: input.mcpSnapshot.serverInstructions }
                 : {}),
+              skills: selectedSkills,
             })
           : { messages, estimatedInputTokens: 0, promptBudget: null, compactionTriggered: false };
       } catch (error) {
@@ -1187,6 +1204,23 @@ export class AgentRuntimeService {
       toolCallCount,
       ...(compactionState ? { compactionState } : {}),
     };
+  }
+
+  private extractSkillNames(messages: ModelMessage[]): string[] {
+    const user = [...messages].reverse().find((message) => message.role === 'user');
+    if (!user || typeof user.content !== 'string') return [];
+    const prefix = user.content.match(/^\s*((?:\/[a-z0-9][a-z0-9._-]*\s*)+)/i)?.[1];
+    return prefix ? [...prefix.matchAll(/\/([a-z0-9][a-z0-9._-]*)/gi)].map((match) => match[1]!) : [];
+  }
+
+  private stripSkillCommand(messages: ModelMessage[], hasExplicitSkill: boolean): ModelMessage[] {
+    if (!hasExplicitSkill) return messages;
+    const index = [...messages].findLastIndex((message) => message.role === 'user');
+    if (index < 0) return messages;
+    return messages.map((message, messageIndex) => {
+      if (messageIndex !== index || message.role !== 'user' || typeof message.content !== 'string') return message;
+      return { ...message, content: message.content.replace(/^\s*(?:\/[a-z0-9][a-z0-9._-]*\s*)+/i, '').trim() };
+    });
   }
 
   private reachLifecycle<Boundary extends RuntimeLifecycleBoundary>(

@@ -53,6 +53,39 @@ function createService(
 }
 
 describe('ContextEngineeringService', () => {
+  it('renders an explicit Skill candidate into the compiled context', async () => {
+    const { service } = createService();
+    const messages = [
+      { role: 'system' as const, content: 'system' },
+      { role: 'user' as const, content: '当前请求' },
+    ];
+
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages,
+      skills: [
+        {
+          skillId: 'research-summary',
+          version: '1.0.0',
+          content: '整理研究结果并给出简洁摘要。',
+          priorityHint: 10,
+        },
+      ],
+      memories: [
+        {
+          memoryId: 'user-style',
+          content: '用户偏好简洁的中文回答。',
+          sourceRefs: [{ type: 'session', id: 'prior-session' }],
+          priorityHint: 5,
+        },
+      ],
+    });
+
+    expect(compiled.messages.some((message) => message.role === 'system' && message.content.includes('<skills_context>'))).toBe(true);
+    expect(compiled.compactionTriggered).toBe(false);
+  });
+
   it('spills oversized Tool Results to a file and keeps a recoverable preview', async () => {
     const { service, files } = createService();
     const result = await service.trimToolResults(

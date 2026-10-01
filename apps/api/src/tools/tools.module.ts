@@ -8,9 +8,10 @@ import { SandboxModule } from '../sandbox/sandbox.module';
 import { McpModule } from '../mcp/mcp.module';
 import { AGENT_TOOL_CLASSES, AGENT_TOOLS_PROVIDER } from './tool-catalog';
 import { ToolRegistryService } from './tool-registry.service';
+import { SkillsModule } from '../skills/skills.module';
 
 @Module({
-  imports: [SearchModule, WebFetchModule, FilesModule, ArtifactsModule, SandboxModule, McpModule],
+  imports: [SearchModule, WebFetchModule, FilesModule, ArtifactsModule, SandboxModule, McpModule, SkillsModule],
   providers: [...AGENT_TOOL_CLASSES, AGENT_TOOLS_PROVIDER, ToolRegistryService],
   exports: [ToolRegistryService],
 })

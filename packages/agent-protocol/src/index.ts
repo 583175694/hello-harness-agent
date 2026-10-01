@@ -16,11 +16,9 @@ import {
 } from './files/contracts.js';
 import {
   bashInputSummarySchema,
-  bashPublicResultSchema,
   bashPublicToolResultSchema,
   bashTerminalViewSchema,
   executeCommandInputSummarySchema,
-  executeCommandPublicResultSchema,
   jobKillInputSchema,
   jobListInputSchema,
   jobOutputInputSchema,
@@ -1119,6 +1117,7 @@ export const createRunRequestSchema = z.object({
   idempotencyKey: z.string().min(1).max(200),
   model: z.string().min(1),
   reasoningEffort: reasoningEffortSchema.optional().default('high'),
+  skillNames: z.array(z.string().regex(/^[a-z0-9][a-z0-9._-]*$/i)).max(8).optional(),
   attachmentId: z.string().min(1).optional(),
   attachmentIds: z
     .array(z.string().min(1))

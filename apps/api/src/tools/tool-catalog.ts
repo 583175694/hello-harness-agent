@@ -15,6 +15,7 @@ import {
   ReadMcpResourceTool,
 } from './mcp-resource.tools';
 import { McpAddServerTool } from './mcp-add-server.tool';
+import { SkillsListTool, SkillsReadTool } from '../skills/skills.tools';
 
 // 多工具集合使用的 Nest 注入标识，避免业务服务依赖具体工具类。
 export const AGENT_TOOLS = Symbol('AGENT_TOOLS');
@@ -39,6 +40,8 @@ export const AGENT_TOOL_CLASSES = [
   ListMcpResourceTemplatesTool,
   ReadMcpResourceTool,
   McpAddServerTool,
+  SkillsListTool,
+  SkillsReadTool,
 ] as const;
 
 // 将 catalog 中的工具类实例聚合为 Registry 所需的统一集合。

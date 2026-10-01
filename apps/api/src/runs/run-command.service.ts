@@ -55,9 +55,13 @@ export class RunCommandService {
         expectedCurrentArtifactId: string;
         changeSummary?: string;
       };
+      skillNames?: string[];
     },
   ): Promise<CreateRunResponse> {
     const runId = crypto.randomUUID();
+    const content = input.skillNames?.length
+      ? `${input.skillNames.map((name) => `/${name}`).join(' ')} ${input.content}`
+      : input.content;
     const userMessageId = crypto.randomUUID();
     const assistantMessageId = crypto.randomUUID();
     // idempotencyKey 只能重放同一 payload；相同键搭配不同正文必须明确冲突。
@@ -127,7 +131,7 @@ export class RunCommandService {
     const payloadHash = createHash('sha256')
       .update(
         JSON.stringify({
-          content: input.content,
+          content,
           model,
           reasoningEffort,
           attachmentIds,
@@ -140,7 +144,7 @@ export class RunCommandService {
       result = await this.repository.create({
         userId,
         sessionId,
-        content: input.content,
+        content,
         idempotencyKey: input.idempotencyKey,
         pendingInputId: input.pendingInputId,
         payloadHash,

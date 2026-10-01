@@ -990,6 +990,8 @@ type ConversationProps = {
   scopeKey?: string;
   sessionLoading?: boolean;
   hideComposer?: boolean;
+  selectedSkills?: string[];
+  onSkillsChange?: (skills: string[]) => void;
 };
 
 /** Workbench Tab / focus 变化不必重绘整段对话（Streamdown 重绘是 click 300ms+ 的主因）。 */
@@ -1006,6 +1008,7 @@ function conversationPropsAreEqual(prev: ConversationProps, next: ConversationPr
   if (prev.hideComposer !== next.hideComposer) return false;
   if (prev.selectedModel !== next.selectedModel) return false;
   if (prev.reasoningEffort !== next.reasoningEffort) return false;
+  if (prev.selectedSkills !== next.selectedSkills) return false;
   if (prev.models !== next.models) return false;
   if (prev.attachments !== next.attachments) return false;
   if (prev.attachmentUploading !== next.attachmentUploading) return false;
@@ -1059,6 +1062,8 @@ function ConversationBody({
   scopeKey = 'default',
   sessionLoading = false,
   hideComposer = false,
+  selectedSkills = [],
+  onSkillsChange = () => undefined,
 }: ConversationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
@@ -1392,6 +1397,8 @@ function ConversationBody({
             onAttachmentRetry={onAttachmentRetry}
             onAttachmentCancel={onAttachmentCancel}
             context={state.context ?? state.workbench?.context}
+            selectedSkills={selectedSkills}
+            onSkillsChange={onSkillsChange}
           />
         </div>
       )}
@@ -1544,6 +1551,8 @@ export function Composer({
   onAttachmentRetry,
   onAttachmentCancel,
   context,
+  selectedSkills = [],
+  onSkillsChange = () => undefined,
 }: {
   prompt: string;
   submitting: boolean;
@@ -1568,6 +1577,8 @@ export function Composer({
   onAttachmentRetry?: (fileId: string) => void;
   onAttachmentCancel?: (fileId: string) => void;
   context?: RunContextDebug;
+  selectedSkills?: string[];
+  onSkillsChange?: (skills: string[]) => void;
 }) {
   const composingRef = useRef(false);
   const composerDragDepthRef = useRef(0);
@@ -2027,6 +2038,13 @@ export function Composer({
             )}
           </PromptInputTools>
           <div className="composer-submit-group">
+            {mode === 'new-run' ? (
+              <select aria-label="选择 Skill" value={selectedSkills[0] ?? ''} onChange={(event) => onSkillsChange(event.target.value ? [event.target.value] : [])}>
+                <option value="">自动选择 Skill</option>
+                <option value="research-summary">研究摘要</option>
+                <option value="concise-chinese">简洁中文</option>
+              </select>
+            ) : null}
             {context?.promptBudget ? (
               <Context
                 usedTokens={context.estimatedInputTokens}

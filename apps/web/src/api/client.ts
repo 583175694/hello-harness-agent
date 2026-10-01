@@ -190,6 +190,7 @@ export async function createRun(
     expectedCurrentArtifactId: string;
     changeSummary?: string;
   },
+  skillNames: string[] = [],
 ): Promise<CreateRunResponse> {
   const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/runs`, {
     method: 'POST',
@@ -201,9 +202,16 @@ export async function createRun(
       idempotencyKey: createClientId(),
       ...(attachmentIds.length ? { attachmentIds } : {}),
       ...(artifactVersionContext ? { artifactVersionContext } : {}),
+      ...(skillNames.length ? { skillNames } : {}),
     }),
   });
   return createRunResponseSchema.parse(await parseResponse(response));
+}
+
+export async function listSkills(query?: string): Promise<{ skills: Array<{ name: string; description: string; version: string; source: string }> }> {
+  const suffix = query ? `?query=${encodeURIComponent(query)}` : '';
+  const response = await apiFetch(`${apiBaseUrl}/api/skills${suffix}`);
+  return (await parseResponse(response)) as { skills: Array<{ name: string; description: string; version: string; source: string }> };
 }
 
 export async function getArtifactSeries(seriesId: string): Promise<ArtifactSeriesRef> {

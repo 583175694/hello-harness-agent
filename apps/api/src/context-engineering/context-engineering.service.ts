@@ -53,6 +53,7 @@ export class ContextEngineeringService {
   // 编译单轮模型上下文，必要时压缩历史并严格检查输入预算。
   async compileRound(input: ContextCompileInput): Promise<CompiledContext> {
     let messages = this.withMcpInstructions(input.messages, input.mcpInstructions);
+    messages = this.withSkills(messages, input.skills);
     // 未验证上下文配置的模型保持原消息，不执行预算处理。
     const profile = getConfiguredModel(input.model)?.context;
     if (!profile?.verified) {
@@ -135,6 +136,17 @@ export class ContextEngineeringService {
       compactionTriggered,
       ...(nextCompactionState ? { compactionState: nextCompactionState } : {}),
     };
+  }
+
+  private withSkills(messages: ModelMessage[], skills: ContextCompileInput['skills']): ModelMessage[] {
+    if (!skills?.length) return messages;
+    const content = skills.map((skill) => skill.content).join('\n');
+    const isCatalog = skills.every((skill) => skill.skillId.startsWith('catalog:'));
+    const block = isCatalog
+      ? `<skill_catalog>${skills.map((skill) => skill.content).join('')}</skill_catalog>`
+      : `<skills_context>${content}</skills_context>`;
+    const index = messages[0]?.role === 'system' ? 1 : 0;
+    return [...messages.slice(0, index), { role: 'system', content: block }, ...messages.slice(index)];
   }
 
   // 把编译期外置的 Tool Result 指针写回 Runtime 消息，避免下一轮重复落盘。

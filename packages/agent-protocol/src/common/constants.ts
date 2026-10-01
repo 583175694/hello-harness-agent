@@ -88,6 +88,8 @@ export const AGENT_TOOL_NAMES = {
   readMcpResource: 'read_mcp_resource',
   /** 校验并写入当前用户的 HTTP MCP Server（user scope + reconcile）；配置由模型从用户文本语义识别后传入。 */
   mcpAddServer: 'mcp_add_server',
+  skillsList: 'skills.list',
+  skillsRead: 'skills.read',
   // SSE 与 execution 快照中标识 MCP/外部工具的合成 discriminant。
   externalTool: 'external_tool',
 } as const;

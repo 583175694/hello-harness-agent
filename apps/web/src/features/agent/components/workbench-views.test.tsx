@@ -30,7 +30,7 @@ describe('Workbench context view', () => {
     expect(
       workbenchAsideAriaLabel({ activeView: 'deliverables', title: '网页检索' }),
     ).toBe('文件 · 网页检索');
-    expect(workbenchAsideAriaLabel({ activeView: 'context', title: '' })).toBe('调试上下文');
+    expect(workbenchAsideAriaLabel({ activeView: 'context', title: '' })).toBe('Context');
   });
 
   it('shows follow pin and resume when the user pinned an older step', () => {
@@ -239,7 +239,7 @@ describe('Workbench context view', () => {
       />,
     );
 
-    expect(screen.getByRole('tab', { name: '调试上下文' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Context' })).toBeVisible();
     expect(screen.getByText('当前 Run 尚无 Context')).toBeVisible();
   });
 
@@ -275,7 +275,7 @@ describe('Workbench context view', () => {
       />,
     );
 
-    expect(screen.getByRole('tab', { name: '调试上下文' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Context' })).toBeVisible();
     expect(screen.getByText('模型轮次 2')).toBeVisible();
     expect(screen.getByText('"estimatedInputTokens"')).toBeVisible();
     expect(screen.getByText('842')).toBeVisible();

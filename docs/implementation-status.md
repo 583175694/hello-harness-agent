@@ -6,6 +6,10 @@
 
 **用户反馈 / Bug 台账**：[38-user-feedback-bugs.md](./38-user-feedback-bugs.md)（解决后在该文档更新状态为「已解决」）。
 
+### C6 Skills 第一阶段（2026-10-01）
+
+已落地最小闭环：进程内 Skill Registry、内置 Skills、`skills.list` / `skills.read`、K5 精简 Catalog 与显式 Skill 注入；Run 支持 `skillNames`，消息 `/skill-name` 和 Web Composer 选择会统一进入 Host 加载路径。Skill 不改变 Tool Policy、Sandbox 或审批边界。当前不包含 User Memory、数据库持久化、远程 Provider、Marketplace、语义检索、分页和复杂排序。验证：API unit tests、API/Web build 通过；Web tests、workspace typecheck/lint 仍受仓库既有 UI 断言、协议测试类型和未使用导出错误阻断。
+
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 **C2 Artifact & Report Generation（C2-A–C2-D）**。C3-A 已把 Sandbox 作为普通 Tool 接入 Runtime；**C3-B** 已将主工具改为 **`bash`**（`execute_command` 仅迁移期别名）：DSH 式 `renderBashResult()` 文本 Tool Message、默认 `auto_execute`、Host `BashCommandPolicyService` 触发的 network/install 升权审批、批准后当次 v1 egress allowlist、Terminal 投影与 spill Artifact 已落地，并在**本机 OpenSandbox + Docker**（`dev/opensandbox-local`）完成 Workbench 手工冒烟（echo/非零退出、普通命令不批、pip/curl 审批、Collect）。Sandbox 默认关闭，需 `SANDBOX_ENABLED` 与 Domain/API Key/带 digest 的镜像后才对模型可见。CI 使用 fake Provider（`pnpm --filter @harness/api test`）；真实 OpenSandbox 见 `dev/opensandbox-local` 与 docs/33 §1.5 UI 冒烟。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成 Markdown Report，或通过 `create_file` 生成 Markdown/HTML/PDF/DOCX/XLSX 等 Artifact；同一逻辑产物支持 **C2-D** 线性版本（`ArtifactSeries`、`revise`/`restore`、Workbench「基于此版本修改」）。Runtime 只保留 **Tool Turn 预算**（默认 40 investigation turn + 3 delivery turn，同轮多 call 计 1 turn；见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) §4）、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
@@ -491,8 +495,8 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 | --- | --- | --- | --- |
 | C5 | Workbench + HTML 安全预览（C5-A/B） | **已完成** | 产品阶段收口；见 [37-c5](./37-c5-workbench-ui-and-preview.md) |
 | C5-C | Sandbox job / 构建 / dev server 工作台 | **Backlog（低）** | job 卡片、日志跟随、代理预览等；按需启动，不阻塞 K5/C6 |
-| K5 | Context Engineering 全面优化 | **当前研发** | CE 分池、大 catalog Tool Exposure；专项文档待建；与 C6 可穿插 |
-| C6 | Skills & User Memory | **当前研发** | 可复用 Skill、用户 Memory 读写与治理；**不含** `NOTES.md`、**不含** `TODO.md`（K4 Plan 覆盖任务分解） |
+| K5 | Context Engineering 全面优化 | **当前研发** | 接口与实施边界见 [39-k5-context-engineering.md](./39-k5-context-engineering.md)；与 C6 可穿插 |
+| C6 | Skills & User Memory | **当前研发** | 规划占位见 [40-c6-skills-and-user-memory.md](./40-c6-skills-and-user-memory.md)；**不含** `NOTES.md`、**不含** `TODO.md`（K4 Plan 覆盖任务分解） |
 | C7 | Browser Use / Computer Use | **后置** | 依赖 C3-D；结构化 Browser Tool 等与 **客户端就绪后** 再立项，避免与 Host/Web 预览形态重复建设 |
 
 **明确不在当前 Agent 高优先级**：文件化 Notes、`TODO.md`、Goal Reminder 文件、L6 Mobile/Desktop 客户端工程（客户端单独规划，例如 [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)）。
@@ -782,3 +786,19 @@ apps/web/src/features/agent/components/conversation.tsx
 真实模型使用 DeepSeek V4 Flash 验证了简单任务不创建计划、明确计划任务创建计划、复杂任务自主创建计划、计划与多次 Search/Fetch 协同执行、计划浮标更新以及用户取消 Run。七组用例均能继续生成最终回答；30 步请求被模型归纳为 7 个阶段，没有机械生成大量步骤。
 
 API 类型检查、lint 和 100 个 API unit tests 通过；Web 类型检查通过，Web 测试仅保留一个既有的后台流重复详情请求失败，与 Plan 逻辑无关。K4 不承诺模型对每个复杂任务 100% 创建计划，也不实现服务端重启后的 Runtime 自动续跑、持久化 Plan 历史版本或 Goal/Observation 级自动评估。
+
+## 12. C6 Skills 第一阶段（已实施）
+
+### 12.1 当前结论
+
+C6 第一阶段已完成最小可用闭环：进程内 Skill Registry、`skills.list`/`skills.read` 工具、K5 精简 Catalog、显式 Skill 注入，以及消息 `/skill-name`、Composer 选择和 Run 配置三种入口。显式 Skill 通过 Registry 直接注入完整 `<skill_content>` 并跳过 Catalog；未显式指定时先注入 Catalog，模型可在运行中调用两个 Skill 工具延迟加载内容。Skill 只提供上下文，不改变工具策略、Sandbox 或审批边界。
+
+### 12.2 验证结果
+
+- API Skill Registry 单元测试覆盖元数据、查询、版本和未知 Skill 错误。
+- 真实浏览器验证覆盖 Composer 选择、`/concise-chinese` 前缀、隐式 Catalog，以及模型实际调用 `skills.list` 和 `skills.read`。
+- 验证命令：`pnpm --filter @harness/api test`（257 tests passed）、`pnpm build`（通过）；`pnpm --filter @harness/web test` 有 6 个既有 Workbench 文案断言失败，`pnpm typecheck` 有既有 `agent-protocol` 测试类型错误，`pnpm lint` 有既有未使用导出错误。
+
+### 12.3 未实现范围
+
+第一阶段暂不实现 User Memory、远程 Provider、Marketplace、语义检索、复杂排序、分页、大规模 Catalog 优化、依赖解析和持久化运行时注册项。

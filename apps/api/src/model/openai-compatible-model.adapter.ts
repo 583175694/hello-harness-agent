@@ -39,6 +39,14 @@ import {
 } from './model-transcript-integrity';
 
 const CLARIFICATION_CONTROL_NAME = 'request_clarification';
+// Provider wire names must avoid dots; Host names remain skills.list / skills.read.
+function toProviderToolName(name: string): string {
+  return name.replace(/\./g, '__');
+}
+
+function fromProviderToolName(name: string): string {
+  return name === 'skills__list' ? 'skills.list' : name === 'skills__read' ? 'skills.read' : name;
+}
 const CLARIFICATION_CONTROL_TOOL: ChatCompletionTool = {
   type: 'function',
   function: {
@@ -292,7 +300,9 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       .sort(([left], [right]) => left - right)
       .map(([, call]) => call);
     const clarificationCalls = allCalls.filter((call) => call.name === CLARIFICATION_CONTROL_NAME);
-    const calls = allCalls.filter((call) => call.name !== CLARIFICATION_CONTROL_NAME);
+    const calls = allCalls
+      .filter((call) => call.name !== CLARIFICATION_CONTROL_NAME)
+      .map((call) => ({ ...call, name: fromProviderToolName(call.name) }));
     if (clarificationCalls.length > 1 || (clarificationCalls.length && calls.length))
       throw new Error('INVALID_CLARIFICATION_PROTOCOL');
     if (clarificationCalls[0])
@@ -411,7 +421,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
           const current = calls.get(index);
           calls.set(index, {
             id: String(item.call_id ?? item.id ?? current?.id ?? ''),
-            name: String(item.name ?? current?.name ?? ''),
+            name: fromProviderToolName(String(item.name ?? current?.name ?? '')),
             arguments: functionCallArguments(
               value.type === 'response.output_item.done',
               item.arguments,
@@ -581,7 +591,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
           items.push({
             type: 'function_call',
             call_id: call.id,
-            name: call.name,
+            name: toProviderToolName(call.name),
             arguments: call.arguments,
           });
         continue;
@@ -633,7 +643,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
   private toResponseTools(tools: ModelRoundInput['tools']): Record<string, unknown>[] | undefined {
     return tools?.map((tool) => ({
       type: 'function',
-      name: tool.name,
+      name: toProviderToolName(tool.name),
       description: tool.description,
       parameters: tool.parameters,
     }));
@@ -696,7 +706,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
             tool_calls: message.toolCalls?.map((call) => ({
               id: call.id,
               type: 'function' as const,
-              function: { name: call.name, arguments: call.arguments },
+              function: { name: toProviderToolName(call.name), arguments: call.arguments },
             })),
           };
           if (shouldReplayAssistantReasoning(replayReasoningWithTools, message)) {
@@ -738,7 +748,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     // 将内部工具声明转换为 OpenAI Function Calling 格式。
     return tools?.map((tool) => ({
       type: 'function',
-      function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+      function: { name: toProviderToolName(tool.name), description: tool.description, parameters: tool.parameters },
     }));
   }
 
@@ -759,7 +769,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
             )
             .map((call) => ({
               id: call.id,
-              name: call.function.name,
+              name: fromProviderToolName(call.function.name),
               arguments: call.function.arguments,
               type: call.type,
             })),

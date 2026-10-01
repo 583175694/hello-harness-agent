@@ -815,7 +815,7 @@ describe('R1 workbench shell', () => {
   it.each([
     ['reasoning', 'Thought for 8 seconds'],
     ['artifacts', '市场调研报告.pdf'],
-    ['context-compacted', 'Model Round 6'],
+    ['context-compacted', '模型轮次 6'],
   ] as const)('renders the %s feature preview', (state, expectedText) => {
     window.history.replaceState({}, '', `/agent/preview?state=${state}`);
     renderWithProviders(<App />);

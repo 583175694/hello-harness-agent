@@ -1137,6 +1137,7 @@ function PersistentAgentApp() {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('high');
   const [models, setModels] = useState<PublicModelConfig[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   // ref 为异步 SSE 回调提供最新值，避免闭包读取过期 React state。
   const selectedSessionIdRef = useRef<string | null>(null);
   const pendingSessionsRef = useRef<Record<string, boolean>>({});
@@ -2348,6 +2349,7 @@ function PersistentAgentApp() {
         uiState.revisionContext
           ? { ...uiState.revisionContext, changeSummary: task.slice(0, 500) }
           : undefined,
+        selectedSkills,
       );
       setAttachments([]);
       if (uiState.revisionContext)
@@ -2830,6 +2832,8 @@ function PersistentAgentApp() {
                   setReasoningEffort(model.reasoning.default);
               }}
               onReasoningEffortChange={setReasoningEffort}
+              selectedSkills={selectedSkills}
+              onSkillsChange={setSelectedSkills}
               attachments={attachments}
               attachmentUploading={attachmentUploading}
               onAttachmentSelected={(files) => {

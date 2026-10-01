@@ -694,7 +694,7 @@ describe('MCP admin protocol', () => {
       headersPlain: { 'X-Test': '1' },
     });
     expect(body.defaultApproval).toBe('require_approval');
-    expect(body.transport).toBeUndefined();
+    expect('transport' in body).toBe(false);
     const view = mcpServerViewSchema.parse({
       id: 'cfg-1',
       serverName: 'demo',

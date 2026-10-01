@@ -2237,9 +2237,12 @@ function PersistentAgentApp() {
     }
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>,
+    promptOverride?: string,
+  ): Promise<void> {
     event.preventDefault();
-    const task = prompt.trim();
+    const task = (promptOverride ?? prompt).trim();
     const currentId = selectedSessionIdRef.current;
     if (!task) return;
     if (authChecking) return;
@@ -2846,7 +2849,7 @@ function PersistentAgentApp() {
               onAttachmentRetry={(fileId) => void retryAttachment(fileId)}
               onAttachmentCancel={removeAttachment}
               onPromptChange={setPrompt}
-              onSubmit={(event) => void handleSubmit(event)}
+              onSubmit={(event, promptOverride) => void handleSubmit(event, promptOverride)}
               onCancel={() => void handleCancel()}
               onClarificationRespond={(interruptId, answer) =>
                 void handleClarificationResponse(interruptId, answer)
@@ -3027,9 +3030,9 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
   }
 
   // 处理预览输入，追加一组不调用生产 API 的本地消息。
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>, promptOverride?: string) {
     event.preventDefault();
-    const task = prompt.trim();
+    const task = (promptOverride ?? prompt).trim();
     if (!task || submitting) return;
     setSubmitting(true);
     setError(null);

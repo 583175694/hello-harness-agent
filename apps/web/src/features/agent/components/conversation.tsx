@@ -1,5 +1,6 @@
 import {
   ArrowUp,
+  BookOpen,
   Check,
   CircleAlert,
   CircleUserRound,
@@ -967,7 +968,7 @@ type ConversationProps = {
   serviceState: ServiceState;
   composerMode: 'new-run' | 'steer' | 'clarification' | 'disabled';
   onPromptChange: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>, promptOverride?: string) => void;
   onCancel?: () => void;
   onClarificationRespond?: (interruptId: string, answer: string) => void;
   onApprovalSubmit?: (interruptId: string, decisions: ToolApprovalDecision[]) => void;
@@ -1120,7 +1121,10 @@ function ConversationBody({
       });
     },
   });
-  function handleComposerSubmit(event: FormEvent<HTMLFormElement>): void {
+  function handleComposerSubmit(
+    event: FormEvent<HTMLFormElement>,
+    promptOverride?: string,
+  ): void {
     if (renderedConversation.length === 0) {
       pendingLandingComposerAnimRef.current = true;
       if (composerMeasureRef.current) {
@@ -1128,7 +1132,7 @@ function ConversationBody({
       }
     }
     stickToBottomRef.current = true;
-    onSubmit(event);
+    onSubmit(event, promptOverride);
   }
   const remeasureNavAnchorRatios = useCallback(() => {
     const scrollNode = scrollRef.current;
@@ -1374,6 +1378,7 @@ function ConversationBody({
             onSendPending={onSendPending}
           />
           <Composer
+            key={scopeKey}
             prompt={prompt}
             submitting={submitting}
             serviceState={serviceState}
@@ -1558,8 +1563,8 @@ export function Composer({
   submitting: boolean;
   serviceState: ServiceState;
   mode: 'new-run' | 'steer' | 'clarification' | 'disabled';
-  onPromptChange: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onPromptChange?: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>, promptOverride?: string) => void;
   onCancel?: () => void;
   activeInterrupt?: InterruptSnapshot;
   onClarificationRespond?: (interruptId: string, answer: string) => void;
@@ -1581,6 +1586,7 @@ export function Composer({
   onSkillsChange?: (skills: string[]) => void;
 }) {
   const composingRef = useRef(false);
+  const [draftPrompt, setDraftPrompt] = useState(prompt);
   const composerDragDepthRef = useRef(0);
   const [composerDragOver, setComposerDragOver] = useState(false);
   const [interruptState, setInterruptState] = useState<{
@@ -1590,7 +1596,10 @@ export function Composer({
   }>({ answer: '', submitting: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
-  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [composerPanel, setComposerPanel] = useState<'all' | 'skills' | null>(null);
+  const [composerPanelClosing, setComposerPanelClosing] = useState(false);
+  const panelCloseTimerRef = useRef<number | null>(null);
   const [attachmentPreview, setAttachmentPreview] = useState<
     | { kind: 'image'; src: string; alt: string }
     | { kind: 'file'; fileId: string; fileName: string }
@@ -1600,6 +1609,28 @@ export function Composer({
     interruptState.interruptId === activeInterrupt?.interruptId
       ? interruptState
       : { answer: '', submitting: false };
+  const updateDraftPrompt = useCallback((value: string) => {
+    setDraftPrompt(value);
+  }, []);
+  useEffect(() => {
+    setDraftPrompt(prompt);
+  }, [prompt]);
+  const submitDraft = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      onSubmit(event, draftPrompt);
+      updateDraftPrompt('');
+    },
+    [onSubmit, draftPrompt, updateDraftPrompt],
+  );
+  const closeComposerPanel = useCallback(() => {
+    if (!composerPanel || composerPanelClosing) return;
+    setComposerPanelClosing(true);
+    panelCloseTimerRef.current = window.setTimeout(() => {
+      setComposerPanel(null);
+      setComposerPanelClosing(false);
+      panelCloseTimerRef.current = null;
+    }, 140);
+  }, [composerPanel, composerPanelClosing]);
   const updateInterruptState = (update: Partial<typeof currentInterruptState>) => {
     setInterruptState({
       interruptId: activeInterrupt?.interruptId,
@@ -1623,6 +1654,17 @@ export function Composer({
     !attachmentUploading &&
     serviceState === 'ready' &&
     controlState !== 'waiting_for_user';
+  useEffect(() => {
+    if (!composerPanel) return undefined;
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!addMenuRef.current?.contains(target) && !panelRef.current?.contains(target)) {
+        closeComposerPanel();
+      }
+    };
+    document.addEventListener('pointerdown', handleOutsidePointerDown);
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
+  }, [composerPanel, closeComposerPanel]);
   const ingestAttachmentFiles = useCallback(
     (dataTransfer: DataTransfer) => {
       if (!canPasteAttachments) return;
@@ -1631,21 +1673,27 @@ export function Composer({
     },
     [canPasteAttachments, onAttachmentSelected],
   );
-  useEffect(() => {
-    if (!attachmentMenuOpen) return undefined;
-    const handleOutsidePointerDown = (event: PointerEvent) => {
-      if (!addMenuRef.current?.contains(event.target as Node)) setAttachmentMenuOpen(false);
-    };
-    document.addEventListener('pointerdown', handleOutsidePointerDown);
-    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
-  }, [attachmentMenuOpen]);
+  const skillOptions = [
+    { name: 'research-summary', label: '研究摘要', description: '多来源调研、证据区分与简洁总结' },
+    { name: 'concise-chinese', label: '简洁中文', description: '用清晰、直接的简体中文回答' },
+  ];
+  const skillQuery = draftPrompt.startsWith('/')
+    ? draftPrompt.slice(1).split(/\s+/)[0]?.toLowerCase() ?? ''
+    : '';
+  const visibleSkills = skillOptions.filter(
+    (skill) => !skillQuery || `${skill.name} ${skill.label}`.toLowerCase().includes(skillQuery),
+  );
+  const chooseSkill = (name: string) => {
+    onSkillsChange?.([...selectedSkills, name]);
+    closeComposerPanel();
+  };
   const placeholder = composerPlaceholder(mode);
   const hideComposerInput =
     activeInterrupt?.kind === 'clarification' || activeInterrupt?.kind === 'tool_approval';
   return (
     <PromptInput
       className={`composer rounded-[14px] bg-surface${composerDragOver ? ' is-drag-over' : ''}`}
-      onSubmit={onSubmit}
+      onSubmit={submitDraft}
       onDragEnter={(event) => {
         if (!canPasteAttachments || !dataTransferHasFiles(event.dataTransfer)) return;
         event.preventDefault();
@@ -1675,6 +1723,47 @@ export function Composer({
       {composerDragOver ? (
         <div className="composer-drop-overlay" aria-hidden="true">
           拖放文件或图片以添加附件
+        </div>
+      ) : null}
+      {composerPanel ? (
+        <div
+          className={`composer-quick-panel${composerPanelClosing ? ' is-closing' : ''}`}
+          ref={panelRef}
+          role="dialog"
+          aria-label={composerPanel === 'skills' ? '选择 Skill' : '添加'}
+        >
+          {composerPanel === 'all' ? (
+            <>
+              <div className="composer-quick-panel__title">添加</div>
+              <button
+                type="button"
+                className="composer-quick-panel__row"
+                disabled={attachmentUploading || submitting || serviceState !== 'ready'}
+                onClick={() => {
+                  closeComposerPanel();
+                  fileInputRef.current?.click();
+                }}
+              >
+                <Paperclip size={17} aria-hidden="true" />
+                <span className="composer-quick-panel__file-copy"><strong>文件和图片</strong></span>
+              </button>
+              <div className="composer-quick-panel__section">Skills</div>
+            </>
+          ) : null}
+          <div className="composer-quick-panel__list">
+            {visibleSkills.length ? visibleSkills.map((skill) => (
+              <button
+                key={skill.name}
+                type="button"
+                className="composer-quick-panel__row"
+                // eslint-disable-next-line react-hooks/refs
+                onClick={() => chooseSkill(skill.name)}
+              >
+                <span className="composer-quick-panel__skill-mark"><BookOpen size={16} aria-hidden="true" /></span>
+                <span className="composer-quick-panel__skill-copy"><strong>{skill.label}</strong><small>{skill.description}</small></span>
+              </button>
+            )) : <div className="composer-quick-panel__empty">没有匹配的 Skill</div>}
+          </div>
         </div>
       ) : null}
       {activeInterrupt?.kind === 'clarification' ? (
@@ -1954,11 +2043,10 @@ export function Composer({
             aria-label="任务输入"
             placeholder={placeholder}
             rows={3}
-            value={prompt}
-            disabled={
-              mode === 'disabled' || controlState === 'waiting_for_user' || Boolean(activeInterrupt)
-            }
-            onChange={(event) => onPromptChange(event.target.value)}
+            value={draftPrompt}
+            disabled={mode === 'disabled' || controlState === 'waiting_for_user' || Boolean(activeInterrupt)}
+            onChange={(event) => updateDraftPrompt(event.target.value)}
+            onBlur={() => onPromptChange?.(draftPrompt)}
             onPaste={(event) =>
               handleComposerAttachmentPaste(
                 event,
@@ -1974,22 +2062,33 @@ export function Composer({
               composingRef.current = false;
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                // 中文等输入法正在确认候选词时，Enter 只结束组合输入，不提交消息。
-                if (
-                  composingRef.current ||
-                  event.nativeEvent.isComposing ||
-                  event.nativeEvent.keyCode === 229
-                )
-                  return;
-                // 新任务需要等待当前提交完成；运行中的 steer/follow-up 则允许直接入队。
-                if (prompt.trim() && mode !== 'disabled') {
-                  event.preventDefault();
-                  event.currentTarget.form?.requestSubmit();
-                }
+              if (event.key === 'Enter' && !event.shiftKey && draftPrompt.trim() && mode !== 'disabled') {
+                if (composingRef.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
               }
             }}
           />
+          {mode === 'new-run' && selectedSkills.length ? (
+            <div className="composer-selected-skills" aria-label="已选择的 Skill">
+              {selectedSkills.map((name, index) => {
+                const skill = skillOptions.find((item) => item.name === name);
+                return (
+                  <span className="composer-skill-chip" key={`${name}-${index}`}>
+                    <BookOpen size={14} aria-hidden="true" />
+                    <span>{skill?.label ?? name}</span>
+                    <button
+                      type="button"
+                      aria-label={`移除${skill?.label ?? name}`}
+                      onClick={() => onSkillsChange?.(selectedSkills.filter((_, itemIndex) => itemIndex !== index))}
+                    >
+                      <X size={12} aria-hidden="true" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          ) : null}
         </PromptInputBody>
       ) : null}
       {!hideComposerInput ? (
@@ -2002,33 +2101,20 @@ export function Composer({
               </div>
             ) : mode === 'new-run' ? (
               <div className="composer-add-wrap" ref={addMenuRef}>
-                <div
-                  className={`composer-add-menu${attachmentMenuOpen ? ' is-open' : ''}`}
-                  role="menu"
-                  aria-hidden={!attachmentMenuOpen}
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    tabIndex={attachmentMenuOpen ? 0 : -1}
-                    disabled={attachmentUploading || submitting || serviceState !== 'ready'}
-                    onClick={() => {
-                      setAttachmentMenuOpen(false);
-                      fileInputRef.current?.click();
-                    }}
-                  >
-                    <Paperclip className="composer-add-menu__icon" size={16} aria-hidden="true" />
-                    <span>文件和图片</span>
-                  </button>
-                </div>
                 <button
                   type="button"
                   className="composer-add-button"
                   aria-label="添加文件和图片"
-                  aria-expanded={attachmentMenuOpen}
+                  aria-expanded={composerPanel === 'all'}
                   title="添加文件和图片"
                   disabled={attachmentUploading || submitting || serviceState !== 'ready'}
-                  onClick={() => setAttachmentMenuOpen((open) => !open)}
+              onClick={() => {
+                if (composerPanel === 'all') closeComposerPanel();
+                else {
+                  setComposerPanelClosing(false);
+                  setComposerPanel('all');
+                }
+              }}
                 >
                   <Plus size={18} />
                 </button>
@@ -2038,13 +2124,6 @@ export function Composer({
             )}
           </PromptInputTools>
           <div className="composer-submit-group">
-            {mode === 'new-run' ? (
-              <select aria-label="选择 Skill" value={selectedSkills[0] ?? ''} onChange={(event) => onSkillsChange(event.target.value ? [event.target.value] : [])}>
-                <option value="">自动选择 Skill</option>
-                <option value="research-summary">研究摘要</option>
-                <option value="concise-chinese">简洁中文</option>
-              </select>
-            ) : null}
             {context?.promptBudget ? (
               <Context
                 usedTokens={context.estimatedInputTokens}
@@ -2063,14 +2142,14 @@ export function Composer({
               />
             ) : null}
             <button
-              className={`send-button composer-send-button${submitting && prompt.trim() ? ' is-ready' : ''}${submitting && !prompt.trim() ? ' is-stop' : ''}`}
-              type={submitting && !prompt.trim() ? 'button' : 'submit'}
-              aria-label={sendActionLabel(submitting, prompt, mode)}
-              title={sendActionLabel(submitting, prompt, mode)}
+              className={`send-button composer-send-button${submitting && draftPrompt.trim() ? ' is-ready' : ''}${submitting && !draftPrompt.trim() ? ' is-stop' : ''}`}
+              type={submitting && !draftPrompt.trim() ? 'button' : 'submit'}
+              aria-label={sendActionLabel(submitting, draftPrompt, mode)}
+              title={sendActionLabel(submitting, draftPrompt, mode)}
               disabled={
-                submitting && !prompt.trim()
+                submitting && !draftPrompt.trim()
                   ? !onCancel
-                  : !prompt.trim() ||
+                  : !draftPrompt.trim() ||
                     serviceState !== 'ready' ||
                     mode === 'disabled' ||
                     (mode !== 'new-run' && attachments.length > 0) ||
@@ -2078,9 +2157,9 @@ export function Composer({
                     attachmentModelUnsupported ||
                     attachments.some((item) => item.status !== 'ready')
               }
-              onClick={submitting && !prompt.trim() ? onCancel : undefined}
+              onClick={submitting && !draftPrompt.trim() ? onCancel : undefined}
             >
-              {submitting && !prompt.trim() ? (
+              {submitting && !draftPrompt.trim() ? (
                 <Square size={14} fill="currentColor" />
               ) : (
                 <ArrowUp size={18} strokeWidth={2.25} />

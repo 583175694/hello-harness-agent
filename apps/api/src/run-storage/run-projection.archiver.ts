@@ -203,42 +203,89 @@ function projectionSerializedBytes(projection: RunProjectionInput): number {
   );
 }
 
+/** 缩小 blocks 体积但保留 tool_activity / artifact，避免聊天时间线丢失。 */
+export function shrinkBlocksForByteLimit(
+  blocks: AssistantContentBlock[],
+  options: { maxReasoningChars: number; dropProcessText: boolean },
+): AssistantContentBlock[] {
+  const result: AssistantContentBlock[] = [];
+  for (const block of blocks) {
+    if (block.type === 'tool_activity' || block.type === 'artifact' || block.type === 'user_intervention') {
+      result.push(block);
+      continue;
+    }
+    if (block.type === 'reasoning') {
+      if (options.maxReasoningChars <= 0) continue;
+      const content = truncateUtf8(block.content, options.maxReasoningChars);
+      if (!content) continue;
+      result.push({ ...block, content });
+      continue;
+    }
+    if (block.type === 'text') {
+      if (block.phase === 'final' || block.phase === 'pending') {
+        result.push(block);
+        continue;
+      }
+      if (options.dropProcessText) continue;
+      result.push(block);
+    }
+  }
+  return result;
+}
+
 export function enforceResearchProjectionByteLimit(
   projection: RunProjectionInput,
   warn: (message: string) => void,
 ): RunProjectionInput {
   const maxBytes = AGENT_PROTOCOL_LIMITS.researchProjectionMaxBytes;
   let current = projection;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  const blockShrinkSteps = [
+    { maxReasoningChars: 8_000, dropProcessText: false },
+    { maxReasoningChars: 2_000, dropProcessText: true },
+    { maxReasoningChars: 256, dropProcessText: true },
+    { maxReasoningChars: 0, dropProcessText: true },
+  ];
+  for (let attempt = 0; attempt < 4 + blockShrinkSteps.length; attempt += 1) {
     const size = projectionSerializedBytes(current);
     if (size <= maxBytes) return current;
     warn(`researchProjection 超过 ${maxBytes} 字节，尝试第 ${attempt + 1} 次截断 | 当前=${size}`);
-    const shrinkRatio = Math.min(0.5, maxBytes / size);
+    if (attempt < 4) {
+      const shrinkRatio = Math.min(0.5, maxBytes / size);
+      current = {
+        ...current,
+        sources: current.sources.map((source) => {
+          if (source.kind !== 'fetched') return source;
+          return {
+            ...source,
+            passages: source.passages.slice(0, 1).map((passage) => ({
+              ...passage,
+              text: truncateUtf8(
+                passage.text,
+                Math.max(128, Math.floor(passage.text.length * shrinkRatio)),
+              ),
+            })),
+          };
+        }),
+        executions: current.executions.map((execution) => {
+          if (execution.toolName !== AGENT_TOOL_NAMES.externalTool || !execution.outputPreview)
+            return execution;
+          const nextPreview = truncateUtf8(
+            execution.outputPreview,
+            Math.max(256, Math.floor(execution.outputPreview.length * shrinkRatio)),
+          );
+          return {
+            ...execution,
+            outputPreview: nextPreview,
+          };
+        }),
+      };
+      continue;
+    }
+    const step = blockShrinkSteps[attempt - 4];
+    if (!step) break;
     current = {
       ...current,
-      blocks: attempt >= 2 ? [] : current.blocks,
-      sources: current.sources.map((source) => {
-        if (source.kind !== 'fetched') return source;
-        return {
-          ...source,
-          passages: source.passages.slice(0, 1).map((passage) => ({
-            ...passage,
-            text: truncateUtf8(passage.text, Math.max(128, Math.floor(passage.text.length * shrinkRatio))),
-          })),
-        };
-      }),
-      executions: current.executions.map((execution) => {
-        if (execution.toolName !== AGENT_TOOL_NAMES.externalTool || !execution.outputPreview)
-          return execution;
-        const nextPreview = truncateUtf8(
-          execution.outputPreview,
-          Math.max(256, Math.floor(execution.outputPreview.length * shrinkRatio)),
-        );
-        return {
-          ...execution,
-          outputPreview: nextPreview,
-        };
-      }),
+      blocks: shrinkBlocksForByteLimit(current.blocks, step),
     };
   }
   return current;

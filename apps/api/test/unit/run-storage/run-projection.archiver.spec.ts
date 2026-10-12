@@ -5,6 +5,7 @@ import { AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import {
   enforceResearchProjectionByteLimit,
   RunProjectionArchiver,
+  shrinkBlocksForByteLimit,
 } from '../../../src/run-storage/run-projection.archiver';
 import type { RunObjectStorage } from '../../../src/run-storage/run-object.storage';
 import type { RunToolOutputRepository } from '../../../src/run-storage/run-tool-output.repository';
@@ -93,6 +94,35 @@ describe('RunProjectionArchiver', () => {
 
     expect(putObject).not.toHaveBeenCalled();
     expect(result.executions[0]?.outputPreview).toBe(preview);
+  });
+});
+
+describe('shrinkBlocksForByteLimit', () => {
+  it('keeps tool_activity while dropping reasoning', () => {
+    const blocks = shrinkBlocksForByteLimit(
+      [
+        {
+          id: 'r1',
+          type: 'reasoning',
+          roundId: 'round-1',
+          roundSequence: 1,
+          blockSequence: 0,
+          content: 'x'.repeat(500),
+        },
+        {
+          id: 't1',
+          type: 'tool_activity',
+          toolCallId: 'call-1',
+          toolName: 'web_search',
+          status: 'completed',
+          title: '搜索',
+          startedAt: '2026-10-11T00:00:01.000Z',
+        },
+      ],
+      { maxReasoningChars: 0, dropProcessText: true },
+    );
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.type).toBe('tool_activity');
   });
 });
 

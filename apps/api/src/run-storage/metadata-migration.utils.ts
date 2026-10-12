@@ -9,6 +9,32 @@ import type { AssistantContentBlock } from '@harness/agent-protocol';
 
 const METADATA_FAT_THRESHOLD_BYTES = 16_384;
 
+function normalizeLegacyPassage(passage: unknown): unknown {
+  if (typeof passage !== 'object' || passage === null || Array.isArray(passage)) return passage;
+  const record = passage as Record<string, unknown>;
+  const locator = record.locator;
+  if (typeof locator !== 'object' || locator === null || Array.isArray(locator)) return passage;
+  const quote = (locator as Record<string, unknown>).quote;
+  if (typeof quote !== 'object' || quote === null || Array.isArray(quote)) return passage;
+  const exact = (quote as Record<string, unknown>).exact;
+  if (typeof exact === 'string' && typeof record.text === 'string' && record.text !== exact) {
+    return { ...record, text: exact };
+  }
+  return passage;
+}
+
+function normalizeLegacySources(sources: unknown[]): unknown[] {
+  return sources.map((source) => {
+    if (typeof source !== 'object' || source === null || Array.isArray(source)) return source;
+    const record = source as Record<string, unknown>;
+    if (record.kind !== 'fetched' || !Array.isArray(record.passages)) return source;
+    return {
+      ...record,
+      passages: record.passages.map(normalizeLegacyPassage),
+    };
+  });
+}
+
 export function metadataUtf8Bytes(metadata: Prisma.JsonValue): number {
   return Buffer.byteLength(JSON.stringify(metadata ?? {}), 'utf8');
 }
@@ -38,7 +64,7 @@ export function extractProjectionFromMetadata(metadata: Record<string, unknown>)
       ? (metadata.agent as Record<string, unknown>)
       : {};
   const executions = Array.isArray(agent.executions) ? agent.executions : [];
-  const sources = Array.isArray(agent.sources) ? agent.sources : [];
+  const sources = normalizeLegacySources(Array.isArray(agent.sources) ? agent.sources : []);
   const blocks = Array.isArray(metadata.blocks) ? metadata.blocks : [];
   const parsed = assistantResearchProjectionSchema.safeParse({
     executions,

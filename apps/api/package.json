@@ -14,7 +14,8 @@
     "db:migrate": "dotenv -e ../../.env -- prisma migrate dev",
     "db:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
     "db:studio": "dotenv -e ../../.env -- prisma studio",
-    "migrate:agent-metadata": "dotenv -e ../../.env -- tsx scripts/migrate-agent-metadata.ts"
+    "migrate:agent-metadata": "dotenv -e ../../.env -- tsx scripts/migrate-agent-metadata.ts",
+    "repair:agent-detail-blocks": "dotenv -e ../../.env -- tsx scripts/repair-agent-detail-blocks.ts"
   },
   "dependencies": {
     "@alibaba-group/opensandbox": "0.1.11",

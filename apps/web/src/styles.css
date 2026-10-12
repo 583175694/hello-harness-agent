@@ -2741,7 +2741,8 @@ summary:focus-visible {
     opacity: 1;
   }
 }
-.composer textarea {
+.composer textarea,
+.composer .skill-composer-input {
   display: block;
   width: 100%;
   min-height: 78px;
@@ -2755,6 +2756,37 @@ summary:focus-visible {
   background: transparent;
   font-size: var(--h-content-font-size);
   line-height: var(--h-leading-content);
+}
+.composer .skill-composer-input {
+  position: relative;
+  z-index: 1;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.composer .skill-composer-placeholder {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  z-index: 0;
+  color: var(--theme-composer-placeholder);
+  font-size: var(--h-content-font-size);
+  line-height: var(--h-leading-content);
+  pointer-events: none;
+  user-select: none;
+}
+.composer-skill-mention {
+  margin: 0 2px;
+  vertical-align: baseline;
+}
+.composer-typeahead-panel {
+  position: absolute;
+  z-index: 12;
+  min-width: 280px;
+  max-width: min(420px, calc(100vw - 32px));
+}
+.composer-quick-panel__row.is-active {
+  background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-subtle));
 }
 .composer-attachments {
   display: flex;
@@ -3112,6 +3144,9 @@ summary:focus-visible {
 }
 .composer textarea::placeholder {
   color: var(--theme-composer-placeholder);
+}
+.composer .skill-composer-paragraph {
+  margin: 0;
 }
 .composer-hitl-panel {
   display: flex;

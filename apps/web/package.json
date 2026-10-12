@@ -13,6 +13,9 @@
   },
   "dependencies": {
     "@harness/agent-protocol": "workspace:*",
+    "@lexical/react": "^0.52.0",
+    "@lexical/text": "^0.52.0",
+    "@lexical/utils": "^0.52.0",
     "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-collapsible": "^1.1.20",
     "@radix-ui/react-dialog": "^1.1.23",
@@ -26,6 +29,7 @@
     "@tanstack/react-virtual": "^3.14.9",
     "ansi-to-react": "6.1.6",
     "katex": "^0.18.4",
+    "lexical": "^0.52.0",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

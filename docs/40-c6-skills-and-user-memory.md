@@ -1,6 +1,6 @@
 # C6 Skills & User Memory
 
-> 状态：Skills 第一阶段方案已冻结；User Memory 仍处于规划阶段，尚未开始实现。
+> 状态：Skills 第一阶段方案已冻结；Web Composer Lexical Mention 实现方案见 §4.7–§4.8；User Memory 仍处于规划阶段，尚未开始实现。
 >
 > 本文先冻结范围和讨论入口，具体产品语义、数据模型、权限规则和验收标准留待后续讨论。C6 当前包含 Skills 与 User Memory，不包含 `NOTES.md`、`TODO.md` 文件化任务状态，也不包含 Skills Marketplace。
 
@@ -205,6 +205,205 @@ skills.read(name)
 
 参考实现：[DSH Skills subsystem](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/skills.md)、[DSH model-facing skill tool](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/skill/tool-skill/README.md)、[Codex Skills](https://developers.openai.com/codex/skills)。
 
+### 4.7 Web Composer：Lexical + Skill Mention（实现方案）
+
+> 状态：方案已定稿，待按 Phase 1 在 `apps/web` 落地；与后端 `skillNames`、Host 显式注入路径对齐，不要求 C6/K5 协议变更。
+
+#### 4.7.1 目标与边界
+
+**目标**
+
+- 用 [Lexical](https://github.com/facebook/lexical) 替换 Composer 中的纯 `textarea`，Skill 以**内联原子 token** 展示（视觉对齐现有 `composer-skill-chip`）。
+- 输入 `@` 或 `/` 触发**同一套** Skill typeahead（查询、键盘、选中逻辑共用）。
+- 提交时：`plainText` → Run 请求体 `content`；`skillNames` → `skillNames`（与现有 `createRun(..., skillNames)` 一致）。
+- 保留：中文 IME、Enter 发送 / Shift+Enter 换行、粘贴与拖拽附件、HITL 时隐藏主输入等既有 Composer 行为。
+
+**本阶段不做**
+
+- 用户消息气泡内回放 mention 高亮（可先仅展示纯文本 `content`）。
+- Steer / Pending User Input 路径下插入 Skill（Phase 1 仅 `composerMode === 'new-run'` 且无非 HITL 中断时启用）。
+- 将 Lexical 文档 JSON 持久化到服务端或写入 Message 元数据。
+
+#### 4.7.2 架构
+
+```text
+Composer (conversation.tsx)
+  PromptInput form
+    SkillPromptEditor          ← 替换 PromptInputTextarea
+      LexicalComposer
+        PlainTextPlugin + ContentEditable
+        SkillMentionNode
+        SkillTypeaheadPlugin     @ 与 / 双 trigger
+        ComposerSubmitPlugin     Enter → form.requestSubmit
+        ComposerPastePlugin      文件 paste → 现有附件逻辑
+        ComposerControlledPlugin 与 prompt / 清空同步
+    composer-quick-panel（可选）  点选 → insertSkillMention，与 typeahead 共用命令
+  提交 → app.handleSubmit → createRun(content, skillNames)
+```
+
+职责划分：Radix 继续负责模型设置等菜单；Lexical 负责输入区文档模型；C6 Host 仍只消费 `skillNames` 与 `content`，不感知编辑器实现。
+
+#### 4.7.3 依赖
+
+在 `@harness/web` 增加：
+
+```text
+lexical
+@lexical/react
+@lexical/utils
+@lexical/text
+```
+
+采用 **PlainTextPlugin**（非 RichText），避免引入完整富文本能力。不引入 `lexical-beautiful-mentions`：仅 Skill 一种 mention，自研 `DecoratorNode` + 官方 `LexicalTypeaheadMenuPlugin` 即可。
+
+#### 4.7.4 建议目录
+
+```text
+apps/web/src/features/agent/composer/
+  skill-mention-node.ts
+  skill-editor-theme.ts
+  skill-editor-utils.ts          extractPlainText / extractSkillNames
+  skill-typeahead-plugin.tsx
+  composer-submit-plugin.tsx
+  composer-paste-plugin.tsx
+  composer-controlled-plugin.tsx
+  skill-prompt-editor.tsx
+  skill-prompt-editor.test.tsx
+```
+
+#### 4.7.5 数据模型
+
+**SkillMentionNode（DecoratorNode）**
+
+```ts
+type SkillMentionPayload = {
+  name: string;   // API skillNames[]
+  label: string;  // UI，来自 listSkills / Registry
+};
+```
+
+- 内联、`isKeyboardSelectable`，建议 `isIsolated`：caret 不进入 token 内部，Backspace 一次删除整个 Skill。
+- DOM：`contenteditable="false"` 的 inline chip，class 复用 `composer-skill-chip` / `composer-skill-mention`。
+
+**导出约定（与显式选择对齐）**
+
+```ts
+type ComposerDocumentValue = {
+  plainText: string;
+  skillNames: string[]; // 文档顺序，提交前可 dedupe 保序
+};
+```
+
+- `content` = 所有 TextNode 文本拼接，**不包含** Skill 名称字面量（避免与 `skillNames` 双源不一致）。
+- Skill 仅通过 `skillNames` 进入 Host 显式注入路径（见 §4.4），与「UI 选 Skill」语义一致。
+- 消息正文中手写 `/skill-name` 的解析仍可由 Host 保留；Composer 侧不再把 `/xxx` 当作普通字符串写入 `content`（用户通过 `/` 选中后应变为 mention + `skillNames`）。
+
+**与 React state（Phase 1）**
+
+- 暂保留 `app.tsx` 的 `prompt` + `selectedSkills`。
+- `SkillPromptEditor.onChange` 同时更新二者；编辑器为交互期 source of truth，提交后清空文档并 `setSelectedSkills([])`。
+
+#### 4.7.6 Typeahead 与面板
+
+- 两个 trigger：`@`、`/`（`useBasicTypeaheadTriggerMatch`，`minLength: 0`），查询 debounce 后调用已有 `GET /api/skills?query=`（`listSkills`），替代 Composer 内硬编码 skill 列表。
+- 菜单 UI 复用 `composer-quick-panel__row` 样式，Portal 锚定到 typeahead anchor。
+- 「+」面板选 Skill：调用统一命令 `INSERT_SKILL_MENTION`，不依赖光标前是否已有 `/`；长期可让「+ → Skills」等价于 focus 后插入 `/` 或打开同一菜单。
+
+#### 4.7.7 与现有 Composer 行为对照
+
+| 现有行为 | Lexical 侧 |
+|----------|------------|
+| `draftPrompt` / onBlur → `onPromptChange` | `OnChangePlugin` + blur 同步 |
+| Enter 发送 | `KEY_ENTER_COMMAND`，排除 Shift 与 IME composing |
+| 粘贴附件 | 有 files 时走现有 `handleComposerAttachmentPaste` |
+| 发送 disabled | Phase 1 仍要求 `plainText.trim()`（与现逻辑一致）；是否允许「仅 Skill 无正文」单独产品决策 |
+| 底部 `composer-selected-skills` | Phase 1 移除，Skill 仅内联展示 |
+
+#### 4.7.8 实施分期
+
+| 阶段 | 内容 |
+|------|------|
+| **Phase 1（MVP）** | Node + Editor 嵌入、`@`/`/` typeahead、`listSkills`、Enter/IME/提交/清空、面板 insert、去掉底部 chip |
+| **Phase 2** | 用户气泡 mention 回放；Steer 是否允许 Skill；`skillNames` 去重策略；错误与空列表态 |
+| **Phase 3** | 收敛为单一 `composerDraft` state；删除 textarea 时代遗留的 `/` 字符串过滤逻辑 |
+
+#### 4.7.9 测试
+
+- 单元：`extractSkillNames` / `extractPlainText`、节点 JSON 往返。
+- 组件：选中 Skill 出现 `.composer-skill-mention`；Backspace 删除 token。
+- 集成：mock `listSkills`，提交断言 `createRun` body 中 `content` 与 `skillNames` 分离。
+- 手动：中文 IME、粘贴图片、拖拽附件。
+
+#### 4.7.10 对外组件 API（草案）
+
+```tsx
+type SkillPromptEditorProps = {
+  value: string;
+  skillNames: string[];
+  placeholder: string;
+  disabled: boolean;
+  enableSkills: boolean;
+  onChange: (next: { plainText: string; skillNames: string[] }) => void;
+  onPasteFiles?: (files: File[]) => void;
+  editorRef?: React.RefObject<LexicalEditor | null>;
+};
+```
+
+### 4.8 辩证分析：Lexical Mention 与 C6 显式选择
+
+本节对 §4.7 做辩证审视：既说明为何在现阶段成立，也写明内在张力与反转条件，避免把「技术选型」误当成「产品真理」。
+
+#### 4.8.1 正题：结构化 mention 符合 C6 显式路径
+
+**主张**：Lexical + 原子 Skill token，是当前阶段下显式选择与 Web UX 的合理统一。
+
+- **单一事实来源**：显式 Skill 以 `skillNames` 进入 Host（§4.4），Composer 若继续用「纯文本里带 `/name` + 底部 chip 数组」，容易出现 `content` 与 `skillNames` 不一致；mention 强制把 Skill 从正文中剥离，与「Host 已路由、跳过 Catalog」一致。
+- **能力边界清晰**：C6 第一阶段不需要 Markdown 编辑器；PlainText + Mention 正好落在「聊天输入 + 少量 token」区间，比 Tiptap/Slate 更贴边界（§4.5 不扩大范围）。
+- **与 K5 分工不变**：用户选 Skill 不改变 Context 编译规则，只是触发显式注入；Lexical 是前端呈现层，不触碰 §3「C6 不直接拼接 ModelMessage[]」。
+
+#### 4.8.2 反题：成本、矛盾与隐藏假设
+
+**反对面**：该方案并非无代价，且与文档其他表述存在张力。
+
+| 维度 | 反题要点 |
+|------|----------|
+| **复杂度** | 引入 Lexical 与 IME/选区/粘贴测试矩阵，维护成本高于「chip + textarea」；团队需承担 editor 类 bug 的长期债务。 |
+| **§4.4 表述** | 文档写「在消息中使用 `/skill-name`」；Composer 改为 mention 后，用户可见正文可能**不再包含** `/name`，与「slash 即消息语法」的直觉不完全一致（Host 仍可从纯文本解析 slash，但 Web 主路径分裂为两态）。 |
+| **双通道触发 `@` 与 `/`** | 产品语义上 `@` 常暗示「对象/人」，`/` 暗示「命令」；共用一个 Skill 列表简化实现，但可能在用户心智上混淆，除非 UI 明确标注「Skill」。 |
+| **plainText 与语义** | Skill 不占 `content` 字符时，历史消息仅看文本无法还原「当时启用了哪些 Skill」，审计与回放依赖 `skillNames` 是否持久化到 Message（当前 Phase 1 不做气泡 mention，矛盾被推迟）。 |
+| **与隐式发现的关系** | 显式 mention 降低模型误选 Catalog 的需要，但若用户从不写正文、只堆 Skill，任务描述为空，Host 仍注入 Skill 而缺少用户意图句——发送门槛若仍要求 `plainText.trim()`，则与「Skill 即主要意图载体」冲突。 |
+| **bundle 与性能** | 相对 textarea 增加 JS 体积；对 Agent 页可接受，但与移动端（§36）或轻量入口是否共享 Composer 需另议。 |
+
+#### 4.8.3 合题：有条件成立，用规则消化矛盾
+
+**综合**：采用 Lexical Mention 作为 Web 显式选择的主路径，但用产品与协议上的**显式规则**消化反题，而不是假设编辑器能自动解决所有语义问题。
+
+1. **协议层**：Web Composer 提交的 canonical 显式选择 = `skillNames` + 自然语言 `content`；`/skill-name` 作为**纯文本消息**（非 Composer 客户端、API 直写、导入）的兼容语法，与 mention 并行，由 Host 统一解析后进入同一条显式注入路径。
+2. **产品层**：typeahead 中 `@` 与 `/` 共用列表时，菜单标题统一为「Skill」，避免伪装成通用 @mention；「+」入口与 slash 触发共享 `insertSkillMention`，避免三套选择 UI 漂移。
+3. **实现层**：Phase 1 坚持 PlainText + 单节点类型，拒绝顺势做 RichText；测试预算优先 IME 与提交，其次视觉 polish。
+4. **观测层**：若出现「用户只选 Skill 不写正文」的合理场景，再单独决策是否放宽发送条件或自动补默认提示句——不在 Lexical 方案里预置 ambiguous 逻辑。
+
+#### 4.8.4 矛盾的主要方面与次要方面
+
+- **主要矛盾**：**显式 Skill 的机器可读性**（`skillNames`、Host 路由）与**用户表达的自然性**（一句话里混排 Skill 与任务描述）之间的张力。Lexical mention 把主要方面放在「机器可读」，用 inline 高亮补偿自然性；若团队更看重「可复制粘贴的纯文本即完整语义」，则反题占优，应保留 slash-in-text 或导出时嵌入可逆标记（Phase 2+）。
+- **次要矛盾**：Composer 富交互 vs 前端简洁性。在 Skills 仅个位数、Phase 1 已上线 panel + chip 的前提下，若 typeahead 数据始终来自 `listSkills` 且交互稳定，**收窄版 chip+textarea** 仍可能满足 80% 需求——选 Lexical 的决策依据是「内联混排 + 原子删除 + 双 trigger」是否为**必要**体验，而非「是否能做」。
+
+#### 4.8.5 何时反转方案（与 §4.6 升级信号呼应）
+
+在以下信号出现时，应重新评估 §4.7，而非继续堆 Lexical 插件：
+
+- Composer  bug 与 IME 问题占用持续高于功能迭代；
+- 产品确认不需要句中 inline Skill，仅句首多选即可；
+- Message 持久化要求「用户所见 = 存储字符串」，且拒绝存 `skillNames` 元数据；
+- 移动端共用同一套输入，Lexical bundle 或 contenteditable 体验不达标。
+
+反转选项按成本从低到高：**混排 chip + textarea** → **textarea + react-mentions 仅高亮** → **维持 Lexical 但导出 reversible plain-text marker**（如 `[skill:name]`）供审计与跨客户端同步。
+
+#### 4.8.6 与 Catalog / 隐式发现的辩证关系
+
+- **互相促进**：显式 mention 用得越多，Catalog 注入压力越小，模型 `skills.read` 的「发现」调用越少，有利于 §4.6 前提（Skill 数量有限、路由清晰）。
+- **互相制约**：若用户依赖显式 mention 而从不依赖 Catalog，模型对 Catalog 的训练式使用可能变弱；隐式发现路径仍需在「未选 Skill 的 Run」上保持一等公民，避免产品变成「不会选 Skill 就不会用 Agent」。
+
 ## 5. 待讨论问题
 
 - Skill 的来源、版本、启用范围和更新方式；
@@ -213,4 +412,6 @@ skills.read(name)
 - Memory 写入触发条件、用户审核和冲突处理；
 - `sourceRefs` 支持的事实类型和删除 Session 后的重新评估；
 - Skills 与现有 Tool Catalog、MCP、Sandbox 的边界；
-- C6 第一版需要哪些 Web 管理界面和审计信息。
+- C6 第一版需要哪些 Web 管理界面和审计信息；
+- Message 是否持久化 `skillNames` 以供历史回放与审计（§4.8 合题已倾向协议层分离 `content` / `skillNames`，存储形态仍待定）；
+- Composer 是否允许「仅 Skill、无正文」发送（§4.7.7）。

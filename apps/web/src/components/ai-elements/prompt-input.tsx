@@ -1,12 +1,19 @@
-import { type FormHTMLAttributes, type HTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import {
+  forwardRef,
+  type FormHTMLAttributes,
+  type HTMLAttributes,
+  type TextareaHTMLAttributes,
+} from 'react';
 
 function classes(...values: Array<string | undefined | false>): string {
   return values.filter(Boolean).join(' ');
 }
 
-export function PromptInput({ className, ...props }: FormHTMLAttributes<HTMLFormElement>) {
-  return <form className={classes('ai-prompt-input', className)} {...props} />;
-}
+export const PromptInput = forwardRef<HTMLFormElement, FormHTMLAttributes<HTMLFormElement>>(
+  function PromptInput({ className, ...props }, ref) {
+    return <form ref={ref} className={classes('ai-prompt-input', className)} {...props} />;
+  },
+);
 
 export function PromptInputHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return <div className={classes('ai-prompt-input__header', className)} {...props} />;

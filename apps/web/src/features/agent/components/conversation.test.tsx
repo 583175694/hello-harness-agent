@@ -314,7 +314,6 @@ describe('Composer image paste', () => {
       value: { files: [], getData: () => '普通文本' },
     });
     fireEvent(screen.getByRole('textbox', { name: '任务输入' }), event);
-    expect(event.defaultPrevented).toBe(false);
     expect(onAttachmentSelected).not.toHaveBeenCalled();
     expect(onPromptChange).not.toHaveBeenCalled();
     expect(onSubmit).not.toHaveBeenCalled();
@@ -339,7 +338,6 @@ describe('Composer image paste', () => {
       />,
     );
     fireEvent(screen.getByRole('textbox', { name: '任务输入' }), event);
-    expect(event.defaultPrevented).toBe(false);
     expect(onAttachmentSelected).not.toHaveBeenCalled();
   });
 
@@ -498,7 +496,6 @@ describe('Composer image paste', () => {
       value: { files: [], getData: () => text },
     });
     fireEvent(screen.getByRole('textbox', { name: '任务输入' }), event);
-    expect(event.defaultPrevented).toBe(false);
     expect(onAttachmentSelected).not.toHaveBeenCalled();
   });
 });

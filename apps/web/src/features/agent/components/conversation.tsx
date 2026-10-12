@@ -55,9 +55,13 @@ import {
   PromptInputBody,
   PromptInputFooter,
   PromptInputHeader,
-  PromptInputTextarea,
   PromptInputTools,
 } from '../../../components/ai-elements/prompt-input';
+import {
+  SkillPromptEditor,
+  type SkillPromptEditorHandle,
+} from '../composer/skill-prompt-editor';
+import { listSkills } from '../../../api/client';
 import { Context } from '../../../components/ai-elements/context';
 import {
   DropdownMenu,
@@ -1761,8 +1765,10 @@ export function Composer({
   selectedSkills?: string[];
   onSkillsChange?: (skills: string[]) => void;
 }) {
-  const composingRef = useRef(false);
   const [draftPrompt, setDraftPrompt] = useState(prompt);
+  const [editorResetKey, setEditorResetKey] = useState(0);
+  const composerFormRef = useRef<HTMLFormElement>(null);
+  const composerEditorRef = useRef<SkillPromptEditorHandle>(null);
   const composerDragDepthRef = useRef(0);
   const [composerDragOver, setComposerDragOver] = useState(false);
   const [interruptState, setInterruptState] = useState<{
@@ -1785,18 +1791,25 @@ export function Composer({
     interruptState.interruptId === activeInterrupt?.interruptId
       ? interruptState
       : { answer: '', submitting: false };
+  const draftPromptRef = useRef(prompt);
   const updateDraftPrompt = useCallback((value: string) => {
+    draftPromptRef.current = value;
     setDraftPrompt(value);
   }, []);
   useEffect(() => {
+    if (prompt === draftPromptRef.current) return;
+    draftPromptRef.current = prompt;
     setDraftPrompt(prompt);
+    setEditorResetKey((key) => key + 1);
   }, [prompt]);
   const submitDraft = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       onSubmit(event, draftPrompt);
       updateDraftPrompt('');
+      onSkillsChange?.([]);
+      composerEditorRef.current?.clear();
     },
-    [onSubmit, draftPrompt, updateDraftPrompt],
+    [onSubmit, draftPrompt, updateDraftPrompt, onSkillsChange],
   );
   const closeComposerPanel = useCallback(() => {
     if (!composerPanel || composerPanelClosing) return;
@@ -1849,25 +1862,42 @@ export function Composer({
     },
     [canPasteAttachments, onAttachmentSelected],
   );
-  const skillOptions = [
-    { name: 'research-summary', label: '研究摘要', description: '多来源调研、证据区分与简洁总结' },
-    { name: 'concise-chinese', label: '简洁中文', description: '用清晰、直接的简体中文回答' },
-  ];
-  const skillQuery = draftPrompt.startsWith('/')
-    ? draftPrompt.slice(1).split(/\s+/)[0]?.toLowerCase() ?? ''
-    : '';
-  const visibleSkills = skillOptions.filter(
-    (skill) => !skillQuery || `${skill.name} ${skill.label}`.toLowerCase().includes(skillQuery),
-  );
+  const [catalogSkills, setCatalogSkills] = useState<
+    Array<{ name: string; description: string }>
+  >([]);
+  useEffect(() => {
+    if (mode !== 'new-run' || !composerPanel) return undefined;
+    let cancelled = false;
+    void listSkills()
+      .then((response) => {
+        if (cancelled) return;
+        setCatalogSkills(
+          (response.skills ?? []).map((skill) => ({
+            name: skill.name,
+            description: skill.description,
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setCatalogSkills([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [composerPanel, mode]);
+  const visibleSkills = catalogSkills;
   const chooseSkill = (name: string) => {
-    onSkillsChange?.([...selectedSkills, name]);
+    const skill = catalogSkills.find((item) => item.name === name);
+    composerEditorRef.current?.insertSkillMention(name, skill?.name ?? name);
     closeComposerPanel();
   };
+  const enableSkillComposer = mode === 'new-run' && !activeInterrupt;
   const placeholder = composerPlaceholder(mode);
   const hideComposerInput =
     activeInterrupt?.kind === 'clarification' || activeInterrupt?.kind === 'tool_approval';
   return (
     <PromptInput
+      ref={composerFormRef}
       className={`composer rounded-[14px] bg-surface${composerDragOver ? ' is-drag-over' : ''}`}
       onSubmit={submitDraft}
       onDragEnter={(event) => {
@@ -1933,10 +1963,11 @@ export function Composer({
                 type="button"
                 className="composer-quick-panel__row"
                 // eslint-disable-next-line react-hooks/refs
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => chooseSkill(skill.name)}
               >
                 <span className="composer-quick-panel__skill-mark"><BookOpen size={16} aria-hidden="true" /></span>
-                <span className="composer-quick-panel__skill-copy"><strong>{skill.label}</strong><small>{skill.description}</small></span>
+                <span className="composer-quick-panel__skill-copy"><strong>{skill.name}</strong><small>{skill.description}</small></span>
               </button>
             )) : <div className="composer-quick-panel__empty">没有匹配的 Skill</div>}
           </div>
@@ -2212,14 +2243,25 @@ export function Composer({
       />
       {!hideComposerInput ? (
         <PromptInputBody>
-          <PromptInputTextarea
-            aria-label="任务输入"
+          <SkillPromptEditor
+            ref={composerEditorRef}
             placeholder={placeholder}
-            rows={3}
-            value={draftPrompt}
             disabled={mode === 'disabled' || controlState === 'waiting_for_user' || Boolean(activeInterrupt)}
-            onChange={(event) => updateDraftPrompt(event.target.value)}
-            onBlur={() => onPromptChange?.(draftPrompt)}
+            enableSkills={enableSkillComposer}
+            resetKey={editorResetKey}
+            seedPlainText={prompt}
+            onChange={({ plainText, skillNames }) => {
+              updateDraftPrompt(plainText);
+              onSkillsChange?.(skillNames);
+            }}
+            onBlurSync={(plainText) => {
+              draftPromptRef.current = plainText;
+              onPromptChange?.(plainText);
+            }}
+            onSubmitRequest={() => {
+              if (!draftPrompt.trim() || mode === 'disabled') return;
+              composerFormRef.current?.requestSubmit();
+            }}
             onPaste={(event) =>
               handleComposerAttachmentPaste(
                 event,
@@ -2228,40 +2270,7 @@ export function Composer({
                 onAttachmentSelected,
               )
             }
-            onCompositionStart={() => {
-              composingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              composingRef.current = false;
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && draftPrompt.trim() && mode !== 'disabled') {
-                if (composingRef.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
           />
-          {mode === 'new-run' && selectedSkills.length ? (
-            <div className="composer-selected-skills" aria-label="已选择的 Skill">
-              {selectedSkills.map((name, index) => {
-                const skill = skillOptions.find((item) => item.name === name);
-                return (
-                  <span className="composer-skill-chip" key={`${name}-${index}`}>
-                    <BookOpen size={14} aria-hidden="true" />
-                    <span>{skill?.label ?? name}</span>
-                    <button
-                      type="button"
-                      aria-label={`移除${skill?.label ?? name}`}
-                      onClick={() => onSkillsChange?.(selectedSkills.filter((_, itemIndex) => itemIndex !== index))}
-                    >
-                      <X size={12} aria-hidden="true" />
-                    </button>
-                  </span>
-                );
-              })}
-            </div>
-          ) : null}
         </PromptInputBody>
       ) : null}
       {!hideComposerInput ? (

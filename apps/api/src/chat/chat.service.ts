@@ -1251,6 +1251,7 @@ export class ChatService {
       await this.delivery.save({
         userId: prepared.userId,
         sessionId: prepared.sessionId,
+        ...(prepared.runId ? { runId: prepared.runId } : {}),
         messageId: prepared.assistantMessageId,
         model,
         blocks: conversation.snapshot(),

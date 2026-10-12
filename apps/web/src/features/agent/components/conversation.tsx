@@ -145,8 +145,7 @@ function fileErrorMessage(errorCode?: string): string {
 }
 
 type AttachmentPreviewState =
-  | { kind: 'image'; src: string; alt: string }
-  | { kind: 'file'; fileId: string; fileName: string };
+  { kind: 'image'; src: string; alt: string } | { kind: 'file'; fileId: string; fileName: string };
 
 function artifactStatusLabel(status: string): string {
   if (status === 'ready') return '已就绪';
@@ -467,7 +466,9 @@ function ArtifactCard({
             </ArtifactTitle>
             <ArtifactDescription>
               {formatFileSize(block.size)}
-              {block.versionNumber ? ` · v${block.versionNumber}${block.isCurrent ? ' · 当前版本' : ''}` : ''}
+              {block.versionNumber
+                ? ` · v${block.versionNumber}${block.isCurrent ? ' · 当前版本' : ''}`
+                : ''}
               {block.status === 'ready' ? '' : ` · ${statusLabel}`}
             </ArtifactDescription>
           </span>
@@ -667,6 +668,17 @@ const AssistantMessage = memo(
               running={Boolean(item.pending) || item.deliveryStatus === 'streaming'}
               onFocusWorkbench={onFocusWorkbench}
             />
+            {item.runId &&
+            !item.workbench &&
+            presentation.process.some((entry) => entry.kind === 'tool') ? (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => onFocusWorkbench({ kind: 'activity', runId: item.runId! })}
+              >
+                查看工具详情
+              </button>
+            ) : null}
             {presentation.pendingText ? (
               <div
                 className="assistant-text-block assistant-text-block--pending"
@@ -718,7 +730,10 @@ function PlanFloatingCard({ plan, visible }: { plan?: PlanSnapshot; visible: boo
     return null;
   }
 
-  const activeIndex = Math.max(0, plan.plan.findIndex((step) => step.status === 'in_progress'));
+  const activeIndex = Math.max(
+    0,
+    plan.plan.findIndex((step) => step.status === 'in_progress'),
+  );
   return (
     <div
       className="plan-floating"
@@ -851,6 +866,27 @@ function fallbackAnchorRatio(index: number, totalCount: number): number {
   if (totalCount <= 1) return 0;
   return index / (totalCount - 1);
 }
+
+type VirtualMeasurementCache = Array<{ start: number; size: number } | undefined>;
+
+/** 虚拟列表下 user 消息可能未挂载，用测量缓存或估算 offset 计算导航刻度。 */
+function estimateMessageRowOffset(
+  virtualizer: { measurementsCache?: VirtualMeasurementCache },
+  index: number,
+  estimateSize: number,
+  paddingStart: number,
+): number {
+  const cache = virtualizer.measurementsCache;
+  if (cache?.[index]?.start != null) return cache[index]!.start;
+  let offset = paddingStart;
+  for (let i = 0; i < index; i += 1) {
+    offset += cache?.[i]?.size ?? estimateSize;
+  }
+  return offset;
+}
+
+const VIRTUAL_ROW_ESTIMATE_PX = 120;
+const VIRTUAL_PADDING_START_PX = 34;
 
 function ConversationMessageNavigator({
   anchors,
@@ -990,6 +1026,8 @@ type ConversationProps = {
   onAttachmentCancel?: (fileId: string) => void;
   scopeKey?: string;
   sessionLoading?: boolean;
+  onLoadOlder?: () => void;
+  loadingOlder?: boolean;
   hideComposer?: boolean;
   selectedSkills?: string[];
   onSkillsChange?: (skills: string[]) => void;
@@ -1062,6 +1100,8 @@ function ConversationBody({
   onAttachmentCancel,
   scopeKey = 'default',
   sessionLoading = false,
+  onLoadOlder,
+  loadingOlder = false,
   hideComposer = false,
   selectedSkills = [],
   onSkillsChange = () => undefined,
@@ -1073,6 +1113,12 @@ function ConversationBody({
   const pendingLandingComposerAnimRef = useRef(false);
   const stickToBottomRef = useRef(true);
   const scrollFrameRef = useRef<number | null>(null);
+  const suppressStickToBottomUntilRef = useRef(0);
+  const preservedScrollTopRef = useRef<number | null>(null);
+  const prevWorkbenchOpenRef = useRef(Boolean(state.workbench?.open));
+  const prevLoadingOlderRef = useRef(false);
+  const scrollHeightBeforeOlderRef = useRef(0);
+  const workbenchOpen = Boolean(state.workbench?.open);
   const renderedConversation = useMemo(
     () => expandConversation(state.conversation),
     [state.conversation],
@@ -1113,6 +1159,7 @@ function ConversationBody({
     initialRect: { width: 0, height: 800 },
     onChange: (instance, sync) => {
       if (sync || !shouldVirtualize || !stickToBottomRef.current) return;
+      if (performance.now() < suppressStickToBottomUntilRef.current) return;
       if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
       scrollFrameRef.current = requestAnimationFrame(() => {
         scrollFrameRef.current = null;
@@ -1121,6 +1168,39 @@ function ConversationBody({
       });
     },
   });
+  const pauseAutoScroll = useCallback(() => {
+    stickToBottomRef.current = false;
+    suppressStickToBottomUntilRef.current = performance.now() + 2_000;
+    const node = scrollRef.current;
+    if (node) preservedScrollTopRef.current = node.scrollTop;
+  }, []);
+  const restorePreservedScroll = useCallback(() => {
+    const node = scrollRef.current;
+    const top = preservedScrollTopRef.current;
+    if (!node || top === null) return;
+    node.scrollTop = top;
+  }, []);
+  const handleFocusWorkbench = useCallback(
+    (target: WorkbenchFocusTarget) => {
+      pauseAutoScroll();
+      onFocusWorkbench(target);
+    },
+    [onFocusWorkbench, pauseAutoScroll],
+  );
+  const conversationStickSignature = useMemo(() => {
+    const last = renderedConversation.at(-1);
+    if (!last) return 'empty';
+    if (last.kind === 'user') return `user:${last.id}:${last.content.length}`;
+    const blockSig = last.blocks
+      .map((block) => {
+        if (block.type === 'text') return `t:${block.content.length}`;
+        if (block.type === 'reasoning') return `r:${block.content.length}`;
+        if (block.type === 'tool_activity') return `a:${block.toolCallId}:${block.status}`;
+        return block.type;
+      })
+      .join('|');
+    return `assistant:${last.id}:${last.pending ? 'pending' : 'done'}:${blockSig}`;
+  }, [renderedConversation]);
   function handleComposerSubmit(
     event: FormEvent<HTMLFormElement>,
     promptOverride?: string,
@@ -1148,8 +1228,18 @@ function ConversationBody({
       const element = scrollNode.querySelector(
         `[data-user-message-anchor="${CSS.escape(anchor.id)}"]`,
       ) as HTMLElement | null;
+      let top: number | undefined;
       if (element) {
-        const top = element.getBoundingClientRect().top - scrollRectTop + scrollTop;
+        top = element.getBoundingClientRect().top - scrollRectTop + scrollTop;
+      } else if (shouldVirtualize) {
+        top = estimateMessageRowOffset(
+          virtualizer,
+          anchor.index,
+          VIRTUAL_ROW_ESTIMATE_PX,
+          VIRTUAL_PADDING_START_PX,
+        );
+      }
+      if (top !== undefined) {
         const ratio = Math.min(1, Math.max(0, top / scrollHeight));
         navRatioCacheRef.current.set(anchor.id, ratio);
         return ratio;
@@ -1173,16 +1263,31 @@ function ConversationBody({
   const syncActiveUserMessage = useCallback(() => {
     const node = scrollRef.current;
     if (!node || userMessageAnchors.length === 0) return;
-    const marker = node.getBoundingClientRect().top + 96;
+    const scrollRectTop = node.getBoundingClientRect().top;
+    const marker = scrollRectTop + 96;
     let activeId = userMessageAnchors[0]!.id;
     for (const anchor of userMessageAnchors) {
-      const element = node.querySelector(`[data-user-message-anchor="${CSS.escape(anchor.id)}"]`);
-      if (!element) continue;
-      if (element.getBoundingClientRect().top <= marker) activeId = anchor.id;
+      const element = node.querySelector(
+        `[data-user-message-anchor="${CSS.escape(anchor.id)}"]`,
+      ) as HTMLElement | null;
+      const top = element
+        ? element.getBoundingClientRect().top
+        : shouldVirtualize
+          ? scrollRectTop +
+            estimateMessageRowOffset(
+              virtualizer,
+              anchor.index,
+              VIRTUAL_ROW_ESTIMATE_PX,
+              VIRTUAL_PADDING_START_PX,
+            ) -
+            node.scrollTop
+          : undefined;
+      if (top === undefined) continue;
+      if (top <= marker) activeId = anchor.id;
       else break;
     }
     setActiveUserMessageId(activeId);
-  }, [userMessageAnchors]);
+  }, [shouldVirtualize, userMessageAnchors, virtualizer]);
   const navigateToUserMessage = useCallback(
     (renderIndex: number) => {
       stickToBottomRef.current = false;
@@ -1234,7 +1339,11 @@ function ConversationBody({
   );
   // 在浏览器绘制前同步到底部，避免新 token 先以旧 scrollTop 绘制一帧后再跳动。
   useLayoutEffect(() => {
-    if (!stickToBottomRef.current || !scrollRef.current) return;
+    if (performance.now() < suppressStickToBottomUntilRef.current) {
+      restorePreservedScroll();
+      return undefined;
+    }
+    if (!stickToBottomRef.current || !scrollRef.current) return undefined;
     const node = scrollRef.current;
     const scrollToBottom = () => {
       if (shouldVirtualize && renderedConversation.length)
@@ -1246,13 +1355,60 @@ function ConversationBody({
     if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
     scrollFrameRef.current = requestAnimationFrame(() => {
       scrollFrameRef.current = null;
+      if (performance.now() < suppressStickToBottomUntilRef.current) {
+        restorePreservedScroll();
+        return;
+      }
       if (stickToBottomRef.current) scrollToBottom();
     });
     return () => {
       if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
       scrollFrameRef.current = null;
     };
-  }, [shouldVirtualize, state.conversation, renderedConversation.length, virtualizer]);
+  }, [
+    conversationStickSignature,
+    renderedConversation.length,
+    restorePreservedScroll,
+    shouldVirtualize,
+    virtualizer,
+  ]);
+
+  useLayoutEffect(() => {
+    if (prevWorkbenchOpenRef.current === workbenchOpen) return;
+    if (workbenchOpen) pauseAutoScroll();
+    prevWorkbenchOpenRef.current = workbenchOpen;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        restorePreservedScroll();
+        syncActiveUserMessage();
+        scheduleNavAnchorRatioMeasure();
+      });
+    });
+  }, [
+    pauseAutoScroll,
+    restorePreservedScroll,
+    scheduleNavAnchorRatioMeasure,
+    syncActiveUserMessage,
+    workbenchOpen,
+  ]);
+
+  useLayoutEffect(() => {
+    if (loadingOlder && !prevLoadingOlderRef.current) {
+      scrollHeightBeforeOlderRef.current = scrollRef.current?.scrollHeight ?? 0;
+      pauseAutoScroll();
+    }
+    if (!loadingOlder && prevLoadingOlderRef.current && scrollRef.current) {
+      const node = scrollRef.current;
+      const delta = node.scrollHeight - scrollHeightBeforeOlderRef.current;
+      if (delta > 0) node.scrollTop += delta;
+      preservedScrollTopRef.current = node.scrollTop;
+      requestAnimationFrame(() => {
+        scheduleNavAnchorRatioMeasure();
+        syncActiveUserMessage();
+      });
+    }
+    prevLoadingOlderRef.current = loadingOlder;
+  }, [loadingOlder, pauseAutoScroll, scheduleNavAnchorRatioMeasure, syncActiveUserMessage]);
 
   const shellRef = useRef<HTMLDivElement>(null);
   const heroRef = useRef<HTMLDivElement>(null);
@@ -1264,6 +1420,11 @@ function ConversationBody({
     pendingLandingComposerAnimRef.current = false;
     prevConversationLengthRef.current = renderedConversation.length;
     setHeroExiting(false);
+    stickToBottomRef.current = true;
+    preservedScrollTopRef.current = null;
+    suppressStickToBottomUntilRef.current = 0;
+    prevWorkbenchOpenRef.current = false;
+    navRatioCacheRef.current.clear();
     const measure = composerMeasureRef.current;
     if (measure) {
       measure.style.transition = '';
@@ -1436,6 +1597,18 @@ function ConversationBody({
               onMouseEnter={(event) => event.currentTarget.classList.add('is-scroll-active')}
               onMouseLeave={(event) => event.currentTarget.classList.remove('is-scroll-active')}
             >
+              {onLoadOlder ? (
+                <div className="mx-auto w-full max-w-chat px-4 py-3 text-center">
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={onLoadOlder}
+                    disabled={loadingOlder}
+                  >
+                    {loadingOlder ? '正在加载更早消息…' : '加载更早消息'}
+                  </button>
+                </div>
+              ) : null}
               <div
                 className={`message-list mx-auto w-full max-w-chat ${shouldVirtualize ? '' : 'message-list--static'}`}
                 style={shouldVirtualize ? { height: virtualizer.getTotalSize() } : undefined}
@@ -1462,7 +1635,7 @@ function ConversationBody({
                                 (submitting && item.id === latestAssistantId)
                               }
                               isAnimating={submitting && item.id === latestAssistantId}
-                              onFocusWorkbench={onFocusWorkbench}
+                              onFocusWorkbench={handleFocusWorkbench}
                             />
                           )}
                         </div>
@@ -1479,7 +1652,7 @@ function ConversationBody({
                               Boolean(item.pending) || (submitting && item.id === latestAssistantId)
                             }
                             isAnimating={submitting && item.id === latestAssistantId}
-                            onFocusWorkbench={onFocusWorkbench}
+                            onFocusWorkbench={handleFocusWorkbench}
                           />
                         )}
                       </div>
@@ -1503,7 +1676,10 @@ function ConversationBody({
                 ref={heroRef}
                 className="conversation-empty-hero flex max-w-full flex-row items-center justify-center gap-3.5 text-left"
               >
-                <BrandIcon size={40} className="empty-brand-icon empty-brand-icon--inline shrink-0" />
+                <BrandIcon
+                  size={40}
+                  className="empty-brand-icon empty-brand-icon--inline shrink-0"
+                />
                 <p className="m-0 text-[18px] font-medium leading-snug text-text-primary">
                   {AGENT_UI_COPY.newSessionWelcome}
                 </p>
@@ -1841,10 +2017,7 @@ export function Composer({
       ) : null}
       {activeInterrupt?.kind === 'tool_approval' ? (
         <div className="composer-hitl-panel composer-confirmation-panel" aria-label="工具审批">
-          <Confirmation
-            approval={{ id: activeInterrupt.interruptId }}
-            state="approval-requested"
-          >
+          <Confirmation approval={{ id: activeInterrupt.interruptId }} state="approval-requested">
             <ConfirmationRequest>
               <div className="composer-confirmation-toolbar">
                 <ConfirmationTitle>

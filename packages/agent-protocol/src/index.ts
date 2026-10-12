@@ -252,6 +252,9 @@ const toolExecutionBaseSchema = z.object({
   skippedCount: z.number().int().nonnegative().optional(),
   passageCount: z.number().int().nonnegative().optional(),
   networkAttemptCount: z.number().int().nonnegative().optional(),
+  outputRef: z.string().min(1).optional(),
+  outputBytes: z.number().int().nonnegative().optional(),
+  outputPreview: z.string().optional(),
   error: z
     .object({
       code: z.string().min(1),
@@ -356,6 +359,8 @@ export const webFetchSourceSnapshotSchema = z.object({
   truncated: z.boolean(),
   passages: z.array(webFetchPassageSchema).max(AGENT_PROTOCOL_LIMITS.webFetchPassagesMax),
   toolCallIds: z.array(z.string().min(1)).min(1),
+  contentRef: z.string().min(1).optional(),
+  contentBytes: z.number().int().nonnegative().optional(),
 });
 
 // 定义调研 Workbench 可以恢复的线索和已读网页联合。
@@ -462,9 +467,43 @@ export const assistantAgentMetadataSchema = z.object({
       executions: z
         .array(toolExecutionSnapshotSchema)
         .max(AGENT_PROTOCOL_LIMITS.agentMetadataExecutionsMax),
-      sources: z.array(researchSourceSnapshotSchema),
+      sources: z.array(researchSourceSnapshotSchema).default([]),
+      detailRef: z.string().min(1).optional(),
     })
     .optional(),
+});
+
+/** 会话列表等轻量读路径可能省略 model；恢复 Workbench 时使用。 */
+export const assistantAgentMetadataRestoreSchema = assistantAgentMetadataSchema
+  .omit({ model: true })
+  .extend({
+    model: z.string().min(1).default('restored'),
+  });
+
+export const assistantResearchProjectionSchema = z.object({
+  executions: z.array(toolExecutionSnapshotSchema).max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
+  sources: z.array(researchSourceSnapshotSchema),
+  blocks: z.array(assistantContentBlockSchema).max(AGENT_PROTOCOL_LIMITS.assistantContentBlocksMax).default([]),
+  context: runContextDebugSchema.optional(),
+  plan: planSnapshotSchema.optional(),
+});
+
+export const runDetailResponseSchema = z.object({
+  runId: z.string().min(1),
+  messageId: z.string().min(1),
+  schemaVersion: z.number().int().positive(),
+  executions: z.array(toolExecutionSnapshotSchema).max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
+  sources: z.array(researchSourceSnapshotSchema),
+  blocks: z.array(assistantContentBlockSchema).default([]),
+  context: runContextDebugSchema.optional(),
+  plan: planSnapshotSchema.optional(),
+});
+
+export const runToolOutputUrlResponseSchema = z.object({
+  url: z.string().min(1),
+  expiresInSeconds: z.number().int().positive(),
+  byteSize: z.number().int().nonnegative(),
+  contentType: z.string().min(1),
 });
 
 // 定义 Web SSE 客户端消费的标准增量事件；Round/Block 字段让实时、重放和历史恢复同序。
@@ -1315,6 +1354,10 @@ export type SearchSourceSnapshot = z.infer<typeof searchSourceSnapshotSchema>;
 export type WebFetchSourceSnapshot = z.infer<typeof webFetchSourceSnapshotSchema>;
 export type ResearchSourceSnapshot = z.infer<typeof researchSourceSnapshotSchema>;
 export type AssistantAgentMetadata = z.infer<typeof assistantAgentMetadataSchema>;
+export type AssistantAgentMetadataRestore = z.infer<typeof assistantAgentMetadataRestoreSchema>;
+export type AssistantResearchProjection = z.infer<typeof assistantResearchProjectionSchema>;
+export type RunDetailResponse = z.infer<typeof runDetailResponseSchema>;
+export type RunToolOutputUrlResponse = z.infer<typeof runToolOutputUrlResponseSchema>;
 export type AssistantTextBlock = z.infer<typeof assistantTextBlockSchema>;
 export type AssistantReasoningBlock = z.infer<typeof assistantReasoningBlockSchema>;
 export type AssistantToolActivityBlock = z.infer<typeof assistantToolActivityBlockSchema>;

@@ -84,6 +84,7 @@ export type ConversationItem =
   | {
       id: string;
       kind: 'assistant';
+      runId?: string;
       blocks: AssistantContentBlock[];
       pending?: boolean;
       deliveryStatus?: 'streaming' | 'completed' | 'failed' | 'cancelled';
@@ -107,6 +108,8 @@ export type ToolCallView = {
   /** MCP / external_tool 完成后的 Host 侧结果预览（协议 outputPreview / SSE result.preview） */
   outputPreview?: string;
   outputPreviewTruncated?: boolean;
+  outputRef?: string;
+  outputBytes?: number;
   resultCount?: number;
   sourceCount?: number;
   terminal?: BashTerminalView;

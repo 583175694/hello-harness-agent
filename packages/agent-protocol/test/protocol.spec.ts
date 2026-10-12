@@ -16,6 +16,8 @@ import {
   toolCallSchema,
   updateSessionRequestSchema,
   assistantAgentMetadataSchema,
+  runToolOutputUrlResponseSchema,
+  toolExecutionSnapshotSchema,
   normalizeSourceUrl,
   webFetchInputSchema,
   webFetchResultSchema,
@@ -723,5 +725,37 @@ describe('MCP admin protocol', () => {
     });
     expect(view).not.toHaveProperty('secrets');
     expect(view.secretsConfigured.headerNames).toEqual([]);
+  });
+});
+
+describe('run tool output contracts', () => {
+  it('parses signed output url responses', () => {
+    expect(
+      runToolOutputUrlResponseSchema.parse({
+        url: 'https://example.com/object',
+        expiresInSeconds: 300,
+        byteSize: 9000,
+        contentType: 'application/json; charset=utf-8',
+      }),
+    ).toMatchObject({ byteSize: 9000 });
+  });
+
+  it('accepts optional outputRef fields on tool execution snapshots', () => {
+    expect(
+      toolExecutionSnapshotSchema.parse({
+        toolCallId: 'call-1',
+        toolName: 'external_tool',
+        publicName: 'mcp__demo__ping',
+        subKind: 'mcp',
+        input: {},
+        status: 'completed',
+        startedAt: '2026-10-11T00:00:00.000Z',
+        completedAt: '2026-10-11T00:00:01.000Z',
+        durationMs: 1000,
+        outputPreview: 'preview',
+        outputRef: 'runs/run-1/tools/call-1/output.json',
+        outputBytes: 9000,
+      }),
+    ).toMatchObject({ outputRef: 'runs/run-1/tools/call-1/output.json' });
   });
 });

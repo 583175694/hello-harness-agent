@@ -558,6 +558,47 @@ describe('R1 workbench shell', () => {
     });
   });
 
+  it('restores a detailRef stub workbench when session metadata omits model', () => {
+    const message: PersistedMessage = {
+      id: 'assistant-light',
+      sessionId: 'session-light',
+      role: 'assistant',
+      kind: 'assistant_delivery',
+      content: '结论',
+      runId: 'run-light',
+      createdAt: '2026-10-12T05:00:00.000Z',
+      metadata: {
+        deliveryStatus: 'completed',
+        runId: 'run-light',
+        blocks: [
+          {
+            id: 'tool-1',
+            type: 'tool_activity',
+            toolCallId: 'call-fetch',
+            toolName: 'web_fetch',
+            title: 'fetch_content',
+            status: 'completed',
+            startedAt: '2026-10-12T05:00:01.000Z',
+            completedAt: '2026-10-12T05:00:02.000Z',
+          },
+        ],
+        agent: {
+          toolCallCount: 1,
+          executions: [],
+          sources: [],
+          detailRef: 'run-light',
+        },
+      },
+    };
+
+    expect(workbenchFromPersistedMessage(message)).toMatchObject({
+      runId: 'run-light',
+      activeView: 'tool_results',
+      executions: [{ toolCallId: 'call-fetch', title: 'fetch_content' }],
+      open: false,
+    });
+  });
+
   it('auto-opens workbench on tool.started unless the user suppressed this run', () => {
     const started: ToolStreamEvent = {
       type: 'tool.started',

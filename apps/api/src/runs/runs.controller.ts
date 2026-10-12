@@ -22,6 +22,7 @@ import type { RequestUser } from '../auth/auth.types';
 import { SseEventWriter } from '../stream/sse-event-writer';
 import { RunCommandService } from './run-command.service';
 import { RunEventHub } from './run-event-hub';
+import { RunToolOutputService } from './run-tool-output.service';
 import { PendingUserInputService } from './pending-user-input.service';
 
 @Controller('api/agent')
@@ -29,6 +30,7 @@ export class RunsController {
   constructor(
     @Inject(RunCommandService) private readonly commands: RunCommandService,
     @Inject(RunEventHub) private readonly events: RunEventHub,
+    @Inject(RunToolOutputService) private readonly toolOutputs: RunToolOutputService,
     @Inject(PendingUserInputService) private readonly pending: PendingUserInputService,
   ) {}
 
@@ -122,6 +124,36 @@ export class RunsController {
   @Get('runs/:runId')
   snapshot(@CurrentUser() user: RequestUser, @Param('runId') runId: string) {
     return this.commands.snapshot(runId, user.id);
+  }
+
+  @Get('runs/:runId/detail')
+  detail(@CurrentUser() user: RequestUser, @Param('runId') runId: string) {
+    return this.commands.detail(runId, user.id);
+  }
+
+  @Get('runs/:runId/tools/:toolCallId/output-url')
+  toolOutputUrl(
+    @CurrentUser() user: RequestUser,
+    @Param('runId') runId: string,
+    @Param('toolCallId') toolCallId: string,
+  ) {
+    return this.toolOutputs.createOutputUrl(runId, decodeURIComponent(toolCallId), user.id);
+  }
+
+  @Get('runs/:runId/tools/:toolCallId/content')
+  async toolOutputContent(
+    @CurrentUser() user: RequestUser,
+    @Param('runId') runId: string,
+    @Param('toolCallId') toolCallId: string,
+    @Res() response: Response,
+  ): Promise<void> {
+    const payload = await this.toolOutputs.readInlineContent(
+      runId,
+      decodeURIComponent(toolCallId),
+      user.id,
+    );
+    response.setHeader('content-type', payload.contentType);
+    response.send(payload.content);
   }
 
   @Post('runs/:runId/cancel')

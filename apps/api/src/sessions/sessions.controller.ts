@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 
 import {
@@ -42,10 +43,21 @@ export class SessionsController {
     return this.sessions.list(user.id);
   }
 
-  // 返回指定会话和完整消息历史。
+  // 返回指定会话消息；传入 limit/before 时按时间游标分页。
   @Get(':sessionId')
-  detail(@CurrentUser() user: RequestUser, @Param('sessionId') sessionId: string) {
-    return this.sessions.detail(user.id, sessionId);
+  detail(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+  ) {
+    const parsedLimit = limit === undefined ? undefined : Number(limit);
+    if (parsedLimit !== undefined && (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 200))
+      this.invalid('limit 必须是 1 到 200 之间的整数。');
+    return this.sessions.detail(user.id, sessionId, {
+      limit: parsedLimit,
+      before,
+    });
   }
 
   // 更新会话名称或置顶状态。

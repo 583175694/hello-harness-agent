@@ -25,6 +25,31 @@ function makeArchiver(storage: Partial<RunObjectStorage>, toolOutputs: Partial<R
 }
 
 describe('RunProjectionArchiver', () => {
+  it('trimForCheckpoint does not touch object storage', async () => {
+    const putObject = vi.fn(async (input) => ({ objectKey: input.key }));
+    const archiver = makeArchiver({ putObject }, {});
+    const large = 'x'.repeat(9000);
+    archiver.trimForCheckpoint({
+      executions: [
+        {
+          toolCallId: 'call-1',
+          toolName: AGENT_TOOL_NAMES.externalTool,
+          publicName: 'demo',
+          subKind: 'mcp',
+          input: {},
+          status: 'completed',
+          startedAt: '2026-10-11T00:00:00.000Z',
+          completedAt: '2026-10-11T00:00:01.000Z',
+          durationMs: 1000,
+          outputPreview: large,
+        },
+      ],
+      sources: [],
+      blocks: [],
+    });
+    expect(putObject).not.toHaveBeenCalled();
+  });
+
   it('archives external tool previews above inline limit', async () => {
     const putObject = vi.fn(async (input) => ({ objectKey: input.key }));
     const upsert = vi.fn(async () => undefined);

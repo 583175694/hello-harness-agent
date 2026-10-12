@@ -48,19 +48,33 @@ function formatElapsed(ms: number): string {
   return `已用时 ${Math.floor(totalSeconds / 60)} 分 ${totalSeconds % 60}秒`;
 }
 
+function parseTime(iso?: string): number | undefined {
+  if (!iso) return undefined;
+  const value = Date.parse(iso);
+  return Number.isFinite(value) ? value : undefined;
+}
+
 function processTimeRange(process: AssistantProcessItem[]) {
-  const tools = process.filter(
-    (item): item is Extract<AssistantProcessItem, { kind: 'tool' }> => item.kind === 'tool',
-  );
-  const start = Math.min(
-    ...tools.map((item) => Date.parse(item.block.startedAt)).filter(Number.isFinite),
-  );
-  const completed = tools
-    .map((item) => (item.block.completedAt ? Date.parse(item.block.completedAt) : NaN))
-    .filter(Number.isFinite);
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (const item of process) {
+    if (item.kind === 'tool') {
+      const started = parseTime(item.block.startedAt);
+      if (started !== undefined) starts.push(started);
+      const completed = parseTime(item.block.completedAt);
+      if (completed !== undefined) ends.push(completed);
+      continue;
+    }
+    if (item.kind === 'reasoning') {
+      const started = parseTime(item.block.startedAt);
+      if (started !== undefined) starts.push(started);
+      const completed = parseTime(item.block.completedAt);
+      if (completed !== undefined) ends.push(completed);
+    }
+  }
   return {
-    start: Number.isFinite(start) ? start : undefined,
-    end: completed.length ? Math.max(...completed) : undefined,
+    start: starts.length ? Math.min(...starts) : undefined,
+    end: ends.length ? Math.max(...ends) : undefined,
   };
 }
 

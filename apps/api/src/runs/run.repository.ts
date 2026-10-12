@@ -11,13 +11,22 @@ import {
 } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
 import { extractProjectionFromMetadata } from '../run-storage/metadata-migration.utils';
-import { RunProjectionArchiver } from '../run-storage/run-projection.archiver';
+import {
+  RunProjectionArchiver,
+  type RunProjectionInput,
+} from '../run-storage/run-projection.archiver';
 import type { ChatProjectionSnapshot } from '../chat/chat.service';
 import type { ModelMessage, ModelToolCall } from '../model/model-adapter';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import type { AgentRuntimeEvent } from '../agent-runtime/agent-runtime.types';
 
 const ACTIVE_STATUSES = ['queued', 'running', 'cancel_requested'] as const;
+
+/** flush/terminal 仅写 DB 行，对象存储已在事务外完成。 */
+const RUN_CHECKPOINT_TRANSACTION_OPTIONS = {
+  maxWait: 10_000,
+  timeout: 10_000,
+} as const;
 
 @Injectable()
 export class RunRepository implements OnModuleInit, OnModuleDestroy {
@@ -796,13 +805,19 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       .filter((block) => block.type === 'text')
       .map((block) => block.content)
       .join('');
+    const run = await this.prisma.agentRun.findUnique({
+      where: { id: runId },
+      select: { metadata: true, sessionId: true },
+    });
+    const trimmed = this.projectionArchiver.trimForCheckpoint({
+      executions: projection.executions,
+      sources: projection.sources,
+      blocks: projection.blocks,
+      ...(projection.plan ? { plan: projection.plan } : {}),
+    });
     // Run 水位和 Assistant Draft 在同一事务更新，禁止出现 seq 已前进但 Blocks 仍是旧版本。
     return this.prisma.$transaction(async (tx) => {
       const message = await tx.message.findUnique({ where: { id: assistantMessageId } });
-      const run = await tx.agentRun.findUnique({
-        where: { id: runId },
-        select: { metadata: true, sessionId: true },
-      });
       const currentMetadata = this.metadata(message?.metadata);
       const currentDraftVersion =
         typeof currentMetadata.draftVersion === 'number' ? currentMetadata.draftVersion : 0;
@@ -826,14 +841,11 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (updated.count !== 1) return false;
-      await this.upsertRunDetail(tx, {
+      await this.upsertRunDetailRow(tx, {
         runId,
         messageId: assistantMessageId,
         sessionId: run?.sessionId ?? '',
-        executions: projection.executions,
-        sources: projection.sources,
-        blocks: projection.blocks,
-        ...(projection.plan ? { plan: projection.plan } : {}),
+        trimmed,
       });
       await tx.message.update({
         where: { id: assistantMessageId },
@@ -854,7 +866,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         },
       });
       return true;
-    });
+    }, RUN_CHECKPOINT_TRANSACTION_OPTIONS);
   }
 
   // 请求取消 Run；queued 直接终止，running 先进入 cancel_requested。
@@ -934,12 +946,23 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       .join('');
     // 完成只能来自 running；一旦进入 cancel_requested，成功终态必须让位于 cancelled/failed。
     const allowedFrom = this.allowedFromStatuses(input.status);
+    const runMetadata = await this.prisma.agentRun.findUnique({
+      where: { id: input.runId },
+      select: { metadata: true, sessionId: true },
+    });
+    const trimmed = await this.projectionArchiver.trimAndPersist({
+      runId: input.runId,
+      sessionId: runMetadata?.sessionId ?? '',
+      projection: {
+        executions: input.projection.executions,
+        sources: input.projection.sources,
+        blocks: input.projection.blocks,
+        ...(input.context ? { context: this.compactContext(input.context) } : {}),
+        ...(input.projection.plan ? { plan: input.projection.plan } : {}),
+      },
+    });
     // Terminal Run 状态和最终 Assistant Snapshot 原子提交，成功返回后才允许广播 terminal SSE。
     return this.prisma.$transaction(async (tx) => {
-      const runMetadata = await tx.agentRun.findUnique({
-        where: { id: input.runId },
-        select: { metadata: true, sessionId: true },
-      });
       const updated = await tx.agentRun.updateMany({
         where: {
           id: input.runId,
@@ -963,15 +986,11 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (updated.count !== 1) return false;
-      await this.upsertRunDetail(tx, {
+      await this.upsertRunDetailRow(tx, {
         runId: input.runId,
         messageId: input.assistantMessageId,
         sessionId: runMetadata?.sessionId ?? '',
-        executions: input.projection.executions,
-        sources: input.projection.sources,
-        blocks: input.projection.blocks,
-        ...(input.context ? { context: this.compactContext(input.context) } : {}),
-        ...(input.projection.plan ? { plan: input.projection.plan } : {}),
+        trimmed,
       });
       if (input.status === 'completed') {
         if (input.compactionState) {
@@ -1025,7 +1044,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         },
       });
       return true;
-    });
+    }, RUN_CHECKPOINT_TRANSACTION_OPTIONS);
   }
 
   private transcriptKind(role: ModelMessage['role']): 'assistant' | 'user' | 'tool_result' {
@@ -1034,33 +1053,17 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     return 'tool_result';
   }
 
-  private async upsertRunDetail(
+  private async upsertRunDetailRow(
     tx: Prisma.TransactionClient,
     input: {
       runId?: string;
       messageId: string;
       sessionId: string;
-      executions: ToolExecutionSnapshot[];
-      sources: ResearchSourceSnapshot[];
-      blocks: ChatProjectionSnapshot['blocks'];
-      context?: RunContextDebug;
-      plan?: ChatProjectionSnapshot['plan'];
+      trimmed: RunProjectionInput;
     },
   ): Promise<void> {
     if (!input.sessionId) throw new Error('RUN_DETAIL_SESSION_MISSING');
-    const storageRunId = input.runId ?? input.messageId;
-    const trimmed = await this.projectionArchiver.trimAndPersist({
-      runId: storageRunId,
-      sessionId: input.sessionId,
-      projection: {
-        executions: input.executions,
-        sources: input.sources,
-        blocks: input.blocks,
-        ...(input.context ? { context: input.context } : {}),
-        ...(input.plan ? { plan: input.plan } : {}),
-      },
-      tx,
-    });
+    const trimmed = input.trimmed;
     const data = {
       schemaVersion: 1,
       researchProjection: assistantResearchProjectionSchema.parse({

@@ -208,6 +208,16 @@ export class RunCommandService {
     };
   }
 
+  async detail(runId: string, userId: string) {
+    const detail = await this.repository.detail(runId, userId);
+    if (!detail)
+      throw new NotFoundException({
+        code: AGENT_ERROR_CODES.runNotFound,
+        detail: '运行不存在或不属于当前用户。',
+      });
+    return detail;
+  }
+
   // 返回当前进程最新 Snapshot；没有内存 Run 时退回数据库 Snapshot。
   async snapshot(runId: string, userId: string) {
     const snapshot = await this.repository.snapshot(runId, userId);

@@ -37,6 +37,13 @@ export const sessionSummarySchema = z.object({
 // 定义会话详情及其按时间排序的持久化消息。
 export const sessionDetailSchema = sessionSummarySchema.extend({
   messages: z.array(persistedMessageSchema),
+  pagination: z
+    .object({
+      limit: z.number().int().positive(),
+      hasMore: z.boolean(),
+      nextBefore: z.string().min(1).optional(),
+    })
+    .optional(),
   artifactSeries: z.array(artifactSeriesRefSchema).default([]),
   pendingUserInputs: z.array(sessionPendingUserInputViewSchema).default([]),
   activeRun: z

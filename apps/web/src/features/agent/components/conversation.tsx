@@ -144,8 +144,7 @@ function fileErrorMessage(errorCode?: string): string {
 }
 
 type AttachmentPreviewState =
-  | { kind: 'image'; src: string; alt: string }
-  | { kind: 'file'; fileId: string; fileName: string };
+  { kind: 'image'; src: string; alt: string } | { kind: 'file'; fileId: string; fileName: string };
 
 function artifactStatusLabel(status: string): string {
   if (status === 'ready') return '已就绪';
@@ -466,7 +465,9 @@ function ArtifactCard({
             </ArtifactTitle>
             <ArtifactDescription>
               {formatFileSize(block.size)}
-              {block.versionNumber ? ` · v${block.versionNumber}${block.isCurrent ? ' · 当前版本' : ''}` : ''}
+              {block.versionNumber
+                ? ` · v${block.versionNumber}${block.isCurrent ? ' · 当前版本' : ''}`
+                : ''}
               {block.status === 'ready' ? '' : ` · ${statusLabel}`}
             </ArtifactDescription>
           </span>
@@ -666,6 +667,17 @@ const AssistantMessage = memo(
               running={Boolean(item.pending) || item.deliveryStatus === 'streaming'}
               onFocusWorkbench={onFocusWorkbench}
             />
+            {item.runId &&
+            !item.workbench &&
+            presentation.process.some((entry) => entry.kind === 'tool') ? (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => onFocusWorkbench({ kind: 'activity', runId: item.runId! })}
+              >
+                查看工具详情
+              </button>
+            ) : null}
             {presentation.pendingText ? (
               <div
                 className="assistant-text-block assistant-text-block--pending"
@@ -717,7 +729,10 @@ function PlanFloatingCard({ plan, visible }: { plan?: PlanSnapshot; visible: boo
     return null;
   }
 
-  const activeIndex = Math.max(0, plan.plan.findIndex((step) => step.status === 'in_progress'));
+  const activeIndex = Math.max(
+    0,
+    plan.plan.findIndex((step) => step.status === 'in_progress'),
+  );
   return (
     <div
       className="plan-floating"
@@ -989,6 +1004,8 @@ type ConversationProps = {
   onAttachmentCancel?: (fileId: string) => void;
   scopeKey?: string;
   sessionLoading?: boolean;
+  onLoadOlder?: () => void;
+  loadingOlder?: boolean;
   hideComposer?: boolean;
 };
 
@@ -1058,6 +1075,8 @@ function ConversationBody({
   onAttachmentCancel,
   scopeKey = 'default',
   sessionLoading = false,
+  onLoadOlder,
+  loadingOlder = false,
   hideComposer = false,
 }: ConversationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1424,6 +1443,18 @@ function ConversationBody({
               onMouseEnter={(event) => event.currentTarget.classList.add('is-scroll-active')}
               onMouseLeave={(event) => event.currentTarget.classList.remove('is-scroll-active')}
             >
+              {onLoadOlder ? (
+                <div className="mx-auto w-full max-w-chat px-4 py-3 text-center">
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={onLoadOlder}
+                    disabled={loadingOlder}
+                  >
+                    {loadingOlder ? '正在加载更早消息…' : '加载更早消息'}
+                  </button>
+                </div>
+              ) : null}
               <div
                 className={`message-list mx-auto w-full max-w-chat ${shouldVirtualize ? '' : 'message-list--static'}`}
                 style={shouldVirtualize ? { height: virtualizer.getTotalSize() } : undefined}
@@ -1491,7 +1522,10 @@ function ConversationBody({
                 ref={heroRef}
                 className="conversation-empty-hero flex max-w-full flex-row items-center justify-center gap-3.5 text-left"
               >
-                <BrandIcon size={40} className="empty-brand-icon empty-brand-icon--inline shrink-0" />
+                <BrandIcon
+                  size={40}
+                  className="empty-brand-icon empty-brand-icon--inline shrink-0"
+                />
                 <p className="m-0 text-[18px] font-medium leading-snug text-text-primary">
                   {AGENT_UI_COPY.newSessionWelcome}
                 </p>
@@ -1741,10 +1775,7 @@ export function Composer({
       ) : null}
       {activeInterrupt?.kind === 'tool_approval' ? (
         <div className="composer-hitl-panel composer-confirmation-panel" aria-label="工具审批">
-          <Confirmation
-            approval={{ id: activeInterrupt.interruptId }}
-            state="approval-requested"
-          >
+          <Confirmation approval={{ id: activeInterrupt.interruptId }} state="approval-requested">
             <ConfirmationRequest>
               <div className="composer-confirmation-toolbar">
                 <ConfirmationTitle>

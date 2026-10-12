@@ -59,6 +59,13 @@ export const AGENT_PROTOCOL_LIMITS = {
   planJsonMaxBytes: 16_384,
   // 外部/MCP 工具结果写入 SSE 与 execution 快照时的预览上限（Workbench 全量展示，仅超大结果截断）。
   externalToolOutputPreviewMax: 131_072,
+  // Run 工具输出 COS 归档分级（与 docs/39 §4 对齐）。
+  toolOutputInlineMaxBytes: 8192,
+  toolOutputCosMinBytes: 8192,
+  toolOutputCosRequiredBytes: 262_144,
+  toolOutputPreviewMaxBytes: 8192,
+  // AgentRunDetail.researchProjection 归档后 UTF-8 字节上限（防御性）。
+  researchProjectionMaxBytes: 512_000,
 } as const;
 
 // 集中维护协议中稳定的工具标识。

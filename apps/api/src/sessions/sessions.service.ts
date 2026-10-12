@@ -16,7 +16,11 @@ import type {
   SessionSummary,
   UpdateSessionRequest,
 } from '@harness/agent-protocol';
-import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
+import {
+  AGENT_ERROR_CODES,
+  assistantContentBlockSchema,
+  type AssistantContentBlock,
+} from '@harness/agent-protocol';
 
 import { SessionTitleService } from './session-title.service';
 import { PrismaService } from '../database/prisma.service';
@@ -25,6 +29,7 @@ import { compareMessageOrder } from '../chat/message-order';
 import { RunRepository } from '../runs/run.repository';
 import { PendingUserInputService } from '../runs/pending-user-input.service';
 import { FileStorage } from '../file-storage/file-storage';
+import { RunObjectStorage } from '../run-storage/run-object.storage';
 import { SandboxManagerService } from '../sandbox/sandbox-manager.service';
 
 @Injectable()
@@ -36,6 +41,7 @@ export class SessionsService implements OnModuleInit {
     @Inject(RunRepository) private readonly runs: RunRepository,
     @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
     @Inject(FileStorage) private readonly fileStorage: FileStorage,
+    @Inject(RunObjectStorage) private readonly runObjectStorage: RunObjectStorage,
     @Optional() private readonly sandboxManager?: SandboxManagerService,
   ) {}
 
@@ -77,13 +83,43 @@ export class SessionsService implements OnModuleInit {
   // 返回会话及按创建顺序排列的全部普通消息。
   // 查询会话消息及附件元数据，生成可供 Web 恢复的会话详情。
   // 任意已登录用户凭 sessionId 可读（链接分享）；写操作仍走 requireOwned。
-  async detail(_userId: string, sessionId: string): Promise<SessionDetailResponse> {
+  async detail(
+    _userId: string,
+    sessionId: string,
+    options: { limit?: number; before?: string } = {},
+  ): Promise<SessionDetailResponse> {
+    const cursor = options.before
+      ? await this.prisma.message.findFirst({
+          where: { id: options.before, sessionId },
+          select: { id: true, createdAt: true },
+        })
+      : undefined;
+    if (options.before && !cursor) this.throwNotFound();
+    const messageWhere = {
+      sessionId,
+      ...(cursor
+        ? {
+            OR: [
+              { createdAt: { lt: cursor.createdAt } },
+              { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+            ],
+          }
+        : {}),
+    };
+    const messageTake = options.limit === undefined ? undefined : options.limit + 1;
     const session = await this.prisma.session.findFirst({
       where: { id: sessionId },
       include: {
         messages: {
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          include: { attachments: { include: { file: true }, orderBy: { ordinal: 'asc' } } },
+          orderBy:
+            options.limit === undefined
+              ? [{ createdAt: 'asc' as const }, { id: 'asc' as const }]
+              : [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
+          where: messageWhere,
+          ...(messageTake ? { take: messageTake } : {}),
+          include: {
+            attachments: { include: { file: true }, orderBy: { ordinal: 'asc' } },
+          },
         },
         runs: {
           where: { status: { in: ['queued', 'running', 'cancel_requested'] } },
@@ -103,13 +139,30 @@ export class SessionsService implements OnModuleInit {
       },
     });
     if (!session) this.throwNotFound();
+    const hasMore = options.limit !== undefined && session.messages.length > options.limit;
+    const messages = hasMore ? session.messages.slice(0, options.limit) : session.messages;
+    const nextBefore = hasMore ? messages.at(-1)?.id : undefined;
     const pendingUserInputs = await this.pendingInputs.list(sessionId);
+    const detailBlocksByMessageId = await this.loadConversationBlocksForMessages(messages);
     return {
       session: {
         ...this.toSummary(session),
-        messages: [...session.messages]
+        messages: [...messages]
           .sort(compareMessageOrder)
-          .map((message) => this.toMessage(message)),
+          .map((message) =>
+            this.toMessage(message, {
+              conversationBlocks: detailBlocksByMessageId.get(message.id),
+            }),
+          ),
+        ...(options.limit !== undefined
+          ? {
+              pagination: {
+                limit: options.limit,
+                hasMore,
+                ...(nextBefore ? { nextBefore } : {}),
+              },
+            }
+          : {}),
         pendingUserInputs: pendingUserInputs.map((input) => ({
           id: input.id,
           kind: input.kind,
@@ -195,9 +248,35 @@ export class SessionsService implements OnModuleInit {
       skipDuplicates: true,
     });
     await this.sandboxManager?.destroySessionForSessionDelete(sessionId).catch(() => undefined);
+    await this.cleanupRunObjectPrefixes(sessionId);
     await this.prisma.session.delete({ where: { id: sessionId } });
     await this.retryFileCleanupTasks(sessionId);
     return { deletedSessionId: sessionId };
+  }
+
+  private async cleanupRunObjectPrefixes(sessionId: string): Promise<void> {
+    const [runs, assistantMessages] = await Promise.all([
+      this.prisma.agentRun.findMany({ where: { sessionId }, select: { id: true } }),
+      this.prisma.message.findMany({
+        where: { sessionId, role: 'assistant' },
+        select: { id: true, runId: true },
+      }),
+    ]);
+    const prefixes = new Set<string>();
+    for (const run of runs) prefixes.add(`runs/${run.id}/`);
+    for (const message of assistantMessages) {
+      prefixes.add(`runs/${message.runId ?? message.id}/`);
+    }
+    await Promise.all(
+      [...prefixes].map((prefix) =>
+        this.runObjectStorage.deletePrefix({ prefix }).catch((error) => {
+          this.logger.warn(
+            `Run 对象前缀清理失败 | 会话=${shortLogId(sessionId)} | 前缀=${prefix} | 原因=${describeLogError(error)}`,
+            SessionsService.name,
+          );
+        }),
+      ),
+    );
   }
 
   private async retryFileCleanupTasks(sessionId?: string): Promise<void> {
@@ -297,6 +376,46 @@ export class SessionsService implements OnModuleInit {
     };
   }
 
+  private async loadConversationBlocksForMessages(
+    messages: Array<Pick<Message, 'id' | 'role' | 'runId'>>,
+  ): Promise<Map<string, AssistantContentBlock[]>> {
+    const assistantMessages = messages.filter((message) => message.role === 'assistant');
+    if (!assistantMessages.length) return new Map();
+    const messageIds = assistantMessages.map((message) => message.id);
+    const runIds = [
+      ...new Set(
+        assistantMessages
+          .map((message) => message.runId)
+          .filter((runId): runId is string => Boolean(runId)),
+      ),
+    ];
+    const details = await this.prisma.agentRunDetail.findMany({
+      where: {
+        OR: [
+          { messageId: { in: messageIds } },
+          ...(runIds.length ? [{ runId: { in: runIds } }] : []),
+        ],
+      },
+      select: { messageId: true, runId: true, researchProjection: true },
+    });
+    const blocksByRunId = new Map<string, AssistantContentBlock[]>();
+    const blocksByMessageId = new Map<string, AssistantContentBlock[]>();
+    for (const detail of details) {
+      const blocks = this.parseConversationBlocks(detail.researchProjection);
+      if (!blocks.length) continue;
+      blocksByMessageId.set(detail.messageId, blocks);
+      if (detail.runId) blocksByRunId.set(detail.runId, blocks);
+    }
+    const result = new Map<string, AssistantContentBlock[]>();
+    for (const message of assistantMessages) {
+      const fromMessage = blocksByMessageId.get(message.id);
+      const fromRun = message.runId ? blocksByRunId.get(message.runId) : undefined;
+      const blocks = fromMessage ?? fromRun;
+      if (blocks?.length) result.set(message.id, blocks);
+    }
+    return result;
+  }
+
   // 将数据库消息转换为共享持久化消息协议。
   private toMessage(
     message: Message & {
@@ -329,11 +448,16 @@ export class SessionsService implements OnModuleInit {
         };
       }>;
     },
+    options?: { conversationBlocks?: AssistantContentBlock[] },
   ): PersistedMessage {
     const metadata =
       typeof message.metadata === 'object' && message.metadata
         ? (message.metadata as Record<string, unknown>)
         : {};
+    const projectedMetadata = this.projectMessageMetadata(metadata, message.role, message.runId);
+    const conversationBlocks =
+      options?.conversationBlocks ?? this.legacyConversationBlocks(metadata, message.role);
+    if (conversationBlocks.length) projectedMetadata.blocks = conversationBlocks;
     const deliveryStatus =
       message.role === 'assistant' &&
       typeof metadata.deliveryStatus === 'string' &&
@@ -349,7 +473,7 @@ export class SessionsService implements OnModuleInit {
       ...(message.runId ? { runId: message.runId } : {}),
       ...(deliveryStatus ? { deliveryStatus } : {}),
       createdAt: message.createdAt.toISOString(),
-      metadata,
+      metadata: projectedMetadata,
       attachments: (message.attachments ?? []).map(({ file }) => ({
         fileId: file.id,
         fileName: file.fileName,
@@ -367,6 +491,72 @@ export class SessionsService implements OnModuleInit {
         ...(file.status === 'ready' ? { previewUrl: `/api/agent/files/${file.id}/preview` } : {}),
       })),
     };
+  }
+
+  // 会话列表只返回恢复对话所需的轻量字段；大型工具快照通过 Run detail 按需读取。
+  private projectMessageMetadata(
+    metadata: Record<string, unknown>,
+    role: Message['role'],
+    messageRunId?: string | null,
+  ): Record<string, unknown> {
+    const projected: Record<string, unknown> = {};
+    for (const key of [
+      'deliveryStatus',
+      'runId',
+      'model',
+      'pendingInputId',
+      'error',
+      'context',
+      'plan',
+    ]) {
+      if (metadata[key] !== undefined) projected[key] = metadata[key];
+    }
+    if (role === 'assistant') {
+      const agent = metadata.agent;
+      const detailRef =
+        agent &&
+        typeof agent === 'object' &&
+        !Array.isArray(agent) &&
+        typeof (agent as Record<string, unknown>).detailRef === 'string'
+          ? ((agent as Record<string, unknown>).detailRef as string)
+          : typeof metadata.runId === 'string'
+            ? metadata.runId
+            : messageRunId ?? undefined;
+      if (agent && typeof agent === 'object' && !Array.isArray(agent)) {
+        const value = agent as Record<string, unknown>;
+        projected.agent = {
+          toolCallCount: typeof value.toolCallCount === 'number' ? value.toolCallCount : 0,
+          executions: [],
+          sources: [],
+          ...(detailRef ? { detailRef } : {}),
+        };
+      } else if (detailRef) {
+        projected.agent = { toolCallCount: 0, executions: [], sources: [], detailRef };
+      }
+    }
+    return projected;
+  }
+
+  // 迁移完成前，仍可能从旧 Message.metadata 读到 blocks；只用于恢复聊天时间线，不返回 executions/sources。
+  private parseConversationBlocks(value: unknown): AssistantContentBlock[] {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return [];
+    const blocks = (value as { blocks?: unknown }).blocks;
+    if (!Array.isArray(blocks)) return [];
+    return blocks.flatMap((block) => {
+      const parsed = assistantContentBlockSchema.safeParse(block);
+      return parsed.success ? [parsed.data] : [];
+    });
+  }
+
+  private legacyConversationBlocks(
+    metadata: Record<string, unknown>,
+    role: Message['role'],
+  ): AssistantContentBlock[] {
+    if (role !== 'assistant' || !Array.isArray(metadata.blocks)) return [];
+    return metadata.blocks.flatMap((value) => {
+      const parsed = assistantContentBlockSchema.safeParse(value);
+      return parsed.success ? [parsed.data] : [];
+    });
   }
 
   // 抛出统一的会话不存在或无归属错误。

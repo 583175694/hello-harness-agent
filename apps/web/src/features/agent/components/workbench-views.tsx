@@ -48,6 +48,7 @@ import type {
   WorkspaceView,
 } from '../model/types';
 import type { ArtifactRef } from '@harness/agent-protocol';
+import { getRunToolOutputUrl } from '../../../api/client';
 import { BashTerminalPanel } from '../elements/bash-terminal-panel';
 import {
   downloadArtifact,
@@ -610,6 +611,7 @@ function ToolResultBody({
 }
 
 function McpToolResultView({ tool }: { tool: ToolCallView }) {
+  const [openingFullOutput, setOpeningFullOutput] = useState(false);
   const callDescription = tool.outputSummary ?? tool.inputSummary;
   const parsedOutput = useMemo(
     () =>
@@ -618,6 +620,20 @@ function McpToolResultView({ tool }: { tool: ToolCallView }) {
         : null,
     [tool.outputPreview],
   );
+  const canOpenFullOutput = Boolean(tool.outputRef ?? tool.outputPreviewTruncated);
+
+  async function openFullOutput(): Promise<void> {
+    if (openingFullOutput) return;
+    setOpeningFullOutput(true);
+    try {
+      const payload = await getRunToolOutputUrl(tool.runId, tool.toolCallId);
+      window.open(payload.url, '_blank', 'noopener,noreferrer');
+    } catch {
+      window.alert('无法获取完整工具输出，请稍后重试。');
+    } finally {
+      setOpeningFullOutput(false);
+    }
+  }
 
   return (
     <article
@@ -651,8 +667,19 @@ function McpToolResultView({ tool }: { tool: ToolCallView }) {
       ) : tool.status === 'completed' ? (
         <p className="execution-detail__empty mcp-tool-result-empty">暂无可展示的 JSON 预览。</p>
       ) : null}
+      {canOpenFullOutput ? (
+        <button
+          type="button"
+          className="mcp-tool-result-open-full"
+          disabled={openingFullOutput}
+          onClick={() => void openFullOutput()}
+        >
+          {openingFullOutput ? '正在获取链接…' : '查看完整输出'}
+        </button>
+      ) : null}
       <footer className="mcp-tool-result-footer execution-metrics">
         <span>耗时 {tool.elapsed}</span>
+        {tool.outputBytes !== undefined ? <span>{tool.outputBytes.toLocaleString('zh-CN')} 字节</span> : null}
       </footer>
     </article>
   );

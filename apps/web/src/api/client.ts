@@ -8,6 +8,8 @@ import {
   listSessionsResponseSchema,
   problemDetailsSchema,
   runSnapshotSchema,
+  runDetailResponseSchema,
+  runToolOutputUrlResponseSchema,
   runStreamEventSchema,
   serviceStatusSchema,
   sessionDetailResponseSchema,
@@ -40,6 +42,8 @@ import type {
   SessionDetailResponse,
   SessionSummary,
   RunSnapshot,
+  RunDetailResponse,
+  RunToolOutputUrlResponse,
   RunControlCommand,
   RunStreamEvent,
   RunControlResponse,
@@ -139,8 +143,16 @@ export async function listSessions(signal?: AbortSignal): Promise<SessionSummary
 export async function getSession(
   sessionId: string,
   signal?: AbortSignal,
+  options?: { limit?: number; before?: string },
 ): Promise<SessionDetailResponse> {
-  const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}`, { signal });
+  const params = new URLSearchParams();
+  if (options?.limit !== undefined) params.set('limit', String(options.limit));
+  if (options?.before) params.set('before', options.before);
+  const query = params.toString();
+  const response = await apiFetch(
+    `${apiBaseUrl}/api/agent/sessions/${sessionId}${query ? `?${query}` : ''}`,
+    { signal },
+  );
   return sessionDetailResponseSchema.parse(await parseResponse(response));
 }
 
@@ -411,6 +423,27 @@ export async function getPublicAgentConfig(signal?: AbortSignal): Promise<Public
 export async function getRun(runId: string, signal?: AbortSignal): Promise<RunSnapshot> {
   const response = await apiFetch(`${apiBaseUrl}/api/agent/runs/${runId}`, { signal });
   return runSnapshotSchema.parse(await parseResponse(response));
+}
+
+// 按需读取 Run 的完整来源和工具执行详情，避免随会话消息列表返回。
+export async function getRunDetail(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<RunDetailResponse> {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/runs/${runId}/detail`, { signal });
+  return runDetailResponseSchema.parse(await parseResponse(response));
+}
+
+export async function getRunToolOutputUrl(
+  runId: string,
+  toolCallId: string,
+  signal?: AbortSignal,
+): Promise<RunToolOutputUrlResponse> {
+  const response = await apiFetch(
+    `${apiBaseUrl}/api/agent/runs/${runId}/tools/${encodeURIComponent(toolCallId)}/output-url`,
+    { signal },
+  );
+  return runToolOutputUrlResponseSchema.parse(await parseResponse(response));
 }
 
 // 发送独立、幂等的取消命令；取消不依赖当前 SSE 连接是否仍然存在。

@@ -10,7 +10,10 @@ import {
   Patch,
   Post,
   Put,
+  Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   AGENT_ERROR_CODES,
   mcpCreateServerRequestSchema,
@@ -20,10 +23,14 @@ import {
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { RequestUser } from '../auth/auth.types';
 import { McpAdminService } from './mcp-admin.service';
+import { McpIconProxyService } from './mcp-icon-proxy.service';
 
 @Controller('api/agent/mcp')
 export class McpAdminController {
-  constructor(@Inject(McpAdminService) private readonly admin: McpAdminService) {}
+  constructor(
+    @Inject(McpAdminService) private readonly admin: McpAdminService,
+    @Inject(McpIconProxyService) private readonly icons: McpIconProxyService,
+  ) {}
 
   @Get('servers')
   listServers(@CurrentUser() user: RequestUser) {
@@ -61,6 +68,20 @@ export class McpAdminController {
   @HttpCode(200)
   testServer(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.admin.testServer(user.id, id);
+  }
+
+  /** 同源代理 MCP 图标（https / data URI），供 Web CoT 与设置页展示。 */
+  @Get('icon')
+  async icon(
+    @CurrentUser() _user: RequestUser,
+    @Query('src') src: string | undefined,
+    @Res() res: Response,
+  ) {
+    if (!src?.trim()) this.invalid('缺少 src 参数。');
+    const { body, mimeType } = await this.icons.resolve(src);
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.send(body);
   }
 
   private invalid(detail: string): never {

@@ -1,4 +1,5 @@
 import type { McpDefaultApproval } from '@prisma/client';
+import type { McpIcon } from '@harness/agent-protocol';
 
 export type McpServerRuntimeStatus = 'connected' | 'degraded' | 'disconnected';
 
@@ -11,6 +12,12 @@ export type McpToolCatalogEntry = {
   defaultApproval: McpDefaultApproval;
   boundGeneration: number;
   toolCallTimeoutMs: number;
+  icons?: ReadonlyArray<McpIcon>;
+};
+
+export type McpServerIconSnapshot = {
+  serverName: string;
+  icons: ReadonlyArray<McpIcon>;
 };
 
 export type McpServerInstructionSnapshot = {
@@ -25,6 +32,7 @@ export type RunMcpSnapshot = {
   serverInstructions: ReadonlyArray<McpServerInstructionSnapshot>;
   /** 本 Run 已 latch 的 connected MCP server 名（含无 tool 但可 read resource 的 server）。 */
   latchedServerNames: ReadonlyArray<string>;
+  serverIcons: ReadonlyArray<McpServerIconSnapshot>;
 };
 
 export type McpResolvedTransport = {
@@ -46,6 +54,7 @@ export type McpPublishedServerView = {
   toolCountExposed: number;
   instructions: string | null;
   tools: Array<{ rawName: string; description: string; inputSchema: Record<string, unknown> }>;
+  serverIcons?: ReadonlyArray<McpIcon>;
 };
 
 export type McpPublishedCatalog = {

@@ -132,8 +132,34 @@ export function ChainOfThoughtContent({ className, ...props }: HTMLAttributes<HT
 
 export type ChainStepStatus = 'complete' | 'active' | 'pending' | 'failed' | 'cancelled';
 
+function ChainStepRailIcon({
+  imageSrc,
+  fallback: Fallback,
+}: {
+  imageSrc?: string;
+  fallback: LucideIcon;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [imageSrc]);
+  if (!imageSrc || failed) return <Fallback size={15} />;
+  return (
+    <img
+      className="ai-chain-step__icon-img"
+      src={imageSrc}
+      alt=""
+      width={15}
+      height={15}
+      decoding="async"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 export function ChainOfThoughtStep({
   icon: Icon = Dot,
+  iconImageSrc,
   label,
   description,
   status = 'complete',
@@ -142,6 +168,7 @@ export function ChainOfThoughtStep({
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
   icon?: LucideIcon;
+  iconImageSrc?: string;
   label?: ReactNode;
   description?: ReactNode;
   status?: ChainStepStatus;
@@ -149,7 +176,7 @@ export function ChainOfThoughtStep({
   return (
     <div className={classes('ai-chain-step', `ai-chain-step--${status}`, className)} {...props}>
       <span className="ai-chain-step__rail" aria-hidden="true">
-        <Icon size={15} />
+        <ChainStepRailIcon imageSrc={iconImageSrc} fallback={Icon} />
       </span>
       <div className="ai-chain-step__body">
         {label != null && label !== '' ? (

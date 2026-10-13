@@ -2,7 +2,12 @@ import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import { McpServerConfigRepository } from './mcp-server-config.repository';
 import { McpConnectionManager } from './mcp-connection.manager';
-import type { McpServerInstructionSnapshot, McpToolCatalogEntry, RunMcpSnapshot } from './mcp.types';
+import type {
+  McpServerIconSnapshot,
+  McpServerInstructionSnapshot,
+  McpToolCatalogEntry,
+  RunMcpSnapshot,
+} from './mcp.types';
 import {
   estimateMcpDefinitionTokens,
   MCP_DEFINITIONS_TOKEN_WARN_THRESHOLD,
@@ -24,6 +29,7 @@ export class McpRunLatchService {
     const entries: McpToolCatalogEntry[] = [];
     const serverInstructions: McpServerInstructionSnapshot[] = [];
     const latchedServerNames: string[] = [];
+    const serverIcons: McpServerIconSnapshot[] = [];
 
     for (const config of enabled) {
       const view = published.servers.get(config.serverName);
@@ -37,6 +43,9 @@ export class McpRunLatchService {
         continue;
       }
       latchedServerNames.push(config.serverName);
+      if (view.serverIcons?.length) {
+        serverIcons.push({ serverName: config.serverName, icons: view.serverIcons });
+      }
       if (view.instructions?.trim()) {
         serverInstructions.push({
           serverName: config.serverName,
@@ -54,6 +63,7 @@ export class McpRunLatchService {
       entries,
       serverInstructions,
       latchedServerNames,
+      serverIcons,
     };
 
     if (entries.length) {

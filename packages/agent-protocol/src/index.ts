@@ -36,6 +36,7 @@ export * from './files/contracts.js';
 export * from './sandbox/contracts.js';
 export * from './sandbox/bash-render.js';
 export * from './mcp/contracts.js';
+export * from './mcp/icons.js';
 export * from './auth/contracts.js';
 export * from './tools/external-tool.contracts.js';
 export * from './tools/mcp-display.js';
@@ -415,6 +416,8 @@ export const assistantToolActivityBlockSchema = z.object({
   exitCode: z.number().int().nullable().optional(),
   exitSignal: z.string().min(1).nullable().optional(),
   terminalView: bashTerminalViewSchema.optional(),
+  /** MCP 工具图标原始 src（https / data URI；Web 经同源代理展示）。 */
+  iconSrc: z.string().min(1).max(8192).optional(),
 });
 
 // 安全边界消费的 Steer，作为 assistant 流中的用户时间线节点保存。
@@ -713,6 +716,7 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     publicName: z.string().min(1),
     subKind: externalToolSubKindSchema,
     input: externalToolInputSchema,
+    iconSrc: z.string().min(1).max(8192).optional(),
     startedAt: z.string().datetime(),
   }),
 ]);

@@ -5,6 +5,7 @@ import {
   Clock3,
   FileSearch,
   FileText,
+  Plug,
   Search,
   Terminal,
   X,
@@ -22,6 +23,13 @@ import {
 } from '../../../components/ai-elements/chain-of-thought';
 import type { SourceView, WorkbenchFocusTarget, WorkbenchState } from '../model/types';
 import { bashCoTLabel, isBashTransparentTool } from '../model/bash-transparent';
+import {
+  mcpServerIconFallbackSrc,
+  parseMcpPublicToolName,
+  type AssistantToolActivityBlock,
+} from '@harness/agent-protocol';
+
+import { mcpIconDisplayUrl } from '../model/mcp-icon-display';
 import { isMcpPublicToolName, mcpInlineActivityLabel } from '../model/tool-copy';
 import type { AssistantProcessItem } from './assistant-message-adapter';
 import {
@@ -32,13 +40,23 @@ import {
 import { Shimmer } from '../../../components/ai-elements/shimmer';
 import { MarkdownContent } from '../../../components/markdown-content';
 
+function mcpToolIconImageSrc(block: AssistantToolActivityBlock): string | undefined {
+  const fromBlock = mcpIconDisplayUrl(block.iconSrc);
+  if (fromBlock) return fromBlock;
+  const parsed = parseMcpPublicToolName(block.toolName);
+  if (!parsed) return undefined;
+  return mcpIconDisplayUrl(mcpServerIconFallbackSrc(parsed.serverName));
+}
+
 function toolIcon(toolName: string): LucideIcon {
   if (toolName === 'web_search' || toolName === 'web_fetch') return Search;
   if (toolName === 'search_file' || toolName === 'read_file' || toolName === 'read_file_lines')
     return FileSearch;
   if (toolName === 'create_file' || toolName === 'create_report') return FileText;
   if (toolName === 'bash') return Terminal;
+  if (toolName === 'get_current_time') return Clock3;
   if (toolName === 'execute_command') return Clock3;
+  if (isMcpPublicToolName(toolName)) return Plug;
   return Clock3;
 }
 
@@ -211,6 +229,9 @@ export function AgentChainOfThought({
             >
               <ChainOfThoughtStep
                 icon={toolIcon(item.block.toolName)}
+                iconImageSrc={
+                  mcpStep ? mcpToolIconImageSrc(item.block) : mcpIconDisplayUrl(item.block.iconSrc)
+                }
                 label={
                   <span className="agent-chain-tool__label">
                     <span className="agent-chain-tool__title">

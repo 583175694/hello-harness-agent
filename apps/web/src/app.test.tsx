@@ -7,7 +7,9 @@ import {
   AppShell,
   PreviewSwitcher,
   applyToolEvent,
+  mergeWorkbenchDeliverables,
   resolveWorkbenchOpenOnToolEvent,
+  workbenchViewFromTarget,
   groupSessionSummaries,
   optimisticRevisionAttachments,
   workbenchFromPersistedMessage,
@@ -689,6 +691,90 @@ describe('R1 workbench shell', () => {
       title: '文件读取',
       subtitle: '读取完成 · 2 次文件调用',
     });
+  });
+
+  it('routes artifact focus to the deliverables tab', () => {
+    expect(workbenchViewFromTarget('artifact')).toBe('deliverables');
+    expect(workbenchViewFromTarget('tool_call')).toBe('tool_results');
+  });
+
+  it('keeps session deliverables when a new run snapshot replaces the workbench', () => {
+    const previous: WorkbenchState = {
+      runId: 'run-old',
+      title: '工具执行',
+      subtitle: '1 个文件',
+      activeView: 'tool_results',
+      activityStatus: 'completed',
+      executions: [],
+      followMode: 'auto',
+      sources: [],
+      open: true,
+      artifactSeries: [
+        {
+          seriesId: 'series-1',
+          logicalName: '分时图操作精髓.html',
+          currentArtifactId: 'artifact-html',
+          versions: [
+            {
+              artifactId: 'artifact-html',
+              fileId: 'file-html',
+              fileName: '分时图操作精髓.html',
+              mediaType: 'text/html',
+              fileKind: 'html',
+              size: 11_000,
+              status: 'ready',
+              createdAt: '2026-09-21T09:00:00.000Z',
+              seriesId: 'series-1',
+              versionNumber: 1,
+              isCurrent: true,
+            },
+          ],
+        },
+      ],
+      artifacts: [
+        {
+          artifactId: 'artifact-html',
+          fileId: 'file-html',
+          fileName: '分时图操作精髓.html',
+          mediaType: 'text/html',
+          fileKind: 'html',
+          size: 11_000,
+          status: 'ready',
+          createdAt: '2026-09-21T09:00:00.000Z',
+          seriesId: 'series-1',
+          versionNumber: 1,
+          isCurrent: true,
+        },
+      ],
+    };
+    const next: WorkbenchState = {
+      runId: 'run-new',
+      title: '工具执行',
+      subtitle: '正在执行 · 1 次调用',
+      activeView: 'tool_results',
+      activityStatus: 'running',
+      executions: [
+        {
+          toolCallId: 'call-create',
+          runId: 'run-new',
+          stepId: 'call-create',
+          toolName: 'create_file',
+          title: '生成文件',
+          detail: '正在生成文件',
+          status: 'running',
+          elapsed: '进行中',
+          inputSummary: '255 脚本',
+        },
+      ],
+      followMode: 'auto',
+      sources: [],
+      open: true,
+    };
+    expect(mergeWorkbenchDeliverables(next, previous).artifacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ artifactId: 'artifact-html', fileName: '分时图操作精髓.html' }),
+      ]),
+    );
   });
 
   it('opens the artifact workbench as soon as create_report completes', () => {

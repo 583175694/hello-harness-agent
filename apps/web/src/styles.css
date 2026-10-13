@@ -1573,6 +1573,12 @@ summary:focus-visible {
   color: var(--theme-text-muted);
   background: transparent;
 }
+.ai-chain-step__icon-img {
+  display: block;
+  width: 15px;
+  height: 15px;
+  object-fit: contain;
+}
 .ai-chain-step--active .ai-chain-step__rail {
   color: var(--theme-text-primary);
 }

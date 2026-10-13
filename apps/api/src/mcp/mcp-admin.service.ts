@@ -13,6 +13,8 @@ import {
   type McpServerTestResponse,
   type McpServerView,
   type McpUpdateServerRequest,
+  mcpServerIconFallbackSrc,
+  pickMcpIconSrc,
 } from '@harness/agent-protocol';
 import { Prisma } from '@prisma/client';
 import { McpConnectionManager } from './mcp-connection.manager';
@@ -182,6 +184,8 @@ export class McpAdminService {
     const runtime = this.connections.getServerRuntime(userId, row.serverName);
     const published = this.connections.getPublishedCatalog(userId);
     const view = published.servers.get(row.serverName);
+    const iconSrc =
+      pickMcpIconSrc(view?.serverIcons) ?? mcpServerIconFallbackSrc(row.serverName) ?? undefined;
     return {
       id: row.id,
       serverName: row.serverName,
@@ -210,6 +214,7 @@ export class McpAdminService {
       ),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
+      ...(iconSrc ? { iconSrc } : {}),
     };
   }
 

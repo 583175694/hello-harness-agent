@@ -53,6 +53,9 @@ importers:
       '@harness/agent-protocol':
         specifier: workspace:*
         version: link:../../packages/agent-protocol
+      '@harness/bundled-skills':
+        specifier: workspace:*
+        version: link:../../packages/bundled-skills
       '@harness/deepseek-v3-tokenizer':
         specifier: workspace:*
         version: link:../../packages/deepseek-v3-tokenizer
@@ -324,6 +327,22 @@ importers:
       vitest:
         specifier: ^3.2.4
         version: 3.2.7(@types/debug@4.1.13)(@types/node@25.9.6)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@1.8.0))(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.15)
+
+  packages/bundled-skills:
+    dependencies:
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^24.10.0
+        version: 24.13.3
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.13.3)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@1.8.0))(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.15)
 
   packages/deepseek-v3-tokenizer:
     dependencies:

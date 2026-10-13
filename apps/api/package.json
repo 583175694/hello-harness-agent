@@ -24,6 +24,7 @@
     "@alicloud/openapi-core": "^1.0.8",
     "@crawlee/http": "^3.18.0",
     "@harness/agent-protocol": "workspace:*",
+    "@harness/bundled-skills": "workspace:*",
     "@harness/deepseek-v3-tokenizer": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@mozilla/readability": "^0.6.0",

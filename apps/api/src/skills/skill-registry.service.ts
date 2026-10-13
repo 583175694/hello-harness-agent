@@ -1,3 +1,4 @@
+import { loadBundledSkills } from '@harness/bundled-skills';
 import { Injectable } from '@nestjs/common';
 
 export type SkillSource = 'bundled/system' | 'project' | 'user' | 'session/runtime';
@@ -17,22 +18,9 @@ export class SkillRegistryService {
   private readonly skills = new Map<string, SkillDefinition>();
 
   constructor() {
-    this.register({
-      name: 'research-summary',
-      description: 'Research a topic, distinguish evidence from inference, and produce a concise sourced summary.',
-      version: '1.0.0',
-      source: 'bundled/system',
-      modelCallable: true,
-      instructions: 'For research tasks, identify the question, gather authoritative evidence, state uncertainty, and provide a concise summary with source references.',
-    });
-    this.register({
-      name: 'concise-chinese',
-      description: 'Answer in concise, clear Simplified Chinese with direct structure and minimal repetition.',
-      version: '1.0.0',
-      source: 'bundled/system',
-      modelCallable: true,
-      instructions: 'Use concise Simplified Chinese. Lead with the answer, use short paragraphs, and avoid repeating the user request.',
-    });
+    for (const skill of loadBundledSkills()) {
+      this.register(skill);
+    }
   }
 
   register(skill: SkillDefinition): void {

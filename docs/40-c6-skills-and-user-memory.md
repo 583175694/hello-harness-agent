@@ -34,7 +34,7 @@ C6 负责生成合法的 `skills` 和 `memories` 候选内容；K5 负责选择�
 
 C6 维护唯一的 Skill Registry。第一阶段支持以下来源：
 
-- `bundled/system`；
+- `bundled/system` — 内容包 [`packages/bundled-skills`](../packages/bundled-skills/README.md)（`skills/<name>/skill.json` + `instructions.md`），由 `loadBundledSkills()` 在 Registry 启动时注册；
 - `project`；
 - `user`；
 - `session/runtime`。

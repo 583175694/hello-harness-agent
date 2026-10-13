@@ -1,0 +1,7 @@
+{
+  "name": "research-summary",
+  "description": "Research a topic, distinguish evidence from inference, and produce a concise sourced summary.",
+  "version": "1.0.0",
+  "source": "bundled/system",
+  "modelCallable": true
+}

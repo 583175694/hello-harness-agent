@@ -157,6 +157,7 @@ export class RunCommandService {
         reasoningFormat: capability.reasoningFormat,
         attachmentIds,
         artifactVersionContext: input.artifactVersionContext,
+        skillNames: input.skillNames,
       });
     } catch (error) {
       if (

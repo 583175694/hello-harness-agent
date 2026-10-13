@@ -212,6 +212,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       expectedCurrentArtifactId: string;
       changeSummary?: string;
     };
+    skillNames?: string[];
   }) {
     // Session 校验、幂等判定、单 Session Active Run 限制和两条初始消息必须同事务完成。
     return this.prisma.$transaction(async (tx) => {
@@ -240,6 +241,10 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         orderBy: { sequence: 'desc' },
       });
       const firstSequence = (lastTranscript?.sequence ?? 0) + 1;
+      const userMessageMetadata = {
+        ...(input.pendingInputId ? { pendingInputId: input.pendingInputId } : {}),
+        ...(input.skillNames?.length ? { skillNames: input.skillNames } : {}),
+      };
       const run = await tx.agentRun.create({
         data: {
           id: input.runId,
@@ -264,8 +269,8 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
                 role: 'user',
                 kind: 'user_message',
                 content: input.content,
-                ...(input.pendingInputId
-                  ? { metadata: { pendingInputId: input.pendingInputId } }
+                ...(Object.keys(userMessageMetadata).length
+                  ? { metadata: userMessageMetadata }
                   : {}),
               },
               {

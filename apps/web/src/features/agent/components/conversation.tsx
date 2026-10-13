@@ -66,7 +66,9 @@ import {
   SkillPromptEditor,
   type SkillPromptEditorHandle,
 } from '../composer/skill-prompt-editor';
+import { resolveUserMessageDisplay } from '../user-message-skills';
 import { listSkills } from '../../../api/client';
+import { UserSkillChips } from './user-skill-chips';
 import { Context } from '../../../components/ai-elements/context';
 import {
   DropdownMenu,
@@ -536,6 +538,16 @@ const UserMessage = memo(function UserMessage({
     | { kind: 'file'; fileId: string; fileName: string }
     | null
   >(null);
+  const display = resolveUserMessageDisplay({
+    content: item.content,
+    skillNames: item.skillNames,
+  });
+  const copyText =
+    display.skillNames.length && display.body
+      ? display.body
+      : display.skillNames.length
+        ? `${display.skillNames.map((name) => `/${name}`).join(' ')}${display.body ? ` ${display.body}` : ''}`
+        : item.content;
   return (
     <Message
       from="user"
@@ -607,15 +619,18 @@ const UserMessage = memo(function UserMessage({
             )}
           </Attachments>
         ) : null}
-        <div className="user-bubble">
-          <MessageResponse variant="user">{item.content}</MessageResponse>
-        </div>
+        <UserSkillChips skillNames={display.skillNames} />
+        {display.body ? (
+          <div className="user-bubble">
+            <MessageResponse variant="user">{display.body}</MessageResponse>
+          </div>
+        ) : null}
         <MessageActions className="message-actions">
           {item.pendingState === 'steer_pending' ? <span>等待下一步骤应用</span> : null}
           {item.pendingState === 'steer_applied' ? <span>已应用到当前任务</span> : null}
           {item.pendingState === 'follow_up_pending' ? <span>等待下一轮处理</span> : null}
           <span>{formatMessageTime(item.createdAt, item.time)}</span>
-          <CopyButton text={item.content} />
+          <CopyButton text={copyText.trim()} />
         </MessageActions>
       </MessageContent>
       <div className="message-avatar user-avatar" aria-hidden="true">

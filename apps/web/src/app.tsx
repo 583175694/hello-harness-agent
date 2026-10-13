@@ -921,17 +921,24 @@ export function applyToolEvent(
 // 将持久化消息转换为 Conversation 可直接渲染的项目。
 function toConversationItem(message: PersistedMessage): ConversationItem {
   // 将后端消息转换为会话区域使用的用户或 assistant 项目。
-  if (message.role === 'user')
+  if (message.role === 'user') {
+    const metadataSkillNames = Array.isArray(message.metadata?.skillNames)
+      ? message.metadata.skillNames.filter(
+          (value): value is string => typeof value === 'string' && value.length > 0,
+        )
+      : undefined;
     return {
       id: message.id,
       kind: 'user',
       content: message.content,
+      ...(metadataSkillNames?.length ? { skillNames: metadataSkillNames } : {}),
       ...(typeof message.metadata?.pendingInputId === 'string'
         ? { pendingInputId: message.metadata.pendingInputId }
         : {}),
       attachments: message.attachments,
       createdAt: message.createdAt,
     };
+  }
   const metadata =
     typeof message.metadata === 'object' && message.metadata !== null
       ? (message.metadata as Record<string, unknown>)
@@ -2644,6 +2651,7 @@ function PersistentAgentApp() {
     if (currentId ? runtimeActive : draftPending) return;
     setPrompt('');
     setError(null);
+    const submittedSkills = [...selectedSkills];
     const createdAt = new Date().toISOString();
     // 乐观 ID 在服务端返回真实 messageId 前稳定定位本轮消息。
     const localUserId = `local-user-${createClientId()}`;
@@ -2660,6 +2668,7 @@ function PersistentAgentApp() {
       id: localUserId,
       kind: 'user',
       content: task,
+      ...(submittedSkills.length ? { skillNames: submittedSkills } : {}),
       createdAt,
       ...(optimisticAttachments.length ? { attachments: optimisticAttachments } : {}),
     };

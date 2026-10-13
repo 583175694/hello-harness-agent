@@ -1422,6 +1422,17 @@ summary:focus-visible {
   font-size: var(--h-content-font-size);
   line-height: var(--h-leading-bubble);
 }
+.user-message-skills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: min(100%, 520px);
+  margin: 0 0 6px;
+}
+.message--user .user-message-skills .composer-skill-chip {
+  max-width: min(200px, 100%);
+}
 .message-actions {
   display: flex;
   min-height: 24px;
@@ -2497,15 +2508,19 @@ summary:focus-visible {
   height: 26px;
   align-items: center;
   gap: 5px;
-  max-width: 180px;
+  max-width: 200px;
   padding: 0 4px 0 8px;
   border: 1px solid color-mix(in srgb, var(--theme-accent) 22%, var(--theme-border-subtle));
   border-radius: 7px;
-  color: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-text-primary));
+  color: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-text-primary));
   background: color-mix(in srgb, var(--theme-accent) 7%, var(--theme-surface));
   font-size: 12px;
   line-height: 1;
   white-space: nowrap;
+}
+.composer-skill-chip--readonly {
+  padding-right: 8px;
+  cursor: default;
 }
 .composer-skill-chip > svg {
   flex: 0 0 auto;
@@ -3101,8 +3116,8 @@ summary:focus-visible {
   line-height: 1.35;
 }
 .composer-quick-panel__row.is-active {
-  background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-subtle));
-  box-shadow: inset 3px 0 0 var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 6%, var(--theme-surface-subtle));
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--theme-accent) 55%, var(--theme-border-subtle));
 }
 .composer-skill-picker-hint {
   display: flex;
@@ -3207,6 +3222,10 @@ summary:focus-visible {
 }
 .composer .skill-composer-paragraph {
   margin: 0;
+  padding-left: 2px;
+}
+.composer .skill-composer-paragraph .composer-skill-mention:first-child {
+  margin-left: 1px;
 }
 .composer-hitl-panel {
   display: flex;

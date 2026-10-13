@@ -75,6 +75,7 @@ export type ConversationItem =
       id: string;
       kind: 'user';
       content: string;
+      skillNames?: string[];
       time?: string;
       createdAt?: string;
       pendingInputId?: string;

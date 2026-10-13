@@ -58,7 +58,6 @@ import {
 } from '../../../components/ai-elements/prompt-input';
 import {
   ComposerSkillPickerEmpty,
-  ComposerSkillPickerKeyboardHint,
   ComposerSkillPickerRow,
   type SkillCatalogStatus,
 } from '../composer/composer-skill-picker';
@@ -68,7 +67,7 @@ import {
 } from '../composer/skill-prompt-editor';
 import { resolveUserMessageDisplay } from '../user-message-skills';
 import { listSkills } from '../../../api/client';
-import { UserSkillChips } from './user-skill-chips';
+import { UserSkillMentions } from './user-skill-chips';
 import { Context } from '../../../components/ai-elements/context';
 import {
   DropdownMenu,
@@ -619,10 +618,16 @@ const UserMessage = memo(function UserMessage({
             )}
           </Attachments>
         ) : null}
-        <UserSkillChips skillNames={display.skillNames} />
-        {display.body ? (
+        {display.skillNames.length || display.body ? (
           <div className="user-bubble">
-            <MessageResponse variant="user">{display.body}</MessageResponse>
+            <div className="user-bubble__composition">
+              <UserSkillMentions skillNames={display.skillNames} />
+              {display.body ? (
+                <MessageResponse variant="user" className="user-bubble__text">
+                  {display.body}
+                </MessageResponse>
+              ) : null}
+            </div>
           </div>
         ) : null}
         <MessageActions className="message-actions">
@@ -1978,7 +1983,7 @@ export function Composer({
                 <Paperclip size={17} aria-hidden="true" />
                 <span className="composer-quick-panel__file-copy"><strong>文件和图片</strong></span>
               </button>
-              <div className="composer-quick-panel__section">Skills</div>
+              <div className="composer-quick-panel__section">技能</div>
             </>
           ) : null}
           <div className="composer-quick-panel__list composer-skill-picker">
@@ -1995,9 +2000,6 @@ export function Composer({
               <ComposerSkillPickerEmpty status={catalogSkillsStatus} />
             )}
           </div>
-          {composerPanel === 'all' || composerPanel === 'skills' ? (
-            <ComposerSkillPickerKeyboardHint />
-          ) : null}
         </div>
       ) : null}
       {activeInterrupt?.kind === 'clarification' ? (

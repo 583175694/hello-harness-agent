@@ -2,6 +2,7 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $isElementNode,
   $isTextNode,
   createEditor,
   KEY_BACKSPACE_COMMAND,
@@ -25,7 +26,8 @@ function setupChipAndText(textAfter: string) {
   registerComposerSkillKeyCommands(editor);
   editor.update(() => {
     const block = $getRoot().getFirstChild();
-    const textNode = block?.getLastChild();
+    if (!$isElementNode(block)) return;
+    const textNode = block.getLastChild();
     if ($isTextNode(textNode)) {
       textNode.select(textAfter.length, textAfter.length);
     }
@@ -53,7 +55,8 @@ describe('ComposerSkillKeyPlugin backspace', () => {
     const editor = setupChipAndText('\u200b');
     editor.update(() => {
       const block = $getRoot().getFirstChild();
-      const textNode = block?.getLastChild();
+      if (!$isElementNode(block)) return;
+      const textNode = block.getLastChild();
       if ($isTextNode(textNode)) textNode.select(0, 0);
     });
     editor.dispatchCommand(KEY_BACKSPACE_COMMAND, new KeyboardEvent('keydown', { key: 'Backspace' }));
@@ -64,7 +67,8 @@ describe('ComposerSkillKeyPlugin backspace', () => {
     const editor = setupChipAndText(' f');
     editor.update(() => {
       const block = $getRoot().getFirstChild();
-      const textNode = block?.getLastChild();
+      if (!$isElementNode(block)) return;
+      const textNode = block.getLastChild();
       if ($isTextNode(textNode)) textNode.select(2, 2);
     });
     editor.dispatchCommand(KEY_BACKSPACE_COMMAND, new KeyboardEvent('keydown', { key: 'Backspace' }));

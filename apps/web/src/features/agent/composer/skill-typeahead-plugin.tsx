@@ -11,7 +11,6 @@ import { createPortal } from 'react-dom';
 import { listSkills } from '../../../api/client';
 import {
   ComposerSkillPickerEmpty,
-  ComposerSkillPickerKeyboardHint,
   ComposerSkillPickerRow,
   ComposerSkillPickerShell,
   type SkillCatalogStatus,
@@ -109,10 +108,7 @@ export function SkillTypeaheadPlugin({ enabled }: { enabled: boolean }) {
       const { selectedIndex, selectOptionAndCleanUp, options: menuOptions } = itemProps;
       const showEmpty = menuOptions.length === 0;
       return createPortal(
-        <ComposerSkillPickerShell
-          title="插入 Skill"
-          footer={<ComposerSkillPickerKeyboardHint />}
-        >
+        <ComposerSkillPickerShell title="技能">
           {showEmpty ? (
             <ComposerSkillPickerEmpty status={status} query={query ?? undefined} />
           ) : (

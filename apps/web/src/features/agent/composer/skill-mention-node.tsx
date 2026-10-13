@@ -1,7 +1,6 @@
-import { BookOpen, X } from 'lucide-react';
+import { SkillMentionInline } from '../components/skill-mention-inline';
 import {
   $applyNodeReplacement,
-  $getNodeByKey,
   DecoratorNode,
   type DOMExportOutput,
   type EditorConfig,
@@ -93,36 +92,10 @@ export class SkillMentionNode extends DecoratorNode<JSX.Element> {
     return true;
   }
 
-  override decorate(editor: LexicalEditor, _config: EditorConfig): JSX.Element {
+  override decorate(_editor: LexicalEditor, _config: EditorConfig): JSX.Element {
     const name = this.__name;
     const label = this.__label;
-    const nodeKey = this.getKey();
-    return (
-      <span
-        className="composer-skill-chip composer-skill-mention"
-        contentEditable={false}
-        data-skill-name={name}
-      >
-        <BookOpen size={14} aria-hidden="true" />
-        <span>{label}</span>
-        <button
-          type="button"
-          aria-label={`移除 Skill ${label}`}
-          title={`移除 ${label}`}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            editor.update(() => {
-              const node = $getNodeByKey(nodeKey);
-              if ($isSkillMentionNode(node)) node.remove();
-            });
-          }}
-          onMouseDown={(event) => event.preventDefault()}
-        >
-          <X size={12} aria-hidden="true" />
-        </button>
-      </span>
-    );
+    return <SkillMentionInline name={name} label={label} mode="editable" />;
   }
 }
 

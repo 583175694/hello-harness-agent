@@ -207,22 +207,36 @@ skills.read(name)
 
 ### 4.7 Web Composer：Lexical + Skill Mention（实现方案）
 
-> 状态：方案已定稿，待按 Phase 1 在 `apps/web` 落地；与后端 `skillNames`、Host 显式注入路径对齐，不要求 C6/K5 协议变更。
+> 状态：**Phase 1 已在 `apps/web` 落地**（Lexical、`/` typeahead、`+` 技能面板、`skillNames` 提交、用户气泡 inline 回放）；与后端显式注入路径对齐。下文「目标/分期」保留设计脉络，**以本节「实现快照」为准**。
+
+#### 4.7.0 实现快照（2026-03）
+
+| 项 | 现状 |
+|----|------|
+| 编辑器 | `SkillPromptEditor`（PlainText + `SkillMentionNode`） |
+| 触发 | **仅 `/`**（未实现 `@` 双 trigger） |
+| Skill 视觉 | Codex 式 inline mention（主题 `--theme-skill-mention` 字/图标色，无 pill 关闭钮；Backspace 删除） |
+| 技能弹框 | 标题「技能」、加宽列表、选中仅背景高亮、无底部快捷键栏 |
+| 启用范围 | `composerMode === 'new-run'` 且无 HITL 中断（**Steer / Pending Input 不支持 Skill**，刻意不做） |
+| 提交 | `plainText` → `content`；`skillNames[]` → `createRun`；UI 与 `metadata.skillNames` 回放气泡 |
+| Host 显式路由 | Runtime 仍从**用户消息 content 前缀** `/slug` 解析（见 §4.7.11）；`skillNames` 在 API 层会拼进 content 以兼容 |
+| 双轨 state | 仍保留 `app.prompt` + `selectedSkills` + Lexical 文档（Phase 3 再收敛） |
+| 仅 Skill 无正文 | Composer 发送钮可亮，但 `handleSubmit` 与协议 `content.min(1)` **仍要求正文**（见 §4.7.7） |
 
 #### 4.7.1 目标与边界
 
 **目标**
 
-- 用 [Lexical](https://github.com/facebook/lexical) 替换 Composer 中的纯 `textarea`，Skill 以**内联原子 token** 展示（视觉对齐现有 `composer-skill-chip`）。
-- 输入 `@` 或 `/` 触发**同一套** Skill typeahead（查询、键盘、选中逻辑共用）。
-- 提交时：`plainText` → Run 请求体 `content`；`skillNames` → `skillNames`（与现有 `createRun(..., skillNames)` 一致）。
+- 用 [Lexical](https://github.com/facebook/lexical) 替换 Composer 中的纯 `textarea`，Skill 以**内联原子 token** 展示（`.skill-mention` inline）。
+- 输入 **`/`** 触发 Skill typeahead；「+」面板共用同一套行组件与 `GET /api/skills`。
+- 提交时：`plainText` → Run 请求体 `content`；`skillNames` → `skillNames`（与 `createRun(..., skillNames)` 一致）。
 - 保留：中文 IME、Enter 发送 / Shift+Enter 换行、粘贴与拖拽附件、HITL 时隐藏主输入等既有 Composer 行为。
 
 **本阶段不做**
 
-- 用户消息气泡内回放 mention 高亮（可先仅展示纯文本 `content`）。
-- Steer / Pending User Input 路径下插入 Skill（Phase 1 仅 `composerMode === 'new-run'` 且无非 HITL 中断时启用）。
-- 将 Lexical 文档 JSON 持久化到服务端或写入 Message 元数据。
+- Steer / Pending User Input 路径下插入 Skill（已实现为关闭：`enableSkillComposer` 条件）。
+- 将 Lexical 文档 JSON 持久化到服务端。
+- `@` trigger、Steer Skill、`skillNames` 复杂去重策略、Composer E2E 集成测（刻意后置）。
 
 #### 4.7.2 架构
 
@@ -233,7 +247,7 @@ Composer (conversation.tsx)
       LexicalComposer
         PlainTextPlugin + ContentEditable
         SkillMentionNode
-        SkillTypeaheadPlugin     @ 与 / 双 trigger
+        SkillTypeaheadPlugin     / trigger
         ComposerSubmitPlugin     Enter → form.requestSubmit
         ComposerPastePlugin      文件 paste → 现有附件逻辑
         ComposerControlledPlugin 与 prompt / 清空同步
@@ -283,7 +297,7 @@ type SkillMentionPayload = {
 ```
 
 - 内联、`isKeyboardSelectable`，建议 `isIsolated`：caret 不进入 token 内部，Backspace 一次删除整个 Skill。
-- DOM：`contenteditable="false"` 的 inline chip，class 复用 `composer-skill-chip` / `composer-skill-mention`。
+- DOM：`contenteditable="false"` 的 inline mention（`skill-mention-inline` / `.skill-mention`）。
 
 **导出约定（与显式选择对齐）**
 
@@ -305,7 +319,7 @@ type ComposerDocumentValue = {
 
 #### 4.7.6 Typeahead 与面板
 
-- 两个 trigger：`@`、`/`（`useBasicTypeaheadTriggerMatch`，`minLength: 0`），查询 debounce 后调用已有 `GET /api/skills?query=`（`listSkills`），替代 Composer 内硬编码 skill 列表。
+- trigger：**`/`**（`useBasicTypeaheadTriggerMatch`，`minLength: 0`），查询 debounce 后调用 `GET /api/skills?query=`（`listSkills`）。
 - 菜单 UI 复用 `composer-quick-panel__row` 样式，Portal 锚定到 typeahead anchor。
 - 「+」面板选 Skill：调用统一命令 `INSERT_SKILL_MENTION`，不依赖光标前是否已有 `/`；长期可让「+ → Skills」等价于 focus 后插入 `/` 或打开同一菜单。
 
@@ -316,16 +330,22 @@ type ComposerDocumentValue = {
 | `draftPrompt` / onBlur → `onPromptChange` | `OnChangePlugin` + blur 同步 |
 | Enter 发送 | `KEY_ENTER_COMMAND`，排除 Shift 与 IME composing |
 | 粘贴附件 | 有 files 时走现有 `handleComposerAttachmentPaste` |
-| 发送 disabled | Phase 1 仍要求 `plainText.trim()`（与现逻辑一致）；是否允许「仅 Skill 无正文」单独产品决策 |
+| 发送 | UI：`plainText` 或 `skillNames` 任一非空可点发送；**Run 仍要求 `content` 至少 1 字符**（协议 + `handleSubmit`）；仅 Skill 无正文见 §4.7.11 |
 | 底部 `composer-selected-skills` | Phase 1 移除，Skill 仅内联展示 |
 
 #### 4.7.8 实施分期
 
 | 阶段 | 内容 |
 |------|------|
-| **Phase 1（MVP）** | Node + Editor 嵌入、`@`/`/` typeahead、`listSkills`、Enter/IME/提交/清空、面板 insert、去掉底部 chip |
-| **Phase 2** | 用户气泡 mention 回放；Steer 是否允许 Skill；`skillNames` 去重策略；错误与空列表态 |
-| **Phase 3** | 收敛为单一 `composerDraft` state；删除 textarea 时代遗留的 `/` 字符串过滤逻辑 |
+| **Phase 1（MVP）** | ✅ 已交付：Node + Editor、`/` typeahead、`listSkills`、Enter/IME/提交/清空、`+` 面板、inline mention、用户气泡回放 |
+| **Phase 2** | Steer Skill：**不做**；去重/E2E：**后置**；空列表与错误态：已有基础 UI |
+| **Phase 3** | 单一 `composerDraft`；Run 级结构化 `skillNames`（content 仅存正文）；可选 `@` trigger |
+
+#### 4.7.11 产品决策备忘
+
+- **仅 Skill、无正文**：协议 `CreateRun` 的 `content` 为 `min(1)`；优质 Agent 普遍把 Skill **附在一条用户任务上**（Cursor `/skill` 附着单条消息；ChatGPT `@skill` 仍在 prompt 内）。结论：**现阶段要求用户写至少一句任务**合理；若未来支持「空正文 + skillNames」，需改协议并在 Host 用结构化字段注入，而非空 user message。
+- **显式 Skill 双源**：创建 Run 时 API 将 `skillNames` 前缀写入 `content`，Runtime `extractSkillNames` 读前缀；`metadata.skillNames` 供 UI。在仅 bundled、单路径部署下**可维持**；多客户端或去掉前缀前需 Run/transcript 结构化。
+- **Registry 多来源**：第一阶段仅 `bundled/system` 注册；`user`/`project`/市场在 C6 扩展 + C9 安装后接入同一 `register()`，**非当前阻塞项**。
 
 #### 4.7.9 测试
 

@@ -1,25 +1,17 @@
-import { BookOpen } from 'lucide-react';
+import { SkillMentionInline } from './skill-mention-inline';
 
-type UserSkillChipsProps = {
+type UserSkillMentionsProps = {
   skillNames: string[];
-  className?: string;
 };
 
-export function UserSkillChips({ skillNames, className }: UserSkillChipsProps) {
+/** Inline skill mentions for user message bubble (Codex-style, read-only). */
+export function UserSkillMentions({ skillNames }: UserSkillMentionsProps) {
   if (!skillNames.length) return null;
   return (
-    <div className={className ?? 'user-message-skills'} role="list" aria-label="已使用的 Skill">
+    <>
       {skillNames.map((name) => (
-        <span
-          key={name}
-          className="composer-skill-chip composer-skill-chip--readonly"
-          role="listitem"
-          data-skill-name={name}
-        >
-          <BookOpen size={14} aria-hidden="true" />
-          <span>{name}</span>
-        </span>
+        <SkillMentionInline key={name} name={name} mode="readonly" />
       ))}
-    </div>
+    </>
   );
 }

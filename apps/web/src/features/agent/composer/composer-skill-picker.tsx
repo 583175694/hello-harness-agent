@@ -1,4 +1,4 @@
-import { BookOpen, LoaderCircle } from 'lucide-react';
+import { Box, LoaderCircle } from 'lucide-react';
 import type { RefObject } from 'react';
 
 export type SkillCatalogItem = {
@@ -80,7 +80,7 @@ export function ComposerSkillPickerRow({
       onClick={onClick}
     >
       <span className="composer-quick-panel__skill-mark" aria-hidden="true">
-        <BookOpen size={16} />
+        <Box size={16} strokeWidth={1.75} />
       </span>
       <span className="composer-quick-panel__skill-copy composer-skill-picker-row__copy">
         <strong>{skill.name}</strong>
@@ -90,28 +90,8 @@ export function ComposerSkillPickerRow({
   );
 }
 
-export function ComposerSkillPickerKeyboardHint() {
-  return (
-    <div className="composer-skill-picker-hint" aria-hidden="true">
-      <span>
-        <kbd>↑</kbd>
-        <kbd>↓</kbd>
-        选择
-      </span>
-      <span>
-        <kbd>Enter</kbd>
-        插入
-      </span>
-      <span>
-        <kbd>Esc</kbd>
-        关闭
-      </span>
-    </div>
-  );
-}
-
 export function ComposerSkillPickerShell({
-  title = 'Skill',
+  title = '技能',
   listRef,
   children,
   footer,

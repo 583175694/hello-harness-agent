@@ -67,6 +67,7 @@ import type {
   AssistantArtifactBlock,
   ArtifactRef,
   ArtifactSeriesRef,
+  BashPublicToolResult,
   BashTerminalView,
   AuthUserView,
 } from '@harness/agent-protocol';
@@ -585,6 +586,19 @@ export function mergeWorkbenchDeliverables(
   };
 }
 
+function isBashBackgroundToolResult(
+  result: BashPublicToolResult,
+): result is Extract<BashPublicToolResult, { kind: 'background' }> {
+  return 'kind' in result && result.kind === 'background';
+}
+
+function collectedArtifactFromCommandResult(
+  result: BashPublicToolResult,
+): ArtifactRef | undefined {
+  if (isBashBackgroundToolResult(result)) return undefined;
+  return result.collection?.status === 'collected' ? result.collection.artifact : undefined;
+}
+
 /** 工具流事件是否应展开 Workbench（用户对本 run 点过收起则不再自动展开）。 */
 export function resolveWorkbenchOpenOnToolEvent(
   existingOpen: boolean | undefined,
@@ -690,18 +704,19 @@ export function applyToolEvent(
     completedEvent?.toolName === 'create_report' ? completedEvent : undefined;
   const completedExecuteCommand =
     completedEvent?.toolName === 'execute_command' &&
-    completedEvent.result.collection?.status === 'collected'
+    collectedArtifactFromCommandResult(completedEvent.result)
       ? completedEvent
       : undefined;
   const completedExternal =
     completedEvent?.toolName === 'external_tool' ? completedEvent : undefined;
   const completedArtifact =
     completedCreateFile ?? completedCreateReport ?? completedExecuteCommand;
-  const completedArtifactRef = completedArtifact
-    ? completedExecuteCommand
-      ? completedExecuteCommand.result.collection.artifact
-      : completedArtifact.result.artifact
-    : undefined;
+  const completedArtifactRef =
+    completedCreateFile?.result.artifact ??
+    completedCreateReport?.result.artifact ??
+    (completedExecuteCommand
+      ? collectedArtifactFromCommandResult(completedExecuteCommand.result)
+      : undefined);
   const fetchSucceeded =
     completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
   const resultCount = liveToolCounts(
@@ -1814,7 +1829,7 @@ function PersistentAgentApp() {
             (toolEvent.toolName === 'create_file' || toolEvent.toolName === 'create_report')) ||
           (toolEvent.type === 'tool.completed' &&
             toolEvent.toolName === 'execute_command' &&
-            toolEvent.result.collection?.status === 'collected');
+            Boolean(collectedArtifactFromCommandResult(toolEvent.result)));
         const currentUserUrls = new Set(
           [...task.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)].map((match) =>
             canonicalUrl(match[0].replace(/[.,;:!?，。；：！？]+$/gu, '')),

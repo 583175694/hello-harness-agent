@@ -712,8 +712,11 @@ describe('R1 workbench shell', () => {
       artifactSeries: [
         {
           seriesId: 'series-1',
+          sessionId: 'session-1',
           logicalName: '分时图操作精髓.html',
           currentArtifactId: 'artifact-html',
+          createdAt: '2026-09-21T09:00:00.000Z',
+          updatedAt: '2026-09-21T09:00:00.000Z',
           versions: [
             {
               artifactId: 'artifact-html',

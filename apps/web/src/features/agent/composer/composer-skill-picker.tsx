@@ -13,22 +13,19 @@ export function skillCatalogEmptyMessage(
   query?: string,
 ): { title: string; detail?: string } {
   if (status === 'loading') {
-    return { title: '正在加载 Skill…' };
+    return { title: '正在加载技能…' };
   }
   if (status === 'error') {
     return {
-      title: '无法加载 Skill 目录',
+      title: '无法加载技能目录',
       detail: '请确认已登录，或稍后再试。',
     };
   }
   const trimmed = query?.trim() ?? '';
   if (trimmed) {
-    return { title: '没有匹配的 Skill', detail: `试试其他关键词，或输入 / 浏览全部。` };
+    return { title: '没有匹配的技能', detail: '试试其他关键词' };
   }
-  return {
-    title: '暂无可用的 Skill',
-    detail: '在输入框输入 / 可快速插入；项目与市场 Skill 上线后会出现在这里。',
-  };
+  return { title: '暂无技能' };
 }
 
 export function ComposerSkillPickerEmpty({
@@ -39,13 +36,31 @@ export function ComposerSkillPickerEmpty({
   query?: string;
 }) {
   const copy = skillCatalogEmptyMessage(status, query);
+  const tone =
+    status === 'loading' ? 'loading' : status === 'error' ? 'error' : query?.trim() ? 'nomatch' : 'empty';
+
+  if (status === 'loading') {
+    return (
+      <div className={`composer-skill-picker-empty composer-skill-picker-empty--${tone}`} role="status">
+        <div className="composer-skill-picker-empty__loading">
+          <LoaderCircle className="spin composer-skill-picker-empty__spinner" size={16} aria-hidden="true" />
+          <span>{copy.title}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="composer-quick-panel__empty composer-skill-picker-empty" role="status">
-      {status === 'loading' ? (
-        <LoaderCircle className="spin composer-skill-picker-empty__icon" size={18} aria-hidden="true" />
-      ) : null}
-      <p className="composer-skill-picker-empty__title">{copy.title}</p>
-      {copy.detail ? <p className="composer-skill-picker-empty__detail">{copy.detail}</p> : null}
+    <div className={`composer-skill-picker-empty composer-skill-picker-empty--${tone}`} role="status">
+      <div className="composer-skill-picker-empty__ghost">
+        <span className="composer-quick-panel__skill-mark">
+          <Box size={16} strokeWidth={1.75} />
+        </span>
+        <span className="composer-skill-picker-empty__copy">
+          <strong>{copy.title}</strong>
+          {copy.detail ? <small>{copy.detail}</small> : null}
+        </span>
+      </div>
     </div>
   );
 }

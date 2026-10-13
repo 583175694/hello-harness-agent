@@ -1,7 +1,0 @@
-{
-  "name": "concise-chinese",
-  "description": "Answer in concise, clear Simplified Chinese with direct structure and minimal repetition.",
-  "version": "1.0.0",
-  "source": "bundled/system",
-  "modelCallable": true
-}

@@ -155,4 +155,105 @@ describe('AgentChainOfThought elapsed time', () => {
       'false',
     );
   });
+
+  it('counts elapsed time while only reasoning is streaming', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-21T00:00:35.000Z'));
+    render(
+      <AgentChainOfThought
+        process={[
+          {
+            kind: 'reasoning',
+            block: {
+              id: 'reasoning-1',
+              type: 'reasoning',
+              roundId: 'round-1',
+              roundSequence: 1,
+              blockSequence: 0,
+              content: 'Planning RFC lookups.',
+              startedAt: '2026-09-21T00:00:00.000Z',
+            },
+          },
+        ]}
+        running
+        onFocusWorkbench={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '已用时 35 秒' })).toBeInTheDocument();
+  });
+
+  it('starts elapsed time from reasoning even before the first tool starts', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-21T00:01:00.000Z'));
+    render(
+      <AgentChainOfThought
+        process={[
+          {
+            kind: 'reasoning',
+            block: {
+              id: 'reasoning-1',
+              type: 'reasoning',
+              roundId: 'round-1',
+              roundSequence: 1,
+              blockSequence: 0,
+              content: 'Done thinking.',
+              startedAt: '2026-09-21T00:00:00.000Z',
+              completedAt: '2026-09-21T00:00:25.000Z',
+              durationMs: 25_000,
+            },
+          },
+          {
+            kind: 'tool',
+            block: {
+              id: 'tool-1',
+              type: 'tool_activity',
+              toolCallId: 'call-1',
+              toolName: 'web_search',
+              title: '搜索网页',
+              status: 'running',
+              startedAt: '2026-09-21T00:00:30.000Z',
+              roundId: 'round-1',
+              roundSequence: 1,
+              blockSequence: 1,
+            },
+          },
+        ]}
+        running
+        onFocusWorkbench={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '已用时 1 分 0秒' })).toBeInTheDocument();
+  });
+
+  it('uses reasoning completion time when the assistant has finished without tools', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-21T00:00:10.000Z'));
+    render(
+      <AgentChainOfThought
+        process={[
+          {
+            kind: 'reasoning',
+            block: {
+              id: 'reasoning-1',
+              type: 'reasoning',
+              roundId: 'round-1',
+              roundSequence: 1,
+              blockSequence: 0,
+              content: 'Short thought.',
+              startedAt: '2026-09-21T00:00:00.000Z',
+              completedAt: '2026-09-21T00:00:08.000Z',
+              durationMs: 8_000,
+            },
+          },
+        ]}
+        running={false}
+        finalOutputVisible
+        onFocusWorkbench={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '已用时 8 秒' })).toBeInTheDocument();
+  });
 });

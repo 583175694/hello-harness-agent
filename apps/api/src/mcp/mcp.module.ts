@@ -3,6 +3,7 @@ import { DatabaseModule } from '../database/database.module';
 import { McpAdminController } from './mcp-admin.controller';
 import { McpAddServerService } from './mcp-add-server.service';
 import { McpAdminService } from './mcp-admin.service';
+import { McpIconProxyService } from './mcp-icon-proxy.service';
 import { McpConnectionManager } from './mcp-connection.manager';
 import { McpRunLatchService } from './mcp-run-latch.service';
 import { McpServerConfigRepository } from './mcp-server-config.repository';
@@ -26,6 +27,7 @@ import { SecretsCryptoService } from './secrets-crypto.service';
     McpRunLatchService,
     McpAdminService,
     McpAddServerService,
+    McpIconProxyService,
   ],
   exports: [
     McpAddServerService,

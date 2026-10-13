@@ -287,7 +287,7 @@ describe('Workbench context view', () => {
     expect(onViewChange).toHaveBeenCalledWith('tool_results');
   });
 
-  it('previews generated artifacts in 实时跟随 instead of only showing summaries', async () => {
+  it('shows tool summaries in 实时跟随 and opens file preview from the 文件 tab', async () => {
     renderWorkbench(
       <WorkbenchShell
         state={{
@@ -333,9 +333,46 @@ describe('Workbench context view', () => {
       />,
     );
 
-    expect(screen.queryByText('结果摘要')).not.toBeInTheDocument();
+    expect(screen.getByText('结果摘要')).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'report.md 预览' })).not.toBeInTheDocument();
+  });
+
+  it('opens artifact detail when focus target points at a deliverable', async () => {
+    renderWorkbench(
+      <WorkbenchShell
+        state={{
+          runId: 'run-1',
+          title: '交付文件',
+          subtitle: '1 个文件',
+          activeView: 'deliverables',
+          activityStatus: 'completed',
+          executions: [],
+          followMode: 'pinned',
+          sources: [],
+          focusTarget: { kind: 'artifact', runId: 'run-1', artifactId: 'artifact-md' },
+          artifacts: [
+            {
+              artifactId: 'artifact-md',
+              fileId: 'file-md',
+              fileName: '手册.md',
+              mediaType: 'text/markdown',
+              fileKind: 'markdown',
+              size: 120,
+              status: 'ready',
+              createdAt: '2026-09-21T09:00:01.000Z',
+            },
+          ],
+          open: true,
+        }}
+        onClose={() => undefined}
+        onViewChange={() => undefined}
+        onExecutionSelect={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole('tab', { name: '文件' })).toHaveAttribute('aria-selected', 'true');
     await waitFor(() => expect(screen.getByText('Hello')).toBeVisible());
-    expect(screen.getByRole('region', { name: 'report.md 预览' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '手册.md 预览' })).toBeInTheDocument();
   });
 
   it.each([

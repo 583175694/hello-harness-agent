@@ -66,6 +66,8 @@ import type {
   ToolApprovalDecision,
   AssistantArtifactBlock,
   ArtifactRef,
+  ArtifactSeriesRef,
+  BashPublicToolResult,
   BashTerminalView,
   AuthUserView,
 } from '@harness/agent-protocol';
@@ -535,6 +537,68 @@ export function workbenchFromPersistedMessage(
   };
 }
 
+function artifactRefsFromAssistantBlocks(
+  blocks: ReadonlyArray<AssistantContentBlock>,
+): ArtifactRef[] {
+  const seen = new Set<string>();
+  const artifacts: ArtifactRef[] = [];
+  for (const block of blocks) {
+    if (block.type !== 'artifact') continue;
+    if (seen.has(block.artifactId)) continue;
+    seen.add(block.artifactId);
+    const {
+      id: _id,
+      type: _type,
+      roundId: _roundId,
+      roundSequence: _roundSequence,
+      blockSequence: _blockSequence,
+      ...artifact
+    } = block;
+    artifacts.push(artifact);
+  }
+  return artifacts;
+}
+
+/** 合并会话级交付物，避免 Run 快照/工具流覆盖后「文件」Tab 消失。 */
+export function mergeWorkbenchDeliverables(
+  workbench: WorkbenchState,
+  previous?: WorkbenchState,
+  options?: { artifactSeries?: ArtifactSeriesRef[] },
+): WorkbenchState {
+  const artifactSeries = options?.artifactSeries?.length
+    ? options.artifactSeries
+    : workbench.artifactSeries?.length
+      ? workbench.artifactSeries
+      : previous?.artifactSeries;
+  const byId = new Map<string, ArtifactRef>();
+  for (const artifact of [
+    ...(previous?.artifacts ?? []),
+    ...(workbench.artifacts ?? []),
+    ...(artifactSeries?.flatMap((series) => series.versions) ?? []),
+  ]) {
+    byId.set(artifact.artifactId, artifact);
+  }
+  const artifacts = [...byId.values()];
+  return {
+    ...workbench,
+    ...(artifactSeries?.length ? { artifactSeries } : {}),
+    ...(artifacts.length ? { artifacts } : {}),
+  };
+}
+
+function isBashBackgroundToolResult(
+  result: BashPublicToolResult,
+): result is Extract<BashPublicToolResult, { kind: 'background' }> {
+  return 'kind' in result && result.kind === 'background';
+}
+
+function collectedArtifactFromCommandResult(
+  result: BashPublicToolResult,
+): ArtifactRef | undefined {
+  if (isBashBackgroundToolResult(result)) return undefined;
+  return result.collection?.status === 'collected' ? result.collection.artifact : undefined;
+}
+
 /** 工具流事件是否应展开 Workbench（用户对本 run 点过收起则不再自动展开）。 */
 export function resolveWorkbenchOpenOnToolEvent(
   existingOpen: boolean | undefined,
@@ -638,9 +702,21 @@ export function applyToolEvent(
     completedEvent?.toolName === 'create_file' ? completedEvent : undefined;
   const completedCreateReport =
     completedEvent?.toolName === 'create_report' ? completedEvent : undefined;
+  const completedExecuteCommand =
+    completedEvent?.toolName === 'execute_command' &&
+    collectedArtifactFromCommandResult(completedEvent.result)
+      ? completedEvent
+      : undefined;
   const completedExternal =
     completedEvent?.toolName === 'external_tool' ? completedEvent : undefined;
-  const completedArtifact = completedCreateFile ?? completedCreateReport;
+  const completedArtifact =
+    completedCreateFile ?? completedCreateReport ?? completedExecuteCommand;
+  const completedArtifactRef =
+    completedCreateFile?.result.artifact ??
+    completedCreateReport?.result.artifact ??
+    (completedExecuteCommand
+      ? collectedArtifactFromCommandResult(completedExecuteCommand.result)
+      : undefined);
   const fetchSucceeded =
     completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
   const resultCount = liveToolCounts(
@@ -698,9 +774,7 @@ export function applyToolEvent(
                 outputPreviewTruncated: completedExternal.result.truncated,
               }
             : {}),
-          ...(completedArtifact
-            ? { artifactId: completedArtifact.result.artifact.artifactId }
-            : {}),
+          ...(completedArtifactRef ? { artifactId: completedArtifactRef.artifactId } : {}),
           resultCount,
           sourceCount,
         }
@@ -816,11 +890,9 @@ export function applyToolEvent(
   }
   const header = workbenchHeader(executions, sources);
   const artifacts =
-    completedArtifact &&
-    !(base.artifacts ?? []).some(
-      (item) => item.artifactId === completedArtifact.result.artifact.artifactId,
-    )
-      ? [...(base.artifacts ?? []), completedArtifact.result.artifact]
+    completedArtifactRef &&
+    !(base.artifacts ?? []).some((item) => item.artifactId === completedArtifactRef.artifactId)
+      ? [...(base.artifacts ?? []), completedArtifactRef]
       : base.artifacts;
   return {
     ...base,
@@ -984,10 +1056,21 @@ function preferRicherAssistant(
     restored.kind === 'assistant' &&
     current.blocks.length > restored.blocks.length
   ) {
+    const blockArtifacts = artifactRefsFromAssistantBlocks(current.blocks);
+    const workbenchSource = current.workbench ?? restored.workbench;
+    const workbench = workbenchSource
+      ? mergeWorkbenchDeliverables(
+          {
+            ...workbenchSource,
+            ...(blockArtifacts.length ? { artifacts: blockArtifacts } : {}),
+          },
+          restored.workbench,
+        )
+      : undefined;
     return {
       ...restored,
       blocks: current.blocks,
-      workbench: current.workbench ?? restored.workbench,
+      ...(workbench ? { workbench } : {}),
     };
   }
   return restored;
@@ -1094,11 +1177,17 @@ function snapshotActivityStatus(
   return 'running';
 }
 
-function workbenchViewFromTarget(kind: WorkbenchFocusTarget['kind']): WorkspaceView {
+// eslint-disable-next-line react-refresh/only-export-components -- 供点击文件卡片等导航单测复用。
+export function workbenchViewFromTarget(kind: WorkbenchFocusTarget['kind']): WorkspaceView {
   if (kind === 'source' || kind === 'tool_call' || kind === 'activity') return 'tool_results';
-  if (kind === 'report') return 'deliverables';
-  if (kind === 'artifact') return 'tool_results';
+  if (kind === 'report' || kind === 'artifact') return 'deliverables';
   return 'tool_results';
+}
+
+function clearArtifactWorkbenchFocus(workbench: WorkbenchState): WorkbenchState {
+  if (workbench.focusTarget?.kind !== 'artifact') return workbench;
+  const { focusTarget: _removed, ...rest } = workbench;
+  return rest;
 }
 
 function resumeWorkbenchAutoFollow(workbench: WorkbenchState): WorkbenchState {
@@ -1393,7 +1482,7 @@ function PersistentAgentApp() {
       },
     });
     if (restored.kind !== 'assistant') return;
-    const workbench = restored.workbench
+    const workbenchDraft = restored.workbench
       ? {
           ...restored.workbench,
           runId: snapshot.runId,
@@ -1414,6 +1503,9 @@ function PersistentAgentApp() {
     setSessionStates((current) => {
       const target = current[sessionId];
       if (!target) return current;
+      const workbench = workbenchDraft
+        ? mergeWorkbenchDeliverables(workbenchDraft, target.workbench)
+        : undefined;
       const existingAssistant = target.conversation.find(
         (entry) => entry.kind === 'assistant' && entry.id === snapshot.assistantMessageId,
       );
@@ -1735,20 +1827,26 @@ function PersistentAgentApp() {
             toolEvent.toolName === 'read_file_lines' &&
             toolEvent.result.lines.length > 0) ||
           (toolEvent.type === 'tool.completed' &&
-            (toolEvent.toolName === 'create_file' || toolEvent.toolName === 'create_report'));
+            (toolEvent.toolName === 'create_file' || toolEvent.toolName === 'create_report')) ||
+          (toolEvent.type === 'tool.completed' &&
+            toolEvent.toolName === 'execute_command' &&
+            Boolean(collectedArtifactFromCommandResult(toolEvent.result)));
         const currentUserUrls = new Set(
           [...task.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)].map((match) =>
             canonicalUrl(match[0].replace(/[.,;:!?，。；：！？]+$/gu, '')),
           ),
         );
-        const workbench = applyToolEvent(
-          existing,
-          toolEvent,
-          resolveWorkbenchOpenOnToolEvent(existing?.open, toolEvent, {
-            suppressed,
-            hasNewResource,
-          }),
-          currentUserUrls,
+        const workbench = mergeWorkbenchDeliverables(
+          applyToolEvent(
+            existing,
+            toolEvent,
+            resolveWorkbenchOpenOnToolEvent(existing?.open, toolEvent, {
+              suppressed,
+              hasNewResource,
+            }),
+            currentUserUrls,
+          ),
+          target.workbench,
         );
         workbench.runId = event.runId;
         workbench.context = target.context;
@@ -1979,21 +2077,20 @@ function PersistentAgentApp() {
           ...item,
           runId,
           workbench: restoredWorkbench
-            ? {
-                ...restoredWorkbench,
-                ...(currentWorkbench?.context ? { context: currentWorkbench.context } : {}),
-                ...(currentWorkbench?.plan ? { plan: currentWorkbench.plan } : {}),
-                ...(currentWorkbench?.artifacts ? { artifacts: currentWorkbench.artifacts } : {}),
-                ...(currentWorkbench?.artifactSeries
-                  ? { artifactSeries: currentWorkbench.artifactSeries }
-                  : {}),
-                open: currentWorkbench?.open ?? restoredWorkbench.open,
-                activeView: currentWorkbench?.activeView ?? restoredWorkbench.activeView,
-                followMode: currentWorkbench?.followMode ?? restoredWorkbench.followMode,
-                ...(currentWorkbench?.focusTarget
-                  ? { focusTarget: currentWorkbench.focusTarget }
-                  : {}),
-              }
+            ? mergeWorkbenchDeliverables(
+                {
+                  ...restoredWorkbench,
+                  ...(currentWorkbench?.context ? { context: currentWorkbench.context } : {}),
+                  ...(currentWorkbench?.plan ? { plan: currentWorkbench.plan } : {}),
+                  open: currentWorkbench?.open ?? restoredWorkbench.open,
+                  activeView: currentWorkbench?.activeView ?? restoredWorkbench.activeView,
+                  followMode: currentWorkbench?.followMode ?? restoredWorkbench.followMode,
+                  ...(currentWorkbench?.focusTarget
+                    ? { focusTarget: currentWorkbench.focusTarget }
+                    : {}),
+                },
+                currentWorkbench,
+              )
             : currentWorkbench,
         } satisfies ConversationItem;
         hydratedWorkbench = hydrated.workbench;
@@ -2006,22 +2103,22 @@ function PersistentAgentApp() {
           conversation,
           ...(hydratedWorkbench
             ? {
-                workbench: {
-                  ...hydratedWorkbench,
-                  ...(state.workbench?.runId === runId
-                    ? {
-                        open: state.workbench.open,
-                        activeView: state.workbench.activeView,
-                        followMode: state.workbench.followMode,
-                        ...(state.workbench.focusTarget
-                          ? { focusTarget: state.workbench.focusTarget }
-                          : {}),
-                        ...(state.workbench.artifactSeries
-                          ? { artifactSeries: state.workbench.artifactSeries }
-                          : {}),
-                      }
-                    : {}),
-                },
+                workbench: mergeWorkbenchDeliverables(
+                  {
+                    ...hydratedWorkbench,
+                    ...(state.workbench?.runId === runId
+                      ? {
+                          open: state.workbench.open,
+                          activeView: state.workbench.activeView,
+                          followMode: state.workbench.followMode,
+                          ...(state.workbench.focusTarget
+                            ? { focusTarget: state.workbench.focusTarget }
+                            : {}),
+                        }
+                      : {}),
+                  },
+                  state.workbench,
+                ),
               }
             : {}),
         },
@@ -2105,6 +2202,25 @@ function PersistentAgentApp() {
           [...conversation].reverse().find((item) => item.kind === 'assistant' && item.workbench);
         const restoredWorkbench =
           restoredItem?.kind === 'assistant' ? restoredItem.workbench : undefined;
+        const sessionArtifacts = session.artifactSeries.flatMap((series) => series.versions);
+        const latestAssistantRunId = [...session.messages]
+          .reverse()
+          .find((message) => message.role === 'assistant' && message.runId)?.runId;
+        const workbenchBase =
+          restoredWorkbench ??
+          (sessionArtifacts.length
+            ? {
+                runId: latestAssistantRunId ?? session.id,
+                title: '工具执行',
+                subtitle: `${sessionArtifacts.length} 个文件`,
+                activeView: 'tool_results' as const,
+                activityStatus: 'completed' as const,
+                executions: [],
+                followMode: 'auto' as const,
+                sources: [],
+                open: false,
+              }
+            : undefined);
         const cachedContext = activeWorkbench?.context ?? current[sessionId]?.context;
         return {
           ...current,
@@ -2112,16 +2228,18 @@ function PersistentAgentApp() {
             label: session.title,
             subtitle: '',
             conversation: restoredConversation,
-            ...(restoredWorkbench
+            ...(workbenchBase
               ? {
-                  workbench: {
-                    ...restoredWorkbench,
-                    artifactSeries: session.artifactSeries,
-                    artifacts: session.artifactSeries.flatMap((series) => series.versions),
-                    open: activeWorkbench?.open ?? false,
-                    activeView: activeWorkbench?.activeView ?? restoredWorkbench.activeView,
-                    ...(cachedContext ? { context: cachedContext } : {}),
-                  },
+                  workbench: mergeWorkbenchDeliverables(
+                    {
+                      ...workbenchBase,
+                      open: activeWorkbench?.open ?? workbenchBase.open ?? false,
+                      activeView: activeWorkbench?.activeView ?? workbenchBase.activeView,
+                      ...(cachedContext ? { context: cachedContext } : {}),
+                    },
+                    activeWorkbench,
+                    { artifactSeries: session.artifactSeries },
+                  ),
                 }
               : {}),
             ...(cachedContext ? { context: cachedContext } : {}),
@@ -2284,13 +2402,16 @@ function PersistentAgentApp() {
           ...current,
           [sessionId]: {
             ...state,
-            workbench: {
-              ...workbench,
-              open: true,
-              activeView,
-              focusTarget: target,
-              followMode: 'pinned',
-            },
+            workbench: mergeWorkbenchDeliverables(
+              {
+                ...workbench,
+                open: true,
+                activeView,
+                focusTarget: target,
+                followMode: 'pinned',
+              },
+              state.workbench,
+            ),
           },
         };
       });
@@ -3123,6 +3244,22 @@ function PersistentAgentApp() {
                 state={uiState.workbench}
                 onReviseArtifact={beginArtifactRevision}
                 onRestoreArtifact={(artifact) => void restoreArtifactVersion(artifact)}
+                onArtifactDetailClose={() => {
+                  if (!selectedSessionId) return;
+                  startTransition(() => {
+                    setSessionStates((current) => {
+                      const state = current[selectedSessionId];
+                      if (!state?.workbench) return current;
+                      return {
+                        ...current,
+                        [selectedSessionId]: {
+                          ...state,
+                          workbench: clearArtifactWorkbenchFocus(state.workbench),
+                        },
+                      };
+                    });
+                  });
+                }}
                 onViewChange={(activeView) => {
                   if (!selectedSessionId) return;
                   startTransition(() => {
@@ -3396,6 +3533,18 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
             uiState.workbench ? (
               <WorkbenchShell
                 state={uiState.workbench}
+                onArtifactDetailClose={() =>
+                  startTransition(() =>
+                    setUiState((current) =>
+                      current.workbench
+                        ? {
+                            ...current,
+                            workbench: clearArtifactWorkbenchFocus(current.workbench),
+                          }
+                        : current,
+                    ),
+                  )
+                }
                 onViewChange={(activeView) =>
                   startTransition(() =>
                     setUiState((current) =>

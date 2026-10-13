@@ -60,6 +60,7 @@ import { getDefaultModel } from '../model/model-catalog';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import type { RuntimeLifecycleController } from '../agent-runtime/runtime-lifecycle';
 
+import { mcpIconSrcFromSnapshot } from '../mcp/mcp-icon-resolver';
 import type { RunMcpSnapshot } from '../mcp/mcp.types';
 import {
   externalSubKind,
@@ -406,6 +407,7 @@ export class ChatService {
               ),
             )
           : undefined;
+        const mcpIconSrc = mcpIconSrcFromSnapshot(event.toolName, prepared.mcpSnapshot);
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
           toolName: event.toolName,
@@ -414,6 +416,7 @@ export class ChatService {
           roundId: event.roundId,
           roundSequence: event.roundSequence,
           blockSequence: event.blockSequence,
+          ...(mcpIconSrc ? { iconSrc: mcpIconSrc } : {}),
           ...(bashStartTerminalView
             ? {
                 presentation: 'terminal' as const,
@@ -624,6 +627,7 @@ export class ChatService {
             subKind: externalSubKind(event.toolName),
             title: block.title,
             input: summarizeExternalToolInput(event.input),
+            ...(mcpIconSrc ? { iconSrc: mcpIconSrc } : {}),
             startedAt: event.startedAt,
             roundId: event.roundId,
             roundSequence: event.roundSequence,

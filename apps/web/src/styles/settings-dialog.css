@@ -759,6 +759,20 @@
   align-items: center;
 }
 
+.settings-dialog__mcp-avatar {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.settings-dialog__mcp-avatar--fallback {
+  display: grid;
+  place-items: center;
+  color: var(--theme-text-muted);
+}
+
 .settings-dialog__mcp-card-title code {
   font-family: inherit;
   font-size: 14px;

@@ -142,6 +142,7 @@ export class ConversationBlockCollector {
     presentation?: 'terminal';
     description?: string;
     terminalView?: BashTerminalView;
+    iconSrc?: string;
   }): AssistantToolActivityBlock {
     const existing = this.findTool(input.toolCallId);
     if (existing) return { ...existing };
@@ -160,6 +161,7 @@ export class ConversationBlockCollector {
       ...(input.presentation ? { presentation: input.presentation } : {}),
       ...(input.description ? { description: input.description } : {}),
       ...(input.terminalView ? { terminalView: input.terminalView } : {}),
+      ...(input.iconSrc ? { iconSrc: input.iconSrc } : {}),
     };
     this.insert(block);
     return { ...block };

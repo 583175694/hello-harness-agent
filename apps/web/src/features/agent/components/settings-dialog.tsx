@@ -43,6 +43,7 @@ import { toast } from '../../../components/ui/toast';
 import { McpServerForm, serverViewToForm } from './mcp-server-form';
 import {
   McpCardChevron,
+  McpServerAvatar,
   McpServerToggleRow,
   McpStatusBadge,
   McpToolCountPill,
@@ -122,6 +123,7 @@ function McpServerCard({
           <McpCardChevron expanded={expanded} />
           <span className="settings-dialog__mcp-card-trigger-main">
             <span className="settings-dialog__mcp-card-title">
+              <McpServerAvatar server={server} />
               <code>{server.serverName}</code>
               <McpStatusBadge status={server.status} />
               <McpToolCountPill server={server} />

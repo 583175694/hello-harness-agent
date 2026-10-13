@@ -68,6 +68,16 @@ function toolActivityStartSummary(event: Extract<ToolStreamEvent, { type: 'tool.
   return toolInputSummary(event.toolName, event.input);
 }
 
+function toolActivityIconPatch(
+  event: ToolStreamEvent,
+): Partial<Extract<AssistantContentBlock, { type: 'tool_activity' }>> {
+  if (event.type !== 'tool.started') return {};
+  if (!('iconSrc' in event) || typeof event.iconSrc !== 'string' || !event.iconSrc.trim()) {
+    return {};
+  }
+  return { iconSrc: event.iconSrc.trim() };
+}
+
 function bashTerminalBlockPatch(
   event: ToolStreamEvent,
 ): Partial<Extract<AssistantContentBlock, { type: 'tool_activity' }>> {
@@ -272,6 +282,7 @@ export function applyToolActivityEvent(
                   ? { blockSequence: event.blockSequence }
                   : {}),
                 ...bashTerminalBlockPatch(event),
+                ...toolActivityIconPatch(event),
               }
             : block,
         ),
@@ -294,6 +305,7 @@ export function applyToolActivityEvent(
       summary: toolActivityStartSummary(event),
       startedAt: event.startedAt,
       ...bashTerminalBlockPatch(event),
+      ...toolActivityIconPatch(event),
     });
   }
   if (index < 0) return blocks;

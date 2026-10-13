@@ -405,11 +405,15 @@ describe('conversation blocks reducer', () => {
       publicName: 'mcp__tinyfish__search',
       subKind: 'mcp',
       title: 'tinyfish · search',
+      iconSrc: 'https://example.com/tinyfish.png',
       input: { query: '泰永长征', purpose: '了解基本面' },
       startedAt: '2026-09-21T09:00:00.000Z',
       roundId: 'round-1',
       roundSequence: 1,
       blockSequence: 0,
+    });
+    expect(started[0]).toMatchObject({
+      iconSrc: 'https://example.com/tinyfish.png',
     });
     const blocks = applyToolActivityEvent(started, {
       type: 'tool.completed',

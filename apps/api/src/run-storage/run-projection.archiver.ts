@@ -10,8 +10,6 @@ import {
   type ResearchSourceSnapshot,
   type ToolExecutionSnapshot,
 } from '@harness/agent-protocol';
-import type { Prisma } from '@prisma/client';
-
 import type { ChatProjectionSnapshot } from '../chat/chat.service';
 import type { RunContextDebug } from '@harness/agent-protocol';
 import {
@@ -48,6 +46,16 @@ export function sourceArchiveToolCallId(sourceId: string): string {
   return `source:${sourceId}`;
 }
 
+type ToolOutputUpsertInput = {
+  runId: string;
+  toolCallId: string;
+  storageKey: string;
+  contentType: string;
+  byteSize: number;
+  sha256: string;
+  preview: string | null;
+};
+
 @Injectable()
 export class RunProjectionArchiver {
   constructor(
@@ -56,23 +64,32 @@ export class RunProjectionArchiver {
     @Inject(Logger) private readonly logger: Logger,
   ) {}
 
-  async trimAndPersist(
-    input: {
-      runId: string;
-      sessionId: string;
-      projection: RunProjectionInput;
-      dryRun?: boolean;
-      tx?: Prisma.TransactionClient;
-    },
-  ): Promise<RunProjectionInput> {
+  /** 流式 checkpoint：仅内存裁剪，不做对象存储（避免阻塞 SSE / 模型流）。 */
+  trimForCheckpoint(projection: RunProjectionInput): RunProjectionInput {
+    if (projectionSerializedBytes(projection) <= AGENT_PROTOCOL_LIMITS.researchProjectionMaxBytes) {
+      return projection;
+    }
+    return enforceResearchProjectionByteLimit(projection, (message) =>
+      this.logger.warn(message, RunProjectionArchiver.name),
+    );
+  }
+
+  /** 终态 / 迁移：外置大 payload 并写入 tool_outputs（均在短 DB 事务外完成 I/O）。 */
+  async trimAndPersist(input: {
+    runId: string;
+    sessionId: string;
+    projection: RunProjectionInput;
+    dryRun?: boolean;
+  }): Promise<RunProjectionInput> {
+    const pendingToolOutputs: ToolOutputUpsertInput[] = [];
     const executions = await Promise.all(
       input.projection.executions.map((execution) =>
-        this.archiveExecution(input.runId, execution, input.dryRun, input.tx),
+        this.archiveExecution(input.runId, execution, input.dryRun, pendingToolOutputs),
       ),
     );
     const sources = await Promise.all(
       input.projection.sources.map((source) =>
-        this.archiveSource(input.runId, source, input.dryRun, input.tx),
+        this.archiveSource(input.runId, source, input.dryRun, pendingToolOutputs),
       ),
     );
     let trimmed: RunProjectionInput = {
@@ -91,6 +108,9 @@ export class RunProjectionArchiver {
         ...(trimmed.plan ? { plan: trimmed.plan } : {}),
         ...(trimmed.context ? { context: trimmed.context } : {}),
       });
+      await Promise.all(
+        pendingToolOutputs.map((record) => this.toolOutputs.upsert(record)),
+      );
     }
     return trimmed;
   }
@@ -99,9 +119,10 @@ export class RunProjectionArchiver {
     runId: string,
     execution: ToolExecutionSnapshot,
     dryRun: boolean | undefined,
-    tx: Prisma.TransactionClient | undefined,
+    pendingToolOutputs: ToolOutputUpsertInput[],
   ): Promise<ToolExecutionSnapshot> {
     if (execution.toolName !== AGENT_TOOL_NAMES.externalTool) return execution;
+    if (execution.outputRef) return execution;
     const preview = execution.outputPreview ?? '';
     if (!preview) return execution;
     const byteSize = utf8Bytes(preview);
@@ -115,7 +136,7 @@ export class RunProjectionArchiver {
 
     if (!dryRun) {
       await this.storage.putObject({ key: storageKey, content, contentType });
-      await this.toolOutputs.upsert({
+      pendingToolOutputs.push({
         runId,
         toolCallId: execution.toolCallId,
         storageKey,
@@ -123,7 +144,6 @@ export class RunProjectionArchiver {
         byteSize,
         sha256: sha256Hex(content),
         preview: truncateUtf8(preview, previewMax),
-        tx,
       });
     }
 
@@ -141,9 +161,10 @@ export class RunProjectionArchiver {
     runId: string,
     source: ResearchSourceSnapshot,
     dryRun: boolean | undefined,
-    tx: Prisma.TransactionClient | undefined,
+    pendingToolOutputs: ToolOutputUpsertInput[],
   ): Promise<ResearchSourceSnapshot> {
     if (source.kind !== 'fetched') return source;
+    if (source.contentRef) return source;
     const payload = JSON.stringify({
       id: source.id,
       title: source.title,
@@ -162,7 +183,7 @@ export class RunProjectionArchiver {
 
     if (!dryRun) {
       await this.storage.putObject({ key: storageKey, content, contentType });
-      await this.toolOutputs.upsert({
+      pendingToolOutputs.push({
         runId,
         toolCallId,
         storageKey,
@@ -170,7 +191,6 @@ export class RunProjectionArchiver {
         byteSize,
         sha256: sha256Hex(content),
         preview: truncateUtf8(source.passages[0]?.text ?? source.title, previewMax),
-        tx,
       });
     }
 

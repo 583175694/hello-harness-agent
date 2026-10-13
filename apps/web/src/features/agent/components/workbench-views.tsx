@@ -149,6 +149,7 @@ type WorkbenchShellProps = {
   onResumeAutoFollow?: () => void;
   onReviseArtifact?: (artifact: ArtifactRef) => void;
   onRestoreArtifact?: (artifact: ArtifactRef) => void;
+  onArtifactDetailClose?: () => void;
 };
 
 /** 输入框等 App 层 state 变化时不应带动整块 Workbench 重绘（尤其 Context JSON / 预览 Markdown）。 */
@@ -184,6 +185,7 @@ export const WorkbenchShell = memo(function WorkbenchShell({
   onResumeAutoFollow,
   onReviseArtifact,
   onRestoreArtifact,
+  onArtifactDetailClose,
 }: WorkbenchShellProps) {
   const toolIndex = resolveToolCallIndex(
     state.executions,
@@ -262,6 +264,7 @@ export const WorkbenchShell = memo(function WorkbenchShell({
                 onExecutionSelect={onExecutionSelect}
                 onReviseArtifact={onReviseArtifact}
                 onRestoreArtifact={onRestoreArtifact}
+                onArtifactDetailClose={onArtifactDetailClose}
               />
             </div>
             {showResumeAutoFollow ? (
@@ -434,12 +437,14 @@ function WorkbenchActiveView({
   onExecutionSelect,
   onReviseArtifact,
   onRestoreArtifact,
+  onArtifactDetailClose,
 }: {
   state: WorkbenchState;
   toolIndex: number;
   onExecutionSelect: (tool: ToolCallView) => void;
   onReviseArtifact?: (artifact: ArtifactRef) => void;
   onRestoreArtifact?: (artifact: ArtifactRef) => void;
+  onArtifactDetailClose?: () => void;
 }) {
   if (state.activeView === 'context') return <ContextView context={state.context} />;
   if (state.activeView === 'deliverables') {
@@ -448,6 +453,7 @@ function WorkbenchActiveView({
         state={state}
         onRevise={onReviseArtifact}
         onRestore={onRestoreArtifact}
+        onDetailClose={onArtifactDetailClose}
       />
     );
   }
@@ -455,8 +461,6 @@ function WorkbenchActiveView({
     <ToolResultsView
       executions={state.executions}
       sources={state.sources}
-      artifacts={state.artifacts}
-      focusTarget={state.focusTarget}
       toolIndex={toolIndex}
       onSelectByIndex={(nextIndex) => {
         const tool = state.executions[nextIndex];
@@ -469,20 +473,14 @@ function WorkbenchActiveView({
 function ToolResultsView({
   executions,
   sources,
-  artifacts,
-  focusTarget,
   toolIndex,
   onSelectByIndex,
 }: {
   executions: ToolCallView[];
   sources: SourceView[];
-  artifacts?: ArtifactRef[];
-  focusTarget?: WorkbenchFocusTarget;
   toolIndex: number;
   onSelectByIndex: (index: number) => void;
 }) {
-  const focusArtifactId =
-    focusTarget?.kind === 'artifact' ? focusTarget.artifactId : undefined;
   const selectedTool = executions[toolIndex];
   const relatedSources = useMemo(() => {
     if (!selectedTool) return sources;
@@ -519,12 +517,7 @@ function ToolResultsView({
         }
       />
       {selectedTool ? (
-        <ToolResultBody
-          tool={selectedTool}
-          sources={relatedSources}
-          artifacts={artifacts}
-          focusArtifactId={focusArtifactId}
-        />
+        <ToolResultBody tool={selectedTool} sources={relatedSources} />
       ) : (
         <div className="execution-empty workbench-empty-state">
           <span className="workbench-empty-state__title">执行详情暂不可用</span>
@@ -538,13 +531,10 @@ function ToolResultsView({
 function ToolResultBody({
   tool,
   sources,
-  artifacts,
-  focusArtifactId,
 }: {
   tool: ToolCallView;
   sources: SourceView[];
   artifacts?: ArtifactRef[];
-  focusArtifactId?: string;
 }) {
   if (tool.toolName === 'bash' && tool.terminal) {
     return (
@@ -561,20 +551,6 @@ function ToolResultBody({
     sources.length
   ) {
     return <SourcesView sources={sources} compact />;
-  }
-  const artifact =
-    resolveArtifactForTool(tool, artifacts) ??
-    (focusArtifactId && tool.artifactId === focusArtifactId
-      ? artifacts?.find((item) => item.artifactId === focusArtifactId)
-      : focusArtifactId && ARTIFACT_TOOL_NAMES.has(tool.toolName)
-        ? artifacts?.find((item) => item.artifactId === focusArtifactId)
-        : undefined);
-  if (artifact && tool.status === 'completed') {
-    return (
-      <div className="tool-result-artifact" key={tool.toolCallId}>
-        <ArtifactPreviewBody artifact={artifact} />
-      </div>
-    );
   }
   if (isMcpPublicToolName(tool.toolName)) {
     return <McpToolResultView key={tool.toolCallId} tool={tool} />;
@@ -872,15 +848,24 @@ function DeliverablesView({
   state,
   onRevise,
   onRestore,
+  onDetailClose,
 }: {
   state: WorkbenchState;
   onRevise?: (artifact: ArtifactRef) => void;
   onRestore?: (artifact: ArtifactRef) => void;
+  onDetailClose?: () => void;
 }) {
   const allArtifacts = collectDeliverableArtifacts(state);
   const listArtifacts = deliverablesForList(state);
-  // 文件 Tab 默认展示列表；预览仅由用户在列表中点击触发（不跟随全局 artifact focusTarget）。
-  const [detailArtifactId, setDetailArtifactId] = useState<string | null>(null);
+  const focusArtifactId =
+    state.focusTarget?.kind === 'artifact' ? state.focusTarget.artifactId : undefined;
+  const [detailArtifactId, setDetailArtifactId] = useState<string | null>(
+    () => focusArtifactId ?? null,
+  );
+
+  useEffect(() => {
+    if (focusArtifactId) setDetailArtifactId(focusArtifactId);
+  }, [focusArtifactId]);
 
   const detailArtifact =
     detailArtifactId !== null
@@ -935,7 +920,10 @@ function DeliverablesView({
           <button
             type="button"
             className="deliverables-back-button"
-            onClick={() => setDetailArtifactId(null)}
+            onClick={() => {
+              setDetailArtifactId(null);
+              onDetailClose?.();
+            }}
           >
             <ChevronLeft size={16} aria-hidden />
             返回

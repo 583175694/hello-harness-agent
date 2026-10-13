@@ -6,6 +6,7 @@ import type { RunProjectionArchiver } from '../../../src/run-storage/run-project
 
 function passThroughArchiver(): RunProjectionArchiver {
   return {
+    trimForCheckpoint: vi.fn((projection) => projection),
     trimAndPersist: vi.fn(async (input) => input.projection),
   } as unknown as RunProjectionArchiver;
 }

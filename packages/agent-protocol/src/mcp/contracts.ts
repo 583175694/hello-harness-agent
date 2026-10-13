@@ -89,6 +89,8 @@ export const mcpServerViewSchema = z.object({
   secretsConfigured: mcpSecretsConfiguredSchema,
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  /** MCP serverInfo.icons 解析后的展示 URL（可为 https 或 data URI）。 */
+  iconSrc: z.string().min(1).max(8192).optional(),
 });
 
 export const mcpServerListResponseSchema = z.object({

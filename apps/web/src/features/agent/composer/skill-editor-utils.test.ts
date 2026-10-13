@@ -11,7 +11,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   dedupeSkillNames,
+  $extractComposerDocument,
   $insertSkillMentionFromTypeahead,
+  $stripComposerPlainTextPreservingSkills,
 } from './skill-editor-utils';
 import {
   $createSkillMentionNode,
@@ -54,6 +56,47 @@ describe('$insertSkillMentionFromTypeahead', () => {
       expect(children.some((node: LexicalNode) => $isSkillMentionNode(node))).toBe(true);
       expect(block.getTextContent()).toContain('总结一下这篇文章');
       expect(block.getTextContent()).not.toContain('/research');
+    });
+  });
+});
+
+describe('manual skill mention layout', () => {
+  it('extracts skill names from chip plus trailing text', () => {
+    const editor = createEditor({ nodes: [SkillMentionNode] });
+    editor.update(() => {
+      const root = $getRoot();
+      root.clear();
+      const paragraph = $createParagraphNode();
+      paragraph.append($createSkillMentionNode('concise-chinese', 'concise-chinese'));
+      paragraph.append($createTextNode('f'));
+      root.append(paragraph);
+    });
+    editor.read(() => {
+      expect($extractComposerDocument().skillNames).toEqual(['concise-chinese']);
+    });
+  });
+});
+
+describe('$stripComposerPlainTextPreservingSkills', () => {
+  it('removes trailing text but keeps skill mentions', () => {
+    const editor = createEditor({ nodes: [SkillMentionNode] });
+    editor.update(() => {
+      const root = $getRoot();
+      root.clear();
+      const paragraph = $createParagraphNode();
+      paragraph.append($createSkillMentionNode('concise-chinese', 'concise-chinese'));
+      paragraph.append($createTextNode('f'));
+      root.append(paragraph);
+    });
+    editor.update(() => {
+      $stripComposerPlainTextPreservingSkills();
+    });
+    editor.read(() => {
+      const block = $getRoot().getFirstChild();
+      if (!$isParagraphNode(block)) throw new Error('expected paragraph node');
+      const children = block.getChildren();
+      expect(children.some((node: LexicalNode) => $isSkillMentionNode(node))).toBe(true);
+      expect(block.getTextContent()).toBe('');
     });
   });
 });

@@ -6,6 +6,14 @@ import {
 } from 'lexical';
 import { useEffect } from 'react';
 
+import { $extractComposerDocument } from './skill-editor-utils';
+
+/** 输入框末尾正在输入 `/` Skill 查询时不应触发发送。 */
+function $hasOpenSkillTypeaheadQuery(): boolean {
+  const { plainText } = $extractComposerDocument();
+  return /\/[^\s/]{0,40}$/.test(plainText);
+}
+
 export function ComposerSubmitPlugin({
   disabled,
   onSubmitRequest,
@@ -28,6 +36,11 @@ export function ComposerSubmitPlugin({
         if (event && (event.isComposing || event.keyCode === 229)) {
           return false;
         }
+        let blockedBySkillQuery = false;
+        editor.getEditorState().read(() => {
+          blockedBySkillQuery = $hasOpenSkillTypeaheadQuery();
+        });
+        if (blockedBySkillQuery) return false;
         event?.preventDefault();
         onSubmitRequest();
         return true;

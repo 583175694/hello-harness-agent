@@ -42,7 +42,7 @@ export function $extractComposerDocument(): ComposerDocumentValue {
         if ($isSkillMentionNode(child)) {
           skillNames.push(child.getSkillName());
         } else if ($isTextNode(child)) {
-          lineParts.push(child.getTextContent());
+          lineParts.push(child.getTextContent().replace(/\u200b/g, ''));
         } else if ($isLineBreakNode(child)) {
           lineParts.push('\n');
         }
@@ -105,7 +105,7 @@ export function $insertSkillMentionFromTypeahead(
     return;
   }
 
-  const spacer = $createTextNode(' ');
+  const spacer = $createTextNode('\u200b');
   mentionNode.insertAfter(spacer);
   spacer.select(1, 1);
 }
@@ -115,7 +115,7 @@ export function $insertSkillMentionAtSelection(name: string, label: string): voi
   if (!$isRangeSelection(selection)) return;
   const mentionNode = $createSkillMentionNode(name, label);
   selection.insertNodes([mentionNode]);
-  const spacer = $createTextNode(' ');
+  const spacer = $createTextNode('\u200b');
   mentionNode.insertAfter(spacer);
   spacer.select(1, 1);
 }
@@ -137,6 +137,22 @@ export function $setComposerPlainText(text: string): void {
   }
   root.append(paragraph);
   paragraph.selectEnd();
+}
+
+/** 去掉段落内纯文本，保留 Skill chip（用于受控 reset 不误删 mention）。 */
+export function $stripComposerPlainTextPreservingSkills(): void {
+  const root = $getRoot();
+  for (const block of root.getChildren()) {
+    if (!$isParagraphNode(block)) continue;
+    for (const child of [...block.getChildren()]) {
+      if ($isSkillMentionNode(child)) continue;
+      child.remove();
+    }
+  }
+  const firstBlock = $getRoot().getFirstChild();
+  if ($isParagraphNode(firstBlock)) {
+    firstBlock.selectEnd();
+  }
 }
 
 export function readComposerDocument(editor: LexicalEditor): ComposerDocumentValue {

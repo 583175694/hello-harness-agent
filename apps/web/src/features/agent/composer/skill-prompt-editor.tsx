@@ -16,6 +16,7 @@ import {
 } from 'react';
 
 import { ComposerControlledPlugin } from './composer-controlled-plugin';
+import { runSkillComposerBackspace } from './composer-skill-key-commands';
 import { ComposerSkillKeyPlugin } from './composer-skill-key-plugin';
 import { ComposerSubmitPlugin } from './composer-submit-plugin';
 import {
@@ -127,6 +128,15 @@ export const SkillPromptEditor = forwardRef(function SkillPromptEditor(
             className="ai-prompt-input__textarea skill-composer-input"
             onBlur={handleBlurSync}
             onPaste={onPaste}
+            onKeyDownCapture={(event) => {
+              if (event.key !== 'Backspace' || event.metaKey || event.ctrlKey || event.altKey) return;
+              const editor = editorRef.current;
+              if (!editor || disabled) return;
+              if (runSkillComposerBackspace(editor)) {
+                event.preventDefault();
+                event.stopPropagation();
+              }
+            }}
           />
         }
         placeholder={

@@ -1,6 +1,7 @@
-import { BookOpen } from 'lucide-react';
+import { BookOpen, X } from 'lucide-react';
 import {
   $applyNodeReplacement,
+  $getNodeByKey,
   DecoratorNode,
   type DOMExportOutput,
   type EditorConfig,
@@ -85,23 +86,41 @@ export class SkillMentionNode extends DecoratorNode<JSX.Element> {
   }
 
   override isIsolated(): boolean {
-    return false;
+    return true;
   }
 
   override isKeyboardSelectable(): boolean {
     return true;
   }
 
-  override decorate(_editor: LexicalEditor, _config: EditorConfig): JSX.Element {
+  override decorate(editor: LexicalEditor, _config: EditorConfig): JSX.Element {
+    const name = this.__name;
+    const label = this.__label;
+    const nodeKey = this.getKey();
     return (
       <span
         className="composer-skill-chip composer-skill-mention"
         contentEditable={false}
-        data-skill-name={this.__name}
-        aria-label={`Skill: ${this.__label}`}
+        data-skill-name={name}
       >
         <BookOpen size={14} aria-hidden="true" />
-        <span>{this.__label}</span>
+        <span>{label}</span>
+        <button
+          type="button"
+          aria-label={`移除 Skill ${label}`}
+          title={`移除 ${label}`}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            editor.update(() => {
+              const node = $getNodeByKey(nodeKey);
+              if ($isSkillMentionNode(node)) node.remove();
+            });
+          }}
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          <X size={12} aria-hidden="true" />
+        </button>
       </span>
     );
   }

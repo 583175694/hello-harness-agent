@@ -1,6 +1,5 @@
 import {
   ArrowUp,
-  BookOpen,
   Check,
   CircleAlert,
   CircleUserRound,
@@ -57,6 +56,12 @@ import {
   PromptInputHeader,
   PromptInputTools,
 } from '../../../components/ai-elements/prompt-input';
+import {
+  ComposerSkillPickerEmpty,
+  ComposerSkillPickerKeyboardHint,
+  ComposerSkillPickerRow,
+  type SkillCatalogStatus,
+} from '../composer/composer-skill-picker';
 import {
   SkillPromptEditor,
   type SkillPromptEditorHandle,
@@ -1766,7 +1771,8 @@ export function Composer({
   onSkillsChange?: (skills: string[]) => void;
 }) {
   const [draftPrompt, setDraftPrompt] = useState(prompt);
-  const [editorResetKey, setEditorResetKey] = useState(0);
+  const [editorResetKey] = useState(() => (prompt.trim() ? 1 : 0));
+  const [seedPlainText] = useState(() => prompt);
   const composerFormRef = useRef<HTMLFormElement>(null);
   const composerEditorRef = useRef<SkillPromptEditorHandle>(null);
   const composerDragDepthRef = useRef(0);
@@ -1796,12 +1802,6 @@ export function Composer({
     draftPromptRef.current = value;
     setDraftPrompt(value);
   }, []);
-  useEffect(() => {
-    if (prompt === draftPromptRef.current) return;
-    draftPromptRef.current = prompt;
-    setDraftPrompt(prompt);
-    setEditorResetKey((key) => key + 1);
-  }, [prompt]);
   const submitDraft = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       onSubmit(event, draftPrompt);
@@ -1865,12 +1865,18 @@ export function Composer({
   const [catalogSkills, setCatalogSkills] = useState<
     Array<{ name: string; description: string }>
   >([]);
+  const [catalogSkillsStatus, setCatalogSkillsStatus] = useState<SkillCatalogStatus>('idle');
   useEffect(() => {
-    if (mode !== 'new-run' || !composerPanel) return undefined;
+    if (mode !== 'new-run' || !composerPanel) {
+      setCatalogSkillsStatus('idle');
+      return undefined;
+    }
     let cancelled = false;
+    setCatalogSkillsStatus('loading');
     void listSkills()
       .then((response) => {
         if (cancelled) return;
+        setCatalogSkillsStatus('ready');
         setCatalogSkills(
           (response.skills ?? []).map((skill) => ({
             name: skill.name,
@@ -1879,7 +1885,10 @@ export function Composer({
         );
       })
       .catch(() => {
-        if (!cancelled) setCatalogSkills([]);
+        if (!cancelled) {
+          setCatalogSkillsStatus('error');
+          setCatalogSkills([]);
+        }
       });
     return () => {
       cancelled = true;
@@ -1892,6 +1901,7 @@ export function Composer({
     closeComposerPanel();
   };
   const enableSkillComposer = mode === 'new-run' && !activeInterrupt;
+  const composerHasContent = Boolean(draftPrompt.trim()) || selectedSkills.length > 0;
   const placeholder = composerPlaceholder(mode);
   const hideComposerInput =
     activeInterrupt?.kind === 'clarification' || activeInterrupt?.kind === 'tool_approval';
@@ -1956,21 +1966,23 @@ export function Composer({
               <div className="composer-quick-panel__section">Skills</div>
             </>
           ) : null}
-          <div className="composer-quick-panel__list">
-            {visibleSkills.length ? visibleSkills.map((skill) => (
-              <button
-                key={skill.name}
-                type="button"
-                className="composer-quick-panel__row"
-                // eslint-disable-next-line react-hooks/refs
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => chooseSkill(skill.name)}
-              >
-                <span className="composer-quick-panel__skill-mark"><BookOpen size={16} aria-hidden="true" /></span>
-                <span className="composer-quick-panel__skill-copy"><strong>{skill.name}</strong><small>{skill.description}</small></span>
-              </button>
-            )) : <div className="composer-quick-panel__empty">没有匹配的 Skill</div>}
+          <div className="composer-quick-panel__list composer-skill-picker">
+            {visibleSkills.length ? (
+              visibleSkills.map((skill) => (
+                <ComposerSkillPickerRow
+                  key={skill.name}
+                  skill={skill}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => chooseSkill(skill.name)}
+                />
+              ))
+            ) : (
+              <ComposerSkillPickerEmpty status={catalogSkillsStatus} />
+            )}
           </div>
+          {composerPanel === 'all' || composerPanel === 'skills' ? (
+            <ComposerSkillPickerKeyboardHint />
+          ) : null}
         </div>
       ) : null}
       {activeInterrupt?.kind === 'clarification' ? (
@@ -2249,9 +2261,10 @@ export function Composer({
             disabled={mode === 'disabled' || controlState === 'waiting_for_user' || Boolean(activeInterrupt)}
             enableSkills={enableSkillComposer}
             resetKey={editorResetKey}
-            seedPlainText={prompt}
+            seedPlainText={seedPlainText}
             onChange={({ plainText, skillNames }) => {
               updateDraftPrompt(plainText);
+              onPromptChange?.(plainText);
               onSkillsChange?.(skillNames);
             }}
             onBlurSync={(plainText) => {
@@ -2259,7 +2272,7 @@ export function Composer({
               onPromptChange?.(plainText);
             }}
             onSubmitRequest={() => {
-              if (!draftPrompt.trim() || mode === 'disabled') return;
+              if (!composerHasContent || mode === 'disabled') return;
               composerFormRef.current?.requestSubmit();
             }}
             onPaste={(event) =>
@@ -2286,9 +2299,9 @@ export function Composer({
                 <button
                   type="button"
                   className="composer-add-button"
-                  aria-label="添加文件和图片"
+                  aria-label="添加附件与 Skill"
                   aria-expanded={composerPanel === 'all'}
-                  title="添加文件和图片"
+                  title="添加附件与 Skill"
                   disabled={attachmentUploading || submitting || serviceState !== 'ready'}
               onClick={() => {
                 if (composerPanel === 'all') closeComposerPanel();
@@ -2331,7 +2344,7 @@ export function Composer({
               disabled={
                 submitting && !draftPrompt.trim()
                   ? !onCancel
-                  : !draftPrompt.trim() ||
+                  : !composerHasContent ||
                     serviceState !== 'ready' ||
                     mode === 'disabled' ||
                     (mode !== 'new-run' && attachments.length > 0) ||

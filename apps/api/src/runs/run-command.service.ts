@@ -1,4 +1,10 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { createHash } from 'node:crypto';
 import {
@@ -19,6 +25,7 @@ import { PendingUserInputService } from './pending-user-input.service';
 import { FilesService } from '../files/files.service';
 import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
+import { SkillRegistryService } from '../skills/skill-registry.service';
 
 @Injectable()
 export class RunCommandService {
@@ -32,6 +39,7 @@ export class RunCommandService {
     @Inject(FilesService) private readonly files: FilesService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ModuleRef) private readonly moduleRef: ModuleRef,
+    @Inject(SkillRegistryService) private readonly skillRegistry: SkillRegistryService,
   ) {}
 
   // 校验请求并创建 Run；成功后注册初始 Snapshot，异步交给 Executor 执行。
@@ -74,6 +82,18 @@ export class RunCommandService {
         code: 'MODEL_UNSUPPORTED',
         detail: '所选模型不可用，请刷新模型列表后重试。',
       });
+    if (input.skillNames?.length) {
+      for (const name of input.skillNames) {
+        try {
+          this.skillRegistry.read(name);
+        } catch {
+          throw new BadRequestException({
+            code: 'SKILL_NOT_FOUND',
+            detail: `Skill「${name}」不存在或不可用，请刷新技能列表后重试。`,
+          });
+        }
+      }
+    }
     const model = configuredModel.id;
     let attachmentIds = this.attachmentIdsFromInput(input);
     if (input.artifactVersionContext) {

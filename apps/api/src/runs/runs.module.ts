@@ -15,9 +15,10 @@ import { RunsController } from './runs.controller';
 import { RuntimeLifecycleRegistry } from '../agent-runtime/runtime-lifecycle';
 import { PendingUserInputService } from './pending-user-input.service';
 import { RunToolOutputService } from './run-tool-output.service';
+import { SkillsModule } from '../skills/skills.module';
 
 @Module({
-  imports: [RunStorageModule, SandboxModule, McpModule, ChatModule, ModelModule, FilesModule],
+  imports: [RunStorageModule, SandboxModule, McpModule, ChatModule, ModelModule, FilesModule, SkillsModule],
   controllers: [RunsController],
   providers: [
     ActiveRunRegistry,

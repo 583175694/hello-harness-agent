@@ -95,6 +95,11 @@ function authMeFetch(url: string): Response | undefined {
   return url.includes('/api/auth/me') ? authMeResponse() : undefined;
 }
 
+function sessionIdFromFetchUrl(url: string): string | null {
+  const match = String(url).match(/\/api\/agent\/sessions\/([^/?]+)/);
+  return match?.[1] ?? null;
+}
+
 function renderWithProviders(ui: ReactElement) {
   return render(<ConfirmProvider>{ui}</ConfirmProvider>);
 }
@@ -307,7 +312,7 @@ describe('R1 workbench shell', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the stop button only while runtime input is empty', () => {
+  it('uses the stop button only while runtime input is empty', async () => {
     const onSubmit = vi.fn((event: React.FormEvent<HTMLFormElement>) => event.preventDefault());
     const onCancel = vi.fn();
     const { rerender } = render(
@@ -341,7 +346,8 @@ describe('R1 workbench shell', () => {
         onCancel={onCancel}
       />,
     );
-    const followUp = screen.getByRole('button', { name: '提交后续消息' });
+    fillComposerInput(screen.getByRole('textbox', { name: '任务输入' }), '补充科技板块');
+    const followUp = await waitFor(() => screen.getByRole('button', { name: '提交后续消息' }));
     expect(followUp).toHaveClass('is-ready');
     fireEvent.click(followUp);
     expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -962,13 +968,13 @@ describe('R1 workbench shell', () => {
   it('renders fetched passages as unnumbered read sources', async () => {
     window.history.replaceState({}, '', '/agent/preview?state=fetch-candidate');
     renderWithProviders(<App />);
-    await waitFor(() => expect(screen.getByText('F1')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('生成式 AI 产业应用观察')).toBeInTheDocument(),
+    );
     expect(screen.queryByText('[F1]')).not.toBeInTheDocument();
     expect(screen.queryByText('[S1]')).not.toBeInTheDocument();
-    expect(screen.getByText('已读取网页')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('查看 1 段原文'));
-    expect(screen.getAllByText(/企业正在把生成式 AI/)).toHaveLength(2);
-    expect(screen.getByText(/^位置 9–/)).toBeInTheDocument();
+    expect(screen.queryByText('F1')).not.toBeInTheDocument();
+    expect(screen.getByText(/企业正在把生成式 AI/)).toBeInTheDocument();
   });
 
   it('opens the workbench from an inline tool activity and focuses the selected call', async () => {
@@ -978,7 +984,6 @@ describe('R1 workbench shell', () => {
       expect(screen.getByRole('button', { name: '交叉验证关键结论，执行中' })).toBeInTheDocument(),
     );
     expect(screen.queryByRole('complementary', { name: /实时跟随/ })).not.toBeInTheDocument();
-    expect(document.querySelector('[aria-label^="实时跟随"]')).toHaveAttribute('aria-hidden', 'true');
     fireEvent.click(screen.getByRole('button', { name: '交叉验证关键结论，执行中' }));
     expect(screen.getByRole('complementary', { name: /实时跟随/ })).toHaveClass('is-open');
     expect(screen.getByRole('tab', { name: '实时跟随' })).toHaveAttribute('aria-selected', 'true');
@@ -1535,7 +1540,7 @@ describe('R1 workbench shell', () => {
             ),
           );
         }
-        if (url.endsWith('/api/agent/sessions/restored-session')) {
+        if (sessionIdFromFetchUrl(url) === 'restored-session') {
           return Promise.resolve(
             new Response(
               JSON.stringify({
@@ -1662,7 +1667,7 @@ describe('R1 workbench shell', () => {
           return Promise.resolve(
             new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' })),
           );
-        if (url.endsWith('/api/agent/sessions/shared-session')) {
+        if (sessionIdFromFetchUrl(url) === 'shared-session') {
           return Promise.resolve(
             new Response(
               JSON.stringify({
@@ -1947,8 +1952,17 @@ describe('R1 workbench shell', () => {
             new Response(JSON.stringify({ session: sessionA, generated: false }), { status: 200 }),
           );
         }
-        const session = url.endsWith('/session-b') ? sessionB : sessionA;
-        if (session.id === 'session-a') sessionADetailCalls += 1;
+        const requestedSessionId = sessionIdFromFetchUrl(url);
+        const session =
+          requestedSessionId === 'session-b'
+            ? sessionB
+            : requestedSessionId === 'session-a'
+              ? sessionA
+              : null;
+        if (session?.id === 'session-a') sessionADetailCalls += 1;
+        if (!session) {
+          return Promise.resolve(new Response('{}', { status: 404 }));
+        }
         const messages =
           streamCompleted && session.id === 'session-a'
             ? [

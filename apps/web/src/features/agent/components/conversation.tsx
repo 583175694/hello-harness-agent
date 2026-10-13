@@ -1921,7 +1921,7 @@ export function Composer({
     closeComposerPanel();
   };
   const enableSkillComposer = mode === 'new-run' && !activeInterrupt;
-  const composerHasContent = Boolean(draftPrompt.trim()) || selectedSkills.length > 0;
+  const composerCanSubmit = Boolean(draftPrompt.trim());
   const placeholder = composerPlaceholder(mode);
   const hideComposerInput =
     activeInterrupt?.kind === 'clarification' || activeInterrupt?.kind === 'tool_approval';
@@ -1963,10 +1963,10 @@ export function Composer({
       ) : null}
       {composerPanel ? (
         <div
-          className={`composer-quick-panel${composerPanelClosing ? ' is-closing' : ''}`}
+          className={`composer-quick-panel composer-skill-picker-shell${composerPanelClosing ? ' is-closing' : ''}`}
           ref={panelRef}
           role="dialog"
-          aria-label={composerPanel === 'skills' ? '选择 Skill' : '添加'}
+          aria-label={composerPanel === 'skills' ? '技能' : '添加'}
         >
           {composerPanel === 'all' ? (
             <>
@@ -2289,7 +2289,7 @@ export function Composer({
               onPromptChange?.(plainText);
             }}
             onSubmitRequest={() => {
-              if (!composerHasContent || mode === 'disabled') return;
+              if (!composerCanSubmit || mode === 'disabled') return;
               composerFormRef.current?.requestSubmit();
             }}
             onPaste={(event) =>
@@ -2361,7 +2361,7 @@ export function Composer({
               disabled={
                 submitting && !draftPrompt.trim()
                   ? !onCancel
-                  : !composerHasContent ||
+                  : !composerCanSubmit ||
                     serviceState !== 'ready' ||
                     mode === 'disabled' ||
                     (mode !== 'new-run' && attachments.length > 0) ||

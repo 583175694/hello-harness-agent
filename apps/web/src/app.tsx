@@ -2732,6 +2732,7 @@ function PersistentAgentApp() {
         selectedSkills,
       );
       setAttachments([]);
+      setSelectedSkills([]);
       if (uiState.revisionContext)
         setSessionStates((current) => ({
           ...current,

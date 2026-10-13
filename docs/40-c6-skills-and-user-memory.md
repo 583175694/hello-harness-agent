@@ -221,7 +221,7 @@ skills.read(name)
 | 提交 | `plainText` → `content`；`skillNames[]` → `createRun`；UI 与 `metadata.skillNames` 回放气泡 |
 | Host 显式路由 | Runtime 仍从**用户消息 content 前缀** `/slug` 解析（见 §4.7.11）；`skillNames` 在 API 层会拼进 content 以兼容 |
 | 双轨 state | 仍保留 `app.prompt` + `selectedSkills` + Lexical 文档（Phase 3 再收敛） |
-| 仅 Skill 无正文 | Composer 发送钮可亮，但 `handleSubmit` 与协议 `content.min(1)` **仍要求正文**（见 §4.7.7） |
+| 仅 Skill 无正文 | **不允许发送**：发送钮与 Enter 仅在有 `plainText.trim()` 时启用（对齐 `content.min(1)`） |
 
 #### 4.7.1 目标与边界
 

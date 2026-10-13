@@ -2803,6 +2803,7 @@ summary:focus-visible {
   max-width: min(520px, calc(100vw - 32px));
 }
 .composer-skill-picker.composer-typeahead-panel,
+.composer-quick-panel.composer-skill-picker-shell,
 .composer-quick-panel:has(.composer-skill-picker) {
   min-width: 360px;
   max-width: min(520px, calc(100vw - 32px));

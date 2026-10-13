@@ -46,7 +46,7 @@ export const AGENT_UI_COPY = {
   // Composer 各运行模式下的输入提示。
   composerPlaceholders: {
     // 普通新任务的输入提示。
-    newRun: '描述任务，或输入 / 插入 Skill',
+    newRun: '描述任务，或输入 / 选择技能',
     // 运行中允许 steer 时的输入提示。
     steer: '补充方向，将从下一步骤应用……',
     // 等待用户确认时的输入提示。

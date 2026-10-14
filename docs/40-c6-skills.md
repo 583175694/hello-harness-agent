@@ -2,7 +2,7 @@
 
 > **文档状态**：Skills **专项规范**（Phase 1 工程已落地，主线 **暂停雕琢**，2026-10-14）。遗留项见 §4.9；Web Composer 见 §4.7–§4.8。
 >
-> **C7 User Memory** 为独立 Capability，见 [41-c7-user-memory.md](./41-c7-user-memory.md) / [06-memory.md](./06-memory.md)；与 Skills 仅共享 K5 编译入口。
+> **C7 User Memory** 为独立 Capability，见 [41-c7-user-memory.md](./41-c7-user-memory.md)；与 Skills 仅共享 K5 编译入口。
 
 ## 1. 目标
 
@@ -18,7 +18,7 @@
 
 C6 Skills 子系统负责 Registry、Catalog 与合法的 `SkillContextInput` 候选；K5 负责选择、预算、渲染、压缩和调试。C6 不直接拼接最终 `ModelMessage[]`，也不自行决定 Context 中的插入位置。
 
-对应契约见 [K5 Context Engineering](./39-k5-context-engineering.md)。Memory 候选由 [06-memory.md](./06-memory.md) 定义，经同一 K5 管道注入，但产生与存储路径与 Skills 无关。
+对应契约见 [K5 Context Engineering](./39-k5-context-engineering.md)。Memory 候选由 [41-c7-user-memory.md](./41-c7-user-memory.md) 定义，经同一 K5 管道注入，但产生与存储路径与 Skills 无关。
 
 ## 4. Skills 第一阶段定稿
 

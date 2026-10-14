@@ -499,7 +499,7 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 | C5-C | Sandbox job / 构建 / dev server 工作台 | **Backlog（低）** | job 卡片、日志跟随、代理预览等；按需启动，不阻塞 K5/C6 |
 | K5 | Context Engineering 全面优化 | **当前研发** | 接口与实施边界见 [39-k5-context-engineering.md](./39-k5-context-engineering.md)；与 C7 可穿插 |
 | C6 Skills | [40-c6-skills.md](./40-c6-skills.md) | **暂停雕琢** | Phase 1 已落地，Backlog [§4.9](./40-c6-skills.md#49-skills-主线暂停与遗留清单) |
-| C7 User Memory | [41-c7-user-memory.md](./41-c7-user-memory.md) · [06-memory.md](./06-memory.md) | **当前研发优先** | C7-A 读 → C7-B 写/审 → C7-C Delegation 联动 |
+| C7 User Memory | [41-c7-user-memory.md](./41-c7-user-memory.md) | **当前研发优先** | C7-A 读 → C7-B 写/审 → C7-C Delegation 联动 |
 | C8 | Browser Use / Computer Use | **后置** | 依赖 C3-D、L6；结构化 Browser Tool 等与 **客户端就绪后** 再立项 |
 
 **明确不在当前 Agent 高优先级**：文件化 Notes、`TODO.md`、Goal Reminder 文件、L6 Mobile/Desktop 客户端工程（客户端单独规划，例如 [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)）。

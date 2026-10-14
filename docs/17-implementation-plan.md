@@ -537,8 +537,7 @@ Memory、Delegation、认证、远程存储和服务端重启自动续跑不是 
 
 ## 13. C7: User Memory
 
-**Capability 索引**：[41-c7-user-memory.md](./41-c7-user-memory.md)  
-**专项规范**：[06-memory.md](./06-memory.md)
+**专项规范**：[41-c7-user-memory.md](./41-c7-user-memory.md)
 
 | 阶段 | 摘要 |
 |------|------|

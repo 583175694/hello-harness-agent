@@ -91,7 +91,7 @@ User
       -> Artifact
 
 User
-  -> MemoryRecord                 # C7，见 06-memory.md / 41-c7-user-memory.md
+  -> MemoryRecord                 # C7，见 41-c7-user-memory.md
       -> sourceRefs
           -> prior Session/Run/State/Artifact
 ```
@@ -102,7 +102,7 @@ User
 - 不实现登录、密码或权限 UI。
 - `session` 是长期可恢复的会话聚合根，可包含多条消息和多次 run。
 - session 删除时级联清理其数据。
-- User Memory 语义、读写与验收以 [06-memory.md](./06-memory.md) 为准（user scope、MemoryCard、sourceRefs 显式展开）。
+- User Memory 语义、读写与验收以 [41-c7-user-memory.md](./41-c7-user-memory.md) 为准（user scope、MemoryCard、sourceRefs 显式展开）。
 
 ## 6. 工程选择
 

@@ -245,6 +245,6 @@ Runtime 产生 domain source events；Gateway 决定用户投影。至少包括 
 
 ## 18. Post-R1
 
-P9/P10 Memory 通过 ContextMaterialLoader 和 async terminal hook 接入，不修改主循环。
+C7 User Memory 通过 ContextMaterialLoader 和 async terminal hook 接入，不修改主循环。
 
 P11 Delegation 通过新增 action handler 接入；worker outcome 仍回到下一 Lead step，最终报告仍走同一 ReportPipeline。

@@ -1,30 +1,24 @@
-# C6 Skills & User Memory
+# C6 Skills
 
-> 状态：Skills 第一阶段方案已冻结；Web Composer Lexical Mention 实现方案见 §4.7–§4.8；User Memory 仍处于规划阶段，尚未开始实现。
+> **文档状态**：Skills **专项规范**（Phase 1 工程已落地，主线 **暂停雕琢**，2026-10-14）。遗留项见 §4.9；Web Composer 见 §4.7–§4.8。
 >
-> 本文先冻结范围和讨论入口，具体产品语义、数据模型、权限规则和验收标准留待后续讨论。C6 当前包含 Skills 与 User Memory，不包含 `NOTES.md`、`TODO.md` 文件化任务状态，也不包含 Skills Marketplace。
+> **C7 User Memory** 为独立 Capability，见 [41-c7-user-memory.md](./41-c7-user-memory.md) / [06-memory.md](./06-memory.md)；与 Skills 仅共享 K5 编译入口。
 
 ## 1. 目标
 
-C6 计划为 Agent 增加两类可复用 Context 来源：
-
-- **Skills**：可复用的任务流程、输入约束、输出契约和能力说明；
-- **User Memory**：有来源、可追溯、可审核、可删除的跨 Session 用户信息。
+为 Agent 提供可复用的 **Skills** Context 来源：任务流程、输入约束、输出契约和能力说明。模型通过 Catalog 发现、显式选择或 `skills.read` 加载正文，在 Tool Policy 与 Sandbox 边界内执行任务。
 
 ## 2. 当前边界
 
 - Skill 不得扩大 Sandbox 权限或绕过 `tool_approval`；
-- Memory 固定为 user scope，不引入 project / workspace / organization scope；
-- Memory 默认以摘要或 MemoryCard 进入 Context，完整历史通过显式 `sourceRefs` 展开；
-- 网页事实和一次性调研内容不能自动写入长期 Memory；
 - `NOTES.md`、`TODO.md` 和文件化 Goal Reminder 不在当前路线；
-- Skill Marketplace、远程安装和热加载属于 C9，暂不纳入 C6。
+- Skill Marketplace、远程安装和热加载属于 **C10**，暂不纳入 C6 Skills。
 
 ## 3. 与 K5 的关系
 
-C6 负责生成合法的 `skills` 和 `memories` 候选内容；K5 负责选择、预算、渲染、压缩和调试。C6 不直接拼接最终 `ModelMessage[]`，也不自行决定 Context 中的插入位置。
+C6 Skills 子系统负责 Registry、Catalog 与合法的 `SkillContextInput` 候选；K5 负责选择、预算、渲染、压缩和调试。C6 不直接拼接最终 `ModelMessage[]`，也不自行决定 Context 中的插入位置。
 
-对应契约见 [K5 Context Engineering](./39-k5-context-engineering.md)。
+对应契约见 [K5 Context Engineering](./39-k5-context-engineering.md)。Memory 候选由 [06-memory.md](./06-memory.md) 定义，经同一 K5 管道注入，但产生与存储路径与 Skills 无关。
 
 ## 4. Skills 第一阶段定稿
 
@@ -209,10 +203,11 @@ skills.read(name)
 
 > 状态：**Phase 1 已在 `apps/web` 落地**（Lexical、`/` typeahead、`+` 技能面板、`skillNames` 提交、用户气泡 inline 回放）；与后端显式注入路径对齐。下文「目标/分期」保留设计脉络，**以本节「实现快照」为准**。
 
-#### 4.7.0 实现快照（2026-03）
+#### 4.7.0 实现快照（2026-10-14）
 
 | 项 | 现状 |
 |----|------|
+| Bundled Catalog | **`packages/bundled-skills/skills/` 暂空**（保留包与 Registry 壳；恢复官方 Skill 或接 user/C10 市场来源后再填） |
 | 编辑器 | `SkillPromptEditor`（PlainText + `SkillMentionNode`） |
 | 触发 | **仅 `/`**（未实现 `@` 双 trigger） |
 | Skill 视觉 | Codex 式 inline mention（主题 `--theme-skill-mention` 字/图标色，无 pill 关闭钮；Backspace 删除） |
@@ -345,7 +340,7 @@ type ComposerDocumentValue = {
 
 - **仅 Skill、无正文**：协议 `CreateRun` 的 `content` 为 `min(1)`；优质 Agent 普遍把 Skill **附在一条用户任务上**（Cursor `/skill` 附着单条消息；ChatGPT `@skill` 仍在 prompt 内）。结论：**现阶段要求用户写至少一句任务**合理；若未来支持「空正文 + skillNames」，需改协议并在 Host 用结构化字段注入，而非空 user message。
 - **显式 Skill 双源**：创建 Run 时 API 将 `skillNames` 前缀写入 `content`，Runtime `extractSkillNames` 读前缀；`metadata.skillNames` 供 UI。在仅 bundled、单路径部署下**可维持**；多客户端或去掉前缀前需 Run/transcript 结构化。
-- **Registry 多来源**：第一阶段仅 `bundled/system` 注册；`user`/`project`/市场在 C6 扩展 + C9 安装后接入同一 `register()`，**非当前阻塞项**。
+- **Registry 多来源**：第一阶段仅 `bundled/system` 注册；`user`/`project`/市场在 C6 扩展 + **C10** 安装后接入同一 `register()`，**非当前阻塞项**。
 
 #### 4.7.9 测试
 
@@ -424,14 +419,43 @@ type SkillPromptEditorProps = {
 - **互相促进**：显式 mention 用得越多，Catalog 注入压力越小，模型 `skills.read` 的「发现」调用越少，有利于 §4.6 前提（Skill 数量有限、路由清晰）。
 - **互相制约**：若用户依赖显式 mention 而从不依赖 Catalog，模型对 Catalog 的训练式使用可能变弱；隐式发现路径仍需在「未选 Skill 的 Run」上保持一等公民，避免产品变成「不会选 Skill 就不会用 Agent」。
 
+### 4.9 Skills 主线暂停与遗留清单
+
+**决策（2026-10-14）**：Composer + Registry + `createRun` / Runtime 显式路径已具备可扩展基础；在 **K5、C7 User Memory、C8 Browser、C9/C10 市场等 Capability/Kernel 项**推进到可验收阶段之前，**不再投入 Skills 产品化与体验雕琢**（空 Catalog、市场、自定义 Skill 等）。恢复 Skills 主线时，从本节 Backlog 按优先级拣项，而非重新讨论 Phase 1 范围。
+
+**已交付（可依赖，勿回滚）**
+
+- `@harness/bundled-skills` 内容包与 `SkillRegistryService`（`bundled/system`）
+- `GET /api/skills`、`skills.list` / `skills.read`、K5 `withSkills`（Catalog / 显式 `<skills_context>`）
+- Run：`skillNames` 协议字段、API 校验未知 Skill、`metadata.skillNames`、content 前缀与 Runtime 解析
+- Web：Lexical Composer、`/` typeahead、`+` 技能区、inline mention、用户气泡回放、空态 UI、`createRun` 校验
+
+**遗留 Backlog（恢复 Skills 主线时再排期）**
+
+| 优先级 | 项 | 说明 |
+|--------|-----|------|
+| P0 内容 | 恢复 `bundled/system` 或 **user 来源 MVP** | 否则用户侧 Catalog 恒为空，仅壳子可测 |
+| P1 质量 | Composer **E2E**（`AUTH_MODE=local`）、`createRun` + `listSkills` 集成断言 | §4.7.9 |
+| P1 质量 | `implementation-status` / §4.7.0 与线上一致性维护 | 随发布更新 |
+| P2 产品 | **C10** Skills 市场（安装 → `register()`） | 依赖 C6 Registry；专项文档待建 |
+| P2 产品 | **用户自定义 Skill**（Registry `user` + 设置 UI） | 曾后置；可与 C10 分阶段 |
+| P2 产品 | **C9** MCP 市场（Kimi 式「插件 Tab = MCP」） | 与 C10 边界文档先行 |
+| P3 工程 | **Phase 3**：Run/transcript 结构化 `skillNames`（content 仅存正文） | 去 content 前缀双轨 |
+| P3 工程 | 单一 `composerDraft`；可选 **`@` trigger** | §4.7.8 |
+| P3 工程 | Steer / Pending Input **Skill** | **明确不做**（除非产品改口） |
+| P3 工程 | Skill 去重、多客户端一致性、导出可逆 plain-text 标记 | §4.8 |
+| P4 K5 | Catalog 总量预算、任务相关筛选、语义检索 | §4.5–§4.6 升级信号触发 |
+
+**刻意不做 / 不在 Skills 暂停期处理**
+
+- C7 User Memory —— 见 [41-c7-user-memory.md](./41-c7-user-memory.md)
+- `NOTES.md` / `TODO.md` 文件化任务（K4 Plan 覆盖）
+
 ## 5. 待讨论问题
 
 - Skill 的来源、版本、启用范围和更新方式；
 - Skill 是否支持用户级、Session 级和临时 Run 级；
-- Memory 的 active / candidate / rejected / expired 状态；
-- Memory 写入触发条件、用户审核和冲突处理；
-- `sourceRefs` 支持的事实类型和删除 Session 后的重新评估；
 - Skills 与现有 Tool Catalog、MCP、Sandbox 的边界；
-- C6 第一版需要哪些 Web 管理界面和审计信息；
+- C6 Skills 恢复主线后需要哪些 Web 管理界面和审计信息；
 - Message 是否持久化 `skillNames` 以供历史回放与审计（§4.8 合题已倾向协议层分离 `content` / `skillNames`，存储形态仍待定）；
 - Composer 是否允许「仅 Skill、无正文」发送（§4.7.7）。

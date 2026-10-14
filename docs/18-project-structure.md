@@ -62,7 +62,7 @@ packages/agent-protocol/src/
   errors/
   evidence/
   events/
-  memory/                         # P9 才创建
+  memory/                         # C7-A 才创建
   refs/
   reports/
   state/
@@ -157,7 +157,7 @@ apps/api/src/
       local-artifact-store.ts
       artifact-service.ts
 
-    memory/                       # P9/P10
+    memory/                       # C7-A / C7-B
     delegation/                   # P11
     worker/                       # P11
 

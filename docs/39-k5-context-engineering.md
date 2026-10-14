@@ -2,7 +2,7 @@
 
 > 状态：接口与实施边界冻结中，全面优化尚未开始。
 >
-> K5 的目标是让不同 Context 来源经过统一的选择、预算、渲染、压缩和调试流程，再进入模型请求。K5 不负责产生 Skill 或 Memory 业务事实；这些事实由 C6 提供。
+> K5 的目标是让不同 Context 来源经过统一的选择、预算、渲染、压缩和调试流程，再进入模型请求。K5 不负责产生 Skill 或 Memory 业务事实；Skills 见 [40-c6-skills.md](./40-c6-skills.md)；**C7 User Memory** 见 [06-memory.md](./06-memory.md)（实施以该文档为准）。
 
 ## 1. 当前基础
 
@@ -90,7 +90,7 @@ K5 后续负责：
 
 ```text
 K5-A  冻结 skills / memories 候选字段，并保持当前编译结果兼容
-  -> C6 提供真实 Skill 与 Memory 候选
+  -> C6 提供 Skill 候选；C7 提供 Memory 候选
 K5-B  统一选择、渲染和预算
 K5-C  Tool Exposure、压缩、Context trace 与 Attention Refresh
 ```

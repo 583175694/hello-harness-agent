@@ -108,7 +108,7 @@ Content-Type: application/json
 
 会话列表默认按置顶优先、最近更新时间其次排序。
 
-删除 session 是真实删除：数据库子记录在事务内清理，Artifact 文件异步/事务后可靠清理，相关 user Memory 在 P10 重新评估。
+删除 session 是真实删除：数据库子记录在事务内清理，Artifact 文件异步/事务后可靠清理，相关 user Memory 在 C7-B 重新评估（Session 删除钩子）。
 
 普通对话请求只提交 `{ "content": "本轮消息" }`。Run 执行链加载 durable canonical transcript：完整回放与 Tool Call 绑定的 reasoning、Tool Call 和 Tool Result，并回放各轮最终正文；无 Tool Call 最终 Round 的 reasoning 不进入下一用户轮次。客户端始终不提交完整历史。活跃会话的并发发送和删除返回 `409 SESSION_BUSY`。
 

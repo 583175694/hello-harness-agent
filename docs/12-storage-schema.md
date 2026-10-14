@@ -419,7 +419,7 @@ idempotency_keys (
 
 ## 20. Post-R1 Memory
 
-Memory 只有 user scope：
+字段与生命周期规则以 **[06-memory.md](./06-memory.md)**（**C7 User Memory**）为准；本节仅保留表结构草案。Memory 只有 user scope：
 
 ```sql
 memory_records (

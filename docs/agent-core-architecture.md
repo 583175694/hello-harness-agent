@@ -18,7 +18,7 @@ Local Web
 -> Conversation + Progress + Sources + Report Workbench
 ```
 
-R1 只实现单 Lead 网络调研。Memory 和 Delegation 是后续 capability，不进入 R1 action/toolset/UI。
+R1 只实现单 Lead 网络调研。C7 User Memory 和 Delegation 是后续 capability，不进入 R1 action/toolset/UI。
 
 ## 2. 模块文档
 
@@ -39,7 +39,7 @@ R1 只实现单 Lead 网络调研。Memory 和 Delegation 是后续 capability�
 - [Workbench](./20-agent-workbench.md)
 - [Model-led Tool Boundary](./25-model-led-tool-boundary.md)
 - [Reasoning Context Transcript](./27-reasoning-context-transcript.md)
-- [Memory, post-R1](./06-memory.md)
+- [C7 User Memory 专项规范](./06-memory.md) · [Capability 索引](./41-c7-user-memory.md)
 - [Delegation Policy, post-R1](./01-delegation-policy.md)
 - [Delegation Executor, post-R1](./07-delegation-executor.md)
 - [Worker Runtime, post-R1](./08-worker-harness-runtime.md)

@@ -128,7 +128,13 @@ export class RunExecutor implements OnModuleDestroy {
   private async execute(runId: string): Promise<void> {
     const active = this.registry.get(runId);
     const stored = await this.repository.findOwnedInternal(runId);
-    if (!active || !stored) return;
+    if (!active || !stored) {
+      this.logger.warn(
+        `Run 执行跳过 | Run=${shortLogId(runId)} | 原因=${!active ? '进程内未注册' : '数据库无记录'}`,
+        RunExecutor.name,
+      );
+      return;
+    }
     const ownerUserId = stored.session.userId;
     if (!active.mcpSnapshot) {
       try {
@@ -210,10 +216,19 @@ export class RunExecutor implements OnModuleDestroy {
     const modelStepId = crypto.randomUUID();
     const heartbeat = setInterval(() => void this.repository.heartbeat(runId), 5_000);
     try {
+      const mcpToolCount = active.mcpSnapshot?.entries.length ?? 0;
+      this.logger.log(
+        `Run 执行开始 | Run=${shortLogId(runId)} | 会话=${shortLogId(stored.sessionId)} | 模型=${stored.model} | 推理=${stored.reasoningEffort} | MCP工具=${mcpToolCount} | CatalogGen=${active.mcpSnapshot?.catalogGeneration ?? 'none'}`,
+        RunExecutor.name,
+      );
       // queued -> running 使用数据库 CAS；失败说明取消或其他执行者已经抢先改变状态。
       const started = await this.repository.start(runId);
       if (!started) {
         const latest = await this.repository.snapshot(runId);
+        this.logger.warn(
+          `Run 启动 CAS 失败 | Run=${shortLogId(runId)} | 当前状态=${latest?.status ?? 'unknown'}`,
+          RunExecutor.name,
+        );
         if (latest) this.events.updateSnapshot(runId, latest);
         return;
       }
@@ -233,6 +248,10 @@ export class RunExecutor implements OnModuleDestroy {
           lastEventSequence: startedEvent.seq,
         };
       const messages = await this.repository.loadTranscript(runId);
+      this.logger.log(
+        `Run 已进入模型循环 | Run=${shortLogId(runId)} | Transcript=${messages.length} 条 | Assistant=${shortLogId(stored.assistantMessageId)}`,
+        RunExecutor.name,
+      );
       for await (const event of this.chat.streamPrepared(
         {
           userId: ownerUserId,
@@ -365,11 +384,19 @@ export class RunExecutor implements OnModuleDestroy {
       });
       if (!terminalCommitted) {
         // CAS 冲突说明合法终态已被其他竞争路径占用；撤销尚未广播的内存终态。
+        this.logger.warn(
+          `Run 终态 CAS 冲突 | Run=${shortLogId(runId)} | EventSeq=${terminal.seq} | DraftVersion=${draftVersion}`,
+          RunExecutor.name,
+        );
         this.events.rollback(runId, terminal, previousSnapshot);
         throw new Error('TERMINAL_CHECKPOINT_CONFLICT');
       }
       this.events.checkpointCommitted(runId, active.liveSnapshot, draftVersion);
       this.events.broadcast(runId, terminal);
+      this.logger.log(
+        `Run 正常结束 | Run=${shortLogId(runId)} | 会话=${shortLogId(stored.sessionId)} | EventSeq=${terminal.seq} | DraftVersion=${draftVersion} | 工具=${projection.toolCallCount} 次`,
+        RunExecutor.name,
+      );
       lifecycle.markTerminal('completed');
       active.liveSnapshot = { ...active.liveSnapshot, control: lifecycle.snapshot() };
       // Steer 可能在 final_answer 已开始流出后才提交；此时 onBeforeModelRequest
@@ -427,6 +454,10 @@ export class RunExecutor implements OnModuleDestroy {
           lifecycle.markTerminal(status);
           active.liveSnapshot = { ...active.liveSnapshot, control: lifecycle.snapshot() };
         } else {
+          this.logger.warn(
+            `Run 失败终态 CAS 冲突，强制落库 | Run=${shortLogId(runId)} | EventSeq=${terminal.seq} | 错误码=${failure.code}`,
+            RunExecutor.name,
+          );
           this.events.rollback(runId, terminal, previousSnapshot);
           await this.repository.forceFail(runId, stored.assistantMessageId, failure);
         }

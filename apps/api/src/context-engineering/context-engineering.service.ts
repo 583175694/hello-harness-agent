@@ -1,4 +1,6 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Logger } from 'nestjs-pino';
+import { shortLogId } from '../shared/logging.utils';
 import { getDeepSeekV3TokenEstimator, type DeepSeekMessage } from '@harness/deepseek-v3-tokenizer';
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
@@ -39,8 +41,6 @@ const COMPACTION_PROMPT = `Summarize the closed historical transcript for contin
 
 @Injectable()
 export class ContextEngineeringService {
-  private readonly logger = new Logger(ContextEngineeringService.name);
-
   // 本地 tokenizer 用于在调用模型前估算上下文占用。
   private readonly estimator = getDeepSeekV3TokenEstimator();
 
@@ -48,6 +48,7 @@ export class ContextEngineeringService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ModelAdapter) private readonly model: ModelAdapter,
     @Optional() @Inject(FilesService) private readonly files?: FilesService,
+    @Optional() @Inject(Logger) private readonly logger?: Logger,
   ) {}
 
   // 编译单轮模型上下文，必要时压缩历史并严格检查输入预算。
@@ -123,8 +124,9 @@ export class ContextEngineeringService {
           message.content.some((block) => block.type === 'file_ref'),
       );
       const code = hasFile ? 'FILE_CONTEXT_TOO_LARGE' : 'CONTEXT_BUDGET_EXCEEDED';
-      this.logger.warn(
-        `上下文超出模型预算 | 会话=${input.sessionId.slice(0, 8)} | 估算=${estimatedInputTokens} | 预算=${promptBudget} | 错误=${code}`,
+      this.logger?.warn(
+        `上下文超出模型预算 | 会话=${shortLogId(input.sessionId)} | 估算=${estimatedInputTokens} | 预算=${promptBudget} | 错误=${code}`,
+        ContextEngineeringService.name,
       );
       throw new Error(code);
     }
@@ -328,8 +330,9 @@ export class ContextEngineeringService {
     const candidate = await transform();
     const check = checkToolTranscript(candidate);
     if (check.ok) return candidate;
-    this.logger.warn(
+    this.logger?.warn(
       `上下文变换未通过工具链校验，已回滚 | step=${step} | callId=${check.callId ?? 'unknown'} | messageIndex=${check.messageIndex ?? 'unknown'} | detail=${check.detail}`,
+      ContextEngineeringService.name,
     );
     return fallback;
   }

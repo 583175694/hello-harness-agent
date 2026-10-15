@@ -1,5 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Logger } from 'nestjs-pino';
 import { protocolVersion } from '@harness/agent-protocol';
+import { shortLogId } from '../shared/logging.utils';
 import type {
   InterruptSnapshot,
   PendingInterruptSnapshot,
@@ -17,7 +19,10 @@ function pendingInterrupt(interrupt: InterruptSnapshot): PendingInterruptSnapsho
 
 @Injectable()
 export class RunEventHub {
-  constructor(@Inject(ActiveRunRegistry) private readonly registry: ActiveRunRegistry) {}
+  constructor(
+    @Inject(ActiveRunRegistry) private readonly registry: ActiveRunRegistry,
+    @Optional() @Inject(Logger) private readonly logger?: Logger,
+  ) {}
 
   // 提交普通事件并立即广播给当前订阅者。
   // 普通事件可以提交后立即广播；Terminal Event 必须由 Executor 显式拆分 commit/broadcast。
@@ -57,7 +62,7 @@ export class RunEventHub {
   broadcast(runId: string, event: RunStreamEvent): void {
     const run = this.registry.get(runId);
     if (!run) return;
-    for (const subscriber of run.subscribers) this.enqueue(subscriber, event);
+    for (const subscriber of run.subscribers) this.enqueue(runId, subscriber, event);
   }
 
   // 终态持久化失败时撤销尚未广播的内存事件。
@@ -109,13 +114,25 @@ export class RunEventHub {
   // cursor 连续时精确 replay Tail；缺失、过旧或越过 Live 时发送完整 Live Snapshot。
   subscribe(runId: string, cursor?: number): AsyncIterable<RunStreamEvent> | undefined {
     const run = this.registry.get(runId);
-    if (!run) return undefined;
+    if (!run) {
+      this.logger?.warn(
+        `SSE 订阅失败 | Run=${shortLogId(runId)} | 原因=进程内未注册`,
+        RunEventHub.name,
+      );
+      return undefined;
+    }
     const subscriber: RunSubscriber = { queue: [], closed: false };
     run.subscribers.add(subscriber);
     const firstBuffered = run.tailEvents[0]?.seq;
     const terminal = ['completed', 'failed', 'cancelled'].includes(run.liveSnapshot.status);
+    let replayMode: 'terminal_snapshot' | 'tail_replay' | 'snapshot_fallback';
     if (terminal) {
-      this.enqueue(subscriber, this.snapshotEvent(runId, run.sessionId, run.liveSnapshot));
+      replayMode = 'terminal_snapshot';
+      this.enqueue(
+        runId,
+        subscriber,
+        this.snapshotEvent(runId, run.sessionId, run.liveSnapshot),
+      );
       subscriber.closed = true;
       run.subscribers.delete(subscriber);
     } else if (
@@ -123,10 +140,21 @@ export class RunEventHub {
       cursor <= run.liveSequence &&
       (firstBuffered === undefined || cursor >= firstBuffered - 1)
     ) {
-      for (const event of run.tailEvents) if (event.seq > cursor) this.enqueue(subscriber, event);
+      replayMode = 'tail_replay';
+      for (const event of run.tailEvents)
+        if (event.seq > cursor) this.enqueue(runId, subscriber, event);
     } else {
-      this.enqueue(subscriber, this.snapshotEvent(runId, run.sessionId, run.liveSnapshot));
+      replayMode = 'snapshot_fallback';
+      this.enqueue(
+        runId,
+        subscriber,
+        this.snapshotEvent(runId, run.sessionId, run.liveSnapshot),
+      );
     }
+    this.logger?.log(
+      `SSE 订阅 | Run=${shortLogId(runId)} | 会话=${shortLogId(run.sessionId)} | Cursor=${cursor ?? 'none'} | 模式=${replayMode} | LiveSeq=${run.liveSequence} | Tail=${run.tailEvents.length} | 订阅者=${run.subscribers.size}`,
+      RunEventHub.name,
+    );
     return {
       [Symbol.asyncIterator]: () => ({
         next: () => this.next(subscriber),
@@ -169,7 +197,7 @@ export class RunEventHub {
 
   // 向单个订阅者入队；队列过慢时主动断开以便客户端重连自愈。
   // 慢 Subscriber 超过独立队列上限时断开，让客户端下次通过 cursor/Snapshot 自愈。
-  private enqueue(subscriber: RunSubscriber, event: RunStreamEvent): void {
+  private enqueue(runId: string, subscriber: RunSubscriber, event: RunStreamEvent): void {
     if (subscriber.closed) return;
     if (subscriber.waiting) {
       const resolve = subscriber.waiting;
@@ -178,6 +206,10 @@ export class RunEventHub {
       return;
     }
     if (subscriber.queue.length >= MAX_SUBSCRIBER_QUEUE) {
+      this.logger?.warn(
+        `SSE 订阅队列溢出 | Run=${shortLogId(runId)} | 上限=${MAX_SUBSCRIBER_QUEUE} | EventSeq=${event.seq} | 类型=${event.type}`,
+        RunEventHub.name,
+      );
       subscriber.closed = true;
       subscriber.overflowed = true;
       return;

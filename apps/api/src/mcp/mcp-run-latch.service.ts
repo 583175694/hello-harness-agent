@@ -1,4 +1,6 @@
-import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { Logger } from 'nestjs-pino';
+import { shortLogId } from '../shared/logging.utils';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import { McpServerConfigRepository } from './mcp-server-config.repository';
 import { McpConnectionManager } from './mcp-connection.manager';
@@ -15,11 +17,10 @@ import {
 
 @Injectable()
 export class McpRunLatchService {
-  private readonly logger = new Logger(McpRunLatchService.name);
-
   constructor(
     @Inject(McpServerConfigRepository) private readonly configs: McpServerConfigRepository,
     @Inject(McpConnectionManager) private readonly connections: McpConnectionManager,
+    @Inject(Logger) private readonly logger: Logger,
   ) {}
 
   async captureForUser(userId: string, runId?: string): Promise<RunMcpSnapshot> {
@@ -70,7 +71,8 @@ export class McpRunLatchService {
       const estimatedTokens = await estimateMcpDefinitionTokens(entries);
       if (estimatedTokens >= MCP_DEFINITIONS_TOKEN_WARN_THRESHOLD) {
         this.logger.warn(
-          `MCP definitions token 估算偏高 | Run=${runId ?? 'unknown'} | generation=${snapshot.catalogGeneration} | tools=${entries.length} | estimatedTokens=${estimatedTokens}`,
+          `MCP definitions token 估算偏高 | Run=${shortLogId(runId ?? 'unknown')} | generation=${snapshot.catalogGeneration} | tools=${entries.length} | estimatedTokens=${estimatedTokens}`,
+          McpRunLatchService.name,
         );
       }
     }

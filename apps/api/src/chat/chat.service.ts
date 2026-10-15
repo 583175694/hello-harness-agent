@@ -200,7 +200,7 @@ export class ChatService {
     const startedAt = Date.now();
     this.requireApiKey();
     this.logger.log(
-      `开始生成回复 | 会话=${shortLogId(prepared.sessionId)} | 模型=${model} | 上下文=${prepared.messages.length} 条`,
+      `开始生成回复 | Run=${shortLogId(prepared.runId ?? 'none')} | 会话=${shortLogId(prepared.sessionId)} | 模型=${model} | 上下文=${prepared.messages.length} 条`,
       ChatService.name,
     );
     const currentUserContent = [...prepared.messages]
@@ -286,7 +286,7 @@ export class ChatService {
         if (firstDeltaAt === undefined) {
           firstDeltaAt = Date.now();
           this.logger.log(
-            `模型开始响应 | 会话=${shortLogId(prepared.sessionId)} | Round=${event.roundSequence} | Block=${event.blockSequence} | 首字耗时=${formatLogDuration(firstDeltaAt - startedAt)}`,
+            `模型开始响应 | Run=${shortLogId(prepared.runId ?? 'none')} | 会话=${shortLogId(prepared.sessionId)} | Round=${event.roundSequence} | Block=${event.blockSequence} | 首字耗时=${formatLogDuration(firstDeltaAt - startedAt)}`,
             ChatService.name,
           );
         }
@@ -1264,7 +1264,7 @@ export class ChatService {
         sources: snapshot.sources,
       });
     this.logger.log(
-      `回复完成 | 会话=${shortLogId(prepared.sessionId)} | 总耗时=${formatLogDuration(Date.now() - startedAt)} | 输出=${content.length} 字 | 工具=${toolCallCount} 次`,
+      `回复完成 | Run=${shortLogId(prepared.runId ?? 'none')} | 会话=${shortLogId(prepared.sessionId)} | 总耗时=${formatLogDuration(Date.now() - startedAt)} | 输出=${content.length} 字 | 工具=${toolCallCount} 次`,
       ChatService.name,
     );
     yield { type: 'message.completed', messageId: prepared.assistantMessageId, model };
@@ -1276,9 +1276,14 @@ export class ChatService {
   }
 
   // 统一记录流式回复失败，避免不同层重复输出同一异常。
-  logStreamFailure(sessionId: string, elapsedMilliseconds: number, error: unknown): void {
+  logStreamFailure(
+    sessionId: string,
+    elapsedMilliseconds: number,
+    error: unknown,
+    runId?: string,
+  ): void {
     this.logger.warn(
-      `回复生成失败 | 会话=${shortLogId(sessionId)} | 耗时=${formatLogDuration(elapsedMilliseconds)} | 原因=${describeLogError(error)}`,
+      `回复生成失败 | Run=${shortLogId(runId ?? 'none')} | 会话=${shortLogId(sessionId)} | 耗时=${formatLogDuration(elapsedMilliseconds)} | 原因=${describeLogError(error)}`,
       ChatService.name,
     );
   }

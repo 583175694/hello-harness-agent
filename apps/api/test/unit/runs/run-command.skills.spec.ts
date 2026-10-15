@@ -17,6 +17,7 @@ describe('RunCommandService skillNames validation', () => {
       {} as never,
       {} as never,
       skillRegistry,
+      { log: () => undefined, warn: () => undefined, error: () => undefined } as never,
     );
 
     await expect(

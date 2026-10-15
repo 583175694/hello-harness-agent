@@ -26,6 +26,8 @@ import { FilesService } from '../files/files.service';
 import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
 import { SkillRegistryService } from '../skills/skill-registry.service';
+import { Logger } from 'nestjs-pino';
+import { shortLogId } from '../shared/logging.utils';
 
 @Injectable()
 export class RunCommandService {
@@ -40,6 +42,7 @@ export class RunCommandService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ModuleRef) private readonly moduleRef: ModuleRef,
     @Inject(SkillRegistryService) private readonly skillRegistry: SkillRegistryService,
+    @Inject(Logger) private readonly logger: Logger,
   ) {}
 
   // 校验请求并创建 Run；成功后注册初始 Snapshot，异步交给 Executor 执行。
@@ -221,7 +224,16 @@ export class RunCommandService {
       }
       // 先注册初始 Durable Snapshot，再让后台 Executor 发布第一个事件，避免首订阅找不到 Run。
       this.registry.register(snapshot);
+      this.logger.log(
+        `Run 已接单 | Run=${shortLogId(run.id)} | 会话=${shortLogId(sessionId)} | 模型=${model} | 推理=${reasoningEffort} | 附件=${attachmentIds.length} | 幂等=新建`,
+        RunCommandService.name,
+      );
       setImmediate(() => this.executor.start(run.id));
+    } else {
+      this.logger.log(
+        `Run 幂等重放 | Run=${shortLogId(run.id)} | 会话=${shortLogId(sessionId)} | 状态=${run.status}`,
+        RunCommandService.name,
+      );
     }
     return {
       sessionId: run.sessionId,
@@ -312,6 +324,10 @@ export class RunCommandService {
     userId: string,
     command: RunControlCommand,
   ): Promise<RunControlResponse> {
+    this.logger.log(
+      `Run 控制命令 | Run=${shortLogId(runId)} | 命令=${command.type}`,
+      RunCommandService.name,
+    );
     if (command.type === 'cancel') await this.cancel(runId, userId);
     else if (command.type === 'pause' || command.type === 'resume') {
       try {
@@ -360,10 +376,23 @@ export class RunCommandService {
       snapshot.status === 'completed' ||
       snapshot.status === 'failed' ||
       snapshot.status === 'cancelled'
-    )
+    ) {
+      this.logger.log(
+        `Run 取消忽略 | Run=${shortLogId(runId)} | 原因=已终态 | 状态=${snapshot.status}`,
+        RunCommandService.name,
+      );
       return { runId, status: snapshot.status };
+    }
+    this.logger.log(
+      `Run 取消请求 | Run=${shortLogId(runId)} | 当前状态=${snapshot.status}`,
+      RunCommandService.name,
+    );
     const requestedStatus = await this.repository.requestCancel(runId);
     if (requestedStatus === 'cancelled') {
+      this.logger.log(
+        `Run 已取消(queued) | Run=${shortLogId(runId)}`,
+        RunCommandService.name,
+      );
       // queued Run 尚未进入 Runtime，Repository 已直接持久化 cancelled；内存中只补交终态观察事件。
       const active = this.registry.get(runId);
       if (active) {
@@ -378,12 +407,20 @@ export class RunCommandService {
     if (requestedStatus !== 'cancel_requested') return { runId, status: requestedStatus };
     const active = this.registry.get(runId);
     if (active) {
+      this.logger.log(
+        `Run 取消已下发 Executor | Run=${shortLogId(runId)} | 状态=cancel_requested`,
+        RunCommandService.name,
+      );
       // running Run 先公开 cancel_requested，再 abort 本地 Runtime，由 Executor 持久化最终 cancelled。
       this.events.publish(runId, 'run.cancel_requested', { status: 'cancel_requested' });
       this.executor.requestCancel(runId);
       active.abortController.abort();
       return { runId, status: 'cancel_requested' as const };
     }
+    this.logger.warn(
+      `Run 取消跨实例落库 | Run=${shortLogId(runId)} | 原因=本进程无 Executor`,
+      RunCommandService.name,
+    );
     // 本实例没有 Executor 时无法等待本地 catch 收尾，直接用 Durable Snapshot 收敛取消状态。
     const projection: ChatProjectionSnapshot = {
       model: 'unknown',

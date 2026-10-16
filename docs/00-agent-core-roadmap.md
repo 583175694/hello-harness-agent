@@ -91,7 +91,7 @@ User
       -> Artifact
 
 User
-  -> MemoryRecord                 # 后续 capability，可跨 session
+  -> MemoryRecord                 # C7，见 41-c7-user-memory.md
       -> sourceRefs
           -> prior Session/Run/State/Artifact
 ```
@@ -102,8 +102,7 @@ User
 - 不实现登录、密码或权限 UI。
 - `session` 是长期可恢复的会话聚合根，可包含多条消息和多次 run。
 - session 删除时级联清理其数据。
-- 后续 user Memory 仅允许 `user` scope，不支持 project/workspace/org scope。
-- 跨 session 证据只能从命中的 Memory `sourceRefs` 显式展开。
+- User Memory 语义、读写与验收以 [41-c7-user-memory.md](./41-c7-user-memory.md) 为准（user scope、MemoryCard、sourceRefs 显式展开）。
 
 ## 6. 工程选择
 
@@ -188,15 +187,24 @@ P6  Search Provider Tooling + Iterative Research
 P7  General Web Research Hardening
 P8  Recovery + Release Hardening
 R1  First User-Ready General Agent Release
-P9  User Memory Read Path
-P10 User Memory Write/Review
+C7  User Memory（C7-A read → C7-B write/review → C7-C delegation 联动）
 P11 Bounded Delegation + Worker
 P12 Multi-user Authentication + Remote Storage
 ```
 
-P8 Recovery 切片采用 [Connection-Durable Agent Loop](./26-connection-durable-agent-loop.md)：Run 已独立于客户端连接，Snapshot/sequence、Tail replay、客户端 cursor 和取消终态的时序加固已经完成；不实现服务端重启后的自动恢复。`R1` 是第一次真实用户发布。Memory、Delegation 和 process-durable recovery 不阻塞 R1。
+P8 Recovery 切片采用 [Connection-Durable Agent Loop](./26-connection-durable-agent-loop.md)：Run 已独立于客户端连接，Snapshot/sequence、Tail replay、客户端 cursor 和取消终态的时序加固已经完成；不实现服务端重启后的自动恢复。`R1` 是第一次真实用户发布。C7 User Memory、Delegation 和 process-durable recovery 不阻塞 R1。
 
 详细交付和验收见 [17-implementation-plan.md](./17-implementation-plan.md)。
+
+**Capability 大版本**（与上文 P 系列并行；**小版本**如 C7-A 见各专项文档）：
+
+```text
+C6  Skills
+C7  User Memory（C7-A / C7-B / C7-C）— 见 41-c7-user-memory.md
+C8  Browser Use / Computer Use
+C9  MCP Marketplace
+C10 Skills Marketplace
+```
 
 ## 10. R1 成功标准
 
@@ -224,7 +232,7 @@ Agent Loop turns model decisions into bounded execution.
 Tooling owns capability execution and canonical result normalization.
 State owns durable execution facts.
 Gateway owns frontend projection.
-Memory owns later user-scoped cross-session recall.
+C7 User Memory owns later user-scoped cross-session recall.
 Delegation owns later bounded fan-out/fan-in.
 ```
 

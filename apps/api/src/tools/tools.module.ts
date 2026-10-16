@@ -9,9 +9,19 @@ import { McpModule } from '../mcp/mcp.module';
 import { AGENT_TOOL_CLASSES, AGENT_TOOLS_PROVIDER } from './tool-catalog';
 import { ToolRegistryService } from './tool-registry.service';
 import { SkillsModule } from '../skills/skills.module';
+import { MemoryModule } from '../memory/memory.module';
 
 @Module({
-  imports: [SearchModule, WebFetchModule, FilesModule, ArtifactsModule, SandboxModule, McpModule, SkillsModule],
+  imports: [
+    SearchModule,
+    WebFetchModule,
+    FilesModule,
+    ArtifactsModule,
+    SandboxModule,
+    McpModule,
+    SkillsModule,
+    MemoryModule,
+  ],
   providers: [...AGENT_TOOL_CLASSES, AGENT_TOOLS_PROVIDER, ToolRegistryService],
   exports: [ToolRegistryService],
 })

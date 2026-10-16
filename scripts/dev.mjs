@@ -155,19 +155,36 @@ async function main() {
     return;
   }
 
-  services.forEach(startService);
+  const [webService, apiService] = services;
 
-  const ready = await Promise.all(services.map((service) => waitForReady(service)));
-  if (ready.every(Boolean)) {
-    // 给遇到端口冲突的子进程留出报告退出状态的时间。
-    await new Promise((resolve) => setTimeout(resolve, 500));
+  // 先等 API 就绪再启 Web，避免 Vite 代理在 Nest 编译期间刷 ECONNREFUSED。
+  startService(apiService);
+  let apiReady = await waitForReady(apiService);
+  if (apiReady) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  if (!ready.every(Boolean) || failedService) {
+  if (!apiReady || failedService) {
     stopChildren();
     if (failedService) {
       console.error(`\n${failedService.name} 启动失败：${failedService.message}`);
     } else {
-      console.error('\n服务启动超时，请检查端口和环境配置。');
+      console.error('\nAPI 启动超时，请检查端口和环境配置。');
+    }
+    process.exitCode = 1;
+    return;
+  }
+
+  startService(webService);
+  const webReady = await waitForReady(webService);
+  if (webReady) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  if (!webReady || failedService) {
+    stopChildren();
+    if (failedService) {
+      console.error(`\n${failedService.name} 启动失败：${failedService.message}`);
+    } else {
+      console.error('\nWeb 启动超时，请检查端口和环境配置。');
     }
     process.exitCode = 1;
     return;

@@ -84,6 +84,7 @@ describe('ContextEngineeringService', () => {
     });
 
     expect(compiled.messages.some((message) => message.role === 'system' && message.content.includes('<skills_context>'))).toBe(true);
+    expect(compiled.messages.some((message) => message.role === 'system' && message.content.includes('<user_memory>'))).toBe(true);
     expect(compiled.compactionTriggered).toBe(false);
   });
 

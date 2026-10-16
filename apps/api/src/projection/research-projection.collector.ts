@@ -17,12 +17,15 @@ import type {
   WebFetchInput,
   WebFetchResult,
   WebFetchSourceSnapshot,
+  MemoryWriteInputSummary,
+  MemoryWriteResult,
 } from '@harness/agent-protocol';
 
 type ToolProjectionInput =
   | { toolName: typeof AGENT_TOOL_NAMES.webSearch; input: { query: string } }
   | { toolName: typeof AGENT_TOOL_NAMES.webFetch; input: WebFetchInput }
   | { toolName: typeof AGENT_TOOL_NAMES.approvalTest; input: { message: string } }
+  | { toolName: typeof AGENT_TOOL_NAMES.memoryWrite; input: MemoryWriteInputSummary }
   | {
       toolName: typeof AGENT_TOOL_NAMES.searchFile;
       input: { fileId: string; query: string; maxResults?: number };
@@ -109,6 +112,24 @@ export class ResearchProjectionCollector {
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.approvalTest,
+      input: input.toolInput,
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+    });
+  }
+
+  recordMemoryWriteCompleted(input: {
+    toolCallId: string;
+    toolInput: MemoryWriteInputSummary;
+    completedAt: string;
+    durationMs: number;
+    result: MemoryWriteResult;
+  }): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.memoryWrite,
       input: input.toolInput,
       status: 'completed',
       startedAt: this.startedAt(input.completedAt, input.durationMs),

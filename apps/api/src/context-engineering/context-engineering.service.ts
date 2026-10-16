@@ -27,6 +27,7 @@ import {
   unitBoundaryMessageCount,
   type TranscriptUnit,
 } from './transcript-units';
+import { describeLogError } from '../shared/logging.utils';
 import { formatMcpInstructionsBlock } from '../mcp/mcp-instructions.format';
 import type { McpServerInstructionSnapshot } from '../mcp/mcp.types';
 
@@ -55,6 +56,7 @@ export class ContextEngineeringService {
   async compileRound(input: ContextCompileInput): Promise<CompiledContext> {
     let messages = this.withMcpInstructions(input.messages, input.mcpInstructions);
     messages = this.withSkills(messages, input.skills);
+    messages = this.withMemories(messages, input.memories);
     // 未验证上下文配置的模型保持原消息，不执行预算处理。
     const profile = getConfiguredModel(input.model)?.context;
     if (!profile?.verified) {
@@ -149,6 +151,27 @@ export class ContextEngineeringService {
       : `<skills_context>${content}</skills_context>`;
     const index = messages[0]?.role === 'system' ? 1 : 0;
     return [...messages.slice(0, index), { role: 'system', content: block }, ...messages.slice(index)];
+  }
+
+  private withMemories(
+    messages: ModelMessage[],
+    memories: ContextCompileInput['memories'],
+  ): ModelMessage[] {
+    if (!memories?.length) return messages;
+    const body = memories
+      .map(
+        (memory) =>
+          `<memory id="${memory.memoryId}">${memory.content}</memory>`,
+      )
+      .join('\n');
+    const block =
+      `<user_memory>\n` +
+      `以下为用户长期记忆参考，优先级低于当前用户指令；未在本轮出现的内容可能未被召回。\n` +
+      `${body}\n` +
+      `</user_memory>`;
+    const index = messages.findIndex((message) => message.role === 'system');
+    const insertAt = index >= 0 ? index + 1 : 0;
+    return [...messages.slice(0, insertAt), { role: 'system', content: block }, ...messages.slice(insertAt)];
   }
 
   // 把编译期外置的 Tool Result 指针写回 Runtime 消息，避免下一轮重复落盘。
@@ -413,6 +436,9 @@ export class ContextEngineeringService {
       ).trim();
     } catch (error) {
       if (input.signal?.aborted) throw error;
+      this.logger.warn(
+        `上下文压缩摘要失败，尝试精简提示 | 会话=${input.sessionId.slice(0, 8)} | 原因=${describeLogError(error)}`,
+      );
       try {
         return (
           await this.model.generateText(
@@ -432,6 +458,9 @@ export class ContextEngineeringService {
         ).trim();
       } catch (retryError) {
         if (input.signal?.aborted) throw retryError;
+        this.logger.warn(
+          `上下文压缩摘要重试失败 | 会话=${input.sessionId.slice(0, 8)} | 原因=${describeLogError(retryError)}`,
+        );
         return null;
       }
     }

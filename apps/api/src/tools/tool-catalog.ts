@@ -1,3 +1,4 @@
+import type { FactoryProvider, Type } from '@nestjs/common';
 import { WebSearchTool } from './web-search.tool';
 import { WebFetchTool } from './web-fetch.tool';
 import type { AgentTool } from './agent-tool.types';
@@ -16,6 +17,7 @@ import {
 } from './mcp-resource.tools';
 import { McpAddServerTool } from './mcp-add-server.tool';
 import { SkillsListTool, SkillsReadTool } from '../skills/skills.tools';
+import { MemoryWriteTool } from '../memory/memory_write.tool';
 
 // 多工具集合使用的 Nest 注入标识，避免业务服务依赖具体工具类。
 export const AGENT_TOOLS = Symbol('AGENT_TOOLS');
@@ -45,11 +47,9 @@ export const AGENT_TOOL_CLASSES = [
 ] as const;
 
 // 将 catalog 中的工具类实例聚合为 Registry 所需的统一集合。
-export const AGENT_TOOLS_PROVIDER = {
-  // 向 Nest 声明工具集合的注入标识。
+// MemoryWriteTool 由 MemoryModule 导出，不在本模块 providers 中重复注册。
+export const AGENT_TOOLS_PROVIDER: FactoryProvider<AgentTool[]> = {
   provide: AGENT_TOOLS,
-  // 按 catalog 顺序注入所有已注册工具实现。
-  inject: [...AGENT_TOOL_CLASSES],
-  // 返回类型收敛为通用工具接口，隐藏具体实现类。
+  inject: [...AGENT_TOOL_CLASSES, MemoryWriteTool] as Type[],
   useFactory: (...tools: AgentTool[]) => tools,
 };

@@ -292,6 +292,7 @@ export class ConversationBlockCollector {
     if (toolName === 'job_output') return 'Job 输出';
     if (toolName === 'job_list') return 'Job 列表';
     if (toolName === 'job_kill') return '终止 Job';
+    if (toolName === 'memory_write') return '写入记忆';
     return `运行工具 ${toolName}`;
   }
 

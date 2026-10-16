@@ -7,6 +7,7 @@ import {
   Pencil,
   Plus,
   Puzzle,
+  Brain,
   Settings2,
   Sun,
   Trash2,
@@ -50,8 +51,9 @@ import {
   mcpDegradedActionHint,
 } from './mcp-settings-shared';
 import { McpToolFilter } from './mcp-tool-filter';
+import { MemorySettingsSection } from './memory-settings-section';
 
-type SettingsSection = 'general' | 'mcp';
+type SettingsSection = 'general' | 'mcp' | 'memory';
 
 type SettingsDialogProps = {
   open: boolean;
@@ -448,6 +450,19 @@ export function SettingsDialog({
                   <span className="settings-dialog__nav-count">{servers.length}</span>
                 ) : null}
               </button>
+              <button
+                type="button"
+                className={`settings-dialog__nav-cell${section === 'memory' ? ' is-active' : ''}`}
+                aria-current={section === 'memory' ? 'true' : undefined}
+                onClick={() => {
+                  setSection('memory');
+                  setMcpFormMode(null);
+                  setError(null);
+                }}
+              >
+                <Brain size={16} aria-hidden="true" />
+                <span>记忆</span>
+              </button>
             </div>
           </nav>
 
@@ -552,6 +567,8 @@ export function SettingsDialog({
                   ) : null}
                 </div>
               ) : null}
+
+              {section === 'memory' ? <MemorySettingsSection authUser={authUser} /> : null}
 
               {section === 'mcp' ? (
                 <div className="settings-dialog__mcp-page">

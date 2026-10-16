@@ -182,7 +182,7 @@ Model trace 至少记录：
 
 ## 15. Post-R1
 
-P9 增加 MemoryCard 输入，不增加 Memory 管理 action。
+C7-A 增加 MemoryCard 输入，不增加 Memory 管理 action。
 
 P11 Lead 增加 `delegate_to_workers`，Worker action 集合独立且更窄。Worker 不输出 final report。
 

@@ -97,6 +97,7 @@ export const AGENT_TOOL_NAMES = {
   mcpAddServer: 'mcp_add_server',
   skillsList: 'skills.list',
   skillsRead: 'skills.read',
+  memoryWrite: 'memory_write',
   // SSE 与 execution 快照中标识 MCP/外部工具的合成 discriminant。
   externalTool: 'external_tool',
 } as const;

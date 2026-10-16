@@ -80,6 +80,48 @@ export const envSchema = z
       (value) => (value === '' ? undefined : value),
       z.string().optional(),
     ),
+    MEMORY_READ: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+    MEMORY_WRITE: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+    MEMORY_EMBEDDING_BASE_URL: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    MEMORY_EMBEDDING_API_KEY: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    MEMORY_EMBEDDING_MODEL: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    MEMORY_EMBEDDING_DIMENSIONS: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    MEMORY_EMBEDDING_TIMEOUT_MS: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    MEMORY_MIN_SIMILARITY: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    MEMORY_RETRIEVE_TOP_K: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    MEMORY_DEDUP_THRESHOLD: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    MEMORY_SMALL_SET_INJECT: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    MEMORY_ACTIVE_CAP: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
   })
   .superRefine((value, context) => {
     if (value.NODE_ENV !== 'production') return;

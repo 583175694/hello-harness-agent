@@ -120,6 +120,17 @@ function toolActivityCompletedSummary(
   }
   if (event.toolName === 'approval_test') return '审批测试已完成';
   if (event.toolName === 'get_current_time') return '当前时间已获取';
+  if (event.toolName === 'memory_write') {
+    if (!event.result.ok) {
+      if (event.result.reason === 'memory_write_disabled') return '记忆写入未开启';
+      return event.result.reason ? `未写入：${event.result.reason}` : '记忆未写入';
+    }
+    if (event.result.action === 'delete') return '记忆已删除';
+    if (event.result.status === 'candidate') return '已保存为候选记忆';
+    if (event.result.indexingStatus === 'pending') return '记忆已保存，向量索引排队中';
+    if (event.result.indexingStatus === 'failed') return '记忆已保存，向量索引失败';
+    return event.result.action === 'update' ? '记忆已更新' : '记忆已保存';
+  }
   if (event.toolName === 'search_file') return `找到 ${event.result.matches.length} 个文件命中`;
   if (event.toolName === 'read_file') {
     if (event.result.scope === 'file') {

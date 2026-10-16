@@ -2,21 +2,33 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-10-14（**C5 产品阶段已完成**；Agent **当前研发**：**K5、C7 User Memory**；**C6 Skills 暂停雕琢**；**C8 Browser**、**C9/C10 市场** 后置）
+> 最后更新：2026-10-16（**C5 产品阶段已完成**；**C7 User Memory MVP 已落地**；**C6 Skills Phase 1 已落地、产品化暂停雕琢**；Agent **当前研发**：**K5 Context Engineering**；**C8 Browser**、**C9/C10 市场** 后置）
 
 **用户反馈 / Bug 台账**：[38-user-feedback-bugs.md](./38-user-feedback-bugs.md)（解决后在该文档更新状态为「已解决」）。
 
 ### C6 Skills 第一阶段（2026-10-01，2026-10-14 暂停雕琢）
 
-已落地最小闭环：进程内 Skill Registry、`skills.list` / `skills.read`、K5 Catalog/显式 Skill 注入、Run `skillNames`、Web Lexical Composer（`/`、`+`、mention、空态）。**`bundled-skills` 目录当前为空壳**，线上 Catalog 为空；**Skills 产品化主线暂停**，遗留 Backlog 见 [40-c6-skills §4.9](./40-c6-skills.md#49-skills-主线暂停与遗留清单)。Skill 不改变 Tool Policy、Sandbox 或审批边界。仍不包含 **C7 User Memory**、DB 持久化 Skill、Marketplace（C10 Skills / C9 MCP）、用户自定义 Skill MVP。验证：相关 API/Web 单测与 build；Composer E2E 仍待补。
+已落地最小闭环：进程内 Skill Registry、`skills.list` / `skills.read`、K5 Catalog/显式 Skill 注入、Run `skillNames`、Web Lexical Composer（`/`、`+`、mention、空态）。**`bundled-skills` 目录当前为空壳**，线上 Catalog 为空；**Skills 产品化主线暂停**，遗留 Backlog 见 [40-c6-skills §4.9](./40-c6-skills.md#49-skills-主线暂停与遗留清单)。Skill 不改变 Tool Policy、Sandbox 或审批边界。仍不包含 DB 持久化 Skill、Marketplace（C10 Skills / C9 MCP）、用户自定义 Skill MVP。验证：相关 API/Web 单测与 build；Composer E2E 仍待补。
 
-**当前研发重心**：**C7 User Memory**（Skills/C6 段暂停后）；与 **K5** 可穿插。详见 §7.4 路线图。
+**当前研发重心**：**K5 Context Engineering**（Skills/Memory 已接入 K5 编译入口，见 [39-k5](./39-k5-context-engineering.md)、[40-c6](./40-c6-skills.md)、[41-c7](./41-c7-user-memory.md)）。详见 §7.4 路线图。
+
+### C7 User Memory MVP（2026-10-16）
+
+**C7（Memory MVP）已落地**（契约与验收见 [41-c7-user-memory.md](./41-c7-user-memory.md) §12）：
+
+- **存储**：`memory_records` + pgvector（无扩展时可 JSONB fallback）；`MemoryEmbeddingService` 对接 `MEMORY_EMBEDDING_*`；开发环境无 Key 时可 deterministic 伪向量。
+- **写**：内置 **`memory_write`**（create/update/delete）、门控（调研句/密钥等拒绝）、dedup/supersede、`sourceRefs` 服务端挂载；Settings **`GET/POST/PATCH/DELETE /api/agent/memories`** 与 **`allowAgentWrite`** 开关；**无** Run-terminal Extractor 第二 LLM 流水线。
+- **读**：每 Model Round 编译前 **`MemoryRetrieverService`** 向量 Top-K → Gate（相似度、embed 就绪、embeddingModel 一致、小集合 bypass 等）→ token 预算 → K5 **`withMemories`** 渲染 `<user_memory>` + disclaimer；**不提供**主 Agent 读记忆 Tool。
+- **UI**：Settings「记忆」区（已生效列表、**共 N 条**、手动增删改、`indexingStatus`、读/写 capability 说明）；Conversation **`memory_write`** 走 `external_tool` 投影文案。
+- **未包含**：**C7-C** Delegation Worker 读/写门控、ConsolidationJob、`memory-candidate` 审核流（协议字段若保留亦未接线）、project/org scope、读记忆 Tool。
+
+验证：`apps/api/test/unit/memory/*`、`context-engineering.service.spec`（`<user_memory>` 注入）、protocol memory-write stream；合并提交 `dcc8094`（`feature/memory`）。生产需配置 Embedding 网关与 pgvector；`pnpm --filter @harness/api memory:backfill-embeddings` 补算未嵌入记录。
 
 ## 1. 当前结论
 
 项目已经完成工程基线、持久化普通对话、General Web Research V1、Model-led Tool Boundary、C1 文件基础以及 **C2 Artifact & Report Generation（C2-A–C2-D）**。C3-A 已把 Sandbox 作为普通 Tool 接入 Runtime；**C3-B** 已将主工具改为 **`bash`**（`execute_command` 仅迁移期别名）：DSH 式 `renderBashResult()` 文本 Tool Message、默认 `auto_execute`、Host `BashCommandPolicyService` 触发的 network/install 升权审批、批准后当次 v1 egress allowlist、Terminal 投影与 spill Artifact 已落地，并在**本机 OpenSandbox + Docker**（`dev/opensandbox-local`）完成 Workbench 手工冒烟（echo/非零退出、普通命令不批、pip/curl 审批、Collect）。Sandbox 默认关闭，需 `SANDBOX_ENABLED` 与 Domain/API Key/带 digest 的镜像后才对模型可见。CI 使用 fake Provider（`pnpm --filter @harness/api test`）；真实 OpenSandbox 见 `dev/opensandbox-local` 与 docs/33 §1.5 UI 冒烟。模型可以通过 Bocha 或 Serper 发现网页线索，也可以直接提出公开 URL，再批量读取 1-5 个静态网页的可定位相关原文；正式交付物可通过 `create_report` 生成 Markdown Report，或通过 `create_file` 生成 Markdown/HTML/PDF/DOCX/XLSX 等 Artifact；同一逻辑产物支持 **C2-D** 线性版本（`ArtifactSeries`、`revise`/`restore`、Workbench「基于此版本修改」）。Runtime 只保留 **Tool Turn 预算**（默认 40 investigation turn + 3 delivery turn，同轮多 call 计 1 turn；见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) §4）、模型/Tool 超时、取消和协议边界；已删除跨调用 URL/Passage 预算、连续无新增内容早停和 URL allowlist。
 
-当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics、C1–C4 与 **C5 Workbench（C5-A/B）** 已落地；**C5 产品切片收口**，Sandbox job / dev server 类 **C5-C 后置**；Capability 与 Kernel **当前研发**为 **K5 / C7 User Memory**（可穿插）”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。Skills、Memory、`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback 和 Delegation 仍未实现。
+当前状态可以描述为“P8 Connection-Durable 时序加固、Context Engineering 第一阶段、K3 Control & HITL Kernel、K4 Agent Task Semantics、C1–C4 与 **C5 Workbench（C5-A/B）** 已落地；**C5 产品切片收口**，Sandbox job / dev server 类 **C5-C 后置**；**C6 Skills Phase 1** 与 **C7 User Memory MVP** 已落地并接入 K5 编译入口；Capability 与 Kernel **当前研发**为 **K5 Context Engineering 全面优化**”：Run 已与 Chat HTTP/SSE 解耦；每个 Model Round 在调用模型前统一编译 Context，使用本地 DeepSeek V3 tokenizer 估算输入，预留输出与安全空间，并支持 Tool Result 批次裁剪、封闭历史前缀压缩、压缩状态持久化、最终超限保护和最后一轮 Context 调试恢复；编译链已支持 MCP instructions、**Skill Catalog/显式 `<skills_context>`** 与 **向量召回 `<user_memory>`**。K3.1 将 Pause/Resume 收敛到进程内强类型生命周期边界；K3.2 在同一边界上实现 clarification/respond 与 tool approval/approve-reject；K3.3 已实现 Steer 和 Follow-up Queue；K4 增加了模型自主决定的 `update_plan` 控制工具、实时计划投影、Snapshot/SSE 持久化和输入框上方计划浮标；C1 已打通图片、多种文本/数据/文档附件、按需文件读取、附件预览、长文本粘贴外置和恢复链路。控制等待仍只存在 API 进程内，用户回答、审批结果、Steer、Follow-up、Plan Snapshot 和文件事实均按各自语义保存为 durable 业务事实。`NOTES.md`、`TODO.md`、Goal Reminder、搜索 fallback、Delegation 与 **C7-C** 仍未实现；C6 **bundled Catalog 仍为空壳**（Registry/Composer 可测，用户侧无预置 Skill 正文）。
 
 评估体系当前暂缓建设。相关实现、配置、命令、数据和专题文档已于 2026-08-17 移除；普通 unit、integration、E2E 与 `agent-testkit` 回归测试继续保留。后续评估能力作为独立模块重新设计，不再阻塞当前 Context Engineering 或功能开发。
 
@@ -218,7 +230,7 @@ DeepSeek V4 的 Thinking + Tool Calling 上下文不是普通 OpenAI-compatible 
 
 同一 Model Round 产生多个大型 Tool Result 时，Runtime 先收集完整批次，Context Engineering 扣除既有 messages 和 Tool Definitions 的固定成本，再按模型声明顺序公平分配剩余预算，并使用首尾保留策略裁剪。裁剪完成后 Runtime 严格按 `assistant(toolCalls) -> tool(result)` 写入 canonical transcript，避免破坏供应商工具协议。
 
-Workbench 的 Context Tab 只保留当前 Run 最后一轮快照，Run 结束和页面刷新后仍可恢复。调试 JSON 明确区分 `messages`（本轮模型输入）与 `response`（本轮模型输出），同时展示 tools、预算、估算值和是否触发压缩。当前阶段不实现 Skills、Memory、`NOTES.md`、`TODO.md` 的相关性召回，也不实现长 Loop 中周期性重新注入目标的 Goal Reminder；这些能力会改变 Context 来源、优先级和预算分配，应在对应能力形成真实数据后再迭代，而不是提前建设通用 Attention Engine。
+Workbench 的 Context Tab 只保留当前 Run 最后一轮快照，Run 结束和页面刷新后仍可恢复。调试 JSON 明确区分 `messages`（本轮模型输入）与 `response`（本轮模型输出），同时展示 tools、预算、估算值和是否触发压缩。Skills 与 User Memory 已通过 K5 **`skills` / `memories` 候选字段**注入（见 [39-k5](./39-k5-context-engineering.md) §2）；尚未实现的是 K5 侧的**统一多来源预算/trace、Catalog 总量 cap、任务相关 Skill 筛选**以及 Goal Reminder / `NOTES.md` / `TODO.md` 文件化任务状态。
 
 ## 3. 已完成
 
@@ -234,7 +246,9 @@ Workbench 的 Context Tab 只保留当前 Run 最后一轮快照，Run 结束和
 - 开发环境日志已切换为彩色中文单行格式，关闭常规 HTTP 请求/响应明细和 Nest 启动路由噪声；模型链路只记录生成开始、首字响应、完成或失败，并提供会话短 ID、模型、上下文条数、首字耗时、总耗时和输出字数。
 - OpenAI 官方 SDK 和 OpenAI-compatible Chat Completions 已接入；模型 ID、Base URL、能力和请求参数由 `apps/api/src/model/model-catalog.ts` 管理，只有 `OPENAI_API_KEY` 从环境变量读取。
 - DeepSeek V4 Thinking + Tool Calling 已通过 Model Adapter 做上下文特化：解码 `reasoning_content` 分片并由 Runtime 聚合，仅对历史 Tool Call 原子单元做 native replay，最终回答 reasoning 不进入下一轮请求；provider/format 兼容检查、Run reasoning profile 和用户投影隐藏边界均已落地并有单测覆盖。
-- Context Engineering 第一阶段已接入每个 Model Round：本地 DeepSeek V3 tokenizer 统一估算 messages 与 Tool Definitions，按 Model Profile 预留最大输出和安全空间，支持 Tool Result 批次裁剪、封闭历史前缀压缩、Session 级摘要状态和明确的最终超限错误。
+- Context Engineering 第一阶段已接入每个 Model Round：本地 DeepSeek V3 tokenizer 统一估算 messages 与 Tool Definitions，按 Model Profile 预留最大输出和安全空间，支持 Tool Result 批次裁剪、封闭历史前缀压缩、Session 级摘要状态和明确的最终超限错误；K5 最小接入已支持 MCP instructions、**Skills**（`<skill_catalog>` / `<skills_context>`）与 **User Memory**（`<user_memory>`）。
+- **C6 Skills Phase 1**：`SkillRegistryService`、`skills.list` / `skills.read`、`GET /api/skills`、Run `skillNames`、Lexical Composer Skill 入口与用户气泡回放。
+- **C7 User Memory MVP**：`memory_records` + pgvector、`memory_write`、`MemoryRetrieverService`、Settings 记忆 CRUD 与 Agent 写开关、Injection trace。
 - C1 文件与多模态基础已完成：支持图片、TXT、Markdown、CSV、JSON、PDF、DOCX、XLSX 附件的上传、校验、解析、状态恢复、预览、消息绑定和模型消费；原始文件与规范化正文通过 FileStorage/COS 保存，数据库只保存文件元数据、状态、哈希、解析器版本和对象引用。
 - C1 文件按需读取（C1-B.2+ / doc 38 P0）：`read_file` 三 scope + Section 索引；`read_file_lines` 仅历史 transcript / Registry 别名解析；`search_file` 独立定位；`fileReadLinesMax` 150、`fileReadResultMaxCharacters` 24_000、CE file-tool 1.5× `toolResultMaxTokens`；**同轮** file-tool 超限返回 `FILE_CONTEXT_RESULT_TOO_LARGE` 不 spill。Tool / System 读稿 playbook 已加强（`read_file`、`search_file`、`CHAT_SYSTEM_PROMPT`、`file_ref` 大文件 hint）。
 - **CE P0.5（已实现，2026-09-30）**：历史折叠不对 file-tool 做 `[Tool Result stored]`；`RECENT_TOOL_UNITS_TO_KEEP = 3`；单测见 `context-engineering.service.spec.ts`。docx 审阅冒烟：Session `335d9f96-e8c6-4de9-a242-f99e7a64c769`。详见 [03-context-engineering.md](./03-context-engineering.md) §13、[38-c1-file-read-and-search-tools.md](./38-c1-file-read-and-search-tools.md) §7 / §14。
@@ -447,8 +461,8 @@ git diff --check
 - 搜索 fallback；正式 Evidence、逐主张引用校验和独立报告复核仍不属于当前范围。
 - C1 已完成；后续文件方向仅包括 OCR、更多格式、复杂版式和更强索引等明确的 C1-C 增强，不得再将 C1-A/C1-B 作为未完成项重复排入当前主线。
 - K3.1 Pause/Resume、Runtime Lifecycle Hook、统一 control command API 和控制 SSE 已实现；K3.2 Clarification、Tool Approval、统一 Interrupt Snapshot 和 Transcript 业务事实已实现；K3.3 Steer 与 Follow-up Queue MVP 已实现。尚未完成的是面向真实写操作的副作用风险策略、能力接入、审批失效与完整审计，以及按未来部署需求另行设计的跨进程 Human-in-the-loop。独立 cancel、Run SSE、sequence/replay 和 snapshot fallback 已完成。
-- C6：Skills（`NOTES.md` / `TODO.md` 文件化任务状态 **不在当前路线**；待办由 K4 Plan 覆盖）。
-- C7：User Memory（C7-A/B/C）；C8（后置）：Browser / Computer Use；Delegation、Worker 和多用户认证见 P11/L4。
+- C6：Skills Phase 1 **已落地**；产品化 Backlog（bundled 内容、E2E、C10 市场、用户自定义 Skill）见 [40-c6 §4.9](./40-c6-skills.md#49-skills-主线暂停与遗留清单)；`NOTES.md` / `TODO.md` **不在路线**（K4 Plan 覆盖）。
+- C7：**MVP 已落地**；**C7-C** Delegation Worker 门控与 Consolidation **未做**；C8（后置）：Browser / Computer Use；Delegation、Worker 和多用户认证见 P11/L4。
 - 长 Agent Loop 的 Goal Reminder/Attention Refresh 尚未实现；当前只保留最近消息、当前任务和 Tool Call/Result 协议完整性，等多来源 Context 形成真实需求后再建设相关性选择、优先级和预算分配。
 - 评估体系尚未重新设计；当前不存在可运行的 Benchmark、Judge、Grader 或正式 Baseline。
 
@@ -489,7 +503,7 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 
 > 本节是 Context Engineering 第一阶段之后的执行顺序。规划区分 **Agent Kernel（内核）** 与 **Capability（功能能力）**；Capability 通过统一 Action/Artifact/Source 协议接入，不反向改变 Runtime 语义。编号是规划编号，不表示已经实现。
 >
-> **当前阶段（2026-09-29）**：**C5 已完成**（C5-A/B + C2 原生 HTML，契约 [37-c5](./37-c5-workbench-ui-and-preview.md)、[31 §6.4](./31-c2-artifact-and-report-generation.md)）。**Agent 侧当前研发**：**K5、C7 User Memory**（可穿插；K5 见 [39-k5](./39-k5-context-engineering.md)，C7 见 [41-c7-user-memory.md](./41-c7-user-memory.md)）。**C6 Skills** Phase 1 已落地、**暂停雕琢**。**C5-C**（job/构建日志/dev server 工作台深化）**后置 Backlog**。**C8 Browser / Computer Use**、**C9/C10 市场** 后置；Browser 仍依赖 **独立客户端集成**。**L6** 不在本节排期。K6/K7 为后置治理与交付质量；写操作继续复用 **K3.2 `tool_approval`** 与 Sandbox 策略。
+> **当前阶段（2026-10-16）**：**C5 已完成**（C5-A/B + C2 原生 HTML）。**C7 User Memory MVP 已完成**（[41-c7](./41-c7-user-memory.md)）。**C6 Skills** Phase 1 已完成、**产品化暂停雕琢**。**Agent 侧当前研发**：**K5 Context Engineering**（[39-k5](./39-k5-context-engineering.md)）。**C5-C**（job/构建日志/dev server）**后置 Backlog**。**C8 Browser / Computer Use**、**C9/C10 市场** 后置。**L6** 不在本节排期。K6/K7 为后置治理与交付质量；写操作继续复用 **K3.2 `tool_approval`** 与 Sandbox 策略。
 
 ### 7.0 当前 Agent 侧高优先级（共识快照）
 
@@ -497,9 +511,9 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 | --- | --- | --- | --- |
 | C5 | Workbench + HTML 安全预览（C5-A/B） | **已完成** | 产品阶段收口；见 [37-c5](./37-c5-workbench-ui-and-preview.md) |
 | C5-C | Sandbox job / 构建 / dev server 工作台 | **Backlog（低）** | job 卡片、日志跟随、代理预览等；按需启动，不阻塞 K5/C6 |
-| K5 | Context Engineering 全面优化 | **当前研发** | 接口与实施边界见 [39-k5-context-engineering.md](./39-k5-context-engineering.md)；与 C7 可穿插 |
+| K5 | Context Engineering 全面优化 | **当前研发** | Skills/Memory 已接入 compile 入口；预算/trace/Tool Exposure 见 [39-k5](./39-k5-context-engineering.md) |
 | C6 Skills | [40-c6-skills.md](./40-c6-skills.md) | **暂停雕琢** | Phase 1 已落地，Backlog [§4.9](./40-c6-skills.md#49-skills-主线暂停与遗留清单) |
-| C7 User Memory | [41-c7-user-memory.md](./41-c7-user-memory.md) | **当前研发优先** | C7-A 读 → C7-B 写/审 → C7-C Delegation 联动 |
+| C7 User Memory | [41-c7-user-memory.md](./41-c7-user-memory.md) | **MVP 已完成** | 写 Tool + 向量读 + Settings；**C7-C** Delegation 后置 |
 | C8 | Browser Use / Computer Use | **后置** | 依赖 C3-D、L6；结构化 Browser Tool 等与 **客户端就绪后** 再立项 |
 
 **明确不在当前 Agent 高优先级**：文件化 Notes、`TODO.md`、Goal Reminder 文件、L6 Mobile/Desktop 客户端工程（客户端单独规划，例如 [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)）。
@@ -531,8 +545,8 @@ K4  Agent Task Semantics                         已完成：Plan and Execute、
     - Re-plan / no-progress 检测（发现计划失效或长时间没有进展时重新规划）
     - Task State 持久化并按预算注入 Context（保存任务状态，并在上下文预算内恢复给模型）
 
-K5  Context Engineering 全面优化                 **当前研发**（[39-k5](./39-k5-context-engineering.md)；与 C7 可穿插）
-    - CE 预算与 compile 分池；Tool Exposure（大 catalog 按需 hydrate；跨 MCP/builtin）
+K5  Context Engineering 全面优化                 **当前研发**（[39-k5](./39-k5-context-engineering.md)）
+    - 多来源预算/trace（Skills/Memory/MCP/文件/历史）；Tool Exposure（大 catalog 按需 hydrate）
 
 K6  Side-effect Policy & Governance               后置加强
     - 可信 Action 风险元数据与 Policy：区分 read-only、受任务意图授权的可逆写入、需确认写入和禁止操作；风险结论不能由模型自行声明
@@ -551,7 +565,7 @@ K7  Evidence / Citation / Completion Verification 后置加强（横切，与 K6
     - 最终交付前的任务完成检查与限制说明（交付前检查是否完成，并明确已知局限）
 ```
 
-K3 已经完成通用控制和 HITL 机制；K4 已完成轻量任务语义与计划投影。**C4 已闭环**；**C5（C5-A/B）已收口**，C5-C 后置；**K5、C7 为当前 Agent 研发主线**（§7.4，可穿插）；K6/K7 为后置 Kernel 加强项，实施时再拆文档与里程碑。
+K3 已经完成通用控制和 HITL 机制；K4 已完成轻量任务语义与计划投影。**C4 已闭环**；**C5（C5-A/B）已收口**，C5-C 后置；**C6 Phase 1** 与 **C7 MVP** 已落地；**K5 为当前 Agent 研发主线**（§7.4）；K6/K7 为后置 Kernel 加强项，实施时再拆文档与里程碑。
 
 ### 7.2 Capability 主线
 
@@ -595,10 +609,9 @@ C6  Skills                                          **Phase 1 已落地，暂停
     - 可复用 Skill、任务模板和输出契约
     - **本阶段不做**：`NOTES.md` / `TODO.md` 文件化待办（由 K4 Plan 承担）
 
-C7  User Memory                                     **当前研发**（[41-c7-user-memory.md](./41-c7-user-memory.md)）
-    - C7-A：跨 Session 检索与 MemoryCard 注入
-    - C7-B：写入、审核、删改；来源、置信度、可见性
-    - C7-C：Delegation 下 Worker 读 Memory 门控（与 P11 同期）
+C7  User Memory                                     **MVP 已完成**（[41-c7-user-memory.md](./41-c7-user-memory.md)）
+    - 已交付：`memory_write`、pgvector 检索、K5 `<user_memory>`、Settings CRUD 与条数展示
+    - 后置：**C7-C** Delegation Worker 读门控；可选 ConsolidationJob
 
 C8  Browser Use / Computer Use                    **后置**（**客户端集成完成之后**再启动；C3-D 仅为底座）
     - 结构化 Browser Tool：open/click/type/select/scroll/extract/screenshot/download 等（Sandbox 内 agent-browser）
@@ -660,8 +673,11 @@ K3 Control & HITL Kernel（基本完成）
   -> C2 原生 HTML（`contentMode: html`，已完成，docs/31 §6.4）
 
 【当前 Agent 研发主线】
-  -> K5 Context Engineering 全面优化（可与 C7 穿插）
-  -> C7 User Memory（C7-A → C7-B → C7-C）
+  -> K5 Context Engineering 全面优化（Skills/Memory 已接入最小 compile 入口）
+
+【Capability 近期已完成】
+  -> C7 User Memory MVP（2026-10-16，docs/41）
+  -> C6 Skills Phase 1（Registry/Composer/K5；Catalog 内容 Backlog）
 
 【Capability Backlog（低优先级，按需）】
   -> C5-C Sandbox job / 构建日志 / dev server 工作台深化（见 docs/37 §10）
@@ -689,7 +705,7 @@ K3 Control & HITL Kernel（基本完成）
 
 第三方连接器优先走 C4 MCP；**C9/C10** 为后置市场类 Capability，不改变 Host MCP 主架构；Background Tasks 非当前前置；L5 控制台最后建设。
 
-本阶段的产品目标是建设 **AI Agent 工作台（Host + Web）**：用户可以输入文字、文件和图片，Agent 在可控、可恢复、可验证的 Task Loop 中调用内置工具、Agent Sandbox、MCP，并生成回答、报告、表格或可预览网站；**Browser/Computer Use 与独立客户端**在 Agent 能力就绪后复用同一套 canonical protocol，但不阻塞当前 C5/K5/C6 切片。
+本阶段的产品目标是建设 **AI Agent 工作台（Host + Web）**：用户可以输入文字、文件和图片，Agent 在可控、可恢复、可验证的 Task Loop 中调用内置工具、Agent Sandbox、MCP、**Skills** 与 **跨 Session 用户记忆**，并生成回答、报告、表格或可预览网站；**Browser/Computer Use 与独立客户端**在 Agent 能力就绪后复用同一套 canonical protocol，但不阻塞当前 **K5** 切片。
 
 P8 的完成标准仍然不是“再增加一个工具”，而是现有 `Chat -> Agent Loop -> Tool/Artifact -> Final Answer -> Persistence/Recovery` 链路具备一致事实、可诊断失败、用户可控和最小恢复能力。
 
@@ -807,4 +823,21 @@ C6 第一阶段已完成最小可用闭环：进程内 Skill Registry、`skills.
 
 ### 12.3 未实现范围
 
-第一阶段暂不实现 C7 User Memory、远程 Provider、Marketplace、语义检索、复杂排序、分页、大规模 Catalog 优化、依赖解析和持久化运行时注册项。
+第一阶段暂不实现远程 Skill Provider、Marketplace（C10）、语义 Skill 检索、复杂排序、分页、大规模 Catalog 优化、依赖解析和持久化运行时注册项；User Memory 已由 **C7 MVP** 独立交付（见 §C7 与 [41-c7-user-memory.md](./41-c7-user-memory.md)）。
+
+## 13. C7 User Memory MVP（已实施）
+
+### 13.1 当前结论
+
+C7 MVP 完成「写 Tool + 写入时 embed + 编译前向量召回 + K5 注入 + Settings 管理」闭环。模型通过 **`memory_write`** 持久化跨 Session 偏好与稳定事实；读路径**不提供**读记忆 Tool，避免模型绕过 Retriever/Gate。注入块带 disclaimer，优先级低于当前用户指令与 System/Tool Policy。
+
+### 13.2 验证结果
+
+- API unit：`memory.eligibility`、`memory.service.write`、`memory.retriever`、`memory.retrieval.gate`、`memory.utils` 等。
+- Context Engineering：`withMemories` 渲染 `<user_memory>`（`context-engineering.service.spec.ts`）。
+- Protocol：`memory-write-stream` 事件形状。
+- 合并：`dcc8094`（`feature/memory` → main）。
+
+### 13.3 未实现范围
+
+**C7-C**（Worker 读/写门控、ConsolidationJob）、Run-terminal Extractor、`memory-candidate` 审核 API 接线、读记忆 Tool、project/org scope。Embedding/pgvector 未配置时读路径降级或空注入，Settings 应展示 indexing 状态而非假装已召回。

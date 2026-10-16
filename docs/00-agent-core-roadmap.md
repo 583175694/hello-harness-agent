@@ -24,7 +24,7 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 
 ## 2. 当前基线
 
-当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答` 和真实 Workbench 投影。P7 General Web Research Hardening、P8 Model-led Tool Boundary、Connection-Durable Agent Loop 与 Reasoning Context Transcript 均已完成；Ordered Model Rounds、Canonical Live Projection、版本化 Checkpoint、Event Tail、严格 SSE cursor、Run 状态 CAS、durable model transcript 和选择性 reasoning replay 已落地。下一优先项是 Context Engineering；Memory 和 Delegation 尚未完成。评估体系暂缓，后续作为独立模块重新设计。
+当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答` 和真实 Workbench 投影。P7 General Web Research Hardening、P8 Model-led Tool Boundary、Connection-Durable Agent Loop 与 Reasoning Context Transcript 均已完成；Ordered Model Rounds、Canonical Live Projection、版本化 Checkpoint、Event Tail、严格 SSE cursor、Run 状态 CAS、durable model transcript 和选择性 reasoning replay 已落地。下一优先项是 **K5 Context Engineering 全面优化**；**C7 User Memory MVP** 与 **C6 Skills Phase 1** 已落地（状态见 [implementation-status.md](./implementation-status.md)）；Delegation 尚未完成。评估体系暂缓，后续作为独立模块重新设计。
 
 详细代码状态、验证记录和已知限制统一维护在 [implementation-status.md](./implementation-status.md)。只有代码、测试和验收记录同时存在时，能力才算完成。
 

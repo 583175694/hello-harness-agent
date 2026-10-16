@@ -4,16 +4,16 @@
 >
 > 维护原则：只记录当前代码已经验证的内容；没有真实难点时不强行包装。每完成一个阶段，再追加对应章节。
 >
-> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering（Tool Result 外置/指针/compaction trigger / transcript unit 压缩）、K3 Runtime Control/HITL/Steer/Follow-up、K4 Agent Task Semantics、C1 File & Multimodal Foundation、C2 Artifact/Report 生成与多格式交付（含 **`contentMode: html` 原生 HTML**）、**C5 Workbench 与 HTML 安全预览（C5-A/B 已完成；C5-C job/dev server 后置）**、**C3 Agent Sandbox（C3-A～C3-D）**，以及 **C4 Host MCP Client（C4-A/B/C）**。
+> 当前覆盖：工程基线、OpenAI-compatible 模型适配、DeepSeek V4 Thinking + Tool Calling 上下文优化、持久化对话、Function Calling Agent Loop、Search/Fetch 联网调查、真实 Workbench 投影、Connection-Durable Agent Loop、Context Engineering（Tool Result 外置/指针/compaction trigger / transcript unit 压缩；**K5 最小 Skills/Memory 注入**）、K3 Runtime Control/HITL/Steer/Follow-up、K4 Agent Task Semantics、C1 File & Multimodal Foundation、C2 Artifact/Report 生成与多格式交付（含 **`contentMode: html` 原生 HTML**）、**C5 Workbench 与 HTML 安全预览（C5-A/B 已完成；C5-C job/dev server 后置）**、**C3 Agent Sandbox（C3-A～C3-D）**、**C4 Host MCP Client（C4-A/B/C）**、**C6 Skills Phase 1**、**C7 User Memory MVP**。
 
 ## 1. 项目一句话介绍
 
-这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答/正式报告`、Connection-Durable Run、可断线恢复的 Conversation/Workbench、Model Round 级的 Context 编译/Token 预算/Tool Result 外置与指针回收/历史压缩、C1 文件与多模态输入、C2 生成文件/报告 Artifact 与多格式交付（含原生 HTML 落地页）、C5 Workbench 三 Tab/Slider/Resizable 与 HTML iframe 安全预览、C3 OpenSandbox 隔离执行（bash / 后台 job / 沙箱内 agent-browser）、以及 C4 Host 外连 HTTP MCP 与 Settings 管理闭环。
+这是一个基于 pnpm workspace 的本地单用户 Agent 工作台：前端使用 React/Vite，后端使用 NestJS，数据层使用 Prisma/PostgreSQL，当前已经打通持久化对话、DeepSeek V4 reasoning 上下文适配、Function Calling Agent Loop、`web_search -> web_fetch -> 相关 Passage -> 普通回答/正式报告`、Connection-Durable Run、可断线恢复的 Conversation/Workbench、Model Round 级的 Context 编译/Token 预算/Tool Result 外置与指针回收/历史压缩、C1 文件与多模态输入、C2 生成文件/报告 Artifact 与多格式交付（含原生 HTML 落地页）、C5 Workbench 三 Tab/Slider/Resizable 与 HTML iframe 安全预览、C3 OpenSandbox 隔离执行（bash / 后台 job / 沙箱内 agent-browser）、C4 Host 外连 HTTP MCP 与 Settings 管理、C6 Skills（Registry / Composer / `skills.list|read` / K5 Catalog 或显式注入）、以及 C7 跨 Session 用户记忆（`memory_write` + 向量召回 `<user_memory>`）。
 
 面试时需要主动区分：
 
 ```text
-已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch、Workbench（实时跟随/文件/Context、Slider、Resizable、Artifact 内联预览）、`external_tool` 统一投影、Context Engineering（Tool Result 外置/指针/40k compaction / transcript unit 切分）、C2 的 `create_file`/`create_report`（含 `contentMode: html`）与 Artifact 预览下载及线性版本（C2-D）、C5-B HTML Host preview（CSP + iframe sandbox）、C1 附件全链路、C3 Session 级 Sandbox（`bash`、`job_*`、策略升权审批、Collect/spill Artifact、agent-browser 截图）、C4 HTTP MCP（Registry 合并、凭证加密、allowlist、instructions→CE、Resource 三工具、`mcp_add_server`、`mcpCatalogStale` 护栏）
+已经完成：持久化 Session/Message/Run/Step、后台 Agent Runtime、Run SSE sequence/replay、draft snapshot、独立 cancel、Search/Fetch、Workbench（实时跟随/文件/Context、Slider、Resizable、Artifact 内联预览）、`external_tool` 统一投影、Context Engineering（Tool Result 外置/指针/40k compaction / transcript unit 切分；MCP instructions + Skills/Memory 区块注入）、C2 的 `create_file`/`create_report`（含 `contentMode: html`）与 Artifact 预览下载及线性版本（C2-D）、C5-B HTML Host preview（CSP + iframe sandbox）、C1 附件全链路、C3 Session 级 Sandbox（`bash`、`job_*`、策略升权审批、Collect/spill Artifact、agent-browser 截图）、C4 HTTP MCP（Registry 合并、凭证加密、allowlist、instructions→CE、Resource 三工具、`mcp_add_server`、`mcpCatalogStale` 护栏）、C6 Skills Phase 1（`SkillRegistryService`、`skills.list`/`skills.read`、Run `skillNames`、Lexical Composer `/`/`+`/mention）、C7 Memory MVP（`memory_write`、pgvector Retriever、Settings 记忆列表与 **共 N 条**）
 ```
 
 ## 2. 阶段一：工程基线
@@ -650,6 +650,9 @@ Agent Context 同时包含 System Prompt、用户与 assistant 历史、assistan
 ```text
 【每轮 compileRound】
 canonical transcript + tool definitions
+  -> MCP instructions 片段（C4-B）
+  -> Skills：显式 `<skills_context>` 或精简 `<skill_catalog>`（C6）
+  -> Memories：Retriever 命中后 `<user_memory>` + disclaimer（C7）
   -> 注入 Session/Run 已有 compaction summary
   -> 默认保留最近 2 个封闭 Tool Unit，更早 Tool Result 收成 fileId 指针
   -> tokenizer 估算输入
@@ -1014,7 +1017,7 @@ Settings / Admin API (PUT/PATCH + secrets[])
 
 ### 问：C4 与 C3 / C6 边界是什么？
 
-答：**C3** = Host 编排、Sandbox **内**执行命令与浏览器；**C4** = Host **外连**业务 MCP（行情、内部 API 等）。高权限 MCP 默认仍留在 Host 侧，不因 Sandbox 能跑 curl 就把业务凭证搬进容器。**C6 Website Preview** 等未启动能力不应与 C4 混淆。
+答：**C3** = Host 编排、Sandbox **内**执行命令与浏览器；**C4** = Host **外连**业务 MCP（行情、内部 API 等）。高权限 MCP 默认仍留在 Host 侧，不因 Sandbox 能跑 curl 就把业务凭证搬进容器。**C6 Skills** 提供任务流程/输出契约 Context，**不**扩大 Tool Policy 或 Sandbox 权限；与 C4 MCP 工具生态正交。
 
 ### 问：C4 如何验证？
 
@@ -1050,11 +1053,63 @@ Settings / Admin API (PUT/PATCH + secrets[])
 
 > C5 把 Workbench 从“旁路调试面板”收成交付中心：Slider 对齐 Lovart 式单步工具视图，Resizable 对齐桌面效率，文件 Tab 承载 C2-D 版本与预览下载。C5-B 单独解决 HTML 不可信：我不把 HTML 当 Markdown 文本预览，而是 Host 出带 CSP 的 preview 响应，再用受限 sandbox iframe 嵌入；为复杂单页放行 inline script 但禁外连。生成侧用 C2 的 contentMode html 把落地页收进 create_file 主路径，避免 bash Collect 绕路。已知 preview 与下载在 CDN 资源上仍可能不一致，这是安全壳的 deliberate 代价，后续可以用 img-src 扩展或同源代理补。
 
-## 22. 面试表达模板
+## 22. C6 Skills（Phase 1）
+
+> 契约见 [40-c6-skills.md](./40-c6-skills.md)。面试口径：**能力已闭环**，bundled Catalog 内容仍可为空；产品化（市场、自定义 Skill、E2E）在 Backlog。
+
+### 问：C6 解决什么问题？
+
+答：把可复用的任务说明、输入约束和输出契约从 System Prompt 里拆出来，变成可发现、可选、可版本化的 **Skill**。Skill 只改变模型看到的 Context，**不改变** Tool Policy、Sandbox 边界或 K3.2 审批语义。
+
+### 问：模型怎么加载 Skill？
+
+答：三条路径并存：
+
+```text
+显式：Run skillNames / Composer mention → Host read() → K5 注入完整 <skill_content>（通常跳过 Catalog）
+隐式：未显式选择 → K5 注入精简 <skill_catalog> → 模型 skills.read(name) 拉正文
+补充：skills.list(query) 仅查 Registry 元数据，非必经步骤
+```
+
+Host 在 `skills.read` 侧校验存在性、版本与 `modelCallable`；Skill 不得扩大权限。
+
+### 问：Web 侧入口是什么？
+
+答：Lexical Composer 支持 **`/`** typeahead、**`+`** 技能区、inline mention 与 Run 创建时的 `skillNames` 校验；用户气泡回放已选 Skill。`GET /api/skills` 与 Registry 同源。
+
+### 22.1 C6 面试口述版
+
+> Skills 是“怎么做”的可插拔说明书，不是新工具。我把 Registry、`skills.list/read` 和 K5 的 Catalog/显式注入串成最小闭环：用户或 Host 显式选 Skill 时直接注入正文；否则给 Catalog，让模型按需 read。Skill 永远绕不过既有 Tool 与 Sandbox 策略。当前 bundled 目录可以为空，Registry 壳子和 Composer 已可扩展，内容与市场属于后续 Backlog。
+
+## 23. C7 User Memory MVP
+
+> 契约见 [41-c7-user-memory.md](./41-c7-user-memory.md)。**C7-C** Delegation 门控未做。
+
+### 问：C7 和 Skills 的边界？
+
+答：**Skills** = 任务方法/输出契约（能力侧）；**Memory** = 同一 user 跨 Session 的偏好与稳定事实（用户侧）。两者共享 K5 `compileRound` 入口，但 Memory 块带 disclaimer，**不能**覆盖 System Prompt 或 Tool Policy。
+
+### 问：为什么写用 Tool、读不用 Tool？
+
+答：写需要模型在对话中**显式决策**“什么值得长期保存”，服务端做 eligibility、dedup、supersede 和 embed。读若开放 `memory_read` Tool，模型可能绕过 Retriever 的相似度 Gate、embedding 就绪检查和 token 预算。因此读路径是 **每 Model Round 编译前** `MemoryRetrieverService` 向量 Top-K → Gate → K5 渲染 `<user_memory>`；未注入的内容模型**不应编造**“记得”。
+
+### 问：`memory_write` 的关键语义？
+
+答：`create` / `update` / `delete`；修订同一事实必须 **update + memoryId**（来自注入块或上一轮 Tool 结果），避免同义 duplicate。门控拒绝调研结论、密钥等；Settings 可手动 CRUD 且展示 **共 N 条** 与 `indexingStatus`。写入后 embed（显式记住可同步，其余可 async/backfill）；pgvector 检索，小集合可 bypass 全量注入。
+
+### 问：与 Context Engineering 如何配合？
+
+答：`ContextCompileInput.memories` 由 Runtime 在 compile 前填充；`withMemories` 插入 system 区块，并在 disclaimer 中说明优先级低于当前用户指令。Injection trace 记录 included/omitted（预算、相似度、missing_embedding 等），便于 Workbench Debug；**不是**“Settings 有条数就等于每轮全量注入”。
+
+### 23.1 C7 面试口述版
+
+> 长期记忆我做成 embed-on-write、vector-recall-on-read。模型用 memory_write 落库，服务端门控并向量化的同时，编译前用当前用户问题做 Top-K 检索，命中才注入 user_memory。这样 Settings 里的 N 条是库存，不是每轮全量 prompt；也避免再跑一条 Run 结束的 Extractor LLM 双轨。Delegation 下 Worker 是否可读记忆留给 C7-C。
+
+## 24. 面试表达模板
 
 ### 问：你在这个项目中负责了什么？
 
-答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、C1 文件与多模态输入、C2 生成文件/报告 Artifact 与多格式交付（含原生 HTML）、C5 Workbench 升级与 HTML 安全预览、C3 OpenSandbox 执行面（bash/job/agent-browser）、C4 HTTP MCP Client 与 Settings、工具结果/交付物/Terminal 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、Tool Result 外置、transcript unit 压缩与工具链 integrity 校验。
+答：我先搭建了 pnpm monorepo 和 React/Vite + NestJS + Prisma/PostgreSQL 的工程基线，再通过 OpenAI 官方 SDK 的 `baseURL` 接入 OpenAI-compatible 对话。当前完成了 Session/Message/Run/Step 持久化、Function Calling Agent Loop、Search/Fetch 有界联网调查、C1 文件与多模态输入、C2 生成文件/报告 Artifact 与多格式交付（含原生 HTML）、C5 Workbench 升级与 HTML 安全预览、C3 OpenSandbox 执行面（bash/job/agent-browser）、C4 HTTP MCP Client 与 Settings、C6 Skills 与 C7 用户记忆（写 Tool + 向量读注入）、工具结果/交付物/Terminal 投影、客户端断线可恢复的 Durable Run，以及 Model Round 级 Context 编译、Tool Result 外置、transcript unit 压缩与工具链 integrity 校验。
 
 ### 问：SSE 为什么没有直接使用 WebSocket？
 
@@ -1111,6 +1166,10 @@ Settings / Admin API (PUT/PATCH + secrets[])
 ### 问：Compaction 为什么引入 transcript unit？
 
 答：按 message 条数切分会截断 Tool Batch，制造 orphan tool 和 DeepSeek 400。现在按封闭 Tool Unit 切分前缀做摘要，并持久化 `coveredUnitCount`；失败 rollback 并可用 `MODEL_TRANSCRIPT_INTEGRITY_ERROR` 终止 Run，而不是把损坏 transcript 发给模型。
+
+### 问：Skills 和 User Memory 会不会让 Context 失控？
+
+答：两者都是 K5 候选来源，不是无条件 append。Skill 显式路径跳过 Catalog 但仍受 compile 预算约束；隐式 Catalog 只含元数据，正文靠 `skills.read`。Memory 走 Retriever Gate 和 token 预算，未命中就不注入；注入块明确低于当前用户指令。K5 全面优化尚未完成的是统一 trace、Catalog 总量 cap 和多来源优先级，而不是“有没有接上 compile”。
 
 ## K3.3 Steer & Follow-up 面试专题
 
@@ -1184,7 +1243,7 @@ Settings / Admin API (PUT/PATCH + secrets[])
 
 答：下载后在浏览器打开没有 Host CSP；Workbench preview 有 CSP 和 sandbox，故意限制外链 script、stylesheet、`fetch` 和多数外链图片（当前 `img-src 'self' data:`）。单文件 inline 的 JS/CSS 应对齐；依赖 CDN 的模板在 preview 里可能缺样式或动效。这不是两套文件内容，而是 **预览安全壳** 与 **本地完整浏览器** 的差异；后续可扩展 CSP 或同源代理 COS 图片。
 
-## 23. C1 长附件通读：读工具演进 + CE 补丁（2026-09）
+## 25. C1 长附件通读：读工具演进 + CE 补丁（2026-09）
 
 > 上文 §17、§14 保留当时实现口径；本节是同一问题线上复盘后的**补充**，细节见 [38-c1-file-read-and-search-tools.md](./38-c1-file-read-and-search-tools.md)、CE [03](./03-context-engineering.md) §13。
 
@@ -1203,7 +1262,7 @@ Settings / Admin API (PUT/PATCH + secrets[])
 
 > 长附件审阅 Tool 爆炸，不只看模型，我用 Run 回放拆成读粒度和 CE 两层：行读 cap 太小导致机械分页；CE 又把 read 结果折叠成指针造成读失忆。我做了 read_file 三 scope、search 只做定位，以及 file-tool 在 CE 里既不静默 spill 也不历史 stored，并用 docx 冒烟对比前后 read 次数和行覆盖。
 
-## 24. 追加规则
+## 26. 追加规则
 
 每个阶段只追加四类内容：
 

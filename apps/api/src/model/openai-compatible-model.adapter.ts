@@ -17,7 +17,7 @@ import { getDeepSeekV3TokenEstimator, type DeepSeekMessage } from '@harness/deep
 
 import { ENV_KEYS } from '../bootstrap/env.constants';
 import { ModelAdapter } from './model-adapter';
-import { getConfiguredModel } from './model-catalog';
+import { getConfiguredModel, resolveUpstreamModelId } from './model-catalog';
 import type {
   ModelFinishReason,
   ModelMessage,
@@ -210,6 +210,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       yield* this.streamResponsesRound(input, configured);
       return;
     }
+    if (!configured) throw new Error(`MODEL_UNSUPPORTED:${input.model}`);
     const tools = this.collectChatTools(input);
     const providerMessages = await this.toProviderMessages(input.messages, input.model, {
       replayReasoningWithTools: Boolean(tools?.length),
@@ -228,7 +229,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       }
     }
     const request: Record<string, unknown> = {
-      model: input.model,
+      model: resolveUpstreamModelId(configured),
       stream: true,
       stream_options: { include_usage: true },
       messages: providerMessages,
@@ -351,7 +352,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       }
     }
     const request: Record<string, unknown> = {
-      model: input.model,
+      model: resolveUpstreamModelId(configured),
       input: responseInput,
       stream: true,
       max_output_tokens: input.maxOutputTokens ?? configured.request.maxTokens,
@@ -526,7 +527,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     const configured = getConfiguredModel(model);
     if (configured?.api === 'responses') {
       const request: Record<string, unknown> = {
-        model,
+        model: resolveUpstreamModelId(configured),
         input: await this.toResponseInput(messages, model),
         max_output_tokens: configured.request.maxTokens,
       };
@@ -541,7 +542,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       return response.output_text;
     }
     const request: Record<string, unknown> = {
-      model,
+      model: configured ? resolveUpstreamModelId(configured) : model,
       messages: await this.toProviderMessages(messages, model),
     };
     if (configured?.request.temperature !== undefined) {

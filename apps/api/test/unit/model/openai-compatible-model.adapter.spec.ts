@@ -1,10 +1,29 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConfigService } from '@nestjs/config';
+import * as modelCatalog from '../../../src/model/model-catalog';
 import {
   fileRefMetadataText,
   normalizeProviderUsage,
   OpenAICompatibleModelAdapter,
 } from '../../../src/model/openai-compatible-model.adapter';
+
+async function withFlashResponsesCatalog<T>(run: () => T | Promise<T>): Promise<T> {
+  const spy = vi.spyOn(modelCatalog, 'getConfiguredModel').mockImplementation((modelId) => {
+    const model = modelCatalog.MODEL_CATALOG.find(
+      (entry) => entry.id.toLowerCase() === modelId.toLowerCase(),
+    );
+    if (!model) return undefined;
+    if (model.id === 'deepseek-flash') {
+      return { ...model, api: 'responses' as const, traceResponsesEvents: true };
+    }
+    return model;
+  });
+  try {
+    return await run();
+  } finally {
+    spy.mockRestore();
+  }
+}
 
 describe('normalizeProviderUsage', () => {
   it('reads DeepSeek cache usage from the provider top-level fields', () => {
@@ -139,13 +158,15 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
 
   async function collect(adapter: OpenAICompatibleModelAdapter) {
     const events = [];
-    for await (const event of adapter.streamRound({
-      model: 'deepseek-flash',
-      messages: [{ role: 'user', content: '查询天气' }],
-      tools: [{ name: 'weather', description: '查询天气', parameters: { type: 'object' } }],
-      reasoningEffort: 'low',
-    }))
-      events.push(event);
+    await withFlashResponsesCatalog(async () => {
+      for await (const event of adapter.streamRound({
+        model: 'deepseek-flash',
+        messages: [{ role: 'user', content: '查询天气' }],
+        tools: [{ name: 'weather', description: '查询天气', parameters: { type: 'object' } }],
+        reasoningEffort: 'low',
+      }))
+        events.push(event);
+    });
     return events;
   }
 
@@ -166,13 +187,15 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
       chat: { completions: { create } },
     };
 
-    for await (const _event of adapter.streamRound({
-      model: 'deepseek-flash',
-      messages: [{ role: 'user', content: '直接回答' }],
-      reasoningEffort: 'off',
-    })) {
-      // Consume the complete stream so the adapter reaches its terminal event.
-    }
+    await withFlashResponsesCatalog(async () => {
+      for await (const _event of adapter.streamRound({
+        model: 'deepseek-flash',
+        messages: [{ role: 'user', content: '直接回答' }],
+        reasoningEffort: 'off',
+      })) {
+        // Consume the complete stream so the adapter reaches its terminal event.
+      }
+    });
 
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ reasoning: { effort: 'none' } }),
@@ -198,14 +221,16 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
       chat: { completions: { create } },
     };
 
-    for await (const event of adapter.streamRound({
-      model: 'deepseek-flash',
-      messages: [{ role: 'user', content: '深度分析' }],
-      tools: [{ name: 'weather', description: '查询天气', parameters: { type: 'object' } }],
-      reasoningEffort: 'max',
-    })) {
-      void event;
-    }
+    await withFlashResponsesCatalog(async () => {
+      for await (const event of adapter.streamRound({
+        model: 'deepseek-flash',
+        messages: [{ role: 'user', content: '深度分析' }],
+        tools: [{ name: 'weather', description: '查询天气', parameters: { type: 'object' } }],
+        reasoningEffort: 'max',
+      })) {
+        void event;
+      }
+    });
 
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -231,8 +256,12 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
     await expect(
       adapter.generateText('deepseek-flash', [{ role: 'user', content: '起个标题' }]),
     ).resolves.toBe('标题');
-    expect(responsesCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ reasoning: { effort: 'none' } }),
+    expect(responsesCreate).not.toHaveBeenCalled();
+    expect(chatCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'deepseek/deepseek-flash',
+        thinking: { type: 'disabled' },
+      }),
       undefined,
     );
 
@@ -240,7 +269,7 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
       adapter.generateText('deepseek-v4-pro', [{ role: 'user', content: '起个标题' }]),
     ).resolves.toBe('标题');
     expect(chatCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ thinking: { type: 'disabled' } }),
+      expect.objectContaining({ model: 'deepseek-v4-pro', thinking: { type: 'disabled' } }),
       undefined,
     );
     expect((chatCreate.mock.calls as unknown as unknown[][])[0]?.[0]).not.toHaveProperty(

@@ -5,6 +5,8 @@ export type ConfiguredModel = {
   label: string;
   provider: string;
   baseUrl: string;
+  /** 供应商 API 上的 model 名；缺省时与 id 相同。 */
+  upstreamModel?: string;
   /** Provider wire protocol. Defaults to Chat Completions for backwards compatibility. */
   api?: 'chat_completions' | 'responses';
   traceResponsesEvents?: boolean;
@@ -45,16 +47,17 @@ if (DEEPSEEK_MODEL_PROFILE_VERIFIED && !DEEPSEEK_MODEL_PROFILE_SOURCE)
     'Verified DeepSeek model context profile requires an authoritative source in model-catalog.ts',
   );
 
+const TOKENHUB_BASE_URL = 'https://tokenhub.tencentmaas.com/v1';
+
 // 模型供应商配置集中在代码目录中；密钥仍由 OPENAI_API_KEY 注入，避免进入配置文件。
 export const MODEL_CATALOG: readonly ConfiguredModel[] = [
   {
     id: 'deepseek-flash',
-    label: 'DeepSeek-Flash',
+    label: 'DeepSeek V4.1 Flash',
     provider: 'deepseek',
-    baseUrl: 'https://api.deepseek.com',
-    api: 'responses',
-    traceResponsesEvents: true,
-    supportsVision: true,
+    baseUrl: TOKENHUB_BASE_URL,
+    upstreamModel: 'deepseek/deepseek-flash',
+    api: 'chat_completions',
     reasoningFormat: 'deepseek.reasoning_content.v1',
     reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'] as const, default: 'high' },
     context: {
@@ -73,7 +76,8 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     id: 'deepseek-v4-pro',
     label: 'DeepSeek V4 Pro',
     provider: 'deepseek',
-    baseUrl: 'https://api.deepseek.com',
+    baseUrl: TOKENHUB_BASE_URL,
+    upstreamModel: 'deepseek-v4-pro',
     api: 'chat_completions',
     reasoningFormat: 'deepseek.reasoning_content.v1',
     reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'] as const, default: 'high' },
@@ -89,37 +93,20 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     },
     request: { temperature: 0, maxTokens: 32_768, finalAnswerMaxTokens: 32_768 },
   },
-  ...(
-    [
-      ['qwen3.8-max', 'Qwen 3.8 Max'],
-      ['qwen3.8-flash', 'Qwen 3.8 Flash'],
-      ['qwen3.7-plus', 'Qwen 3.7 Plus'],
-      ['qwen3.7-max', 'Qwen 3.7 Max'],
-      ['qwen-plus', 'Qwen Plus'],
-    ] as const
-  ).map(([id, label]) => ({
-    id,
-    label,
-    provider: 'bailian',
-    baseUrl: 'https://llm-l7m1kv09x0indqzv.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
-    reasoning: {
-      supported: true,
-      levels: ['off', 'low', 'high', 'max'] as ('off' | 'low' | 'high' | 'max')[],
-      default: 'high' as const,
-    },
-    context: {
-      contextWindowTokens: DEEPSEEK_CONTEXT_WINDOW_TOKENS,
-      maxOutputTokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
-      compactionTriggerTokens: DEEPSEEK_COMPACTION_TRIGGER_TOKENS,
-      toolResultMaxTokens: DEEPSEEK_TOOL_RESULT_MAX_TOKENS,
-      toolResultsRoundBudgetTokens: DEEPSEEK_TOOL_RESULTS_ROUND_BUDGET_TOKENS,
-      tokenizer: 'deepseek-v3' as const,
-      source: 'https://help.aliyun.com/zh/model-studio/',
-      verified: false,
-    },
-    request: { temperature: 0, maxTokens: 32_768, finalAnswerMaxTokens: 32_768 },
-  })),
+  // --- 原 DeepSeek 官方 / 百炼 Qwen（暂不使用）---
+  // {
+  //   id: 'deepseek-flash',
+  //   baseUrl: 'https://api.deepseek.com',
+  //   api: 'responses',
+  //   ...
+  // },
+  // ... bailian qwen3.x catalog ...
 ];
+
+/** 发往供应商 API 的 model 字段。 */
+export function resolveUpstreamModelId(model: ConfiguredModel): string {
+  return model.upstreamModel ?? model.id;
+}
 
 // 默认使用支持图片输入并通过 Responses API 调用的 DeepSeek V4.1 Flash。
 export const DEFAULT_MODEL_ID = 'deepseek-flash';

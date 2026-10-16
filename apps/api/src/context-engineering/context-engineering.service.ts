@@ -436,8 +436,8 @@ export class ContextEngineeringService {
       ).trim();
     } catch (error) {
       if (input.signal?.aborted) throw error;
-      this.logger.warn(
-        `上下文压缩摘要失败，尝试精简提示 | 会话=${input.sessionId.slice(0, 8)} | 原因=${describeLogError(error)}`,
+      this.logger?.warn(
+        `上下文压缩摘要失败，尝试精简提示 | 会话=${shortLogId(input.sessionId)} | 原因=${describeLogError(error)}`,
       );
       try {
         return (
@@ -458,8 +458,8 @@ export class ContextEngineeringService {
         ).trim();
       } catch (retryError) {
         if (input.signal?.aborted) throw retryError;
-        this.logger.warn(
-          `上下文压缩摘要重试失败 | 会话=${input.sessionId.slice(0, 8)} | 原因=${describeLogError(retryError)}`,
+        this.logger?.warn(
+          `上下文压缩摘要重试失败 | 会话=${shortLogId(input.sessionId)} | 原因=${describeLogError(retryError)}`,
         );
         return null;
       }

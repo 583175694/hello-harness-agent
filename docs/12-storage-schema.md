@@ -425,18 +425,27 @@ idempotency_keys (
 memory_records (
   id              text primary key,
   user_id         text not null references users(id),
-  type            text not null,
+  kind            text not null,
   title           text not null,
   summary         text not null,
   content         text null,
   confidence      text not null,
   freshness       text not null,
+  importance      text not null default 'medium',
+  sensitivity     text not null default 'normal',
   status          text not null,
   source_refs     jsonb not null,
+  policy          jsonb not null default '{}',
+  metadata        jsonb not null default '{}',
+  embedding_model text null,
+  embedded_at     timestamptz null,
+  embedding       vector(2560) null,  -- pgvector；无扩展时用 embedding_json jsonb 降级，见 41-c7 §6.3
+  supersedes_memory_id text null,
+  last_used_at    timestamptz null,
+  use_count       int not null default 0,
   created_at      timestamptz not null,
   updated_at      timestamptz not null,
-  expires_at      timestamptz null,
-  metadata        jsonb not null default '{}'
+  expires_at      timestamptz null
 )
 ```
 

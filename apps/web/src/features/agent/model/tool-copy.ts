@@ -61,6 +61,8 @@ export type ToolCopyInput = {
   policyClass?: 'network' | 'install';
   inputFiles?: Array<{ fileId: string; path: string }>;
   job_id?: string;
+  action?: string;
+  memoryId?: string;
 };
 
 export function toolInputSummary(toolName: string, input: ToolCopyInput): string {
@@ -97,6 +99,12 @@ export function toolInputSummary(toolName: string, input: ToolCopyInput): string
   if (toolName === 'job_list') return '列出后台 job';
   if (toolName === 'execute_command') return input.command ?? '';
   if (toolName === 'web_search') return input.query ?? '';
+  if (toolName === 'memory_write') {
+    const action = typeof input.action === 'string' ? input.action : '';
+    if (action === 'delete') return input.memoryId ? `删除 ${input.memoryId}` : '删除记忆';
+    if (action === 'update') return input.title ?? '更新记忆';
+    return input.title ?? '写入记忆';
+  }
   if (toolName.startsWith(MCP_PUBLIC_PREFIX)) {
     return mcpToolBusinessSummary(toolName, input);
   }
@@ -124,6 +132,7 @@ export function toolTitle(toolName: string, input: ToolCopyInput): string {
   if (toolName === 'job_kill') return '终止后台 job';
   if (toolName === 'execute_command') return '执行命令';
   if (toolName === 'web_search') return `搜索：${input.query}`;
+  if (toolName === 'memory_write') return '写入记忆';
   if (toolName === 'external_tool') return '外部工具';
   if (toolName.startsWith(MCP_PUBLIC_PREFIX)) return mcpFriendlyToolTitle(toolName);
   return `运行工具 ${toolName}`;

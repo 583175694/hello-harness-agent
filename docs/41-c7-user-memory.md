@@ -1,460 +1,482 @@
 # C7 User Memory（专项规范）
 
-> **文档状态**：C7 的**唯一实施依据**（本文件即全部规范，无拆分索引文档）。`17-implementation-plan.md` 仅保留里程碑摘要。
+> **文档状态**：C7 的**唯一实施依据**（本文件即全部规范）。`17-implementation-plan.md` 仅保留里程碑摘要。
 >
-> **编号约定（Capability 主线）**
+> **编号约定**：**C7** 首版闭环（写 Tool + 向量读 + pgvector + Embedding 网关 + Settings）→ **C7-C** Delegation 联动。  
+> 原 C7-A/C7-B 文档拆分已合并为 **单一交付阶段 C7**（见 §12）。
 >
-> - **大版本 `Cn`**：独立 Capability（**C6** Skills、**C7** User Memory、**C8** Browser、**C9** MCP Marketplace、**C10** Skills Marketplace）。
-> - **小版本 `Cn-X`**：分阶段交付（**C7-A / C7-B / C7-C**）。与 C3-C 文档内批次序号不是同一命名空间。
+> **归属**：Memory 子系统（Store / Embed / Retriever / Tool Handler）+ K5（预算、渲染）。与 [C6 Skills](./40-c6-skills.md) 分离，仅共享 Context 编译入口。
 >
-> **C7 分阶段**：**C7-A** 读路径 → **C7-B** 写路径与 UI → **C7-C** Delegation 联动（与 P11 同期）。原路线图 P9/P10 已并入 C7。
->
-> **归属**：Memory 子系统（Retriever / Extractor / Store）+ K5（选择、预算、渲染）。与 [C6 Skills](./40-c6-skills.md) 文档分离，仅共享 K5 编译管道。Runtime **不**做 Memory 提炼；Context Engineering **不**自行写入 Memory。
->
-> **设计立场**：吸收业界「抽取 → 巩固 → 检索 → 注入」共性，结合 Harness 的 Session/Run/State 证据链与 K5 统一编译；**偏可信、可审计、用户可管**，而非「尽量多记、全历史 RAG」。
->
-> 与 [C6 Skills](./40-c6-skills.md) 独立，仅与 K5 共享 Context 编译入口。
+> **设计立场（2026-03 修订）**：
+> - **写**：主 Agent 在对话中调用 **`memory_write` Tool**（类似 Kimi 记忆工具）；内容由模型通过参数给出，服务端门控、落库、**写入时向量化**。
+> - **读**：**不**提供读记忆 Tool；每轮 Context 编译前 **向量 Top-K 检索** → Gate → 预算 → K5 渲染 `<user_memory>`。
+> - **不做** Run 结束后第二条 LLM Extractor 流水线（避免双轨门控与「记不全」）。
+> - **偏可信、可审计、用户可管**；Settings **继续展示已生效记忆列表与条数**（「共 N 条」）。
 
 | 阶段 | 名称 | 摘要 |
 |------|------|------|
-| **C7-A** | Read Path | 存储、检索、MemoryCard 注入、ref expansion、InjectionTrace |
-| **C7-B** | Write / Review | Extractor、Policy、candidate 审核 UI、Session 删除重评估 |
-| **C7-C** | Delegation 联动 | Worker 读 Memory 门控；可选 Profile / ConsolidationJob |
+| **C7** | Memory MVP | pgvector + Embedding API、`memory_write`、向量 Retriever、K5 注入、Settings（含 **共 N 条**） |
+| **C7-C** | Delegation | Worker 读 Memory 门控；可选 ConsolidationJob |
 
 ## 1. 要解决什么问题
 
-LLM Agent 无原生长期记忆。User Memory 为**同一用户**提供跨 Session 可复用的偏好与稳定上下文，并在新任务中**按需、有预算**进入 `CompiledStepContext`，避免：
-
-- 每个 Session 从零解释偏好；
-- 把完整历史 transcript 塞进 context；
-- 把网页调研结论误当成「用户是谁」。
+LLM Agent 无原生长期记忆。User Memory 为**同一 user** 提供跨 Session 可复用的偏好与稳定上下文，并在新任务中**按需、有预算**进入编译后的 Context。
 
 ```text
-User Memory = user-scoped, consolidated facts/preferences, evidence-backed, user-reviewable
+User Memory = user-scoped, evidence-backed, user-reviewable, embed-on-write, vector-recall-on-read
 ```
 
-## 2. 在 Harness 中的位置
+### 1.1 产品承诺（与用户心智）
+
+| 用户可能理解 | 系统实际承诺 |
+|--------------|--------------|
+| Settings「已生效的记忆」= Agent **永远知道** | 仅当 **本轮向量检索成功注入** `<user_memory>` 时，模型才「看见」；受相似度、embed 就绪、token 预算约束 |
+| 聊天里 Agent 整理的表格 = 已写入长期记忆 | 表格是 **当轮 Working Memory**；**持久化仅当** 本轮/近期 **`memory_write` 成功** 或 Settings 手动写入 |
+| 问「你记得什么」 | 模型应依据 **注入块 + Tool 写入结果** 回答；禁止编造未写入内容（可选二期 `memory_list` Tool） |
+
+对外表述：长期记忆 = **可管理的偏好与稳定事实参考**，不是全知档案。
+
+## 2. 架构总览
 
 ```text
-                    ┌─────────────────────────────────────┐
-                    │           Lead Harness Runtime       │
-                    │  lifecycle / step / dispatch only    │
-                    └─────────────────┬───────────────────┘
-                                      │ run terminal (async)
-                                      ▼
-                    ┌─────────────────────────────────────┐
-                    │     Memory Subsystem (C7-A / C7-B)     │
-                    │  Retriever │ Extractor │ Policy │ Store│
-                    └─────┬───────────────────────┬─────────┘
-                          │ candidates             │ MemoryCard[]
-                          ▼                        ▼
-                    PostgreSQL              ContextCompileInput.memories
-                          │                        │
-                          │ sourceRefs             ▼
-                          └──────────────► K5 选择 / 渲染 / 预算
-                                               │
-                                               ▼
-                                        CompiledStepContext → Model
+┌──────────────────────────────────────────────────────────────┐
+│                    Lead Agent Loop（单模型）                   │
+│  User Message → Model → [ memory_write? ] → Tool Handler      │
+└───────────────────────────────┬──────────────────────────────┘
+                                │ create/update/delete + embed
+                                ▼
+                    ┌───────────────────────┐
+                    │ PostgreSQL memory_records│
+                    │ + embedding (pgvector   │
+                    │   或 JSONB fallback)    │
+                    └───────────┬─────────────┘
+                                │
+        每 model round 编译前    │  query embed → Top-K
+                                ▼
+                    ┌───────────────────────┐
+                    │ Memory Retriever       │
+                    │ Gate / budget / trace  │
+                    └───────────┬─────────────┘
+                                ▼
+                    K5 → <user_memory> → Model
 ```
 
-**与 State 的关系**：Memory **不复制**大段 Artifact 或 raw tool output；`sourceRefs` 指向已有 `StateRecord` / Message / Artifact 元数据，需要时再经 **显式 ref expansion**（同 user、有 budget）。
+**与 Runtime 的边界**：Run Executor **不** enqueue 记忆抽取 Job。写入 **仅** 来自 `memory_write`、Settings API、用户 accept candidate。
 
-**与 Skills 的关系**（见 [40-c6-skills.md](./40-c6-skills.md)）：
+**与 State**：Memory 不复制大段 Artifact；`sourceRefs` 指向 Message / Run / Session 等，ref expansion 规则不变。
 
-| | Skills | User Memory |
-|---|--------|-------------|
-| 语义 | 怎么做任务（流程、契约） | 用户是谁、偏好什么 |
-| 注入 | 可作任务说明 | **仅参考**，不能覆盖 System / Tool Policy |
-| 产生方 | Registry + `skills.read` | Extractor + 用户审核 |
+**与 Skills**：Skills = 怎么做；Memory = 用户是谁、偏好什么。Memory 不得覆盖 System / Tool Policy。
 
-**与 Session Compaction 的关系**：Session 内 `Compaction Summary` 是**派生继续视图**，不是 User Memory。Compaction 消失后，只有进入 Memory 且仍 active 的内容可跨 Session 复用。
-
-## 3. 记忆分层（概念模型）
-
-对齐业界 Semantic / Episodic / Procedural 语言，Harness **首版重点做 Semantic**；Episodic、Procedural 有边界地处理。
-
-| 层 | 含义 | Harness 首版 |
-|----|------|--------------|
-| **Working** | 当前 Run 的 messages、tool results、task frame | Context Engineering 已有；**不进 Memory Store** |
-| **Semantic** | 稳定事实与偏好（语言、格式、工作习惯） | **Memory 主类型** |
-| **Episodic** | 「某次对话发生了什么」 | **默认不整段入库**；仅当用户明确要求记住某次结论且通过 policy 时，以 Semantic 摘要 + sourceRefs 进入 |
-| **Procedural** | Agent 行为规则 | **User Rules / Skills / System Prompt**；不写入 User Memory，避免与权限和版本化规则打架 |
-
-可选 **User Memory Profile**（C7-C 或 C7-B 二期、数据量触发时）：单用户一份短摘要（~200 tokens），由 active Memory 巩固生成，供检索锚点；**不替代**逐条 `MemoryRecord`，用户可编辑 Profile 文本。
-
-## 4. Scope 与隔离
+## 3. Scope 与隔离
 
 ```ts
 type MemoryScope = 'user';
 ```
 
-- 每条 Memory 归属 `userId`。不支持 project / workspace / org / public。
-- **Session 默认隔离**：新 Session **禁止**扫描用户全部历史 Session；只能：
-  1. 检索当前 user 的 **active** Memory → `MemoryCard`；
-  2. 在 Lead 选中某 Card 后，按 `sourceRefs` **显式展开**同 user 的 prior-session 证据。
-- **Agent / Worker scope**（**C7-C**，与 P11 Delegation 同期）：Worker **默认不读** User Memory；仅 Lead 在 Delegation policy 授权且与 `WorkerTaskFrame` 相关时，由 K5 注入 MemoryCard（见 [08-worker-harness-runtime.md](./08-worker-harness-runtime.md)）。
+- 每条 Memory 归属 `userId`。不支持 project / workspace / org。
+- 新 Session **禁止**扫描全部历史 Session transcript；只能：
+  1. 对当前 user 的 **active** Memory 做 **向量检索**；
+  2. 按 `sourceRefs` **显式 ref expansion**（同 user、有 budget）。
+- **Worker（C7-C）**：默认不读 User Memory；仅 Lead 授权且 policy 允许时注入。
 
-## 5. 什么能进 Memory
+## 4. 什么能进 Memory
 
-### 5.1 鼓励写入（Semantic）
+### 4.1 鼓励写入
 
-- 用户**明确**表达的长期偏好：语言、报告结构、引用风格、默认深度等。
-- 用户**明确**要求「以后都…」「记住我…」的设定。
-- 用户对自己工作方式的**稳定自述**（角色、常用栈），且带来源消息。
+- 用户 **明确**「记住 / 以后都 / 别忘了」。
+- 用户 **稳定自述**（身份、常住、职业、语言/格式偏好等），模型判断跨 Session 有用时应调用 `memory_write`。
+- Settings **手动新增/编辑**。
 
-### 5.2 仅 Candidate（需审核才 active）
+### 4.2 建议 candidate（不注入，直至用户 accept）
 
-- 模型从多次行为**推断**的偏好（未听到用户明确「记住」）。
-- 可能有用但 durable intent 不清晰的信息。
-- Profile 巩固产生的条目（若与显式 Memory 冲突，以显式为准）。
+- 模型 **`storageIntent: inferred`** 且用户当轮 **无** durable 信号（未说记住、非明显自述）；
+- 低置信内容（若 Tool 传 `confidence: low`，服务端可直接拒绝）。
 
-### 5.3 禁止写入
+首版可简化为：**Tool 成功且通过门控 → 一律 active**；candidate 仅 Settings 手工或二期收紧。
 
-- 网页事实、市场数据、新闻、单次调研结论（属于 Task 结果或 Evidence，不是用户画像）。
-- Search/Fetch provider 摘要作为「用户偏好」。
-- API Key、token、env、私钥；`secret_suspected` 一律 blocked。
-- Raw prompt、完整 trace、raw tool output 副本。
-- 未授权第三方个人信息。
-- **仅当前 Session 的一次性要求**（「这次用表格」→ 不进 Memory，留在 Session context）。
+### 4.3 禁止写入（Tool Handler 硬拒绝）
 
-### 5.4 外部内容与 Memory 的防火墙
+- 网页/调研事实、行情、搜索摘要当作用户偏好；
+- Secret / credential（规则 + `secret_suspected`）；
+- Raw trace、整段 tool output 副本；
+- 单次任务结论、纯 chitchat。
 
-与 [00-agent-core-roadmap.md](./00-agent-core-roadmap.md) 来源边界一致：外部内容不可信，**不能**因为出现在对话里就自动成为「用户长期偏好」。Extractor 必须带 `containsExternalResearchFact` 检测；为 true 则拒绝或仅写 Observe 调试事件。
-
-## 6. 类型与状态
+## 5. 类型与状态
 
 ```ts
 type MemoryKind =
-  | 'preference'           // 语言、风格、默认选项
-  | 'workflow'             // 先摘要后细节、确认再执行等
-  | 'format'               // Markdown/引用/标题规范
-  | 'correction'           // 用户纠正 agent 的持久规则
-  | 'identity_context';    // 稳定角色/领域（非实时位置）
+  | 'preference'
+  | 'workflow'
+  | 'format'
+  | 'correction'
+  | 'identity_context';
 
 type MemoryStatus =
-  | 'candidate'   // 待审核，不注入
-  | 'active'      // 可检索、可注入
-  | 'superseded'  // 被新 Memory 取代，保留审计
-  | 'rejected'    // 用户拒绝
-  | 'expired';    // TTL 或证据失效
+  | 'candidate'
+  | 'active'
+  | 'superseded'
+  | 'rejected'
+  | 'expired';
 ```
 
-首版不引入 `project_convention` / `org_policy` 类型；组织级规则走配置或 Skills，不走 User Memory。
+**多条并存**：同一 `kind` 下 **允许多条 active**（如「姓名」与「职业背景」）。**禁止**按 `kind` 整类 supersede。
 
-## 7. 数据模型
+**Supersede**：仅当 `memory_write` 的 `action: update` 指向明确 `memoryId`，或 dedup 判定为 **同一事实更新** 时，将旧记录标为 `superseded` 并填 `supersedesMemoryId`。
 
-### 7.1 MemoryRecord（持久化）
+## 6. 数据模型
+
+### 6.1 MemoryRecord
 
 ```ts
 type MemoryRecord = {
   memoryId: string;
   userId: string;
   kind: MemoryKind;
-  title: string;              // 短标题，UI 与检索
-  summary: string;            // 注入主文案（MemoryCard 主体）
-  content?: string;           // 可选长文；默认不注入模型
+  title: string;              // Settings 与检索标题，建议 ≤80 字
+  summary: string;            // 注入主文案，建议 ≤500 字（对齐 Kimi 单条上限量级）
   status: MemoryStatus;
   confidence: 'low' | 'medium' | 'high';
   freshness: 'fresh' | 'stale' | 'unknown';
-  importance: 'low' | 'medium' | 'high';  // 巩固与 budget 裁剪
+  importance: 'low' | 'medium' | 'high';
   sensitivity: 'normal' | 'private' | 'secret_suspected';
-  validFrom?: string;         // ISO8601，可选
-  validUntil?: string;        // 事件型偏好过期
-  sourceRefs: StateRef[];     // 必填方可 active
-  evidenceRefs?: StateRef[];
-  policy: {
-    allowAutoInject: boolean;
-    allowUseInWorker: boolean;
-  };
-  extraction: {
+  sourceRefs: StateRef[];     // active 必填；由 Tool Handler 注入，模型不可伪造
+  policy: { allowAutoInject: boolean; allowUseInWorker: boolean };
+  provenance: {
     sourceSessionId: string;
     sourceRunId?: string;
-    extractorVersion: string;
+    sourceToolCallId?: string;
+    writer: 'memory_write' | 'settings' | 'candidate_accept';
     policyVersion: string;
   };
   supersedesMemoryId?: string;
+  embeddingModel?: string;
+  embeddedAt?: string;
   createdAt: string;
   updatedAt: string;
-  lastUsedAt?: string;        // 检索注入时更新
+  lastUsedAt?: string;
   useCount?: number;
-  expiresAt?: string;
 };
 ```
 
-**Invariant**：`status === 'active'` ⇒ `sourceRefs.length > 0` 且非 `secret_suspected`。
+**Invariant**：`status === 'active'` ⇒ `sourceRefs.length > 0` 且非 `secret_suspected` 且 embedding 就绪（或 Settings 展示 `indexingStatus: pending`）。
 
-### 7.2 MemoryCandidate（写入管道中间态）
+### 6.2 MemoryCandidate（C7 可选）
+
+推断写入或产品收紧时使用；**pending 不注入、不参与向量 active 集**。首版可只做 `memory_records`，candidate 表延后。
+
+### 6.3 PostgreSQL 向量存储
+
+**生产路径**：启用 [pgvector](https://github.com/pgvector/pgvector) 扩展，在 `memory_records` 上存 **document embedding**（与 query 同模型、同维度）。
+
+```sql
+-- migration 内（扩展可用时）
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 列名实现可微调，语义冻结如下：
+-- embedding_model  text        -- 如 kinfra-text-embedding-4b（revision 字符串）
+-- embedded_at      timestamptz
+-- embedding        vector(2560) -- 维度须与 MEMORY_EMBEDDING_DIMENSIONS 一致
+```
+
+检索：
+
+```sql
+-- 仅 status = 'active' AND user_id = $1 AND embedding IS NOT NULL
+ORDER BY embedding <=> $queryVector::vector
+LIMIT top_k;
+```
+
+**降级路径**（本地无 extension）：`embedding_json jsonb` 存 float 数组 + 应用层 cosine；**不得**静默改读 keyword 主路径。`readyz` 可选报告 `pgvector: ok | fallback_jsonb`。
+
+**Invariant**：换 embedding 模型/revision 后，旧向量视为 `missing_embedding`（Gate omit），需 backfill 脚本重 embed。
+
+### 6.4 MemoryCard / K5 输入
+
+与现协议一致：`MemoryCard` 供 trace；`MemoryContextInput[]` 供 K5 渲染 `<user_memory>`，附 **disclaimer**（参考优先级低于当前用户指令）。
+
+## 7. 写路径：`memory_write` Tool
+
+### 7.1 工具注册
+
+- 协议名：`memory_write`（写入 `AGENT_TOOL_NAMES`）。
+- `approval`：首版 `auto_execute`（与 `get_current_time` 同级）；若滥写严重可对 `action: delete` 单独加 approval。
+- **Feature flag**：`MEMORY_WRITE` + 用户 Settings「允许 Agent 写入记忆」（与展示开关分离：可读可关写）。
+
+### 7.2 参数 Schema
 
 ```ts
-type MemoryCandidate = {
-  candidateId: string;
-  userId: string;
-  sourceSessionId: string;
-  sourceRunId?: string;
-  kind: MemoryKind;
-  title: string;
-  summary: string;
-  sourceRefs: StateRef[];
-  confidence: 'low' | 'medium' | 'high';
-  reason: string;             // 给审核 UI
-  status: 'pending_review' | 'accepted' | 'rejected';
+type MemoryWriteAction = 'create' | 'update' | 'delete';
+
+type MemoryWriteInput = {
+  action: MemoryWriteAction;
+  /** update/delete 必填；create 禁止 */
+  memoryId?: string;
+  /** create/update 必填 */
+  title?: string;
+  /** create/update 必填；注入与 Settings 展示主文 */
+  content?: string;
+  kind?: MemoryKind;
+  /** 模型自报；服务端可覆盖 */
+  storageIntent?: 'explicit' | 'inferred';
+  confidence?: 'low' | 'medium' | 'high';
 };
 ```
 
-### 7.3 MemoryCard（读路径 / 模型默认可见）
+**组合规则**：
+
+| action | 必填 | 行为 |
+|--------|------|------|
+| `create` | `title`, `content` | 门控 → dedup（命中则转 update）→ insert active → embed |
+| `update` | `memoryId`, `title`, `content` | 归属校验 → supersede 链 → upsert → re-embed |
+| `delete` | `memoryId` 或服务端按 title 唯一匹配 | soft delete 或 `status: expired` |
+
+**Tool 返回**（模型可见）：
 
 ```ts
-type MemoryCard = {
-  memoryId: string;
-  kind: MemoryKind;
-  title: string;
-  summary: string;
-  confidence: 'low' | 'medium' | 'high';
-  freshness: 'fresh' | 'stale' | 'unknown';
-  importance: 'low' | 'medium' | 'high';
-  sourceRefs: StateRef[];
-  flags?: {
-    stale?: boolean;
-    conflict?: boolean;
-  };
+type MemoryWriteOutput = {
+  ok: boolean;
+  action: MemoryWriteAction;
+  memoryId?: string;
+  status: 'active' | 'candidate' | 'rejected';
+  reason?: string;           // rejected 时：secret_suspected | external_fact | duplicate | limit_exceeded | ...
+  indexingStatus?: 'ready' | 'pending' | 'failed';
 };
 ```
 
-模型默认只见 **MemoryCard**（及 K5 渲染后的区块）。读 `content` 或展开 prior-session 原文必须走 **Lead 工具或 ref expansion API**，受 token/count budget 限制。
-
-### 7.4 K5 输入（与 C6 边界）
-
-Memory Retriever 向 K5 提供（见 [39-k5-context-engineering.md](./39-k5-context-engineering.md)）：
-
-```ts
-type MemoryContextInput = {
-  memoryId: string;
-  content: string;            // 通常 = summary；必要时短 content
-  sourceRefs: MemorySourceRef[];
-  priorityHint?: number;      // 不能替代权限与归属校验
-};
-```
-
-K5 决定：选哪些 Card、占多少 token、是否截断、是否 Omit 并记入 trace。
-
-## 8. 写入路径（Consolidation）
-
-业界共性：**读路径同步、写路径异步**。Harness 默认 **Subconscious Formation**（run 结束后异步），可选 **Explicit Formation**（用户当场说「记住」）。
-
-### 8.1 触发时机
+### 7.3 Handler 流程
 
 ```text
-Run → terminal (completed | failed | cancelled 且已有用户消息)
-  → enqueue MemoryExtractionJob (不阻塞 finalization)
-  → Eligibility → Extract → Policy → Persist
+memory_write(input)
+  → normalize title/content 长度
+  → Eligibility（secret / external / userId / sourceRefs 自动挂载当前 message+run）
+  → confidence === low → reject
+  → dedup（title 归一化 + embedding cosine ≥ dedupThreshold）
+  → persist
+  → embed（见 §7.4）
+  → return MemoryWriteOutput
 ```
 
-额外触发：
-
-- 用户消息显式「记住 / 以后都」→ 可同步写 **candidate** 或满足 policy 时 **active**（C7-B）。
-- 用户 Settings 手动新增 / 编辑 Memory。
-- C7-C 可选 nightly **ConsolidationJob**：合并重复 candidate、刷新 Profile、标记 stale（输入仅限已有 sourceRefs 的记录，禁止无证据合成）。
-
-### 8.2 Eligibility（Auto-active 门槛）
+**sourceRefs**（服务端强制）：
 
 ```ts
-type MemoryEligibility = {
-  sourceIsUserAuthored: boolean;
-  hasDurableIntent: boolean;
-  containsExternalResearchFact: boolean;
-  containsSecretRisk: boolean;
-  sourceRefs: StateRef[];
-};
+{ refType: 'message', refId, userId, sessionId, runId, relation: 'source' }
 ```
 
-Auto-active 当且仅当：
+### 7.4 Embedding 时序
 
-```text
-sourceIsUserAuthored
-AND hasDurableIntent
-AND NOT containsExternalResearchFact
-AND NOT containsSecretRisk
-AND sourceRefs.length > 0
-```
+| 场景 | embed |
+|------|--------|
+| `storageIntent: explicit` 或用户句匹配「请记住」类 pattern | **同步** embed，返回前完成（失败则 `indexingStatus: failed`，记录仍可为 active） |
+| 其余 create/update | **异步** embed + 重试；未就绪前 Retriever Gate `missing_embedding` |
 
-否则 → `candidate` 或丢弃（丢弃须 Observe 可统计 reason）。
+文档向量：`buildMemoryDocumentText(title, summary)`；query 与 document 同一 embedding 模型/revision。
 
-### 8.3 Extractor 行为（LLM + 规则）
+### 7.5 模型指令（Tool description + System 摘要）
 
-1. 输入：本次 Run 内**用户消息** + 必要 Steer（不含 full tool output）。
-2. 输出：0..N 条 `{ kind, title, summary, confidence, reason, sourceRefs }`。
-3. 规则后处理：secret redaction、dedup（embedding 或 keyword，首版 keyword + title 归一化）、与 active 冲突检测。
-4. **冲突**：新明确用户意图优先 → 新记录 `active`，旧记录 `superseded`，保留 `supersedesMemoryId` 链。
-5. **时间**：抽取时识别事件型语句（「下周去新加坡」）→ 填 `validUntil` 或 extraction 后由 Consolidation 标记 stale（对齐业界 temporal / freshness 实践，首版不建图数据库）。
+- 用户明确要求长期记住 → **必须** `memory_write`（`create` 或 `update`）。
+- 用户 **多事实自述**（身份、地址、职业等）→ 应写入；可 **一条 content** 含多事实（≤500 字）或 **多条 create**（避免只写出生年丢地址）。
+- 用户更正 / 忘记 → `update` / `delete`。
+- **禁止**写入搜索结果、一次性任务结论。
+- 写入成功后，**同 Run 后续轮次**仍依赖 **向量注入**；Tool 结果仅作确认，不替代读路径。
 
-### 8.4 不在 Hot Path 开放「Agent 自写 Memory Tool」
+### 7.6 限额（可调）
 
-Letta/MemGPT 式 agent 自管内存与 Harness 的 eligibility / candidate 门控冲突。首版 **Lead 不提供** `memory.write` 给模型；用户显式指令由 Host 解析或 C7-B UI 写入。后续若开放，仅允许写 **candidate**。
+建议默认（对齐 Kimi 量级，可 env 覆盖）：
 
-## 9. 读路径（Recall）
+- 每 user **active 条数上限** 50（超出 → reject 或 candidate）。
+- 单条 `content` **500 字符**（超出 truncate 或 reject）。
 
-### 9.1 Retriever（Context 编译前）
+## 8. 读路径：向量 Retriever
 
-在 K5 之前运行（或作为 C6 服务被 K5 调用）：
+### 8.1 原则
+
+- **语义主召回**：embedding cosine；**禁止**用 keyword/regex 作为主 relevance 打分（Gate 布尔规则除外）。
+- **不**提供 `memory_search` / `memory_read` Tool 给主 Agent（读为编译器职责）。
+
+### 8.2 请求
 
 ```ts
 type MemoryRetrievalRequest = {
   userId: string;
   sessionId: string;
   runId: string;
-  query: string;              // 当前 task + 最近 user turn 合成
+  query: string;              // composeMemoryRetrievalQuery(lastUser, prevUser)
   kinds?: MemoryKind[];
-  maxCards: number;
-  tokenBudget: number;
+  maxCards: number;           // 默认 8
+  tokenBudget: number;        // 默认 ~600 tokens
+  retrieveTopK: number;       // 默认 32
+  minSimilarity: number;      // 默认 ~0.32，环境可配
   includeStale?: boolean;
 };
 ```
 
-步骤：
+### 8.3 步骤
 
-1. 只查 `userId` + `status = active` + `allowAutoInject`。
-2. 排序：`relevance`（keyword 首版；达规模后 optional hybrid vector）、`importance`、`freshness`、`confidence`、**recency of use**（`lastUsedAt` / `useCount`）。
-3. 输出 `MemoryCard[]`，总量 ≤ `maxCards` 且估算 token ≤ `tokenBudget`。
-4. 更新被选中卡的 `lastUsedAt` / `useCount`（异步即可）。
+1. `query.trim()` 空 → 不检索。
+2. Query embedding；失败 → trace `queryEmbedFailed`，不注入。
+3. 向量 Top-K（pgvector；无扩展时 JSONB + 回退）。
+4. 行级 **Gate**：secret、sensitive、disabled policy、stale、无 sourceRefs、**missing_embedding**、kind 过滤。
+5. **minSimilarity**；小库可选 `MEMORY_SMALL_SET_INJECT` 绕过阈值（仅 dev/极小 active 集）。
+6. 排序：similarity → importance → freshness → confidence → lastUsedAt。
+7. 预算裁剪 → `MemoryCard[]` + `MemoryInjectionTrace`（含 `includedSimilarities`、omitted reasons）。
+8. 更新 `lastUsedAt` / `useCount`（异步）。
 
-### 9.2 Context 注入优先级
+### 8.4 注入优先级
 
 ```text
-System Instructions / Skills（若本 run 启用）
+System / Skills
 Current User Instruction + Steer
-Current Session Task Frame + Run Facts
-Relevant User Memory Cards（K5 渲染区块）
-Compaction Summary + Recent Transcript
-Tool Definitions
+Session Task Frame + Run Facts
+<user_memory>（Retriever 结果）
+Compaction + Transcript
+Tools
 ```
 
-Memory **不能**覆盖：当前用户指令、安全边界、Tool Policy、Steer。
-
-### 9.3 跨 Session Ref Expansion
-
-授权条件（全部满足）：
-
-1. Memory 与 ref 目标均属当前 `userId`。
-2. 当前 step 已选中该 MemoryCard（或 Lead 发起 expansion tool）。
-3. ref ∈ `sourceRefs` ∪ `evidenceRefs`。
-4. 展开条数与 token 受 `MemoryExpansionBudget` 限制。
-
-禁止：任意 `sessionId` 全库搜索、Worker 默认 expansion。
-
-### 9.4 MemoryInjectionTrace
+### 8.5 MemoryInjectionTrace
 
 ```ts
 type MemoryInjectionTrace = {
   runId: string;
   stepId: string;
   includedMemoryIds: string[];
-  omitted: Array<{
-    memoryId?: string;
-    reason: 'low_relevance' | 'stale' | 'budget' | 'sensitive' | 'disabled' | 'candidate';
-  }>;
+  includedSimilarities?: Record<string, number>;
+  omitted: Array<{ memoryId?: string; reason: string }>;
   tokenEstimate: number;
+  queryEmbedFailed?: boolean;
 };
 ```
 
-写入 Observe；默认不对用户或模型展示完整 trace（Workbench 调试 C7-B+ 可选）。
+结构化日志事件：`memory.injection.trace`（info）、`memory.query_embed.failure`、`memory.tool.write`（success/reject）。
 
-## 10. 用户控制面（C7-B）
+## 9. 用户控制面（Settings — 保留现有产品形态）
 
-Web Workbench / Settings 必须支持：
+Web Settings → **记忆** Tab **必须保留**：
 
-- 查看 active Memory 与 pending candidate；
-- accept / reject / edit后 accept candidate；
-- 删除 active、disable `allowAutoInject`、disable 全局 Memory 生成；
-- 查看简短 **Memory Summary**（可选 Profile）；
-- 与 ChatGPT 类似：用户 corrections 立即影响后续检索权重（importance ↑ 或 pin）。
+| 能力 | 说明 |
+|------|------|
+| **已生效的记忆** | 列表展示 active 条目（kind 标签、title、summary 摘要） |
+| **条数** | 列表标题旁 **「共 N 条」**（N = 当前 user active 计数） |
+| **删除** | 单条删除（等价 delete 或 status 变更） |
+| **手动新增/编辑** | 走 Settings API，provenance `settings`，同步 embed |
+| **开关** | 全局 Memory 读/写 capability（`MEMORY_READ` / `MEMORY_WRITE` + 用户级「允许 Agent 写入记忆」） |
+| **indexingStatus** | 未 embed 就绪时展示「索引未就绪」，避免用户以为已可被召回 |
+| **待审核（可选）** | candidate 列表 + accept/reject；与「共 N 条」分开展示 |
 
-API 见 [11-api-protocol.md](./11-api-protocol.md)（`memory-candidates` review 等）；协议字段以 `packages/agent-protocol` 冻结为准。
+**不做变更**：用 Settings 列表作为用户管理记忆的主界面；条数统计继续对用户可见。
 
-## 11. Session 删除与合规
+## 10. API（摘要）
 
-Session 删除时：
+- `GET /api/agent/memories` — active 列表（供 Settings 与条数）。
+- `POST/PATCH/DELETE /api/agent/memories/:id` — 手动 CRUD。
+- `GET/PATCH /api/agent/memory-settings` — 用户级开关。
+- `POST /api/agent/memory-candidates/:id/review` — 若启用 candidate。
 
-```text
-find MemoryRecord where sourceRefs reference deleted session
-→ remove those refs
-→ if no refs remain: delete or expire record
-→ else: recompute confidence / freshness / status
-```
+公开 config：`capabilities.memoryRead` / `memoryWrite`。
 
-用户不可见的 Session 证据不得在 Memory 中无限期留存。
+## 11. 配置与环境
 
-## 12. 存储与检索技术
+### 11.1 功能开关
 
-- **Metadata + summary/content**：PostgreSQL `memory_records` / `memory_candidates`（见 [12-storage-schema.md](./12-storage-schema.md) §20）。
-- **首版检索**：PostgreSQL `tsvector` / keyword + `kind` / `status` 索引；**不强制**向量库。
-- **升级信号**：单用户 active 条数持续 > ~200、或检索 recall 不足 → 引入 optional embedding 索引（仍保留 sourceRefs 与 audit 字段）。
-- **图 / 时序 KG**：非 C7-A/C7-B 范围；若未来需要「关系与时间线」，单独 ADR，不阻塞首版。
+| 变量 | 含义 |
+|------|------|
+| `MEMORY_READ` | 启用读路径（Retriever + K5 注入） |
+| `MEMORY_WRITE` | 注册 `memory_write` Tool |
+| `MEMORY_MIN_SIMILARITY` | 召回 cosine 阈值（默认 `0.32`） |
+| `MEMORY_RETRIEVE_TOP_K` | 向量候选数（默认 `32`） |
+| `MEMORY_DEDUP_THRESHOLD` | 写入 dedup（默认 `0.92`） |
+| `MEMORY_SMALL_SET_INJECT` | active ≤ cap 时 bypass 阈值（**生产默认 false**） |
+| `MEMORY_ACTIVE_CAP` | 每 user active 上限（默认 `50`） |
 
-## 13. 分阶段交付（C7-A / C7-B / C7-C）
+### 11.2 Embedding 网关（必填：生产 / 推荐：本地）
 
-### C7-A — Read Path
+与 Chat 模型 **分离**：Memory 使用 **OpenAI 兼容** `POST {baseUrl}/embeddings`（或网关文档等价路径）。
 
-- 表结构 + Retriever + MemoryCard；
-- K5-B 将选中 Memory 渲染进 Context（feature flag `memory.read`）；
-- Ref expansion 归属校验；
-- MemoryInjectionTrace；
-- **不做**自动写入、candidate UI。
+| 变量 | 含义 |
+|------|------|
+| `MEMORY_EMBEDDING_BASE_URL` | Embedding HTTP 根地址，如 `https://your-gateway.example/v1`（**无** trailing slash 歧义时实现应 normalize） |
+| `MEMORY_EMBEDDING_API_KEY` | Bearer API Key |
+| `MEMORY_EMBEDDING_MODEL` | 模型 id，默认 **`kinfra-text-embedding-4b`** |
+| `MEMORY_EMBEDDING_DIMENSIONS` | 向量维度，默认 **`2560`**（须与 pgvector 列维一致） |
+| `MEMORY_EMBEDDING_TIMEOUT_MS` | 请求超时（默认 `30000`） |
 
-验收：
+**请求语义（冻结）**：
 
-- 仅当前 user 的 active Memory 可被检索；
-- 新 Session 可收到相关 MemoryCard；
-- prior-session 证据仅经显式 expansion；
-- 无全历史 Session 扫描 API。
+- Document：`input = title + "\n" + summary`（见 `buildMemoryDocumentText`）
+- Query：`input = composeMemoryRetrievalQuery(...)` 的字符串
+- 响应：取 `data[0].embedding` float 数组，长度必须等于 `MEMORY_EMBEDDING_DIMENSIONS`
 
-### C7-B — Write / Review
+**`embeddingModel` revision**：持久化字段存 **`MEMORY_EMBEDDING_MODEL` 字符串**；Retriever Gate 要求 record.embeddingModel 与当前配置一致，否则 `missing_embedding`。
 
-- Extractor + Policy + async job；
-- Candidate review UI + CRUD；
-- dedup / supersede / expire；
-- secret & external-fact 测试集；
-- Session 删除级联重评估。
+**本地开发**（仅 `NODE_ENV=development` 且未配置 `MEMORY_EMBEDDING_API_KEY`）：允许 **deterministic 伪向量** 以便无网关跑通链路；**生产禁止**，`MEMORY_READ=true` 且无 Key 时应 fail fast 或 health 告警。
 
-验收：
+### 11.3 pgvector 与数据库
 
-- 明确长期偏好可 auto-active；
-- 推断仅 candidate；
-- 网页事实不进 Memory；
-- 用户可删改关。
+- Docker/本地 Postgres 镜像需带 pgvector，或启动后 `CREATE EXTENSION vector`。
+- 提供脚本：`pnpm --filter @harness/api memory:backfill-embeddings`（对 `embedded_at IS NULL` 的 active 记录重算向量）。
 
-### C7-C — Delegation 联动（与 P11 同期）
+`.env.example` 须包含 §11.1–11.2 变量（见仓库根目录）。
 
-- Worker 读 Memory 仅 Lead 授权 + `allowUseInWorker`；
-- Worker 禁止 write / review / search store；
-- 可选：User Memory Profile、ConsolidationJob（合并 candidate、标记 stale）。
+## 12. 分阶段交付
 
-## 14. 测试与评估建议
+### C7 — Memory MVP（单一阶段，完整闭环）
 
-不迷信单一 benchmark。建议自建 Harness 集：
+**存储与向量**
+
+- `memory_records` + pgvector（§6.3）+ migration；
+- `MemoryEmbeddingService` 对接 **BASE_URL + API_KEY**；
+- 写入/更新后 embed；显式记住 **同步 embed**，其余可 async 重试。
+
+**写**
+
+- `memory_write` Tool（§7）+ 门控 + dedup + sourceRefs 服务端挂载；
+- Settings 手动 CRUD（provenance `settings`）；
+- **无** Run-terminal Extractor。
+
+**读**
+
+- Retriever（§8）+ K5 `<user_memory>` + InjectionTrace + ref expansion 归属校验。
+
+**UI**
+
+- Settings → 记忆：**已生效的记忆** + **共 N 条**、删除、手动增改、`indexingStatus`、读/写开关（用户级可简化为与全局 capability 一致）。
+
+**验收**（全部满足）
+
+1. 配置 `MEMORY_EMBEDDING_BASE_URL` + `MEMORY_EMBEDDING_API_KEY` 后，Tool 或 Settings 写入 → DB 有向量 → Settings 显示 **共 N 条** 且 `indexingStatus=ready`。
+2. 新 Session：用户先「请记住…」或自述 + 模型调 Tool → 再问相关事实 → trace 有 included，context 含 `<user_memory>`。
+3. **同 kind 多条并存**；`update` 才 supersede 单条。
+4. 调研/secret 写入被拒绝；`MEMORY_READ=false` 不注入。
+5. 无「扫描全 Session transcript」API。
+
+### C7-C — Delegation
+
+- Worker 读门控；禁止 Worker 调用 `memory_write`；
+- 可选 ConsolidationJob（去重 candidate、标记 stale）。
+
+## 13. 测试场景
 
 | 场景 | 期望 |
 |------|------|
-| 跨 Session 语言/格式偏好 | 检索命中并注入 |
-| 用户纠正后 supersede | 旧 preference 不再注入 |
-| 调研结论句 | 拒绝写入 |
-| 假 API key | blocked |
-| Session 删除 | ref 清理 / expire |
-| Token budget | 低 importance 先 omitted |
+| Tool create 后跨 Session 问答 | 向量命中并注入 |
+| 只聊天不调 Tool | Settings 条数不变 |
+| 同 kind 两条 identity | 均 active，均可能被检索 |
+| update 姓名 | 旧姓名 superseded，新姓名 active |
+| 调研句 write | Tool reject |
+| embed 失败 | Settings indexingStatus 提示 |
+| Token budget | trace omitted `budget` |
 
-可参考外部数据集做回归：**LoCoMo**、**LongMemEval**（见 [snap-research LoCoMo](https://snap-research.github.io/locomo/)），但产品约束以本文 §5 为准。
+## 14. 明确不做（首版）
 
-## 15. 明确不做（首版）
-
-- project / workspace / org Memory scope；
+- Run terminal **Extractor** 第二 LLM 流水线；
+- 读记忆 **Tool**（主 Agent）；
+- 按 **kind** 批量 supersede；
+- project/org Memory scope；
 - 全 transcript episodic 入库；
-- 模型 hot-path 自写 Memory；
-- Memory 替代 Skills 或 User Rules；
-- 向量库 / 知识图谱硬依赖；
-- Worker 默认 Memory 访问。
+- Worker 默认读/写 Memory。
 
-## 16. 参考（业界，非规范）
+## 15. 参考
 
-- 分层与写路径：[LangMem Conceptual Guide](https://langchain-ai.github.io/langmem/concepts/conceptual_guide/)、[Memory in Agents — Philipp Schmid](https://www.philschmid.de/memory-in-agents)
-- 独立 Memory 层：[Mem0](https://github.com/mem0ai/mem0)、[Zep / Graphiti 时序图](https://arxiv.org/abs/2501.13956)
-- 产品治理：[OpenAI ChatGPT Memory / Dreaming](https://openai.com/index/chatgpt-memory-dreaming/)
+- Kimi [记忆空间](https://www.kimi.com/help/features/memory-space)（Tool + 条目管理心智）
+- Mem0 / LangGraph Store（embed on write + vector recall）
 - Skills（独立）：[40-c6-skills.md](./40-c6-skills.md)
+- K5：[39-k5-context-engineering.md](./39-k5-context-engineering.md)

@@ -15,7 +15,8 @@
     "db:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
     "db:studio": "dotenv -e ../../.env -- prisma studio",
     "migrate:agent-metadata": "dotenv -e ../../.env -- tsx scripts/migrate-agent-metadata.ts",
-    "repair:agent-detail-blocks": "dotenv -e ../../.env -- tsx scripts/repair-agent-detail-blocks.ts"
+    "repair:agent-detail-blocks": "dotenv -e ../../.env -- tsx scripts/repair-agent-detail-blocks.ts",
+    "memory:backfill-embeddings": "dotenv -e ../../.env -- tsx scripts/backfill-memory-embeddings.ts"
   },
   "dependencies": {
     "@alibaba-group/opensandbox": "0.1.11",

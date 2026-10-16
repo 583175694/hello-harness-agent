@@ -38,6 +38,11 @@ export * from './mcp/icons.js';
 export * from './auth/contracts.js';
 export * from './tools/external-tool.contracts.js';
 export * from './tools/mcp-display.js';
+export * from './memory/contracts.js';
+import {
+  memoryWriteInputSummarySchema,
+  memoryWriteResultSchema,
+} from './memory/contracts.js';
 import {
   webFetchInputSchema,
   webFetchPassageSchema,
@@ -136,6 +141,15 @@ export const runContextDebugSchema = z.object({
       toolCount: z.number().int().nonnegative(),
     })
     .optional(),
+  memoryInjection: z
+    .object({
+      includedMemoryIds: z.array(z.string()),
+      includedSimilarities: z.record(z.number()).optional(),
+      omitted: z.array(z.object({ memoryId: z.string().optional(), reason: z.string() })),
+      tokenEstimate: z.number().int().nonnegative(),
+      queryEmbedFailed: z.boolean().optional(),
+    })
+    .optional(),
 });
 export const publicModelConfigSchema = z.object({
   id: z.string().min(1),
@@ -144,9 +158,40 @@ export const publicModelConfigSchema = z.object({
   supportsVision: z.boolean().optional(),
   context: modelContextProfileSchema.optional(),
 });
+export const memoryIndexingStatusSchema = z.enum(['ready', 'pending', 'failed']);
+
+export const memoryRecordViewSchema = z.object({
+  memoryId: z.string().min(1),
+  kind: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  status: z.string().min(1),
+  confidence: z.enum(['low', 'medium', 'high']),
+  freshness: z.enum(['fresh', 'stale', 'unknown']),
+  importance: z.enum(['low', 'medium', 'high']),
+  indexingStatus: memoryIndexingStatusSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const memoryListResponseSchema = z.object({
+  memories: z.array(memoryRecordViewSchema),
+  activeCount: z.number().int().nonnegative(),
+});
+
+export const memorySettingsViewSchema = z.object({
+  allowAgentWrite: z.boolean(),
+});
+
 export const publicAgentConfigSchema = z.object({
   defaultModel: z.string().min(1),
   models: z.array(publicModelConfigSchema).min(1),
+  capabilities: z
+    .object({
+      memoryRead: z.boolean(),
+      memoryWrite: z.boolean(),
+    })
+    .optional(),
 });
 
 // 定义聊天和未来工具循环共用的消息基础字段。
@@ -287,6 +332,10 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
   toolExecutionBaseSchema.extend({
     toolName: z.literal('get_current_time'),
     input: z.object({}),
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.memoryWrite),
+    input: memoryWriteInputSummarySchema,
   }),
   toolExecutionBaseSchema.extend({
     toolName: z.literal('search_file'),
@@ -545,6 +594,19 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     roundSequence: z.number().int().positive(),
     blockSequence: z.number().int().nonnegative(),
     toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.memoryWrite),
+    title: z.string().min(1),
+    input: memoryWriteInputSummarySchema,
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
     toolName: z.literal('approval_test'),
     title: z.string().min(1),
     input: z.object({ message: z.string().min(1).max(500) }),
@@ -776,6 +838,19 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
       time: z.string(),
       timezone: z.literal('Asia/Shanghai'),
     }),
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.memoryWrite),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: memoryWriteResultSchema,
   }),
   z.object({
     type: z.literal('tool.completed'),
@@ -1344,6 +1419,11 @@ export type RunControlCommand = z.infer<typeof runControlCommandSchema>;
 export type RunControlResponse = z.infer<typeof runControlResponseSchema>;
 export type PublicAgentConfig = z.infer<typeof publicAgentConfigSchema>;
 export type PublicModelConfig = z.infer<typeof publicModelConfigSchema>;
+export type MemoryRecordView = z.infer<typeof memoryRecordViewSchema>;
+export type MemoryWriteInputSummary = z.infer<typeof memoryWriteInputSummarySchema>;
+export type MemoryWriteResult = z.infer<typeof memoryWriteResultSchema>;
+export type MemoryListResponse = z.infer<typeof memoryListResponseSchema>;
+export type MemorySettingsView = z.infer<typeof memorySettingsViewSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export type ChatResponse = z.infer<typeof chatResponseSchema>;
 export type ToolCall = z.infer<typeof toolCallSchema>;

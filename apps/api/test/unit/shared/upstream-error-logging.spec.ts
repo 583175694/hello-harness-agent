@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { BadGatewayException } from '@nestjs/common';
+import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
+
 import { fetchJson, UpstreamHttpError } from '../../../src/shared/fetch-json';
-import { describeLogError } from '../../../src/shared/logging.utils';
+import { describeLogAgentUpstreamError, describeLogError } from '../../../src/shared/logging.utils';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -51,5 +54,38 @@ describe('upstream error logging', () => {
     expect(describeLogError(error)).toBe(
       'AuthenticationError: 401 authentication failed | HTTP=401 | 供应商错误码=invalid_api_key | 类型=authentication_error | 请求ID=req-model-1 | 根因=Error: connect ECONNREFUSED 10.0.0.8:443',
     );
+  });
+
+  it('expands wrapped agent HttpException to the model upstream cause for run logs', () => {
+    const upstream = Object.assign(new Error('502 Bad Gateway'), {
+      name: 'APIError',
+      status: 502,
+      requestID: 'req-stream-9',
+      responseBody: { error: { message: 'upstream overloaded' } },
+    });
+    const wrapped = new BadGatewayException(
+      {
+        code: AGENT_ERROR_CODES.modelStreamInterrupted,
+        detail: '模型响应流意外中断，本次回答未完成。',
+      },
+      { cause: upstream },
+    );
+
+    const detail = describeLogAgentUpstreamError(wrapped);
+    expect(detail).toContain('对外码=MODEL_STREAM_INTERRUPTED');
+    expect(detail).toContain('模型上游=');
+    expect(detail).toContain('APIError: 502 Bad Gateway');
+    expect(detail).toContain('HTTP=502');
+    expect(detail).toContain('请求ID=req-stream-9');
+    expect(detail).toContain('upstream overloaded');
+  });
+
+  it('unwraps wrapped HttpException in describeLogError', () => {
+    const upstream = new Error('socket hang up');
+    const wrapped = new BadGatewayException(
+      { code: AGENT_ERROR_CODES.modelRequestFailed, detail: '模型供应商返回失败，本次回答未完成。' },
+      { cause: upstream },
+    );
+    expect(describeLogError(wrapped)).toContain('模型上游=Error: socket hang up');
   });
 });

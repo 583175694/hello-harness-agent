@@ -541,9 +541,8 @@ Memory、Delegation、认证、远程存储和服务端重启自动续跑不是 
 
 | 阶段 | 摘要 |
 |------|------|
-| **C7-A** | `memory_records`、Retriever → MemoryCard、K5 注入、ref expansion、`MemoryInjectionTrace`；不做自动写入 |
-| **C7-B** | Extractor、Policy、candidate UI、dedup/supersede、Session 删除重评估、secret/外部事实防火墙 |
-| **C7-C** | Worker 读 Memory 门控（与 §14 P11 同期）；可选 Profile / ConsolidationJob |
+| **C7** | **单一 MVP**：pgvector + `MEMORY_EMBEDDING_BASE_URL`/`API_KEY`、`memory_write`、向量 Retriever、K5 注入、Settings（**共 N 条**）；无 Run-terminal Extractor |
+| **C7-C** | Worker 读 Memory 门控（与 §14 P11 同期）；可选 ConsolidationJob |
 
 不做 project/workspace/org scope。
 

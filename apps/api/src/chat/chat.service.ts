@@ -23,6 +23,10 @@ import {
   sandboxJobToolTextResultSchema,
   toExecuteCommandInputSummary,
   executeCommandInputSchema,
+  formatMemoryWriteInputSummary,
+  formatMemoryWriteResultSummary,
+  memoryWriteInputSummarySchema,
+  memoryWriteResultSchema,
 } from '@harness/agent-protocol';
 import type {
   BashBackgroundResult,
@@ -350,6 +354,7 @@ export class ChatService {
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
         const isApprovalTest = event.toolName === AGENT_TOOL_NAMES.approvalTest;
         const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
+        const isMemoryWrite = event.toolName === AGENT_TOOL_NAMES.memoryWrite;
         const isFileSearch = event.toolName === AGENT_TOOL_NAMES.searchFile;
         const isFileRead =
           event.toolName === AGENT_TOOL_NAMES.readFile ||
@@ -368,6 +373,11 @@ export class ChatService {
           toolSummary = String((event.input as { message?: unknown }).message ?? '');
         } else if (isCurrentTime) {
           toolSummary = '获取当前日期和时间';
+        } else if (isMemoryWrite) {
+          const parsed = memoryWriteInputSummarySchema.safeParse(event.input);
+          toolSummary = parsed.success
+            ? formatMemoryWriteInputSummary(parsed.data)
+            : '写入记忆';
         } else if (isFileSearch) {
           const parsed = fileSearchInputSchema.safeParse(event.input);
           toolSummary = parsed.success ? `搜索文件 ${parsed.data.fileId}` : '搜索文件';
@@ -463,6 +473,20 @@ export class ChatService {
             toolName: AGENT_TOOL_NAMES.getCurrentTime,
             title: block.title,
             input: {},
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (isMemoryWrite) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.memoryWrite,
+            title: block.title,
+            input: memoryWriteInputSummarySchema.parse(event.input),
             startedAt: event.startedAt,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
@@ -642,6 +666,7 @@ export class ChatService {
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
         const isApprovalTest = event.toolName === AGENT_TOOL_NAMES.approvalTest;
         const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
+        const isMemoryWrite = event.toolName === AGENT_TOOL_NAMES.memoryWrite;
         const isFileSearch = event.toolName === AGENT_TOOL_NAMES.searchFile;
         const isFileRead =
           event.toolName === AGENT_TOOL_NAMES.readFile ||
@@ -652,6 +677,9 @@ export class ChatService {
         const isJobTool = this.isSandboxJobTool(event.toolName);
         const isBash = event.toolName === AGENT_TOOL_NAMES.bash;
         const isExecuteCommand = event.toolName === AGENT_TOOL_NAMES.executeCommand;
+        const memoryWriteResult = isMemoryWrite
+          ? memoryWriteResultSchema.parse(event.output)
+          : undefined;
         const fetchResult = isFetch ? (event.output as WebFetchResult) : undefined;
         const jobToolResult = isJobTool
           ? this.toSandboxJobToolTextResult(event.output)
@@ -722,6 +750,14 @@ export class ChatService {
             toolInput: event.input as { message: string },
             completedAt: event.completedAt,
             durationMs: event.durationMs,
+          });
+        } else if (memoryWriteResult) {
+          projection.recordMemoryWriteCompleted({
+            toolCallId: event.toolCallId,
+            toolInput: memoryWriteInputSummarySchema.parse(event.input),
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: memoryWriteResult,
           });
         } else if (fileSearchResult) {
           projection.recordFileSearchCompleted({
@@ -813,6 +849,7 @@ export class ChatService {
             fetchResult,
             isApprovalTest,
             isCurrentTime,
+            memoryWriteResult,
             fileSearchResult,
             fileReadResult,
             fileReadLinesResult,
@@ -944,6 +981,20 @@ export class ChatService {
               time: string;
               timezone: 'Asia/Shanghai';
             },
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (memoryWriteResult) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.memoryWrite,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: memoryWriteResult,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -1390,6 +1441,12 @@ export class ChatService {
         toolName: AGENT_TOOL_NAMES.approvalTest,
         input: { message: input.message },
       } as const;
+    if (toolName === AGENT_TOOL_NAMES.memoryWrite) {
+      const parsed = memoryWriteInputSummarySchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.memoryWrite, input: parsed.data }
+        : undefined;
+    }
     return undefined;
   }
 
@@ -1582,6 +1639,7 @@ export class ChatService {
     fetchResult?: WebFetchResult;
     isApprovalTest: boolean;
     isCurrentTime: boolean;
+    memoryWriteResult?: ReturnType<typeof memoryWriteResultSchema.parse>;
     fileSearchResult?: FileSearchResult;
     fileReadResult?: FileReadResult;
     fileReadLinesResult?: FileReadLinesResult;
@@ -1600,6 +1658,8 @@ export class ChatService {
     }
     if (input.isApprovalTest) return '审批测试已完成';
     if (input.isCurrentTime) return '当前时间已获取';
+    if (input.memoryWriteResult)
+      return formatMemoryWriteResultSummary(input.memoryWriteResult);
     if (input.fileSearchResult) return `找到 ${input.fileSearchResult.matches.length} 个文件命中`;
     if (input.fileReadResult) {
       if (input.fileReadResult.scope === 'file') {

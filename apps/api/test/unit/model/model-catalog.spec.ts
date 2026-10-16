@@ -38,12 +38,15 @@ describe('model catalog', () => {
   });
 
   it('publishes the code-defined provider context profile for baseline gating', () => {
-    const controller = new PublicModelConfigController({
-      profile: () => ({
-        provider: 'deepseek',
-        reasoning: { supported: true, levels: ['off', 'high'], default: 'high' },
-      }),
-    } as never);
+    const controller = new PublicModelConfigController(
+      {
+        profile: () => ({
+          provider: 'deepseek',
+          reasoning: { supported: true, levels: ['off', 'high'], default: 'high' },
+        }),
+      } as never,
+      { readEnabled: true, writeEnabled: true } as never,
+    );
     expect(controller.getPublicConfig().models[0]?.context).toEqual({
       contextWindowTokens: 1_000_000,
       maxOutputTokens: 384_000,

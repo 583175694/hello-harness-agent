@@ -31,6 +31,9 @@ import {
   authVerifyPhoneRequestSchema,
   authBindEmailRequestSchema,
   authBindPhoneRequestSchema,
+  memoryListResponseSchema,
+  memoryRecordViewSchema,
+  memorySettingsViewSchema,
 } from '@harness/agent-protocol';
 import type {
   CancelRunResponse,
@@ -62,6 +65,9 @@ import type {
   McpUpdateServerRequest,
   McpPatchServerRequest,
   AuthUserView,
+  MemoryListResponse,
+  MemoryRecordView,
+  MemorySettingsView,
 } from '@harness/agent-protocol';
 import { publicAgentConfigSchema } from '@harness/agent-protocol';
 
@@ -622,6 +628,58 @@ export async function bindPhone(phone: string, code: string): Promise<AuthUserVi
     body: JSON.stringify({ phone, code }),
   });
   return parseAuthLoginUser(await parseResponse(response));
+}
+
+export async function listMemories(signal?: AbortSignal): Promise<MemoryListResponse> {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/memories`, { signal });
+  return memoryListResponseSchema.parse(await parseResponse(response));
+}
+
+export async function createMemory(body: {
+  kind: string;
+  title: string;
+  content: string;
+}): Promise<MemoryRecordView> {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/memories`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = (await parseResponse(response)) as { memory: unknown };
+  return memoryRecordViewSchema.parse(data.memory);
+}
+
+export async function updateMemory(
+  memoryId: string,
+  body: { kind: string; title: string; content: string },
+): Promise<MemoryRecordView> {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/memories/${memoryId}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = (await parseResponse(response)) as { memory: unknown };
+  return memoryRecordViewSchema.parse(data.memory);
+}
+
+export async function deleteMemory(memoryId: string): Promise<void> {
+  await apiFetch(`${apiBaseUrl}/api/agent/memories/${memoryId}`, { method: 'DELETE' });
+}
+
+export async function readMemorySettings(signal?: AbortSignal): Promise<MemorySettingsView> {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/memory-settings`, { signal });
+  return memorySettingsViewSchema.parse(await parseResponse(response));
+}
+
+export async function patchMemorySettings(body: {
+  allowAgentWrite: boolean;
+}): Promise<MemorySettingsView> {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/memory-settings`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return memorySettingsViewSchema.parse(await parseResponse(response));
 }
 
 const AUTH_RESPONSE_PARSE_ERROR = '登录状态同步失败，请刷新页面后重试。';

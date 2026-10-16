@@ -835,6 +835,202 @@
   background: var(--theme-danger);
 }
 
+.settings-dialog__memory-title {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 400;
+  color: var(--theme-text-primary);
+}
+
+.settings-dialog__memory-card {
+  margin-top: 4px;
+  padding: 4px 16px;
+  border: 0.5px solid var(--settings-border-l4);
+  border-radius: 16px;
+  background: var(--theme-surface, rgb(255 255 255 / 60%));
+}
+
+.settings-dialog__memory-toggle {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 0;
+}
+
+.settings-dialog__memory-toggle-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 8px;
+}
+
+.settings-dialog__memory-toggle-label {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--theme-text-primary);
+}
+
+.settings-dialog__memory-toggle-desc {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--theme-text-muted);
+}
+
+.settings-dialog__memory-card-divider {
+  height: 0;
+  border-top: 0.5px solid var(--settings-row-border, rgb(0 0 0 / 10%));
+}
+
+.settings-dialog__memory-nav-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border: 0;
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--theme-text-primary);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.settings-dialog__memory-nav-row:hover {
+  opacity: 0.85;
+}
+
+.settings-dialog__memory-nav-meta {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--theme-text-muted);
+}
+
+.settings-dialog__memory-back {
+  align-self: flex-start;
+  margin: 0 0 4px;
+  padding: 4px 0;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--theme-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.settings-dialog__memory-back:hover {
+  color: var(--theme-text-primary);
+}
+
+.settings-dialog__memory-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.settings-dialog__memory-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0.5px solid var(--settings-border-l4);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.settings-dialog__memory-list-empty {
+  padding: 20px 16px;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+  color: var(--theme-text-muted);
+}
+
+.settings-dialog__memory-list-item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 0.5px solid var(--settings-row-border, rgb(0 0 0 / 8%));
+}
+
+.settings-dialog__memory-list-item:last-child {
+  border-bottom: 0;
+}
+
+.settings-dialog__memory-list-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.settings-dialog__memory-list-title {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--theme-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-dialog__memory-list-summary {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--theme-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.settings-dialog__memory-list-hint {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--theme-danger);
+}
+
+.settings-dialog__memory-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  align-items: center;
+}
+
+.settings-dialog__link-btn--danger {
+  color: var(--theme-danger);
+}
+
+.settings-dialog__link-btn--danger:hover:not(:disabled) {
+  color: var(--theme-danger);
+  background: color-mix(in srgb, var(--theme-danger) 8%, transparent);
+}
+
+.settings-dialog__field-input--select {
+  appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
+
 .settings-dialog__mcp-url-line {
   display: flex;
   gap: 4px;

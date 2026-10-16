@@ -485,10 +485,13 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         completionTokens = usage?.output_tokens ?? null;
         cachedTokens = usage?.input_tokens_details?.cached_tokens ?? null;
       }
-      if (value.type === 'response.failed')
+      if (value.type === 'response.failed') {
+        const response = value.response as Record<string, unknown> | undefined;
         throw new ModelProviderResponseError(
-          String(value.response?.error?.message ?? 'RESPONSES_API_FAILED'),
+          String((response?.error as { message?: string } | undefined)?.message ?? 'RESPONSES_API_FAILED'),
+          { responseBody: response?.error ?? response },
         );
+      }
     }
     const allCalls = [...calls.values()].filter((call) => call.id && call.name);
     const clarificationCalls = allCalls.filter((call) => call.name === CLARIFICATION_CONTROL_NAME);

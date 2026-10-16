@@ -35,9 +35,12 @@ export type ModelFinishReason =
   | 'unknown';
 
 export class ModelProviderResponseError extends Error {
-  constructor(message: string) {
-    super(message);
+  readonly responseBody?: unknown;
+
+  constructor(message: string, options?: { responseBody?: unknown; cause?: unknown }) {
+    super(message, options?.cause !== undefined ? { cause: options.cause } : undefined);
     this.name = 'ModelProviderResponseError';
+    this.responseBody = options?.responseBody;
   }
 }
 

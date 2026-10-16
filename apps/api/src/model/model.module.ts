@@ -4,9 +4,10 @@ import { ModelAdapter } from './model-adapter';
 import { OpenAICompatibleModelAdapter } from './openai-compatible-model.adapter';
 import { PublicModelConfigController } from './public-model-config.controller';
 import { FilesModule } from '../files/files.module';
+import { MemoryModule } from '../memory/memory.module';
 
 @Module({
-  imports: [FilesModule],
+  imports: [FilesModule, MemoryModule],
   controllers: [PublicModelConfigController],
   providers: [
     OpenAICompatibleModelAdapter,

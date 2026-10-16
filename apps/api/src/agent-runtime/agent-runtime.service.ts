@@ -45,12 +45,19 @@ import {
 } from './tool-turn-budget';
 import { recoverTruncatedModelRound } from './output-limit-recovery';
 import { ContextEngineeringService } from '../context-engineering/context-engineering.service';
-import type { ToolResultCandidate } from '../context-engineering/context-engineering.types';
-import type { CompactionState } from '../context-engineering/context-engineering.types';
+import type {
+  CompactionState,
+  MemoryContextInput,
+  ToolResultCandidate,
+} from '../context-engineering/context-engineering.types';
 import { type PlanSnapshot } from '@harness/agent-protocol';
 import { PlanHandler } from './plan.handler';
 import { builtinToolDefinitions } from '../tools/builtin-tool-definitions';
 import { SkillRegistryService } from '../skills/skill-registry.service';
+import { MemoryRetrieverService } from '../memory/memory.retriever.service';
+import { MemoryConfigService } from '../memory/memory.config';
+import { composeMemoryRetrievalQuery, toContextMemorySourceRefs } from '../memory/memory.utils';
+import type { MemoryInjectionTrace } from '../memory/memory.types';
 import type {
   RuntimeLifecycleBoundary,
   RuntimeLifecycleContextMap,
@@ -81,6 +88,8 @@ export class AgentRuntimeService {
     @Inject(ContextEngineeringService)
     private readonly context?: ContextEngineeringService,
     @Optional() @Inject(SkillRegistryService) private readonly skills?: SkillRegistryService,
+    @Optional() @Inject(MemoryRetrieverService) private readonly memoryRetriever?: MemoryRetrieverService,
+    @Optional() @Inject(MemoryConfigService) private readonly memoryConfig?: MemoryConfigService,
   ) {}
 
   private readonly planHandler = new PlanHandler();
@@ -131,6 +140,8 @@ export class AgentRuntimeService {
     let finalizationRecoveryAttempted = false;
     let outputLimitRecoveryCount = 0;
     let deliveryNudgeAdded = false;
+    let lastMemoryTrace: MemoryInjectionTrace | undefined;
+    const memoryQueryEmbedCache = new Map<string, number[]>();
     // Runtime 仅保留最新计划，用于事件发布和下一轮只读上下文。
     let currentPlan: PlanSnapshot | undefined;
     // 将运行从可调用工具的调查阶段单向切换到无工具的最终回答阶段。
@@ -203,7 +214,35 @@ export class AgentRuntimeService {
           );
       // 每次模型尝试都重新收集文本、工具调用和结束原因，污染重试不得混入上一轮内容。
       let compiled;
+      let roundMemories: MemoryContextInput[] | undefined;
       try {
+        lastMemoryTrace = undefined;
+        roundMemories = undefined;
+        if (this.memoryRetriever && this.memoryConfig?.readEnabled && input.runId) {
+          const { last, prev } = this.extractRecentUserTexts(messages);
+          const query = composeMemoryRetrievalQuery(last, prev);
+          const retrieved = await this.memoryRetriever.retrieve({
+            userId: input.userId,
+            sessionId: input.sessionId,
+            runId: input.runId,
+            query,
+            queryEmbedCache: memoryQueryEmbedCache,
+          });
+          if (retrieved) {
+            lastMemoryTrace = retrieved.trace;
+            roundMemories = retrieved.cards.map((card) => {
+              const sourceRefs = toContextMemorySourceRefs(card.sourceRefs);
+              return {
+                memoryId: card.memoryId,
+                content: `${card.title}\n${card.summary}`,
+                sourceRefs: sourceRefs.length
+                  ? sourceRefs
+                  : [{ type: 'session' as const, id: input.sessionId }],
+                priorityHint: Math.round(card.similarity * 100),
+              };
+            });
+          }
+        }
         // 将文件预算超限转换为前端可识别的稳定错误码。
         compiled = this.context
           ? await this.context.compileRound({
@@ -217,6 +256,7 @@ export class AgentRuntimeService {
                 ? { mcpInstructions: input.mcpSnapshot.serverInstructions }
                 : {}),
               skills: selectedSkills,
+              ...(roundMemories?.length ? { memories: roundMemories } : {}),
             })
           : { messages, estimatedInputTokens: 0, promptBudget: null, compactionTriggered: false };
       } catch (error) {
@@ -229,11 +269,14 @@ export class AgentRuntimeService {
             `上下文工具链不完整 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 上游=${describeLogError(error)}`,
             AgentRuntimeService.name,
           );
-          throw new ServiceUnavailableException({
-            code: AGENT_ERROR_CODES.modelTranscriptIntegrityError,
-            detail:
-              '对话过长后工具调用记录不完整，无法继续请求模型。请新建会话后重试，或缩短单次任务的调查范围。',
-          });
+          throw new ServiceUnavailableException(
+            {
+              code: AGENT_ERROR_CODES.modelTranscriptIntegrityError,
+              detail:
+                '对话过长后工具调用记录不完整，无法继续请求模型。请新建会话后重试，或缩短单次任务的调查范围。',
+            },
+            { cause: error },
+          );
         }
         if (
           error instanceof Error &&
@@ -248,13 +291,16 @@ export class AgentRuntimeService {
             `上下文编译失败 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 错误码=${code}`,
             AgentRuntimeService.name,
           );
-          throw new ServiceUnavailableException({
-            code,
-            detail:
-              error.message === 'FILE_CONTEXT_TOO_LARGE'
-                ? '文件内容超过当前模型上下文预算，请移除附件或缩短问题后重试。'
-                : '当前上下文超过模型预算，无法在保留必要内容后继续执行。',
-          });
+          throw new ServiceUnavailableException(
+            {
+              code,
+              detail:
+                error.message === 'FILE_CONTEXT_TOO_LARGE'
+                  ? '文件内容超过当前模型上下文预算，请移除附件或缩短问题后重试。'
+                  : '当前上下文超过模型预算，无法在保留必要内容后继续执行。',
+            },
+            { cause: error },
+          );
         }
         this.logger.warn(
           `上下文编译异常 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 上游=${describeLogError(error)}`,
@@ -399,20 +445,31 @@ export class AgentRuntimeService {
               code: AGENT_ERROR_CODES.modelRoundTimeout,
               detail: '模型本轮响应超时，本次回答未完成。',
             });
-          if (error instanceof ModelProviderResponseError)
-            throw new BadGatewayException({
-              code: AGENT_ERROR_CODES.modelRequestFailed,
-              detail: '模型供应商返回失败，本次回答未完成。',
-            });
+          if (error instanceof ModelProviderResponseError) {
+            this.logger.warn(
+              `模型供应商失败 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 原因=${describeLogError(error)} | 耗时=${formatLogDuration(Date.now() - attemptStartedAt)}`,
+              AgentRuntimeService.name,
+            );
+            throw new BadGatewayException(
+              {
+                code: AGENT_ERROR_CODES.modelRequestFailed,
+                detail: '模型供应商返回失败，本次回答未完成。',
+              },
+              { cause: error },
+            );
+          }
           // 已排除取消和确定性超时后，其余流异常按不可恢复的传输中断处理。
           this.logger.warn(
             `模型请求失败 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 原因=${describeLogError(error)} | 耗时=${formatLogDuration(Date.now() - attemptStartedAt)}`,
             AgentRuntimeService.name,
           );
-          throw new BadGatewayException({
-            code: AGENT_ERROR_CODES.modelStreamInterrupted,
-            detail: '模型响应流意外中断，本次回答未完成。',
-          });
+          throw new BadGatewayException(
+            {
+              code: AGENT_ERROR_CODES.modelStreamInterrupted,
+              detail: '模型响应流意外中断，本次回答未完成。',
+            },
+            { cause: error },
+          );
         }
 
         const roundContent = textDeltas.join('');
@@ -462,6 +519,21 @@ export class AgentRuntimeService {
                   mcp: {
                     catalogGeneration: input.mcpSnapshot.catalogGeneration,
                     toolCount: input.mcpSnapshot.entries.length,
+                  },
+                }
+              : {}),
+            ...(lastMemoryTrace
+              ? {
+                  memoryInjection: {
+                    includedMemoryIds: lastMemoryTrace.includedMemoryIds,
+                    ...(lastMemoryTrace.includedSimilarities
+                      ? { includedSimilarities: lastMemoryTrace.includedSimilarities }
+                      : {}),
+                    omitted: lastMemoryTrace.omitted,
+                    tokenEstimate: lastMemoryTrace.tokenEstimate,
+                    ...(lastMemoryTrace.queryEmbedFailed
+                      ? { queryEmbedFailed: true }
+                      : {}),
                   },
                 }
               : {}),
@@ -983,6 +1055,7 @@ export class AgentRuntimeService {
               runId: input.runId,
               messageId: input.messageId,
               toolCallId: call.id,
+              latestUserMessage: this.extractRecentUserTexts(messages).last,
               ...(bashEgressBoost ? { bashEgressBoost: true } : {}),
             },
             runSignal,
@@ -1497,5 +1570,25 @@ export class AgentRuntimeService {
     if (status === 'succeeded') return 'succeeded';
     if (status === 'cancelled') return 'cancelled';
     return 'failed';
+  }
+
+  private extractRecentUserTexts(messages: ModelMessage[]): { last?: string; prev?: string } {
+    const texts: string[] = [];
+    for (let index = messages.length - 1; index >= 0 && texts.length < 2; index -= 1) {
+      const message = messages[index];
+      if (message?.role !== 'user') continue;
+      if (typeof message.content === 'string') {
+        texts.push(message.content);
+        continue;
+      }
+      if (Array.isArray(message.content)) {
+        const joined = message.content
+          .map((block) => (block.type === 'text' ? block.text : ''))
+          .join(' ')
+          .trim();
+        if (joined) texts.push(joined);
+      }
+    }
+    return { last: texts[0], prev: texts[1] };
   }
 }

@@ -9,7 +9,11 @@ import { ActiveRunRegistry } from './active-run.registry';
 import { RunEventHub } from './run-event-hub';
 import { RunRepository } from './run.repository';
 import { toAgentFailure } from '../shared/agent-failure.utils';
-import { describeLogError, shortLogId } from '../shared/logging.utils';
+import {
+  describeLogAgentUpstreamError,
+  describeLogError,
+  shortLogId,
+} from '../shared/logging.utils';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import {
   RuntimeLifecycleRegistry,
@@ -394,7 +398,7 @@ export class RunExecutor implements OnModuleDestroy {
         );
       } else {
         this.logger.error(
-          `Run 失败 | Run=${shortLogId(runId)} | 会话=${shortLogId(stored.sessionId)} | 错误码=${failure.code} | 详情=${failure.detail} | 上游=${describeLogError(error)}`,
+          `Run 失败 | Run=${shortLogId(runId)} | 会话=${shortLogId(stored.sessionId)} | 错误码=${failure.code} | 详情=${failure.detail} | 上游=${describeLogAgentUpstreamError(error)}`,
           RunExecutor.name,
         );
       }
@@ -436,7 +440,7 @@ export class RunExecutor implements OnModuleDestroy {
           .forceFail(runId, stored.assistantMessageId, failure)
           .catch((fallbackError) => {
             this.logger.error(
-              `Run终态兜底失败 | Run=${shortLogId(runId)} | 原始错误=${this.describeError(terminalError).code} | 兜底错误=${this.describeError(fallbackError).code}`,
+              `Run终态兜底失败 | Run=${shortLogId(runId)} | 原始错误=${this.describeError(terminalError).code} | 原始上游=${describeLogAgentUpstreamError(terminalError)} | 兜底错误=${this.describeError(fallbackError).code} | 兜底上游=${describeLogAgentUpstreamError(fallbackError)}`,
               RunExecutor.name,
             );
           });
@@ -468,7 +472,7 @@ export class RunExecutor implements OnModuleDestroy {
       await manager.releaseRunLease(runId);
     } catch (error) {
       this.logger.warn(
-        `Sandbox 清理失败 | Run=${shortLogId(runId)} | 原因=${this.describeError(error).code}`,
+        `Sandbox 清理失败 | Run=${shortLogId(runId)} | 原因=${describeLogAgentUpstreamError(error)}`,
         RunExecutor.name,
       );
     }
@@ -621,8 +625,11 @@ export class RunExecutor implements OnModuleDestroy {
     try {
       const title = await this.titles.generate(firstUser.content, completedAssistants[0]!.content);
       await this.prisma.session.update({ where: { id: sessionId }, data: { title } });
-    } catch {
-      // 标题是非关键后处理，失败时保留创建会话时的临时标题。
+    } catch (error) {
+      this.logger.warn(
+        `会话标题生成失败 | 会话=${shortLogId(sessionId)} | 原因=${describeLogAgentUpstreamError(error)}`,
+        RunExecutor.name,
+      );
     }
   }
 

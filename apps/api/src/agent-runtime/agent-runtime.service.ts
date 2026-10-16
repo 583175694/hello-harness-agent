@@ -58,6 +58,10 @@ import { MemoryRetrieverService } from '../memory/memory.retriever.service';
 import { MemoryConfigService } from '../memory/memory.config';
 import { composeMemoryRetrievalQuery, toContextMemorySourceRefs } from '../memory/memory.utils';
 import type { MemoryInjectionTrace } from '../memory/memory.types';
+import { ToolExposureService } from '../tools/tool-exposure/tool-exposure.service';
+import { DEFERRED_TOOL_SEARCH_SYSTEM_HINT } from '../tools/tool-exposure/tool-exposure.constants';
+import type { ToolSearchOutput } from '../tools/tool-exposure/tool-search.tool';
+import { orderToolCallsForBatch } from './tool-batch-order';
 import type {
   RuntimeLifecycleBoundary,
   RuntimeLifecycleContextMap,
@@ -84,6 +88,7 @@ export class AgentRuntimeService {
     @Inject(ToolRegistryService) private readonly tools: ToolRegistryService,
     @Inject(BashCommandPolicyService) private readonly bashPolicy: BashCommandPolicyService,
     @Inject(Logger) private readonly logger: Logger,
+    @Inject(ToolExposureService) private readonly toolExposure: ToolExposureService,
     @Optional()
     @Inject(ContextEngineeringService)
     private readonly context?: ContextEngineeringService,
@@ -96,9 +101,16 @@ export class AgentRuntimeService {
 
   // 执行受通用调用上限约束的模型-工具循环，并输出供应商无关的 Runtime 事件。
   async *run(input: AgentRuntimeInput): AsyncGenerator<AgentRuntimeEvent> {
-    const toolRegistryContext: ToolRegistryContext = {
+    const activatedTools = new Set<string>();
+    const deferredSearchIndex = this.toolExposure.createIndex(input.mcpSnapshot);
+    const deferredCount = this.toolExposure.deferredCount(input.mcpSnapshot);
+    let deferredHintAdded = false;
+    let toolRegistryContext: ToolRegistryContext = {
       userId: input.userId,
       mcpSnapshot: input.mcpSnapshot,
+      toolPhase: 'investigation',
+      activatedTools,
+      deferredSearchIndex,
     };
     const runtimeStartedAt = Date.now();
     const runDeadlineSignal = AbortSignal.timeout(DEFAULT_RUNTIME_POLICY.runTimeoutMs);
@@ -197,18 +209,32 @@ export class AgentRuntimeService {
             '已进行多轮调查。请停止重复搜索，基于已有材料用精炼 create_report 或较短最终回答完成交付；不要在思考中复述全部原始数据。',
         });
       }
+      toolRegistryContext = {
+        userId: input.userId,
+        mcpSnapshot: input.mcpSnapshot,
+        toolPhase,
+        activatedTools,
+        deferredSearchIndex,
+      };
+      if (!deferredHintAdded && deferredCount > 0 && toolPhase === 'investigation') {
+        deferredHintAdded = true;
+        messages.push({ role: 'system', content: DEFERRED_TOOL_SEARCH_SYSTEM_HINT });
+      }
       this.logger.log(
         `模型 Loop 即将开始 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | 轮次=${modelRounds} | toolPhase=${toolPhase} | 调查Turn=${investigationToolTurns} | 交付Turn=${deliveryToolTurns} | 阶段=${finalResponseOnly ? 'final_answer' : 'tool_loop'} | 暂停状态=${input.lifecycle?.snapshot().state ?? 'none'}`,
         AgentRuntimeService.name,
       );
       // 最终回答阶段从请求参数层面移除工具，不能只依赖 Prompt 约束模型。
       // 最终回答阶段主动撤掉所有工具，防止模型在收尾时再次发起调用。
-      const definitions = finalResponseOnly
+      let definitions = finalResponseOnly
         ? undefined
         : filterToolDefinitionsForPhase(
             [
               ...(this.tools.definitions(toolRegistryContext) ?? []),
               ...builtinToolDefinitions(),
+              ...(this.toolExposure.shouldInjectToolSearch({ deferredCount, toolPhase })
+                ? [this.toolExposure.toolSearchDefinition()]
+                : []),
             ],
             toolPhase,
           );
@@ -515,12 +541,23 @@ export class AgentRuntimeService {
             response: structuredClone(roundResponse),
             tools: structuredClone(definitions ?? []),
             ...(input.mcpSnapshot
-              ? {
-                  mcp: {
-                    catalogGeneration: input.mcpSnapshot.catalogGeneration,
-                    toolCount: input.mcpSnapshot.entries.length,
-                  },
-                }
+              ? (() => {
+                  const exposure = this.toolExposure.exposureMetrics({
+                    snapshot: input.mcpSnapshot,
+                    activatedTools,
+                    exposedDefinitions: definitions,
+                  });
+                  return {
+                    mcp: {
+                      catalogGeneration: input.mcpSnapshot.catalogGeneration,
+                      toolCount: input.mcpSnapshot.entries.length,
+                      latchedToolCount: exposure.latchedToolCount,
+                      exposedToolCount: exposure.exposedToolCount,
+                      deferredCount: exposure.deferredCount,
+                      activatedCount: exposure.activatedCount,
+                    },
+                  };
+                })()
               : {}),
             ...(lastMemoryTrace
               ? {
@@ -794,8 +831,10 @@ export class AgentRuntimeService {
       >;
       const dispatchPlan: PreparedDispatch[] = [];
 
+      const orderedCalls = orderToolCallsForBatch(normalizedCalls);
+
       // Dispatch Plan 在任何工具开始前一次性完成，供生命周期策略安全审查。
-      for (const call of normalizedCalls) {
+      for (const call of orderedCalls) {
         const budgetDecision = evaluateToolDispatchBudget({
           toolName: call.name,
           phase: toolPhase,
@@ -819,7 +858,12 @@ export class AgentRuntimeService {
           );
           continue;
         }
-        if (call.name !== AGENT_TOOL_NAMES.updatePlan) toolCallCount += 1;
+        if (
+          call.name !== AGENT_TOOL_NAMES.updatePlan &&
+          call.name !== AGENT_TOOL_NAMES.toolSearch
+        ) {
+          toolCallCount += 1;
+        }
 
         let toolInput: unknown;
         try {
@@ -1163,6 +1207,12 @@ export class AgentRuntimeService {
           };
         }
         this.assertRunActive(input.signal, runDeadlineSignal);
+        if (result.status === 'succeeded' && call.name === AGENT_TOOL_NAMES.toolSearch) {
+          const searchOutput = result.output as ToolSearchOutput;
+          for (const name of searchOutput.activatedCandidates) {
+            activatedTools.add(name);
+          }
+        }
         pendingToolResults.push({
           candidate: {
             toolCallId: call.id,

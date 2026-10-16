@@ -10,9 +10,12 @@ import { AGENT_TOOL_CLASSES, AGENT_TOOLS_PROVIDER } from './tool-catalog';
 import { ToolRegistryService } from './tool-registry.service';
 import { SkillsModule } from '../skills/skills.module';
 import { MemoryModule } from '../memory/memory.module';
+import { ToolExposureModule } from './tool-exposure/tool-exposure.module';
+import { ToolExposureService } from './tool-exposure/tool-exposure.service';
 
 @Module({
   imports: [
+    ToolExposureModule,
     SearchModule,
     WebFetchModule,
     FilesModule,
@@ -23,6 +26,6 @@ import { MemoryModule } from '../memory/memory.module';
     MemoryModule,
   ],
   providers: [...AGENT_TOOL_CLASSES, AGENT_TOOLS_PROVIDER, ToolRegistryService],
-  exports: [ToolRegistryService],
+  exports: [ToolRegistryService, ToolExposureService],
 })
 export class ToolsModule {}

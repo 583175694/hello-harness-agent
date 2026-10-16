@@ -139,6 +139,10 @@ export const runContextDebugSchema = z.object({
     .object({
       catalogGeneration: z.number().int().nonnegative(),
       toolCount: z.number().int().nonnegative(),
+      latchedToolCount: z.number().int().nonnegative().optional(),
+      exposedToolCount: z.number().int().nonnegative().optional(),
+      deferredCount: z.number().int().nonnegative().optional(),
+      activatedCount: z.number().int().nonnegative().optional(),
     })
     .optional(),
   memoryInjection: z

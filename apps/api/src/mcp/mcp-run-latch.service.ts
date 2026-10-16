@@ -7,6 +7,7 @@ import { McpConnectionManager } from './mcp-connection.manager';
 import type {
   McpServerIconSnapshot,
   McpServerInstructionSnapshot,
+  McpServerToolPolicySnapshot,
   McpToolCatalogEntry,
   RunMcpSnapshot,
 } from './mcp.types';
@@ -31,6 +32,7 @@ export class McpRunLatchService {
     const serverInstructions: McpServerInstructionSnapshot[] = [];
     const latchedServerNames: string[] = [];
     const serverIcons: McpServerIconSnapshot[] = [];
+    const serverToolPolicy: McpServerToolPolicySnapshot[] = [];
 
     for (const config of enabled) {
       const view = published.servers.get(config.serverName);
@@ -44,6 +46,10 @@ export class McpRunLatchService {
         continue;
       }
       latchedServerNames.push(config.serverName);
+      serverToolPolicy.push({
+        serverName: config.serverName,
+        enabledTools: parseEnabledToolsList(config.enabledTools),
+      });
       if (view.serverIcons?.length) {
         serverIcons.push({ serverName: config.serverName, icons: view.serverIcons });
       }
@@ -65,6 +71,7 @@ export class McpRunLatchService {
       serverInstructions,
       latchedServerNames,
       serverIcons,
+      serverToolPolicy,
     };
 
     if (entries.length) {
@@ -79,4 +86,13 @@ export class McpRunLatchService {
 
     return snapshot;
   }
+}
+
+function parseEnabledToolsList(value: unknown): string[] | null {
+  if (value == null) return null;
+  if (Array.isArray(value)) {
+    const list = value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+    return list.length ? list : null;
+  }
+  return null;
 }

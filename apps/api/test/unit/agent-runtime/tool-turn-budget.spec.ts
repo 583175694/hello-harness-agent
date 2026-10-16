@@ -12,6 +12,7 @@ import {
 describe('tool-turn-budget', () => {
   it('treats update_plan as not counting toward tool turns', () => {
     expect(countsTowardToolTurn(AGENT_TOOL_NAMES.updatePlan)).toBe(false);
+    expect(countsTowardToolTurn(AGENT_TOOL_NAMES.toolSearch)).toBe(false);
     expect(countsTowardToolTurn(AGENT_TOOL_NAMES.readFile)).toBe(true);
   });
 

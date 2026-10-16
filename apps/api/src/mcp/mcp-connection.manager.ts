@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { parseMcpIcons, type McpIcon } from '@harness/agent-protocol';
+import { AGENT_TOOL_NAMES, parseMcpIcons, type McpIcon } from '@harness/agent-protocol';
 import { Client, StreamableHTTPClientTransport } from './mcp-sdk.client';
 import type { McpDefaultApproval, McpServerConfig, McpServerSecret } from '@prisma/client';
 import { McpServerConfigRepository, type McpServerConfigRecord } from './mcp-server-config.repository';
@@ -166,9 +166,9 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
         const instructions = client.getInstructions()?.trim() || null;
         state.instructions = instructions;
         state.toolCountTotal = tools.length;
-        const entries = filtered.map((tool) =>
-          toCatalogEntry(config, tool, nextGeneration, state!.defaultApproval),
-        );
+        const entries = filtered
+          .map((tool) => toCatalogEntry(config, tool, nextGeneration, state!.defaultApproval))
+          .filter((entry) => entry.publicName !== AGENT_TOOL_NAMES.toolSearch);
         nextEntries.push(...entries);
         nextServers.set(config.serverName, {
           configId: config.id,

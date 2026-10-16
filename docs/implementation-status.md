@@ -511,7 +511,7 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 | --- | --- | --- | --- |
 | C5 | Workbench + HTML 安全预览（C5-A/B） | **已完成** | 产品阶段收口；见 [37-c5](./37-c5-workbench-ui-and-preview.md) |
 | C5-C | Sandbox job / 构建 / dev server 工作台 | **Backlog（低）** | job 卡片、日志跟随、代理预览等；按需启动，不阻塞 K5/C6 |
-| K5 | Context Engineering 全面优化 | **当前研发** | Skills/Memory 已接入 compile 入口；预算/trace/Tool Exposure 见 [39-k5](./39-k5-context-engineering.md) |
+| K5 | Context Engineering 全面优化 | **当前研发** | 主设计 [§6](./39-k5-context-engineering.md#6-tool-exposure-与-tool_search对齐-codex-app-server)；**MVP 边界冻结 [§10](./39-k5-context-engineering.md#10-mvp-边界冻结2026-10-16)**；辩证 [§9](./39-k5-context-engineering.md#9-设计辩证与决策2026-10-16) |
 | C6 Skills | [40-c6-skills.md](./40-c6-skills.md) | **暂停雕琢** | Phase 1 已落地，Backlog [§4.9](./40-c6-skills.md#49-skills-主线暂停与遗留清单) |
 | C7 User Memory | [41-c7-user-memory.md](./41-c7-user-memory.md) | **MVP 已完成** | 写 Tool + 向量读 + Settings；**C7-C** Delegation 后置 |
 | C8 | Browser Use / Computer Use | **后置** | 依赖 C3-D、L6；结构化 Browser Tool 等与 **客户端就绪后** 再立项 |
@@ -546,7 +546,7 @@ K4  Agent Task Semantics                         已完成：Plan and Execute、
     - Task State 持久化并按预算注入 Context（保存任务状态，并在上下文预算内恢复给模型）
 
 K5  Context Engineering 全面优化                 **当前研发**（[39-k5](./39-k5-context-engineering.md)）
-    - 多来源预算/trace（Skills/Memory/MCP/文件/历史）；Tool Exposure（大 catalog 按需 hydrate）
+    - 多来源预算/trace（Skills/Memory/MCP/文件/历史）；Tool Exposure + `tool_search`（§6；实现以 **§10 MVP 冻结** 为准）
 
 K6  Side-effect Policy & Governance               后置加强
     - 可信 Action 风险元数据与 Policy：区分 read-only、受任务意图授权的可逆写入、需确认写入和禁止操作；风险结论不能由模型自行声明

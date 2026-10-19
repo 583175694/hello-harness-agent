@@ -124,7 +124,8 @@ export class ToolSearchTool implements AgentTool<ToolSearchInput, ToolSearchOutp
         status: 'succeeded',
         output: {
           tools,
-          hint: 'No strong BM25 match. Try a shorter English query or pick a name from this list.',
+          hint:
+            'No strong BM25 match. Call tool_search again with the exact public name from this list, then function_call that name.',
           activatedCandidates: [],
           fallback: true,
         },
@@ -132,7 +133,12 @@ export class ToolSearchTool implements AgentTool<ToolSearchInput, ToolSearchOutp
     }
 
     for (const hit of hits) {
-      const item = materializeSearchResult(hit.entry, remainingActivateSlots, activatedCandidates);
+      const item = materializeSearchResult(
+        hit.entry,
+        remainingActivateSlots,
+        activatedCandidates,
+        activatedTools,
+      );
       tools.push(item.result);
       remainingActivateSlots = item.remainingActivateSlots;
     }
@@ -152,28 +158,34 @@ function materializeSearchResult(
   entry: McpToolCatalogEntry,
   remainingActivateSlots: number,
   activatedCandidates: string[],
+  activatedTools: ReadonlySet<string>,
 ): { result: ToolSearchResultItem; remainingActivateSlots: number } {
   const parametersJson = JSON.stringify(entry.parameters);
+  const alreadyActivated = activatedTools.has(entry.publicName);
+  let slots = remainingActivateSlots;
+  const tryActivate = () => {
+    if (alreadyActivated || slots <= 0) return;
+    activatedCandidates.push(entry.publicName);
+    slots -= 1;
+  };
   if (parametersJson.length > TOOL_SEARCH_MAX_SCHEMA_CHARS) {
+    tryActivate();
     return {
       result: {
         name: entry.publicName,
         description: entry.description,
         truncated: true,
       },
-      remainingActivateSlots,
+      remainingActivateSlots: slots,
     };
   }
-  if (remainingActivateSlots > 0) {
-    activatedCandidates.push(entry.publicName);
-    remainingActivateSlots -= 1;
-  }
+  tryActivate();
   return {
     result: {
       name: entry.publicName,
       description: entry.description,
       parameters: entry.parameters,
     },
-    remainingActivateSlots,
+    remainingActivateSlots: slots,
   };
 }

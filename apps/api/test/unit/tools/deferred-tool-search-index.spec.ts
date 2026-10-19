@@ -52,6 +52,20 @@ describe('DeferredToolSearchIndex', () => {
     expect(hits[0]?.entry.publicName).toBe('mcp__db__run_query');
   });
 
+  it('matches Chinese descriptions in queries', () => {
+    const index = new DeferredToolSearchIndex([
+      catalogEntry({
+        publicName: 'mcp__ding__send_message',
+        serverName: 'ding',
+        rawName: 'send_message',
+        description: '发送钉钉群消息',
+        parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      }),
+    ]);
+    const hits = index.search('钉钉', 3);
+    expect(hits[0]?.entry.publicName).toBe('mcp__ding__send_message');
+  });
+
   it('returns fallback listing when BM25 finds nothing', () => {
     const index = new DeferredToolSearchIndex([catalogEntry({})]);
     const hits = index.search('zzzznomatch', 3);

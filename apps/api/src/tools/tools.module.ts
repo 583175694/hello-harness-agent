@@ -11,7 +11,6 @@ import { ToolRegistryService } from './tool-registry.service';
 import { SkillsModule } from '../skills/skills.module';
 import { MemoryModule } from '../memory/memory.module';
 import { ToolExposureModule } from './tool-exposure/tool-exposure.module';
-import { ToolExposureService } from './tool-exposure/tool-exposure.service';
 
 @Module({
   imports: [
@@ -26,6 +25,6 @@ import { ToolExposureService } from './tool-exposure/tool-exposure.service';
     MemoryModule,
   ],
   providers: [...AGENT_TOOL_CLASSES, AGENT_TOOLS_PROVIDER, ToolRegistryService],
-  exports: [ToolRegistryService, ToolExposureService],
+  exports: [ToolRegistryService, ToolExposureModule],
 })
 export class ToolsModule {}

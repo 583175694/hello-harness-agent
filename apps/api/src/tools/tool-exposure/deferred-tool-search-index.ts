@@ -138,8 +138,18 @@ function walkSchema(node: unknown, names: string[]): void {
 }
 
 function tokenize(text: string): string[] {
-  return text
+  const tokens: string[] = [];
+  for (const token of text
     .toLowerCase()
     .split(/[^a-z0-9]+/g)
-    .filter((token) => token.length > 1);
+    .filter((part) => part.length > 1)) {
+    tokens.push(token);
+  }
+  for (const segment of text.match(/[\u4e00-\u9fff]+/g) ?? []) {
+    for (const char of segment) tokens.push(char);
+    for (let index = 0; index < segment.length - 1; index += 1) {
+      tokens.push(segment[index]! + segment[index + 1]!);
+    }
+  }
+  return tokens;
 }

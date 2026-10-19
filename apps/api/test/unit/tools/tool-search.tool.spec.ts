@@ -47,7 +47,29 @@ describe('ToolSearchTool', () => {
     }
   });
 
-  it('does not activate truncated schema results', async () => {
+  it('does not consume activation slots for tools already activated in the Run', async () => {
+    const index = new DeferredToolSearchIndex([
+      entry({ publicName: 'mcp__demo__a' }),
+      entry({ publicName: 'mcp__demo__b', description: 'Second tool' }),
+    ]);
+    const activated = new Set(['mcp__demo__a']);
+    const result = await tool.execute(
+      { query: 'demo', limit: 2 },
+      {
+        userId: 'u',
+        sessionId: 's',
+        messageId: 'm',
+        toolCallId: 'c',
+      },
+      { index, activatedTools: activated },
+    );
+    expect(result.status).toBe('succeeded');
+    if (result.status === 'succeeded') {
+      expect(result.output.activatedCandidates).toEqual(['mcp__demo__b']);
+    }
+  });
+
+  it('activates truncated schema results so deferred tools remain callable', async () => {
     const hugeParams = { type: 'object', blob: 'x'.repeat(TOOL_SEARCH_MAX_SCHEMA_CHARS + 100) };
     const index = new DeferredToolSearchIndex([
       entry({ publicName: 'mcp__demo__huge', parameters: hugeParams }),
@@ -65,7 +87,7 @@ describe('ToolSearchTool', () => {
     expect(result.status).toBe('succeeded');
     if (result.status === 'succeeded') {
       expect(result.output.tools[0]).toMatchObject({ truncated: true });
-      expect(result.output.activatedCandidates).toEqual([]);
+      expect(result.output.activatedCandidates).toEqual(['mcp__demo__huge']);
     }
   });
 });

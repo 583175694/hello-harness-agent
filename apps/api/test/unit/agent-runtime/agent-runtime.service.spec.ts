@@ -7,6 +7,7 @@ import { BashCommandPolicyService } from '../../../src/sandbox/bash-command-poli
 import type { ContextEngineeringService } from '../../../src/context-engineering/context-engineering.service';
 import type { ModelAdapter, ModelRoundInput } from '../../../src/model/model-adapter';
 import type { ToolRegistryService } from '../../../src/tools/tool-registry.service';
+import { ToolInputValidationError } from '../../../src/tools/tool-registry.service';
 import type { ToolExposureService } from '../../../src/tools/tool-exposure/tool-exposure.service';
 import {
   RuntimeLifecycleController,
@@ -1474,5 +1475,108 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     expect(
       toolMessages.find((message) => message.toolCallId === 'call-extra-37')?.content,
     ).not.toContain(AGENT_ERROR_CODES.toolCallLimitExceeded);
+  });
+
+  it('defers MCP parse until after tool_search activates tools in the same batch', async () => {
+    const mcpName = 'mcp__demo__ping';
+    const activated = new Set<string>();
+    const tools = registry({
+      parseInput: vi.fn((name: string, raw: string) => {
+        if (name === AGENT_TOOL_NAMES.toolSearch) return JSON.parse(raw);
+        if (name === mcpName && !activated.has(mcpName)) {
+          throw new ToolInputValidationError(
+            AGENT_ERROR_CODES.mcpToolNotActivated,
+            '需要先 tool_search',
+          );
+        }
+        return JSON.parse(raw);
+      }),
+      execute: vi.fn(async (name: string) => {
+        if (name === AGENT_TOOL_NAMES.toolSearch) {
+          activated.add(mcpName);
+          return {
+            status: 'succeeded',
+            output: { tools: [], hint: '', activatedCandidates: [mcpName] },
+          };
+        }
+        return { status: 'succeeded', output: { ping: true } };
+      }),
+    });
+    const exposure: ToolExposureService = {
+      ...toolExposureService(),
+      deferredCount: () => 1,
+      shouldInjectToolSearch: () => true,
+      createIndex: () => ({ size: 1 }) as never,
+      buildMcpDefinitions: () => [{ name: mcpName, description: 'ping', parameters: {} }],
+    };
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            { id: 'call-mcp', name: mcpName, arguments: '{"message":"hi"}' },
+            {
+              id: 'call-search',
+              name: AGENT_TOOL_NAMES.toolSearch,
+              arguments: '{"query":"ping"}',
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '完成' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const runtime = new AgentRuntimeService(
+      model,
+      tools,
+      new BashCommandPolicyService(),
+      logger(),
+      exposure,
+    );
+    const events = [];
+    for await (const event of runtime.run({
+      userId: 'local-user',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      messageId: 'message-1',
+      model: 'test-model',
+      systemPrompt: 'test',
+      messages: [{ role: 'user', content: 'hello' }],
+      mcpSnapshot: {
+        catalogGeneration: 1,
+        entries: [
+          {
+            publicName: mcpName,
+            serverName: 'demo',
+            rawName: 'ping',
+            description: 'ping',
+            parameters: { type: 'object' },
+            defaultApproval: 'auto_execute',
+            boundGeneration: 1,
+            toolCallTimeoutMs: 60_000,
+            exposure: 'deferred',
+          },
+        ],
+        serverInstructions: [],
+        latchedServerNames: ['demo'],
+        serverIcons: [],
+        serverToolPolicy: [{ serverName: 'demo', enabledTools: null }],
+      },
+    })) {
+      events.push(event);
+    }
+    expect(tools.execute).toHaveBeenCalledWith(
+      mcpName,
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+    const toolEvents = events.filter(
+      (item) => item.type === 'tool.started' || item.type === 'tool.completed',
+    );
+    expect(toolEvents.map((item) => item.toolCallId)).toEqual(['call-mcp', 'call-mcp', 'call-search', 'call-search']);
   });
 });

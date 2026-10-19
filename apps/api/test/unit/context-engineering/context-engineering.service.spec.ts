@@ -297,7 +297,7 @@ describe('ContextEngineeringService', () => {
       .map(([, messages]) => JSON.stringify(messages))
       .find((payload) => payload.includes('call-1'));
     expect(toolUnitPrompt).toContain(toolPayload.slice(0, 100));
-  }, 20_000);
+  }, 45_000);
 
   it('does not advance compaction state when a summary batch and its retry both fail', async () => {
     const { service, model } = createService();

@@ -1,6 +1,6 @@
 # K5 Context Engineering
 
-> 状态：**K5-A 已完成**（`skills` / `memories` 候选字段与 CE 注入）；**当前实施重点**为 Tool Exposure + Host 内置 `tool_search`（§6）及统一预算（§7）。Skills / Memory 业务见 [40-c6-skills.md](./40-c6-skills.md)、[41-c7-user-memory.md](./41-c7-user-memory.md)。
+> 状态：**K5-A 已完成**（`skills` / `memories` 候选字段与 CE 注入）；**K5-B 已完成**（§10 MVP：Tool Exposure + Host `tool_search`）；**当前实施重点**为统一多来源预算与 Context trace（§7 **K5-C**）。Skills / Memory 业务见 [40-c6-skills.md](./40-c6-skills.md)、[41-c7-user-memory.md](./41-c7-user-memory.md)。
 >
 > K5 的目标是让不同 Context 来源经过统一的选择、预算、渲染、压缩和调试流程，再进入模型请求。K5 不负责产生 Skill 或 Memory 业务事实。
 
@@ -91,8 +91,8 @@ K5 后续负责：
 ```text
 K5-A  冻结 skills / memories 候选字段，并保持当前编译结果兼容     [已完成]
   -> C6 提供 Skill 候选；C7 提供 Memory 候选
-K5-B  Tool Exposure + Host tool_search（对齐 Codex App-Server）   [当前]
-K5-C  统一多来源预算、裁剪仲裁、Context trace
+K5-B  Tool Exposure + Host tool_search（对齐 Codex App-Server）   [已完成，以 §10 MVP 为准]
+K5-C  统一多来源预算、裁剪仲裁、Context trace                      [当前]
 K5-D  Attention Refresh / Goal Reminder（有真实 trace 后再做）
 ```
 
@@ -516,6 +516,8 @@ Compaction 触发仍用 `compactionTriggerTokens`；后续 K5-C 补充 **selecte
 | B3 | **同一 `ToolExposureService` 输出** definitions；不为 chat 单独维护第二套 index |
 
 ### 10.13 MVP 交付清单（一个 Epic）
+
+**状态（2026-10-19）**：§10.13 项 1–6 已在 `feature/CE-optimization` 落地；产品默认仍为 `MCP_TOOL_EXPOSURE_MODE=full`，§6.10 双轨 benchmark 后再切 `deferred_search`。
 
 1. `ToolExposureService`（`full` \| `deferred_search` + cap + `enabledTools` Direct）
 2. `ToolSearchTool`（BM25 + exact name + 空 query reject + 单条 schema 字符 cap）

@@ -175,6 +175,7 @@ describe('SessionsService pagination', () => {
     const result = await service.detail('user-1', 'session-1', { limit: 100 });
 
     expect(result.session.messages[0]?.metadata).toEqual({
+      model: 'test-model',
       deliveryStatus: 'completed',
       context: { roundSequence: 1 },
       agent: { toolCallCount: 3, executions: [], sources: [], detailRef: 'run-1' },

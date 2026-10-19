@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-10-16（**C5 产品阶段已完成**；**C7 User Memory MVP 已落地**；**C6 Skills Phase 1 已落地、产品化暂停雕琢**；Agent **当前研发**：**K5 Context Engineering**；**C8 Browser**、**C9/C10 市场** 后置）
+> 最后更新：2026-10-19（**K5-B 已落地**（MCP deferred + Host `tool_search`，§10 MVP）；Agent **当前研发**：**K5-C** 多来源预算/trace；**C5/C6/C7** 状态见下；**C8 Browser**、**C9/C10 市场** 后置）
 
 **用户反馈 / Bug 台账**：[38-user-feedback-bugs.md](./38-user-feedback-bugs.md)（解决后在该文档更新状态为「已解决」）。
 
@@ -10,7 +10,7 @@
 
 已落地最小闭环：进程内 Skill Registry、`skills.list` / `skills.read`、K5 Catalog/显式 Skill 注入、Run `skillNames`、Web Lexical Composer（`/`、`+`、mention、空态）。**`bundled-skills` 目录当前为空壳**，线上 Catalog 为空；**Skills 产品化主线暂停**，遗留 Backlog 见 [40-c6-skills §4.9](./40-c6-skills.md#49-skills-主线暂停与遗留清单)。Skill 不改变 Tool Policy、Sandbox 或审批边界。仍不包含 DB 持久化 Skill、Marketplace（C10 Skills / C9 MCP）、用户自定义 Skill MVP。验证：相关 API/Web 单测与 build；Composer E2E 仍待补。
 
-**当前研发重心**：**K5 Context Engineering**（Skills/Memory 已接入 K5 编译入口，见 [39-k5](./39-k5-context-engineering.md)、[40-c6](./40-c6-skills.md)、[41-c7](./41-c7-user-memory.md)）。详见 §7.4 路线图。
+**当前研发重心**：**K5-C**（统一 Context 预算与 trace；Skills/Memory 已接入 K5 编译入口）。**K5-B**（Tool Exposure + `tool_search`）已落地，默认 `MCP_TOOL_EXPOSURE_MODE=full`，双轨 benchmark 通过后再切 `deferred_search`。见 [39-k5](./39-k5-context-engineering.md) §6–§10、[40-c6](./40-c6-skills.md)、[41-c7](./41-c7-user-memory.md)。详见 §7.4 路线图。
 
 ### C7 User Memory MVP（2026-10-16）
 
@@ -503,7 +503,7 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 
 > 本节是 Context Engineering 第一阶段之后的执行顺序。规划区分 **Agent Kernel（内核）** 与 **Capability（功能能力）**；Capability 通过统一 Action/Artifact/Source 协议接入，不反向改变 Runtime 语义。编号是规划编号，不表示已经实现。
 >
-> **当前阶段（2026-10-16）**：**C5 已完成**（C5-A/B + C2 原生 HTML）。**C7 User Memory MVP 已完成**（[41-c7](./41-c7-user-memory.md)）。**C6 Skills** Phase 1 已完成、**产品化暂停雕琢**。**Agent 侧当前研发**：**K5 Context Engineering**（[39-k5](./39-k5-context-engineering.md)）。**C5-C**（job/构建日志/dev server）**后置 Backlog**。**C8 Browser / Computer Use**、**C9/C10 市场** 后置。**L6** 不在本节排期。K6/K7 为后置治理与交付质量；写操作继续复用 **K3.2 `tool_approval`** 与 Sandbox 策略。
+> **当前阶段（2026-10-19）**：**C5 已完成**（C5-A/B + C2 原生 HTML）。**C7 User Memory MVP 已完成**（[41-c7](./41-c7-user-memory.md)）。**C6 Skills** Phase 1 已完成、**产品化暂停雕琢**。**K5-B 已完成**（Tool Exposure + `tool_search`，[39-k5 §10](./39-k5-context-engineering.md#10-mvp-边界冻结2026-10-16)）。**Agent 侧当前研发**：**K5-C**（[39-k5 §7](./39-k5-context-engineering.md#7-统一-context-预算k5-c)）。**C5-C**（job/构建日志/dev server）**后置 Backlog**。**C8 Browser / Computer Use**、**C9/C10 市场** 后置。**L6** 不在本节排期。K6/K7 为后置治理与交付质量；写操作继续复用 **K3.2 `tool_approval`** 与 Sandbox 策略。
 
 ### 7.0 当前 Agent 侧高优先级（共识快照）
 
@@ -511,7 +511,8 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 | --- | --- | --- | --- |
 | C5 | Workbench + HTML 安全预览（C5-A/B） | **已完成** | 产品阶段收口；见 [37-c5](./37-c5-workbench-ui-and-preview.md) |
 | C5-C | Sandbox job / 构建 / dev server 工作台 | **Backlog（低）** | job 卡片、日志跟随、代理预览等；按需启动，不阻塞 K5/C6 |
-| K5 | Context Engineering 全面优化 | **当前研发** | 主设计 [§6](./39-k5-context-engineering.md#6-tool-exposure-与-tool_search对齐-codex-app-server)；**MVP 边界冻结 [§10](./39-k5-context-engineering.md#10-mvp-边界冻结2026-10-16)**；辩证 [§9](./39-k5-context-engineering.md#9-设计辩证与决策2026-10-16) |
+| K5-B | Tool Exposure + Host `tool_search` | **已完成** | §10 MVP：`ToolExposureService`、`ToolSearchTool`、Runtime gate/activate、debug 四计数；默认 exposure `full` |
+| K5-C | 多来源预算 / trace / CE 仲裁 | **当前研发** | [39-k5 §7](./39-k5-context-engineering.md#7-统一-context-预算k5-c)；辩证 [§9](./39-k5-context-engineering.md#9-设计辩证与决策2026-10-16) |
 | C6 Skills | [40-c6-skills.md](./40-c6-skills.md) | **暂停雕琢** | Phase 1 已落地，Backlog [§4.9](./40-c6-skills.md#49-skills-主线暂停与遗留清单) |
 | C7 User Memory | [41-c7-user-memory.md](./41-c7-user-memory.md) | **MVP 已完成** | 写 Tool + 向量读 + Settings；**C7-C** Delegation 后置 |
 | C8 | Browser Use / Computer Use | **后置** | 依赖 C3-D、L6；结构化 Browser Tool 等与 **客户端就绪后** 再立项 |
@@ -545,8 +546,8 @@ K4  Agent Task Semantics                         已完成：Plan and Execute、
     - Re-plan / no-progress 检测（发现计划失效或长时间没有进展时重新规划）
     - Task State 持久化并按预算注入 Context（保存任务状态，并在上下文预算内恢复给模型）
 
-K5  Context Engineering 全面优化                 **当前研发**（[39-k5](./39-k5-context-engineering.md)）
-    - 多来源预算/trace（Skills/Memory/MCP/文件/历史）；Tool Exposure + `tool_search`（§6；实现以 **§10 MVP 冻结** 为准）
+K5-B Tool Exposure + Host tool_search              **已完成**（[39-k5 §10](./39-k5-context-engineering.md#10-mvp-边界冻结2026-10-16)）
+K5-C Context 预算 / trace / 多来源仲裁             **当前研发**（[39-k5 §7](./39-k5-context-engineering.md#7-统一-context-预算k5-c)）
 
 K6  Side-effect Policy & Governance               后置加强
     - 可信 Action 风险元数据与 Policy：区分 read-only、受任务意图授权的可逆写入、需确认写入和禁止操作；风险结论不能由模型自行声明
@@ -565,7 +566,7 @@ K7  Evidence / Citation / Completion Verification 后置加强（横切，与 K6
     - 最终交付前的任务完成检查与限制说明（交付前检查是否完成，并明确已知局限）
 ```
 
-K3 已经完成通用控制和 HITL 机制；K4 已完成轻量任务语义与计划投影。**C4 已闭环**；**C5（C5-A/B）已收口**，C5-C 后置；**C6 Phase 1** 与 **C7 MVP** 已落地；**K5 为当前 Agent 研发主线**（§7.4）；K6/K7 为后置 Kernel 加强项，实施时再拆文档与里程碑。
+K3 已经完成通用控制和 HITL 机制；K4 已完成轻量任务语义与计划投影。**C4 已闭环**；**C5（C5-A/B）已收口**，C5-C 后置；**C6 Phase 1** 与 **C7 MVP** 已落地；**K5-B 已落地、K5-C 为当前 Agent 研发主线**（§7.4）；K6/K7 为后置 Kernel 加强项，实施时再拆文档与里程碑。
 
 ### 7.2 Capability 主线
 
@@ -673,7 +674,8 @@ K3 Control & HITL Kernel（基本完成）
   -> C2 原生 HTML（`contentMode: html`，已完成，docs/31 §6.4）
 
 【当前 Agent 研发主线】
-  -> K5 Context Engineering 全面优化（Skills/Memory 已接入最小 compile 入口）
+  -> K5-B Tool Exposure + tool_search（已完成）
+  -> K5-C 多来源预算与 Context trace（当前）
 
 【Capability 近期已完成】
   -> C7 User Memory MVP（2026-10-16，docs/41）

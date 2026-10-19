@@ -17,11 +17,14 @@ export const INVESTIGATION_DELIVERY_SYSTEM_NOTICE =
 
 /** 业务 tool call 是否计入当前 phase 的 Tool Turn（update_plan 除外）。 */
 export function countsTowardToolTurn(toolName: string): boolean {
-  return toolName !== AGENT_TOOL_NAMES.updatePlan;
+  return (
+    toolName !== AGENT_TOOL_NAMES.updatePlan && toolName !== AGENT_TOOL_NAMES.toolSearch
+  );
 }
 
 export function isToolAllowedInPhase(toolName: string, phase: ToolPhase): boolean {
   if (toolName === AGENT_TOOL_NAMES.updatePlan) return phase !== 'final_only';
+  if (toolName === AGENT_TOOL_NAMES.toolSearch) return phase === 'investigation';
   if (phase === 'investigation') return true;
   if (phase === 'delivery') return DELIVERY_PHASE_TOOL_NAMES.has(toolName);
   return false;

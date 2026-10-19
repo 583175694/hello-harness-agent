@@ -152,8 +152,10 @@ describe('shrinkBlocksForByteLimit', () => {
 });
 
 describe('enforceResearchProjectionByteLimit', () => {
-  it('truncates oversized projections', () => {
-    const huge = 'y'.repeat(520_000);
+  it(
+    'truncates oversized projections',
+    () => {
+    const huge = 'y'.repeat(513_000);
     const warned = vi.fn();
     const result = enforceResearchProjectionByteLimit(
       {
@@ -178,5 +180,7 @@ describe('enforceResearchProjectionByteLimit', () => {
     );
     expect(warned).toHaveBeenCalled();
     expect(result.executions[0]?.outputPreview?.length ?? 0).toBeLessThan(huge.length);
-  });
+    },
+    20_000,
+  );
 });

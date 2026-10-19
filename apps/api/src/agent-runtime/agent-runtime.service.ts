@@ -48,7 +48,6 @@ import { ContextEngineeringService } from '../context-engineering/context-engine
 import type {
   CompactionState,
   MemoryContextInput,
-  ToolResultCandidate,
 } from '../context-engineering/context-engineering.types';
 import { type PlanSnapshot } from '@harness/agent-protocol';
 import { PlanHandler } from './plan.handler';
@@ -58,12 +57,26 @@ import { MemoryRetrieverService } from '../memory/memory.retriever.service';
 import { MemoryConfigService } from '../memory/memory.config';
 import { composeMemoryRetrievalQuery, toContextMemorySourceRefs } from '../memory/memory.utils';
 import type { MemoryInjectionTrace } from '../memory/memory.types';
+import { ToolExposureService } from '../tools/tool-exposure/tool-exposure.service';
+import { DEFERRED_TOOL_SEARCH_SYSTEM_HINT } from '../tools/tool-exposure/tool-exposure.constants';
+import type { ToolSearchOutput } from '../tools/tool-exposure/tool-search.tool';
+import { orderToolCallsForBatch } from './tool-batch-order';
+import {
+  type PendingToolResult,
+  sortPendingToolResultsByCallOrder,
+  yieldPendingToolEvents,
+} from './pending-tool-result';
+import {
+  type PreparedToolDispatch,
+  isReadyDispatch,
+  readyDispatchInput,
+} from './tool-dispatch-plan.types';
+import { isMcpPublicToolName } from '../mcp/mcp.types';
 import type {
   RuntimeLifecycleBoundary,
   RuntimeLifecycleContextMap,
   RuntimeLifecycleToolCall,
   RuntimeToolDispatchItem,
-  RuntimeToolResultSummary,
 } from './runtime-lifecycle';
 
 class ToolExecutionTimeoutError extends Error {
@@ -71,6 +84,12 @@ class ToolExecutionTimeoutError extends Error {
     super('Tool execution timed out');
     this.name = 'ToolExecutionTimeoutError';
   }
+}
+
+function abortRunError(): Error {
+  const error = new Error('Tool execution cancelled');
+  error.name = 'AbortError';
+  return error;
 }
 
 // 超时后给工具一个很短的收尾窗口，避免“调用方已返回、底层任务仍无限运行”。
@@ -84,6 +103,7 @@ export class AgentRuntimeService {
     @Inject(ToolRegistryService) private readonly tools: ToolRegistryService,
     @Inject(BashCommandPolicyService) private readonly bashPolicy: BashCommandPolicyService,
     @Inject(Logger) private readonly logger: Logger,
+    @Inject(ToolExposureService) private readonly toolExposure: ToolExposureService,
     @Optional()
     @Inject(ContextEngineeringService)
     private readonly context?: ContextEngineeringService,
@@ -96,9 +116,16 @@ export class AgentRuntimeService {
 
   // 执行受通用调用上限约束的模型-工具循环，并输出供应商无关的 Runtime 事件。
   async *run(input: AgentRuntimeInput): AsyncGenerator<AgentRuntimeEvent> {
-    const toolRegistryContext: ToolRegistryContext = {
+    const activatedTools = new Set<string>();
+    const deferredSearchIndex = this.toolExposure.createIndex(input.mcpSnapshot);
+    const deferredCount = this.toolExposure.deferredCount(input.mcpSnapshot);
+    let deferredHintAdded = false;
+    let toolRegistryContext: ToolRegistryContext = {
       userId: input.userId,
       mcpSnapshot: input.mcpSnapshot,
+      toolPhase: 'investigation',
+      activatedTools,
+      deferredSearchIndex,
     };
     const runtimeStartedAt = Date.now();
     const runDeadlineSignal = AbortSignal.timeout(DEFAULT_RUNTIME_POLICY.runTimeoutMs);
@@ -197,6 +224,17 @@ export class AgentRuntimeService {
             '已进行多轮调查。请停止重复搜索，基于已有材料用精炼 create_report 或较短最终回答完成交付；不要在思考中复述全部原始数据。',
         });
       }
+      toolRegistryContext = {
+        userId: input.userId,
+        mcpSnapshot: input.mcpSnapshot,
+        toolPhase,
+        activatedTools,
+        deferredSearchIndex,
+      };
+      if (!deferredHintAdded && deferredCount > 0 && toolPhase === 'investigation') {
+        deferredHintAdded = true;
+        messages.push({ role: 'system', content: DEFERRED_TOOL_SEARCH_SYSTEM_HINT });
+      }
       this.logger.log(
         `模型 Loop 即将开始 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | 轮次=${modelRounds} | toolPhase=${toolPhase} | 调查Turn=${investigationToolTurns} | 交付Turn=${deliveryToolTurns} | 阶段=${finalResponseOnly ? 'final_answer' : 'tool_loop'} | 暂停状态=${input.lifecycle?.snapshot().state ?? 'none'}`,
         AgentRuntimeService.name,
@@ -209,6 +247,9 @@ export class AgentRuntimeService {
             [
               ...(this.tools.definitions(toolRegistryContext) ?? []),
               ...builtinToolDefinitions(),
+              ...(this.toolExposure.shouldInjectToolSearch({ deferredCount, toolPhase })
+                ? [this.toolExposure.toolSearchDefinition()]
+                : []),
             ],
             toolPhase,
           );
@@ -515,12 +556,23 @@ export class AgentRuntimeService {
             response: structuredClone(roundResponse),
             tools: structuredClone(definitions ?? []),
             ...(input.mcpSnapshot
-              ? {
-                  mcp: {
-                    catalogGeneration: input.mcpSnapshot.catalogGeneration,
-                    toolCount: input.mcpSnapshot.entries.length,
-                  },
-                }
+              ? (() => {
+                  const exposure = this.toolExposure.exposureMetrics({
+                    snapshot: input.mcpSnapshot,
+                    activatedTools,
+                    exposedDefinitions: definitions,
+                  });
+                  return {
+                    mcp: {
+                      catalogGeneration: input.mcpSnapshot.catalogGeneration,
+                      toolCount: input.mcpSnapshot.entries.length,
+                      latchedToolCount: exposure.latchedToolCount,
+                      exposedToolCount: exposure.exposedToolCount,
+                      deferredCount: exposure.deferredCount,
+                      activatedCount: exposure.activatedCount,
+                    },
+                  };
+                })()
               : {}),
             ...(lastMemoryTrace
               ? {
@@ -769,33 +821,22 @@ export class AgentRuntimeService {
       messages.push(assistantToolCallMessage);
       yield { type: 'transcript.item', message: assistantToolCallMessage };
 
-      // 同一 Round 可能包含多个 Tool Call。工具按声明顺序执行，但结果先暂存在内存中，
-      // 批次完成后统一按 Context Engineering 预算裁剪，再写入下一轮上下文。
-      const pendingToolResults: Array<{
-        candidate: ToolResultCandidate;
-        event?: AgentRuntimeEvent;
-        controlOutcome?: 'approved_by_user' | 'rejected_by_user' | 'rejected_by_policy';
-        enterFinalAnswer: boolean;
-        summary: RuntimeToolResultSummary;
-      }> = [];
-      type PreparedDispatch = Readonly<
-        | {
-            status: 'ready';
-            call: RuntimeLifecycleToolCall;
-            input: unknown;
-            enterFinalAnswer: boolean;
-          }
-        | {
-            status: 'rejected';
-            call: RuntimeLifecycleToolCall;
-            error: Readonly<{ code: string; detail: string; retryable: false }>;
-            enterFinalAnswer: boolean;
-          }
-      >;
-      const dispatchPlan: PreparedDispatch[] = [];
+      // 同一 Round 可能包含多个 Tool Call。执行顺序可调整（如 tool_search 优先），
+      // 但 tool message 与 SSE 均按模型声明顺序提交；批次结束后统一 CE 裁剪。
+      const pendingToolResults: PendingToolResult[] = [];
+      let dispatchPlan: PreparedToolDispatch[] = [];
+
+      const orderedCalls = orderToolCallsForBatch(normalizedCalls);
 
       // Dispatch Plan 在任何工具开始前一次性完成，供生命周期策略安全审查。
-      for (const call of normalizedCalls) {
+      for (const call of orderedCalls) {
+        toolRegistryContext = {
+          userId: input.userId,
+          mcpSnapshot: input.mcpSnapshot,
+          toolPhase,
+          activatedTools,
+          deferredSearchIndex,
+        };
         const budgetDecision = evaluateToolDispatchBudget({
           toolName: call.name,
           phase: toolPhase,
@@ -819,7 +860,12 @@ export class AgentRuntimeService {
           );
           continue;
         }
-        if (call.name !== AGENT_TOOL_NAMES.updatePlan) toolCallCount += 1;
+        if (
+          call.name !== AGENT_TOOL_NAMES.updatePlan &&
+          call.name !== AGENT_TOOL_NAMES.toolSearch
+        ) {
+          toolCallCount += 1;
+        }
 
         let toolInput: unknown;
         try {
@@ -832,6 +878,17 @@ export class AgentRuntimeService {
               AgentRuntimeService.name,
             );
             toolInput = result.snapshot;
+          } else if (
+            call.name !== AGENT_TOOL_NAMES.toolSearch &&
+            isMcpPublicToolName(call.name)
+          ) {
+            dispatchPlan.push({
+              status: 'ready',
+              call,
+              enterFinalAnswer: false,
+              mcpArgumentsPending: true,
+            });
+            continue;
           } else toolInput = this.tools.parseInput(call.name, call.arguments, toolRegistryContext);
         } catch (error) {
           const code = this.toolValidationCode(error);
@@ -845,7 +902,7 @@ export class AgentRuntimeService {
             error: {
               code,
               detail,
-              retryable: false,
+              retryable: code === AGENT_ERROR_CODES.mcpToolNotActivated,
             },
             enterFinalAnswer: false,
           });
@@ -869,23 +926,80 @@ export class AgentRuntimeService {
         roundSequence: modelRounds,
         dispatchPlan: dispatchPlan.map<RuntimeToolDispatchItem>((item) =>
           item.status === 'ready'
-            ? { status: 'ready', call: item.call, input: item.input }
+            ? {
+                status: 'ready',
+                call: item.call,
+                input: readyDispatchInput(item) ?? { __pendingMcpParse: true },
+              }
             : { status: 'rejected', call: item.call, error: item.error },
         ),
       });
       if (dispatchReadyWait) await dispatchReadyWait;
       this.assertRunActive(input.signal, runDeadlineSignal);
 
+      const preExecutedToolSearchCallIds = new Set<string>();
+      const emitPendingToolEventsInCallOrder = function* (
+        items: PendingToolResult[],
+      ): Generator<AgentRuntimeEvent, void, unknown> {
+        const ordered = [...items];
+        sortPendingToolResultsByCallOrder(ordered, normalizedCalls);
+        for (const item of ordered) yield* yieldPendingToolEvents(item);
+      };
+      const flushToolEventsAndAbortIfCancelled = function* (
+        items: PendingToolResult[],
+      ): Generator<AgentRuntimeEvent, void, unknown> {
+        if (!input.signal?.aborted) return;
+        yield* emitPendingToolEventsInCallOrder(items);
+        throw input.signal.reason ?? abortRunError();
+      };
+      const syncToolRegistryContext = () => {
+        toolRegistryContext = {
+          userId: input.userId,
+          mcpSnapshot: input.mcpSnapshot,
+          toolPhase,
+          activatedTools,
+          deferredSearchIndex,
+        };
+      };
+      for (const dispatch of dispatchPlan) {
+        if (!isReadyDispatch(dispatch) || dispatch.call.name !== AGENT_TOOL_NAMES.toolSearch) {
+          continue;
+        }
+        syncToolRegistryContext();
+        const searchInput = readyDispatchInput(dispatch);
+        if (searchInput === undefined) continue;
+        const pending = await this.runReadyToolCall({
+          input,
+          call: dispatch.call,
+          toolInput: searchInput,
+          messages,
+          roundId,
+          modelRounds,
+          runSignal,
+          runDeadlineSignal,
+          toolRegistryContext,
+          enterFinalAnswer: dispatch.enterFinalAnswer,
+          activatedTools,
+        });
+        pendingToolResults.push(pending);
+        preExecutedToolSearchCallIds.add(dispatch.call.id);
+        yield* flushToolEventsAndAbortIfCancelled(pendingToolResults);
+      }
+      syncToolRegistryContext();
+      dispatchPlan = dispatchPlan.map((item) =>
+        this.resolveDeferredMcpDispatch(item, toolRegistryContext),
+      );
+
       const bashInstallApproval = new Set<string>();
       const approvalItems = dispatchPlan
-        .filter(
-          (item): item is Extract<PreparedDispatch, { status: 'ready' }> => item.status === 'ready',
-        )
+        .filter(isReadyDispatch)
         .filter((item) => item.call.name !== AGENT_TOOL_NAMES.updatePlan)
         .flatMap((item) => {
+          const toolInput = readyDispatchInput(item);
+          if (toolInput === undefined) return [];
           const resolved = this.tools.resolveName(item.call.name);
           if (resolved === AGENT_TOOL_NAMES.bash) {
-            const bashInput = item.input as BashInput;
+            const bashInput = toolInput as BashInput;
             const policyClass = this.bashPolicy.classify(bashInput);
             if (policyClass !== 'install') return [];
             bashInstallApproval.add(item.call.id);
@@ -909,8 +1023,8 @@ export class AgentRuntimeService {
               itemId: `${roundId}:${item.call.id}`,
               toolCallId: item.call.id,
               toolName: item.call.name,
-              input: item.input,
-              argumentsHash: this.hashCanonical(item.call.name, item.input),
+              input: toolInput,
+              argumentsHash: this.hashCanonical(item.call.name, toolInput),
             },
           ];
         });
@@ -935,6 +1049,7 @@ export class AgentRuntimeService {
 
       for (const dispatch of dispatchPlan) {
         const { call } = dispatch;
+        if (preExecutedToolSearchCallIds.has(call.id)) continue;
         // 参数校验或配额失败转成模型可见 Tool Result，不直接终止整个 Run。
         if (dispatch.status === 'rejected') {
           pendingToolResults.push({
@@ -953,7 +1068,9 @@ export class AgentRuntimeService {
           continue;
         }
 
-        const toolInput = dispatch.input;
+        if (!isReadyDispatch(dispatch)) continue;
+        const toolInput = readyDispatchInput(dispatch);
+        if (toolInput === undefined) continue;
         // 成功计划更新立即发布事件，但仍继续处理同一批后续调用。
         if (call.name === AGENT_TOOL_NAMES.updatePlan) {
           const plan = toolInput as PlanSnapshot;
@@ -1020,170 +1137,25 @@ export class AgentRuntimeService {
           continue;
         }
 
-        const startedAt = new Date();
-        this.logger.log(
-          `工具调用开始 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name}`,
-          AgentRuntimeService.name,
-        );
-        const bashTerminalInput = this.bashTerminalInput(call.name, toolInput);
-        yield {
-          type: 'tool.started',
-          toolCallId: call.id,
-          toolName: call.name,
-          input: this.publicToolInput(call.name, toolInput),
-          ...(bashTerminalInput ? { bashTerminalInput } : {}),
-          startedAt: startedAt.toISOString(),
-          roundId,
-          roundSequence: modelRounds,
-          blockSequence: call.blockSequence,
-        };
-        let result: ToolExecutionResult<unknown>;
-        try {
-          const bashEgressBoost = this.shouldBoostBashEgress(
-            call.name,
-            toolInput as BashInput,
-            approvalDecisions.get(call.id),
-            bashInstallApproval,
-            call.id,
-          );
-          result = await this.executeTool(
-            call.name,
+        syncToolRegistryContext();
+        pendingToolResults.push(
+          await this.runReadyToolCall({
+            input,
+            call,
             toolInput,
-            {
-              userId: input.userId,
-              sessionId: input.sessionId,
-              runId: input.runId,
-              messageId: input.messageId,
-              toolCallId: call.id,
-              latestUserMessage: this.extractRecentUserTexts(messages).last,
-              ...(bashEgressBoost ? { bashEgressBoost: true } : {}),
-            },
+            messages,
+            roundId,
+            modelRounds,
             runSignal,
+            runDeadlineSignal,
             toolRegistryContext,
-          );
-        } catch (error) {
-          if (input.signal?.aborted) {
-            const completedAt = new Date();
-            const durationMs = completedAt.getTime() - startedAt.getTime();
-            yield {
-              type: 'tool.cancelled',
-              toolCallId: call.id,
-              toolName: call.name,
-              input: this.publicToolInput(call.name, toolInput),
-              completedAt: completedAt.toISOString(),
-              durationMs,
-              code: AGENT_ERROR_CODES.toolCancelled,
-              detail: '工具调用已取消。',
-              roundId,
-              roundSequence: modelRounds,
-              blockSequence: call.blockSequence,
-            };
-            throw error;
-          }
-          this.assertRunActive(input.signal, runDeadlineSignal);
-          const timedOut = error instanceof ToolExecutionTimeoutError;
-          result = {
-            status: timedOut ? 'timeout' : 'failed',
-            error: {
-              code: timedOut ? AGENT_ERROR_CODES.toolTimeout : AGENT_ERROR_CODES.toolUnavailable,
-              detail: timedOut ? '工具调用超过允许的执行时间。' : '工具执行异常，本次调用未完成。',
-              retryable: true,
-              cause: error,
-            },
-          };
-        }
-
-        const completedAt = new Date();
-        const durationMs = completedAt.getTime() - startedAt.getTime();
-        let event: AgentRuntimeEvent;
-        if (result.status === 'succeeded') {
-          this.logger.log(
-            `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=成功${this.formatToolLogFields(result.logFields)} | 耗时=${formatLogDuration(durationMs)}`,
-            AgentRuntimeService.name,
-          );
-          event = {
-            type: 'tool.completed',
-            toolCallId: call.id,
-            toolName: call.name,
-            input: this.publicToolInput(call.name, toolInput),
-            ...(bashTerminalInput ? { bashTerminalInput } : {}),
-            output: result.output,
-            completedAt: completedAt.toISOString(),
-            durationMs,
-            roundId,
-            roundSequence: modelRounds,
-            blockSequence: call.blockSequence,
-          };
-        } else if (result.status === 'cancelled') {
-          const upstreamReason =
-            result.error.cause === undefined
-              ? ''
-              : ` | 上游原因=${describeLogError(result.error.cause)}`;
-          this.logger.warn(
-            `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=已取消 | 错误码=${result.error.code}${this.formatToolLogFields(result.logFields)}${upstreamReason} | 耗时=${formatLogDuration(durationMs)}`,
-            AgentRuntimeService.name,
-          );
-          event = {
-            type: 'tool.cancelled',
-            toolCallId: call.id,
-            toolName: call.name,
-            input: this.publicToolInput(call.name, toolInput),
-            ...(bashTerminalInput ? { bashTerminalInput } : {}),
-            completedAt: completedAt.toISOString(),
-            durationMs,
-            code: result.error.code,
-            detail: result.error.detail,
-            roundId,
-            roundSequence: modelRounds,
-            blockSequence: call.blockSequence,
-          };
-        } else {
-          const upstreamReason =
-            result.error.cause === undefined
-              ? ''
-              : ` | 上游原因=${describeLogError(result.error.cause)}`;
-          this.logger.warn(
-            `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=${result.status} | 错误码=${result.error.code}${this.formatToolLogFields(result.logFields)}${upstreamReason} | 耗时=${formatLogDuration(durationMs)}`,
-            AgentRuntimeService.name,
-          );
-          event = {
-            type: 'tool.failed',
-            toolCallId: call.id,
-            toolName: call.name,
-            input: this.publicToolInput(call.name, toolInput),
-            ...(bashTerminalInput ? { bashTerminalInput } : {}),
-            completedAt: completedAt.toISOString(),
-            durationMs,
-            code: result.error.code,
-            detail: result.error.detail,
-            retryable: result.error.retryable,
-            roundId,
-            roundSequence: modelRounds,
-            blockSequence: call.blockSequence,
-          };
-        }
-        this.assertRunActive(input.signal, runDeadlineSignal);
-        pendingToolResults.push({
-          candidate: {
-            toolCallId: call.id,
-            toolName: call.name,
-            content:
-              result.status === 'succeeded'
-                ? this.serializeToolSuccess(call.name, result.output)
-                : this.serializeToolError(result.error),
-            ...(this.isFileTool(call.name) ? { truncatable: false } : {}),
-          },
-          event,
-          ...(approvalDecisions.get(call.id) === 'approve'
-            ? { controlOutcome: 'approved_by_user' as const }
-            : {}),
-          enterFinalAnswer: dispatch.enterFinalAnswer,
-          summary: {
-            toolCallId: call.id,
-            toolName: call.name,
-            status: this.toolResultStatus(result.status),
-          },
-        });
+            enterFinalAnswer: dispatch.enterFinalAnswer,
+            approvalDecisions,
+            bashInstallApproval,
+            activatedTools,
+          }),
+        );
+        yield* flushToolEventsAndAbortIfCancelled(pendingToolResults);
       }
 
       // Tool Result 会进入下一轮已编译 Context，而不是重新带回已被 summary 覆盖的原始历史。
@@ -1192,6 +1164,8 @@ export class AgentRuntimeService {
         roundMessages === messages
           ? messages
           : [...roundMessages, structuredClone(assistantToolCallMessage)];
+      yield* emitPendingToolEventsInCallOrder(pendingToolResults);
+      sortPendingToolResultsByCallOrder(pendingToolResults, normalizedCalls);
       const trimmedToolResults = this.context
         ? await this.context.trimToolResults(
             toolResultBudgetMessages,
@@ -1208,7 +1182,6 @@ export class AgentRuntimeService {
           }));
       for (const [index, trimmed] of trimmedToolResults.entries()) {
         const pending = pendingToolResults[index]!;
-        if (pending.event) yield pending.event;
         messages.push({
           role: 'tool',
           toolCallId: trimmed.toolCallId,
@@ -1553,9 +1526,7 @@ export class AgentRuntimeService {
 
   // 创建可被上层识别为用户取消的标准 AbortError。
   private abortError(): Error {
-    const error = new Error('Tool execution cancelled');
-    error.name = 'AbortError';
-    return error;
+    return abortRunError();
   }
 
   private toolValidationCode(error: unknown): string {
@@ -1570,6 +1541,261 @@ export class AgentRuntimeService {
     if (status === 'succeeded') return 'succeeded';
     if (status === 'cancelled') return 'cancelled';
     return 'failed';
+  }
+
+  private resolveDeferredMcpDispatch(
+    item: PreparedToolDispatch,
+    ctx: ToolRegistryContext,
+  ): PreparedToolDispatch {
+    if (item.status !== 'ready' || !('mcpArgumentsPending' in item) || !item.mcpArgumentsPending) {
+      return item;
+    }
+    try {
+      const parsed = this.tools.parseInput(item.call.name, item.call.arguments, ctx);
+      return {
+        status: 'ready',
+        call: item.call,
+        input: parsed,
+        enterFinalAnswer: item.enterFinalAnswer,
+      };
+    } catch (error) {
+      const code = this.toolValidationCode(error);
+      const detail =
+        error instanceof ToolInputValidationError
+          ? error.detail
+          : '工具参数无法通过 Schema 校验。';
+      return {
+        status: 'rejected',
+        call: item.call,
+        error: {
+          code,
+          detail,
+          retryable: code === AGENT_ERROR_CODES.mcpToolNotActivated,
+        },
+        enterFinalAnswer: false,
+      };
+    }
+  }
+
+  private async runReadyToolCall(params: {
+    input: AgentRuntimeInput;
+    call: RuntimeLifecycleToolCall;
+    toolInput: unknown;
+    messages: ModelMessage[];
+    roundId: string;
+    modelRounds: number;
+    runSignal: AbortSignal;
+    runDeadlineSignal: AbortSignal;
+    toolRegistryContext: ToolRegistryContext;
+    enterFinalAnswer: boolean;
+    approvalDecisions?: Map<string, 'approve' | 'reject'>;
+    bashInstallApproval?: ReadonlySet<string>;
+    activatedTools?: Set<string>;
+  }): Promise<PendingToolResult> {
+    const {
+      input,
+      call,
+      toolInput,
+      messages,
+      roundId,
+      modelRounds,
+      runSignal,
+      runDeadlineSignal,
+      toolRegistryContext,
+      enterFinalAnswer,
+      approvalDecisions,
+      bashInstallApproval,
+      activatedTools,
+    } = params;
+
+    const startedAt = new Date();
+    this.logger.log(
+      `工具调用开始 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name}`,
+      AgentRuntimeService.name,
+    );
+    const bashTerminalInput = this.bashTerminalInput(call.name, toolInput);
+    const startedEvent: AgentRuntimeEvent = {
+      type: 'tool.started',
+      toolCallId: call.id,
+      toolName: call.name,
+      input: this.publicToolInput(call.name, toolInput),
+      ...(bashTerminalInput ? { bashTerminalInput } : {}),
+      startedAt: startedAt.toISOString(),
+      roundId,
+      roundSequence: modelRounds,
+      blockSequence: call.blockSequence,
+    };
+
+    let result: ToolExecutionResult<unknown>;
+    try {
+      const bashEgressBoost = this.shouldBoostBashEgress(
+        call.name,
+        toolInput as BashInput,
+        approvalDecisions?.get(call.id),
+        bashInstallApproval ?? new Set(),
+        call.id,
+      );
+      result = await this.executeTool(
+        call.name,
+        toolInput,
+        {
+          userId: input.userId,
+          sessionId: input.sessionId,
+          runId: input.runId,
+          messageId: input.messageId,
+          toolCallId: call.id,
+          latestUserMessage: this.extractRecentUserTexts(messages).last,
+          ...(bashEgressBoost ? { bashEgressBoost: true } : {}),
+        },
+        runSignal,
+        toolRegistryContext,
+      );
+    } catch (error) {
+      if (input.signal?.aborted) {
+        const completedAt = new Date();
+        const durationMs = completedAt.getTime() - startedAt.getTime();
+        return {
+          candidate: {
+            toolCallId: call.id,
+            toolName: call.name,
+            content: this.serializeToolError({
+              code: AGENT_ERROR_CODES.toolCancelled,
+              detail: '工具调用已取消。',
+              retryable: false,
+            }),
+          },
+          startedEvent,
+          event: {
+            type: 'tool.cancelled',
+            toolCallId: call.id,
+            toolName: call.name,
+            input: this.publicToolInput(call.name, toolInput),
+            completedAt: completedAt.toISOString(),
+            durationMs,
+            code: AGENT_ERROR_CODES.toolCancelled,
+            detail: '工具调用已取消。',
+            roundId,
+            roundSequence: modelRounds,
+            blockSequence: call.blockSequence,
+          },
+          enterFinalAnswer,
+          summary: {
+            toolCallId: call.id,
+            toolName: call.name,
+            status: 'cancelled',
+          },
+        };
+      }
+      this.assertRunActive(input.signal, runDeadlineSignal);
+      const timedOut = error instanceof ToolExecutionTimeoutError;
+      result = {
+        status: timedOut ? 'timeout' : 'failed',
+        error: {
+          code: timedOut ? AGENT_ERROR_CODES.toolTimeout : AGENT_ERROR_CODES.toolUnavailable,
+          detail: timedOut ? '工具调用超过允许的执行时间。' : '工具执行异常，本次调用未完成。',
+          retryable: true,
+          cause: error,
+        },
+      };
+    }
+
+    const completedAt = new Date();
+    const durationMs = completedAt.getTime() - startedAt.getTime();
+    let event: AgentRuntimeEvent;
+    if (result.status === 'succeeded') {
+      this.logger.log(
+        `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=成功${this.formatToolLogFields(result.logFields)} | 耗时=${formatLogDuration(durationMs)}`,
+        AgentRuntimeService.name,
+      );
+      event = {
+        type: 'tool.completed',
+        toolCallId: call.id,
+        toolName: call.name,
+        input: this.publicToolInput(call.name, toolInput),
+        ...(bashTerminalInput ? { bashTerminalInput } : {}),
+        output: result.output,
+        completedAt: completedAt.toISOString(),
+        durationMs,
+        roundId,
+        roundSequence: modelRounds,
+        blockSequence: call.blockSequence,
+      };
+      if (call.name === AGENT_TOOL_NAMES.toolSearch && activatedTools) {
+        const searchOutput = result.output as ToolSearchOutput;
+        for (const name of searchOutput.activatedCandidates) activatedTools.add(name);
+      }
+    } else if (result.status === 'cancelled') {
+      const upstreamReason =
+        result.error.cause === undefined
+          ? ''
+          : ` | 上游原因=${describeLogError(result.error.cause)}`;
+      this.logger.warn(
+        `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=已取消 | 错误码=${result.error.code}${this.formatToolLogFields(result.logFields)}${upstreamReason} | 耗时=${formatLogDuration(durationMs)}`,
+        AgentRuntimeService.name,
+      );
+      event = {
+        type: 'tool.cancelled',
+        toolCallId: call.id,
+        toolName: call.name,
+        input: this.publicToolInput(call.name, toolInput),
+        ...(bashTerminalInput ? { bashTerminalInput } : {}),
+        completedAt: completedAt.toISOString(),
+        durationMs,
+        code: result.error.code,
+        detail: result.error.detail,
+        roundId,
+        roundSequence: modelRounds,
+        blockSequence: call.blockSequence,
+      };
+    } else {
+      const upstreamReason =
+        result.error.cause === undefined
+          ? ''
+          : ` | 上游原因=${describeLogError(result.error.cause)}`;
+      this.logger.warn(
+        `工具调用完成 | 会话=${shortLogId(input.sessionId)} | 调用=${shortLogId(call.id)} | 工具=${call.name} | 状态=${result.status} | 错误码=${result.error.code}${this.formatToolLogFields(result.logFields)}${upstreamReason} | 耗时=${formatLogDuration(durationMs)}`,
+        AgentRuntimeService.name,
+      );
+      event = {
+        type: 'tool.failed',
+        toolCallId: call.id,
+        toolName: call.name,
+        input: this.publicToolInput(call.name, toolInput),
+        ...(bashTerminalInput ? { bashTerminalInput } : {}),
+        completedAt: completedAt.toISOString(),
+        durationMs,
+        code: result.error.code,
+        detail: result.error.detail,
+        retryable: result.error.retryable,
+        roundId,
+        roundSequence: modelRounds,
+        blockSequence: call.blockSequence,
+      };
+    }
+    this.assertRunActive(input.signal, runDeadlineSignal);
+
+    return {
+      candidate: {
+        toolCallId: call.id,
+        toolName: call.name,
+        content:
+          result.status === 'succeeded'
+            ? this.serializeToolSuccess(call.name, result.output)
+            : this.serializeToolError(result.error),
+        ...(this.isFileTool(call.name) ? { truncatable: false } : {}),
+      },
+      startedEvent,
+      event,
+      ...(approvalDecisions?.get(call.id) === 'approve'
+        ? { controlOutcome: 'approved_by_user' as const }
+        : {}),
+      enterFinalAnswer,
+      summary: {
+        toolCallId: call.id,
+        toolName: call.name,
+        status: this.toolResultStatus(result.status),
+      },
+    };
   }
 
   private extractRecentUserTexts(messages: ModelMessage[]): { last?: string; prev?: string } {

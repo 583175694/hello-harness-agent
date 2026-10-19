@@ -65,7 +65,8 @@ export class McpAddServerService {
           connectionOk: !probe.error,
           toolNames: probe.toolNames,
           urlRedacted: redactMcpUrlForDisplay(existing.url),
-          message: '同名 Server 配置已存在，未重复创建。',
+          message:
+            '同名 Server 配置已存在，未重复创建。新 MCP 工具从下一 Run 起进入 snapshot，当前 Run 不会刷新 catalog。',
           ...(probe.error ? { warning: probe.error } : {}),
         };
       }
@@ -98,7 +99,9 @@ export class McpAddServerService {
         connectionOk,
         toolNames: probe.toolNames,
         urlRedacted: redactMcpUrlForDisplay(view.url),
-        message: connectionOk ? 'MCP Server 已创建并 reconcile。' : 'MCP Server 已保存，但连接测试失败。',
+        message: connectionOk
+          ? 'MCP Server 已创建并 reconcile。新 MCP 工具从下一 Run 起进入 snapshot，当前 Run 不会刷新 catalog。'
+          : 'MCP Server 已保存，但连接测试失败。新 MCP 工具从下一 Run 起进入 snapshot，当前 Run 不会刷新 catalog。',
         ...(probe.error ? { warning: probe.error } : {}),
       };
     } catch (err) {

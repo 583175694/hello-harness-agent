@@ -98,6 +98,8 @@ export const AGENT_TOOL_NAMES = {
   skillsList: 'skills.list',
   skillsRead: 'skills.read',
   memoryWrite: 'memory_write',
+  /** Host 内置：BM25 检索 deferred MCP 工具定义（DeepSeek Responses function 形态）。 */
+  toolSearch: 'tool_search',
   // SSE 与 execution 快照中标识 MCP/外部工具的合成 discriminant。
   externalTool: 'external_tool',
 } as const;
@@ -147,6 +149,8 @@ export const AGENT_ERROR_CODES = {
   invalidToolArguments: 'INVALID_TOOL_ARGUMENTS',
   // 模型请求了未注册的工具名称。
   unknownTool: 'UNKNOWN_TOOL',
+  // MCP 工具处于 deferred 且未通过 tool_search 激活，Host gate 拒绝执行。
+  mcpToolNotActivated: 'MCP_TOOL_NOT_ACTIVATED',
   // 工具已注册但当前配置不足以执行。
   toolUnavailable: 'TOOL_UNAVAILABLE',
   // 通用工具调用在执行期间收到取消信号。

@@ -11,6 +11,7 @@ import { AssistantDeliveryRepository } from '../../../src/persistence/assistant-
 import { SessionExecutionRegistry } from '../../../src/sessions/session-execution.registry';
 import { ChatService } from '../../../src/chat/chat.service';
 import { ToolRegistryService } from '../../../src/tools/tool-registry.service';
+import type { ToolExposureService } from '../../../src/tools/tool-exposure/tool-exposure.service';
 
 const CHAT_COMPLETIONS_MODEL_ID = 'deepseek-v4-pro';
 
@@ -66,11 +67,27 @@ function makeService(
     resolveName: vi.fn((name: string) => name),
     ...toolRegistry,
   } as ToolRegistryService;
+  const toolExposure = {
+    annotateSnapshot: (snapshot: unknown) => snapshot,
+    createIndex: () => null,
+    deferredCount: () => 0,
+    buildMcpDefinitions: () => [],
+    shouldInjectToolSearch: () => false,
+    toolSearchDefinition: () => ({ name: 'tool_search', description: '', parameters: {} }),
+    canExecuteMcp: () => true,
+    exposureMetrics: () => ({
+      latchedToolCount: 0,
+      deferredCount: 0,
+      activatedCount: 0,
+      exposedToolCount: 0,
+    }),
+  } as unknown as ToolExposureService;
   const runtime = new AgentRuntimeService(
     modelAdapter,
     runtimeRegistry,
     new BashCommandPolicyService(),
     logger,
+    toolExposure,
   );
   const service = new ChatService(
     config as unknown as ConfigService,

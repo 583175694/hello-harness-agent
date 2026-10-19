@@ -769,7 +769,7 @@ apps/api/test/integration/mcp-*.spec.ts
 | 8 | **`required: true`**：未 ready → **Create Run 失败**（§4.5.2），不拖到首 Model Round。 |
 | 9 | **Admin API 路径**：`/api/agent/mcp/*`；与 [11-api-protocol](./11-api-protocol.md) 对齐（C4-A 实施时改文档）。 |
 | 10 | **C4-B 范围**：B1–B3 + 按需 B4；**不做** stdio、Session 级 MCP 覆盖、OAuth。 |
-| 11 | **C4 范围不含** 大 catalog Tool Exposure；后续 Kernel K5，专项文档待建。 |
+| 11 | **C4 范围不含** 大 catalog Tool Exposure；设计见 [39-k5 §6](./39-k5-context-engineering.md#6-tool-exposure-与-tool_search对齐-codex-app-server)。 |
 
 ### 11.1 概念说明（产品 / 实现共读）
 
@@ -809,7 +809,7 @@ C4-A 建议新加的 server 默认 **false**；只有关键集成才勾 true。
 | C4-B B2 instructions → CE | ✅ 已落地 |
 | C4-B B3 Run Debug generation / 快照 tool 数 | ✅ 已落地 |
 | C4-B B4 Resources 三工具 | ✅ 已落地 |
-| K5 Tool Exposure / search + hydrate | 📋 后续 Kernel（非 C4） |
+| K5 Tool Exposure / Host `tool_search` | 📋 [39-k5 §6](./39-k5-context-engineering.md#6-tool-exposure-与-tool_search对齐-codex-app-server)（非 C4 实现） |
 | 11-api-protocol MCP 章与 B1 UI 对齐 | ✅（§15 + `toolCountExposed`/`Total`） |
 | C4-B 手工验收（Workbench + Settings） | ✅ §12.1（2026-09-24） |
 | C4-C 对话内 `mcp_add_server`（模型识别 + Host 校验落库） | ✅ 见 §7.3、§12.2 |

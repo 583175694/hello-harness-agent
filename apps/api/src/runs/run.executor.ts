@@ -22,6 +22,7 @@ import {
 import type { ToolApprovalDecision } from '@harness/agent-protocol';
 import { PendingUserInputService } from './pending-user-input.service';
 import { McpRunLatchService } from '../mcp/mcp-run-latch.service';
+import { ToolExposureService } from '../tools/tool-exposure/tool-exposure.service';
 
 @Injectable()
 export class RunExecutor implements OnModuleDestroy {
@@ -41,6 +42,7 @@ export class RunExecutor implements OnModuleDestroy {
     @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
     @Inject(ModuleRef) private readonly moduleRef: ModuleRef,
     @Inject(McpRunLatchService) private readonly mcpLatch: McpRunLatchService,
+    @Inject(ToolExposureService) private readonly toolExposure: ToolExposureService,
   ) {}
 
   // 启动一个 Run 的后台执行，并防止同一进程重复启动。
@@ -142,7 +144,8 @@ export class RunExecutor implements OnModuleDestroy {
     const ownerUserId = stored.session.userId;
     if (!active.mcpSnapshot) {
       try {
-        active.mcpSnapshot = await this.mcpLatch.captureForUser(ownerUserId, runId);
+        const latched = await this.mcpLatch.captureForUser(ownerUserId, runId);
+        active.mcpSnapshot = this.toolExposure.annotateSnapshot(latched);
       } catch (error) {
         const failure = this.mcpLatchFailure(error);
         this.logger.warn(

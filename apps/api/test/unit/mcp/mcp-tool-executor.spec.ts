@@ -11,6 +11,7 @@ const snapshot: RunMcpSnapshot = {
   serverInstructions: [],
   latchedServerNames: ['demo'],
   serverIcons: [],
+  serverToolPolicy: [{ serverName: 'demo', enabledTools: null }],
   entries: [
     {
       publicName: 'mcp__demo__ping',

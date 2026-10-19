@@ -10,6 +10,7 @@ describe('mcpIconSrcFromSnapshot', () => {
       serverInstructions: [],
       latchedServerNames: ['tinyfish'],
       serverIcons: [],
+      serverToolPolicy: [{ serverName: 'tinyfish', enabledTools: null }],
       entries: [
         {
           publicName: 'mcp__tinyfish__search',
@@ -35,6 +36,7 @@ describe('mcpIconSrcFromSnapshot', () => {
       serverInstructions: [],
       latchedServerNames: ['tinyfish'],
       serverIcons: [],
+      serverToolPolicy: [{ serverName: 'tinyfish', enabledTools: null }],
       entries: [
         {
           publicName: 'mcp__tinyfish__search',

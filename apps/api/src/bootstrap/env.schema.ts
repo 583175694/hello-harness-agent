@@ -122,6 +122,22 @@ export const envSchema = z
       (value) => (value === '' ? undefined : value),
       z.string().optional(),
     ),
+    MCP_TOOL_EXPOSURE_MODE: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.enum(['full', 'deferred_search']).optional(),
+    ),
+    MCP_DIRECT_CAP: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    TOOL_SEARCH_ENABLED: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    TOOL_SEARCH_DEFAULT_LIMIT: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
   })
   .superRefine((value, context) => {
     if (value.NODE_ENV !== 'production') return;

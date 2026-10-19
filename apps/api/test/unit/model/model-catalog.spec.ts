@@ -17,7 +17,9 @@ describe('model catalog', () => {
     expect(getConfiguredModel('deepseek-flash')).toMatchObject({
       api: 'chat_completions',
       upstreamModel: 'deepseek/deepseek-flash',
+      supportsVision: true,
     });
+    expect(getConfiguredModel('deepseek-v4-pro')?.supportsVision).toBeUndefined();
   });
 
   it('resolves the selected default and model ids case-insensitively', () => {

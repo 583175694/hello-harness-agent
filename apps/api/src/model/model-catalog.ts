@@ -58,6 +58,7 @@ export const MODEL_CATALOG: readonly ConfiguredModel[] = [
     baseUrl: TOKENHUB_BASE_URL,
     upstreamModel: 'deepseek/deepseek-flash',
     api: 'chat_completions',
+    supportsVision: true,
     reasoningFormat: 'deepseek.reasoning_content.v1',
     reasoning: { supported: true, levels: ['off', 'low', 'high', 'max'] as const, default: 'high' },
     context: {
@@ -108,7 +109,7 @@ export function resolveUpstreamModelId(model: ConfiguredModel): string {
   return model.upstreamModel ?? model.id;
 }
 
-// 默认使用支持图片输入并通过 Responses API 调用的 DeepSeek V4.1 Flash。
+// 默认使用支持图片输入的 DeepSeek V4.1 Flash（TokenHub Chat Completions）。
 export const DEFAULT_MODEL_ID = 'deepseek-flash';
 
 // 按不区分大小写的 ID 查找受控模型目录配置。

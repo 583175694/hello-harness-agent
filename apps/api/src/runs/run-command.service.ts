@@ -1,4 +1,10 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { createHash } from 'node:crypto';
 import {
@@ -19,6 +25,9 @@ import { PendingUserInputService } from './pending-user-input.service';
 import { FilesService } from '../files/files.service';
 import { AGENT_PROTOCOL_LIMITS } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
+import { SkillRegistryService } from '../skills/skill-registry.service';
+import { Logger } from 'nestjs-pino';
+import { shortLogId } from '../shared/logging.utils';
 
 @Injectable()
 export class RunCommandService {
@@ -32,6 +41,8 @@ export class RunCommandService {
     @Inject(FilesService) private readonly files: FilesService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ModuleRef) private readonly moduleRef: ModuleRef,
+    @Inject(SkillRegistryService) private readonly skillRegistry: SkillRegistryService,
+    @Inject(Logger) private readonly logger: Logger,
   ) {}
 
   // 校验请求并创建 Run；成功后注册初始 Snapshot，异步交给 Executor 执行。
@@ -55,9 +66,13 @@ export class RunCommandService {
         expectedCurrentArtifactId: string;
         changeSummary?: string;
       };
+      skillNames?: string[];
     },
   ): Promise<CreateRunResponse> {
     const runId = crypto.randomUUID();
+    const content = input.skillNames?.length
+      ? `${input.skillNames.map((name) => `/${name}`).join(' ')} ${input.content}`
+      : input.content;
     const userMessageId = crypto.randomUUID();
     const assistantMessageId = crypto.randomUUID();
     // idempotencyKey 只能重放同一 payload；相同键搭配不同正文必须明确冲突。
@@ -70,6 +85,18 @@ export class RunCommandService {
         code: 'MODEL_UNSUPPORTED',
         detail: '所选模型不可用，请刷新模型列表后重试。',
       });
+    if (input.skillNames?.length) {
+      for (const name of input.skillNames) {
+        try {
+          this.skillRegistry.read(name);
+        } catch {
+          throw new BadRequestException({
+            code: 'SKILL_NOT_FOUND',
+            detail: `Skill「${name}」不存在或不可用，请刷新技能列表后重试。`,
+          });
+        }
+      }
+    }
     const model = configuredModel.id;
     let attachmentIds = this.attachmentIdsFromInput(input);
     if (input.artifactVersionContext) {
@@ -127,7 +154,7 @@ export class RunCommandService {
     const payloadHash = createHash('sha256')
       .update(
         JSON.stringify({
-          content: input.content,
+          content,
           model,
           reasoningEffort,
           attachmentIds,
@@ -140,7 +167,7 @@ export class RunCommandService {
       result = await this.repository.create({
         userId,
         sessionId,
-        content: input.content,
+        content,
         idempotencyKey: input.idempotencyKey,
         pendingInputId: input.pendingInputId,
         payloadHash,
@@ -153,6 +180,7 @@ export class RunCommandService {
         reasoningFormat: capability.reasoningFormat,
         attachmentIds,
         artifactVersionContext: input.artifactVersionContext,
+        skillNames: input.skillNames,
       });
     } catch (error) {
       if (
@@ -196,7 +224,16 @@ export class RunCommandService {
       }
       // 先注册初始 Durable Snapshot，再让后台 Executor 发布第一个事件，避免首订阅找不到 Run。
       this.registry.register(snapshot);
+      this.logger.log(
+        `Run 已接单 | Run=${shortLogId(run.id)} | 会话=${shortLogId(sessionId)} | 模型=${model} | 推理=${reasoningEffort} | 附件=${attachmentIds.length} | 幂等=新建`,
+        RunCommandService.name,
+      );
       setImmediate(() => this.executor.start(run.id));
+    } else {
+      this.logger.log(
+        `Run 幂等重放 | Run=${shortLogId(run.id)} | 会话=${shortLogId(sessionId)} | 状态=${run.status}`,
+        RunCommandService.name,
+      );
     }
     return {
       sessionId: run.sessionId,
@@ -206,6 +243,16 @@ export class RunCommandService {
       status: run.status,
       eventsUrl: `/api/agent/runs/${run.id}/events`,
     };
+  }
+
+  async detail(runId: string, userId: string) {
+    const detail = await this.repository.detail(runId, userId);
+    if (!detail)
+      throw new NotFoundException({
+        code: AGENT_ERROR_CODES.runNotFound,
+        detail: '运行不存在或不属于当前用户。',
+      });
+    return detail;
   }
 
   // 返回当前进程最新 Snapshot；没有内存 Run 时退回数据库 Snapshot。
@@ -277,6 +324,10 @@ export class RunCommandService {
     userId: string,
     command: RunControlCommand,
   ): Promise<RunControlResponse> {
+    this.logger.log(
+      `Run 控制命令 | Run=${shortLogId(runId)} | 命令=${command.type}`,
+      RunCommandService.name,
+    );
     if (command.type === 'cancel') await this.cancel(runId, userId);
     else if (command.type === 'pause' || command.type === 'resume') {
       try {
@@ -319,16 +370,29 @@ export class RunCommandService {
 
   // 请求取消 Run，并根据当前执行位置选择立即终止或交给 Executor 收尾。
   async cancel(runId: string, userId: string) {
-    const snapshot = await this.repository.snapshot(runId, userId);
+    const snapshot = await this.repository.snapshot(runId, userId, { requireOwnership: true });
     if (!snapshot) this.notFound();
     if (
       snapshot.status === 'completed' ||
       snapshot.status === 'failed' ||
       snapshot.status === 'cancelled'
-    )
+    ) {
+      this.logger.log(
+        `Run 取消忽略 | Run=${shortLogId(runId)} | 原因=已终态 | 状态=${snapshot.status}`,
+        RunCommandService.name,
+      );
       return { runId, status: snapshot.status };
+    }
+    this.logger.log(
+      `Run 取消请求 | Run=${shortLogId(runId)} | 当前状态=${snapshot.status}`,
+      RunCommandService.name,
+    );
     const requestedStatus = await this.repository.requestCancel(runId);
     if (requestedStatus === 'cancelled') {
+      this.logger.log(
+        `Run 已取消(queued) | Run=${shortLogId(runId)}`,
+        RunCommandService.name,
+      );
       // queued Run 尚未进入 Runtime，Repository 已直接持久化 cancelled；内存中只补交终态观察事件。
       const active = this.registry.get(runId);
       if (active) {
@@ -343,12 +407,20 @@ export class RunCommandService {
     if (requestedStatus !== 'cancel_requested') return { runId, status: requestedStatus };
     const active = this.registry.get(runId);
     if (active) {
+      this.logger.log(
+        `Run 取消已下发 Executor | Run=${shortLogId(runId)} | 状态=cancel_requested`,
+        RunCommandService.name,
+      );
       // running Run 先公开 cancel_requested，再 abort 本地 Runtime，由 Executor 持久化最终 cancelled。
       this.events.publish(runId, 'run.cancel_requested', { status: 'cancel_requested' });
       this.executor.requestCancel(runId);
       active.abortController.abort();
       return { runId, status: 'cancel_requested' as const };
     }
+    this.logger.warn(
+      `Run 取消跨实例落库 | Run=${shortLogId(runId)} | 原因=本进程无 Executor`,
+      RunCommandService.name,
+    );
     // 本实例没有 Executor 时无法等待本地 catch 收尾，直接用 Durable Snapshot 收敛取消状态。
     const projection: ChatProjectionSnapshot = {
       model: 'unknown',

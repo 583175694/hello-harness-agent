@@ -272,7 +272,7 @@ State 必须足以判断：
 - Evidence/Artifact 是否 durable
 - 已批准的下游交付是否完成
 
-## 17. User Memory (P9/P10)
+## 17. User Memory (C7)
 
 Memory 是 user-scoped derived context，不是 State 子类型。Memory sourceRefs 可以指向 prior-session State，但展开必须验证当前 user ownership 和 selected Memory path。
 

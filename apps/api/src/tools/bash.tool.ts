@@ -17,6 +17,7 @@ import {
   isHostAllowed,
   mergedEgressAllowlist,
   readSandboxRuntimeConfig,
+  SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED,
   sandboxLimits,
 } from '../sandbox/sandbox-config';
 import { SandboxError } from '../sandbox/sandbox-error';
@@ -32,8 +33,8 @@ import type { AgentTool, ToolExecutionContext, ToolExecutionResult } from './age
 const TOOL_DESCRIPTION =
   '在隔离云端工作区执行一条 bash 命令（每次调用是新的 shell；文件与已装依赖会保留）。' +
   '必须提供 description。路径相对工作区；Host 文件用 inputFiles Stage、output Collect。' +
-  '非零退出是命令结果。外网默认不可用；需要 curl/pip install 等时按提示申请 network/install 权限。' +
-  'Browser 镜像下预装 agent-browser：JS 渲染页、截图与下载用 agent-browser CLI（路径在 workspace，截图/下载用 output Collect）；静态公开页优先 web_fetch。访问 HTTPS 需 network 权限。';
+  '非零退出是命令结果。访问外网（curl、wget、agent-browser 等）在沙箱策略内自动执行；pip/npm install 等安装依赖需用户批准。' +
+  'Browser 镜像下预装 agent-browser：JS 渲染页、截图与下载用 agent-browser CLI（路径在 workspace，截图/下载用 output Collect）；静态公开页优先 web_fetch。';
 
 @Injectable()
 export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
@@ -381,7 +382,7 @@ export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
     const config = readSandboxRuntimeConfig();
     const hosts = extractHostsFromCommand(input.command);
     if (!hosts.length) return;
-    if (!config.egressHostAllowlistEnforced) {
+    if (!SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED) {
       this.egressAudit.record({
         sessionId: context.sessionId,
         runId: context.runId,
@@ -404,7 +405,7 @@ export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
       throw new SandboxError(
         AGENT_ERROR_CODES.sandboxUnavailable,
         `[sandbox: network denied; hosts not in allowlist: ${denied.join(', ')}. ` +
-          '设置 SANDBOX_EGRESS_ALLOWLIST_EXTRA 或关闭 SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED（开放阶段默认 false）。]',
+          '在 sandbox-config 中扩展 SANDBOX_EGRESS_ALLOWLIST_EXTRA 或调整 SANDBOX_EGRESS_HOST_ALLOWLIST_ENFORCED。',
         false,
       );
     }

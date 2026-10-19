@@ -129,7 +129,16 @@ describe('foundation API', () => {
         const preview = await request(app.getHttpServer())
           .get(`/api/agent/artifacts/${artifact.artifactId}/preview`)
           .expect(200);
-        expect(preview.text).toContain(file.fileKind === 'xlsx' ? '[Sheet:' : '# 中文报告');
+        if (file.fileKind === 'html') {
+          expect(preview.headers['content-type']).toMatch(/text\/html/u);
+          expect(preview.text).toMatch(/^<!doctype html>/iu);
+          expect(preview.headers['content-security-policy']).toContain("connect-src 'none'");
+          expect(preview.headers['referrer-policy']).toBe('no-referrer');
+          expect(preview.headers['cache-control']).toBe('private, no-store');
+          expect(Buffer.compare(preview.body, download.body)).toBe(0);
+        } else {
+          expect(preview.text).toContain(file.fileKind === 'xlsx' ? '[Sheet:' : '# 中文报告');
+        }
       }
 
       const restored = await request(app.getHttpServer())

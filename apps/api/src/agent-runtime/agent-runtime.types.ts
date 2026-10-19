@@ -10,12 +10,14 @@ import type { ModelMessage } from '../model/model-adapter';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import type { RuntimeLifecycleController } from './runtime-lifecycle';
 import type { RunMcpSnapshot } from '../mcp/mcp.types';
+import type { SkillContextInput } from '../context-engineering/context-engineering.types';
 
 export type AgentRuntimeInput = {
   userId: string;
   sessionId: string;
   runId?: string;
   mcpSnapshot?: RunMcpSnapshot;
+  skills?: ReadonlyArray<SkillContextInput>;
   messageId: string;
   model: string;
   systemPrompt: string;

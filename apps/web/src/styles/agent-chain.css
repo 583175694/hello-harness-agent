@@ -1,0 +1,12 @@
+/* MCP 内联步骤：业务输入单行省略，悬停 title 看全文 */
+.agent-chain-tool--mcp .agent-chain-tool__label {
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.agent-chain-tool--mcp .agent-chain-tool__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

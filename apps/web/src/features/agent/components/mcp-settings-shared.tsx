@@ -1,5 +1,8 @@
-import { ChevronDown } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronDown, Puzzle } from 'lucide-react';
 import type { McpServerView } from '@harness/agent-protocol';
+
+import { mcpIconDisplayUrl } from '../model/mcp-icon-display';
 
 /** degraded / disconnected 时的可操作排查建议（不含 secret）。 */
 export function mcpDegradedActionHint(server: McpServerView): string | null {
@@ -98,6 +101,32 @@ export function McpToolCountPill({ server }: { server: McpServerView }) {
   return (
     <span className="settings-dialog__pill">
       可用 {exposed} / 共 {total}
+    </span>
+  );
+}
+
+export function McpServerAvatar({ server }: { server: McpServerView }) {
+  const imageSrc = mcpIconDisplayUrl(server.iconSrc);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [imageSrc]);
+  if (imageSrc && !failed) {
+    return (
+      <img
+        className="settings-dialog__mcp-avatar"
+        src={imageSrc}
+        alt=""
+        width={20}
+        height={20}
+        decoding="async"
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+  return (
+    <span className="settings-dialog__mcp-avatar settings-dialog__mcp-avatar--fallback" aria-hidden="true">
+      <Puzzle size={14} />
     </span>
   );
 }

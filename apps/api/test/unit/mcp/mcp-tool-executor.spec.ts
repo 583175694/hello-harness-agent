@@ -10,6 +10,8 @@ const snapshot: RunMcpSnapshot = {
   catalogGeneration: 3,
   serverInstructions: [],
   latchedServerNames: ['demo'],
+  serverIcons: [],
+  serverToolPolicy: [{ serverName: 'demo', enabledTools: null }],
   entries: [
     {
       publicName: 'mcp__demo__ping',

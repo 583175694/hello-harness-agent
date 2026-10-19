@@ -1,7 +1,37 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { AGENT_UI_COPY } from '../config/ui.constants';
 import { Composer, Conversation } from './conversation';
+
+function renderConversation(
+  props: Partial<ComponentProps<typeof Conversation>> = {},
+): ReturnType<typeof render> {
+  return render(
+    <Conversation
+      state={{ label: 'test', subtitle: '', conversation: [] }}
+      error={null}
+      onDismissError={() => undefined}
+      onFocusWorkbench={() => undefined}
+      prompt=""
+      submitting={false}
+      serviceState="ready"
+      composerMode="new-run"
+      onPromptChange={() => undefined}
+      onSubmit={() => undefined}
+      {...props}
+    />,
+  );
+}
+
+describe('Conversation session loading', () => {
+  it('shows message skeletons instead of the new-session landing', () => {
+    renderConversation({ sessionLoading: true });
+    expect(screen.getByLabelText('加载会话')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText(AGENT_UI_COPY.newSessionWelcome)).not.toBeInTheDocument();
+  });
+});
 
 describe('Composer image paste', () => {
   it('shows a stable file error and routes retry for a failed document', () => {
@@ -57,6 +87,46 @@ describe('Composer image paste', () => {
     );
     expect(screen.getByRole('status')).toHaveTextContent('PDF 不包含可提取文本');
     expect(screen.queryByText('重试')).not.toBeInTheDocument();
+  });
+
+  it('routes dropped files through the attachment callback', () => {
+    const onAttachmentSelected = vi.fn();
+    const { container } = render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentSelected={onAttachmentSelected}
+      />,
+    );
+    const document = new File(['doc'], 'notes.md', { type: 'text/markdown' });
+    fireEvent.drop(container.querySelector('.composer')!, {
+      dataTransfer: { files: [document], items: [] },
+    });
+    expect(onAttachmentSelected).toHaveBeenCalledWith([document]);
+  });
+
+  it('routes clipboard document files through the attachment callback', () => {
+    const onAttachmentSelected = vi.fn();
+    render(
+      <Composer
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        mode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        onAttachmentSelected={onAttachmentSelected}
+      />,
+    );
+    const document = new File(['doc'], 'report.pdf', { type: 'application/pdf' });
+    fireEvent.paste(screen.getByRole('textbox', { name: '任务输入' }), {
+      clipboardData: { files: [document], getData: () => '' },
+    });
+    expect(onAttachmentSelected).toHaveBeenCalledWith([document]);
   });
 
   it('routes clipboard images through the attachment callback', () => {
@@ -244,7 +314,6 @@ describe('Composer image paste', () => {
       value: { files: [], getData: () => '普通文本' },
     });
     fireEvent(screen.getByRole('textbox', { name: '任务输入' }), event);
-    expect(event.defaultPrevented).toBe(false);
     expect(onAttachmentSelected).not.toHaveBeenCalled();
     expect(onPromptChange).not.toHaveBeenCalled();
     expect(onSubmit).not.toHaveBeenCalled();
@@ -269,7 +338,6 @@ describe('Composer image paste', () => {
       />,
     );
     fireEvent(screen.getByRole('textbox', { name: '任务输入' }), event);
-    expect(event.defaultPrevented).toBe(false);
     expect(onAttachmentSelected).not.toHaveBeenCalled();
   });
 
@@ -428,8 +496,80 @@ describe('Composer image paste', () => {
       value: { files: [], getData: () => text },
     });
     fireEvent(screen.getByRole('textbox', { name: '任务输入' }), event);
-    expect(event.defaultPrevented).toBe(false);
     expect(onAttachmentSelected).not.toHaveBeenCalled();
+  });
+});
+
+describe('Conversation user message navigation', () => {
+  it('shows a tick per user message and jumps when a tick is clicked', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [
+            { id: 'user-1', kind: 'user', content: '第一个问题', createdAt: '2026-09-10T00:00:00.000Z' },
+            {
+              id: 'assistant-1',
+              kind: 'assistant',
+              blocks: [{ id: 'text-1', type: 'text', content: '第一次回答' }],
+            },
+            { id: 'user-2', kind: 'user', content: '第二个问题', createdAt: '2026-09-10T00:01:00.000Z' },
+            {
+              id: 'assistant-2',
+              kind: 'assistant',
+              blocks: [{ id: 'text-2', type: 'text', content: '第二次回答' }],
+            },
+          ],
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+    expect(screen.getByRole('navigation', { name: '对话定位' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '跳转到第 1 条提问' }));
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it('uses proportional track layout when there are many user questions', () => {
+    const conversation = Array.from({ length: 30 }, (_, index) => [
+      {
+        id: `user-${index}`,
+        kind: 'user' as const,
+        content: `问题 ${index + 1}`,
+        createdAt: '2026-09-10T00:00:00.000Z',
+      },
+      {
+        id: `assistant-${index}`,
+        kind: 'assistant' as const,
+        blocks: [{ id: `text-${index}`, type: 'text' as const, content: `回答 ${index + 1}` }],
+      },
+    ]).flat();
+    const { container } = render(
+      <Conversation
+        state={{ label: 'test', subtitle: '', conversation }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+    expect(container.querySelector('.conversation-message-nav--track')).toBeInTheDocument();
+    expect(container.querySelector('.conversation-message-nav__track')).toBeInTheDocument();
   });
 });
 
@@ -462,7 +602,7 @@ describe('Conversation tool activity navigation', () => {
                 runId: 'run-1',
                 title: 'Artifact',
                 subtitle: '',
-                activeView: 'artifact',
+                activeView: 'deliverables',
                 executions: [],
                 followMode: 'auto',
                 sources: [],
@@ -483,7 +623,7 @@ describe('Conversation tool activity navigation', () => {
       />,
     );
 
-    const fileCard = screen.getByRole('button', { name: '预览result.md' });
+    const fileCard = screen.getByRole('button', { name: '在实时跟随中查看 result.md' });
     expect(fileCard).toHaveClass('user-attachment-button', 'user-attachment-document');
     expect(screen.queryByRole('button', { name: '下载result.md' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '删除result.md' })).not.toBeInTheDocument();
@@ -519,7 +659,7 @@ describe('Conversation tool activity navigation', () => {
                 runId: 'run-1',
                 title: 'Artifact',
                 subtitle: '',
-                activeView: 'artifact',
+                activeView: 'deliverables',
                 executions: [],
                 followMode: 'auto',
                 sources: [],
@@ -540,7 +680,9 @@ describe('Conversation tool activity navigation', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: '预览report.md' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '在实时跟随中查看 report.md' }),
+    ).toBeInTheDocument();
   });
 
   it('opens the parsed preview for a historical document attachment', async () => {
@@ -964,10 +1106,10 @@ describe('Conversation tool activity navigation', () => {
       [...container.querySelectorAll('.ai-chain-step__label')].map((block) => block.textContent),
     ).toEqual([expect.stringContaining('搜索网页')]);
     const processToggle = screen.getByRole('button', { name: '已用时 1 秒' });
-    expect(processToggle).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.click(processToggle);
     expect(processToggle).toHaveAttribute('aria-expanded', 'false');
-    expect(container.querySelector('.ai-chain__content')).toHaveAttribute('aria-hidden', 'true');
+    fireEvent.click(processToggle);
+    expect(processToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(container.querySelector('.ai-chain__content')).toHaveAttribute('aria-hidden', 'false');
     expect(screen.getByText('这是最终回答。')).toBeInTheDocument();
   });
 
@@ -1112,7 +1254,7 @@ describe('Conversation tool activity navigation', () => {
                 runId: 'server-message-1',
                 title: '网页检索',
                 subtitle: '执行中',
-                activeView: 'activity',
+                activeView: 'tool_results',
                 executions: [],
                 followMode: 'auto',
                 sources: [],

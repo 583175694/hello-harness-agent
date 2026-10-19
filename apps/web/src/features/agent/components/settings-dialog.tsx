@@ -7,6 +7,7 @@ import {
   Pencil,
   Plus,
   Puzzle,
+  Brain,
   Settings2,
   Sun,
   Trash2,
@@ -21,6 +22,7 @@ import type {
   McpUpdateServerRequest,
 } from '@harness/agent-protocol';
 import { AccountSection } from '../../auth/account-section';
+import { copyTextToClipboard } from '../../../lib/clipboard';
 import {
   ApiProblem,
   createMcpServer,
@@ -42,14 +44,16 @@ import { toast } from '../../../components/ui/toast';
 import { McpServerForm, serverViewToForm } from './mcp-server-form';
 import {
   McpCardChevron,
+  McpServerAvatar,
   McpServerToggleRow,
   McpStatusBadge,
   McpToolCountPill,
   mcpDegradedActionHint,
 } from './mcp-settings-shared';
 import { McpToolFilter } from './mcp-tool-filter';
+import { MemorySettingsSection } from './memory-settings-section';
 
-type SettingsSection = 'general' | 'mcp';
+type SettingsSection = 'general' | 'mcp' | 'memory';
 
 type SettingsDialogProps = {
   open: boolean;
@@ -121,6 +125,7 @@ function McpServerCard({
           <McpCardChevron expanded={expanded} />
           <span className="settings-dialog__mcp-card-trigger-main">
             <span className="settings-dialog__mcp-card-title">
+              <McpServerAvatar server={server} />
               <code>{server.serverName}</code>
               <McpStatusBadge status={server.status} />
               <McpToolCountPill server={server} />
@@ -391,7 +396,7 @@ export function SettingsDialog({
 
   async function copyUrl(url: string) {
     try {
-      await navigator.clipboard.writeText(url);
+      await copyTextToClipboard(url);
       toast('已复制');
     } catch {
       setError('复制失败，请手动选择 URL。');
@@ -444,6 +449,19 @@ export function SettingsDialog({
                 {servers.length > 0 ? (
                   <span className="settings-dialog__nav-count">{servers.length}</span>
                 ) : null}
+              </button>
+              <button
+                type="button"
+                className={`settings-dialog__nav-cell${section === 'memory' ? ' is-active' : ''}`}
+                aria-current={section === 'memory' ? 'true' : undefined}
+                onClick={() => {
+                  setSection('memory');
+                  setMcpFormMode(null);
+                  setError(null);
+                }}
+              >
+                <Brain size={16} aria-hidden="true" />
+                <span>记忆</span>
               </button>
             </div>
           </nav>
@@ -549,6 +567,8 @@ export function SettingsDialog({
                   ) : null}
                 </div>
               ) : null}
+
+              {section === 'memory' ? <MemorySettingsSection authUser={authUser} /> : null}
 
               {section === 'mcp' ? (
                 <div className="settings-dialog__mcp-page">

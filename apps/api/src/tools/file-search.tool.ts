@@ -26,7 +26,10 @@ export class FileSearchTool implements AgentTool<FileSearchInput, FileSearchResu
     return {
       name: this.name,
       description:
-        '在当前会话中已准备好的文件里搜索普通关键词，返回有限命中和行号/页码上下文。包括用户附件、Agent 生成文件，以及外置的超大工具结果。',
+        '在当前会话中已准备好的文件里搜索普通关键词，仅用于定位（在哪有 X），返回有限命中和行号/页码 snippet；不能代替读正文。' +
+        ' 每次命中后必须用 read_file（优先 scope=section，否则 scope=lines 读命中行附近）读取完整上下文。' +
+        ' 全文审阅/查错/查矛盾：在 read_file(scope=file) 拿到 outline 后，对章节标题、专有名词、图表编号等用本工具补定位，再 read_file 读段，避免只读开头几段。' +
+        ' 包括用户附件、Agent 生成文件，以及外置的超大工具结果（含 [Tool Result stored] 对应的 fileId）。',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -36,7 +39,8 @@ export class FileSearchTool implements AgentTool<FileSearchInput, FileSearchResu
             type: 'string',
             minLength: 1,
             maxLength: AGENT_PROTOCOL_LIMITS.fileSearchQueryMaxLength,
-            description: '普通关键词，不支持正则表达式、JSONPath 或复杂查询语法。',
+            description:
+              '普通关键词，不支持正则表达式、JSONPath 或复杂查询语法；可多次换词搜索以覆盖文档不同部分。',
           },
           maxResults: {
             type: 'integer',

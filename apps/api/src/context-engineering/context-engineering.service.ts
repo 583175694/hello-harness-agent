@@ -1,4 +1,6 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Logger } from 'nestjs-pino';
+import { shortLogId } from '../shared/logging.utils';
 import { getDeepSeekV3TokenEstimator, type DeepSeekMessage } from '@harness/deepseek-v3-tokenizer';
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
@@ -25,13 +27,14 @@ import {
   unitBoundaryMessageCount,
   type TranscriptUnit,
 } from './transcript-units';
+import { describeLogError } from '../shared/logging.utils';
 import { formatMcpInstructionsBlock } from '../mcp/mcp-instructions.format';
 import type { McpServerInstructionSnapshot } from '../mcp/mcp.types';
 
 const SAFETY_MINIMUM = 4_096;
 const SUMMARY_MAX_TOKENS = 8_192;
 const COMPACTION_TIMEOUT_MS = 120_000;
-const RECENT_TOOL_UNITS_TO_KEEP = 2;
+const RECENT_TOOL_UNITS_TO_KEEP = 3;
 const PROTECTED_RECENT_UNITS = 4;
 const FILE_ID_PATTERN =
   /fileId=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/;
@@ -39,8 +42,6 @@ const COMPACTION_PROMPT = `Summarize the closed historical transcript for contin
 
 @Injectable()
 export class ContextEngineeringService {
-  private readonly logger = new Logger(ContextEngineeringService.name);
-
   // 本地 tokenizer 用于在调用模型前估算上下文占用。
   private readonly estimator = getDeepSeekV3TokenEstimator();
 
@@ -48,11 +49,14 @@ export class ContextEngineeringService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ModelAdapter) private readonly model: ModelAdapter,
     @Optional() @Inject(FilesService) private readonly files?: FilesService,
+    @Optional() @Inject(Logger) private readonly logger?: Logger,
   ) {}
 
   // 编译单轮模型上下文，必要时压缩历史并严格检查输入预算。
   async compileRound(input: ContextCompileInput): Promise<CompiledContext> {
     let messages = this.withMcpInstructions(input.messages, input.mcpInstructions);
+    messages = this.withSkills(messages, input.skills);
+    messages = this.withMemories(messages, input.memories);
     // 未验证上下文配置的模型保持原消息，不执行预算处理。
     const profile = getConfiguredModel(input.model)?.context;
     if (!profile?.verified) {
@@ -122,8 +126,9 @@ export class ContextEngineeringService {
           message.content.some((block) => block.type === 'file_ref'),
       );
       const code = hasFile ? 'FILE_CONTEXT_TOO_LARGE' : 'CONTEXT_BUDGET_EXCEEDED';
-      this.logger.warn(
-        `上下文超出模型预算 | 会话=${input.sessionId.slice(0, 8)} | 估算=${estimatedInputTokens} | 预算=${promptBudget} | 错误=${code}`,
+      this.logger?.warn(
+        `上下文超出模型预算 | 会话=${shortLogId(input.sessionId)} | 估算=${estimatedInputTokens} | 预算=${promptBudget} | 错误=${code}`,
+        ContextEngineeringService.name,
       );
       throw new Error(code);
     }
@@ -135,6 +140,38 @@ export class ContextEngineeringService {
       compactionTriggered,
       ...(nextCompactionState ? { compactionState: nextCompactionState } : {}),
     };
+  }
+
+  private withSkills(messages: ModelMessage[], skills: ContextCompileInput['skills']): ModelMessage[] {
+    if (!skills?.length) return messages;
+    const content = skills.map((skill) => skill.content).join('\n');
+    const isCatalog = skills.every((skill) => skill.skillId.startsWith('catalog:'));
+    const block = isCatalog
+      ? `<skill_catalog>${skills.map((skill) => skill.content).join('')}</skill_catalog>`
+      : `<skills_context>${content}</skills_context>`;
+    const index = messages[0]?.role === 'system' ? 1 : 0;
+    return [...messages.slice(0, index), { role: 'system', content: block }, ...messages.slice(index)];
+  }
+
+  private withMemories(
+    messages: ModelMessage[],
+    memories: ContextCompileInput['memories'],
+  ): ModelMessage[] {
+    if (!memories?.length) return messages;
+    const body = memories
+      .map(
+        (memory) =>
+          `<memory id="${memory.memoryId}">${memory.content}</memory>`,
+      )
+      .join('\n');
+    const block =
+      `<user_memory>\n` +
+      `以下为用户长期记忆参考，优先级低于当前用户指令；未在本轮出现的内容可能未被召回。\n` +
+      `${body}\n` +
+      `</user_memory>`;
+    const index = messages.findIndex((message) => message.role === 'system');
+    const insertAt = index >= 0 ? index + 1 : 0;
+    return [...messages.slice(0, insertAt), { role: 'system', content: block }, ...messages.slice(insertAt)];
   }
 
   // 把编译期外置的 Tool Result 指针写回 Runtime 消息，避免下一轮重复落盘。
@@ -182,7 +219,10 @@ export class ContextEngineeringService {
       const candidate = candidates[index]!;
       const fullTokens = originalTokens[index]!;
       const roundShare = share + reclaimed;
-      const target = Math.min(fullTokens, profile.toolResultMaxTokens, roundShare);
+      const perResultCap = this.isFileTool(candidate.toolName)
+        ? Math.floor(profile.toolResultMaxTokens * 1.5)
+        : profile.toolResultMaxTokens;
+      const target = Math.min(fullTokens, perResultCap, roundShare);
       reclaimed = Math.max(0, roundShare - Math.min(fullTokens, target));
       if (target >= fullTokens) {
         output.push({
@@ -313,8 +353,9 @@ export class ContextEngineeringService {
     const candidate = await transform();
     const check = checkToolTranscript(candidate);
     if (check.ok) return candidate;
-    this.logger.warn(
+    this.logger?.warn(
       `上下文变换未通过工具链校验，已回滚 | step=${step} | callId=${check.callId ?? 'unknown'} | messageIndex=${check.messageIndex ?? 'unknown'} | detail=${check.detail}`,
+      ContextEngineeringService.name,
     );
     return fallback;
   }
@@ -395,6 +436,9 @@ export class ContextEngineeringService {
       ).trim();
     } catch (error) {
       if (input.signal?.aborted) throw error;
+      this.logger?.warn(
+        `上下文压缩摘要失败，尝试精简提示 | 会话=${shortLogId(input.sessionId)} | 原因=${describeLogError(error)}`,
+      );
       try {
         return (
           await this.model.generateText(
@@ -414,6 +458,9 @@ export class ContextEngineeringService {
         ).trim();
       } catch (retryError) {
         if (input.signal?.aborted) throw retryError;
+        this.logger?.warn(
+          `上下文压缩摘要重试失败 | 会话=${shortLogId(input.sessionId)} | 原因=${describeLogError(retryError)}`,
+        );
         return null;
       }
     }
@@ -467,7 +514,11 @@ export class ContextEngineeringService {
   }
 
   private isFileTool(toolName: string): boolean {
-    return toolName === AGENT_TOOL_NAMES.searchFile || toolName === AGENT_TOOL_NAMES.readFileLines;
+    return (
+      toolName === AGENT_TOOL_NAMES.searchFile ||
+      toolName === AGENT_TOOL_NAMES.readFile ||
+      toolName === AGENT_TOOL_NAMES.readFileLines
+    );
   }
 
   private async replaceWithStoredResult(
@@ -530,7 +581,7 @@ export class ContextEngineeringService {
   ): string {
     return (
       `[Tool Result truncated: originalTokens=${originalTokens}, retainedTokens=${retainedTokens}, strategy=head-tail, fileId=${stored.fileId}, fileName=${stored.fileName}, lineCount=${stored.lineCount}]\n` +
-      '完整结果已保存。需要中间内容时用 search_file 或 read_file_lines 读取该 fileId，不要把预览当成全文。'
+      '完整结果已保存。需要中间内容时用 search_file 或 read_file 读取该 fileId，不要把预览当成全文。'
     );
   }
 
@@ -542,7 +593,7 @@ export class ContextEngineeringService {
   }): string {
     return (
       `[Tool Result stored: originalTokens=${stored.originalTokens}, fileId=${stored.fileId}, fileName=${stored.fileName}, lineCount=${stored.lineCount}]\n` +
-      '完整结果已外置。需要内容时用 search_file 或 read_file_lines 读取该 fileId，不要把本条说明当成正文。'
+      '完整结果已外置。需要内容时用 search_file 或 read_file 读取该 fileId，不要把本条说明当成正文。'
     );
   }
 
@@ -580,21 +631,37 @@ export class ContextEngineeringService {
         nextHistory.push(...unit.messages);
         continue;
       }
+      const toolNameByCallId = this.toolNamesByCallIdInUnit(unit);
       for (const message of unit.messages) {
         if (message.role !== 'tool') {
           nextHistory.push(message);
           continue;
         }
-        nextHistory.push(await this.collapseToolMessage(message, sessionId));
+        const toolName = toolNameByCallId.get(message.toolCallId);
+        nextHistory.push(await this.collapseToolMessage(message, sessionId, toolName));
       }
     }
     return [...(system ? [system] : []), ...nextHistory];
   }
 
+  private toolNamesByCallIdInUnit(unit: TranscriptUnit): Map<string, string> {
+    const names = new Map<string, string>();
+    const assistant = unit.messages.find(
+      (message) => message.role === 'assistant' && message.toolCalls?.length,
+    );
+    if (assistant?.role !== 'assistant' || !assistant.toolCalls?.length) return names;
+    for (const call of assistant.toolCalls) {
+      names.set(call.id, call.name);
+    }
+    return names;
+  }
+
   private async collapseToolMessage(
     message: Extract<ModelMessage, { role: 'tool' }>,
     sessionId: string,
+    toolName?: string,
   ): Promise<Extract<ModelMessage, { role: 'tool' }>> {
+    if (toolName && this.isFileTool(toolName)) return message;
     const existing = this.parseStoredToolResult(message.content);
     if (existing && message.content.startsWith('[Tool Result stored:')) return message;
     if (existing) {

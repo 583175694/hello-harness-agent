@@ -43,8 +43,49 @@ model User {
   reports          Report[]
   mcpServerConfigs McpServerConfig[]
   loginSessions    UserLoginSession[]
+  memoryRecords    MemoryRecord[]
+  memorySettings   UserMemorySettings?
 
   @@map("users")
+}
+
+model MemoryRecord {
+  id                 String    @id
+  userId             String    @map("user_id")
+  kind               String
+  title              String
+  summary            String
+  status             String
+  confidence         String
+  freshness          String    @default("fresh")
+  importance         String    @default("medium")
+  sensitivity        String    @default("normal")
+  sourceRefs         Json      @map("source_refs")
+  policy             Json      @default("{}")
+  provenance         Json
+  supersedesMemoryId String?   @map("supersedes_memory_id")
+  embeddingModel     String?   @map("embedding_model")
+  embeddedAt         DateTime? @map("embedded_at")
+  embeddingJson      Json?     @map("embedding_json")
+  lastUsedAt         DateTime? @map("last_used_at")
+  useCount           Int       @default(0) @map("use_count")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  expiresAt          DateTime? @map("expires_at")
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@map("memory_records")
+}
+
+model UserMemorySettings {
+  userId          String   @id @map("user_id")
+  allowAgentWrite Boolean  @default(true) @map("allow_agent_write")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_memory_settings")
 }
 
 model UserLoginSession {
@@ -105,6 +146,7 @@ model Session {
   artifactSeries ArtifactSeries[]
   reports Report[]
   sandboxInstance SandboxInstance?
+  runDetails AgentRunDetail[]
 
   @@index([userId, isPinned(sort: Desc), updatedAt(sort: Desc)])
   @@map("sessions")
@@ -192,6 +234,7 @@ model Message {
   run       AgentRun?   @relation(fields: [runId], references: [id], onDelete: SetNull)
   transcriptItems ModelTranscriptItem[]
   attachments MessageAttachment[]
+  runDetail AgentRunDetail?
 
   @@index([sessionId, createdAt])
   @@index([runId])
@@ -419,6 +462,8 @@ model AgentRun {
   messages           Message[]
   steps              AgentRunStep[]
   transcriptItems    ModelTranscriptItem[]
+  detail             AgentRunDetail?
+  toolOutputs        AgentRunToolOutput[]
   artifacts          Artifact[]
   reports            Report[]
   provider           String
@@ -429,6 +474,40 @@ model AgentRun {
   @@unique([sessionId, idempotencyKey])
   @@index([sessionId, status])
   @@map("agent_runs")
+}
+
+model AgentRunDetail {
+  id                 String    @id
+  runId              String?   @unique @map("run_id")
+  messageId          String    @unique @map("message_id")
+  sessionId          String    @map("session_id")
+  schemaVersion      Int       @default(1) @map("schema_version")
+  researchProjection Json      @default("{}") @map("research_projection")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  run                AgentRun? @relation(fields: [runId], references: [id], onDelete: Cascade)
+  message            Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  session            Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, updatedAt])
+  @@map("agent_run_details")
+}
+
+model AgentRunToolOutput {
+  id          String   @id
+  runId       String   @map("run_id")
+  toolCallId  String   @map("tool_call_id")
+  storageKey  String   @map("storage_key")
+  contentType String   @map("content_type")
+  byteSize    Int      @map("byte_size")
+  sha256      String
+  preview     String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  run         AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, toolCallId])
+  @@index([runId, createdAt])
+  @@map("agent_run_tool_outputs")
 }
 
 enum TranscriptItemKind {

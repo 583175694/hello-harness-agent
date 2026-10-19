@@ -9,25 +9,17 @@ import { PublicModelConfigController } from '../../../src/model/public-model-con
 
 describe('model catalog', () => {
   it('declares supported conversation models without storing credentials', () => {
-    expect(MODEL_CATALOG.map((model) => model.id)).toEqual([
-      'deepseek-flash',
-      'deepseek-v4-pro',
-      'qwen3.8-max',
-      'qwen3.8-flash',
-      'qwen3.7-plus',
-      'qwen3.7-max',
-      'qwen-plus',
-    ]);
-    expect(
-      MODEL_CATALOG.filter((model) => model.provider === 'bailian').every((model) =>
-        model.baseUrl.includes('aliyuncs.com'),
-      ),
-    ).toBe(true);
+    expect(MODEL_CATALOG.map((model) => model.id)).toEqual(['deepseek-flash', 'deepseek-v4-pro']);
+    expect(MODEL_CATALOG.every((model) => model.baseUrl.includes('tokenhub.tencentmaas.com'))).toBe(
+      true,
+    );
     expect(JSON.stringify(MODEL_CATALOG)).not.toMatch(/api.?key|secret/i);
     expect(getConfiguredModel('deepseek-flash')).toMatchObject({
-      api: 'responses',
+      api: 'chat_completions',
+      upstreamModel: 'deepseek/deepseek-flash',
       supportsVision: true,
     });
+    expect(getConfiguredModel('deepseek-v4-pro')?.supportsVision).toBeUndefined();
   });
 
   it('resolves the selected default and model ids case-insensitively', () => {
@@ -38,12 +30,15 @@ describe('model catalog', () => {
   });
 
   it('publishes the code-defined provider context profile for baseline gating', () => {
-    const controller = new PublicModelConfigController({
-      profile: () => ({
-        provider: 'deepseek',
-        reasoning: { supported: true, levels: ['off', 'high'], default: 'high' },
-      }),
-    } as never);
+    const controller = new PublicModelConfigController(
+      {
+        profile: () => ({
+          provider: 'deepseek',
+          reasoning: { supported: true, levels: ['off', 'high'], default: 'high' },
+        }),
+      } as never,
+      { readEnabled: true, writeEnabled: true } as never,
+    );
     expect(controller.getPublicConfig().models[0]?.context).toEqual({
       contextWindowTokens: 1_000_000,
       maxOutputTokens: 384_000,

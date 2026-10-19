@@ -39,6 +39,28 @@ export type ToolResultCandidate = {
   truncatable?: boolean;
 };
 
+/** Memory 可追溯的原始事实引用；完整内容由后续显式展开流程读取。 */
+export type MemorySourceRef = {
+  type: 'session' | 'message' | 'run' | 'artifact';
+  id: string;
+};
+
+/** C6 提供给 K5 的 Skill 候选；当前只冻结数据形状，不参与 Context 选择。 */
+export type SkillContextInput = {
+  skillId: string;
+  version: string;
+  content: string;
+  priorityHint?: number;
+};
+
+/** C6 提供给 K5 的 Memory 候选；sourceRefs 保留记忆的事实追溯能力。 */
+export type MemoryContextInput = {
+  memoryId: string;
+  content: string;
+  sourceRefs: ReadonlyArray<MemorySourceRef>;
+  priorityHint?: number;
+};
+
 export type ContextCompileInput = {
   sessionId: string;
   model: string;
@@ -47,6 +69,10 @@ export type ContextCompileInput = {
   signal?: AbortSignal;
   compactionState?: CompactionState;
   mcpInstructions?: ReadonlyArray<McpServerInstructionSnapshot>;
+  /** C6 候选 Skill；K5-B 前只接收，不改变当前编译结果。 */
+  skills?: ReadonlyArray<SkillContextInput>;
+  /** C6 候选 Memory；K5-B 前只接收，不改变当前编译结果。 */
+  memories?: ReadonlyArray<MemoryContextInput>;
 };
 
 export type CompiledContext = {

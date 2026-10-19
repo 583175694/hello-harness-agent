@@ -1,5 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
+import {
+  AGENT_ERROR_CODES,
+  AGENT_TOOL_NAMES,
+  fileReadLinesInputSchema,
+} from '@harness/agent-protocol';
 import { McpToolCatalogService } from '../mcp/mcp-tool-catalog.service';
 import { McpResourceExecutor } from '../mcp/mcp-resource.executor';
 import { McpToolExecutor } from '../mcp/mcp-tool-executor';
@@ -16,6 +20,9 @@ import {
   classifyToolPresentation,
   type ToolPresentationKind,
 } from './tool-presentation';
+import { isToolEnabled } from './tool-availability';
+import { ToolExposureService } from './tool-exposure/tool-exposure.service';
+import { ToolSearchTool, type ToolSearchInput } from './tool-exposure/tool-search.tool';
 
 export class ToolInputValidationError extends Error {
   constructor(
@@ -36,6 +43,8 @@ export class ToolRegistryService {
     @Inject(McpToolCatalogService) private readonly mcpCatalog: McpToolCatalogService,
     @Inject(McpToolExecutor) private readonly mcpExecutor: McpToolExecutor,
     @Inject(McpResourceExecutor) private readonly mcpResourceExecutor: McpResourceExecutor,
+    @Inject(ToolExposureService) private readonly toolExposure: ToolExposureService,
+    @Inject(ToolSearchTool) private readonly toolSearch: ToolSearchTool,
   ) {
     this.toolsByName = new Map();
     // 启动期建立唯一索引，重复工具名属于配置错误，必须立即失败而不是后注册覆盖前者。
@@ -50,6 +59,7 @@ export class ToolRegistryService {
   resolveName(name: string): string {
     if (isMcpPublicToolName(name)) return name;
     if (name === AGENT_TOOL_NAMES.executeCommand) return AGENT_TOOL_NAMES.bash;
+    if (name === AGENT_TOOL_NAMES.readFileLines) return AGENT_TOOL_NAMES.readFile;
     return name;
   }
 
@@ -61,9 +71,11 @@ export class ToolRegistryService {
   definitions(ctx?: ToolRegistryContext): AgentToolDefinition[] | undefined {
     const staticDefs = [...this.toolsByName.values()]
       .filter((tool) => tool.isAvailable())
+      .filter((tool) => isToolEnabled(tool.name))
+      .filter((tool) => tool.name !== AGENT_TOOL_NAMES.toolSearch)
       .map((tool) => tool.definition());
     const mcpDefs = ctx?.userId
-      ? this.mcpCatalog.definitionsForRun(ctx.mcpSnapshot, ctx.userId)
+      ? this.toolExposure.buildMcpDefinitions(ctx.mcpSnapshot, ctx.activatedTools)
       : [];
     const definitions = [...staticDefs, ...mcpDefs];
     return definitions.length ? definitions : undefined;
@@ -71,6 +83,9 @@ export class ToolRegistryService {
 
   // 返回工具声明的不可由模型覆盖的外层执行策略。
   executionPolicy(name: string, ctx?: ToolRegistryContext): AgentTool['executionPolicy'] {
+    if (name === AGENT_TOOL_NAMES.toolSearch) {
+      return this.toolSearch.executionPolicy;
+    }
     if (isMcpPublicToolName(name)) {
       const entry = ctx?.userId
         ? this.mcpCatalog.lookupEntry(name, ctx.mcpSnapshot, ctx.userId)
@@ -99,6 +114,14 @@ export class ToolRegistryService {
           '未知的 MCP 工具。',
         );
       }
+      if (
+        !this.toolExposure.canExecuteMcp(name, ctx.mcpSnapshot, ctx.activatedTools)
+      ) {
+        throw new ToolInputValidationError(
+          AGENT_ERROR_CODES.mcpToolNotActivated,
+          '该 MCP 工具未直接暴露。请先调用 tool_search 激活后再 function_call。',
+        );
+      }
       try {
         return JSON.parse(rawArguments);
       } catch {
@@ -108,7 +131,8 @@ export class ToolRegistryService {
         );
       }
     }
-    const tool = this.get(name);
+    const resolved = this.resolveName(name);
+    const tool = this.get(resolved);
     let value: unknown;
     try {
       value = JSON.parse(rawArguments);
@@ -117,6 +141,16 @@ export class ToolRegistryService {
         AGENT_ERROR_CODES.invalidToolArguments,
         '工具参数不是有效的 JSON。',
       );
+    }
+    if (name === AGENT_TOOL_NAMES.readFileLines) {
+      const legacy = fileReadLinesInputSchema.safeParse(value);
+      if (!legacy.success) {
+        throw new ToolInputValidationError(
+          tool.inputErrorCode ?? AGENT_ERROR_CODES.invalidToolArguments,
+          '工具参数校验失败。',
+        );
+      }
+      return { scope: 'lines' as const, ...legacy.data };
     }
     const parsed = tool.inputSchema.safeParse(value);
     if (!parsed.success) {
@@ -139,14 +173,32 @@ export class ToolRegistryService {
     context: ToolExecutionContext,
     ctx?: ToolRegistryContext,
   ): Promise<ToolExecutionResult<unknown>> {
+    if (name === AGENT_TOOL_NAMES.toolSearch) {
+      return this.toolSearch.execute(input as ToolSearchInput, context, {
+        index: ctx?.deferredSearchIndex,
+        activatedTools: ctx?.activatedTools,
+      });
+    }
     if (isMcpPublicToolName(name)) {
+      if (
+        !this.toolExposure.canExecuteMcp(name, ctx?.mcpSnapshot, ctx?.activatedTools)
+      ) {
+        return {
+          status: 'failed',
+          error: {
+            code: AGENT_ERROR_CODES.mcpToolNotActivated,
+            detail: '该 MCP 工具未直接暴露。请先调用 tool_search 激活后再 function_call。',
+            retryable: true,
+          },
+        };
+      }
       return this.mcpExecutor.execute(name, input, context, ctx?.mcpSnapshot);
     }
     if (isMcpResourceToolName(name)) {
       return this.mcpResourceExecutor.execute(name, input, context, ctx?.mcpSnapshot);
     }
     const tool = this.get(name);
-    if (!tool.isAvailable()) {
+    if (!isToolEnabled(tool.name) || !tool.isAvailable()) {
       return {
         status: 'failed',
         error: {

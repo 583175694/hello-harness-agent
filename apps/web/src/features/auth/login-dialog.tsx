@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 
 import type { AuthUserView } from '@harness/agent-protocol';
+import { APP_BRAND } from '../agent/config/ui.constants';
 import { Dialog, DialogContent } from '../../components/ui/dialog';
 import { LoginForm } from './login-form';
 
@@ -43,7 +44,7 @@ export function LoginDialog({ open, onOpenChange, onLoggedIn }: LoginDialogProps
         <div className="settings-dialog__login-body">
           <header className="settings-dialog__header settings-dialog__header--login">
             <h2 className="settings-dialog__page-heading" id={titleId}>
-              登录 Harness Agent
+              登录 {APP_BRAND.name}
             </h2>
             <button
               ref={closeRef}

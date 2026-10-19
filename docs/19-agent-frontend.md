@@ -373,7 +373,7 @@ Web 从 public config 获取 capability。没有真实 backend contract 的功�
 
 R1：research/steer/cancel/activity/report/sources，以及 Conversation 到 Workbench 的精确定位。
 
-P9/P10：Memory management UI。
+C7-B：Memory management UI。
 
 P11：Worker progress projection。
 

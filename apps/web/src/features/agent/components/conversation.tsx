@@ -10,16 +10,27 @@ import {
   Paperclip,
   Plus,
   SlidersHorizontal,
-  Sparkles,
   Square,
   Trash2,
   X,
 } from 'lucide-react';
-import { memo, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type FormEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
+import { Skeleton } from '../../../components/ui/skeleton';
 import { MarkdownContent } from '../../../components/markdown-content';
+import { copyTextToClipboard } from '../../../lib/clipboard';
 import {
   Message,
   MessageActions,
@@ -43,9 +54,20 @@ import {
   PromptInputBody,
   PromptInputFooter,
   PromptInputHeader,
-  PromptInputTextarea,
   PromptInputTools,
 } from '../../../components/ai-elements/prompt-input';
+import {
+  ComposerSkillPickerEmpty,
+  ComposerSkillPickerRow,
+  type SkillCatalogStatus,
+} from '../composer/composer-skill-picker';
+import {
+  SkillPromptEditor,
+  type SkillPromptEditorHandle,
+} from '../composer/skill-prompt-editor';
+import { resolveUserMessageDisplay } from '../user-message-skills';
+import { listSkills } from '../../../api/client';
+import { UserSkillMentions } from './user-skill-chips';
 import { Context } from '../../../components/ai-elements/context';
 import {
   DropdownMenu,
@@ -70,14 +92,18 @@ import {
   type ReasoningEffort,
   type ToolApprovalDecision,
   type FileRef,
-  type ArtifactRef,
   type AssistantArtifactBlock,
   type RunContextDebug,
   type PendingUserInputView,
 } from '@harness/agent-protocol';
 import { flattenAssistantText } from '../model/conversation-blocks';
-import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY } from '../config/ui.constants';
-import { getArtifactPreview, getArtifactPreviewUrl, getFilePreview } from '../../../api/client';
+import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY, APP_BRAND } from '../config/ui.constants';
+import { BrandIcon } from './brand-icon';
+import { getFilePreview } from '../../../api/client';
+import {
+  DeliverableMarkdownPanel,
+  isNormalizedDocumentPreview,
+} from './deliverable-document-preview';
 import { presentAssistantBlocks } from '../elements/assistant-message-adapter';
 import { AgentChainOfThought } from '../elements/agent-chain-of-thought';
 import { toolInputSummary, toolTitle, type ToolCopyInput } from '../model/tool-copy';
@@ -129,8 +155,7 @@ function fileErrorMessage(errorCode?: string): string {
 }
 
 type AttachmentPreviewState =
-  | { kind: 'image'; src: string; alt: string }
-  | { kind: 'file'; fileId: string; fileName: string };
+  { kind: 'image'; src: string; alt: string } | { kind: 'file'; fileId: string; fileName: string };
 
 function artifactStatusLabel(status: string): string {
   if (status === 'ready') return '已就绪';
@@ -196,6 +221,60 @@ function nextPastedTextFileName(attachments: FileRef[]): string {
   }
 }
 
+function normalizeAttachmentFileName(file: File, index: number): File {
+  if (file.name) return file;
+  if (file.type.startsWith('image/')) {
+    return new File([file], `pasted-image-${index + 1}.png`, { type: file.type });
+  }
+  return new File([file], `dropped-file-${index + 1}`, {
+    type: file.type || 'application/octet-stream',
+  });
+}
+
+function attachmentFilesFromDataTransfer(dataTransfer: DataTransfer): File[] {
+  const direct = Array.from(dataTransfer.files).filter((file) => file.size > 0);
+  if (direct.length) return direct;
+  const collected: File[] = [];
+  for (const item of Array.from(dataTransfer.items ?? [])) {
+    if (item.kind !== 'file') continue;
+    const file = item.getAsFile();
+    if (file && file.size > 0) collected.push(file);
+  }
+  return collected;
+}
+
+function normalizeAttachmentFiles(files: File[]): File[] {
+  return files.map((file, index) => normalizeAttachmentFileName(file, index));
+}
+
+function dataTransferHasFiles(dataTransfer: DataTransfer): boolean {
+  if (dataTransfer.files?.length) return true;
+  return Array.from(dataTransfer.items ?? []).some((item) => item.kind === 'file');
+}
+
+function handleComposerAttachmentPaste(
+  event: ClipboardEvent,
+  canPasteAttachments: boolean,
+  attachments: FileRef[],
+  onAttachmentSelected?: (files: File[]) => void,
+): void {
+  if (!canPasteAttachments) return;
+  const clipboardFiles = normalizeAttachmentFiles(
+    attachmentFilesFromDataTransfer(event.clipboardData),
+  );
+  if (clipboardFiles.length) {
+    event.preventDefault();
+    onAttachmentSelected?.(clipboardFiles);
+    return;
+  }
+  const text = event.clipboardData.getData('text/plain');
+  if ([...text].length <= AGENT_UI_BEHAVIOR.longPasteThresholdCodePoints) return;
+  event.preventDefault();
+  onAttachmentSelected?.([
+    new File([text], nextPastedTextFileName(attachments), { type: 'text/plain' }),
+  ]);
+}
+
 function fileExtension(fileName: string): string {
   return (fileName.split('.').pop() ?? 'FILE').toUpperCase();
 }
@@ -211,7 +290,7 @@ function splitFileName(fileName: string): { prefix: string; suffix: string } {
 export function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   async function copyMessage(): Promise<void> {
-    await navigator.clipboard.writeText(text);
+    await copyTextToClipboard(text);
     setCopied(true);
     window.setTimeout(() => setCopied(false), AGENT_UI_BEHAVIOR.copyFeedbackDurationMs);
   }
@@ -346,135 +425,14 @@ function FilePreviewDialog({
               <span>正在加载预览</span>
             </div>
           ) : null}
-          {content !== null ? <MarkdownContent>{content}</MarkdownContent> : null}
-        </div>
-      </section>
-    </div>,
-    document.body,
-  );
-}
-
-function ArtifactPreviewDialog({
-  artifact,
-  onClose,
-}: {
-  artifact: ArtifactRef;
-  onClose: () => void;
-}) {
-  const isImageArtifact =
-    artifact.fileKind === 'image' || artifact.mediaType.startsWith('image/');
-  const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (isImageArtifact) return;
-    const controller = new AbortController();
-    void getArtifactPreview(artifact.artifactId, controller.signal)
-      .then((result) => setContent(result.content))
-      .catch((requestError: unknown) => {
-        if ((requestError as Error).name !== 'AbortError')
-          setError(requestError instanceof Error ? requestError.message : '文件预览不可用。');
-      });
-    return () => controller.abort();
-  }, [artifact.artifactId, isImageArtifact]);
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-  if (isImageArtifact) {
-    return createPortal(
-      <div
-        className="file-preview-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${artifact.fileName}预览`}
-        onMouseDown={(event) => {
-          if (event.currentTarget === event.target) onClose();
-        }}
-      >
-        <section
-          className="file-preview-dialog__panel"
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <header className="file-preview-dialog__header">
-            <div>
-              <span
-                className={`file-card-icon file-card-icon--${fileExtension(artifact.fileName).toLowerCase()}`}
-              >
-                {fileExtension(artifact.fileName)}
-              </span>
-              <strong title={artifact.fileName}>{artifact.fileName}</strong>
-            </div>
-            <button
-              type="button"
-              className="file-preview-dialog__close"
-              aria-label="关闭文件预览"
-              title="关闭预览"
-              onClick={onClose}
-            >
-              <X size={19} />
-            </button>
-          </header>
-          <div className="file-preview-dialog__body">
-            <img
-              src={getArtifactPreviewUrl(artifact.artifactId)}
-              alt={artifact.fileName}
-              style={{ maxWidth: '100%', height: 'auto' }}
-            />
-          </div>
-        </section>
-      </div>,
-      document.body,
-    );
-  }
-  return createPortal(
-    <div
-      className="file-preview-dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`${artifact.fileName}预览`}
-      onMouseDown={(event) => {
-        if (event.currentTarget === event.target) onClose();
-      }}
-    >
-      <section
-        className="file-preview-dialog__panel"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="file-preview-dialog__header">
-          <div>
-            <span
-              className={`file-card-icon file-card-icon--${fileExtension(artifact.fileName).toLowerCase()}`}
-            >
-              {fileExtension(artifact.fileName)}
-            </span>
-            <strong title={artifact.fileName}>{artifact.fileName}</strong>
-          </div>
-          <button
-            type="button"
-            className="file-preview-dialog__close"
-            aria-label="关闭文件预览"
-            title="关闭预览"
-            onClick={onClose}
-          >
-            <X size={19} />
-          </button>
-        </header>
-        <div className="file-preview-dialog__body">
-          {error ? <p className="file-preview-dialog__error">{error}</p> : null}
-          {content === null && !error ? (
-            <div className="file-preview-dialog__loading" role="status">
-              <LoaderCircle className="spin" size={18} />
-              <span>正在加载预览</span>
-            </div>
-          ) : null}
           {content !== null ? (
-            artifact.fileKind === 'json' ? (
-              <pre className="file-preview-dialog__code">{content}</pre>
+            fileName.toLowerCase().endsWith('.json') ? (
+              <pre className="file-preview-dialog__json">{content}</pre>
             ) : (
-              <MarkdownContent>{content}</MarkdownContent>
+              <DeliverableMarkdownPanel
+                content={content}
+                showFormatNotice={isNormalizedDocumentPreview('', fileName)}
+              />
             )
           ) : null}
         </div>
@@ -493,7 +451,6 @@ function ArtifactCard({
   runId: string;
   onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
 }) {
-  const [previewOpen, setPreviewOpen] = useState(false);
   const statusLabel = artifactStatusLabel(block.status);
   return (
     <Artifact className="assistant-artifact-file">
@@ -501,10 +458,9 @@ function ArtifactCard({
         <button
           type="button"
           className="user-attachment-button user-attachment-document"
-          aria-label={`预览${block.fileName}`}
+          aria-label={`在实时跟随中查看 ${block.fileName}`}
           disabled={block.status !== 'ready'}
           onClick={() => {
-            setPreviewOpen(true);
             onFocusWorkbench({ kind: 'artifact', runId, artifactId: block.artifactId });
           }}
         >
@@ -520,15 +476,14 @@ function ArtifactCard({
             </ArtifactTitle>
             <ArtifactDescription>
               {formatFileSize(block.size)}
-              {block.versionNumber ? ` · v${block.versionNumber}${block.isCurrent ? ' · 当前版本' : ''}` : ''}
+              {block.versionNumber
+                ? ` · v${block.versionNumber}${block.isCurrent ? ' · 当前版本' : ''}`
+                : ''}
               {block.status === 'ready' ? '' : ` · ${statusLabel}`}
             </ArtifactDescription>
           </span>
         </button>
       </ArtifactHeader>
-      {previewOpen ? (
-        <ArtifactPreviewDialog artifact={block} onClose={() => setPreviewOpen(false)} />
-      ) : null}
     </Artifact>
   );
 }
@@ -582,8 +537,22 @@ const UserMessage = memo(function UserMessage({
     | { kind: 'file'; fileId: string; fileName: string }
     | null
   >(null);
+  const display = resolveUserMessageDisplay({
+    content: item.content,
+    skillNames: item.skillNames,
+  });
+  const copyText =
+    display.skillNames.length && display.body
+      ? display.body
+      : display.skillNames.length
+        ? `${display.skillNames.map((name) => `/${name}`).join(' ')}${display.body ? ` ${display.body}` : ''}`
+        : item.content;
   return (
-    <Message from="user" className="message message--user flex justify-end gap-3 text-text-primary">
+    <Message
+      from="user"
+      className="message message--user flex justify-end gap-3 text-text-primary"
+      data-user-message-anchor={item.id}
+    >
       <MessageContent className="user-message-content">
         {item.attachments?.length ? (
           <Attachments className="user-attachment-stack">
@@ -649,15 +618,24 @@ const UserMessage = memo(function UserMessage({
             )}
           </Attachments>
         ) : null}
-        <div className="user-bubble">
-          <MessageResponse variant="user">{item.content}</MessageResponse>
-        </div>
+        {display.skillNames.length || display.body ? (
+          <div className="user-bubble">
+            <div className="user-bubble__composition">
+              <UserSkillMentions skillNames={display.skillNames} />
+              {display.body ? (
+                <MessageResponse variant="user" className="user-bubble__text">
+                  {display.body}
+                </MessageResponse>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <MessageActions className="message-actions">
           {item.pendingState === 'steer_pending' ? <span>等待下一步骤应用</span> : null}
           {item.pendingState === 'steer_applied' ? <span>已应用到当前任务</span> : null}
           {item.pendingState === 'follow_up_pending' ? <span>等待下一轮处理</span> : null}
           <span>{formatMessageTime(item.createdAt, item.time)}</span>
-          <CopyButton text={item.content} />
+          <CopyButton text={copyText.trim()} />
         </MessageActions>
       </MessageContent>
       <div className="message-avatar user-avatar" aria-hidden="true">
@@ -690,11 +668,11 @@ const AssistantMessage = memo(
       artifactBlocks.length > 0;
     return (
       <Message from="assistant" className="message message--assistant flex gap-3 text-text-primary">
-        <div className="message-avatar assistant-avatar">
-          <Sparkles size={15} />
+        <div className="message-avatar assistant-avatar assistant-avatar--brand">
+          <BrandIcon size={28} className="assistant-brand-icon" />
         </div>
         <MessageContent className="assistant-content min-w-0 flex-1 text-text-primary">
-          <div className="message-meta">Harness</div>
+          <div className="message-meta">{APP_BRAND.name}</div>
           {item.deliveryStatus === 'cancelled' ? (
             <div className="assistant-delivery-status">本次回答已取消</div>
           ) : item.deliveryStatus === 'failed' ? (
@@ -719,6 +697,17 @@ const AssistantMessage = memo(
               running={Boolean(item.pending) || item.deliveryStatus === 'streaming'}
               onFocusWorkbench={onFocusWorkbench}
             />
+            {item.runId &&
+            !item.workbench &&
+            presentation.process.some((entry) => entry.kind === 'tool') ? (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => onFocusWorkbench({ kind: 'activity', runId: item.runId! })}
+              >
+                查看工具详情
+              </button>
+            ) : null}
             {presentation.pendingText ? (
               <div
                 className="assistant-text-block assistant-text-block--pending"
@@ -770,7 +759,10 @@ function PlanFloatingCard({ plan, visible }: { plan?: PlanSnapshot; visible: boo
     return null;
   }
 
-  const activeIndex = Math.max(0, plan.plan.findIndex((step) => step.status === 'in_progress'));
+  const activeIndex = Math.max(
+    0,
+    plan.plan.findIndex((step) => step.status === 'in_progress'),
+  );
   return (
     <div
       className="plan-floating"
@@ -897,8 +889,215 @@ function FollowUpQueue({
   );
 }
 
+type UserMessageAnchor = { id: string; index: number; order: number };
+
+function fallbackAnchorRatio(index: number, totalCount: number): number {
+  if (totalCount <= 1) return 0;
+  return index / (totalCount - 1);
+}
+
+type VirtualMeasurementCache = Array<{ start: number; size: number } | undefined>;
+
+/** 虚拟列表下 user 消息可能未挂载，用测量缓存或估算 offset 计算导航刻度。 */
+function estimateMessageRowOffset(
+  virtualizer: { measurementsCache?: VirtualMeasurementCache },
+  index: number,
+  estimateSize: number,
+  paddingStart: number,
+): number {
+  const cache = virtualizer.measurementsCache;
+  if (cache?.[index]?.start != null) return cache[index]!.start;
+  let offset = paddingStart;
+  for (let i = 0; i < index; i += 1) {
+    offset += cache?.[i]?.size ?? estimateSize;
+  }
+  return offset;
+}
+
+const VIRTUAL_ROW_ESTIMATE_PX = 120;
+const VIRTUAL_PADDING_START_PX = 34;
+
+function ConversationMessageNavigator({
+  anchors,
+  anchorRatios,
+  activeUserMessageId,
+  layout,
+  onNavigate,
+}: {
+  anchors: UserMessageAnchor[];
+  anchorRatios: number[];
+  activeUserMessageId: string | null;
+  layout: 'compact' | 'track';
+  onNavigate: (renderIndex: number) => void;
+}) {
+  const listRef = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    if (layout !== 'compact' || !activeUserMessageId) return;
+    const activeButton = listRef.current?.querySelector(
+      `[data-nav-anchor="${CSS.escape(activeUserMessageId)}"]`,
+    );
+    activeButton?.scrollIntoView({ block: 'nearest' });
+  }, [activeUserMessageId, layout, anchors.length]);
+  if (anchors.length < 2) return null;
+  return (
+    <nav
+      className={`conversation-message-nav${layout === 'track' ? ' conversation-message-nav--track' : ''}`}
+      aria-label="对话定位"
+    >
+      {layout === 'track' ? (
+        <div className="conversation-message-nav__track">
+          {anchors.map((anchor, anchorIndex) => (
+            <button
+              key={anchor.id}
+              type="button"
+              data-nav-anchor={anchor.id}
+              className={`conversation-message-nav__tick conversation-message-nav__tick--track${activeUserMessageId === anchor.id ? ' is-active' : ''}`}
+              style={{ top: `${(anchorRatios[anchorIndex] ?? 0) * 100}%` }}
+              aria-label={`跳转到第 ${anchor.order} 条提问`}
+              aria-current={activeUserMessageId === anchor.id ? 'true' : undefined}
+              onClick={() => onNavigate(anchor.index)}
+            >
+              <span className="conversation-message-nav__tick-line" aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <ol ref={listRef} className="conversation-message-nav__list">
+          {anchors.map((anchor) => (
+            <li key={anchor.id}>
+              <button
+                type="button"
+                data-nav-anchor={anchor.id}
+                className={`conversation-message-nav__tick${activeUserMessageId === anchor.id ? ' is-active' : ''}`}
+                aria-label={`跳转到第 ${anchor.order} 条提问`}
+                aria-current={activeUserMessageId === anchor.id ? 'true' : undefined}
+                onClick={() => onNavigate(anchor.index)}
+              >
+                <span className="conversation-message-nav__tick-line" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </nav>
+  );
+}
+
+function ConversationSessionSkeleton() {
+  return (
+    <div className="conversation-scroll-region flex min-h-0 flex-1 flex-col">
+      <ConversationContent
+        className="conversation-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+        aria-busy="true"
+        aria-label="加载会话"
+      >
+        <div className="message-list message-list--static mx-auto w-full max-w-chat conversation-session-skeleton">
+          <div className="message message--user">
+            <div className="user-message-content">
+              <Skeleton className="h-[46px] w-[min(240px,58%)] rounded-[22px]" />
+            </div>
+          </div>
+          <div className="message">
+            <Skeleton className="h-8 w-8 shrink-0 rounded-lg" aria-hidden="true" />
+            <div className="flex min-w-0 flex-1 flex-col gap-2.5 pt-0.5">
+              <Skeleton className="h-3.5 w-[92%]" />
+              <Skeleton className="h-3.5 w-[78%]" />
+              <Skeleton className="h-3.5 w-[64%]" />
+            </div>
+          </div>
+          <div className="message message--user">
+            <div className="user-message-content">
+              <Skeleton className="h-11 w-[min(180px,44%)] rounded-[22px]" />
+            </div>
+          </div>
+          <div className="message">
+            <Skeleton className="h-8 w-8 shrink-0 rounded-lg" aria-hidden="true" />
+            <div className="flex min-w-0 flex-1 flex-col gap-2.5 pt-0.5">
+              <Skeleton className="h-3.5 w-[88%]" />
+              <Skeleton className="h-3.5 w-[72%]" />
+            </div>
+          </div>
+        </div>
+      </ConversationContent>
+    </div>
+  );
+}
+
+type ConversationProps = {
+  state: AgentUiState;
+  error: string | null;
+  onDismissError: () => void;
+  onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
+  prompt: string;
+  submitting: boolean;
+  serviceState: ServiceState;
+  composerMode: 'new-run' | 'steer' | 'clarification' | 'disabled';
+  onPromptChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>, promptOverride?: string) => void;
+  onCancel?: () => void;
+  onClarificationRespond?: (interruptId: string, answer: string) => void;
+  onApprovalSubmit?: (interruptId: string, decisions: ToolApprovalDecision[]) => void;
+  pendingInputs?: PendingUserInputView[];
+  onPromotePending?: (inputId: string) => void;
+  onCancelPending?: (inputId: string) => void;
+  onSendPending?: (inputId: string) => void;
+  onReconnect?: () => void;
+  reasoningEffort?: ReasoningEffort;
+  models?: PublicModelConfig[];
+  selectedModel?: string;
+  onModelChange?: (model: string) => void;
+  onReasoningEffortChange?: (value: ReasoningEffort) => void;
+  attachments?: FileRef[];
+  attachmentUploading?: boolean;
+  onAttachmentSelected?: (files: File[]) => void;
+  onAttachmentRemove?: (fileId: string) => void;
+  onAttachmentRetry?: (fileId: string) => void;
+  onAttachmentCancel?: (fileId: string) => void;
+  scopeKey?: string;
+  sessionLoading?: boolean;
+  onLoadOlder?: () => void;
+  loadingOlder?: boolean;
+  hideComposer?: boolean;
+  selectedSkills?: string[];
+  onSkillsChange?: (skills: string[]) => void;
+};
+
+/** Workbench Tab / focus 变化不必重绘整段对话（Streamdown 重绘是 click 300ms+ 的主因）。 */
+function conversationPropsAreEqual(prev: ConversationProps, next: ConversationProps): boolean {
+  const prevWb = prev.state.workbench;
+  const nextWb = next.state.workbench;
+  if (prev.prompt !== next.prompt) return false;
+  if (prev.error !== next.error) return false;
+  if (prev.submitting !== next.submitting) return false;
+  if (prev.serviceState !== next.serviceState) return false;
+  if (prev.composerMode !== next.composerMode) return false;
+  if (prev.sessionLoading !== next.sessionLoading) return false;
+  if (prev.scopeKey !== next.scopeKey) return false;
+  if (prev.hideComposer !== next.hideComposer) return false;
+  if (prev.selectedModel !== next.selectedModel) return false;
+  if (prev.reasoningEffort !== next.reasoningEffort) return false;
+  if (prev.selectedSkills !== next.selectedSkills) return false;
+  if (prev.models !== next.models) return false;
+  if (prev.attachments !== next.attachments) return false;
+  if (prev.attachmentUploading !== next.attachmentUploading) return false;
+  if (prev.pendingInputs !== next.pendingInputs) return false;
+  if (prev.state.conversation !== next.state.conversation) return false;
+  if (prev.state.activeRunId !== next.state.activeRunId) return false;
+  if (prev.state.activeInterrupt !== next.state.activeInterrupt) return false;
+  if (prev.state.context !== next.state.context) return false;
+  if (prevWb !== nextWb) {
+    if (!prevWb || !nextWb) return false;
+    if (prevWb.open !== nextWb.open) return false;
+    if (prevWb.activityStatus !== nextWb.activityStatus) return false;
+    if (prevWb.plan !== nextWb.plan) return false;
+    if (prevWb.activeInterrupt !== nextWb.activeInterrupt) return false;
+    if (prevWb.context !== nextWb.context) return false;
+  }
+  return true;
+}
+
 // 渲染消息时间线、内联工具活动、错误提示和 Composer。
-export function Conversation({
+function ConversationBody({
   state,
   error,
   onDismissError,
@@ -928,41 +1127,48 @@ export function Conversation({
   onAttachmentRemove,
   onAttachmentRetry,
   onAttachmentCancel,
-}: {
-  state: AgentUiState;
-  error: string | null;
-  onDismissError: () => void;
-  onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
-  prompt: string;
-  submitting: boolean;
-  serviceState: ServiceState;
-  composerMode: 'new-run' | 'steer' | 'clarification' | 'disabled';
-  onPromptChange: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onCancel?: () => void;
-  onClarificationRespond?: (interruptId: string, answer: string) => void;
-  onApprovalSubmit?: (interruptId: string, decisions: ToolApprovalDecision[]) => void;
-  pendingInputs?: PendingUserInputView[];
-  onPromotePending?: (inputId: string) => void;
-  onCancelPending?: (inputId: string) => void;
-  onSendPending?: (inputId: string) => void;
-  onReconnect?: () => void;
-  reasoningEffort?: ReasoningEffort;
-  models?: PublicModelConfig[];
-  selectedModel?: string;
-  onModelChange?: (model: string) => void;
-  onReasoningEffortChange?: (value: ReasoningEffort) => void;
-  attachments?: FileRef[];
-  attachmentUploading?: boolean;
-  onAttachmentSelected?: (files: File[]) => void;
-  onAttachmentRemove?: (fileId: string) => void;
-  onAttachmentRetry?: (fileId: string) => void;
-  onAttachmentCancel?: (fileId: string) => void;
-}) {
+  scopeKey = 'default',
+  sessionLoading = false,
+  onLoadOlder,
+  loadingOlder = false,
+  hideComposer = false,
+  selectedSkills = [],
+  onSkillsChange = () => undefined,
+}: ConversationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerAnchorRef = useRef<HTMLDivElement>(null);
+  const composerMeasureRef = useRef<HTMLDivElement>(null);
+  const landingComposerTopRef = useRef<number | null>(null);
+  const pendingLandingComposerAnimRef = useRef(false);
   const stickToBottomRef = useRef(true);
   const scrollFrameRef = useRef<number | null>(null);
-  const renderedConversation = expandConversation(state.conversation);
+  const suppressStickToBottomUntilRef = useRef(0);
+  const preservedScrollTopRef = useRef<number | null>(null);
+  const prevWorkbenchOpenRef = useRef(Boolean(state.workbench?.open));
+  const prevLoadingOlderRef = useRef(false);
+  const scrollHeightBeforeOlderRef = useRef(0);
+  const workbenchOpen = Boolean(state.workbench?.open);
+  const renderedConversation = useMemo(
+    () => expandConversation(state.conversation),
+    [state.conversation],
+  );
+  const prevConversationLengthRef = useRef(renderedConversation.length);
+  const userMessageAnchors = useMemo(() => {
+    let order = 0;
+    return renderedConversation.flatMap((item, index) => {
+      if (item.kind !== 'user') return [];
+      order += 1;
+      return [{ id: item.id, index, order }];
+    });
+  }, [renderedConversation]);
+  const [activeUserMessageId, setActiveUserMessageId] = useState<string | null>(null);
+  const [navAnchorRatios, setNavAnchorRatios] = useState<number[]>([]);
+  const navRatioCacheRef = useRef<Map<string, number>>(new Map());
+  const navRatioMeasureFrameRef = useRef<number | null>(null);
+  const conversationNavLayout =
+    userMessageAnchors.length > AGENT_UI_BEHAVIOR.conversationNavCompactMaxAnchors
+      ? 'track'
+      : 'compact';
   const latestAssistantId = [...renderedConversation]
     .reverse()
     .find((item) => item.kind === 'assistant')?.id;
@@ -982,6 +1188,7 @@ export function Conversation({
     initialRect: { width: 0, height: 800 },
     onChange: (instance, sync) => {
       if (sync || !shouldVirtualize || !stickToBottomRef.current) return;
+      if (performance.now() < suppressStickToBottomUntilRef.current) return;
       if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
       scrollFrameRef.current = requestAnimationFrame(() => {
         scrollFrameRef.current = null;
@@ -990,20 +1197,182 @@ export function Conversation({
       });
     },
   });
-  function handleComposerSubmit(event: FormEvent<HTMLFormElement>): void {
+  const pauseAutoScroll = useCallback(() => {
+    stickToBottomRef.current = false;
+    suppressStickToBottomUntilRef.current = performance.now() + 2_000;
+    const node = scrollRef.current;
+    if (node) preservedScrollTopRef.current = node.scrollTop;
+  }, []);
+  const restorePreservedScroll = useCallback(() => {
+    const node = scrollRef.current;
+    const top = preservedScrollTopRef.current;
+    if (!node || top === null) return;
+    node.scrollTop = top;
+  }, []);
+  const handleFocusWorkbench = useCallback(
+    (target: WorkbenchFocusTarget) => {
+      pauseAutoScroll();
+      onFocusWorkbench(target);
+    },
+    [onFocusWorkbench, pauseAutoScroll],
+  );
+  const conversationStickSignature = useMemo(() => {
+    const last = renderedConversation.at(-1);
+    if (!last) return 'empty';
+    if (last.kind === 'user') return `user:${last.id}:${last.content.length}`;
+    const blockSig = last.blocks
+      .map((block) => {
+        if (block.type === 'text') return `t:${block.content.length}`;
+        if (block.type === 'reasoning') return `r:${block.content.length}`;
+        if (block.type === 'tool_activity') return `a:${block.toolCallId}:${block.status}`;
+        return block.type;
+      })
+      .join('|');
+    return `assistant:${last.id}:${last.pending ? 'pending' : 'done'}:${blockSig}`;
+  }, [renderedConversation]);
+  function handleComposerSubmit(
+    event: FormEvent<HTMLFormElement>,
+    promptOverride?: string,
+  ): void {
+    if (renderedConversation.length === 0) {
+      pendingLandingComposerAnimRef.current = true;
+      if (composerMeasureRef.current) {
+        landingComposerTopRef.current = composerMeasureRef.current.getBoundingClientRect().top;
+      }
+    }
     stickToBottomRef.current = true;
-    onSubmit(event);
+    onSubmit(event, promptOverride);
   }
+  const remeasureNavAnchorRatios = useCallback(() => {
+    const scrollNode = scrollRef.current;
+    if (!scrollNode || userMessageAnchors.length === 0) {
+      setNavAnchorRatios([]);
+      return;
+    }
+    const scrollHeight = shouldVirtualize ? virtualizer.getTotalSize() : scrollNode.scrollHeight;
+    if (scrollHeight <= 0) return;
+    const scrollTop = scrollNode.scrollTop;
+    const scrollRectTop = scrollNode.getBoundingClientRect().top;
+    const ratios = userMessageAnchors.map((anchor) => {
+      const element = scrollNode.querySelector(
+        `[data-user-message-anchor="${CSS.escape(anchor.id)}"]`,
+      ) as HTMLElement | null;
+      let top: number | undefined;
+      if (element) {
+        top = element.getBoundingClientRect().top - scrollRectTop + scrollTop;
+      } else if (shouldVirtualize) {
+        top = estimateMessageRowOffset(
+          virtualizer,
+          anchor.index,
+          VIRTUAL_ROW_ESTIMATE_PX,
+          VIRTUAL_PADDING_START_PX,
+        );
+      }
+      if (top !== undefined) {
+        const ratio = Math.min(1, Math.max(0, top / scrollHeight));
+        navRatioCacheRef.current.set(anchor.id, ratio);
+        return ratio;
+      }
+      return (
+        navRatioCacheRef.current.get(anchor.id) ??
+        fallbackAnchorRatio(anchor.index, renderedConversation.length)
+      );
+    });
+    setNavAnchorRatios(ratios);
+  }, [renderedConversation.length, shouldVirtualize, userMessageAnchors, virtualizer]);
+  const scheduleNavAnchorRatioMeasure = useCallback(() => {
+    if (conversationNavLayout !== 'track') return;
+    if (navRatioMeasureFrameRef.current !== null)
+      cancelAnimationFrame(navRatioMeasureFrameRef.current);
+    navRatioMeasureFrameRef.current = requestAnimationFrame(() => {
+      navRatioMeasureFrameRef.current = null;
+      remeasureNavAnchorRatios();
+    });
+  }, [conversationNavLayout, remeasureNavAnchorRatios]);
+  const syncActiveUserMessage = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node || userMessageAnchors.length === 0) return;
+    const scrollRectTop = node.getBoundingClientRect().top;
+    const marker = scrollRectTop + 96;
+    let activeId = userMessageAnchors[0]!.id;
+    for (const anchor of userMessageAnchors) {
+      const element = node.querySelector(
+        `[data-user-message-anchor="${CSS.escape(anchor.id)}"]`,
+      ) as HTMLElement | null;
+      const top = element
+        ? element.getBoundingClientRect().top
+        : shouldVirtualize
+          ? scrollRectTop +
+            estimateMessageRowOffset(
+              virtualizer,
+              anchor.index,
+              VIRTUAL_ROW_ESTIMATE_PX,
+              VIRTUAL_PADDING_START_PX,
+            ) -
+            node.scrollTop
+          : undefined;
+      if (top === undefined) continue;
+      if (top <= marker) activeId = anchor.id;
+      else break;
+    }
+    setActiveUserMessageId(activeId);
+  }, [shouldVirtualize, userMessageAnchors, virtualizer]);
+  const navigateToUserMessage = useCallback(
+    (renderIndex: number) => {
+      stickToBottomRef.current = false;
+      if (shouldVirtualize) virtualizer.scrollToIndex(renderIndex, { align: 'start' });
+      else {
+        const messageId = renderedConversation[renderIndex]?.id;
+        if (!messageId) return;
+        const element = scrollRef.current?.querySelector(
+          `[data-user-message-anchor="${CSS.escape(messageId)}"]`,
+        );
+        element?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
+      requestAnimationFrame(() => syncActiveUserMessage());
+    },
+    [renderedConversation, shouldVirtualize, syncActiveUserMessage, virtualizer],
+  );
   function handleConversationScroll(): void {
     const node = scrollRef.current;
     if (!node) return;
     stickToBottomRef.current =
       node.scrollHeight - node.scrollTop - node.clientHeight <
       AGENT_UI_BEHAVIOR.stickToBottomThresholdPx;
+    syncActiveUserMessage();
+    scheduleNavAnchorRatioMeasure();
   }
+  useEffect(() => {
+    syncActiveUserMessage();
+    setNavAnchorRatios(
+      userMessageAnchors.map(
+        (anchor) =>
+          navRatioCacheRef.current.get(anchor.id) ??
+          fallbackAnchorRatio(anchor.index, renderedConversation.length),
+      ),
+    );
+    remeasureNavAnchorRatios();
+  }, [renderedConversation.length, remeasureNavAnchorRatios, syncActiveUserMessage]);
+  useEffect(() => {
+    if (conversationNavLayout !== 'track') return undefined;
+    const handleResize = () => scheduleNavAnchorRatioMeasure();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [conversationNavLayout, scheduleNavAnchorRatioMeasure]);
+  useEffect(
+    () => () => {
+      if (navRatioMeasureFrameRef.current !== null)
+        cancelAnimationFrame(navRatioMeasureFrameRef.current);
+    },
+    [],
+  );
   // 在浏览器绘制前同步到底部，避免新 token 先以旧 scrollTop 绘制一帧后再跳动。
   useLayoutEffect(() => {
-    if (!stickToBottomRef.current || !scrollRef.current) return;
+    if (performance.now() < suppressStickToBottomUntilRef.current) {
+      restorePreservedScroll();
+      return undefined;
+    }
+    if (!stickToBottomRef.current || !scrollRef.current) return undefined;
     const node = scrollRef.current;
     const scrollToBottom = () => {
       if (shouldVirtualize && renderedConversation.length)
@@ -1015,107 +1384,171 @@ export function Conversation({
     if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
     scrollFrameRef.current = requestAnimationFrame(() => {
       scrollFrameRef.current = null;
+      if (performance.now() < suppressStickToBottomUntilRef.current) {
+        restorePreservedScroll();
+        return;
+      }
       if (stickToBottomRef.current) scrollToBottom();
     });
     return () => {
       if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
       scrollFrameRef.current = null;
     };
-  }, [shouldVirtualize, state.conversation, renderedConversation.length, virtualizer]);
+  }, [
+    conversationStickSignature,
+    renderedConversation.length,
+    restorePreservedScroll,
+    shouldVirtualize,
+    virtualizer,
+  ]);
 
-  return (
-    <AiConversation
-      className="conversation flex min-h-0 min-w-0 flex-1 flex-col bg-surface text-text-primary"
-      aria-label="对话"
-    >
-      <ConversationContent
-        className="conversation-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
-        ref={scrollRef}
-        onScroll={handleConversationScroll}
-        onMouseEnter={(event) => event.currentTarget.classList.add('is-scroll-active')}
-        onMouseLeave={(event) => event.currentTarget.classList.remove('is-scroll-active')}
+  useLayoutEffect(() => {
+    if (prevWorkbenchOpenRef.current === workbenchOpen) return;
+    if (workbenchOpen) pauseAutoScroll();
+    prevWorkbenchOpenRef.current = workbenchOpen;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        restorePreservedScroll();
+        syncActiveUserMessage();
+        scheduleNavAnchorRatioMeasure();
+      });
+    });
+  }, [
+    pauseAutoScroll,
+    restorePreservedScroll,
+    scheduleNavAnchorRatioMeasure,
+    syncActiveUserMessage,
+    workbenchOpen,
+  ]);
+
+  useLayoutEffect(() => {
+    if (loadingOlder && !prevLoadingOlderRef.current) {
+      scrollHeightBeforeOlderRef.current = scrollRef.current?.scrollHeight ?? 0;
+      pauseAutoScroll();
+    }
+    if (!loadingOlder && prevLoadingOlderRef.current && scrollRef.current) {
+      const node = scrollRef.current;
+      const delta = node.scrollHeight - scrollHeightBeforeOlderRef.current;
+      if (delta > 0) node.scrollTop += delta;
+      preservedScrollTopRef.current = node.scrollTop;
+      requestAnimationFrame(() => {
+        scheduleNavAnchorRatioMeasure();
+        syncActiveUserMessage();
+      });
+    }
+    prevLoadingOlderRef.current = loadingOlder;
+  }, [loadingOlder, pauseAutoScroll, scheduleNavAnchorRatioMeasure, syncActiveUserMessage]);
+
+  const shellRef = useRef<HTMLDivElement>(null);
+  const heroRef = useRef<HTMLDivElement>(null);
+  const [heroExiting, setHeroExiting] = useState(false);
+
+  const isLandingSession = !sessionLoading && renderedConversation.length === 0;
+
+  useLayoutEffect(() => {
+    pendingLandingComposerAnimRef.current = false;
+    prevConversationLengthRef.current = renderedConversation.length;
+    setHeroExiting(false);
+    stickToBottomRef.current = true;
+    preservedScrollTopRef.current = null;
+    suppressStickToBottomUntilRef.current = 0;
+    prevWorkbenchOpenRef.current = false;
+    navRatioCacheRef.current.clear();
+    const measure = composerMeasureRef.current;
+    if (measure) {
+      measure.style.transition = '';
+      measure.style.transform = '';
+    }
+  }, [scopeKey]);
+
+  useLayoutEffect(() => {
+    if (!isLandingSession) return;
+    const composer = composerMeasureRef.current;
+    if (composer) landingComposerTopRef.current = composer.getBoundingClientRect().top;
+  }, [isLandingSession, prompt, attachments.length, error]);
+
+  useLayoutEffect(() => {
+    const previousCount = prevConversationLengthRef.current;
+    const count = renderedConversation.length;
+
+    const measureEl = composerMeasureRef.current;
+    const clearInlineMotion = () => {
+      if (!measureEl) return;
+      measureEl.style.transition = '';
+      measureEl.style.transform = '';
+    };
+
+    if (count === 0) {
+      prevConversationLengthRef.current = count;
+      setHeroExiting(false);
+      clearInlineMotion();
+      return;
+    }
+
+    if (previousCount === 0 && count > 0) {
+      prevConversationLengthRef.current = count;
+      if (!pendingLandingComposerAnimRef.current) {
+        clearInlineMotion();
+        return;
+      }
+      pendingLandingComposerAnimRef.current = false;
+
+      setHeroExiting(true);
+      const measure = composerMeasureRef.current;
+      const landingTop = landingComposerTopRef.current;
+
+      if (measureEl && measure && landingTop !== null) {
+        const deltaY = landingTop - measure.getBoundingClientRect().top;
+        if (Math.abs(deltaY) > 2) {
+          measureEl.style.transition = 'none';
+          measureEl.style.transform = `translate3d(0, ${deltaY}px, 0)`;
+          void measureEl.offsetHeight;
+          measureEl.style.transition = '';
+          requestAnimationFrame(() => {
+            measureEl.style.transform = 'translate3d(0, 0, 0)';
+          });
+          const onTransitionEnd = (event: TransitionEvent) => {
+            if (event.propertyName !== 'transform') return;
+            measureEl.removeEventListener('transitionend', onTransitionEnd);
+            clearInlineMotion();
+          };
+          measureEl.addEventListener('transitionend', onTransitionEnd);
+          window.setTimeout(clearInlineMotion, 650);
+        }
+      }
+
+      window.setTimeout(() => setHeroExiting(false), 480);
+      return;
+    }
+
+    prevConversationLengthRef.current = count;
+  }, [renderedConversation.length]);
+
+  const errorNotice = error ? (
+    <div className="error-notice" role="alert">
+      <CircleAlert size={17} />
+      <span>{error}</span>
+      {onReconnect ? (
+        <button className="text-button" type="button" onClick={onReconnect}>
+          重新连接
+        </button>
+      ) : null}
+      <button
+        className="icon-button icon-button--small"
+        type="button"
+        aria-label="关闭错误提示"
+        title="关闭错误提示"
+        onClick={onDismissError}
       >
-        {renderedConversation.length === 0 ? (
-          <div className="conversation-empty flex min-h-[500px] flex-col items-center justify-center gap-3 text-text-muted">
-            <div className="empty-icon grid h-[50px] w-[50px] place-items-center rounded-xl border border-border bg-surface-subtle text-text-secondary">
-              <Sparkles size={22} />
-            </div>
-            <h1 className="m-0 text-[19px] font-semibold text-text-primary">
-              今天想完成什么任务？
-            </h1>
-          </div>
-        ) : (
-          <div
-            className={`message-list mx-auto w-full max-w-chat ${shouldVirtualize ? '' : 'message-list--static'}`}
-            style={shouldVirtualize ? { height: virtualizer.getTotalSize() } : undefined}
-          >
-            {shouldVirtualize
-              ? virtualizer.getVirtualItems().map((virtualRow) => {
-                  const item = renderedConversation[virtualRow.index];
-                  if (!item) return null;
-                  return (
-                    <div
-                      className="message-list__row"
-                      data-index={virtualRow.index}
-                      key={virtualRow.key}
-                      ref={virtualizer.measureElement}
-                      style={{ transform: `translateY(${virtualRow.start}px)` }}
-                    >
-                      {item.kind === 'user' ? (
-                        <UserMessage item={item} />
-                      ) : (
-                        <AssistantMessage
-                          item={item}
-                          showThinking={
-                            Boolean(item.pending) || (submitting && item.id === latestAssistantId)
-                          }
-                          isAnimating={submitting && item.id === latestAssistantId}
-                          onFocusWorkbench={onFocusWorkbench}
-                        />
-                      )}
-                    </div>
-                  );
-                })
-              : renderedConversation.map((item) => (
-                  <div className="message-list__row message-list__row--static" key={item.id}>
-                    {item.kind === 'user' ? (
-                      <UserMessage item={item} />
-                    ) : (
-                      <AssistantMessage
-                        item={item}
-                        showThinking={
-                          Boolean(item.pending) || (submitting && item.id === latestAssistantId)
-                        }
-                        isAnimating={submitting && item.id === latestAssistantId}
-                        onFocusWorkbench={onFocusWorkbench}
-                      />
-                    )}
-                  </div>
-                ))}
-          </div>
-        )}
-      </ConversationContent>
-      <div className="composer-area mx-auto w-full max-w-chat bg-surface pb-6">
-        {error ? (
-          <div className="error-notice" role="alert">
-            <CircleAlert size={17} />
-            <span>{error}</span>
-            {onReconnect ? (
-              <button className="text-button" type="button" onClick={onReconnect}>
-                重新连接
-              </button>
-            ) : null}
-            <button
-              className="icon-button icon-button--small"
-              type="button"
-              aria-label="关闭错误提示"
-              title="关闭错误提示"
-              onClick={onDismissError}
-            >
-              <X size={15} />
-            </button>
-          </div>
-        ) : null}
+        <X size={15} />
+      </button>
+    </div>
+  ) : null;
+
+  const composerArea = (
+    <div className="composer-area mx-auto w-full max-w-chat bg-surface pb-6">
+      {errorNotice}
+      {hideComposer ? null : (
         <div className={`composer-wrap ${submitting ? 'is-running' : ''}`}>
           <PlanFloatingCard
             plan={state.workbench?.plan}
@@ -1135,6 +1568,7 @@ export function Conversation({
             onSendPending={onSendPending}
           />
           <Composer
+            key={scopeKey}
             prompt={prompt}
             submitting={submitting}
             serviceState={serviceState}
@@ -1158,12 +1592,150 @@ export function Conversation({
             onAttachmentRetry={onAttachmentRetry}
             onAttachmentCancel={onAttachmentCancel}
             context={state.context ?? state.workbench?.context}
+            selectedSkills={selectedSkills}
+            onSkillsChange={onSkillsChange}
           />
         </div>
+      )}
+    </div>
+  );
+
+  const showComposerAnchor = !hideComposer || Boolean(error);
+
+  return (
+    <AiConversation
+      className="conversation flex min-h-0 min-w-0 flex-1 flex-col bg-surface text-text-primary"
+      aria-label="对话"
+    >
+      <div ref={shellRef} className="conversation-shell relative flex min-h-0 flex-1 flex-col">
+        {sessionLoading ? (
+          <ConversationSessionSkeleton />
+        ) : renderedConversation.length > 0 ? (
+          <div className="conversation-scroll-region">
+            <ConversationMessageNavigator
+              anchors={userMessageAnchors}
+              anchorRatios={navAnchorRatios}
+              layout={conversationNavLayout}
+              activeUserMessageId={activeUserMessageId}
+              onNavigate={navigateToUserMessage}
+            />
+            <ConversationContent
+              className="conversation-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+              ref={scrollRef}
+              onScroll={handleConversationScroll}
+              onMouseEnter={(event) => event.currentTarget.classList.add('is-scroll-active')}
+              onMouseLeave={(event) => event.currentTarget.classList.remove('is-scroll-active')}
+            >
+              {onLoadOlder ? (
+                <div className="mx-auto w-full max-w-chat px-4 py-3 text-center">
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={onLoadOlder}
+                    disabled={loadingOlder}
+                  >
+                    {loadingOlder ? '正在加载更早消息…' : '加载更早消息'}
+                  </button>
+                </div>
+              ) : null}
+              <div
+                className={`message-list mx-auto w-full max-w-chat ${shouldVirtualize ? '' : 'message-list--static'}`}
+                style={shouldVirtualize ? { height: virtualizer.getTotalSize() } : undefined}
+              >
+                {shouldVirtualize
+                  ? virtualizer.getVirtualItems().map((virtualRow) => {
+                      const item = renderedConversation[virtualRow.index];
+                      if (!item) return null;
+                      return (
+                        <div
+                          className="message-list__row"
+                          data-index={virtualRow.index}
+                          key={virtualRow.key}
+                          ref={virtualizer.measureElement}
+                          style={{ transform: `translateY(${virtualRow.start}px)` }}
+                        >
+                          {item.kind === 'user' ? (
+                            <UserMessage item={item} />
+                          ) : (
+                            <AssistantMessage
+                              item={item}
+                              showThinking={
+                                Boolean(item.pending) ||
+                                (submitting && item.id === latestAssistantId)
+                              }
+                              isAnimating={submitting && item.id === latestAssistantId}
+                              onFocusWorkbench={handleFocusWorkbench}
+                            />
+                          )}
+                        </div>
+                      );
+                    })
+                  : renderedConversation.map((item) => (
+                      <div className="message-list__row message-list__row--static" key={item.id}>
+                        {item.kind === 'user' ? (
+                          <UserMessage item={item} />
+                        ) : (
+                          <AssistantMessage
+                            item={item}
+                            showThinking={
+                              Boolean(item.pending) || (submitting && item.id === latestAssistantId)
+                            }
+                            isAnimating={submitting && item.id === latestAssistantId}
+                            onFocusWorkbench={handleFocusWorkbench}
+                          />
+                        )}
+                      </div>
+                    ))}
+              </div>
+            </ConversationContent>
+          </div>
+        ) : null}
+
+        {showComposerAnchor ? (
+          <div
+            ref={composerAnchorRef}
+            className={
+              isLandingSession
+                ? 'conversation-landing-stack flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-5'
+                : 'composer-anchor relative mt-auto flex w-full shrink-0 justify-center px-5'
+            }
+          >
+            {isLandingSession ? (
+              <div
+                ref={heroRef}
+                className="conversation-empty-hero flex max-w-full flex-row items-center justify-center gap-3.5 text-left"
+              >
+                <BrandIcon
+                  size={40}
+                  className="empty-brand-icon empty-brand-icon--inline shrink-0"
+                />
+                <p className="m-0 text-[18px] font-medium leading-snug text-text-primary">
+                  {AGENT_UI_COPY.newSessionWelcome}
+                </p>
+              </div>
+            ) : null}
+            <div ref={composerMeasureRef} className="composer-measure mx-auto w-full">
+              {composerArea}
+            </div>
+          </div>
+        ) : null}
+
+        {heroExiting ? (
+          <div className="conversation-landing-layer conversation-landing-layer--exit pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-5">
+            <div className="conversation-empty-hero flex max-w-full flex-row items-center justify-center gap-3.5 text-left">
+              <BrandIcon size={40} className="empty-brand-icon empty-brand-icon--inline shrink-0" />
+              <p className="m-0 text-[18px] font-medium leading-snug text-text-primary">
+                {AGENT_UI_COPY.newSessionWelcome}
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
     </AiConversation>
   );
 }
+
+export const Conversation = memo(ConversationBody, conversationPropsAreEqual);
 
 export function Composer({
   prompt,
@@ -1189,13 +1761,15 @@ export function Composer({
   onAttachmentRetry,
   onAttachmentCancel,
   context,
+  selectedSkills = [],
+  onSkillsChange = () => undefined,
 }: {
   prompt: string;
   submitting: boolean;
   serviceState: ServiceState;
   mode: 'new-run' | 'steer' | 'clarification' | 'disabled';
-  onPromptChange: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onPromptChange?: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>, promptOverride?: string) => void;
   onCancel?: () => void;
   activeInterrupt?: InterruptSnapshot;
   onClarificationRespond?: (interruptId: string, answer: string) => void;
@@ -1213,8 +1787,16 @@ export function Composer({
   onAttachmentRetry?: (fileId: string) => void;
   onAttachmentCancel?: (fileId: string) => void;
   context?: RunContextDebug;
+  selectedSkills?: string[];
+  onSkillsChange?: (skills: string[]) => void;
 }) {
-  const composingRef = useRef(false);
+  const [draftPrompt, setDraftPrompt] = useState(prompt);
+  const [editorResetKey] = useState(() => (prompt.trim() ? 1 : 0));
+  const [seedPlainText] = useState(() => prompt);
+  const composerFormRef = useRef<HTMLFormElement>(null);
+  const composerEditorRef = useRef<SkillPromptEditorHandle>(null);
+  const composerDragDepthRef = useRef(0);
+  const [composerDragOver, setComposerDragOver] = useState(false);
   const [interruptState, setInterruptState] = useState<{
     interruptId?: string;
     answer: string;
@@ -1222,7 +1804,10 @@ export function Composer({
   }>({ answer: '', submitting: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
-  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [composerPanel, setComposerPanel] = useState<'all' | 'skills' | null>(null);
+  const [composerPanelClosing, setComposerPanelClosing] = useState(false);
+  const panelCloseTimerRef = useRef<number | null>(null);
   const [attachmentPreview, setAttachmentPreview] = useState<
     | { kind: 'image'; src: string; alt: string }
     | { kind: 'file'; fileId: string; fileName: string }
@@ -1232,6 +1817,29 @@ export function Composer({
     interruptState.interruptId === activeInterrupt?.interruptId
       ? interruptState
       : { answer: '', submitting: false };
+  const draftPromptRef = useRef(prompt);
+  const updateDraftPrompt = useCallback((value: string) => {
+    draftPromptRef.current = value;
+    setDraftPrompt(value);
+  }, []);
+  const submitDraft = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      onSubmit(event, draftPrompt);
+      updateDraftPrompt('');
+      onSkillsChange?.([]);
+      composerEditorRef.current?.clear();
+    },
+    [onSubmit, draftPrompt, updateDraftPrompt, onSkillsChange],
+  );
+  const closeComposerPanel = useCallback(() => {
+    if (!composerPanel || composerPanelClosing) return;
+    setComposerPanelClosing(true);
+    panelCloseTimerRef.current = window.setTimeout(() => {
+      setComposerPanel(null);
+      setComposerPanelClosing(false);
+      panelCloseTimerRef.current = null;
+    }, 140);
+  }, [composerPanel, composerPanelClosing]);
   const updateInterruptState = (update: Partial<typeof currentInterruptState>) => {
     setInterruptState({
       interruptId: activeInterrupt?.interruptId,
@@ -1256,21 +1864,144 @@ export function Composer({
     serviceState === 'ready' &&
     controlState !== 'waiting_for_user';
   useEffect(() => {
-    if (!attachmentMenuOpen) return undefined;
+    if (!composerPanel) return undefined;
     const handleOutsidePointerDown = (event: PointerEvent) => {
-      if (!addMenuRef.current?.contains(event.target as Node)) setAttachmentMenuOpen(false);
+      const target = event.target as Node;
+      if (!addMenuRef.current?.contains(target) && !panelRef.current?.contains(target)) {
+        closeComposerPanel();
+      }
     };
     document.addEventListener('pointerdown', handleOutsidePointerDown);
     return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
-  }, [attachmentMenuOpen]);
+  }, [composerPanel, closeComposerPanel]);
+  const ingestAttachmentFiles = useCallback(
+    (dataTransfer: DataTransfer) => {
+      if (!canPasteAttachments) return;
+      const files = normalizeAttachmentFiles(attachmentFilesFromDataTransfer(dataTransfer));
+      if (files.length) onAttachmentSelected?.(files);
+    },
+    [canPasteAttachments, onAttachmentSelected],
+  );
+  const [catalogSkills, setCatalogSkills] = useState<
+    Array<{ name: string; description: string }>
+  >([]);
+  const [catalogSkillsStatus, setCatalogSkillsStatus] = useState<SkillCatalogStatus>('idle');
+  useEffect(() => {
+    if (mode !== 'new-run' || !composerPanel) {
+      setCatalogSkillsStatus('idle');
+      return undefined;
+    }
+    let cancelled = false;
+    setCatalogSkillsStatus('loading');
+    void listSkills()
+      .then((response) => {
+        if (cancelled) return;
+        setCatalogSkillsStatus('ready');
+        setCatalogSkills(
+          (response.skills ?? []).map((skill) => ({
+            name: skill.name,
+            description: skill.description,
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCatalogSkillsStatus('error');
+          setCatalogSkills([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [composerPanel, mode]);
+  const visibleSkills = catalogSkills;
+  const chooseSkill = (name: string) => {
+    const skill = catalogSkills.find((item) => item.name === name);
+    composerEditorRef.current?.insertSkillMention(name, skill?.name ?? name);
+    closeComposerPanel();
+  };
+  const enableSkillComposer = mode === 'new-run' && !activeInterrupt;
+  const composerCanSubmit = Boolean(draftPrompt.trim());
   const placeholder = composerPlaceholder(mode);
   const hideComposerInput =
     activeInterrupt?.kind === 'clarification' || activeInterrupt?.kind === 'tool_approval';
   return (
     <PromptInput
-      className="composer rounded-[14px] border-0 bg-surface shadow-composer"
-      onSubmit={onSubmit}
+      ref={composerFormRef}
+      className={`composer rounded-[14px] bg-surface${composerDragOver ? ' is-drag-over' : ''}`}
+      onSubmit={submitDraft}
+      onDragEnter={(event) => {
+        if (!canPasteAttachments || !dataTransferHasFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        composerDragDepthRef.current += 1;
+        setComposerDragOver(true);
+      }}
+      onDragLeave={() => {
+        composerDragDepthRef.current -= 1;
+        if (composerDragDepthRef.current <= 0) {
+          composerDragDepthRef.current = 0;
+          setComposerDragOver(false);
+        }
+      }}
+      onDragOver={(event) => {
+        if (!canPasteAttachments || !dataTransferHasFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+      }}
+      onDrop={(event) => {
+        composerDragDepthRef.current = 0;
+        setComposerDragOver(false);
+        if (!canPasteAttachments) return;
+        event.preventDefault();
+        ingestAttachmentFiles(event.dataTransfer);
+      }}
     >
+      {composerDragOver ? (
+        <div className="composer-drop-overlay" aria-hidden="true">
+          拖放文件或图片以添加附件
+        </div>
+      ) : null}
+      {composerPanel ? (
+        <div
+          className={`composer-quick-panel composer-skill-picker-shell${composerPanelClosing ? ' is-closing' : ''}`}
+          ref={panelRef}
+          role="dialog"
+          aria-label={composerPanel === 'skills' ? '技能' : '添加'}
+        >
+          {composerPanel === 'all' ? (
+            <>
+              <div className="composer-quick-panel__title">添加</div>
+              <button
+                type="button"
+                className="composer-quick-panel__row"
+                disabled={attachmentUploading || submitting || serviceState !== 'ready'}
+                onClick={() => {
+                  closeComposerPanel();
+                  fileInputRef.current?.click();
+                }}
+              >
+                <Paperclip size={17} aria-hidden="true" />
+                <span className="composer-quick-panel__file-copy"><strong>文件和图片</strong></span>
+              </button>
+              <div className="composer-quick-panel__section">技能</div>
+            </>
+          ) : null}
+          <div className="composer-quick-panel__list composer-skill-picker">
+            {visibleSkills.length ? (
+              visibleSkills.map((skill) => (
+                <ComposerSkillPickerRow
+                  key={skill.name}
+                  skill={skill}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => chooseSkill(skill.name)}
+                />
+              ))
+            ) : (
+              <ComposerSkillPickerEmpty status={catalogSkillsStatus} />
+            )}
+          </div>
+        </div>
+      ) : null}
       {activeInterrupt?.kind === 'clarification' ? (
         <div className="composer-hitl-panel composer-confirmation-panel" aria-label="需要补充信息">
           <Confirmation approval={{ id: activeInterrupt.interruptId }} state="approval-requested">
@@ -1346,10 +2077,7 @@ export function Composer({
       ) : null}
       {activeInterrupt?.kind === 'tool_approval' ? (
         <div className="composer-hitl-panel composer-confirmation-panel" aria-label="工具审批">
-          <Confirmation
-            approval={{ id: activeInterrupt.interruptId }}
-            state="approval-requested"
-          >
+          <Confirmation approval={{ id: activeInterrupt.interruptId }} state="approval-requested">
             <ConfirmationRequest>
               <div className="composer-confirmation-toolbar">
                 <ConfirmationTitle>
@@ -1544,61 +2272,34 @@ export function Composer({
       />
       {!hideComposerInput ? (
         <PromptInputBody>
-          <PromptInputTextarea
-            aria-label="任务输入"
+          <SkillPromptEditor
+            ref={composerEditorRef}
             placeholder={placeholder}
-            rows={3}
-            value={prompt}
-            disabled={
-              mode === 'disabled' || controlState === 'waiting_for_user' || Boolean(activeInterrupt)
+            disabled={mode === 'disabled' || controlState === 'waiting_for_user' || Boolean(activeInterrupt)}
+            enableSkills={enableSkillComposer}
+            resetKey={editorResetKey}
+            seedPlainText={seedPlainText}
+            onChange={({ plainText, skillNames }) => {
+              updateDraftPrompt(plainText);
+              onPromptChange?.(plainText);
+              onSkillsChange?.(skillNames);
+            }}
+            onBlurSync={(plainText) => {
+              draftPromptRef.current = plainText;
+              onPromptChange?.(plainText);
+            }}
+            onSubmitRequest={() => {
+              if (!composerCanSubmit || mode === 'disabled') return;
+              composerFormRef.current?.requestSubmit();
+            }}
+            onPaste={(event) =>
+              handleComposerAttachmentPaste(
+                event,
+                canPasteAttachments,
+                attachments,
+                onAttachmentSelected,
+              )
             }
-            onChange={(event) => onPromptChange(event.target.value)}
-            onPaste={(event) => {
-              if (!canPasteAttachments) return;
-              const imageFiles = Array.from(event.clipboardData.files).filter((file) =>
-                file.type.startsWith('image/'),
-              );
-              if (imageFiles.length) {
-                event.preventDefault();
-                onAttachmentSelected?.(
-                  imageFiles.map((file, index) =>
-                    file.name
-                      ? file
-                      : new File([file], `pasted-image-${index + 1}.png`, { type: file.type }),
-                  ),
-                );
-                return;
-              }
-
-              const text = event.clipboardData.getData('text/plain');
-              if ([...text].length <= AGENT_UI_BEHAVIOR.longPasteThresholdCodePoints) return;
-              event.preventDefault();
-              onAttachmentSelected?.([
-                new File([text], nextPastedTextFileName(attachments), { type: 'text/plain' }),
-              ]);
-            }}
-            onCompositionStart={() => {
-              composingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              composingRef.current = false;
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                // 中文等输入法正在确认候选词时，Enter 只结束组合输入，不提交消息。
-                if (
-                  composingRef.current ||
-                  event.nativeEvent.isComposing ||
-                  event.nativeEvent.keyCode === 229
-                )
-                  return;
-                // 新任务需要等待当前提交完成；运行中的 steer/follow-up 则允许直接入队。
-                if (prompt.trim() && mode !== 'disabled') {
-                  event.preventDefault();
-                  event.currentTarget.form?.requestSubmit();
-                }
-              }
-            }}
           />
         </PromptInputBody>
       ) : null}
@@ -1612,33 +2313,20 @@ export function Composer({
               </div>
             ) : mode === 'new-run' ? (
               <div className="composer-add-wrap" ref={addMenuRef}>
-                <div
-                  className={`composer-add-menu${attachmentMenuOpen ? ' is-open' : ''}`}
-                  role="menu"
-                  aria-hidden={!attachmentMenuOpen}
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    tabIndex={attachmentMenuOpen ? 0 : -1}
-                    disabled={attachmentUploading || submitting || serviceState !== 'ready'}
-                    onClick={() => {
-                      setAttachmentMenuOpen(false);
-                      fileInputRef.current?.click();
-                    }}
-                  >
-                    <Paperclip className="composer-add-menu__icon" size={16} aria-hidden="true" />
-                    <span>文件和图片</span>
-                  </button>
-                </div>
                 <button
                   type="button"
                   className="composer-add-button"
-                  aria-label="添加文件和图片"
-                  aria-expanded={attachmentMenuOpen}
-                  title="添加文件和图片"
+                  aria-label="添加附件与 Skill"
+                  aria-expanded={composerPanel === 'all'}
+                  title="添加附件与 Skill"
                   disabled={attachmentUploading || submitting || serviceState !== 'ready'}
-                  onClick={() => setAttachmentMenuOpen((open) => !open)}
+              onClick={() => {
+                if (composerPanel === 'all') closeComposerPanel();
+                else {
+                  setComposerPanelClosing(false);
+                  setComposerPanel('all');
+                }
+              }}
                 >
                   <Plus size={18} />
                 </button>
@@ -1666,14 +2354,14 @@ export function Composer({
               />
             ) : null}
             <button
-              className={`send-button composer-send-button${submitting && prompt.trim() ? ' is-ready' : ''}${submitting && !prompt.trim() ? ' is-stop' : ''}`}
-              type={submitting && !prompt.trim() ? 'button' : 'submit'}
-              aria-label={sendActionLabel(submitting, prompt, mode)}
-              title={sendActionLabel(submitting, prompt, mode)}
+              className={`send-button composer-send-button${submitting && draftPrompt.trim() ? ' is-ready' : ''}${submitting && !draftPrompt.trim() ? ' is-stop' : ''}`}
+              type={submitting && !draftPrompt.trim() ? 'button' : 'submit'}
+              aria-label={sendActionLabel(submitting, draftPrompt, mode)}
+              title={sendActionLabel(submitting, draftPrompt, mode)}
               disabled={
-                submitting && !prompt.trim()
+                submitting && !draftPrompt.trim()
                   ? !onCancel
-                  : !prompt.trim() ||
+                  : !composerCanSubmit ||
                     serviceState !== 'ready' ||
                     mode === 'disabled' ||
                     (mode !== 'new-run' && attachments.length > 0) ||
@@ -1681,9 +2369,9 @@ export function Composer({
                     attachmentModelUnsupported ||
                     attachments.some((item) => item.status !== 'ready')
               }
-              onClick={submitting && !prompt.trim() ? onCancel : undefined}
+              onClick={submitting && !draftPrompt.trim() ? onCancel : undefined}
             >
-              {submitting && !prompt.trim() ? (
+              {submitting && !draftPrompt.trim() ? (
                 <Square size={14} fill="currentColor" />
               ) : (
                 <ArrowUp size={18} strokeWidth={2.25} />

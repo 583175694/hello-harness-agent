@@ -13,7 +13,10 @@
     "db:generate": "dotenv -e ../../.env -- prisma generate",
     "db:migrate": "dotenv -e ../../.env -- prisma migrate dev",
     "db:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
-    "db:studio": "dotenv -e ../../.env -- prisma studio"
+    "db:studio": "dotenv -e ../../.env -- prisma studio",
+    "migrate:agent-metadata": "dotenv -e ../../.env -- tsx scripts/migrate-agent-metadata.ts",
+    "repair:agent-detail-blocks": "dotenv -e ../../.env -- tsx scripts/repair-agent-detail-blocks.ts",
+    "memory:backfill-embeddings": "dotenv -e ../../.env -- tsx scripts/backfill-memory-embeddings.ts"
   },
   "dependencies": {
     "@alibaba-group/opensandbox": "0.1.11",
@@ -22,6 +25,7 @@
     "@alicloud/openapi-core": "^1.0.8",
     "@crawlee/http": "^3.18.0",
     "@harness/agent-protocol": "workspace:*",
+    "@harness/bundled-skills": "workspace:*",
     "@harness/deepseek-v3-tokenizer": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@mozilla/readability": "^0.6.0",
@@ -70,6 +74,7 @@
     "pino-pretty": "^13.1.3",
     "prisma": "6.19.3",
     "supertest": "^7.1.4",
+    "tsx": "^4.23.15",
     "vitest": "^3.2.4"
   }
 }

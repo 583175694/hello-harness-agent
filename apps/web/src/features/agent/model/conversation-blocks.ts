@@ -8,7 +8,10 @@ import type {
 } from '@harness/agent-protocol';
 
 import type { ToolStreamEvent } from '../../../api/client';
+import { parseMcpPublicToolName } from '@harness/agent-protocol';
+
 import {
+  mcpToolBusinessSummary,
   resolveActivityToolName,
   toolInputSummary,
   toolStreamTitle,
@@ -45,9 +48,9 @@ function activityToolName(event: ToolStreamEvent): string {
 
 function toolActivityStartSummary(event: Extract<ToolStreamEvent, { type: 'tool.started' }>): string {
   if (event.toolName === 'external_tool') {
-    return toolInputSummary(
-      activityToolName(event),
-      (event.input ?? {}) as Parameters<typeof toolInputSummary>[1],
+    return mcpToolBusinessSummary(
+      streamPublicName(event) ?? activityToolName(event),
+      (event.input ?? {}) as Record<string, unknown>,
     );
   }
   if (event.toolName === 'web_fetch' || event.toolName === 'create_report') {
@@ -63,6 +66,16 @@ function toolActivityStartSummary(event: Extract<ToolStreamEvent, { type: 'tool.
     return event.description;
   }
   return toolInputSummary(event.toolName, event.input);
+}
+
+function toolActivityIconPatch(
+  event: ToolStreamEvent,
+): Partial<Extract<AssistantContentBlock, { type: 'tool_activity' }>> {
+  if (event.type !== 'tool.started') return {};
+  if (!('iconSrc' in event) || typeof event.iconSrc !== 'string' || !event.iconSrc.trim()) {
+    return {};
+  }
+  return { iconSrc: event.iconSrc.trim() };
 }
 
 function bashTerminalBlockPatch(
@@ -92,9 +105,12 @@ function toolActivityCompletedSummary(
   currentSummary: string,
 ): string {
   if (event.toolName === 'external_tool') {
-    const result = event.result;
-    const count = result.charCount ?? result.preview.length;
-    return `返回 ${count} 字符${result.truncated ? '（预览已截断）' : ''}`;
+    const next = mcpToolBusinessSummary(event.publicName, (event.input ?? {}) as Record<string, unknown>);
+    const rawName = parseMcpPublicToolName(event.publicName)?.rawName;
+    if (rawName && next === rawName && currentSummary.trim() && currentSummary !== rawName) {
+      return currentSummary;
+    }
+    return next;
   }
   if (event.toolName === 'web_search') return currentSummary;
   if (event.toolName === 'web_fetch') {
@@ -104,7 +120,27 @@ function toolActivityCompletedSummary(
   }
   if (event.toolName === 'approval_test') return '审批测试已完成';
   if (event.toolName === 'get_current_time') return '当前时间已获取';
+  if (event.toolName === 'memory_write') {
+    if (!event.result.ok) {
+      if (event.result.reason === 'memory_write_disabled') return '记忆写入未开启';
+      return event.result.reason ? `未写入：${event.result.reason}` : '记忆未写入';
+    }
+    if (event.result.action === 'delete') return '记忆已删除';
+    if (event.result.status === 'candidate') return '已保存为候选记忆';
+    if (event.result.indexingStatus === 'pending') return '记忆已保存，向量索引排队中';
+    if (event.result.indexingStatus === 'failed') return '记忆已保存，向量索引失败';
+    return event.result.action === 'update' ? '记忆已更新' : '记忆已保存';
+  }
   if (event.toolName === 'search_file') return `找到 ${event.result.matches.length} 个文件命中`;
+  if (event.toolName === 'read_file') {
+    if (event.result.scope === 'file') {
+      return event.result.sizeTier === 'small'
+        ? '已读取小文件全文'
+        : `outline · ${event.result.sections?.length ?? 0} sections`;
+    }
+    if (event.result.scope === 'section') return `读取章节 ${event.result.lines.length} 行`;
+    return `读取 ${event.result.lines.length} 行文件内容`;
+  }
   if (event.toolName === 'read_file_lines') return `读取 ${event.result.lines.length} 行文件内容`;
   if (event.toolName === 'create_file') return `已生成 ${event.result.file.fileName}`;
   if (event.toolName === 'create_report') return `生成报告：${event.result.report.title}`;
@@ -257,6 +293,7 @@ export function applyToolActivityEvent(
                   ? { blockSequence: event.blockSequence }
                   : {}),
                 ...bashTerminalBlockPatch(event),
+                ...toolActivityIconPatch(event),
               }
             : block,
         ),
@@ -279,6 +316,7 @@ export function applyToolActivityEvent(
       summary: toolActivityStartSummary(event),
       startedAt: event.startedAt,
       ...bashTerminalBlockPatch(event),
+      ...toolActivityIconPatch(event),
     });
   }
   if (index < 0) return blocks;

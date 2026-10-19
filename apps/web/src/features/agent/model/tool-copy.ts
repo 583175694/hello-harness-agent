@@ -1,4 +1,32 @@
-const MCP_PUBLIC_PREFIX = 'mcp__';
+import {
+  isMcpPublicToolName,
+  mcpToolBusinessSummary as protocolMcpToolBusinessSummary,
+  MCP_PUBLIC_TOOL_PREFIX as MCP_PUBLIC_PREFIX,
+  parseMcpPublicToolName,
+} from '@harness/agent-protocol';
+
+export { isMcpPublicToolName, parseMcpPublicToolName };
+
+export function mcpToolBusinessSummary(
+  publicName: string,
+  input: ToolCopyInput | Record<string, unknown>,
+): string {
+  return protocolMcpToolBusinessSummary(publicName, input as Record<string, unknown>);
+}
+
+/** 对话区内联 MCP 步骤：只展示业务输入一行，不重复「server · tool + rawName」。 */
+export function mcpInlineActivityLabel(block: {
+  toolName: string;
+  title: string;
+  summary?: string;
+}): string {
+  if (!isMcpPublicToolName(block.toolName)) return block.title;
+  const summary = block.summary?.trim();
+  const parsed = parseMcpPublicToolName(block.toolName);
+  const rawName = parsed?.rawName;
+  if (summary && (!rawName || summary !== rawName)) return summary;
+  return summary || block.title;
+}
 
 export function mcpFriendlyToolTitle(publicName: string): string {
   if (publicName.startsWith(MCP_PUBLIC_PREFIX)) {
@@ -21,6 +49,8 @@ export type ToolCopyInput = {
   query?: string;
   message?: string;
   fileId?: string;
+  scope?: 'file' | 'section' | 'lines';
+  sectionId?: string;
   startLine?: number;
   endLine?: number;
   fileName?: string;
@@ -31,6 +61,8 @@ export type ToolCopyInput = {
   policyClass?: 'network' | 'install';
   inputFiles?: Array<{ fileId: string; path: string }>;
   job_id?: string;
+  action?: string;
+  memoryId?: string;
 };
 
 export function toolInputSummary(toolName: string, input: ToolCopyInput): string {
@@ -41,6 +73,11 @@ export function toolInputSummary(toolName: string, input: ToolCopyInput): string
   if (toolName === 'approval_test') return input.message ?? '';
   if (toolName === 'get_current_time') return '获取当前日期和时间';
   if (toolName === 'search_file') return `${input.fileId} · ${input.query}`;
+  if (toolName === 'read_file') {
+    if (input.scope === 'file') return `${input.fileId} · outline`;
+    if (input.scope === 'section') return `${input.fileId} · ${input.sectionId ?? 'section'}`;
+    return `${input.fileId} · ${input.startLine}-${input.endLine} 行`;
+  }
   if (toolName === 'read_file_lines') return `${input.fileId} · ${input.startLine}-${input.endLine} 行`;
   if (toolName === 'create_file') return input.fileName ?? '';
   if (toolName === 'create_report') return input.title ?? '';
@@ -62,11 +99,14 @@ export function toolInputSummary(toolName: string, input: ToolCopyInput): string
   if (toolName === 'job_list') return '列出后台 job';
   if (toolName === 'execute_command') return input.command ?? '';
   if (toolName === 'web_search') return input.query ?? '';
+  if (toolName === 'memory_write') {
+    const action = typeof input.action === 'string' ? input.action : '';
+    if (action === 'delete') return input.memoryId ? `删除 ${input.memoryId}` : '删除记忆';
+    if (action === 'update') return input.title ?? '更新记忆';
+    return input.title ?? '写入记忆';
+  }
   if (toolName.startsWith(MCP_PUBLIC_PREFIX)) {
-    const parts = Object.entries(input)
-      .slice(0, 5)
-      .map(([key, value]) => `${key}=${String(value).slice(0, 48)}`);
-    return parts.join(', ');
+    return mcpToolBusinessSummary(toolName, input);
   }
   return '';
 }
@@ -76,6 +116,11 @@ export function toolTitle(toolName: string, input: ToolCopyInput): string {
   if (toolName === 'approval_test') return '运行审批测试';
   if (toolName === 'get_current_time') return '获取当前日期和时间';
   if (toolName === 'search_file') return `搜索文件：${input.query}`;
+  if (toolName === 'read_file') {
+    if (input.scope === 'file') return '读取文件 outline';
+    if (input.scope === 'section') return `读取章节：${input.sectionId ?? ''}`.trim();
+    return `读取文件：${input.startLine}-${input.endLine} 行`;
+  }
   if (toolName === 'read_file_lines') return `读取文件：${input.startLine}-${input.endLine} 行`;
   if (toolName === 'create_file') return `生成文件：${input.fileName}`;
   if (toolName === 'create_report') return `生成报告：${input.title}`;
@@ -87,6 +132,7 @@ export function toolTitle(toolName: string, input: ToolCopyInput): string {
   if (toolName === 'job_kill') return '终止后台 job';
   if (toolName === 'execute_command') return '执行命令';
   if (toolName === 'web_search') return `搜索：${input.query}`;
+  if (toolName === 'memory_write') return '写入记忆';
   if (toolName === 'external_tool') return '外部工具';
   if (toolName.startsWith(MCP_PUBLIC_PREFIX)) return mcpFriendlyToolTitle(toolName);
   return `运行工具 ${toolName}`;
@@ -123,6 +169,9 @@ export function streamToolInputSummary(event: {
   input?: unknown;
   publicName?: string;
 }): string {
+  if (event.toolName === 'external_tool' && event.publicName) {
+    return mcpToolBusinessSummary(event.publicName, asToolCopyInput(event.input));
+  }
   const displayName = resolveActivityToolName(event.toolName, event.publicName);
   return toolInputSummary(displayName, asToolCopyInput(event.input));
 }
@@ -131,7 +180,8 @@ export function toolRunningDetail(toolName: string): string {
   if (toolName === 'web_fetch') return '正在读取和过滤网页正文';
   if (toolName === 'approval_test') return '正在执行已批准的无副作用工具';
   if (toolName === 'get_current_time') return '正在获取当前日期和时间';
-  if (toolName === 'search_file' || toolName === 'read_file_lines') return '正在读取用户文件';
+  if (toolName === 'search_file' || toolName === 'read_file' || toolName === 'read_file_lines')
+    return '正在读取用户文件';
   if (toolName === 'create_file') return '正在保存生成文件';
   if (toolName === 'create_report') return '正在保存正式报告';
   if (toolName === 'bash') return '正在终端执行';
@@ -146,7 +196,7 @@ export function persistedCompletedDetail(toolName: string): string {
   if (toolName === 'web_fetch') return '网页原文读取已完成';
   if (toolName === 'approval_test') return '审批测试已完成';
   if (toolName === 'search_file') return '文件关键词搜索已完成';
-  if (toolName === 'read_file_lines') return '文件行读取已完成';
+  if (toolName === 'read_file' || toolName === 'read_file_lines') return '文件读取已完成';
   if (toolName === 'create_file') return '生成文件已完成';
   if (toolName === 'create_report') return '生成报告已完成';
   if (toolName === 'bash') return '终端命令已完成';
@@ -169,6 +219,8 @@ export function persistedToolDetail(status: string, toolName: string): string {
 export function persistedOutputSummary(input: {
   status: string;
   toolName: string;
+  publicName?: string;
+  toolInput?: unknown;
   fileName?: string;
   title?: string;
   succeededCount?: number;
@@ -178,11 +230,18 @@ export function persistedOutputSummary(input: {
   errorDetail?: string;
 }): string | undefined {
   if (input.status !== 'completed') return input.errorDetail;
+  if (input.toolName === 'external_tool' && input.publicName) {
+    return mcpToolBusinessSummary(input.publicName, asToolCopyInput(input.toolInput));
+  }
+  if (isMcpPublicToolName(input.toolName)) {
+    return mcpToolBusinessSummary(input.toolName, asToolCopyInput(input.toolInput));
+  }
   if (input.toolName === 'web_fetch') {
     return `成功 ${input.succeededCount ?? 0} 个，失败 ${input.failedCount ?? 0} 个，提取 ${input.passageCount ?? 0} 段原文`;
   }
   if (input.toolName === 'search_file') return `返回 ${input.resultCount ?? 0} 个文件命中`;
-  if (input.toolName === 'read_file_lines') return `返回 ${input.resultCount ?? 0} 行文件内容`;
+  if (input.toolName === 'read_file' || input.toolName === 'read_file_lines')
+    return `返回 ${input.resultCount ?? 0} 行文件内容`;
   if (input.toolName === 'create_file') return `已生成 ${input.fileName}`;
   if (input.toolName === 'create_report') return `生成报告：${input.title}`;
   if (input.toolName === 'execute_command') return '命令执行已完成';
@@ -192,6 +251,8 @@ export function persistedOutputSummary(input: {
 
 export function liveOutputSummary(input: {
   toolName: string;
+  publicName?: string;
+  toolInput?: unknown;
   fetchStats?: {
     succeededCount: number;
     failedCount: number;
@@ -206,6 +267,9 @@ export function liveOutputSummary(input: {
   reportTitle?: string;
   searchResultCount?: number;
 }): string {
+  if (input.toolName === 'external_tool' && input.publicName) {
+    return mcpToolBusinessSummary(input.publicName, asToolCopyInput(input.toolInput));
+  }
   if (input.fetchStats) {
     return `成功 ${input.fetchStats.succeededCount} 个，失败 ${input.fetchStats.failedCount} 个，跳过 ${input.fetchStats.skippedCount} 个，网络请求 ${input.fetchStats.networkAttemptCount} 次，提取 ${input.fetchStats.passageCount} 段原文`;
   }
@@ -232,12 +296,11 @@ export function persistedActivityStatus(
 }
 
 export function persistedActiveView(
-  sourceCount: number,
+  _sourceCount: number,
   contextOnly: boolean,
-): 'sources' | 'context' | 'activity' {
-  if (sourceCount) return 'sources';
+): 'tool_results' | 'context' | 'deliverables' {
   if (contextOnly) return 'context';
-  return 'activity';
+  return 'tool_results';
 }
 
 export function liveToolCounts(
@@ -246,6 +309,11 @@ export function liveToolCounts(
     | undefined,
   fileSearch?: { result: { matches: unknown[] } },
   fileReadLines?: { result: { lines: unknown[] } },
+  fileRead?: {
+    result:
+      | { scope: 'file'; sections?: unknown[] }
+      | { scope: 'section' | 'lines'; lines: unknown[] };
+  },
 ): number | undefined {
   if (
     completedEvent &&
@@ -255,6 +323,10 @@ export function liveToolCounts(
     return result?.results?.length;
   }
   if (fileSearch) return fileSearch.result.matches.length;
+  if (fileRead) {
+    if (fileRead.result.scope === 'file') return fileRead.result.sections?.length ?? 0;
+    return fileRead.result.lines.length;
+  }
   if (fileReadLines) return fileReadLines.result.lines.length;
   return undefined;
 }

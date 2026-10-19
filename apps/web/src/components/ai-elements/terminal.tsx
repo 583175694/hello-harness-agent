@@ -1,4 +1,5 @@
 import Ansi from 'ansi-to-react';
+import { copyTextToClipboard } from '../../lib/clipboard';
 import { Check, Copy, Terminal as TerminalIcon, Trash2 } from 'lucide-react';
 import {
   createContext,
@@ -124,12 +125,8 @@ export function TerminalCopyButton({
   const { output } = useContext(TerminalContext);
 
   const copyToClipboard = useCallback(async () => {
-    if (typeof navigator?.clipboard?.writeText !== 'function') {
-      onError?.(new Error('Clipboard API not available'));
-      return;
-    }
     try {
-      await navigator.clipboard.writeText(output);
+      await copyTextToClipboard(output);
       setIsCopied(true);
       onCopy?.();
       timeoutRef.current = window.setTimeout(() => setIsCopied(false), timeout);

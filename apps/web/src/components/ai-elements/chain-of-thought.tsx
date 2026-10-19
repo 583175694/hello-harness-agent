@@ -2,11 +2,15 @@ import { ChevronDown, Dot, type LucideIcon } from 'lucide-react';
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type HTMLAttributes,
   type ReactNode,
 } from 'react';
+
+const AUTO_COLLAPSE_DELAY_MS = 1000;
 
 function classes(...values: Array<string | undefined | false>): string {
   return values.filter(Boolean).join(' ');
@@ -17,6 +21,15 @@ type ChainContextValue = {
   setOpen: (open: boolean, userInitiated?: boolean) => void;
 };
 
+export type ChainOfThoughtProps = HTMLAttributes<HTMLDivElement> & {
+  running?: boolean;
+  defaultOpen?: boolean;
+  /** When true, collapses after final output or when `running` becomes false. */
+  autoCollapse?: boolean;
+  /** Signals that the final assistant reply is visible (streaming or complete). */
+  finalOutputVisible?: boolean;
+};
+
 const ChainContext = createContext<ChainContextValue | null>(null);
 
 function useChain(): ChainContextValue {
@@ -25,19 +38,61 @@ function useChain(): ChainContextValue {
   return value;
 }
 
+function resolveInitialOpen(
+  defaultOpen: boolean | undefined,
+  autoCollapse: boolean,
+  running: boolean,
+  finalOutputVisible: boolean,
+): boolean {
+  if (defaultOpen !== undefined) return defaultOpen;
+  if (autoCollapse && (finalOutputVisible || !running)) return false;
+  return true;
+}
+
 export function ChainOfThought({
   children,
   className,
   running = false,
   defaultOpen,
+  autoCollapse = false,
+  finalOutputVisible = false,
   ...props
-}: HTMLAttributes<HTMLDivElement> & { running?: boolean; defaultOpen?: boolean }) {
-  const [open, setOpenState] = useState(defaultOpen ?? true);
+}: ChainOfThoughtProps) {
+  const [open, setOpenState] = useState(() =>
+    resolveInitialOpen(defaultOpen, autoCollapse, running, finalOutputVisible),
+  );
+  const userExpandedRef = useRef(false);
+  const sawActiveProcessRef = useRef(running && !finalOutputVisible);
+
+  const setOpen = (next: boolean, userInitiated?: boolean) => {
+    if (userInitiated) {
+      userExpandedRef.current = next;
+    }
+    setOpenState(next);
+  };
+
+  useEffect(() => {
+    if (running && !finalOutputVisible) {
+      sawActiveProcessRef.current = true;
+    }
+  }, [running, finalOutputVisible]);
+
+  useEffect(() => {
+    if (!autoCollapse) return;
+    const shouldCollapse = finalOutputVisible || !running;
+    if (!shouldCollapse || userExpandedRef.current) return;
+    if (!sawActiveProcessRef.current) {
+      setOpenState(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setOpenState(false), AUTO_COLLAPSE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [autoCollapse, finalOutputVisible, running]);
 
   const value = useMemo(
     () => ({
       open,
-      setOpen: (next: boolean) => setOpenState(next),
+      setOpen,
     }),
     [open],
   );
@@ -77,8 +132,34 @@ export function ChainOfThoughtContent({ className, ...props }: HTMLAttributes<HT
 
 export type ChainStepStatus = 'complete' | 'active' | 'pending' | 'failed' | 'cancelled';
 
+function ChainStepRailIcon({
+  imageSrc,
+  fallback: Fallback,
+}: {
+  imageSrc?: string;
+  fallback: LucideIcon;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [imageSrc]);
+  if (!imageSrc || failed) return <Fallback size={15} />;
+  return (
+    <img
+      className="ai-chain-step__icon-img"
+      src={imageSrc}
+      alt=""
+      width={15}
+      height={15}
+      decoding="async"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 export function ChainOfThoughtStep({
   icon: Icon = Dot,
+  iconImageSrc,
   label,
   description,
   status = 'complete',
@@ -87,6 +168,7 @@ export function ChainOfThoughtStep({
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
   icon?: LucideIcon;
+  iconImageSrc?: string;
   label?: ReactNode;
   description?: ReactNode;
   status?: ChainStepStatus;
@@ -94,7 +176,7 @@ export function ChainOfThoughtStep({
   return (
     <div className={classes('ai-chain-step', `ai-chain-step--${status}`, className)} {...props}>
       <span className="ai-chain-step__rail" aria-hidden="true">
-        <Icon size={15} />
+        <ChainStepRailIcon imageSrc={iconImageSrc} fallback={Icon} />
       </span>
       <div className="ai-chain-step__body">
         {label != null && label !== '' ? (

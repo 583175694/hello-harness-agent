@@ -8,12 +8,16 @@ import type {
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
 import type { ResponseStreamEvent } from 'openai/resources/responses/responses';
-import type { ReasoningCapability, ReasoningEffort } from '@harness/agent-protocol';
+import {
+  AGENT_PROTOCOL_LIMITS,
+  type ReasoningCapability,
+  type ReasoningEffort,
+} from '@harness/agent-protocol';
 import { getDeepSeekV3TokenEstimator, type DeepSeekMessage } from '@harness/deepseek-v3-tokenizer';
 
 import { ENV_KEYS } from '../bootstrap/env.constants';
 import { ModelAdapter } from './model-adapter';
-import { getConfiguredModel } from './model-catalog';
+import { getConfiguredModel, resolveUpstreamModelId } from './model-catalog';
 import type {
   ModelFinishReason,
   ModelMessage,
@@ -35,6 +39,14 @@ import {
 } from './model-transcript-integrity';
 
 const CLARIFICATION_CONTROL_NAME = 'request_clarification';
+// Provider wire names must avoid dots; Host names remain skills.list / skills.read.
+function toProviderToolName(name: string): string {
+  return name.replace(/\./g, '__');
+}
+
+function fromProviderToolName(name: string): string {
+  return name === 'skills__list' ? 'skills.list' : name === 'skills__read' ? 'skills.read' : name;
+}
 const CLARIFICATION_CONTROL_TOOL: ChatCompletionTool = {
   type: 'function',
   function: {
@@ -91,12 +103,21 @@ function stringOrFallback(value: unknown, fallback: string | null): string | nul
   return fallback;
 }
 
-function fileRefMetadataText(block: Extract<UserContentBlock, { type: 'file_ref' }>): string {
+/** 用户消息里 file_ref 附带的读稿提示（与 read_file / search_file 工具文案一致）。 */
+export function fileRefMetadataText(block: Extract<UserContentBlock, { type: 'file_ref' }>): string {
   const extras: string[] = [];
   if (block.lineCount !== undefined) extras.push(`lines=${block.lineCount}`);
   if (block.pageCount !== undefined) extras.push(`pages=${block.pageCount}`);
   const extraSuffix = extras.length > 0 ? `, ${extras.join(', ')}` : '';
-  return `[Attached file metadata: ${block.fileName}, fileId=${block.fileId}, mediaType=${block.mediaType}, size=${block.size} bytes${extraSuffix}. Use search_file or read_file_lines to inspect content.]`;
+  const lineCount = block.lineCount ?? 0;
+  const sizeBytes = block.size ?? 0;
+  const isLarge =
+    lineCount > AGENT_PROTOCOL_LIMITS.fileReadLinesMax / 2 ||
+    sizeBytes > AGENT_PROTOCOL_LIMITS.fileReadSmallMaxCodePoints * 4;
+  const readPlaybook = isLarge
+    ? ` Large attachment: read_file(scope=file) for outline, then read_file(scope=section) for each section (or scope=lines blocks covering lines 1..${lineCount || 'lineCount'} without gaps). Use search_file to locate terms, then read_file for full paragraphs. Do not treat a small lines window as reading the whole file.`
+    : ' Use read_file(scope=file) for structure or full text; search_file to locate keywords.';
+  return `[Attached file metadata: ${block.fileName}, fileId=${block.fileId}, mediaType=${block.mediaType}, size=${sizeBytes} bytes${extraSuffix}.${readPlaybook}]`;
 }
 
 function requestSignal(signal?: AbortSignal): { signal: AbortSignal } | undefined {
@@ -189,6 +210,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       yield* this.streamResponsesRound(input, configured);
       return;
     }
+    if (!configured) throw new Error(`MODEL_UNSUPPORTED:${input.model}`);
     const tools = this.collectChatTools(input);
     const providerMessages = await this.toProviderMessages(input.messages, input.model, {
       replayReasoningWithTools: Boolean(tools?.length),
@@ -207,7 +229,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       }
     }
     const request: Record<string, unknown> = {
-      model: input.model,
+      model: resolveUpstreamModelId(configured),
       stream: true,
       stream_options: { include_usage: true },
       messages: providerMessages,
@@ -279,7 +301,9 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       .sort(([left], [right]) => left - right)
       .map(([, call]) => call);
     const clarificationCalls = allCalls.filter((call) => call.name === CLARIFICATION_CONTROL_NAME);
-    const calls = allCalls.filter((call) => call.name !== CLARIFICATION_CONTROL_NAME);
+    const calls = allCalls
+      .filter((call) => call.name !== CLARIFICATION_CONTROL_NAME)
+      .map((call) => ({ ...call, name: fromProviderToolName(call.name) }));
     if (clarificationCalls.length > 1 || (clarificationCalls.length && calls.length))
       throw new Error('INVALID_CLARIFICATION_PROTOCOL');
     if (clarificationCalls[0])
@@ -328,7 +352,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       }
     }
     const request: Record<string, unknown> = {
-      model: input.model,
+      model: resolveUpstreamModelId(configured),
       input: responseInput,
       stream: true,
       max_output_tokens: input.maxOutputTokens ?? configured.request.maxTokens,
@@ -398,7 +422,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
           const current = calls.get(index);
           calls.set(index, {
             id: String(item.call_id ?? item.id ?? current?.id ?? ''),
-            name: String(item.name ?? current?.name ?? ''),
+            name: fromProviderToolName(String(item.name ?? current?.name ?? '')),
             arguments: functionCallArguments(
               value.type === 'response.output_item.done',
               item.arguments,
@@ -462,10 +486,13 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         completionTokens = usage?.output_tokens ?? null;
         cachedTokens = usage?.input_tokens_details?.cached_tokens ?? null;
       }
-      if (value.type === 'response.failed')
+      if (value.type === 'response.failed') {
+        const response = value.response as Record<string, unknown> | undefined;
         throw new ModelProviderResponseError(
-          String(value.response?.error?.message ?? 'RESPONSES_API_FAILED'),
+          String((response?.error as { message?: string } | undefined)?.message ?? 'RESPONSES_API_FAILED'),
+          { responseBody: response?.error ?? response },
         );
+      }
     }
     const allCalls = [...calls.values()].filter((call) => call.id && call.name);
     const clarificationCalls = allCalls.filter((call) => call.name === CLARIFICATION_CONTROL_NAME);
@@ -500,7 +527,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     const configured = getConfiguredModel(model);
     if (configured?.api === 'responses') {
       const request: Record<string, unknown> = {
-        model,
+        model: resolveUpstreamModelId(configured),
         input: await this.toResponseInput(messages, model),
         max_output_tokens: configured.request.maxTokens,
       };
@@ -515,7 +542,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
       return response.output_text;
     }
     const request: Record<string, unknown> = {
-      model,
+      model: configured ? resolveUpstreamModelId(configured) : model,
       messages: await this.toProviderMessages(messages, model),
     };
     if (configured?.request.temperature !== undefined) {
@@ -568,7 +595,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
           items.push({
             type: 'function_call',
             call_id: call.id,
-            name: call.name,
+            name: toProviderToolName(call.name),
             arguments: call.arguments,
           });
         continue;
@@ -620,7 +647,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
   private toResponseTools(tools: ModelRoundInput['tools']): Record<string, unknown>[] | undefined {
     return tools?.map((tool) => ({
       type: 'function',
-      name: tool.name,
+      name: toProviderToolName(tool.name),
       description: tool.description,
       parameters: tool.parameters,
     }));
@@ -683,7 +710,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
             tool_calls: message.toolCalls?.map((call) => ({
               id: call.id,
               type: 'function' as const,
-              function: { name: call.name, arguments: call.arguments },
+              function: { name: toProviderToolName(call.name), arguments: call.arguments },
             })),
           };
           if (shouldReplayAssistantReasoning(replayReasoningWithTools, message)) {
@@ -725,7 +752,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     // 将内部工具声明转换为 OpenAI Function Calling 格式。
     return tools?.map((tool) => ({
       type: 'function',
-      function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+      function: { name: toProviderToolName(tool.name), description: tool.description, parameters: tool.parameters },
     }));
   }
 
@@ -746,7 +773,7 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
             )
             .map((call) => ({
               id: call.id,
-              name: call.function.name,
+              name: fromProviderToolName(call.function.name),
               arguments: call.function.arguments,
               type: call.type,
             })),

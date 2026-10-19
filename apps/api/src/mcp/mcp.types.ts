@@ -1,6 +1,9 @@
 import type { McpDefaultApproval } from '@prisma/client';
+import type { McpIcon } from '@harness/agent-protocol';
 
 export type McpServerRuntimeStatus = 'connected' | 'degraded' | 'disconnected';
+
+export type McpToolExposure = 'direct' | 'deferred';
 
 export type McpToolCatalogEntry = {
   publicName: string;
@@ -11,6 +14,19 @@ export type McpToolCatalogEntry = {
   defaultApproval: McpDefaultApproval;
   boundGeneration: number;
   toolCallTimeoutMs: number;
+  icons?: ReadonlyArray<McpIcon>;
+  /** Run latch 后由 ToolExposureService 写入；full 模式下均为 direct。 */
+  exposure?: McpToolExposure;
+};
+
+export type McpServerToolPolicySnapshot = {
+  serverName: string;
+  enabledTools: string[] | null;
+};
+
+export type McpServerIconSnapshot = {
+  serverName: string;
+  icons: ReadonlyArray<McpIcon>;
 };
 
 export type McpServerInstructionSnapshot = {
@@ -25,6 +41,9 @@ export type RunMcpSnapshot = {
   serverInstructions: ReadonlyArray<McpServerInstructionSnapshot>;
   /** 本 Run 已 latch 的 connected MCP server 名（含无 tool 但可 read resource 的 server）。 */
   latchedServerNames: ReadonlyArray<string>;
+  serverIcons: ReadonlyArray<McpServerIconSnapshot>;
+  /** 各 server 的 enabledTools 白名单快照，供 deferred 分类时强制 Direct。 */
+  serverToolPolicy: ReadonlyArray<McpServerToolPolicySnapshot>;
 };
 
 export type McpResolvedTransport = {
@@ -46,6 +65,7 @@ export type McpPublishedServerView = {
   toolCountExposed: number;
   instructions: string | null;
   tools: Array<{ rawName: string; description: string; inputSchema: Record<string, unknown> }>;
+  serverIcons?: ReadonlyArray<McpIcon>;
 };
 
 export type McpPublishedCatalog = {

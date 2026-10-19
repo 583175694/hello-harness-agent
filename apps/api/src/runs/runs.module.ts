@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { RunStorageModule } from '../run-storage/run-storage.module';
 import { SandboxModule } from '../sandbox/sandbox.module';
 import { McpModule } from '../mcp/mcp.module';
 import { ChatModule } from '../chat/chat.module';
@@ -13,9 +14,21 @@ import { RunRepository } from './run.repository';
 import { RunsController } from './runs.controller';
 import { RuntimeLifecycleRegistry } from '../agent-runtime/runtime-lifecycle';
 import { PendingUserInputService } from './pending-user-input.service';
+import { RunToolOutputService } from './run-tool-output.service';
+import { SkillsModule } from '../skills/skills.module';
+import { ToolsModule } from '../tools/tools.module';
 
 @Module({
-  imports: [SandboxModule, McpModule, ChatModule, ModelModule, FilesModule],
+  imports: [
+    RunStorageModule,
+    SandboxModule,
+    McpModule,
+    ToolsModule,
+    ChatModule,
+    ModelModule,
+    FilesModule,
+    SkillsModule,
+  ],
   controllers: [RunsController],
   providers: [
     ActiveRunRegistry,
@@ -23,6 +36,7 @@ import { PendingUserInputService } from './pending-user-input.service';
     RunRepository,
     RunExecutor,
     RunCommandService,
+    RunToolOutputService,
     SessionTitleService,
     RuntimeLifecycleRegistry,
     PendingUserInputService,

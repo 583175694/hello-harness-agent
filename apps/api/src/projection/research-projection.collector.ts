@@ -5,6 +5,8 @@ import type {
   SearchToolResult,
   FileSearchResult,
   FileReadLinesResult,
+  FileReadResult,
+  FileReadInput,
   CreateFileInputSummary,
   CreateFileResult,
   CreateReportResult,
@@ -15,12 +17,15 @@ import type {
   WebFetchInput,
   WebFetchResult,
   WebFetchSourceSnapshot,
+  MemoryWriteInputSummary,
+  MemoryWriteResult,
 } from '@harness/agent-protocol';
 
 type ToolProjectionInput =
   | { toolName: typeof AGENT_TOOL_NAMES.webSearch; input: { query: string } }
   | { toolName: typeof AGENT_TOOL_NAMES.webFetch; input: WebFetchInput }
   | { toolName: typeof AGENT_TOOL_NAMES.approvalTest; input: { message: string } }
+  | { toolName: typeof AGENT_TOOL_NAMES.memoryWrite; input: MemoryWriteInputSummary }
   | {
       toolName: typeof AGENT_TOOL_NAMES.searchFile;
       input: { fileId: string; query: string; maxResults?: number };
@@ -29,6 +34,7 @@ type ToolProjectionInput =
       toolName: typeof AGENT_TOOL_NAMES.readFileLines;
       input: { fileId: string; startLine: number; endLine: number };
     }
+  | { toolName: typeof AGENT_TOOL_NAMES.readFile; input: FileReadInput }
   | { toolName: typeof AGENT_TOOL_NAMES.createFile; input: CreateFileInputSummary }
   | { toolName: typeof AGENT_TOOL_NAMES.createReport; input: any }
   | { toolName: typeof AGENT_TOOL_NAMES.executeCommand; input: ExecuteCommandInputSummary }
@@ -106,6 +112,24 @@ export class ResearchProjectionCollector {
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.approvalTest,
+      input: input.toolInput,
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+    });
+  }
+
+  recordMemoryWriteCompleted(input: {
+    toolCallId: string;
+    toolInput: MemoryWriteInputSummary;
+    completedAt: string;
+    durationMs: number;
+    result: MemoryWriteResult;
+  }): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.memoryWrite,
       input: input.toolInput,
       status: 'completed',
       startedAt: this.startedAt(input.completedAt, input.durationMs),
@@ -206,6 +230,29 @@ export class ResearchProjectionCollector {
       completedAt: input.completedAt,
       durationMs: input.durationMs,
       resultCount: input.result.lines.length,
+    });
+  }
+
+  recordFileReadCompleted(input: {
+    toolCallId: string;
+    toolInput: FileReadInput;
+    completedAt: string;
+    durationMs: number;
+    result: FileReadResult;
+  }): void {
+    const resultCount =
+      input.result.scope === 'file'
+        ? (input.result.sections?.length ?? 0)
+        : input.result.lines.length;
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.readFile,
+      input: input.toolInput,
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+      resultCount,
     });
   }
 
@@ -433,6 +480,8 @@ export class ResearchProjectionCollector {
       return { ...base, toolName: AGENT_TOOL_NAMES.searchFile, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.readFileLines)
       return { ...base, toolName: AGENT_TOOL_NAMES.readFileLines, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.readFile)
+      return { ...base, toolName: AGENT_TOOL_NAMES.readFile, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.createFile)
       return { ...base, toolName: AGENT_TOOL_NAMES.createFile, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.executeCommand)

@@ -35,6 +35,8 @@ describe('McpToolCatalogService', () => {
       catalogGeneration: 2,
       serverInstructions: [],
       latchedServerNames: ['demo'],
+      serverIcons: [],
+      serverToolPolicy: [{ serverName: 'demo', enabledTools: null }],
       entries: [frozen],
     };
     const connections = {
@@ -62,6 +64,8 @@ describe('McpToolCatalogService', () => {
           catalogGeneration: 2,
           serverInstructions: [],
           latchedServerNames: ['demo'],
+          serverIcons: [],
+          serverToolPolicy: [{ serverName: 'demo', enabledTools: null }],
           entries: [frozen],
         },
         'local-user',

@@ -34,4 +34,9 @@ describe('theme DOM bridge', () => {
     bootstrapAppearance();
     expect(readDocumentTheme()).toBe('dark');
   });
+
+  it('defaults to light when no stored preference', () => {
+    bootstrapAppearance();
+    expect(readDocumentTheme()).toBe('light');
+  });
 });

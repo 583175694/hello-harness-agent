@@ -383,7 +383,7 @@ Debug 默认关闭，仅开发配置启用：
 
 ## 18. Capability Evolution
 
-P9/P10 实现后才增加 Memory management surface。
+C7-B 实现后才增加 Memory management surface。
 
 P11 实现后才增加 Worker progress；worker 仍不是用户可编辑执行图。
 

@@ -8,6 +8,8 @@ import {
   listSessionsResponseSchema,
   problemDetailsSchema,
   runSnapshotSchema,
+  runDetailResponseSchema,
+  runToolOutputUrlResponseSchema,
   runStreamEventSchema,
   serviceStatusSchema,
   sessionDetailResponseSchema,
@@ -29,6 +31,9 @@ import {
   authVerifyPhoneRequestSchema,
   authBindEmailRequestSchema,
   authBindPhoneRequestSchema,
+  memoryListResponseSchema,
+  memoryRecordViewSchema,
+  memorySettingsViewSchema,
 } from '@harness/agent-protocol';
 import type {
   CancelRunResponse,
@@ -40,6 +45,8 @@ import type {
   SessionDetailResponse,
   SessionSummary,
   RunSnapshot,
+  RunDetailResponse,
+  RunToolOutputUrlResponse,
   RunControlCommand,
   RunStreamEvent,
   RunControlResponse,
@@ -58,6 +65,9 @@ import type {
   McpUpdateServerRequest,
   McpPatchServerRequest,
   AuthUserView,
+  MemoryListResponse,
+  MemoryRecordView,
+  MemorySettingsView,
 } from '@harness/agent-protocol';
 import { publicAgentConfigSchema } from '@harness/agent-protocol';
 
@@ -139,8 +149,16 @@ export async function listSessions(signal?: AbortSignal): Promise<SessionSummary
 export async function getSession(
   sessionId: string,
   signal?: AbortSignal,
+  options?: { limit?: number; before?: string },
 ): Promise<SessionDetailResponse> {
-  const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}`, { signal });
+  const params = new URLSearchParams();
+  if (options?.limit !== undefined) params.set('limit', String(options.limit));
+  if (options?.before) params.set('before', options.before);
+  const query = params.toString();
+  const response = await apiFetch(
+    `${apiBaseUrl}/api/agent/sessions/${sessionId}${query ? `?${query}` : ''}`,
+    { signal },
+  );
   return sessionDetailResponseSchema.parse(await parseResponse(response));
 }
 
@@ -190,6 +208,7 @@ export async function createRun(
     expectedCurrentArtifactId: string;
     changeSummary?: string;
   },
+  skillNames: string[] = [],
 ): Promise<CreateRunResponse> {
   const response = await apiFetch(`${apiBaseUrl}/api/agent/sessions/${sessionId}/runs`, {
     method: 'POST',
@@ -201,9 +220,16 @@ export async function createRun(
       idempotencyKey: createClientId(),
       ...(attachmentIds.length ? { attachmentIds } : {}),
       ...(artifactVersionContext ? { artifactVersionContext } : {}),
+      ...(skillNames.length ? { skillNames } : {}),
     }),
   });
   return createRunResponseSchema.parse(await parseResponse(response));
+}
+
+export async function listSkills(query?: string): Promise<{ skills: Array<{ name: string; description: string; version: string; source: string }> }> {
+  const suffix = query ? `?query=${encodeURIComponent(query)}` : '';
+  const response = await apiFetch(`${apiBaseUrl}/api/skills${suffix}`);
+  return (await parseResponse(response)) as { skills: Array<{ name: string; description: string; version: string; source: string }> };
 }
 
 export async function getArtifactSeries(seriesId: string): Promise<ArtifactSeriesRef> {
@@ -325,6 +351,21 @@ export function getArtifactPreviewUrl(artifactId: string): string {
   return `${apiBaseUrl}/api/agent/artifacts/${encodeURIComponent(artifactId)}/preview`;
 }
 
+/** 带 Cookie 拉取产物图片预览，返回可绑定 `<img src>` 的 object URL（调用方需在卸载时 revoke）。 */
+export async function loadArtifactPreviewImageObjectUrl(
+  artifactId: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const response = await apiFetch(getArtifactPreviewUrl(artifactId), { signal });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(detail || '图片预览不可用。');
+  }
+  const blob = await response.blob();
+  if (blob.size === 0) throw new Error('图片预览不可用。');
+  return URL.createObjectURL(blob);
+}
+
 export function getArtifactDownloadUrl(artifactId: string): string {
   return `${apiBaseUrl}/api/agent/artifacts/${encodeURIComponent(artifactId)}/download`;
 }
@@ -396,6 +437,27 @@ export async function getPublicAgentConfig(signal?: AbortSignal): Promise<Public
 export async function getRun(runId: string, signal?: AbortSignal): Promise<RunSnapshot> {
   const response = await apiFetch(`${apiBaseUrl}/api/agent/runs/${runId}`, { signal });
   return runSnapshotSchema.parse(await parseResponse(response));
+}
+
+// 按需读取 Run 的完整来源和工具执行详情，避免随会话消息列表返回。
+export async function getRunDetail(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<RunDetailResponse> {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/runs/${runId}/detail`, { signal });
+  return runDetailResponseSchema.parse(await parseResponse(response));
+}
+
+export async function getRunToolOutputUrl(
+  runId: string,
+  toolCallId: string,
+  signal?: AbortSignal,
+): Promise<RunToolOutputUrlResponse> {
+  const response = await apiFetch(
+    `${apiBaseUrl}/api/agent/runs/${runId}/tools/${encodeURIComponent(toolCallId)}/output-url`,
+    { signal },
+  );
+  return runToolOutputUrlResponseSchema.parse(await parseResponse(response));
 }
 
 // 发送独立、幂等的取消命令；取消不依赖当前 SSE 连接是否仍然存在。
@@ -566,6 +628,58 @@ export async function bindPhone(phone: string, code: string): Promise<AuthUserVi
     body: JSON.stringify({ phone, code }),
   });
   return parseAuthLoginUser(await parseResponse(response));
+}
+
+export async function listMemories(signal?: AbortSignal): Promise<MemoryListResponse> {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/memories`, { signal });
+  return memoryListResponseSchema.parse(await parseResponse(response));
+}
+
+export async function createMemory(body: {
+  kind: string;
+  title: string;
+  content: string;
+}): Promise<MemoryRecordView> {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/memories`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = (await parseResponse(response)) as { memory: unknown };
+  return memoryRecordViewSchema.parse(data.memory);
+}
+
+export async function updateMemory(
+  memoryId: string,
+  body: { kind: string; title: string; content: string },
+): Promise<MemoryRecordView> {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/memories/${memoryId}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = (await parseResponse(response)) as { memory: unknown };
+  return memoryRecordViewSchema.parse(data.memory);
+}
+
+export async function deleteMemory(memoryId: string): Promise<void> {
+  await apiFetch(`${apiBaseUrl}/api/agent/memories/${memoryId}`, { method: 'DELETE' });
+}
+
+export async function readMemorySettings(signal?: AbortSignal): Promise<MemorySettingsView> {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/memory-settings`, { signal });
+  return memorySettingsViewSchema.parse(await parseResponse(response));
+}
+
+export async function patchMemorySettings(body: {
+  allowAgentWrite: boolean;
+}): Promise<MemorySettingsView> {
+  const response = await apiFetch(`${apiBaseUrl}/api/agent/memory-settings`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return memorySettingsViewSchema.parse(await parseResponse(response));
 }
 
 const AUTH_RESPONSE_PARSE_ERROR = '登录状态同步失败，请刷新页面后重试。';

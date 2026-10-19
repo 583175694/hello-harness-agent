@@ -45,7 +45,8 @@ export type PreviewState =
   | 'fetch-running'
   | 'fetch-candidate'
   | 'fetch-failed';
-export type WorkspaceView = 'activity' | 'context' | 'sources' | 'report' | 'plan' | 'artifact';
+/** C5 Workbench Tab：workbench | 文件 | 上下文（内部 id：tool_results | deliverables | context） */
+export type WorkspaceView = 'tool_results' | 'deliverables' | 'context';
 export type ActivityStatus =
   | 'queued'
   | 'final_answer'
@@ -74,6 +75,7 @@ export type ConversationItem =
       id: string;
       kind: 'user';
       content: string;
+      skillNames?: string[];
       time?: string;
       createdAt?: string;
       pendingInputId?: string;
@@ -83,6 +85,7 @@ export type ConversationItem =
   | {
       id: string;
       kind: 'assistant';
+      runId?: string;
       blocks: AssistantContentBlock[];
       pending?: boolean;
       deliveryStatus?: 'streaming' | 'completed' | 'failed' | 'cancelled';
@@ -103,9 +106,16 @@ export type ToolCallView = {
   elapsed: string;
   inputSummary: string;
   outputSummary?: string;
+  /** MCP / external_tool 完成后的 Host 侧结果预览（协议 outputPreview / SSE result.preview） */
+  outputPreview?: string;
+  outputPreviewTruncated?: boolean;
+  outputRef?: string;
+  outputBytes?: number;
   resultCount?: number;
   sourceCount?: number;
   terminal?: BashTerminalView;
+  /** create_file / create_report 等工具完成后关联的 Artifact，用于实时跟随内联预览。 */
+  artifactId?: string;
 };
 
 export type SourceView = {

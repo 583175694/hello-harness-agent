@@ -6,8 +6,14 @@ export const DEFAULT_RUNTIME_POLICY = {
   modelRoundTimeoutMs: 120_000,
   // 一个 Run 的累计执行时限；暂停和等待用户输入仍由生命周期控制，不延长该硬边界。
   runTimeoutMs: 10 * 60_000,
-  // 所有工具共享的模型调用次数上限。
-  maxToolCalls: AGENT_PROTOCOL_LIMITS.agentToolMaxCalls,
+  // 调查 / 交付 Tool Turn 上限（协议常量；turn 在 tool_batch_committed 累加）。
+  maxInvestigationToolTurns: AGENT_PROTOCOL_LIMITS.agentInvestigationToolTurnMax,
+  maxDeliveryToolTurns: AGENT_PROTOCOL_LIMITS.agentDeliveryToolTurnMax,
+  // 外层 Model Round 安全上限（含纯文本、恢复与 final_only，不作为 Tool Turn 硬顶）。
+  maxModelRounds:
+    AGENT_PROTOCOL_LIMITS.agentInvestigationToolTurnMax +
+    AGENT_PROTOCOL_LIMITS.agentDeliveryToolTurnMax +
+    16,
   // 调查阶段结束后，无工具最终回答可使用的最长时间。
   finalAnswerTimeoutMs: 60_000,
   // 普通工具决策轮与最终回答轮使用独立输出预算，避免把模型能力上限当作默认请求预算。
@@ -18,6 +24,4 @@ export const DEFAULT_RUNTIME_POLICY = {
   outputLimitRecoveryAttempts: 1,
   // 调查轮达到该次数仍未交付时，插入一次尽早完成的系统提示。
   deliveryNudgeAfterRounds: 10,
-  // 最终回答出现供应商协议污染后允许重试的次数。
-  finalAnswerProtocolRetries: 1,
 } as const;

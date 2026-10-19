@@ -5,6 +5,7 @@ import {
   Clock3,
   FileSearch,
   FileText,
+  Plug,
   Search,
   Terminal,
   X,
@@ -22,6 +23,14 @@ import {
 } from '../../../components/ai-elements/chain-of-thought';
 import type { SourceView, WorkbenchFocusTarget, WorkbenchState } from '../model/types';
 import { bashCoTLabel, isBashTransparentTool } from '../model/bash-transparent';
+import {
+  mcpServerIconFallbackSrc,
+  parseMcpPublicToolName,
+  type AssistantToolActivityBlock,
+} from '@harness/agent-protocol';
+
+import { mcpIconDisplayUrl } from '../model/mcp-icon-display';
+import { isMcpPublicToolName, mcpInlineActivityLabel } from '../model/tool-copy';
 import type { AssistantProcessItem } from './assistant-message-adapter';
 import {
   Reasoning,
@@ -31,12 +40,23 @@ import {
 import { Shimmer } from '../../../components/ai-elements/shimmer';
 import { MarkdownContent } from '../../../components/markdown-content';
 
+function mcpToolIconImageSrc(block: AssistantToolActivityBlock): string | undefined {
+  const fromBlock = mcpIconDisplayUrl(block.iconSrc);
+  if (fromBlock) return fromBlock;
+  const parsed = parseMcpPublicToolName(block.toolName);
+  if (!parsed) return undefined;
+  return mcpIconDisplayUrl(mcpServerIconFallbackSrc(parsed.serverName));
+}
+
 function toolIcon(toolName: string): LucideIcon {
   if (toolName === 'web_search' || toolName === 'web_fetch') return Search;
-  if (toolName === 'search_file' || toolName === 'read_file_lines') return FileSearch;
+  if (toolName === 'search_file' || toolName === 'read_file' || toolName === 'read_file_lines')
+    return FileSearch;
   if (toolName === 'create_file' || toolName === 'create_report') return FileText;
   if (toolName === 'bash') return Terminal;
+  if (toolName === 'get_current_time') return Clock3;
   if (toolName === 'execute_command') return Clock3;
+  if (isMcpPublicToolName(toolName)) return Plug;
   return Clock3;
 }
 
@@ -46,19 +66,33 @@ function formatElapsed(ms: number): string {
   return `已用时 ${Math.floor(totalSeconds / 60)} 分 ${totalSeconds % 60}秒`;
 }
 
+function parseTime(iso?: string): number | undefined {
+  if (!iso) return undefined;
+  const value = Date.parse(iso);
+  return Number.isFinite(value) ? value : undefined;
+}
+
 function processTimeRange(process: AssistantProcessItem[]) {
-  const tools = process.filter(
-    (item): item is Extract<AssistantProcessItem, { kind: 'tool' }> => item.kind === 'tool',
-  );
-  const start = Math.min(
-    ...tools.map((item) => Date.parse(item.block.startedAt)).filter(Number.isFinite),
-  );
-  const completed = tools
-    .map((item) => (item.block.completedAt ? Date.parse(item.block.completedAt) : NaN))
-    .filter(Number.isFinite);
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (const item of process) {
+    if (item.kind === 'tool') {
+      const started = parseTime(item.block.startedAt);
+      if (started !== undefined) starts.push(started);
+      const completed = parseTime(item.block.completedAt);
+      if (completed !== undefined) ends.push(completed);
+      continue;
+    }
+    if (item.kind === 'reasoning') {
+      const started = parseTime(item.block.startedAt);
+      if (started !== undefined) starts.push(started);
+      const completed = parseTime(item.block.completedAt);
+      if (completed !== undefined) ends.push(completed);
+    }
+  }
   return {
-    start: Number.isFinite(start) ? start : undefined,
-    end: completed.length ? Math.max(...completed) : undefined,
+    start: starts.length ? Math.min(...starts) : undefined,
+    end: ends.length ? Math.max(...ends) : undefined,
   };
 }
 
@@ -113,11 +147,13 @@ export function AgentChainOfThought({
   process,
   workbench,
   running,
+  finalOutputVisible = false,
   onFocusWorkbench,
 }: {
   process: AssistantProcessItem[];
   workbench?: WorkbenchState;
   running: boolean;
+  finalOutputVisible?: boolean;
   onFocusWorkbench: (target: WorkbenchFocusTarget) => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -132,7 +168,7 @@ export function AgentChainOfThought({
   // 只有进入终态后，才以最后一个已完成工具的时间作为结束点。
   const elapsed = processElapsed(start, end, running, now);
   return (
-    <ChainOfThought running={running}>
+    <ChainOfThought autoCollapse finalOutputVisible={finalOutputVisible} running={running}>
       <ChainOfThoughtHeader>{formatElapsed(elapsed)}</ChainOfThoughtHeader>
       <ChainOfThoughtContent>
         {process.map((item) => {
@@ -164,19 +200,23 @@ export function AgentChainOfThought({
             (execution) => execution.toolCallId === item.block.toolCallId,
           )?.title;
           const bashStep = isBashTransparentTool(item.block);
+          const mcpStep = isMcpPublicToolName(item.block.toolName);
           const toolTitle = bashStep
             ? bashCoTLabel(item.block)
-            : item.block.toolName === 'web_search'
-              ? (workbenchTitle ??
-                (item.block.summary ? `搜索：${item.block.summary}` : item.block.title))
-              : item.block.title;
+            : mcpStep
+              ? mcpInlineActivityLabel(item.block)
+              : item.block.toolName === 'web_search'
+                ? (workbenchTitle ??
+                  (item.block.summary ? `搜索：${item.block.summary}` : item.block.title))
+                : item.block.title;
           return (
             <button
-              className="agent-chain-tool"
+              className={`agent-chain-tool${mcpStep ? ' agent-chain-tool--mcp' : ''}`}
               type="button"
               key={item.block.id}
               disabled={!workbench}
               aria-label={`${toolTitle}，${toolStatusLabel(item.block.status)}`}
+              title={mcpStep ? toolTitle : undefined}
               onClick={() =>
                 workbench &&
                 onFocusWorkbench({
@@ -189,6 +229,9 @@ export function AgentChainOfThought({
             >
               <ChainOfThoughtStep
                 icon={toolIcon(item.block.toolName)}
+                iconImageSrc={
+                  mcpStep ? mcpToolIconImageSrc(item.block) : mcpIconDisplayUrl(item.block.iconSrc)
+                }
                 label={
                   <span className="agent-chain-tool__label">
                     <span className="agent-chain-tool__title">
@@ -196,7 +239,8 @@ export function AgentChainOfThought({
                     </span>
                     {item.block.summary &&
                     item.block.toolName !== 'web_search' &&
-                    !bashStep ? (
+                    !bashStep &&
+                    !mcpStep ? (
                       <span className="agent-chain-tool__summary">{item.block.summary}</span>
                     ) : null}
                     {StateIcon ? <StateIcon size={13} aria-hidden="true" /> : null}

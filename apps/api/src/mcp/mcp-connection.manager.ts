@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { AGENT_TOOL_NAMES, parseMcpIcons, type McpIcon } from '@harness/agent-protocol';
 import { Client, StreamableHTTPClientTransport } from './mcp-sdk.client';
 import type { McpDefaultApproval, McpServerConfig, McpServerSecret } from '@prisma/client';
 import { McpServerConfigRepository, type McpServerConfigRecord } from './mcp-server-config.repository';
@@ -33,7 +34,15 @@ type ServerRuntimeState = {
   lastError: string | null;
   instructions: string | null;
   toolCountTotal: number;
+  serverIcons: McpIcon[];
   connection?: LiveConnection;
+};
+
+type ListedMcpTool = {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+  icons?: unknown;
 };
 
 type UserMcpState = {
@@ -134,6 +143,7 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
           lastError: null,
           instructions: null,
           toolCountTotal: 0,
+          serverIcons: [],
         };
         runtimeByServer.set(config.serverName, state);
       } else {
@@ -143,6 +153,7 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
         state.enabledTools = parseStringList(config.enabledTools);
         state.disabledTools = parseStringList(config.disabledTools);
         state.toolCallTimeoutMs = config.toolCallTimeoutMs;
+        state.serverIcons ??= [];
       }
 
       try {
@@ -155,9 +166,9 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
         const instructions = client.getInstructions()?.trim() || null;
         state.instructions = instructions;
         state.toolCountTotal = tools.length;
-        const entries = filtered.map((tool) =>
-          toCatalogEntry(config, tool, nextGeneration, state!.defaultApproval),
-        );
+        const entries = filtered
+          .map((tool) => toCatalogEntry(config, tool, nextGeneration, state!.defaultApproval))
+          .filter((entry) => entry.publicName !== AGENT_TOOL_NAMES.toolSearch);
         nextEntries.push(...entries);
         nextServers.set(config.serverName, {
           configId: config.id,
@@ -172,6 +183,7 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
           toolCountTotal: tools.length,
           toolCountExposed: filtered.length,
           instructions,
+          ...(state.serverIcons.length ? { serverIcons: state.serverIcons } : {}),
           tools: filtered.map((tool) => ({
             rawName: tool.name,
             description: tool.description ?? '',
@@ -202,6 +214,7 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
             toolCountTotal: totalCount,
             toolCountExposed: exposedCount,
             instructions: state.instructions,
+            ...(state.serverIcons.length ? { serverIcons: state.serverIcons } : {}),
             tools: prevTools.map((entry) => ({
               rawName: entry.rawName,
               description: entry.description,
@@ -277,6 +290,7 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
       config.startupTimeoutMs,
       `连接 MCP server ${config.serverName} 超时`,
     );
+    state.serverIcons = readServerIcons(client);
     state.connection = { client, transport, fingerprint, configId: config.id };
   }
 
@@ -324,19 +338,24 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
   }
 
   private async listAllTools(client: Client, timeoutMs: number) {
-    const tools: Array<{ name: string; description?: string; inputSchema?: unknown }> = [];
+    const tools: ListedMcpTool[] = [];
     let cursor: string | undefined;
     do {
       const page = (await withTimeout(
         client.listTools(cursor ? { cursor } : undefined),
         timeoutMs,
         'listTools 超时',
-      )) as { tools?: Array<{ name: string; description?: string; inputSchema?: unknown }>; nextCursor?: string };
+      )) as { tools?: ListedMcpTool[]; nextCursor?: string };
       tools.push(...(page.tools ?? []));
       cursor = page.nextCursor;
     } while (cursor);
     return tools;
   }
+}
+
+function readServerIcons(client: Client): McpIcon[] {
+  const info = (client as { getServerVersion?: () => { icons?: unknown } }).getServerVersion?.();
+  return parseMcpIcons(info?.icons);
 }
 
 function emptyCatalog(generation: number): McpPublishedCatalog {
@@ -359,11 +378,7 @@ function parseStringList(value: unknown): string[] | null {
   return null;
 }
 
-function filterTools(
-  tools: Array<{ name: string; description?: string; inputSchema?: unknown }>,
-  enabled: string[] | null,
-  disabled: string[] | null,
-) {
+function filterTools(tools: ListedMcpTool[], enabled: string[] | null, disabled: string[] | null) {
   return tools.filter((tool) => {
     if (enabled?.length && !enabled.includes(tool.name)) return false;
     if (disabled?.includes(tool.name)) return false;
@@ -373,11 +388,12 @@ function filterTools(
 
 function toCatalogEntry(
   config: McpServerConfig,
-  tool: { name: string; description?: string; inputSchema?: unknown },
+  tool: ListedMcpTool,
   generation: number,
   defaultApproval: McpDefaultApproval,
 ): McpToolCatalogEntry {
   const parameters = (tool.inputSchema as Record<string, unknown>) ?? { type: 'object', properties: {} };
+  const icons = parseMcpIcons(tool.icons);
   return {
     publicName: publicToolName(config.serverName, tool.name),
     serverName: config.serverName,
@@ -387,6 +403,7 @@ function toCatalogEntry(
     defaultApproval,
     boundGeneration: generation,
     toolCallTimeoutMs: config.toolCallTimeoutMs,
+    ...(icons.length ? { icons } : {}),
   };
 }
 

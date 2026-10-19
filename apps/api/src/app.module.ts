@@ -14,6 +14,8 @@ import { FilesModule } from './files/files.module';
 import { ArtifactsModule } from './artifacts/artifacts.module';
 import { McpModule } from './mcp/mcp.module';
 import { AuthModule } from './auth/auth.module';
+import { SkillsModule } from './skills/skills.module';
+import { MemoryModule } from './memory/memory.module';
 
 @Module({
   imports: [
@@ -21,6 +23,8 @@ import { AuthModule } from './auth/auth.module';
     LoggingModule,
     DatabaseModule,
     AuthModule,
+    SkillsModule,
+    MemoryModule,
     ToolsModule,
     ChatModule,
     RunsModule,

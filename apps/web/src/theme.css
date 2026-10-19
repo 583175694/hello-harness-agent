@@ -146,6 +146,11 @@
   box-shadow: var(--h-elevation-prominent);
 }
 
+@utility shadow-composer {
+  border: 1px solid var(--theme-composer-border);
+  box-shadow: var(--h-elevation-soft);
+}
+
 :root {
   color-scheme: light;
 
@@ -239,6 +244,8 @@
   --markdown-muted: #686864;
   --markdown-link: #3f5f78;
   --markdown-link-hover: #26475f;
+  /* Skill mention：与正文链接同色系，避免终端 syntax 亮蓝显得跳 */
+  --theme-skill-mention: var(--markdown-link);
   --markdown-border: #dededb;
   --markdown-border-subtle: #e8e8e4;
   --markdown-surface: #f7f7f5;
@@ -318,6 +325,7 @@
   --markdown-muted: rgb(255 255 255 / 56%);
   --markdown-link: #91b7d0;
   --markdown-link-hover: #b6d0e1;
+  --theme-skill-mention: var(--markdown-link);
   --markdown-border: #303030;
   --markdown-border-subtle: #252525;
   --markdown-surface: #1c1c1c;
@@ -328,7 +336,7 @@
   color-scheme: dark;
 }
 
-:root[data-theme='dark'] .brand-mark,
+:root[data-theme='dark'] .brand-mark:not(.brand-mark--logo),
 :root[data-theme='dark'] .primary-button,
 :root[data-theme='dark'] .send-button,
 :root[data-theme='dark'] .preview-switcher__label,
@@ -433,6 +441,7 @@
 }
 
 :root[data-theme='dark'] .resource-workspace .execution-detail-heading h3,
+:root[data-theme='dark'] .resource-workspace .execution-detail-heading__title,
 :root[data-theme='dark'] .resource-workspace .view-toolbar strong {
   color: #eeeeee;
 }

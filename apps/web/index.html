@@ -4,17 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f7f7f6" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Harness Workbench</title>
+    <link rel="icon" type="image/png" href="/brand/apple-touch-icon.png" sizes="180x180" />
+    <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
+    <title>pipishrimp</title>
     <script>
       (function () {
         var key = 'harness-theme';
         var stored = localStorage.getItem(key);
-        var dark =
-          stored === 'dark' ||
-          (stored !== 'light' &&
-            typeof matchMedia !== 'undefined' &&
-            matchMedia('(prefers-color-scheme: dark)').matches);
+        var dark = stored === 'dark';
         var root = document.documentElement;
         root.dataset.theme = dark ? 'dark' : 'light';
         root.style.colorScheme = dark ? 'dark' : 'light';

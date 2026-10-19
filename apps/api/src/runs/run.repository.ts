@@ -1,13 +1,20 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  assistantAgentMetadataSchema,
+  assistantResearchProjectionSchema,
   runObservabilitySchema,
   type AgentRunStatus,
   type RunContextDebug,
   type RunSnapshot,
+  type ResearchSourceSnapshot,
+  type ToolExecutionSnapshot,
 } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
+import { extractProjectionFromMetadata } from '../run-storage/metadata-migration.utils';
+import {
+  RunProjectionArchiver,
+  type RunProjectionInput,
+} from '../run-storage/run-projection.archiver';
 import type { ChatProjectionSnapshot } from '../chat/chat.service';
 import type { ModelMessage, ModelToolCall } from '../model/model-adapter';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
@@ -15,13 +22,22 @@ import type { AgentRuntimeEvent } from '../agent-runtime/agent-runtime.types';
 
 const ACTIVE_STATUSES = ['queued', 'running', 'cancel_requested'] as const;
 
+/** flush/terminal 仅写 DB 行，对象存储已在事务外完成。 */
+const RUN_CHECKPOINT_TRANSACTION_OPTIONS = {
+  maxWait: 10_000,
+  timeout: 10_000,
+} as const;
+
 @Injectable()
 export class RunRepository implements OnModuleInit, OnModuleDestroy {
   // ownerInstanceId 只用于当前单进程执行隔离和重启清理，不等同于分布式 Worker fencing token。
   readonly instanceId = crypto.randomUUID();
   private reconciliationTimer?: NodeJS.Timeout;
 
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(RunProjectionArchiver) private readonly projectionArchiver: RunProjectionArchiver,
+  ) {}
 
   // 启动时收敛遗留 Active Run，并启动过期 heartbeat 检查。
   async onModuleInit(): Promise<void> {
@@ -139,14 +155,31 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       if (updated.count !== 1) return false;
       const message = await tx.message.findUnique({ where: { id: assistantMessageId } });
       if (message) {
+        const prior = this.metadata(message.metadata);
         await tx.message.update({
           where: { id: assistantMessageId },
           data: {
             metadata: {
-              ...this.metadata(message.metadata),
+              ...(typeof prior.model === 'string' ? { model: prior.model } : {}),
               deliveryStatus: 'failed',
               runId,
               error: failure,
+              ...(typeof prior.draftVersion === 'number'
+                ? { draftVersion: prior.draftVersion }
+                : {}),
+              ...(typeof prior.lastEventSequence === 'number'
+                ? { lastEventSequence: prior.lastEventSequence }
+                : {}),
+              agent:
+                prior.agent && typeof prior.agent === 'object' && !Array.isArray(prior.agent)
+                  ? {
+                      toolCallCount:
+                        typeof (prior.agent as Record<string, unknown>).toolCallCount === 'number'
+                          ? ((prior.agent as Record<string, unknown>).toolCallCount as number)
+                          : 0,
+                      detailRef: runId,
+                    }
+                  : { toolCallCount: 0, detailRef: runId },
             } as Prisma.InputJsonValue,
           },
         });
@@ -179,6 +212,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       expectedCurrentArtifactId: string;
       changeSummary?: string;
     };
+    skillNames?: string[];
   }) {
     // Session 校验、幂等判定、单 Session Active Run 限制和两条初始消息必须同事务完成。
     return this.prisma.$transaction(async (tx) => {
@@ -207,6 +241,10 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         orderBy: { sequence: 'desc' },
       });
       const firstSequence = (lastTranscript?.sequence ?? 0) + 1;
+      const userMessageMetadata = {
+        ...(input.pendingInputId ? { pendingInputId: input.pendingInputId } : {}),
+        ...(input.skillNames?.length ? { skillNames: input.skillNames } : {}),
+      };
       const run = await tx.agentRun.create({
         data: {
           id: input.runId,
@@ -231,8 +269,8 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
                 role: 'user',
                 kind: 'user_message',
                 content: input.content,
-                ...(input.pendingInputId
-                  ? { metadata: { pendingInputId: input.pendingInputId } }
+                ...(Object.keys(userMessageMetadata).length
+                  ? { metadata: userMessageMetadata }
                   : {}),
               },
               {
@@ -247,7 +285,7 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
                   runId: input.runId,
                   draftVersion: 0,
                   lastEventSequence: 0,
-                  blocks: [],
+                  agent: { toolCallCount: 0, detailRef: input.runId },
                 },
               },
             ],
@@ -292,15 +330,32 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
   async findOwned(runId: string, userId: string) {
     return this.prisma.agentRun.findFirst({
       where: { id: runId, session: { userId } },
-      include: { messages: { where: { role: 'assistant' } }, session: { select: { userId: true } } },
+      include: {
+        messages: { where: { role: 'assistant' } },
+        detail: true,
+        session: { select: { userId: true } },
+      },
     });
+  }
+
+  private async findReadableRun(runId: string, userId?: string, requireOwnership?: boolean) {
+    if (requireOwnership && userId) return this.findOwned(runId, userId);
+    if (userId) {
+      const owned = await this.findOwned(runId, userId);
+      if (owned) return owned;
+    }
+    return this.findOwnedInternal(runId);
   }
 
   // Executor 内部使用：不校验 HTTP 用户，但返回 session.userId。
   async findOwnedInternal(runId: string) {
     return this.prisma.agentRun.findFirst({
       where: { id: runId },
-      include: { messages: { where: { role: 'assistant' } }, session: { select: { userId: true } } },
+      include: {
+        messages: { where: { role: 'assistant' } },
+        detail: true,
+        session: { select: { userId: true } },
+      },
     });
   }
 
@@ -335,13 +390,16 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
   }
 
   // 从数据库中的 Run 和 Assistant Draft 组装可返回给客户端的 Snapshot。
-  async snapshot(runId: string, userId?: string): Promise<RunSnapshot | undefined> {
+  async snapshot(
+    runId: string,
+    userId?: string,
+    options?: { requireOwnership?: boolean },
+  ): Promise<RunSnapshot | undefined> {
     // PostgreSQL 保存完整 UI Snapshot，不保存可重放 Runtime Event Log。
-    const run = userId ? await this.findOwned(runId, userId) : await this.findOwnedInternal(runId);
+    const run = await this.findReadableRun(runId, userId, options?.requireOwnership);
     if (!run) return undefined;
     const message = run.messages.find((item) => item.id === run.assistantMessageId);
-    const metadata = assistantAgentMetadataSchema.safeParse(this.metadata(message?.metadata));
-    const value = metadata.success ? metadata.data : undefined;
+    const detail = this.mergeRunDetailProjection(run);
     const observability = runObservabilitySchema.safeParse(
       this.metadata(run.metadata).observability,
     );
@@ -363,13 +421,13 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       },
       assistantMessageId: run.assistantMessageId,
       assistantContent: message?.content ?? '',
-      blocks: value?.blocks ?? [],
-      executions: value?.agent?.executions ?? [],
-      sources: value?.agent?.sources ?? [],
+      blocks: detail?.blocks ?? [],
+      executions: detail?.executions ?? [],
+      sources: detail?.sources ?? [],
       toolCallCount: run.toolCallCount,
       lastEventSequence: Number(run.lastEventSequence),
-      ...(value?.context ? { context: value.context } : {}),
-      ...(value?.plan ? { plan: value.plan } : {}),
+      ...(detail?.context ? { context: detail.context } : {}),
+      ...(detail?.plan ? { plan: detail.plan } : {}),
       ...(observability.success ? { observability: observability.data } : {}),
       ...(run.errorCode && run.errorDetail
         ? { error: { code: run.errorCode, detail: run.errorDetail } }
@@ -384,6 +442,38 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         content: input.content,
         sequence: input.sequence,
       })),
+    };
+  }
+
+  async detail(
+    runId: string,
+    userId: string,
+  ): Promise<
+    | {
+        runId: string;
+        messageId: string;
+        schemaVersion: number;
+        executions: ToolExecutionSnapshot[];
+        sources: ResearchSourceSnapshot[];
+        blocks: ChatProjectionSnapshot['blocks'];
+        context?: RunContextDebug;
+        plan?: ChatProjectionSnapshot['plan'];
+      }
+    | undefined
+  > {
+    const run = await this.findOwned(runId, userId);
+    if (!run) return undefined;
+    const detail = this.mergeRunDetailProjection(run);
+    if (!detail) return undefined;
+    return {
+      runId: run.id,
+      messageId: run.detail?.messageId ?? run.assistantMessageId,
+      schemaVersion: run.detail?.schemaVersion ?? 1,
+      executions: detail.executions,
+      sources: detail.sources,
+      blocks: detail.blocks,
+      ...(detail.context ? { context: detail.context } : {}),
+      ...(detail.plan ? { plan: detail.plan } : {}),
     };
   }
 
@@ -720,10 +810,19 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       .filter((block) => block.type === 'text')
       .map((block) => block.content)
       .join('');
+    const run = await this.prisma.agentRun.findUnique({
+      where: { id: runId },
+      select: { metadata: true, sessionId: true },
+    });
+    const trimmed = this.projectionArchiver.trimForCheckpoint({
+      executions: projection.executions,
+      sources: projection.sources,
+      blocks: projection.blocks,
+      ...(projection.plan ? { plan: projection.plan } : {}),
+    });
     // Run 水位和 Assistant Draft 在同一事务更新，禁止出现 seq 已前进但 Blocks 仍是旧版本。
     return this.prisma.$transaction(async (tx) => {
       const message = await tx.message.findUnique({ where: { id: assistantMessageId } });
-      const run = await tx.agentRun.findUnique({ where: { id: runId }, select: { metadata: true } });
       const currentMetadata = this.metadata(message?.metadata);
       const currentDraftVersion =
         typeof currentMetadata.draftVersion === 'number' ? currentMetadata.draftVersion : 0;
@@ -747,6 +846,12 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (updated.count !== 1) return false;
+      await this.upsertRunDetailRow(tx, {
+        runId,
+        messageId: assistantMessageId,
+        sessionId: run?.sessionId ?? '',
+        trimmed,
+      });
       await tx.message.update({
         where: { id: assistantMessageId },
         data: {
@@ -757,18 +862,16 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
             runId,
             draftVersion,
             lastEventSequence,
-            blocks: projection.blocks,
             agent: {
               toolCallCount: projection.toolCallCount,
-              executions: projection.executions,
-              sources: projection.sources,
+              detailRef: runId,
             },
             ...(projection.plan ? { plan: projection.plan } : {}),
           } as Prisma.InputJsonValue,
         },
       });
       return true;
-    });
+    }, RUN_CHECKPOINT_TRANSACTION_OPTIONS);
   }
 
   // 请求取消 Run；queued 直接终止，running 先进入 cancel_requested。
@@ -790,13 +893,30 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       if (updated.count !== 1) return false;
       const message = await tx.message.findUnique({ where: { id: run.assistantMessageId } });
       if (message) {
+        const prior = this.metadata(message.metadata);
         await tx.message.update({
           where: { id: message.id },
           data: {
             metadata: {
-              ...this.metadata(message.metadata),
+              ...(typeof prior.model === 'string' ? { model: prior.model } : {}),
               deliveryStatus: 'cancelled',
               runId,
+              ...(typeof prior.draftVersion === 'number'
+                ? { draftVersion: prior.draftVersion }
+                : {}),
+              ...(typeof prior.lastEventSequence === 'number'
+                ? { lastEventSequence: prior.lastEventSequence }
+                : {}),
+              agent:
+                prior.agent && typeof prior.agent === 'object' && !Array.isArray(prior.agent)
+                  ? {
+                      toolCallCount:
+                        typeof (prior.agent as Record<string, unknown>).toolCallCount === 'number'
+                          ? ((prior.agent as Record<string, unknown>).toolCallCount as number)
+                          : 0,
+                      detailRef: runId,
+                    }
+                  : { toolCallCount: 0, detailRef: runId },
             } as Prisma.InputJsonValue,
           },
         });
@@ -831,12 +951,23 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
       .join('');
     // 完成只能来自 running；一旦进入 cancel_requested，成功终态必须让位于 cancelled/failed。
     const allowedFrom = this.allowedFromStatuses(input.status);
+    const runMetadata = await this.prisma.agentRun.findUnique({
+      where: { id: input.runId },
+      select: { metadata: true, sessionId: true },
+    });
+    const trimmed = await this.projectionArchiver.trimAndPersist({
+      runId: input.runId,
+      sessionId: runMetadata?.sessionId ?? '',
+      projection: {
+        executions: input.projection.executions,
+        sources: input.projection.sources,
+        blocks: input.projection.blocks,
+        ...(input.context ? { context: this.compactContext(input.context) } : {}),
+        ...(input.projection.plan ? { plan: input.projection.plan } : {}),
+      },
+    });
     // Terminal Run 状态和最终 Assistant Snapshot 原子提交，成功返回后才允许广播 terminal SSE。
     return this.prisma.$transaction(async (tx) => {
-      const runMetadata = await tx.agentRun.findUnique({
-        where: { id: input.runId },
-        select: { metadata: true },
-      });
       const updated = await tx.agentRun.updateMany({
         where: {
           id: input.runId,
@@ -860,6 +991,12 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (updated.count !== 1) return false;
+      await this.upsertRunDetailRow(tx, {
+        runId: input.runId,
+        messageId: input.assistantMessageId,
+        sessionId: runMetadata?.sessionId ?? '',
+        trimmed,
+      });
       if (input.status === 'completed') {
         if (input.compactionState) {
           const run = await tx.agentRun.findUnique({
@@ -903,20 +1040,16 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
             runId: input.runId,
             draftVersion: input.draftVersion,
             lastEventSequence: input.lastEventSequence,
-            blocks: input.projection.blocks,
-            ...(input.context ? { context: input.context } : {}),
             agent: {
               toolCallCount: input.projection.toolCallCount,
-              executions: input.projection.executions,
-              sources: input.projection.sources,
+              detailRef: input.runId,
             },
-            ...(input.projection.plan ? { plan: input.projection.plan } : {}),
             ...(input.error ? { error: input.error } : {}),
           } as Prisma.InputJsonValue,
         },
       });
       return true;
-    });
+    }, RUN_CHECKPOINT_TRANSACTION_OPTIONS);
   }
 
   private transcriptKind(role: ModelMessage['role']): 'assistant' | 'user' | 'tool_result' {
@@ -925,9 +1058,135 @@ export class RunRepository implements OnModuleInit, OnModuleDestroy {
     return 'tool_result';
   }
 
-  private allowedFromStatuses(
-    status: 'completed' | 'failed' | 'cancelled',
-  ): AgentRunStatus[] {
+  private async upsertRunDetailRow(
+    tx: Prisma.TransactionClient,
+    input: {
+      runId?: string;
+      messageId: string;
+      sessionId: string;
+      trimmed: RunProjectionInput;
+    },
+  ): Promise<void> {
+    if (!input.sessionId) throw new Error('RUN_DETAIL_SESSION_MISSING');
+    const trimmed = input.trimmed;
+    const data = {
+      schemaVersion: 1,
+      researchProjection: assistantResearchProjectionSchema.parse({
+        executions: trimmed.executions,
+        sources: trimmed.sources,
+        blocks: trimmed.blocks,
+        ...(trimmed.context ? { context: trimmed.context } : {}),
+        ...(trimmed.plan ? { plan: trimmed.plan } : {}),
+      }) as Prisma.InputJsonValue,
+    };
+    if (input.runId) {
+      await tx.agentRunDetail.upsert({
+        where: { runId: input.runId },
+        create: {
+          id: crypto.randomUUID(),
+          runId: input.runId,
+          messageId: input.messageId,
+          sessionId: input.sessionId,
+          ...data,
+        },
+        update: data,
+      });
+      return;
+    }
+    await tx.agentRunDetail.upsert({
+      where: { messageId: input.messageId },
+      create: {
+        id: crypto.randomUUID(),
+        messageId: input.messageId,
+        sessionId: input.sessionId,
+        ...data,
+      },
+      update: data,
+    });
+  }
+
+  private compactContext(context: RunContextDebug): RunContextDebug {
+    return {
+      version: context.version,
+      roundSequence: context.roundSequence,
+      attempt: context.attempt,
+      estimatedInputTokens: context.estimatedInputTokens,
+      promptBudget: context.promptBudget,
+      compactionTriggered: context.compactionTriggered,
+      finalResponseOnly: context.finalResponseOnly,
+      messages: [],
+      tools: [],
+      ...(context.mcp ? { mcp: context.mcp } : {}),
+    };
+  }
+
+  // 迁移完成前：AgentRunDetail 缺失或 executions 为空时，从 Message.metadata 回填（与 docs/39 阶段一一致）。
+  private mergeRunDetailProjection(run: {
+    assistantMessageId: string;
+    toolCallCount: number;
+    detail?: { researchProjection: Prisma.JsonValue } | null;
+    messages: Array<{ id: string; metadata: Prisma.JsonValue }>;
+  }):
+    | {
+        executions: ToolExecutionSnapshot[];
+        sources: ResearchSourceSnapshot[];
+        blocks: ChatProjectionSnapshot['blocks'];
+        context?: RunContextDebug;
+        plan?: ChatProjectionSnapshot['plan'];
+      }
+    | undefined {
+    let projection = this.researchProjection(run.detail?.researchProjection);
+    const assistantMessage =
+      run.messages.find((item) => item.id === run.assistantMessageId) ?? run.messages[0];
+    const legacy = assistantMessage
+      ? extractProjectionFromMetadata(this.metadata(assistantMessage.metadata))
+      : undefined;
+    const legacyHasData = Boolean(
+      legacy &&
+        (legacy.executions.length || legacy.sources.length || legacy.blocks.length),
+    );
+    const detailMissingExecutions =
+      run.toolCallCount > 0 && !projection?.executions.length && legacy?.executions.length;
+    if (legacyHasData && (!projection || detailMissingExecutions)) {
+      projection = {
+        executions: legacy!.executions,
+        sources: legacy!.sources.length ? legacy!.sources : (projection?.sources ?? []),
+        blocks: legacy!.blocks.length ? legacy!.blocks : (projection?.blocks ?? []),
+        ...(projection?.context ?? legacy!.context
+          ? { context: (projection?.context ?? legacy!.context) as RunContextDebug }
+          : {}),
+        ...(projection?.plan ?? legacy!.plan
+          ? { plan: (projection?.plan ?? legacy!.plan) as ChatProjectionSnapshot['plan'] }
+          : {}),
+      };
+    }
+    if (!projection) return undefined;
+    if (
+      !projection.executions.length &&
+      !projection.sources.length &&
+      !projection.blocks.length &&
+      !projection.context &&
+      !projection.plan
+    ) {
+      return undefined;
+    }
+    return projection;
+  }
+
+  private researchProjection(value: Prisma.JsonValue | null | undefined):
+    | {
+        executions: ToolExecutionSnapshot[];
+        sources: ResearchSourceSnapshot[];
+        blocks: ChatProjectionSnapshot['blocks'];
+        context?: RunContextDebug;
+        plan?: ChatProjectionSnapshot['plan'];
+      }
+    | undefined {
+    const parsed = assistantResearchProjectionSchema.safeParse(value);
+    return parsed.success ? parsed.data : undefined;
+  }
+
+  private allowedFromStatuses(status: 'completed' | 'failed' | 'cancelled'): AgentRunStatus[] {
     if (status === 'completed') return ['running'];
     if (status === 'cancelled') return ['cancel_requested'];
     return ['running', 'cancel_requested'];

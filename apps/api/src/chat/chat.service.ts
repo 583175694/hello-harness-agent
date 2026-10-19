@@ -5,6 +5,8 @@ import { Logger } from 'nestjs-pino';
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 import {
   fileSearchInputSchema,
+  fileReadInputSchema,
+  fileReadResultSchema,
   fileReadLinesInputSchema,
   createFileInputSummarySchema,
   createFileResultSchema,
@@ -21,6 +23,10 @@ import {
   sandboxJobToolTextResultSchema,
   toExecuteCommandInputSummary,
   executeCommandInputSchema,
+  formatMemoryWriteInputSummary,
+  formatMemoryWriteResultSummary,
+  memoryWriteInputSummarySchema,
+  memoryWriteResultSchema,
 } from '@harness/agent-protocol';
 import type {
   BashBackgroundResult,
@@ -37,6 +43,7 @@ import type {
   SearchToolResult,
   FileSearchResult,
   FileReadLinesResult,
+  FileReadResult,
   WebFetchInput,
   WebFetchResult,
   PlanSnapshot,
@@ -57,6 +64,7 @@ import { getDefaultModel } from '../model/model-catalog';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import type { RuntimeLifecycleController } from '../agent-runtime/runtime-lifecycle';
 
+import { mcpIconSrcFromSnapshot } from '../mcp/mcp-icon-resolver';
 import type { RunMcpSnapshot } from '../mcp/mcp.types';
 import {
   externalSubKind,
@@ -196,7 +204,7 @@ export class ChatService {
     const startedAt = Date.now();
     this.requireApiKey();
     this.logger.log(
-      `开始生成回复 | 会话=${shortLogId(prepared.sessionId)} | 模型=${model} | 上下文=${prepared.messages.length} 条`,
+      `开始生成回复 | Run=${shortLogId(prepared.runId ?? 'none')} | 会话=${shortLogId(prepared.sessionId)} | 模型=${model} | 上下文=${prepared.messages.length} 条`,
       ChatService.name,
     );
     const currentUserContent = [...prepared.messages]
@@ -282,7 +290,7 @@ export class ChatService {
         if (firstDeltaAt === undefined) {
           firstDeltaAt = Date.now();
           this.logger.log(
-            `模型开始响应 | 会话=${shortLogId(prepared.sessionId)} | Round=${event.roundSequence} | Block=${event.blockSequence} | 首字耗时=${formatLogDuration(firstDeltaAt - startedAt)}`,
+            `模型开始响应 | Run=${shortLogId(prepared.runId ?? 'none')} | 会话=${shortLogId(prepared.sessionId)} | Round=${event.roundSequence} | Block=${event.blockSequence} | 首字耗时=${formatLogDuration(firstDeltaAt - startedAt)}`,
             ChatService.name,
           );
         }
@@ -346,8 +354,11 @@ export class ChatService {
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
         const isApprovalTest = event.toolName === AGENT_TOOL_NAMES.approvalTest;
         const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
+        const isMemoryWrite = event.toolName === AGENT_TOOL_NAMES.memoryWrite;
         const isFileSearch = event.toolName === AGENT_TOOL_NAMES.searchFile;
-        const isFileReadLines = event.toolName === AGENT_TOOL_NAMES.readFileLines;
+        const isFileRead =
+          event.toolName === AGENT_TOOL_NAMES.readFile ||
+          event.toolName === AGENT_TOOL_NAMES.readFileLines;
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
         const isSandboxCommand = this.isSandboxCommandTool(event.toolName);
@@ -362,14 +373,16 @@ export class ChatService {
           toolSummary = String((event.input as { message?: unknown }).message ?? '');
         } else if (isCurrentTime) {
           toolSummary = '获取当前日期和时间';
+        } else if (isMemoryWrite) {
+          const parsed = memoryWriteInputSummarySchema.safeParse(event.input);
+          toolSummary = parsed.success
+            ? formatMemoryWriteInputSummary(parsed.data)
+            : '写入记忆';
         } else if (isFileSearch) {
           const parsed = fileSearchInputSchema.safeParse(event.input);
           toolSummary = parsed.success ? `搜索文件 ${parsed.data.fileId}` : '搜索文件';
-        } else if (isFileReadLines) {
-          const parsed = fileReadLinesInputSchema.safeParse(event.input);
-          toolSummary = parsed.success
-            ? `读取文件 ${parsed.data.startLine}-${parsed.data.endLine} 行`
-            : '读取文件行';
+        } else if (isFileRead) {
+          toolSummary = this.fileReadToolSummary(event.toolName, event.input);
         } else if (isCreateFile) {
           const parsed = createFileInputSummarySchema.safeParse(event.input);
           toolSummary = parsed.success ? `生成 ${parsed.data.fileName}` : '生成文件';
@@ -392,7 +405,7 @@ export class ChatService {
           const parsed = jobKillInputSchema.safeParse(event.input);
           toolSummary = parsed.success ? `终止 job ${parsed.data.job_id}` : '终止后台 job';
         } else if (isExternalTool) {
-          toolSummary = externalToolInputSummary(event.input);
+          toolSummary = externalToolInputSummary(event.toolName, event.input);
         }
         const bashStartedInput =
           isBash ? executeCommandInputSummarySchema.safeParse(event.input) : undefined;
@@ -404,6 +417,7 @@ export class ChatService {
               ),
             )
           : undefined;
+        const mcpIconSrc = mcpIconSrcFromSnapshot(event.toolName, prepared.mcpSnapshot);
         const block = conversation.startTool({
           toolCallId: event.toolCallId,
           toolName: event.toolName,
@@ -412,6 +426,7 @@ export class ChatService {
           roundId: event.roundId,
           roundSequence: event.roundSequence,
           blockSequence: event.blockSequence,
+          ...(mcpIconSrc ? { iconSrc: mcpIconSrc } : {}),
           ...(bashStartTerminalView
             ? {
                 presentation: 'terminal' as const,
@@ -463,6 +478,20 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
+        } else if (isMemoryWrite) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.memoryWrite,
+            title: block.title,
+            input: memoryWriteInputSummarySchema.parse(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
         } else if (isFileSearch) {
           yield {
             type: 'tool.started',
@@ -477,20 +506,12 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
-        } else if (isFileReadLines) {
-          yield {
-            type: 'tool.started',
-            messageId: prepared.assistantMessageId,
-            blockId: block.id,
-            toolCallId: event.toolCallId,
-            toolName: AGENT_TOOL_NAMES.readFileLines,
-            title: block.title,
-            input: fileReadLinesInputSchema.parse(event.input),
-            startedAt: event.startedAt,
-            roundId: event.roundId,
-            roundSequence: event.roundSequence,
-            blockSequence: event.blockSequence,
-          };
+        } else if (isFileRead) {
+          yield this.fileReadStartedEvent(
+            prepared.assistantMessageId,
+            block,
+            event,
+          );
         } else if (isCreateFile) {
           yield {
             type: 'tool.started',
@@ -630,6 +651,7 @@ export class ChatService {
             subKind: externalSubKind(event.toolName),
             title: block.title,
             input: summarizeExternalToolInput(event.input),
+            ...(mcpIconSrc ? { iconSrc: mcpIconSrc } : {}),
             startedAt: event.startedAt,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
@@ -644,23 +666,34 @@ export class ChatService {
         const isFetch = event.toolName === AGENT_TOOL_NAMES.webFetch;
         const isApprovalTest = event.toolName === AGENT_TOOL_NAMES.approvalTest;
         const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
+        const isMemoryWrite = event.toolName === AGENT_TOOL_NAMES.memoryWrite;
         const isFileSearch = event.toolName === AGENT_TOOL_NAMES.searchFile;
-        const isFileReadLines = event.toolName === AGENT_TOOL_NAMES.readFileLines;
+        const isFileRead =
+          event.toolName === AGENT_TOOL_NAMES.readFile ||
+          event.toolName === AGENT_TOOL_NAMES.readFileLines;
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
         const isSandboxCommand = this.isSandboxCommandTool(event.toolName);
         const isJobTool = this.isSandboxJobTool(event.toolName);
         const isBash = event.toolName === AGENT_TOOL_NAMES.bash;
         const isExecuteCommand = event.toolName === AGENT_TOOL_NAMES.executeCommand;
+        const memoryWriteResult = isMemoryWrite
+          ? memoryWriteResultSchema.parse(event.output)
+          : undefined;
         const fetchResult = isFetch ? (event.output as WebFetchResult) : undefined;
         const jobToolResult = isJobTool
           ? this.toSandboxJobToolTextResult(event.output)
           : undefined;
         const searchResult = isWebSearch ? this.asSearchToolResult(event.output) : undefined;
         const fileSearchResult = isFileSearch ? (event.output as FileSearchResult) : undefined;
-        const fileReadLinesResult = isFileReadLines
-          ? (event.output as FileReadLinesResult)
-          : undefined;
+        const fileReadResult =
+          event.toolName === AGENT_TOOL_NAMES.readFile
+            ? fileReadResultSchema.parse(event.output)
+            : undefined;
+        const fileReadLinesResult =
+          event.toolName === AGENT_TOOL_NAMES.readFileLines
+            ? (event.output as FileReadLinesResult)
+            : undefined;
         const createFileResult = isCreateFile
           ? createFileResultSchema.parse(event.output)
           : undefined;
@@ -718,6 +751,14 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
           });
+        } else if (memoryWriteResult) {
+          projection.recordMemoryWriteCompleted({
+            toolCallId: event.toolCallId,
+            toolInput: memoryWriteInputSummarySchema.parse(event.input),
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: memoryWriteResult,
+          });
         } else if (fileSearchResult) {
           projection.recordFileSearchCompleted({
             toolCallId: event.toolCallId,
@@ -725,6 +766,14 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: fileSearchResult,
+          });
+        } else if (fileReadResult) {
+          projection.recordFileReadCompleted({
+            toolCallId: event.toolCallId,
+            toolInput: fileReadInputSchema.parse(event.input),
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: fileReadResult,
           });
         } else if (fileReadLinesResult) {
           projection.recordFileReadLinesCompleted({
@@ -800,7 +849,9 @@ export class ChatService {
             fetchResult,
             isApprovalTest,
             isCurrentTime,
+            memoryWriteResult,
             fileSearchResult,
+            fileReadResult,
             fileReadLinesResult,
             createFileResult,
             createReportResult,
@@ -809,7 +860,9 @@ export class ChatService {
             jobToolResult,
             jobToolName: isJobTool ? event.toolName : undefined,
             searchResult,
-            externalOutputPreview,
+            externalTool: isExternalTool
+              ? { publicName: event.toolName, input: event.input }
+              : undefined,
           }),
           ...(bashTerminalView
             ? {
@@ -932,6 +985,20 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
+        } else if (memoryWriteResult) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.memoryWrite,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: memoryWriteResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
         } else if (fileSearchResult) {
           yield {
             type: 'tool.completed',
@@ -942,6 +1009,20 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: fileSearchResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (fileReadResult) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.readFile,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: fileReadResult,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -1058,6 +1139,7 @@ export class ChatService {
             toolName: AGENT_TOOL_NAMES.externalTool,
             publicName: event.toolName,
             subKind: externalSubKind(event.toolName),
+            input: summarizeExternalToolInput(event.input),
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: externalOutputPreview,
@@ -1224,6 +1306,7 @@ export class ChatService {
       await this.delivery.save({
         userId: prepared.userId,
         sessionId: prepared.sessionId,
+        ...(prepared.runId ? { runId: prepared.runId } : {}),
         messageId: prepared.assistantMessageId,
         model,
         blocks: conversation.snapshot(),
@@ -1232,7 +1315,7 @@ export class ChatService {
         sources: snapshot.sources,
       });
     this.logger.log(
-      `回复完成 | 会话=${shortLogId(prepared.sessionId)} | 总耗时=${formatLogDuration(Date.now() - startedAt)} | 输出=${content.length} 字 | 工具=${toolCallCount} 次`,
+      `回复完成 | Run=${shortLogId(prepared.runId ?? 'none')} | 会话=${shortLogId(prepared.sessionId)} | 总耗时=${formatLogDuration(Date.now() - startedAt)} | 输出=${content.length} 字 | 工具=${toolCallCount} 次`,
       ChatService.name,
     );
     yield { type: 'message.completed', messageId: prepared.assistantMessageId, model };
@@ -1244,9 +1327,14 @@ export class ChatService {
   }
 
   // 统一记录流式回复失败，避免不同层重复输出同一异常。
-  logStreamFailure(sessionId: string, elapsedMilliseconds: number, error: unknown): void {
+  logStreamFailure(
+    sessionId: string,
+    elapsedMilliseconds: number,
+    error: unknown,
+    runId?: string,
+  ): void {
     this.logger.warn(
-      `回复生成失败 | 会话=${shortLogId(sessionId)} | 耗时=${formatLogDuration(elapsedMilliseconds)} | 原因=${describeLogError(error)}`,
+      `回复生成失败 | Run=${shortLogId(runId ?? 'none')} | 会话=${shortLogId(sessionId)} | 耗时=${formatLogDuration(elapsedMilliseconds)} | 原因=${describeLogError(error)}`,
       ChatService.name,
     );
   }
@@ -1317,6 +1405,12 @@ export class ChatService {
         ? { toolName: AGENT_TOOL_NAMES.searchFile, input: parsed.data }
         : undefined;
     }
+    if (toolName === AGENT_TOOL_NAMES.readFile) {
+      const parsed = fileReadInputSchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.readFile, input: parsed.data }
+        : undefined;
+    }
     if (toolName === AGENT_TOOL_NAMES.readFileLines) {
       const parsed = fileReadLinesInputSchema.safeParse(input);
       return parsed.success
@@ -1352,6 +1446,12 @@ export class ChatService {
         toolName: AGENT_TOOL_NAMES.approvalTest,
         input: { message: input.message },
       } as const;
+    if (toolName === AGENT_TOOL_NAMES.memoryWrite) {
+      const parsed = memoryWriteInputSummarySchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.memoryWrite, input: parsed.data }
+        : undefined;
+    }
     return undefined;
   }
 
@@ -1482,11 +1582,71 @@ export class ChatService {
     );
   }
 
+  private fileReadToolSummary(toolName: string, input: unknown): string {
+    if (toolName === AGENT_TOOL_NAMES.readFile) {
+      const parsed = fileReadInputSchema.safeParse(input);
+      if (!parsed.success) return '读取文件';
+      if (parsed.data.scope === 'file') return `读取文件 outline · ${parsed.data.fileId}`;
+      if (parsed.data.scope === 'section')
+        return `读取章节 ${parsed.data.sectionId ?? ''}`.trim();
+      return `读取文件 ${parsed.data.startLine}-${parsed.data.endLine} 行`;
+    }
+    const parsed = fileReadLinesInputSchema.safeParse(input);
+    return parsed.success
+      ? `读取文件 ${parsed.data.startLine}-${parsed.data.endLine} 行`
+      : '读取文件行';
+  }
+
+  private fileReadStartedEvent(
+    messageId: string,
+    block: { id: string; title: string },
+    event: {
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      startedAt: string;
+      roundId: string;
+      roundSequence: number;
+      blockSequence: number;
+    },
+  ): ChatStreamEvent {
+    if (event.toolName === AGENT_TOOL_NAMES.readFileLines) {
+      return {
+        type: 'tool.started',
+        messageId,
+        blockId: block.id,
+        toolCallId: event.toolCallId,
+        toolName: AGENT_TOOL_NAMES.readFileLines,
+        title: block.title,
+        input: fileReadLinesInputSchema.parse(event.input),
+        startedAt: event.startedAt,
+        roundId: event.roundId,
+        roundSequence: event.roundSequence,
+        blockSequence: event.blockSequence,
+      };
+    }
+    return {
+      type: 'tool.started',
+      messageId,
+      blockId: block.id,
+      toolCallId: event.toolCallId,
+      toolName: AGENT_TOOL_NAMES.readFile,
+      title: block.title,
+      input: fileReadInputSchema.parse(event.input),
+      startedAt: event.startedAt,
+      roundId: event.roundId,
+      roundSequence: event.roundSequence,
+      blockSequence: event.blockSequence,
+    };
+  }
+
   private completedToolSummary(input: {
     fetchResult?: WebFetchResult;
     isApprovalTest: boolean;
     isCurrentTime: boolean;
+    memoryWriteResult?: ReturnType<typeof memoryWriteResultSchema.parse>;
     fileSearchResult?: FileSearchResult;
+    fileReadResult?: FileReadResult;
     fileReadLinesResult?: FileReadLinesResult;
     createFileResult?: { file: { fileName: string } };
     createReportResult?: { report: { title: string } };
@@ -1495,7 +1655,7 @@ export class ChatService {
     jobToolResult?: { text: string };
     jobToolName?: string;
     searchResult?: SearchToolResult;
-    externalOutputPreview?: { charCount: number; truncated?: boolean };
+    externalTool?: { publicName: string; input: unknown };
   }): string {
     if (input.fetchResult) {
       const { stats } = input.fetchResult;
@@ -1503,7 +1663,20 @@ export class ChatService {
     }
     if (input.isApprovalTest) return '审批测试已完成';
     if (input.isCurrentTime) return '当前时间已获取';
+    if (input.memoryWriteResult)
+      return formatMemoryWriteResultSummary(input.memoryWriteResult);
     if (input.fileSearchResult) return `找到 ${input.fileSearchResult.matches.length} 个文件命中`;
+    if (input.fileReadResult) {
+      if (input.fileReadResult.scope === 'file') {
+        return input.fileReadResult.sizeTier === 'small'
+          ? '已读取小文件全文'
+          : `已读取文件 outline（${input.fileReadResult.sections?.length ?? 0} 个 section）`;
+      }
+      if (input.fileReadResult.scope === 'section') {
+        return `读取章节 ${input.fileReadResult.lines.length} 行`;
+      }
+      return `读取 ${input.fileReadResult.lines.length} 行文件内容`;
+    }
     if (input.fileReadLinesResult)
       return `读取 ${input.fileReadLinesResult.lines.length} 行文件内容`;
     if (input.createFileResult) return `已生成 ${input.createFileResult.file.fileName}`;
@@ -1525,8 +1698,8 @@ export class ChatService {
     if (input.searchResult) {
       return `找到 ${input.searchResult.results?.length ?? 0} 个结果`;
     }
-    if (input.externalOutputPreview) {
-      return externalToolCompletedSummary(input.externalOutputPreview);
+    if (input.externalTool) {
+      return externalToolCompletedSummary(input.externalTool.publicName, input.externalTool.input);
     }
     return '工具调用已完成';
   }

@@ -16,6 +16,8 @@ import {
   toolCallSchema,
   updateSessionRequestSchema,
   assistantAgentMetadataSchema,
+  runToolOutputUrlResponseSchema,
+  toolExecutionSnapshotSchema,
   normalizeSourceUrl,
   webFetchInputSchema,
   webFetchResultSchema,
@@ -101,6 +103,24 @@ describe('foundation protocol', () => {
       fileName: 'report.pdf',
       content: '# 报告',
     });
+    expect(
+      createFileInputSchema.parse({
+        fileName: 'landing.html',
+        contentMode: 'html',
+        content: '<!doctype html><html><head></head><body>Hi</body></html>',
+      }),
+    ).toEqual({
+      fileName: 'landing.html',
+      contentMode: 'html',
+      content: '<!doctype html><html><head></head><body>Hi</body></html>',
+    });
+    expect(() =>
+      createFileInputSchema.parse({
+        fileName: 'report.md',
+        contentMode: 'html',
+        content: '<!doctype html><html></html>',
+      }),
+    ).toThrow();
     expect(
       createFileInputSchema.parse({
         fileName: 'report.xlsx',
@@ -199,6 +219,7 @@ describe('foundation protocol', () => {
         toolName: 'external_tool',
         publicName: 'mcp__demo__ping',
         subKind: 'mcp',
+        input: { query: 'demo' },
         completedAt: '2026-09-23T10:00:00.000Z',
         durationMs: 12,
         result: { preview: 'pong', charCount: 4, truncated: false },
@@ -640,6 +661,31 @@ describe('foundation protocol', () => {
       }),
     ).toThrow();
   });
+
+  it('accepts persisted agent snapshots above legacy agentToolMaxCalls cap', () => {
+    const execution = {
+      toolCallId: 'call-1',
+      toolName: 'web_search' as const,
+      input: { query: 'test' },
+      status: 'completed' as const,
+      startedAt: '2026-08-08T02:00:00.000Z',
+      completedAt: '2026-08-08T02:00:01.000Z',
+      durationMs: 1000,
+    };
+    const parsed = assistantAgentMetadataSchema.parse({
+      model: 'test-model',
+      agent: {
+        toolCallCount: 42,
+        executions: Array.from({ length: 41 }, (_, index) => ({
+          ...execution,
+          toolCallId: `call-${index + 1}`,
+        })),
+        sources: [],
+      },
+    });
+    expect(parsed.agent?.executions).toHaveLength(41);
+    expect(parsed.agent?.toolCallCount).toBe(42);
+  });
 });
 
 describe('MCP admin protocol', () => {
@@ -650,7 +696,7 @@ describe('MCP admin protocol', () => {
       headersPlain: { 'X-Test': '1' },
     });
     expect(body.defaultApproval).toBe('require_approval');
-    expect(body.transport).toBeUndefined();
+    expect('transport' in body).toBe(false);
     const view = mcpServerViewSchema.parse({
       id: 'cfg-1',
       serverName: 'demo',
@@ -679,5 +725,37 @@ describe('MCP admin protocol', () => {
     });
     expect(view).not.toHaveProperty('secrets');
     expect(view.secretsConfigured.headerNames).toEqual([]);
+  });
+});
+
+describe('run tool output contracts', () => {
+  it('parses signed output url responses', () => {
+    expect(
+      runToolOutputUrlResponseSchema.parse({
+        url: 'https://example.com/object',
+        expiresInSeconds: 300,
+        byteSize: 9000,
+        contentType: 'application/json; charset=utf-8',
+      }),
+    ).toMatchObject({ byteSize: 9000 });
+  });
+
+  it('accepts optional outputRef fields on tool execution snapshots', () => {
+    expect(
+      toolExecutionSnapshotSchema.parse({
+        toolCallId: 'call-1',
+        toolName: 'external_tool',
+        publicName: 'mcp__demo__ping',
+        subKind: 'mcp',
+        input: {},
+        status: 'completed',
+        startedAt: '2026-10-11T00:00:00.000Z',
+        completedAt: '2026-10-11T00:00:01.000Z',
+        durationMs: 1000,
+        outputPreview: 'preview',
+        outputRef: 'runs/run-1/tools/call-1/output.json',
+        outputBytes: 9000,
+      }),
+    ).toMatchObject({ outputRef: 'runs/run-1/tools/call-1/output.json' });
   });
 });

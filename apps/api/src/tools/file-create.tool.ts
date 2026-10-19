@@ -25,7 +25,8 @@ export class FileCreateTool implements AgentTool<CreateFileInput, CreateFileResu
       name: this.name,
       description:
         `创建一个真实格式的文件交付物。支持 TXT、Markdown、JSON、HTML、PDF、DOCX 和 XLSX。` +
-        ` HTML、PDF 和 DOCX 的 content 必须是 Markdown，不是 HTML、XML、Base64 或文件路径，最多 ${AGENT_PROTOCOL_LIMITS.generatedFileMaxCodePoints} 个 Unicode 字符；` +
+        ` 默认 HTML/PDF/DOCX 的 content 为 Markdown；若需交付完整单页网站，请对 .html 设置 contentMode 为 html，content 为完整 HTML 文档（可含 inline script/style，禁止外链 script/stylesheet/CDN）。` +
+        ` Markdown 模式最多 ${AGENT_PROTOCOL_LIMITS.generatedFileMaxCodePoints} 个 Unicode 字符；` +
         ` XLSX 必须使用 sheets/rows，最多 ${AGENT_PROTOCOL_LIMITS.generatedWorkbookMaxSheets} 个 Sheet、每个 Sheet ${AGENT_PROTOCOL_LIMITS.generatedWorkbookMaxRowsPerSheet} 行、总计 ${AGENT_PROTOCOL_LIMITS.generatedWorkbookMaxCells} 个单元格。` +
         ' 文件名只能是普通文件名；一次调用只生成一个文件，不能覆盖、追加或写入工作区文件。',
       parameters: {
@@ -33,6 +34,7 @@ export class FileCreateTool implements AgentTool<CreateFileInput, CreateFileResu
         additionalProperties: false,
         properties: {
           fileName: { type: 'string', minLength: 1, maxLength: 255 },
+          contentMode: { type: 'string', enum: ['html'] },
           content: { type: 'string', minLength: 1 },
           sheets: {
             type: 'array',
@@ -86,6 +88,7 @@ export class FileCreateTool implements AgentTool<CreateFileInput, CreateFileResu
           toolCallId: context.toolCallId,
           fileName: input.fileName,
           ...(input.content !== undefined ? { content: input.content } : {}),
+          ...(input.contentMode !== undefined ? { contentMode: input.contentMode } : {}),
           ...(input.sheets !== undefined ? { sheets: input.sheets } : {}),
           signal: context.signal,
         }),

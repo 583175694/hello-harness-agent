@@ -1,4 +1,5 @@
-export type WorkspaceView = 'activity' | 'sources' | 'artifact' | 'report' | 'context';
+/** 与 Web C5：`activity` = tool_results（含来源卡片），`artifact` = deliverables。 */
+export type WorkspaceView = 'activity' | 'artifact';
 
 export type ToolActivityStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 

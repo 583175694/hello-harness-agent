@@ -1,7 +1,12 @@
 import type { ReactNode } from 'react';
 import { View } from 'react-native';
-import { HarnessGlyph } from '@/components/agent-elements/harness-glyph';
+import { BrandIcon } from '@/components/ui/brand-icon';
 import { Text } from '@/components/ui/text';
+import { APP_BRAND } from '@/lib/brand';
+
+/** Match Web `.assistant-avatar--brand` + `.assistant-brand-icon` (32 / 28). */
+const ASSISTANT_AVATAR_SIZE = 32;
+const ASSISTANT_BRAND_ICON_SIZE = 28;
 
 type AssistantMessageBlockProps = {
   children: ReactNode;
@@ -23,11 +28,14 @@ export function AssistantMessageBlock({
   return (
     <View className="gap-2.5">
       <View className="flex-row items-center gap-2">
-        <View className="h-6 w-6 items-center justify-center rounded-full bg-primary">
-          <HarnessGlyph size={14} color="#ffffff" />
+        <View
+          className="items-center justify-center"
+          style={{ width: ASSISTANT_AVATAR_SIZE, height: ASSISTANT_AVATAR_SIZE }}
+        >
+          <BrandIcon size={ASSISTANT_BRAND_ICON_SIZE} />
         </View>
         <Text variant="body-sm" className="font-medium text-primary">
-          Harness
+          {APP_BRAND.name}
         </Text>
       </View>
 

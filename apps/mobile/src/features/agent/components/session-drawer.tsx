@@ -1,13 +1,30 @@
-import { Modal, Pressable, ScrollView, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Modal, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { ChevronLeft, Plus, Search, Settings } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
-import { sessionDrawerFixture, type SessionDrawerItemFixture } from '../fixtures/ui-fixtures';
 import { cn } from '@/lib/cn';
+import { OVERLAY_MOTION_MS, OVERLAY_REDUCE_OPACITY_MS } from '@/lib/use-modal-animation-type';
+import { useReducedMotion } from '@/lib/use-reduced-motion';
+import { colors } from '@/lib/theme';
+import { sessionDrawerFixture, type SessionDrawerItemFixture } from '../fixtures/ui-fixtures';
+
+const PANEL_WIDTH_RATIO = 0.78;
+const MOTION_EASING = Easing.out(Easing.quad);
 
 type SessionDrawerProps = {
   visible: boolean;
+  /** Skip slide-out when navigating forward (e.g. Settings push). */
+  exitInstant?: boolean;
   onClose?: () => void;
   onOpenSettings?: () => void;
 };
@@ -39,17 +56,147 @@ function SessionDrawerRow({ item }: { item: SessionDrawerItemFixture }) {
   );
 }
 
-export function SessionDrawer({ visible, onClose, onOpenSettings }: SessionDrawerProps) {
+export function SessionDrawer({
+  visible,
+  exitInstant = false,
+  onClose,
+  onOpenSettings,
+}: SessionDrawerProps) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const panelWidth = useMemo(() => windowWidth * PANEL_WIDTH_RATIO, [windowWidth]);
+  const reduceMotion = useReducedMotion();
+
+  const [modalShown, setModalShown] = useState(false);
+  const modalMountedRef = useRef(false);
+  const panelTranslateX = useSharedValue(-panelWidth);
+  const scrimOpacity = useSharedValue(0);
+
+  const hideModal = useCallback(() => {
+    modalMountedRef.current = false;
+    setModalShown(false);
+  }, []);
+
+  useEffect(() => {
+    panelTranslateX.value = -panelWidth;
+  }, [panelWidth, panelTranslateX]);
+
+  useEffect(() => {
+    if (visible) {
+      modalMountedRef.current = true;
+      setModalShown(true);
+      if (reduceMotion) {
+        panelTranslateX.value = 0;
+        scrimOpacity.value = withTiming(1, {
+          duration: OVERLAY_REDUCE_OPACITY_MS,
+          easing: MOTION_EASING,
+        });
+      } else {
+        panelTranslateX.value = -panelWidth;
+        scrimOpacity.value = 0;
+        scrimOpacity.value = withTiming(1, {
+          duration: OVERLAY_MOTION_MS,
+          easing: MOTION_EASING,
+        });
+        panelTranslateX.value = withTiming(0, {
+          duration: OVERLAY_MOTION_MS,
+          easing: MOTION_EASING,
+        });
+      }
+      return;
+    }
+
+    if (!modalMountedRef.current) {
+      return;
+    }
+
+    if (exitInstant) {
+      panelTranslateX.value = -panelWidth;
+      scrimOpacity.value = 0;
+      hideModal();
+      return;
+    }
+
+    if (reduceMotion) {
+      scrimOpacity.value = withTiming(
+        0,
+        { duration: OVERLAY_REDUCE_OPACITY_MS, easing: MOTION_EASING },
+        (finished) => {
+          if (finished) {
+            panelTranslateX.value = -panelWidth;
+            runOnJS(hideModal)();
+          }
+        },
+      );
+    } else {
+      panelTranslateX.value = withTiming(
+        -panelWidth,
+        { duration: OVERLAY_MOTION_MS, easing: MOTION_EASING },
+        (finished) => {
+          if (finished) runOnJS(hideModal)();
+        },
+      );
+      scrimOpacity.value = withTiming(0, {
+        duration: OVERLAY_MOTION_MS,
+        easing: MOTION_EASING,
+      });
+    }
+  }, [visible, exitInstant, panelWidth, reduceMotion, hideModal, panelTranslateX, scrimOpacity]);
+
+  const panelAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: panelTranslateX.value }],
+  }));
+
+  const scrimAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: scrimOpacity.value,
+  }));
+
   const pinned = sessionDrawerFixture.filter((item) => item.pinned);
   const recent = sessionDrawerFixture.filter((item) => !item.pinned);
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
-      <View className="flex-1 flex-row">
-        <View
-          className="h-full border-r border-composer-border bg-drawer shadow-2xl"
-          style={{ width: '78%', paddingTop: insets.top }}
+    <Modal visible={modalShown} animationType="none" transparent onRequestClose={onClose}>
+      <View className="flex-1">
+        <Animated.View
+          pointerEvents="box-none"
+          style={[
+            {
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              backgroundColor: colors.overlayScrim,
+            },
+            scrimAnimatedStyle,
+          ]}
+        />
+
+        <Pressable
+          className="absolute bottom-0 right-0 top-0 items-center active:opacity-90"
+          style={{ left: panelWidth, paddingTop: insets.top }}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="关闭会话列表"
+        >
+          <View className="mt-2 h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/40">
+            <Icon icon={ChevronLeft} tone="overlayInverse" size={18} />
+          </View>
+        </Pressable>
+
+        <Animated.View
+          className="border-r border-composer-border bg-drawer shadow-2xl"
+          style={[
+            {
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: panelWidth,
+              paddingTop: insets.top,
+            },
+            panelAnimatedStyle,
+          ]}
         >
           <View className="flex-1 px-4 pt-4">
             <Pressable
@@ -57,7 +204,7 @@ export function SessionDrawer({ visible, onClose, onOpenSettings }: SessionDrawe
               accessibilityRole="button"
               accessibilityLabel="新建会话"
             >
-              <Plus size={20} color="#171717" />
+              <Icon icon={Plus} tone="primary" size={20} textWeight="semibold" />
               <Text variant="body" className="font-semibold text-primary">
                 新对话
               </Text>
@@ -65,12 +212,18 @@ export function SessionDrawer({ visible, onClose, onOpenSettings }: SessionDrawe
 
             <View className="relative mb-3">
               <View className="pointer-events-none absolute bottom-0 left-3 top-0 justify-center">
-                <Search size={16} color="#898986" />
+                <Icon icon={Search} tone="muted" size={16} />
               </View>
               <Input className="h-10 pl-9" placeholder="搜索会话" />
             </View>
 
-            <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+            <ScrollView
+              className="flex-1"
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+              overScrollMode="never"
+              keyboardShouldPersistTaps="handled"
+            >
               {pinned.length > 0 ? (
                 <View className="mb-3">
                   <Text variant="caption" className="mb-1 px-1 text-muted">
@@ -103,19 +256,13 @@ export function SessionDrawer({ visible, onClose, onOpenSettings }: SessionDrawe
               accessibilityRole="button"
               accessibilityLabel="设置"
             >
-              <Settings size={20} color="#555551" />
+              <Icon icon={Settings} tone="secondary" size={20} />
               <Text variant="body-sm" className="font-medium text-primary">
                 设置
               </Text>
             </Pressable>
           </View>
-        </View>
-
-        <Pressable className="flex-1 items-center bg-black/45 pt-14 active:bg-black/50" onPress={onClose}>
-          <View className="mt-2 h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/40">
-            <ChevronLeft size={18} color="rgba(255,255,255,0.85)" />
-          </View>
-        </Pressable>
+        </Animated.View>
       </View>
     </Modal>
   );

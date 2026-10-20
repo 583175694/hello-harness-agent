@@ -14,7 +14,7 @@ const frames = [
     desc: '工具/状态/Workbench/Composer 全量静态预览',
   },
   { href: '/preview/a-sheet-closed', title: 'A · Sheet Closed', desc: '会话主视图 + Composer' },
-  { href: '/preview/b-sources', title: 'B · 来源 Tab', desc: 'Workbench ~60% · 来源列表' },
+  { href: '/preview/b-sources', title: 'B · 来源视图', desc: 'Workbench ~60% · 实时跟随 · 来源卡片' },
   { href: '/preview/c-hitl', title: 'C · HITL Composer', desc: '工具审批内嵌 Composer' },
   { href: '/preview/d-drawer', title: 'D · Session Drawer', desc: '左 Drawer ~78%' },
   { href: '/preview/artifact', title: '产物 · Artifact Tab', desc: 'Diff 预览 + 底栏 CTA' },

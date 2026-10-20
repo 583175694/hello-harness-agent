@@ -13,7 +13,13 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#f7f7f6' } }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="preview" />
-          <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
+          <Stack.Screen
+            name="settings"
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

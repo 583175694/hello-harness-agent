@@ -1,7 +1,21 @@
-import { Modal, Pressable, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Modal, Pressable, useWindowDimensions, View } from 'react-native';
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { FileText, ImageIcon } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
+import { OVERLAY_MOTION_MS, OVERLAY_REDUCE_OPACITY_MS } from '@/lib/use-modal-animation-type';
+import { useReducedMotion } from '@/lib/use-reduced-motion';
+import { colors } from '@/lib/theme';
+
+const MOTION_EASING = Easing.out(Easing.quad);
 
 type ComposerAttachmentSheetProps = {
   visible: boolean;
@@ -17,14 +31,96 @@ export function ComposerAttachmentSheet({
   onPickFiles,
 }: ComposerAttachmentSheetProps) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const reduceMotion = useReducedMotion();
+
+  const [modalShown, setModalShown] = useState(false);
+  const modalMountedRef = useRef(false);
+  const sheetTranslateY = useSharedValue(windowHeight);
+  const scrimOpacity = useSharedValue(0);
+
+  const hideModal = useCallback(() => {
+    modalMountedRef.current = false;
+    setModalShown(false);
+  }, []);
+
+  useEffect(() => {
+    if (visible) {
+      modalMountedRef.current = true;
+      setModalShown(true);
+      if (reduceMotion) {
+        sheetTranslateY.value = 0;
+        scrimOpacity.value = withTiming(1, {
+          duration: OVERLAY_REDUCE_OPACITY_MS,
+          easing: MOTION_EASING,
+        });
+      } else {
+        sheetTranslateY.value = windowHeight;
+        scrimOpacity.value = 0;
+        sheetTranslateY.value = withTiming(0, {
+          duration: OVERLAY_MOTION_MS,
+          easing: MOTION_EASING,
+        });
+        scrimOpacity.value = withTiming(1, {
+          duration: OVERLAY_MOTION_MS,
+          easing: MOTION_EASING,
+        });
+      }
+      return;
+    }
+
+    if (!modalMountedRef.current) {
+      return;
+    }
+
+    if (reduceMotion) {
+      scrimOpacity.value = withTiming(
+        0,
+        { duration: OVERLAY_REDUCE_OPACITY_MS, easing: MOTION_EASING },
+        (finished) => {
+          if (finished) {
+            sheetTranslateY.value = windowHeight;
+            runOnJS(hideModal)();
+          }
+        },
+      );
+    } else {
+      sheetTranslateY.value = withTiming(
+        windowHeight,
+        { duration: OVERLAY_MOTION_MS, easing: MOTION_EASING },
+        (finished) => {
+          if (finished) runOnJS(hideModal)();
+        },
+      );
+      scrimOpacity.value = withTiming(0, {
+        duration: OVERLAY_MOTION_MS,
+        easing: MOTION_EASING,
+      });
+    }
+  }, [visible, windowHeight, reduceMotion, hideModal, sheetTranslateY, scrimOpacity]);
+
+  const scrimAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: scrimOpacity.value,
+  }));
+
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: sheetTranslateY.value }],
+  }));
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View className="flex-1 justify-end bg-black/40">
-        <Pressable className="absolute inset-0" onPress={onClose} accessibilityLabel="关闭" />
-        <View
+    <Modal visible={modalShown} transparent animationType="none" onRequestClose={onClose}>
+      <View className="flex-1 justify-end">
+        <Animated.View
+          pointerEvents="box-none"
+          className="absolute inset-0"
+          style={[{ backgroundColor: colors.overlayScrim }, scrimAnimatedStyle]}
+        >
+          <Pressable className="flex-1" onPress={onClose} accessibilityLabel="关闭" />
+        </Animated.View>
+
+        <Animated.View
           className="overflow-hidden rounded-t-[20px] bg-surface"
-          style={{ paddingBottom: Math.max(insets.bottom, 12) }}
+          style={[{ paddingBottom: Math.max(insets.bottom, 12) }, sheetAnimatedStyle]}
         >
           <View className="items-center py-2.5">
             <View className="h-1 w-9 rounded-full bg-border" />
@@ -41,7 +137,7 @@ export function ComposerAttachmentSheet({
             }}
           >
             <View className="h-9 w-9 items-center justify-center rounded-full bg-subtle">
-              <ImageIcon size={20} color="#171717" />
+              <Icon icon={ImageIcon} tone="primary" size={20} />
             </View>
             <View>
               <Text variant="body" className="font-medium">
@@ -61,7 +157,7 @@ export function ComposerAttachmentSheet({
             }}
           >
             <View className="h-9 w-9 items-center justify-center rounded-full bg-subtle">
-              <FileText size={20} color="#171717" />
+              <Icon icon={FileText} tone="primary" size={20} />
             </View>
             <View>
               <Text variant="body" className="font-medium">
@@ -83,7 +179,7 @@ export function ComposerAttachmentSheet({
               </Text>
             </Pressable>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );

@@ -1,5 +1,8 @@
 import { Pressable, View } from 'react-native';
-import { ChevronRight, LoaderCircle } from 'lucide-react-native';
+import { ChevronRight } from 'lucide-react-native';
+import { Icon } from '@/components/ui/icon';
+import { ICON_CHEVRON_TONE } from '@/lib/theme';
+import { SpinnerIcon } from '@/components/ui/spinner-icon';
 import { Text } from '@/components/ui/text';
 import type { ToolActivityFixture } from '../fixtures/ui-fixtures';
 
@@ -26,7 +29,7 @@ export function ToolActivityRow({ item, onPress }: ToolActivityRowProps) {
     >
       <View className="min-w-0 flex-1 flex-row items-center gap-2">
         {status === 'running' ? (
-          <LoaderCircle size={14} color="#fbbf24" />
+          <SpinnerIcon tone="terminalAccent" size={14} />
         ) : (
           <View className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: dotColor }} />
         )}
@@ -66,7 +69,7 @@ export function ToolActivityRow({ item, onPress }: ToolActivityRowProps) {
             {item.duration}
           </Text>
         )}
-        <ChevronRight size={14} color="#c4c7c7" />
+        <Icon icon={ChevronRight} tone={ICON_CHEVRON_TONE.disclosure} size={14} />
       </View>
     </Pressable>
   );

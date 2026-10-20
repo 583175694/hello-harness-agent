@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 import { ArrowUp, Plus } from 'lucide-react-native';
+import { Icon } from '@/components/ui/icon';
+import { PressableScale } from '@/components/ui/pressable-scale';
 import { AGENT_UI_COPY } from '../config/ui.constants';
 import type { MobileComposerFixture } from '../fixtures/mobile-preview.types';
 import { catalogPlanFixture } from '../fixtures/ui-catalog-fixtures';
@@ -14,6 +16,12 @@ import { ComposerHitlPanel } from './composer-hitl-panel';
 
 type ComposerStackProps = MobileComposerFixture & {
   bottomInset?: number;
+  /** Workbench / Drawer / 附件 Sheet 打开时不渲染 Plan 浮卡 */
+  suppressPlanOverlay?: boolean;
+  attachmentSheetOpen?: boolean;
+  onAttachmentSheetOpenChange?: (open: boolean) => void;
+  /** ChatScreen 编排：互斥关闭其它 overlay 后再打开附件 */
+  onOpenAttachmentSheet?: () => void;
 };
 
 export function ComposerStack({
@@ -24,9 +32,33 @@ export function ComposerStack({
   showFollowUp = false,
   followUpItems = [],
   submitting = false,
+  suppressPlanOverlay = false,
+  attachmentSheetOpen: attachmentSheetOpenProp,
+  onAttachmentSheetOpenChange,
+  onOpenAttachmentSheet,
 }: ComposerStackProps) {
   const safeBottom = Math.max(bottomInset, 8);
-  const [attachmentSheetOpen, setAttachmentSheetOpen] = useState(false);
+  const [attachmentSheetOpenLocal, setAttachmentSheetOpenLocal] = useState(false);
+  const attachmentSheetControlled = attachmentSheetOpenProp !== undefined;
+  const attachmentSheetOpen = attachmentSheetControlled
+    ? attachmentSheetOpenProp
+    : attachmentSheetOpenLocal;
+
+  const setAttachmentSheetOpen = (open: boolean) => {
+    if (attachmentSheetControlled) {
+      onAttachmentSheetOpenChange?.(open);
+    } else {
+      setAttachmentSheetOpenLocal(open);
+    }
+  };
+
+  const handleOpenAttachmentSheet = () => {
+    if (onOpenAttachmentSheet) {
+      onOpenAttachmentSheet();
+      return;
+    }
+    setAttachmentSheetOpen(true);
+  };
   const attachments = showAttachmentSamples
     ? [
         ...composerAttachmentsFixture,
@@ -47,7 +79,7 @@ export function ComposerStack({
       ]
     : composerAttachmentsFixture;
 
-  const planVisible = showPlan && submitting;
+  const planVisible = showPlan && submitting && !suppressPlanOverlay;
 
   if (mode === 'clarification') {
     return (
@@ -90,7 +122,7 @@ export function ComposerStack({
             </View>
           ) : null}
 
-          <View className="gap-2 rounded-[22px] border border-composer-border bg-surface px-3 py-2.5">
+          <View className="gap-2 rounded-bubble border border-composer-border bg-surface px-3 py-2.5">
           {attachments.length > 0 ? <ComposerAttachments items={attachments} /> : null}
 
           <TextInput
@@ -106,19 +138,19 @@ export function ComposerStack({
               className="h-11 w-11 items-center justify-center rounded-control active:bg-subtle"
               accessibilityRole="button"
               accessibilityLabel="添加附件"
-              onPress={() => setAttachmentSheetOpen(true)}
+              onPress={handleOpenAttachmentSheet}
             >
-              <Plus size={20} color="#171717" />
+              <Icon icon={Plus} tone="primary" size={20} />
             </Pressable>
 
-            <Pressable
-              className={`h-8 w-8 items-center justify-center rounded-full active:scale-95 ${
+            <PressableScale
+              className={`h-8 w-8 items-center justify-center rounded-full ${
                 submitting ? 'bg-muted' : 'bg-primary'
               }`}
               accessibilityLabel={submitting ? '停止运行' : '发送任务'}
             >
-              <ArrowUp size={18} color="#ffffff" />
-            </Pressable>
+              <Icon icon={ArrowUp} tone="onPrimary" size={18} />
+            </PressableScale>
           </View>
           </View>
         </View>

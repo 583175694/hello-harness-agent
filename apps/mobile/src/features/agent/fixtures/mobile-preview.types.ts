@@ -33,7 +33,9 @@ export type MobilePreviewState =
   | 'failed'
   | 'fetch-running'
   | 'fetch-candidate'
-  | 'fetch-failed';
+  | 'fetch-failed'
+  /** Preview：长会话滚动 / FlashList 压测 */
+  | 'scroll-stress';
 
 export type MobileAssistantBlock =
   | { type: 'text'; content: string }
@@ -85,5 +87,9 @@ export type MobileChatFixture = {
     initialView?: WorkspaceView;
     initialSheetIndex?: number;
     workbenchCount?: number;
+    /** 默认 `workbenchCount > 0`；无交付物时可显式 `false` 隐藏「文件」Tab */
+    hasDeliverables?: boolean;
+    /** 实时跟随主区展示来源列表（web_search / web_fetch） */
+    activityEmphasis?: 'default' | 'sources';
   };
 };

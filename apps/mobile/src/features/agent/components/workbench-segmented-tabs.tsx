@@ -1,5 +1,7 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { cn } from '@/lib/cn';
 import { Text } from '@/components/ui/text';
+import { AGENT_UI_BUTTON } from '../config/ui.constants';
 import type { WorkspaceView } from '../fixtures/ui-fixtures';
 
 type TabDef = { id: WorkspaceView; label: string; count?: number };
@@ -10,20 +12,27 @@ type WorkbenchSegmentedTabsProps = {
   onTabPress?: (view: WorkspaceView) => void;
 };
 
+const { classNames: btn } = AGENT_UI_BUTTON;
+
 export function WorkbenchSegmentedTabs({ tabs, active, onTabPress }: WorkbenchSegmentedTabsProps) {
   return (
-    <View style={styles.row}>
+    <View className={btn.segmentTrack}>
       {tabs.map((tab) => {
         const selected = tab.id === active;
         return (
           <Pressable
             key={tab.id}
             onPress={() => onTabPress?.(tab.id)}
-            style={[styles.tab, selected && styles.tabSelected]}
+            className={cn(btn.segmentTab, selected && btn.segmentTabSelected)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
           >
             <Text
               variant="caption"
-              style={[styles.label, selected ? styles.labelSelected : styles.labelIdle]}
+              className={cn(
+                'font-medium',
+                selected ? btn.segmentLabelSelected : btn.segmentLabelIdle,
+              )}
             >
               {tab.label}
               {tab.count != null ? ` (${tab.count})` : ''}
@@ -34,32 +43,3 @@ export function WorkbenchSegmentedTabs({ tabs, active, onTabPress }: WorkbenchSe
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    borderRadius: 8,
-    backgroundColor: '#f1f1ef',
-    padding: 2,
-  },
-  tab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 6,
-    paddingVertical: 6,
-  },
-  tabSelected: {
-    backgroundColor: '#171717',
-  },
-  label: {
-    fontWeight: '500',
-  },
-  labelSelected: {
-    color: '#ffffff',
-  },
-  labelIdle: {
-    color: '#555551',
-  },
-});

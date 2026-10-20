@@ -29,7 +29,7 @@
 
 - **行为语义**：Composer 模式、Progress 文案、Workbench Tab 可用性、`FOCUS_WORKBENCH_TARGET`、recovery 顺序以 [19-agent-frontend.md](./19-agent-frontend.md) 为准；本文只补充 **Mobile 布局、导航、Native 生命周期与工程结构**。
 - **冲突时**：产品语义以 `19` + `agent-protocol` 为准；Mobile 特有交互以本文为准。
-- **Debug Tab**：Web production 无 Debug；Mobile 同样 **不实现 Debug Tab**。Web Workbench 中的 **Context** Tab 是正式调试入口（Model Round JSON），Mobile **必须保留**。
+- **Debug / Context Tab**：Web 侧 Context 为桌面调试入口；Mobile Workbench Sheet **不暴露** Context/Debug（与 C5 窄屏策略一致；调试走 Web 或后续设置）。
 
 ---
 
@@ -183,17 +183,16 @@ Mobile 是 **本地 Harness Agent 的全功能客户端**，用户可以在外�
 | M-RPT-1 | Report 聚合 | `GET .../artifacts/reports/:id` |
 | M-RPT-2 | delete report | 若 Web 已暴露则 Mobile 同步 |
 
-### 4.7 Workbench（Tab 集合与 Web 一致）
+### 4.7 Workbench（Tab 集合与 Web C5 一致）
 
-动态 Tab 规则对齐 `WorkbenchShell`（`apps/web/src/features/agent/components/workbench-views.tsx`）：
+动态 Tab 规则对齐 Web `WorkbenchShell`（`workbench-views.tsx` + [37-c5-workbench-ui-and-preview.md](./37-c5-workbench-ui-and-preview.md)）：
 
-| Tab | 出现条件 | Mobile 内容 |
-| --- | --- | --- |
-| Activity | 始终 | master/detail：详情（含 **BashTerminalPanel**）+ 时间线 |
-| Artifact | 有 artifacts 或 artifactSeries | 版本、预览、下载、revise、restore 确认 |
-| Sources | sources.length > 0 | clue/fetched、passage、外链 |
-| Report | 有 report | Markdown Reader |
-| Context | 始终（Web 固定最后） | `RunContextDebug` JSON 树 |
+| Tab（Mobile 文案） | 内部 id | 出现条件 | Mobile 内容 |
+| --- | --- | --- | --- |
+| **实时跟随** | `activity` | 始终 | 当前 tool 详情（bash 终端 / MCP / JSON）+ 调用时间线；`web_search` / `web_fetch` 时主区为 **来源卡片**（无独立 Sources Tab） |
+| **文件** | `artifact` | 有 artifacts / series / report 投影（同 Web `workbenchHasDeliverablesTab`） | 版本、diff 预览、下载、revise |
+
+**不在 Mobile Sheet 暴露**：Context / Debug（调试走 Web 或后续设置）；独立 Report / Sources Tab（报告与来源归入上表）。
 
 Workbench 行为（与 Web §14.1 相同）：
 
@@ -326,16 +325,16 @@ openHalf | openFull
 | 帧 | Stitch 标题（参考） | 定稿内容 | 实现锚点 |
 | --- | --- | --- | --- |
 | **A** | Sheet closed / 会话主视图 | Chat 画布、tool 一行摘要、Composer（+ 上传 / 上下文）、顶栏「工作台 (N)」；Sheet **closed** | `ChatScreen` + `ConversationPanel` |
-| **B** | Sources Tab | Workbench Sheet ~60%，Tab **来源**；列表 + 卡片内 passage/标签；**无** Sheet 底栏（导出/查看详情） | `WorkbenchSheet` → `SourcesView` parity |
+| **B** | Sources 视图 | Workbench Sheet ~60%，Tab **实时跟随**（`activityEmphasis: sources`）；来源卡片 + passage/标签 | `WorkbenchActivityContent` + `WorkbenchSourceCard` |
 | **C** | HITL 内嵌 Composer | **非 Sheet**：Composer 白壳内 `composer-hitl-panel`，`hideComposerInput`；bash/pytest 审批 + 沙箱说明 + 拒绝/批准 | `ComposerStack` / 复用 Web `Confirmation` 语义 |
 | **D** | Session Drawer | 左 Drawer ~78% `#fbfaf9`；新建、搜索、列表（进行中绿点）；底栏账号脱敏 + 设置 | `SessionDrawer` |
-| **+** | Workbench 半开 · 产物 | Sheet half+，Tab **产物**；diff 预览、版本 v1.2、**下载** + **基于此版本修改** | `ArtifactTab` + C2-D footer |
+| **+** | Workbench 半开 · 产物 | Sheet half+，Tab **文件**；diff 预览、版本 v1.2、**下载** + **基于此版本修改** | `artifact` + C2-D footer |
 
 **组件分工（冻结）**：
 
 ```text
 Session Drawer     — 仅会话列表（D）
-Workbench Sheet    — 仅活动 / 来源 / 产物 / Report / Context（B、产物帧）
+Workbench Sheet    — 实时跟随 + 文件（动态 Tab；B 帧 = 跟随·来源卡片）
 Composer HITL Panel — 仅 clarification + tool_approval（C）；禁止与 Sheet 共用 @gorhom 实例
 ```
 
@@ -348,7 +347,7 @@ Composer HITL Panel — 仅 clarification + tool_approval（C）；禁止与 She
    与顶栏「工作台」打开 **同一 `WorkbenchSheet` 实例**；点击后 `detent >= half` 且 `activeView = artifact`。若另有「查看某报告」类文案，等价于 `FOCUS_WORKBENCH_TARGET` 指向该 `artifactId` / Report，**不**单独路由。
 
 3. **Workbench Tab 动态规则**  
-   与 Web `WorkbenchShell` 一致：`sources` 仅 `sources.length > 0`；`report` 仅有 report 投影；`artifact` 有 artifacts/series；**activity、context 始终可用**（Context 在 Segment 最后）。**Plan 不得作为独立 Tab**（仅 Plan 浮卡 / 可选 peek 条）。
+   与 Web C5 一致：**实时跟随**（`activity`）始终可用；**文件**（`artifact`）仅 `workbenchHasDeliverablesTab`；来源列表在跟随 Tab 内按 tool 类型展示（无独立 Sources Tab）。**Plan 不得作为独立 Tab**（仅 Plan 浮卡 / 可选 peek 条）。
 
 4. **Clarification HITL**  
    与帧 C **同一 Composer panel 组件**；标题「需要补充信息」、选项 Chip + 可选自由文本、主按钮「提交回答」；不另出设计帧。
@@ -963,7 +962,7 @@ Maestro（`apps/mobile/maestro/p2-smoke.yaml`）建议在 P2 通过后补，不�
 | --- | --- |
 | `apps/mobile` | **已创建**：Expo 57 + Expo Router + NativeWind；`pnpm dev:mobile` |
 | Stitch 五帧 + UI Catalog | **已实现**：`/preview/*`、`ui-catalog`；`ChatScreen` 等走 **fixture** |
-| Workbench Bottom Sheet | **壳已接**：`WorkbenchSheet` + 五 Tab 视图均为 **静态样例** |
+| Workbench Bottom Sheet | **壳已接**：`WorkbenchSheet` + C5 双 Tab（动态）+ 跟随内嵌来源/终端 **静态样例** |
 | Settings | **占位**：API URL 不可编辑；MCP 假数据列表 |
 | `@harness/agent-client` / `agent-conversation` | **未创建**（P0） |
 | 与 API 联调 | **未开始**（P1 起） |

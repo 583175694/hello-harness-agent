@@ -2,6 +2,8 @@ import { Link, useRouter } from 'expo-router';
 import type { ReactNode } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { ChevronRight, Palette, Server, Type } from 'lucide-react-native';
+import { Icon } from '@/components/ui/icon';
+import { ICON_CHEVRON_TONE } from '@/lib/theme';
 import { Text } from '@/components/ui/text';
 
 export default function SettingsScreen() {
@@ -13,8 +15,8 @@ export default function SettingsScreen() {
         <Text variant="headline" className="mb-3 text-[15px]">
           通用
         </Text>
-        <SettingsRow icon={<Palette size={18} color="#555551" />} label="主题" value="跟随系统" />
-        <SettingsRow icon={<Type size={18} color="#555551" />} label="正文字号" value="14px" />
+        <SettingsRow icon={<Icon icon={Palette} tone="secondary" size={18} />} label="主题" value="跟随系统" />
+        <SettingsRow icon={<Icon icon={Type} tone="secondary" size={18} />} label="正文字号" value="14px" />
       </View>
 
       <View className="rounded-panel border border-border bg-surface p-4">
@@ -24,10 +26,10 @@ export default function SettingsScreen() {
         <Link href="/settings/mcp" asChild>
           <Pressable className="flex-row items-center justify-between py-3 active:opacity-70">
             <View className="flex-row items-center gap-3">
-              <Server size={18} color="#555551" />
+              <Icon icon={Server} tone="secondary" size={18} />
               <Text variant="body-sm">MCP 服务器</Text>
             </View>
-            <ChevronRight size={18} color="#898986" />
+            <Icon icon={ChevronRight} tone={ICON_CHEVRON_TONE.push} size={18} />
           </Pressable>
         </Link>
       </View>
@@ -39,6 +41,7 @@ export default function SettingsScreen() {
         <Text variant="body-sm" className="text-secondary">
           API Base URL
         </Text>
+        {/* Independent surface inside panel — not concentric with rounded-panel */}
         <View className="mt-2 rounded-control border border-composer-border bg-canvas px-3 py-2.5">
           <Text variant="mono" className="text-muted">
             http://192.168.x.x:4318

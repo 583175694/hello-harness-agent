@@ -16,7 +16,7 @@ const pendingCopy: Record<NonNullable<UserMessageBubbleProps['pendingState']>, s
 export function UserMessageBubble({ content, pendingState, attachmentHint }: UserMessageBubbleProps) {
   return (
     <View className="gap-1">
-      <View className="w-full rounded-2xl bg-[#f3f3f2] px-4 py-3">
+      <View className="w-full rounded-bubble bg-user-bubble px-4 py-3">
         <Text variant="body-sm" className="leading-relaxed text-primary" selectable>
           {content}
         </Text>

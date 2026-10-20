@@ -1,12 +1,32 @@
 import { ScrollView, View } from 'react-native';
 import { Text } from '@/components/ui/text';
-import { toolActivitiesFixture } from '../fixtures/ui-fixtures';
+import { sourcesFixture, toolActivitiesFixture } from '../fixtures/ui-fixtures';
+import { WorkbenchSourceCard, WorkbenchSourcesStatsHeader } from './workbench-sources-view';
 
-export function WorkbenchActivityView() {
+export type WorkbenchActivityEmphasis = 'default' | 'sources';
+
+type WorkbenchActivityContentProps = {
+  /** `sources`：检索/读取结果卡片（原独立 Sources Tab，现并入实时跟随）。 */
+  emphasis?: WorkbenchActivityEmphasis;
+};
+
+/** Sheet 内嵌：由外层 BottomSheetScrollView 统一滚动 */
+export function WorkbenchActivityContent({ emphasis = 'default' }: WorkbenchActivityContentProps) {
+  if (emphasis === 'sources') {
+    return (
+      <View className="px-4 pb-3">
+        <WorkbenchSourcesStatsHeader />
+        {sourcesFixture.map((source) => (
+          <WorkbenchSourceCard key={source.id} source={source} />
+        ))}
+      </View>
+    );
+  }
+
   const selected = toolActivitiesFixture[1];
 
   return (
-    <View className="flex-1">
+    <>
       <View className="border-b border-composer-border bg-[#16191f] p-3">
         <View className="mb-2 flex-row items-center justify-between">
           <Text variant="mono" className="text-zinc-200">
@@ -28,7 +48,7 @@ export function WorkbenchActivityView() {
           </Text>
         </View>
       </View>
-      <ScrollView contentContainerClassName="gap-2 p-3" showsVerticalScrollIndicator={false}>
+      <View className="gap-2 p-3">
         <Text variant="caption" className="mb-1 font-semibold uppercase tracking-wide text-muted">
           调用时间线
         </Text>
@@ -52,7 +72,20 @@ export function WorkbenchActivityView() {
             </View>
           );
         })}
-      </ScrollView>
-    </View>
+      </View>
+    </>
+  );
+}
+
+/** UI Catalog 固定高度预览：自带 ScrollView */
+export function WorkbenchActivityView({
+  emphasis = 'default',
+}: {
+  emphasis?: WorkbenchActivityEmphasis;
+}) {
+  return (
+    <ScrollView className="flex-1" contentContainerClassName="flex-grow" showsVerticalScrollIndicator={false}>
+      <WorkbenchActivityContent emphasis={emphasis} />
+    </ScrollView>
   );
 }

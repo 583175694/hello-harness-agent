@@ -16,9 +16,7 @@ import { ComposerStack } from '@/features/agent/components/composer-stack';
 import { ToolActivityRow } from '@/features/agent/components/tool-activity-row';
 import { WorkbenchActivityView } from '@/features/agent/components/workbench-activity-view';
 import { WorkbenchArtifactView } from '@/features/agent/components/workbench-artifact-view';
-import { WorkbenchContextView } from '@/features/agent/components/workbench-context-view';
 import { WorkbenchReportView } from '@/features/agent/components/workbench-report-view';
-import { WorkbenchSourcesView } from '@/features/agent/components/workbench-sources-view';
 import { ACTIVITY_STATUS_COPY } from '@/features/agent/config/activity-status-copy';
 import {
   catalogActivityStatuses,
@@ -164,27 +162,27 @@ export default function UiCatalogScreen() {
 
         <CatalogSection
           title="Workbench 视图"
-          description="Mobile Tab：活动 / 来源 / 产物 / Report / Context（无 Plan Tab）"
+          description="Sheet Tab：实时跟随 + 文件（动态）；来源列表并入实时跟随"
         >
           <View className="overflow-hidden rounded-panel border border-composer-border bg-surface">
             <Text variant="caption" className="border-b border-composer-border px-3 py-2 font-semibold">
-              Activity
+              实时跟随 · 工具 / 终端
             </Text>
             <View className="h-48">
-              <WorkbenchActivityView />
+              <WorkbenchActivityView emphasis="default" />
             </View>
           </View>
           <View className="overflow-hidden rounded-panel border border-composer-border bg-surface">
             <Text variant="caption" className="border-b border-composer-border px-3 py-2 font-semibold">
-              Sources
+              实时跟随 · 来源卡片
             </Text>
             <View className="h-56">
-              <WorkbenchSourcesView />
+              <WorkbenchActivityView emphasis="sources" />
             </View>
           </View>
           <View className="overflow-hidden rounded-panel border border-composer-border bg-surface">
             <Text variant="caption" className="border-b border-composer-border px-3 py-2 font-semibold">
-              Artifact
+              文件
             </Text>
             <View className="h-64">
               <WorkbenchArtifactView />
@@ -192,15 +190,9 @@ export default function UiCatalogScreen() {
           </View>
           <View className="overflow-hidden rounded-panel border border-composer-border bg-surface">
             <Text variant="caption" className="border-b border-composer-border px-3 py-2 font-semibold">
-              Report
+              报告预览（归入文件 Tab · Web 交付物）
             </Text>
             <WorkbenchReportView />
-          </View>
-          <View className="overflow-hidden rounded-panel border border-composer-border bg-surface">
-            <Text variant="caption" className="border-b border-composer-border px-3 py-2 font-semibold">
-              Context
-            </Text>
-            <WorkbenchContextView />
           </View>
         </CatalogSection>
 

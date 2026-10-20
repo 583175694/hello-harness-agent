@@ -2,6 +2,7 @@ import { catalogPlanFixture } from './ui-catalog-fixtures';
 import type {
   MobileAssistantBlock,
   MobileChatFixture,
+  MobileConversationItem,
   MobilePreviewState,
 } from './mobile-preview.types';
 import {
@@ -21,7 +22,7 @@ export const MOBILE_PREVIEW_STATES: Array<{ id: MobilePreviewState; label: strin
   { id: 'reasoning', label: '模型推理' },
   { id: 'artifacts', label: '生成文件' },
   { id: 'attachments', label: '文件附件' },
-  { id: 'context-compacted', label: 'Context 已压缩' },
+  { id: 'context-compacted', label: '上下文已压缩' },
   { id: 'sources', label: '来源视图' },
   { id: 'fetch-running', label: '读取网页中' },
   { id: 'fetch-candidate', label: '已读网页' },
@@ -43,6 +44,7 @@ export const MOBILE_PREVIEW_STATES: Array<{ id: MobilePreviewState; label: strin
   { id: 'failed', label: '执行失败' },
   { id: 'limited-report', label: '受限报告' },
   { id: 'final-report', label: '最终报告' },
+  { id: 'scroll-stress', label: '长会话滚动压测' },
 ];
 
 function text(content: string): MobileAssistantBlock {
@@ -78,6 +80,41 @@ function fetchTool(running: boolean, failed: boolean): ToolActivityFixture {
     status: running ? 'running' : failed ? 'failed' : 'completed',
     statusLabel: running ? '执行中' : failed ? '失败' : '已执行',
     duration: running ? undefined : '2.4 秒',
+  };
+}
+
+const SCROLL_STRESS_TURN_PAIRS = 20;
+
+/** Preview：重复 default 级 assistant 块，用于 FlashList 滚动 FPS 对比 */
+export function scrollStressConversationFixture(): MobileChatFixture {
+  const seed = defaultAuthRefactorFixture();
+  const conversation: MobileConversationItem[] = [];
+  for (let i = 0; i < SCROLL_STRESS_TURN_PAIRS; i++) {
+    conversation.push({
+      kind: 'user',
+      content: `[${i + 1}/${SCROLL_STRESS_TURN_PAIRS}] ${userMessageFixture}`,
+    });
+    const assistantTurn = seed.conversation.find((t) => t.kind === 'assistant');
+    if (assistantTurn?.kind === 'assistant') {
+      conversation.push({
+        ...assistantTurn,
+        showQuickActions: i === SCROLL_STRESS_TURN_PAIRS - 1,
+        streaming: false,
+        deliveryStatus: 'completed',
+      });
+    } else {
+      conversation.push({
+        kind: 'assistant',
+        deliveryStatus: 'completed',
+        blocks: [text(assistantIntroFixture)],
+        showQuickActions: i === SCROLL_STRESS_TURN_PAIRS - 1,
+      });
+    }
+  }
+  return {
+    title: 'scroll-stress',
+    conversation,
+    composer: {},
   };
 }
 
@@ -158,6 +195,10 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
 
   if (state === 'empty') {
     return { conversation: [], composer: {} };
+  }
+
+  if (state === 'scroll-stress') {
+    return scrollStressConversationFixture();
   }
 
   if (state === 'direct-answer') {
@@ -272,7 +313,7 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
         },
       ],
       composer: { submitting: true },
-      workbench: { initialView: 'context', initialSheetIndex: 1 },
+      workbench: { initialView: 'activity', initialSheetIndex: 1 },
     };
   }
 
@@ -290,8 +331,9 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
       ],
       composer: { submitting: running },
       workbench: {
-        initialView: 'sources',
+        initialView: 'activity',
         initialSheetIndex: running ? 1 : -1,
+        activityEmphasis: 'sources',
       },
     };
   }
@@ -381,7 +423,12 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
       state,
       [text('已获得第一批结果，正在交叉验证关键结论。')],
       { submitting: true },
-      { initialView: 'sources', initialSheetIndex: 1 },
+      {
+        initialView: 'activity',
+        initialSheetIndex: 1,
+        activityEmphasis: 'sources',
+        hasDeliverables: false,
+      },
     );
   }
 
@@ -396,7 +443,7 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
         ),
       ],
       {},
-      { initialView: 'report', initialSheetIndex: 1 },
+      { initialView: 'artifact', initialSheetIndex: 1 },
     );
   }
 

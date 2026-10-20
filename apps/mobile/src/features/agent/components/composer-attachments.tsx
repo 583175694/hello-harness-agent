@@ -1,5 +1,7 @@
 import { Image, Pressable, ScrollView, View } from 'react-native';
-import { CircleAlert, LoaderCircle, X } from 'lucide-react-native';
+import { CircleAlert, X } from 'lucide-react-native';
+import { Icon } from '@/components/ui/icon';
+import { SpinnerIcon } from '@/components/ui/spinner-icon';
 import { Text } from '@/components/ui/text';
 import type { ComposerAttachmentFixture } from '../fixtures/ui-fixtures';
 
@@ -30,7 +32,7 @@ export function ComposerAttachments({ items }: ComposerAttachmentsProps) {
       {items.map((item) => (
         <View
           key={item.id}
-          className="relative overflow-hidden rounded-control border border-composer-border bg-canvas"
+          className="relative overflow-hidden rounded-[10px] border border-composer-border bg-canvas"
         >
           {item.kind === 'image' ? (
             <View className="h-16 w-16 items-center justify-center bg-subtle">
@@ -46,9 +48,9 @@ export function ComposerAttachments({ items }: ComposerAttachmentsProps) {
             <View className="h-16 min-w-[140px] max-w-[180px] flex-row items-center gap-2 px-2.5">
               <View className="h-9 w-9 items-center justify-center rounded-md bg-subtle">
                 {item.status === 'processing' ? (
-                  <LoaderCircle size={16} color="#555551" />
+                  <SpinnerIcon tone="secondary" size={16} />
                 ) : item.status === 'failed' ? (
-                  <CircleAlert size={16} color="#984b41" />
+                  <Icon icon={CircleAlert} tone="rejection" size={16} />
                 ) : (
                   <Text variant="caption" className="font-mono font-semibold text-secondary">
                     {fileExtension(item.fileName)}
@@ -69,7 +71,7 @@ export function ComposerAttachments({ items }: ComposerAttachmentsProps) {
             className="absolute right-0.5 top-0.5 h-6 w-6 items-center justify-center rounded-full bg-surface/95 active:bg-subtle"
             accessibilityLabel={`移除${item.fileName}`}
           >
-            <X size={12} color="#555551" />
+            <Icon icon={X} tone="secondary" size={14} />
           </Pressable>
         </View>
       ))}

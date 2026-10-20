@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { ChevronRight } from 'lucide-react-native';
+import { Icon } from '@/components/ui/icon';
+import { ICON_CHEVRON_TONE } from '@/lib/theme';
 import { Text } from '@/components/ui/text';
 
 function formatElapsed(durationMs?: number): string {
@@ -46,14 +48,19 @@ export function ReasoningBlock({
         <Text variant="body-sm" className="text-muted">
           {label}
         </Text>
-        <ChevronRight
+        <Icon
+          icon={ChevronRight}
+          tone={ICON_CHEVRON_TONE.disclosure}
           size={14}
-          color="#898986"
           style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }}
         />
       </Pressable>
       {open ? (
-        <ScrollView className="max-h-[320px] pt-1 pb-2" showsVerticalScrollIndicator={false}>
+        <ScrollView
+          className="max-h-[320px] pt-1 pb-2"
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
+        >
           <Text variant="body-sm" className="leading-relaxed text-muted">
             {content}
           </Text>

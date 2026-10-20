@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { ChevronRight, LoaderCircle } from 'lucide-react-native';
+import { ChevronRight } from 'lucide-react-native';
+import { Icon } from '@/components/ui/icon';
+import { ICON_CHEVRON_TONE } from '@/lib/theme';
+import { SpinnerIcon } from '@/components/ui/spinner-icon';
 import { Text } from '@/components/ui/text';
 import type { ToolActivityFixture } from '../fixtures/ui-fixtures';
 
@@ -35,13 +38,14 @@ export function ToolActivityGroup({ items, onOpenWorkbench }: ToolActivityGroupP
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
       >
-        {running ? <LoaderCircle size={14} color="#898986" /> : null}
+        {running ? <SpinnerIcon tone="muted" size={14} /> : null}
         <Text variant="body-sm" className="text-muted">
           {summary}
         </Text>
-        <ChevronRight
+        <Icon
+          icon={ChevronRight}
+          tone={ICON_CHEVRON_TONE.disclosure}
           size={14}
-          color="#898986"
           style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }}
         />
       </Pressable>
@@ -63,7 +67,7 @@ export function ToolActivityGroup({ items, onOpenWorkbench }: ToolActivityGroupP
                   {item.statusLabel ? ` · ${item.statusLabel}` : item.duration ? ` · ${item.duration}` : ''}
                 </Text>
                 {status === 'running' ? (
-                  <LoaderCircle size={12} color="#898986" />
+                  <SpinnerIcon tone="muted" size={14} />
                 ) : null}
               </Pressable>
             );

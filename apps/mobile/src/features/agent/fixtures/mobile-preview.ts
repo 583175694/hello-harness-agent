@@ -12,7 +12,6 @@ import {
 } from './ui-fixtures';
 import type { ToolActivityFixture } from './ui-fixtures';
 
-/** `id` 为与 Web `?state=` 对齐的页面标识符（非路由 path） */
 export const MOBILE_PREVIEW_STATES: Array<{ id: MobilePreviewState; label: string }> = [
   { id: 'empty', label: '空会话' },
   { id: 'direct-answer', label: '直接回答' },
@@ -264,7 +263,7 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
         },
       ],
       composer: { showPlan: running, submitting: running },
-      workbench: running ? { initialView: 'activity', initialSheetIndex: 1 } : undefined,
+      workbench: running ? { initialView: 'activity' } : undefined,
     };
   }
 
@@ -285,7 +284,7 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
         },
       ],
       composer: {},
-      workbench: { initialView: 'artifact', initialSheetIndex: 1, workbenchCount: 3 },
+      workbench: { initialView: 'artifact', initialSheetIndex: 2, workbenchCount: 3 },
     };
   }
 
@@ -318,7 +317,7 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
         },
       ],
       composer: { submitting: true },
-      workbench: { initialView: 'activity', initialSheetIndex: 1 },
+      workbench: { initialView: 'activity' },
     };
   }
 
@@ -340,7 +339,6 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
       composer: { submitting: running },
       workbench: {
         initialView: 'activity',
-        initialSheetIndex: running ? 1 : -1,
         activityEmphasis: 'sources',
       },
     };
@@ -422,7 +420,7 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
       state,
       [text('已获得第一批结果，正在交叉验证关键结论。')],
       { submitting: true },
-      { initialView: 'activity', initialSheetIndex: 1 },
+      { initialView: 'activity', initialSheetIndex: 2 },
     );
   }
 
@@ -433,7 +431,6 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
       { submitting: true },
       {
         initialView: 'activity',
-        initialSheetIndex: 1,
         activityEmphasis: 'sources',
         hasDeliverables: false,
       },
@@ -451,7 +448,7 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
         ),
       ],
       {},
-      { initialView: 'artifact', initialSheetIndex: 1 },
+      { initialView: 'artifact', initialSheetIndex: 2 },
     );
   }
 

@@ -12,14 +12,11 @@ import { ReasoningBlock } from '@/features/agent/components/agent-elements/reaso
 import { UserInterventionRow } from '@/features/agent/components/agent-elements/user-intervention-row';
 import { UserMessageBubble } from '@/features/agent/components/agent-elements/user-message-bubble';
 import { AgentChainOfThought } from '@/features/agent/components/agent-elements/agent-chain-of-thought';
-import { ComposerContextRing } from '@/features/agent/components/agent-elements/composer-context-ring';
 import { SkillMentionChip } from '@/features/agent/components/agent-elements/skill-mention-chip';
 import { ChatTopBar } from '@/features/agent/components/chat-top-bar';
 import { ConnectionPill } from '@/features/agent/components/connection-pill';
 import { ComposerPeekBar } from '@/features/agent/components/composer-peek-bar';
 import { ServiceBanner } from '@/features/agent/components/service-banner';
-import { ContextJsonTree } from '@/features/agent/components/context-json-tree';
-import { WorkbenchContextView } from '@/features/agent/components/workbench-context-view';
 import { ComposerClarificationPanel } from '@/features/agent/components/composer-clarification-panel';
 import { ComposerHitlPanel } from '@/features/agent/components/composer-hitl-panel';
 import { ComposerStack } from '@/features/agent/components/composer-stack';
@@ -34,7 +31,6 @@ import {
   catalogFollowUpFixture,
   catalogToolActivities,
   catalogToolStatusSamples,
-  catalogContextFixture,
 } from '@/features/agent/fixtures/ui-catalog-fixtures';
 
 export default function UiCatalogScreen() {
@@ -55,8 +51,11 @@ export default function UiCatalogScreen() {
           </Text>
         </View>
 
-        <CatalogSection title="壳层 · TopBar" description="工作台 badge · 连接态 · 设置">
-          <ChatTopBar workbenchCount={3} runSummary="检索中" connectionState="live" />
+        <CatalogSection title="壳层 · TopBar" description="会话标题 · 工作台图标 · 异常连接态">
+          <ChatTopBar connectionState="live" />
+          <View className="mt-2 overflow-hidden rounded-panel border border-border">
+            <ChatTopBar runSummary="重连中…" connectionState="reconnecting" />
+          </View>
         </CatalogSection>
 
         <CatalogSection title="壳层 · Connection / Service">
@@ -183,14 +182,6 @@ export default function UiCatalogScreen() {
           <ComposerPeekBar title="正在搜索公开来源" subtitle="步骤 2 / 5" onPress={() => undefined} />
         </CatalogSection>
 
-        <CatalogSection title="Composer · Context 环">
-          <ComposerContextRing
-            usedTokens={catalogContextFixture.estimatedInputTokens}
-            budgetTokens={catalogContextFixture.promptBudget}
-            compactionTriggered={catalogContextFixture.compactionTriggered}
-          />
-        </CatalogSection>
-
         <CatalogSection title="Composer · 默认">
           <ComposerStack
             attachmentSheetOpen={attachmentOpen}
@@ -257,11 +248,6 @@ export default function UiCatalogScreen() {
               打开 MCP 列表与表单
             </Text>
           </Link>
-        </CatalogSection>
-
-        <CatalogSection title="Context 调试 JSON（Catalog）">
-          <WorkbenchContextView />
-          <ContextJsonTree />
         </CatalogSection>
 
         <CatalogSection title="Session Drawer" description="见 /preview/d-drawer 全屏帧">

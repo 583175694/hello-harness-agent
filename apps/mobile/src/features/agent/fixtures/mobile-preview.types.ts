@@ -84,7 +84,6 @@ export type MobileComposerFixture = {
   showAttachmentSamples?: boolean;
   submitting?: boolean;
   selectedSkills?: string[];
-  showContextRing?: boolean;
   composerTextMode?: 'new-run' | 'steer' | 'clarification' | 'disabled';
 };
 

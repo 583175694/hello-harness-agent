@@ -39,12 +39,6 @@ export default function PreviewIndexScreen() {
             <Text variant="body-sm" className="mt-1 text-secondary">
               {frame.desc}
             </Text>
-            <Text variant="caption" className="mt-2 text-muted">
-              页面标识符{' '}
-              <Text variant="caption" className="font-mono">
-                {frame.href}
-              </Text>
-            </Text>
           </Pressable>
         </Link>
       ))}

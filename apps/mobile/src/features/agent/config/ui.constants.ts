@@ -7,6 +7,14 @@ export { APP_BRAND, ICON_CHEVRON_TONE };
 export const AGENT_UI_LAYOUT = {
   chatTopBarHeight: 48,
   workbenchTopInset: (safeAreaTop: number) => safeAreaTop + 48,
+  /** Composer Plan 浮卡 — 仅在对话/composer  subtree 内叠放 */
+  composerPlanZIndex: 1,
+  /** Workbench BottomSheet — 须盖住 Plan 与 Composer（靠 Modal 层 + 数值兜底） */
+  workbenchSheetZIndex: 100,
+  workbenchSheetElevation: 32,
+  /** 三档 detent：低 / 中 / 最高（打开 Workbench 默认最高档） */
+  workbenchSheetSnapPoints: ['44%', '72%', '98%'] as const,
+  workbenchSheetDefaultSnapIndex: 2,
 } as const;
 
 export const AGENT_UI_COPY = {

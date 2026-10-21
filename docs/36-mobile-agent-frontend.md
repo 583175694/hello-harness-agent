@@ -165,7 +165,7 @@ Mobile 是 **本地 Harness Agent 的全功能客户端**，用户可以在外�
 | M-CMP-6 | Tool approval | 列表 + 展开 detail；批准/拒绝；可取消 Run |
 | M-CMP-7 | Follow-up Queue | promote / send / cancel pending |
 | M-CMP-8 | Plan 浮卡 | `PlanFloatingCard` 等价；running 时可见 |
-| M-CMP-9 | Context 环 | tokens / budget / compactionTriggered |
+| M-CMP-9 | Context 环 | **Mobile 不展示**（调试见 Web Workbench Context） |
 | M-CMP-10 | 附件 | 选图/文件、上传进度、retry/cancel/remove、Vision 校验 |
 | M-CMP-11 | 粘贴 | 图片剪贴板；长文本 → TXT 附件（4000 code points 阈值） |
 | M-CMP-12 | 历史 reasoning 不兼容 | 禁发 + 引导新建 Session |
@@ -418,7 +418,7 @@ Composer HITL Panel — 仅 clarification + tool_approval（C）；禁止与 She
 
 - `new-run`：`+` 附件菜单（文件和图片）。
 - 模型菜单 + 推理强度菜单（`Dropdown` → Mobile 用 **ActionSheet / BottomSheet**）。
-- Context 环（百分比 + 展开 token 详情）。
+- Context 环：**Mobile 省略**（不占用 Composer 与 Workbench Tab）。
 - 发送 / 停止：`submitting` 时主按钮为 **停止**（`cancelRun`）。
 
 **键盘**：
@@ -965,7 +965,7 @@ Maestro（`apps/mobile/maestro/p2-smoke.yaml`）建议在 P2 通过后补，不�
 | Stitch 五帧 + UI Catalog | **已实现**：`/preview/*`、`ui-catalog`；`ChatScreen` 等走 **fixture** |
 | Workbench Bottom Sheet | **壳已接**：`WorkbenchSheet` + C5 双 Tab（动态）+ 跟随内嵌来源/终端 **静态样例** |
 | Settings | **静态已收口**：API URL / 主题 / 字号（AsyncStorage）；记忆 Hub·列表·表单；MCP 列表·表单（本地演示） |
-| Memory / Skills / Composer 壳层 | **静态已收口**：Skill picker、memory_write catalog、Connection/Service/Peek/Context 环、Markdown/CoT/Reader/iPad 并排 |
+| Memory / Skills / Composer 壳层 | **静态已收口**：Skill picker、memory_write catalog、Connection/Service/Peek、Markdown/CoT/Reader/iPad 并排（无 Context/token 常驻 UI） |
 | `@harness/agent-client` / `agent-conversation` | **未创建**（P0） |
 | 与 API 联调 | **未开始**（P1 起） |
 

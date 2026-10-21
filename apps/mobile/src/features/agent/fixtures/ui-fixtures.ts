@@ -123,8 +123,7 @@ export const artifactsFixture: ArtifactFixture[] = [
     id: 'a2',
     name: 'test_auth_2fa.py',
     version: 'v2.0',
-    description: '新增 TOTP 验证用例 (当前查看)',
-    selected: true,
+    description: '新增 TOTP 验证用例',
   },
   {
     id: 'a3',

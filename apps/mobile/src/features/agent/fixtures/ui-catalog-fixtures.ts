@@ -93,9 +93,3 @@ export const catalogArtifactBlock = {
   status: 'ready' as const,
 };
 
-export const catalogContextFixture = {
-  estimatedInputTokens: 12400,
-  promptBudget: 64000,
-  compactionTriggered: true,
-  roundSequence: 3,
-};

@@ -26,7 +26,8 @@ const detailPanelShadow = {
   shadowOpacity: 0.12,
   shadowRadius: 12,
   shadowOffset: { width: 0, height: 8 },
-  elevation: 8,
+  /** 勿用 elevation 抬升整卡，否则在 Android 上会压住 Gorhom Portal 内的 Workbench */
+  elevation: 0,
 } as const;
 
 type PlanStep = { step: string; status: 'pending' | 'in_progress' | 'completed' };
@@ -189,7 +190,14 @@ export function PlanFloatingCard({
       <PressableScale
         scaleEnabled={false}
         onPress={() => setOpen(!open)}
-        className="min-h-[38px] flex-row items-center gap-2 rounded-full border border-composer-border bg-surface/95 px-4 py-2 active:opacity-90 shadow-md"
+        className="min-h-[38px] flex-row items-center gap-2 rounded-full border border-composer-border bg-surface/95 px-4 py-2 active:opacity-90"
+        style={{
+          shadowColor: '#000',
+          shadowOpacity: 0.1,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 4 },
+          elevation: 0,
+        }}
         accessibilityRole="button"
         accessibilityLabel={`执行计划，第 ${activeIndex + 1} / ${plan.length} 步`}
         accessibilityState={{ expanded: open }}

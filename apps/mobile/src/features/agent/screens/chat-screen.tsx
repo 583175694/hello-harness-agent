@@ -15,6 +15,7 @@ import { makeMobilePreviewState } from '../fixtures/mobile-preview';
 import type { MobilePreviewState } from '../fixtures/mobile-preview.types';
 import { normalizeWorkbenchView, resolveMobileWorkbenchVisibleTabs } from '../config/workbench-tabs';
 import type { WorkspaceView } from '../fixtures/ui-fixtures';
+import { AGENT_UI_LAYOUT } from '../config/ui.constants';
 import { catalogPlanFixture } from '../fixtures/ui-catalog-fixtures';
 
 type ChatScreenProps = {
@@ -46,7 +47,6 @@ function ChatScreenInner({
   const isSplitLayout = forceSplitLayout || width >= 768;
 
   const sheetRef = useRef<BottomSheetModal>(null);
-  const ignoreSheetClosedUntilRef = useRef(0);
   const [drawerOpen, setDrawerOpen] = useState(showDrawer);
   const [drawerExitInstant, setDrawerExitInstant] = useState(false);
   const [serviceDismissed, setServiceDismissed] = useState(false);
@@ -67,26 +67,27 @@ function ChatScreenInner({
     normalizeWorkbenchView(fixture.workbench?.initialView, visibleWorkbenchTabs),
   );
   const [workbenchOpen, setWorkbenchOpen] = useState(isSplitLayout);
-  const [attachmentSheetOpen, setAttachmentSheetOpen] = useState(false);
-
-  const overlayBlocksConversation =
-    (!isSplitLayout && workbenchOpen) || drawerOpen || attachmentSheetOpen;
-
   const openWorkbench = useCallback(
-    (view: WorkspaceView = 'activity', snapIndex = 1) => {
-      setDrawerOpen(false);
-      setAttachmentSheetOpen(false);
+    (
+      view: WorkspaceView = 'activity',
+      snapIndex: number = AGENT_UI_LAYOUT.workbenchSheetDefaultSnapIndex,
+    ) => {
       setWorkbenchView(view);
       if (isSplitLayout) {
         setWorkbenchOpen(true);
         return;
       }
-      setWorkbenchOpen(true);
-      ignoreSheetClosedUntilRef.current = Date.now() + 600;
-      sheetRef.current?.present();
-      setTimeout(() => {
-        sheetRef.current?.snapToIndex(snapIndex);
-      }, 80);
+      const sheet = sheetRef.current;
+      if (!sheet) {
+        return;
+      }
+      sheet.present();
+      // 首次 mount 时 present 内 rAF 可能早于 sheet 挂载，补 snap 到目标 detent
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          sheetRef.current?.snapToIndex(snapIndex);
+        });
+      });
     },
     [isSplitLayout],
   );
@@ -96,18 +97,13 @@ function ChatScreenInner({
       setWorkbenchOpen(true);
       return;
     }
-    setWorkbenchOpen(false);
     sheetRef.current?.dismiss();
   }, [isSplitLayout]);
 
   const openDrawer = useCallback(() => {
-    if (!isSplitLayout) {
-      closeWorkbench();
-    }
-    setAttachmentSheetOpen(false);
     setDrawerExitInstant(false);
     setDrawerOpen(true);
-  }, [closeWorkbench, isSplitLayout]);
+  }, []);
 
   const openSettingsFromDrawer = useCallback(() => {
     setDrawerExitInstant(true);
@@ -121,32 +117,12 @@ function ChatScreenInner({
     }
   }, [drawerOpen]);
 
-  const openAttachmentSheet = useCallback(() => {
-    if (!isSplitLayout) closeWorkbench();
-    setDrawerOpen(false);
-    setAttachmentSheetOpen(true);
-  }, [closeWorkbench, isSplitLayout]);
-
   const handleOpenWorkbenchFromConversation = useCallback(
     (view?: WorkspaceView) => {
       openWorkbench(view ?? 'activity');
     },
     [openWorkbench],
   );
-
-  const handleWorkbenchModalDismiss = useCallback(() => {
-    setWorkbenchOpen(false);
-  }, []);
-
-  const handleSheetIndexChange = useCallback((index: number) => {
-    if (index >= 0) {
-      return;
-    }
-    if (Date.now() < ignoreSheetClosedUntilRef.current) {
-      return;
-    }
-    setWorkbenchOpen(false);
-  }, []);
 
   useEffect(() => {
     if (previewState === 'default') {
@@ -170,12 +146,7 @@ function ChatScreenInner({
   const connectionState = chrome?.connectionState ?? 'live';
   const runSummary = chrome?.runSummary;
   const showPeek =
-    composer.submitting &&
-    !isSplitLayout &&
-    !workbenchOpen &&
-    !drawerOpen &&
-    !attachmentSheetOpen &&
-    Boolean(chrome?.peekBarTitle);
+    composer.submitting && !isSplitLayout && Boolean(chrome?.peekBarTitle);
   const peekTitle =
     chrome?.peekBarTitle ??
     catalogPlanFixture.plan.find((s) => s.status === 'in_progress')?.step ??
@@ -192,8 +163,6 @@ function ChatScreenInner({
       >
         <ChatTopBar
           title={fixture.title}
-          underOverlay={!isSplitLayout && workbenchOpen}
-          workbenchCount={workbenchCount}
           runSummary={runSummary}
           connectionState={connectionState}
           onOpenDrawer={openDrawer}
@@ -212,24 +181,17 @@ function ChatScreenInner({
             <ConversationPanel
               conversation={fixture.conversation}
               bottomInset={insets.bottom + (showPeek ? 200 : 160)}
-              scrollEnabled={!overlayBlocksConversation}
+              scrollEnabled
               onOpenWorkbench={handleOpenWorkbenchFromConversation}
             />
             {showPeek ? (
               <ComposerPeekBar
                 title={peekTitle}
                 subtitle={chrome?.peekBarSubtitle}
-                onPress={() => openWorkbench('activity', 1)}
+                onPress={() => openWorkbench('activity')}
               />
             ) : null}
-            <ComposerStack
-              {...composer}
-              bottomInset={insets.bottom}
-              suppressPlanOverlay={overlayBlocksConversation}
-              attachmentSheetOpen={attachmentSheetOpen}
-              onAttachmentSheetOpenChange={setAttachmentSheetOpen}
-              onOpenAttachmentSheet={openAttachmentSheet}
-            />
+            <ComposerStack {...composer} bottomInset={insets.bottom} />
           </View>
           {isSplitLayout && workbenchOpen ? (
             <WorkbenchPanel
@@ -243,6 +205,13 @@ function ChatScreenInner({
         </View>
       </View>
 
+      <SessionDrawer
+        visible={drawerOpen}
+        exitInstant={drawerExitInstant}
+        onClose={() => setDrawerOpen(false)}
+        onOpenSettings={openSettingsFromDrawer}
+      />
+
       {!isSplitLayout ? (
         <WorkbenchSheet
           ref={sheetRef}
@@ -250,19 +219,10 @@ function ChatScreenInner({
           workbenchCount={workbenchCount}
           hasDeliverables={hasDeliverables}
           activityEmphasis={activityEmphasis}
-          onDismiss={handleWorkbenchModalDismiss}
           onRequestClose={closeWorkbench}
           onViewChange={setWorkbenchView}
-          onSheetIndexChange={handleSheetIndexChange}
         />
       ) : null}
-
-      <SessionDrawer
-        visible={drawerOpen}
-        exitInstant={drawerExitInstant}
-        onClose={() => setDrawerOpen(false)}
-        onOpenSettings={openSettingsFromDrawer}
-      />
     </>
   );
 }

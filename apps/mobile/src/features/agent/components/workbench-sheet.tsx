@@ -12,6 +12,7 @@ import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { OVERLAY_SCRIM_OPACITY } from '@/lib/theme';
 import { AGENT_UI_LAYOUT } from '../config/ui.constants';
+import { WorkbenchSheetWindowContainer } from './workbench-sheet-window-container';
 import {
   normalizeWorkbenchView,
   resolveMobileWorkbenchVisibleTabs,
@@ -21,7 +22,7 @@ import {
   WorkbenchActivityContent,
   type WorkbenchActivityEmphasis,
 } from './workbench-activity-view';
-import { WorkbenchArtifactFooter, WorkbenchArtifactScrollContent } from './workbench-artifact-view';
+import { WorkbenchArtifactBody } from './workbench-artifact-view';
 import { WorkbenchSegmentedTabs } from './workbench-segmented-tabs';
 
 type WorkbenchSheetProps = {
@@ -32,7 +33,6 @@ type WorkbenchSheetProps = {
   onDismiss?: () => void;
   onRequestClose?: () => void;
   onViewChange?: (view: WorkspaceView) => void;
-  /** index >= 0 表示 Sheet 已展开（用于隐藏 Composer 上飘的 Plan 等 overlay） */
   onSheetIndexChange?: (index: number) => void;
 };
 
@@ -50,7 +50,10 @@ export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(
   ref,
 ) {
   const insets = useSafeAreaInsets();
-  const snapPoints = useMemo(() => ['38%', '60%', '92%'], []);
+  const snapPoints = useMemo(
+    () => [...AGENT_UI_LAYOUT.workbenchSheetSnapPoints],
+    [],
+  );
   const topInset = useMemo(() => AGENT_UI_LAYOUT.workbenchTopInset(insets.top), [insets.top]);
 
   const sheetScrollPaddingBottom = Math.max(insets.bottom, 16) + 8;
@@ -96,18 +99,7 @@ export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(
   const renderTabBody = () => {
     if (activeView === 'artifact') {
       return (
-        <>
-          <BottomSheetScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: 12 }}
-            showsVerticalScrollIndicator={false}
-            overScrollMode="never"
-            keyboardShouldPersistTaps="handled"
-          >
-            <WorkbenchArtifactScrollContent />
-          </BottomSheetScrollView>
-          <WorkbenchArtifactFooter bottomInset={insets.bottom} />
-        </>
+        <WorkbenchArtifactBody bottomInset={insets.bottom} useBottomSheetScroll />
       );
     }
 
@@ -124,14 +116,16 @@ export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(
     );
   };
 
-  const badgeCount = workbenchCount > 0 ? workbenchCount : undefined;
+  const defaultSnapIndex = AGENT_UI_LAYOUT.workbenchSheetDefaultSnapIndex;
 
   return (
     <BottomSheetModal
       ref={ref}
+      index={defaultSnapIndex}
       snapPoints={snapPoints}
       enableDynamicSizing={false}
       topInset={topInset}
+      containerComponent={WorkbenchSheetWindowContainer}
       enablePanDownToClose
       onChange={handleSheetChange}
       onDismiss={handleDismiss}
@@ -148,7 +142,7 @@ export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(
       <View className="gap-3 border-b border-composer-border px-4 pb-2.5 pt-1">
         <View className="flex-row items-center justify-between">
           <Text variant="headline" className="text-[15px]">
-            工作台{badgeCount != null ? ` (${badgeCount})` : ''}
+            工作台
           </Text>
           <Pressable
             onPress={onRequestClose}

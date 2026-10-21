@@ -1,13 +1,12 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 import { ArrowUp, Plus, Square } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { PressableScale } from '@/components/ui/pressable-scale';
-import { AGENT_UI_COPY } from '../config/ui.constants';
+import { AGENT_UI_COPY, AGENT_UI_LAYOUT } from '../config/ui.constants';
 import type { MobileComposerFixture } from '../fixtures/mobile-preview.types';
-import { catalogContextFixture, catalogPlanFixture } from '../fixtures/ui-catalog-fixtures';
+import { catalogPlanFixture } from '../fixtures/ui-catalog-fixtures';
 import { composerAttachmentsFixture } from '../fixtures/ui-fixtures';
-import { ComposerContextRing } from './agent-elements/composer-context-ring';
 import { SkillMentionChip } from './agent-elements/skill-mention-chip';
 import { FollowUpQueuePanel } from './agent-elements/follow-up-queue-panel';
 import { PlanFloatingCard } from './agent-elements/plan-floating-card';
@@ -24,10 +23,9 @@ import { ComposerSkillPickerSheet } from './composer-skill-picker-sheet';
 
 type ComposerStackProps = MobileComposerFixture & {
   bottomInset?: number;
-  suppressPlanOverlay?: boolean;
+  /** UI Catalog：外部控制附件 Sheet 可见性 */
   attachmentSheetOpen?: boolean;
   onAttachmentSheetOpenChange?: (open: boolean) => void;
-  onOpenAttachmentSheet?: () => void;
   onCancelRun?: () => void;
 };
 
@@ -40,17 +38,15 @@ export function ComposerStack({
   followUpItems = [],
   submitting = false,
   selectedSkills: selectedSkillsProp,
-  showContextRing = true,
   composerTextMode = 'new-run',
-  suppressPlanOverlay = false,
   attachmentSheetOpen: attachmentSheetOpenProp,
   onAttachmentSheetOpenChange,
-  onOpenAttachmentSheet,
   onCancelRun,
 }: ComposerStackProps) {
   const safeBottom = Math.max(bottomInset, 8);
   const [attachmentSheetOpenLocal, setAttachmentSheetOpenLocal] = useState(false);
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const openSkillPickerAfterAttachmentCloseRef = useRef(false);
   const [selectedSkillsLocal, setSelectedSkillsLocal] = useState<string[]>(
     selectedSkillsProp ?? [],
   );
@@ -71,14 +67,6 @@ export function ComposerStack({
     } else {
       setAttachmentSheetOpenLocal(open);
     }
-  };
-
-  const handleOpenAttachmentSheet = () => {
-    if (onOpenAttachmentSheet) {
-      onOpenAttachmentSheet();
-      return;
-    }
-    setAttachmentSheetOpen(true);
   };
 
   const toggleSkill = useCallback(
@@ -112,7 +100,8 @@ export function ComposerStack({
       ]
     : composerAttachmentsFixture;
 
-  const planVisible = showPlan && submitting && !suppressPlanOverlay;
+  const planVisible =
+    showPlan && submitting && !attachmentSheetOpen && !skillPickerOpen;
 
   const placeholder = useMemo(() => {
     if (composerTextMode === 'steer') return AGENT_UI_COPY.composerPlaceholders.steer;
@@ -158,7 +147,10 @@ export function ComposerStack({
 
         <View className="relative">
           {planVisible ? (
-            <View className="absolute bottom-full z-10 mb-2.5 w-full items-center">
+            <View
+              className="absolute bottom-full mb-2.5 w-full items-center"
+              style={{ zIndex: AGENT_UI_LAYOUT.composerPlanZIndex }}
+            >
               <PlanFloatingCard
                 plan={catalogPlanFixture.plan}
                 explanation={catalogPlanFixture.explanation}
@@ -200,26 +192,19 @@ export function ComposerStack({
                 className="h-11 w-11 items-center justify-center rounded-control active:bg-subtle"
                 accessibilityRole="button"
                 accessibilityLabel="添加附件与 Skill"
-                onPress={handleOpenAttachmentSheet}
+                onPress={() => setAttachmentSheetOpen(true)}
               >
                 <Icon icon={Plus} tone="primary" size={20} />
               </Pressable>
 
               <View className="flex-1 flex-row items-center justify-end gap-1">
-                {showContextRing ? (
-                  <ComposerContextRing
-                    usedTokens={catalogContextFixture.estimatedInputTokens}
-                    budgetTokens={catalogContextFixture.promptBudget}
-                    compactionTriggered={catalogContextFixture.compactionTriggered}
-                  />
-                ) : null}
                 {composerTextMode !== 'steer' && composerTextMode !== 'clarification' ? (
                   <ComposerModelMenu
                     modelId={modelId}
                     reasoningEffort={reasoningEffort}
                     onModelChange={setModelId}
                     onReasoningChange={setReasoningEffort}
-                    disabled={submitting || inputDisabled}
+                    disabled={inputDisabled}
                   />
                 ) : null}
                 <PressableScale
@@ -244,7 +229,15 @@ export function ComposerStack({
       <ComposerAttachmentSheet
         visible={attachmentSheetOpen}
         onClose={() => setAttachmentSheetOpen(false)}
-        onOpenSkills={() => setSkillPickerOpen(true)}
+        onDidClose={() => {
+          if (openSkillPickerAfterAttachmentCloseRef.current) {
+            openSkillPickerAfterAttachmentCloseRef.current = false;
+            setSkillPickerOpen(true);
+          }
+        }}
+        onOpenSkills={() => {
+          openSkillPickerAfterAttachmentCloseRef.current = true;
+        }}
       />
       <ComposerSkillPickerSheet
         visible={skillPickerOpen}

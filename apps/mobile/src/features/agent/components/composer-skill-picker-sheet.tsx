@@ -1,9 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Input } from '@/components/ui/input';
+import { Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Check } from 'lucide-react-native';
+import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { skillCatalogFixtures, type SkillCatalogItem } from '../fixtures/skill-fixtures';
+import { ComposerBottomDrawer } from './composer-bottom-drawer';
+import {
+  ComposerSheetGrabHandle,
+  ComposerSheetHeader,
+} from './composer-sheet-chrome';
 
 type ComposerSkillPickerSheetProps = {
   visible: boolean;
@@ -18,7 +23,6 @@ export function ComposerSkillPickerSheet({
   onClose,
   onToggleSkill,
 }: ComposerSkillPickerSheetProps) {
-  const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -30,62 +34,61 @@ export function ComposerSkillPickerSheet({
   }, [query]);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-overlay-scrim" onPress={onClose} />
-      <View
-        className="max-h-[70%] rounded-t-panel border-t border-border bg-surface"
-        style={{ paddingBottom: Math.max(insets.bottom, 12) }}
-      >
-        <View className="items-center py-2">
-          <View className="h-1 w-9 rounded-full bg-border" />
-        </View>
-        <Text variant="body-sm" className="px-4 pb-2 font-semibold">
-          选择 Skill
-        </Text>
-        <View className="px-4 pb-2">
-          <Input
-            value={query}
-            onChangeText={setQuery}
-            placeholder="搜索技能…"
-            className="h-10"
-          />
-        </View>
-        <ScrollView className="px-2" keyboardShouldPersistTaps="handled">
-          {filtered.length === 0 ? (
-            <Text variant="body-sm" className="px-4 py-6 text-center text-muted">
-              没有匹配的技能
-            </Text>
-          ) : (
-            filtered.map((skill: SkillCatalogItem) => {
-              const active = selected.includes(skill.name);
-              return (
-                <Pressable
-                  key={skill.name}
-                  onPress={() => onToggleSkill(skill.name)}
-                  className={`mx-2 mb-2 rounded-control border px-3 py-3 ${
-                    active ? 'border-primary bg-subtle' : 'border-composer-border bg-surface'
-                  }`}
-                >
-                  <Text variant="body-sm" className="font-semibold">
-                    {skill.name}
-                  </Text>
-                  <Text variant="caption" className="mt-1 text-secondary">
-                    {skill.description}
-                  </Text>
-                </Pressable>
-              );
-            })
-          )}
-        </ScrollView>
-        <Pressable
-          onPress={onClose}
-          className="mx-4 mt-2 items-center rounded-control bg-subtle py-3 active:bg-subtle-pressed"
-        >
-          <Text variant="body-sm" className="font-semibold">
-            完成
-          </Text>
-        </Pressable>
+    <ComposerBottomDrawer visible={visible} onClose={onClose}>
+      <ComposerSheetGrabHandle />
+      <ComposerSheetHeader title="Skill" actionLabel="完成" onAction={onClose} />
+
+      <View className="mx-4 mb-2 h-10 justify-center rounded-full bg-subtle px-4">
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="搜索"
+          placeholderTextColor="#898986"
+          className="p-0 text-[15px] text-primary"
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+        />
       </View>
-    </Modal>
+
+      <ScrollView
+        className="max-h-80"
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {filtered.length === 0 ? (
+          <Text variant="body-sm" className="px-4 py-10 text-center text-muted">
+            没有匹配的技能
+          </Text>
+        ) : (
+          filtered.map((skill: SkillCatalogItem, index) => {
+            const active = selected.includes(skill.name);
+            return (
+              <Pressable
+                key={skill.name}
+                onPress={() => onToggleSkill(skill.name)}
+                className={`min-h-[48px] flex-row items-center gap-2 px-4 active:bg-subtle ${
+                  index < filtered.length - 1 ? 'border-b border-composer-border' : ''
+                }`}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: active }}
+                accessibilityLabel={skill.name}
+                accessibilityHint={skill.description}
+              >
+                <Text
+                  variant="body"
+                  className={`min-w-0 flex-1 font-normal ${active ? 'text-primary' : 'text-secondary'}`}
+                  numberOfLines={1}
+                >
+                  {skill.name}
+                </Text>
+                {active ? (
+                  <Icon icon={Check} tone="primary" size={20} strokeWidth={2.25} />
+                ) : null}
+              </Pressable>
+            );
+          })
+        )}
+      </ScrollView>
+    </ComposerBottomDrawer>
   );
 }

@@ -4,11 +4,11 @@ Manual checks on iOS Simulator after better-ui polish changes.
 
 1. Home default fixture → open Workbench → **产物** tab at ~60% detent: Plan pill must not overlap diff code.
 2. Same state: artifact footer actions clear of home indicator (safe area).
-3. Session Drawer open: conversation behind does not scroll; closes → conversation scrolls again.
-4. Workbench Sheet open: conversation does not scroll; only sheet content scrolls.
-5. Workbench Sheet open: backdrop dim covers **ChatTopBar** (header not left bright white above shadow).
-6. **Overlay mutex**: Workbench open → tap **+** closes Workbench and shows attachment sheet only; attachment open → open Workbench closes attachment.
-7. **Attachment sheet** open: conversation does not scroll; Plan pill suppressed (same as Workbench).
+3. Session Drawer open: Drawer Modal 拦截触摸；关闭 Drawer 后交互恢复正常（**不要求** ChatScreen 互相关闭其它浮层）。
+4. Workbench Sheet open: Sheet 内容与 backdrop 可交互；**不要求**父级禁用会话滚动或互关附件/Drawer。
+5. Workbench Sheet open: backdrop 与 `topInset` 视觉对齐（标题区在 scrim 下变暗即可）。
+6. **浮层独立**：Workbench、Session Drawer、附件菜单 **互不** 在代码里 `dismiss` / 关 state；一层打开时点不到其它入口属正常，无需 mutex。
+7. **Attachment sheet** open: Plan pill 仅在 Composer 内随附件/Skill 抽屉隐藏（与 Workbench/Drawer 无关）。
 8. **Session Drawer**: panel slides from left (~200ms); dismiss scrim top aligns with safe area (not `pt-14` gap).
 9. **Reduce Motion** on: Drawer/attachment have no slide (instant sheet + optional scrim fade); spinners static.
 10. `/preview/artifact`: auto-open sheet satisfies 1–2.

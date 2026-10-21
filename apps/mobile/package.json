@@ -11,7 +11,8 @@
     "ios": "node scripts/open-ios-simulator.mjs && expo start --ios --localhost",
     "ios:open": "node scripts/open-ios-simulator.mjs",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "expo lint"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",

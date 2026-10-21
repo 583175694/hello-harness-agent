@@ -88,3 +88,21 @@ export const ICON_CHEVRON_TONE = {
   disclosure: 'chevronIdle',
   push: 'muted',
 } as const satisfies Record<string, IconTone>;
+
+/** Composer 附件 / Skill 浮层卡片（better-ui：elevation 用 shadow，不用嵌套灰底） */
+export const COMPOSER_SHEET_CARD_SHADOW = {
+  shadowColor: '#000000',
+  shadowOpacity: 0.1,
+  shadowRadius: 20,
+  shadowOffset: { width: 0, height: 8 },
+  elevation: 12,
+} as const;
+
+/** Composer 底部抽屉面板（Skill / 模型等全宽圆顶 Sheet） */
+export const COMPOSER_BOTTOM_DRAWER_PANEL_SHADOW = {
+  shadowColor: '#000000',
+  shadowOpacity: 0.12,
+  shadowRadius: 24,
+  shadowOffset: { width: 0, height: -4 },
+  elevation: 16,
+} as const;

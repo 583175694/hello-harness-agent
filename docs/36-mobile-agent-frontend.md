@@ -2,7 +2,7 @@
 
 > 文档状态：**移动端产品与技术方案（待实施）**  
 > 最后更新：2026-09-24  
-> 关联：[19-agent-frontend.md](./19-agent-frontend.md)（Web 产品契约，Mobile 须语义 parity）、[11-api-protocol.md](./11-api-protocol.md)、[26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)、[18-project-structure.md](./18-project-structure.md)、[35-c4-mcp-client.md](./35-c4-mcp-client.md)（MCP Settings parity）  
+> 关联：[00-desktop-client-roadmap.md](./00-desktop-client-roadmap.md)（Desktop 总指挥；跨端遥控 D-P2-5）、[19-agent-frontend.md](./19-agent-frontend.md)（Web 产品契约，Mobile 须语义 parity）、[11-api-protocol.md](./11-api-protocol.md)、[26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)、[18-project-structure.md](./18-project-structure.md)、[35-c4-mcp-client.md](./35-c4-mcp-client.md)（MCP Settings parity）  
 > 范围：**`apps/mobile` React Native 客户端，覆盖当前 Web `/agent` 已实现的全部 Agent 能力**，不是精简版或只读伴侣。
 
 ## 1. 目标与非目标

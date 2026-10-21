@@ -3,7 +3,10 @@ import { FilesService } from '../../../src/files/files.service';
 
 function makeService(overrides: Record<string, unknown> = {}) {
   const prisma = {
-    session: { findFirst: vi.fn() },
+    session: {
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+    },
     file: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
@@ -41,7 +44,7 @@ describe('FilesService importGeneratedBytes', () => {
   it('stores sandbox PNG collect as image with preview', async () => {
     const { service, prisma, storage } = makeService();
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
-    prisma.session.findFirst.mockResolvedValue({ id: 'session-1' });
+    prisma.session.findUnique.mockResolvedValue({ id: 'session-1', userId: 'local-user' });
     prisma.file.create.mockResolvedValue({});
     storage.putOriginal.mockImplementation(async (input) => ({
       objectKey: `sessions/session-1/files/${input.fileId}/original`,
@@ -87,6 +90,67 @@ describe('FilesService importGeneratedBytes', () => {
     );
     expect(ref.fileKind).toBe('image');
     expect(ref.previewUrl).toBe(`/api/agent/files/${ref.fileId}/preview`);
+  });
+
+  it('parses sandbox docx into normalized markdown instead of utf8 binary', async () => {
+    const { service, prisma, storage, processor } = makeService();
+    const docx = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00]);
+    prisma.session.findUnique.mockResolvedValue({ id: 'session-1', userId: 'local-user' });
+    prisma.file.create.mockResolvedValue({});
+    storage.putOriginal.mockImplementation(async (input) => ({
+      objectKey: `sessions/session-1/files/${input.fileId}/original`,
+    }));
+    storage.putNormalized.mockImplementation(async (input) => ({
+      objectKey: `sessions/session-1/files/${input.fileId}/normalized`,
+    }));
+    processor.parse.mockResolvedValue({
+      fileKind: 'docx',
+      mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      fileName: 'report.docx',
+      normalizedContent: '# 标题\n\n正文',
+      parserVersion: 'c1-read-v1',
+      contentHash: 'abc',
+      lineCount: 2,
+      characterCount: 8,
+      overview: { format: 'docx' },
+    });
+    prisma.file.update.mockImplementation(async ({ where, data }) => ({
+      id: where.id,
+      fileName: 'report.docx',
+      mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      fileKind: data.fileKind ?? 'docx',
+      size: docx.length,
+      width: null,
+      height: null,
+      status: 'ready',
+      errorCode: null,
+    }));
+
+    await service.importGeneratedBytes({
+      sessionId: 'session-1',
+      fileName: 'report.docx',
+      data: docx,
+    });
+
+    expect(processor.parse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buffer: docx,
+        originalname: 'report.docx',
+      }),
+    );
+    expect(storage.putNormalized).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: Buffer.from('# 标题\n\n正文', 'utf8'),
+      }),
+    );
+    expect(prisma.file.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          parserVersion: 'c1-read-v1',
+          characterCount: 8,
+        }),
+      }),
+    );
   });
 });
 
@@ -200,7 +264,7 @@ describe('FilesService recovery', () => {
     });
     storage.readObject.mockRejectedValue(new Error('COS unavailable'));
 
-    await expect(service.retry('file-1')).rejects.toMatchObject({
+    await expect(service.retry('local-user', 'file-1')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'FILE_STORAGE_FAILED' }),
     });
     expect(logger.warn).toHaveBeenCalledWith(

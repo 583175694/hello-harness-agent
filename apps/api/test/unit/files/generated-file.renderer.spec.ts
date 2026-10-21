@@ -22,6 +22,7 @@ import {
   closeGeneratedFileRenderer,
   GeneratedFileRenderError,
   renderGeneratedFile,
+  renderNativeHtmlDocument,
 } from '../../../src/files/generated-file.renderer';
 
 const markdown = `# 中文报告
@@ -54,11 +55,35 @@ describe('generated file renderer', () => {
     await closeGeneratedFileRenderer();
   });
 
+  it('accepts native HTML when contentMode is html', async () => {
+    const native = `<!doctype html>
+<html lang="zh-CN"><head><title>Native</title><style>body{margin:0}</style></head>
+<body><h1 id="hero">Hello</h1><script>document.getElementById('hero').dataset.ready='1';</script></body></html>`;
+    const rendered = renderNativeHtmlDocument(native);
+    expect(rendered.fileKind).toBe('html');
+    expect(rendered.buffer.toString('utf8')).toContain('dataset.ready');
+    expect(rendered.buffer.toString('utf8')).toContain('<base target="_blank"');
+    const viaTool = await renderGeneratedFile({
+      fileName: 'native.html',
+      contentMode: 'html',
+      content: native,
+    });
+    expect(viaTool.buffer.equals(rendered.buffer)).toBe(true);
+    await expect(
+      renderGeneratedFile({
+        fileName: 'bad.html',
+        contentMode: 'html',
+        content: '<!doctype html><html><script src="https://evil.test/a.js"></script></html>',
+      }),
+    ).rejects.toBeInstanceOf(GeneratedFileRenderError);
+  });
+
   it('renders controlled Markdown as a complete HTML document and rejects active content', async () => {
     const result = await renderGeneratedFile({ fileName: '报告.html', content: markdown });
     expect(result.fileKind).toBe('html');
     expect(result.mediaType).toBe('text/html; charset=utf-8');
     expect(result.buffer.toString('utf8')).toContain('<!doctype html>');
+    expect(result.buffer.toString('utf8')).toContain('<base target="_blank" rel="noopener noreferrer">');
     expect(result.buffer.toString('utf8')).toContain('<table>');
     expect(result.buffer.toString('utf8')).toContain('中文报告');
     await expect(

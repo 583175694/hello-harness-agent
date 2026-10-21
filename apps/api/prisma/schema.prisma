@@ -7,20 +7,114 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  user
+  admin
+}
+
+enum UserStatus {
+  active
+  suspended
+}
+
+enum VerificationChannel {
+  email
+  phone
+}
+
 model User {
-  id          String   @id
-  kind        String   @default("local")
-  displayName String   @map("display_name")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  sessions    Session[]
-  messages    Message[]
-  files       File[]
-  artifacts   Artifact[]
-  artifactSeries ArtifactSeries[]
-  reports     Report[]
+  id               String     @id
+  kind             String     @default("local")
+  displayName      String     @map("display_name")
+  email            String?    @unique
+  phone            String?    @unique
+  emailVerifiedAt  DateTime?  @map("email_verified_at")
+  phoneVerifiedAt  DateTime?  @map("phone_verified_at")
+  role             UserRole   @default(user)
+  status           UserStatus @default(active)
+  lastSeenAt       DateTime?  @map("last_seen_at")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+  sessions         Session[]
+  messages         Message[]
+  files            File[]
+  artifacts        Artifact[]
+  artifactSeries   ArtifactSeries[]
+  reports          Report[]
+  mcpServerConfigs McpServerConfig[]
+  loginSessions    UserLoginSession[]
+  memoryRecords    MemoryRecord[]
+  memorySettings   UserMemorySettings?
 
   @@map("users")
+}
+
+model MemoryRecord {
+  id                 String    @id
+  userId             String    @map("user_id")
+  kind               String
+  title              String
+  summary            String
+  status             String
+  confidence         String
+  freshness          String    @default("fresh")
+  importance         String    @default("medium")
+  sensitivity        String    @default("normal")
+  sourceRefs         Json      @map("source_refs")
+  policy             Json      @default("{}")
+  provenance         Json
+  supersedesMemoryId String?   @map("supersedes_memory_id")
+  embeddingModel     String?   @map("embedding_model")
+  embeddedAt         DateTime? @map("embedded_at")
+  embeddingJson      Json?     @map("embedding_json")
+  lastUsedAt         DateTime? @map("last_used_at")
+  useCount           Int       @default(0) @map("use_count")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  expiresAt          DateTime? @map("expires_at")
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@map("memory_records")
+}
+
+model UserMemorySettings {
+  userId          String   @id @map("user_id")
+  allowAgentWrite Boolean  @default(true) @map("allow_agent_write")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_memory_settings")
+}
+
+model UserLoginSession {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  tokenHash  String    @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId, expiresAt])
+  @@map("user_login_sessions")
+}
+
+model VerificationCode {
+  id           String              @id @default(uuid())
+  channel      VerificationChannel
+  target       String
+  codeHash     String              @map("code_hash")
+  expiresAt    DateTime            @map("expires_at")
+  consumedAt   DateTime?           @map("consumed_at")
+  attemptCount Int                 @default(0) @map("attempt_count")
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  @@index([channel, target, createdAt(sort: Desc)])
+  @@map("verification_codes")
 }
 
 enum MessageRole {
@@ -52,6 +146,7 @@ model Session {
   artifactSeries ArtifactSeries[]
   reports Report[]
   sandboxInstance SandboxInstance?
+  runDetails AgentRunDetail[]
 
   @@index([userId, isPinned(sort: Desc), updatedAt(sort: Desc)])
   @@map("sessions")
@@ -113,6 +208,7 @@ model ContextCompactionState {
   sessionId             String   @unique @map("session_id")
   summary               String
   coveredMessageCount   Int      @map("covered_message_count")
+  coveredUnitCount      Int?     @map("covered_unit_count")
   coveredThroughItemId  String?  @map("covered_through_item_id")
   version               Int      @default(1)
   tokenCount            Int      @map("token_count")
@@ -138,6 +234,7 @@ model Message {
   run       AgentRun?   @relation(fields: [runId], references: [id], onDelete: SetNull)
   transcriptItems ModelTranscriptItem[]
   attachments MessageAttachment[]
+  runDetail AgentRunDetail?
 
   @@index([sessionId, createdAt])
   @@index([runId])
@@ -365,6 +462,8 @@ model AgentRun {
   messages           Message[]
   steps              AgentRunStep[]
   transcriptItems    ModelTranscriptItem[]
+  detail             AgentRunDetail?
+  toolOutputs        AgentRunToolOutput[]
   artifacts          Artifact[]
   reports            Report[]
   provider           String
@@ -375,6 +474,40 @@ model AgentRun {
   @@unique([sessionId, idempotencyKey])
   @@index([sessionId, status])
   @@map("agent_runs")
+}
+
+model AgentRunDetail {
+  id                 String    @id
+  runId              String?   @unique @map("run_id")
+  messageId          String    @unique @map("message_id")
+  sessionId          String    @map("session_id")
+  schemaVersion      Int       @default(1) @map("schema_version")
+  researchProjection Json      @default("{}") @map("research_projection")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  run                AgentRun? @relation(fields: [runId], references: [id], onDelete: Cascade)
+  message            Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  session            Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, updatedAt])
+  @@map("agent_run_details")
+}
+
+model AgentRunToolOutput {
+  id          String   @id
+  runId       String   @map("run_id")
+  toolCallId  String   @map("tool_call_id")
+  storageKey  String   @map("storage_key")
+  contentType String   @map("content_type")
+  byteSize    Int      @map("byte_size")
+  sha256      String
+  preview     String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  run         AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, toolCallId])
+  @@index([runId, createdAt])
+  @@map("agent_run_tool_outputs")
 }
 
 enum TranscriptItemKind {
@@ -462,4 +595,64 @@ enum AgentStepStatus {
   completed
   failed
   cancelled
+}
+
+enum McpTransport {
+  streamable_http
+}
+
+enum McpDefaultApproval {
+  auto_execute
+  require_approval
+}
+
+enum McpSecretKind {
+  header
+  env
+  bearer
+}
+
+model McpServerConfig {
+  id                   String             @id @default(uuid())
+  userId               String             @map("user_id")
+  sessionId            String?            @map("session_id")
+  serverName           String             @map("server_name")
+  enabled              Boolean            @default(true)
+  transport            McpTransport       @default(streamable_http)
+  url                  String
+  headersPlain         Json               @default("{}") @map("headers_plain")
+  startupTimeoutMs     Int                @default(30000) @map("startup_timeout_ms")
+  toolCallTimeoutMs    Int                @default(60000) @map("tool_call_timeout_ms")
+  required             Boolean            @default(false)
+  failOnStartupError   Boolean            @default(false) @map("fail_on_startup_error")
+  defaultApproval      McpDefaultApproval @default(require_approval) @map("default_approval")
+  enabledTools         Json?              @map("enabled_tools")
+  disabledTools        Json?              @map("disabled_tools")
+  maxInstructionBytes  Int                @default(32768) @map("max_instruction_bytes")
+  reconnectEnabled     Boolean            @default(true) @map("reconnect_enabled")
+  reconnectMaxAttempts Int                @default(5) @map("reconnect_max_attempts")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  secrets              McpServerSecret[]
+
+  @@unique([userId, sessionId, serverName])
+  @@index([userId, enabled])
+  @@map("mcp_server_configs")
+}
+
+model McpServerSecret {
+  id                 String           @id @default(uuid())
+  mcpServerConfigId  String           @map("mcp_server_config_id")
+  kind               McpSecretKind
+  name               String
+  ciphertext         String           @db.Text
+  nonce              String
+  keyVersion         Int              @default(1) @map("key_version")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  config             McpServerConfig  @relation(fields: [mcpServerConfigId], references: [id], onDelete: Cascade)
+
+  @@unique([mcpServerConfigId, kind, name])
+  @@map("mcp_server_secrets")
 }

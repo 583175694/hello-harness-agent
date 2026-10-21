@@ -18,7 +18,8 @@ describe('FileProcessingService', () => {
     expect(result.normalizedContent).toBe('第一行\n第二行');
     expect(result.lineCount).toBe(2);
     expect(result.contentHash).toHaveLength(64);
-    expect(result.parserVersion).toBe('c1-b2-v1');
+    expect(result.parserVersion).toBe('c1-read-v1');
+    expect(Array.isArray((result.overview as { sections?: unknown[] })?.sections)).toBe(true);
     expect(result.locations).toEqual([
       { startOffset: 0, endOffset: 3, line: 1 },
       { startOffset: 4, endOffset: 7, line: 2 },

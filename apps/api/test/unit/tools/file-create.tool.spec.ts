@@ -46,6 +46,7 @@ describe('FileCreateTool C2-C', () => {
       tool.execute(
         { fileName: 'data.xlsx', sheets },
         {
+          userId: 'local-user',
           sessionId: 'session-1',
           runId: 'run-1',
           messageId: 'message-1',
@@ -69,6 +70,7 @@ describe('FileCreateTool C2-C', () => {
       tool.execute(
         { fileName: 'report.docx', content: '# report' },
         {
+          userId: 'local-user',
           sessionId: 'session-1',
           runId: 'run-1',
           messageId: 'message-1',

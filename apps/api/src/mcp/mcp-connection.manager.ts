@@ -1,0 +1,422 @@
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { AGENT_TOOL_NAMES, parseMcpIcons, type McpIcon } from '@harness/agent-protocol';
+import { Client, StreamableHTTPClientTransport } from './mcp-sdk.client';
+import type { McpDefaultApproval, McpServerConfig, McpServerSecret } from '@prisma/client';
+import { McpServerConfigRepository, type McpServerConfigRecord } from './mcp-server-config.repository';
+import { McpServerSecretsRepository } from './mcp-server-secrets.repository';
+import { SecretsCryptoService } from './secrets-crypto.service';
+import { publicToolName } from './mcp-public-tool-name';
+import type {
+  McpPublishedCatalog,
+  McpPublishedServerView,
+  McpResolvedTransport,
+  McpServerRuntimeStatus,
+  McpToolCatalogEntry,
+} from './mcp.types';
+
+type LiveConnection = {
+  client: Client;
+  transport: StreamableHTTPClientTransport;
+  fingerprint: string;
+  configId: string;
+};
+
+type ServerRuntimeState = {
+  serverName: string;
+  configId: string;
+  required: boolean;
+  defaultApproval: McpDefaultApproval;
+  enabledTools: string[] | null;
+  disabledTools: string[] | null;
+  toolCallTimeoutMs: number;
+  status: McpServerRuntimeStatus;
+  lastError: string | null;
+  instructions: string | null;
+  toolCountTotal: number;
+  serverIcons: McpIcon[];
+  connection?: LiveConnection;
+};
+
+type ListedMcpTool = {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+  icons?: unknown;
+};
+
+type UserMcpState = {
+  catalogGeneration: number;
+  published: McpPublishedCatalog;
+  runtimeByServer: Map<string, ServerRuntimeState>;
+};
+
+@Injectable()
+export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(McpConnectionManager.name);
+  private readonly byUser = new Map<string, UserMcpState>();
+
+  constructor(
+    @Inject(McpServerConfigRepository) private readonly configs: McpServerConfigRepository,
+    @Inject(McpServerSecretsRepository) private readonly secretsRepo: McpServerSecretsRepository,
+    @Inject(SecretsCryptoService) private readonly crypto: SecretsCryptoService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    // 按 userId lazy reconcile；不在启动时绑定单一本地用户。
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    for (const userState of this.byUser.values()) {
+      for (const state of userState.runtimeByServer.values()) {
+        await this.closeConnection(state);
+      }
+      userState.runtimeByServer.clear();
+    }
+    this.byUser.clear();
+  }
+
+  private userState(userId: string): UserMcpState {
+    let state = this.byUser.get(userId);
+    if (!state) {
+      state = {
+        catalogGeneration: 0,
+        published: emptyCatalog(0),
+        runtimeByServer: new Map(),
+      };
+      this.byUser.set(userId, state);
+    }
+    return state;
+  }
+
+  getCatalogGeneration(userId: string): number {
+    return this.userState(userId).catalogGeneration;
+  }
+
+  getPublishedCatalog(userId: string): McpPublishedCatalog {
+    return this.userState(userId).published;
+  }
+
+  getPublishedEntries(userId: string): McpToolCatalogEntry[] {
+    return this.userState(userId).published.entries;
+  }
+
+  getServerRuntime(userId: string, serverName: string): ServerRuntimeState | undefined {
+    return this.userState(userId).runtimeByServer.get(serverName);
+  }
+
+  getClient(userId: string, serverName: string): Client | undefined {
+    return this.userState(userId).runtimeByServer.get(serverName)?.connection?.client;
+  }
+
+  async reconcile(userId: string): Promise<void> {
+    const userState = this.userState(userId);
+    const runtimeByServer = userState.runtimeByServer;
+    const configs = await this.configs.listEnabled(userId);
+    const enabledNames = new Set(configs.map((c) => c.serverName));
+    for (const name of [...runtimeByServer.keys()]) {
+      if (!enabledNames.has(name)) {
+        const state = runtimeByServer.get(name)!;
+        await this.closeConnection(state);
+        runtimeByServer.delete(name);
+      }
+    }
+
+    const previousEntriesByServer = groupEntriesByServer(userState.published.entries);
+    const nextServers = new Map<string, McpPublishedServerView>();
+    const nextEntries: McpToolCatalogEntry[] = [];
+    const nextGeneration = userState.catalogGeneration + 1;
+
+    for (const config of configs) {
+      const prevTools = previousEntriesByServer.get(config.serverName) ?? [];
+      let state = runtimeByServer.get(config.serverName);
+      if (!state) {
+        state = {
+          serverName: config.serverName,
+          configId: config.id,
+          required: config.required,
+          defaultApproval: config.defaultApproval,
+          enabledTools: parseStringList(config.enabledTools),
+          disabledTools: parseStringList(config.disabledTools),
+          toolCallTimeoutMs: config.toolCallTimeoutMs,
+          status: 'disconnected',
+          lastError: null,
+          instructions: null,
+          toolCountTotal: 0,
+          serverIcons: [],
+        };
+        runtimeByServer.set(config.serverName, state);
+      } else {
+        state.configId = config.id;
+        state.required = config.required;
+        state.defaultApproval = config.defaultApproval;
+        state.enabledTools = parseStringList(config.enabledTools);
+        state.disabledTools = parseStringList(config.disabledTools);
+        state.toolCallTimeoutMs = config.toolCallTimeoutMs;
+        state.serverIcons ??= [];
+      }
+
+      try {
+        const transportConfig = await this.resolveTransport(config);
+        const fingerprint = this.transportFingerprint(config, transportConfig);
+        await this.ensureConnected(state, config, transportConfig, fingerprint);
+        const client = state.connection!.client;
+        const tools = await this.listAllTools(client, config.startupTimeoutMs);
+        const filtered = filterTools(tools, state.enabledTools, state.disabledTools);
+        const instructions = client.getInstructions()?.trim() || null;
+        state.instructions = instructions;
+        state.toolCountTotal = tools.length;
+        const entries = filtered
+          .map((tool) => toCatalogEntry(config, tool, nextGeneration, state!.defaultApproval))
+          .filter((entry) => entry.publicName !== AGENT_TOOL_NAMES.toolSearch);
+        nextEntries.push(...entries);
+        nextServers.set(config.serverName, {
+          configId: config.id,
+          serverName: config.serverName,
+          required: config.required,
+          defaultApproval: config.defaultApproval,
+          enabledTools: state.enabledTools,
+          disabledTools: state.disabledTools,
+          toolCallTimeoutMs: config.toolCallTimeoutMs,
+          status: 'connected',
+          lastError: null,
+          toolCountTotal: tools.length,
+          toolCountExposed: filtered.length,
+          instructions,
+          ...(state.serverIcons.length ? { serverIcons: state.serverIcons } : {}),
+          tools: filtered.map((tool) => ({
+            rawName: tool.name,
+            description: tool.description ?? '',
+            inputSchema: (tool.inputSchema as Record<string, unknown>) ?? { type: 'object' },
+          })),
+        });
+        state.status = 'connected';
+        state.lastError = null;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`MCP server ${config.serverName} reconcile 失败: ${detail}`);
+        state.status = 'degraded';
+        state.lastError = detail;
+        const exposedCount = prevTools.length;
+        const totalCount = state.toolCountTotal || exposedCount;
+        if (prevTools.length) {
+          nextEntries.push(...prevTools.map((entry) => ({ ...entry, boundGeneration: nextGeneration })));
+          nextServers.set(config.serverName, {
+            configId: config.id,
+            serverName: config.serverName,
+            required: config.required,
+            defaultApproval: config.defaultApproval,
+            enabledTools: state.enabledTools,
+            disabledTools: state.disabledTools,
+            toolCallTimeoutMs: config.toolCallTimeoutMs,
+            status: 'degraded',
+            lastError: detail,
+            toolCountTotal: totalCount,
+            toolCountExposed: exposedCount,
+            instructions: state.instructions,
+            ...(state.serverIcons.length ? { serverIcons: state.serverIcons } : {}),
+            tools: prevTools.map((entry) => ({
+              rawName: entry.rawName,
+              description: entry.description,
+              inputSchema: entry.parameters,
+            })),
+          });
+        } else {
+          nextServers.set(config.serverName, {
+            configId: config.id,
+            serverName: config.serverName,
+            required: config.required,
+            defaultApproval: config.defaultApproval,
+            enabledTools: state.enabledTools,
+            disabledTools: state.disabledTools,
+            toolCallTimeoutMs: config.toolCallTimeoutMs,
+            status: 'degraded',
+            lastError: detail,
+            toolCountTotal: 0,
+            toolCountExposed: 0,
+            instructions: state.instructions,
+            tools: [],
+          });
+        }
+      }
+    }
+
+    userState.catalogGeneration = nextGeneration;
+    userState.published = { generation: nextGeneration, servers: nextServers, entries: nextEntries };
+  }
+
+  async probeConfig(config: McpServerConfigRecord): Promise<{ toolNames: string[]; error: string | null }> {
+    try {
+      const transportConfig = await this.resolveTransport(config);
+      const client = new Client({ name: 'harness-mcp-probe', version: '1.0.0' });
+      const transport = new StreamableHTTPClientTransport(new URL(transportConfig.url), {
+        requestInit: { headers: transportConfig.headers },
+      });
+      await client.connect(transport);
+      const tools = await this.listAllTools(client, config.startupTimeoutMs);
+      await client.close();
+      return { toolNames: tools.map((tool) => tool.name), error: null };
+    } catch (error) {
+      return { toolNames: [], error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async removeServer(userId: string, serverName: string): Promise<void> {
+    const runtimeByServer = this.userState(userId).runtimeByServer;
+    const state = runtimeByServer.get(serverName);
+    if (state) {
+      await this.closeConnection(state);
+      runtimeByServer.delete(serverName);
+    }
+  }
+
+  private async ensureConnected(
+    state: ServerRuntimeState,
+    config: McpServerConfigRecord,
+    transportConfig: McpResolvedTransport,
+    fingerprint: string,
+  ): Promise<void> {
+    if (state.connection && state.connection.fingerprint === fingerprint) return;
+    await this.closeConnection(state);
+    const client = new Client({ name: 'harness-mcp-client', version: '1.0.0' });
+    const transport = new StreamableHTTPClientTransport(new URL(transportConfig.url), {
+      requestInit: { headers: transportConfig.headers },
+      reconnectionOptions: config.reconnectEnabled
+        ? { maxRetries: config.reconnectMaxAttempts, maxReconnectionDelay: 30_000, initialReconnectionDelay: 1000, reconnectionDelayGrowFactor: 1.5 }
+        : { maxRetries: 0, maxReconnectionDelay: 30_000, initialReconnectionDelay: 1000, reconnectionDelayGrowFactor: 1.5 },
+    });
+    await withTimeout(
+      client.connect(transport),
+      config.startupTimeoutMs,
+      `连接 MCP server ${config.serverName} 超时`,
+    );
+    state.serverIcons = readServerIcons(client);
+    state.connection = { client, transport, fingerprint, configId: config.id };
+  }
+
+  private async closeConnection(state: ServerRuntimeState): Promise<void> {
+    if (!state.connection) return;
+    try {
+      await state.connection.client.close();
+    } catch {
+      /* ignore */
+    }
+    state.connection = undefined;
+  }
+
+  private async resolveTransport(config: McpServerConfigRecord): Promise<McpResolvedTransport> {
+    const headers: Record<string, string> = {};
+    const plain = (config.headersPlain ?? {}) as Record<string, string>;
+    for (const [key, value] of Object.entries(plain)) {
+      if (typeof value === 'string') headers[key] = value;
+    }
+    const needsSecrets = config.secrets.some((s) => 'ciphertext' in s);
+    if (needsSecrets && !this.crypto.canEncrypt()) {
+      throw new Error('缺少 HARNESS_SECRETS_MASTER_KEY，无法解密 MCP 凭证');
+    }
+    const decrypted = await this.secretsRepo.decryptAll(
+      config.secrets.filter((s): s is McpServerSecret => 'ciphertext' in s),
+    );
+    for (const secret of decrypted) {
+      if (secret.kind === 'bearer') {
+        headers.Authorization = headers.Authorization ?? `Bearer ${secret.value}`;
+      } else if (secret.kind === 'header') {
+        headers[secret.name] = secret.value;
+      }
+    }
+    return { url: config.url, headers };
+  }
+
+  private transportFingerprint(config: McpServerConfig, transport: McpResolvedTransport): string {
+    const secretValues = Object.values(transport.headers).sort();
+    const payload = JSON.stringify({
+      url: config.url,
+      headersPlain: config.headersPlain,
+      secrets: secretValues,
+    });
+    return createHash('sha256').update(payload).digest('hex');
+  }
+
+  private async listAllTools(client: Client, timeoutMs: number) {
+    const tools: ListedMcpTool[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = (await withTimeout(
+        client.listTools(cursor ? { cursor } : undefined),
+        timeoutMs,
+        'listTools 超时',
+      )) as { tools?: ListedMcpTool[]; nextCursor?: string };
+      tools.push(...(page.tools ?? []));
+      cursor = page.nextCursor;
+    } while (cursor);
+    return tools;
+  }
+}
+
+function readServerIcons(client: Client): McpIcon[] {
+  const info = (client as { getServerVersion?: () => { icons?: unknown } }).getServerVersion?.();
+  return parseMcpIcons(info?.icons);
+}
+
+function emptyCatalog(generation: number): McpPublishedCatalog {
+  return { generation, servers: new Map(), entries: [] };
+}
+
+function groupEntriesByServer(entries: McpToolCatalogEntry[]): Map<string, McpToolCatalogEntry[]> {
+  const map = new Map<string, McpToolCatalogEntry[]>();
+  for (const entry of entries) {
+    const list = map.get(entry.serverName) ?? [];
+    list.push(entry);
+    map.set(entry.serverName, list);
+  }
+  return map;
+}
+
+function parseStringList(value: unknown): string[] | null {
+  if (value == null) return null;
+  if (Array.isArray(value) && value.every((item) => typeof item === 'string')) return value;
+  return null;
+}
+
+function filterTools(tools: ListedMcpTool[], enabled: string[] | null, disabled: string[] | null) {
+  return tools.filter((tool) => {
+    if (enabled?.length && !enabled.includes(tool.name)) return false;
+    if (disabled?.includes(tool.name)) return false;
+    return true;
+  });
+}
+
+function toCatalogEntry(
+  config: McpServerConfig,
+  tool: ListedMcpTool,
+  generation: number,
+  defaultApproval: McpDefaultApproval,
+): McpToolCatalogEntry {
+  const parameters = (tool.inputSchema as Record<string, unknown>) ?? { type: 'object', properties: {} };
+  const icons = parseMcpIcons(tool.icons);
+  return {
+    publicName: publicToolName(config.serverName, tool.name),
+    serverName: config.serverName,
+    rawName: tool.name,
+    description: tool.description ?? '',
+    parameters,
+    defaultApproval,
+    boundGeneration: generation,
+    toolCallTimeoutMs: config.toolCallTimeoutMs,
+    ...(icons.length ? { icons } : {}),
+  };
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}

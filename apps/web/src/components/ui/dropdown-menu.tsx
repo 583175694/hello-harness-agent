@@ -39,6 +39,23 @@ export function DropdownMenuSeparator({
   );
 }
 
+export function DropdownMenuItem({
+  className = '',
+  inset = false,
+  variant = 'default',
+  ...props
+}: ComponentProps<typeof DropdownMenuPrimitive.Item> & {
+  inset?: boolean;
+  variant?: 'default' | 'destructive';
+}) {
+  return (
+    <DropdownMenuPrimitive.Item
+      className={`ui-dropdown-item${variant === 'destructive' ? ' ui-dropdown-item--destructive' : ''}${inset ? ' ui-dropdown-item--inset' : ''} ${className}`.trim()}
+      {...props}
+    />
+  );
+}
+
 export function DropdownMenuRadioItem({
   children,
   className = '',

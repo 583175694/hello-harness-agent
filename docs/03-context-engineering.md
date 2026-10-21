@@ -1,8 +1,8 @@
 # Context Engineering
 
-> 文档状态：第一阶段已确定的实现方案。
+> 文档状态：第一阶段已实现；C1 联动的 **Tool Result 外置 / 历史折叠** 已落地（见 §12）。**CE P0.5（file-tool 历史折叠）** 已实现（2026-09-30，见 §13）。
 >
-> 本阶段只实现 Token-aware Context Compilation、Tool Result Trimming 和 Incremental Compaction。文件外化、Artifact Store、Memory、语义检索、审计平台等能力不在本阶段范围内。
+> 初版范围：Token-aware Context Compilation、Tool Result Trimming、Incremental Compaction。Artifact Store、Memory、语义检索等仍不在范围内；**Session 内 `FileOrigin.tool_result` 外置** 为后续与 C1 联动的扩展，语义见 [38-c1-file-read-and-search-tools.md](./38-c1-file-read-and-search-tools.md) §7。
 
 ## 1. 目标与边界
 
@@ -472,6 +472,10 @@ interface TruncationMetadata {
 
 没有通用的单结果百分比阈值；V1 由全局 Round Budget 驱动，而不是维护一套复杂的工具级配额系统。
 
+### 6.4 同轮 file 类工具（与 C1 对齐）
+
+`read_file`、`search_file`（及 Registry 别名 `read_file_lines`）在同轮 `trimToolResults` 中 **`truncatable: false`**：超预算时不外置为 `tool_result`，返回 `FILE_CONTEXT_RESULT_TOO_LARGE`，要求缩小 scope。详见 [38](./38-c1-file-read-and-search-tools.md) §7.2。
+
 ## 7. Incremental Compaction
 
 ### 7.1 触发与目标
@@ -641,3 +645,50 @@ Provider `usage` 与本地预估的偏差应被记录，以便校准预算安全
 - [Anthropic Context Editing](https://platform.claude.com/docs/en/build-with-claude/context-editing)：优先清理最旧 Tool Result，默认保留最近 3 个 Tool Use/Result，默认触发阈值为 100K Input Tokens。
 - [LangChain Middleware](https://docs.langchain.com/oss/python/langchain/middleware/built-in)：采用 Token 阈值摘要和最近 Tool Use 保留模式。
 - [DeepSeek Token Usage](https://api-docs.deepseek.com/quick_start/token_usage/)：使用本地 Tokenizer 做估算，以 Provider `usage` 作为实际 Token 数据。
+
+## 12. 历史 Tool Result 折叠（compileRound，已实现）
+
+在 **LLM Compaction 触发线之下**，每轮 `compileRound` 仍会执行 **`collapseOldToolResults`**，与 §7 的摘要压缩是两条路径：
+
+| 机制 | 时机 | 行为 |
+|------|------|------|
+| **同轮 trim**（§6） | Tool Batch 结束后 | 超大 **非 file-tool** → head-tail + 可选 COS `tool_result`；**file-tool** → `FILE_CONTEXT_RESULT_TOO_LARGE` |
+| **历史折叠** | 每轮 compile 前 | 按 **transcript unit**（封闭 tool batch）计；保留最近 **`RECENT_TOOL_UNITS_TO_KEEP`（现网 3）** 个 tool batch 的完整 tool message；更早 batch 中 **非 file-tool** → 外置 `tool_result` + **`[Tool Result stored: …]`**；**file-tool**（`read_file` / `search_file` / `read_file_lines` 别名）→ **保持 inline**（见 §13） |
+| **激进折叠** | 估算仍 `> promptBudget` | `keepRecent = 0`；**仍不对 file-tool 做 stored**；其余 tool 尽可能收成 stored 指针 |
+| **写回 live** | compile 成功后 | Runtime **`applyCollapsedToolPointers`**：compiled 里已是 stored 的项按 `toolCallId` 写回 Run 内存 messages，避免重复落盘 |
+
+实现索引：`context-engineering.service.ts`（`collapseOldToolResults`、`collapseToolMessage`、`applyCollapsedToolPointers`）、`agent-runtime.service.ts`（compile 后写回指针）。
+
+## 13. CE P0.5：file-tool 历史折叠（已实现，2026-09-30）
+
+> 目标：打断 **read → stored 指针 → 反复 read_file**，**不** port DeepSeek Harness 全套 compaction/pruner，**不**引入按 session 类型的复杂 retain 策略。
+
+### 13.1 改动范围（最小）
+
+| ID | 内容 | 说明 |
+|----|------|------|
+| **P0-1** | 历史折叠时 **`read_file` / `search_file`（含 `read_file_lines` 别名）的 tool message 禁止 `storeToolResult` → `[Tool Result stored]`** | 在 **tool batch** 层根据 assistant `tool_calls` 判定工具名；保留 **inline 全文** 参与 token 估算，直至整包 compile 超预算 |
+| **P0-2** | **`collapseOldToolResults(..., keepRecent=0)` 激进路径适用同一规则** | 避免 budget 路径绕开 P0-1 |
+| **P0-3** | **`RECENT_TOOL_UNITS_TO_KEEP`：2 → 3** | 全局常量小步调整，先观测再考虑更大 retain |
+| **P0-4** | 单测：file-tool 折叠后仍含正文、web 等仍可 stored；keep=3 行为 | `context-engineering.service.spec.ts` |
+
+### 13.2 明确不做（P0.5）
+
+- 不 port DSH `toolResultPruner` / `spill-policy` 全链路；不对 file-tool JSON 做 head/tail pruner。
+- 不引入 **retainTokens / tokenMeter 选区**、不区分「含 file_ref 的 session」分支策略。
+- **不**单独改 `applyCollapsedToolPointers`（file-tool 不再生成 stored 时，写回对其无实质影响）。
+- 不修改 `trimToolResults` 当轮 file 逻辑（已符合 doc 38）。
+
+### 13.3 超预算时的行为
+
+file-tool 结果长期留在 messages 中会 **更早** 触发 `FILE_CONTEXT_TOO_LARGE`（当轮）或 `FILE_CONTEXT_TOO_LARGE` / `CONTEXT_BUDGET_EXCEEDED`（compile）。相对「静默指针 + 模型误读 spill 文件」，视为 **更可观测、可接受** 的失败模式。
+
+### 13.4 验收（与 doc 38 联调）
+
+- 同一 docx 审阅类 run：`read_file` 次数显著下降；几乎不再对 `tool_call_*.json` 做 `scope=file` 回读。
+- 编译上下文中 file-tool message **不应** 大面积变为 `[Tool Result stored:`（在未到整包 budget 上限前）。
+- 普通联网 run：非 file-tool 仍可 historical stored，行为基本不变。
+
+### 13.5 手工冒烟（2026-09-30）
+
+Session `335d9f96-e8c6-4de9-a242-f99e7a64c769`（236 行 docx 审阅）：`read_file` 9 次、用户稿 lines 分块覆盖约 10–236 行；compiled 中 **0** 条 file-tool `[Tool Result stored]`；无 bash 解包用户 docx；run `completed`（29/40 tool calls）。**读稿产品口径**（`search_file` 维持、docx 允许 lines 通读、P1-a/b 不做）见 [38](./38-c1-file-read-and-search-tools.md) §14。

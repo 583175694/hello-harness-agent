@@ -1,5 +1,6 @@
-import { Ellipsis, Menu, Moon, Pencil, Pin, PinOff, Plus, Sun, Trash2, X } from 'lucide-react';
+import { Ellipsis, Menu, PanelRight, Pencil, Pin, PinOff, Plus, Trash2, X } from 'lucide-react';
 import {
+  startTransition,
   useEffect,
   useRef,
   useState,
@@ -11,6 +12,7 @@ import { createPortal } from 'react-dom';
 import {
   ApiProblem,
   cancelRun,
+  createClientId,
   cancelPendingInput,
   controlRun,
   createRun,
@@ -18,14 +20,17 @@ import {
   deleteSession,
   getRun,
   getReadiness,
+  getMe,
   getPublicAgentConfig,
   getSession,
+  getRunDetail,
   listSessions,
   subscribeRun,
   updateSession,
   submitPendingInput,
   promotePendingInput,
   sendPendingInput,
+  logout,
   uploadFile,
   getFile,
   retryFile,
@@ -43,13 +48,14 @@ import type {
 import {
   AGENT_PROTOCOL_LIMITS,
   assistantContentBlockSchema,
-  assistantAgentMetadataSchema,
+  assistantAgentMetadataRestoreSchema,
   normalizeSourceUrl,
 } from '@harness/agent-protocol';
 import type {
   AssistantContentBlock,
   PersistedMessage,
   RunSnapshot,
+  RunDetailResponse,
   RunStreamEvent,
   SessionSummary,
   SourceProvenance,
@@ -60,7 +66,10 @@ import type {
   ToolApprovalDecision,
   AssistantArtifactBlock,
   ArtifactRef,
+  ArtifactSeriesRef,
+  BashPublicToolResult,
   BashTerminalView,
+  AuthUserView,
 } from '@harness/agent-protocol';
 import type {
   AgentUiState,
@@ -84,41 +93,41 @@ import {
   appendUserIntervention,
 } from './features/agent/model/conversation-blocks';
 import {
-  applyToolEvent,
-  mergePendingSteerState,
-  preferRicherAssistant,
-  toConversationItem,
-  uniquePendingInputs,
-  workbenchFromPersistedMessage,
-  optimisticRevisionAttachments,
-} from '@harness/agent-projection';
-
-export {
-  applyToolEvent,
-  optimisticRevisionAttachments,
-  workbenchFromPersistedMessage,
-} from '@harness/agent-projection';
-export { groupSessionSummaries } from '@harness/agent-run-state';
+  bashTerminalFromInput,
+  mergeBashTerminalView,
+} from './features/agent/model/bash-transparent';
+import { nextSourceNumber } from './features/agent/model/source-identifiers';
 import {
-  applyRunEventToSession,
-  applyRunSnapshotToSession,
-  groupSessionSummaries,
-  runTerminalStatus,
-  snapshotActivityStatus,
-  snapshotDeliveryStatus,
-  workbenchViewFromTarget,
-} from '@harness/agent-run-state';
+  fetchProvenance,
+  liveCompletedDetail,
+  liveOutputSummary,
+  liveToolCounts,
+  persistedActiveView,
+  persistedActivityStatus,
+  persistedOutputSummary,
+  persistedToolDetail,
+  toolEventStatus,
+  asToolCopyInput,
+  resolveActivityToolName,
+  streamToolInputSummary,
+  streamToolTitle,
+  toolRunningDetail,
+} from './features/agent/model/tool-copy';
+import { AgentSplitLayout } from './features/agent/components/agent-split-layout';
 import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
+import { SidebarUserMenu } from './features/agent/components/sidebar-user-menu';
+import { SettingsDialog } from './features/agent/components/settings-dialog';
+import { LoginDialog } from './features/auth/login-dialog';
+import { LOGOUT_CONFIRM, useConfirm } from './components/ui/confirm-provider';
+import { toast } from './components/ui/toast';
 import { PREVIEW_STATES, makeFixture } from './features/agent/fixtures/preview';
-import { AGENT_UI_COPY, SERVICE_STATE_LABELS } from './features/agent/config/ui.constants';
 import {
-  CONTENT_FONT_SIZE_MAX,
-  CONTENT_FONT_SIZE_MIN,
-  useContentFontSize,
-  useTheme,
-  type Theme,
-} from './theme';
+  AGENT_UI_COPY,
+  APP_BRAND,
+  SERVICE_STATE_LABELS,
+} from './features/agent/config/ui.constants';
+import { useDocumentTheme } from './theme';
 import {
   Dialog,
   DialogAction,
@@ -129,22 +138,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from './components/ui/dialog';
-
-function updateSessionUrl(sessionId: string | null, replace = false): void {
-  const url = sessionId ? `/agent?session=${encodeURIComponent(sessionId)}` : '/agent';
-  window.history[replace ? 'replaceState' : 'pushState']({}, '', url);
-}
-
-function sortSessionSummaries(items: SessionSummary[]): SessionSummary[] {
-  return [...items].sort((a, b) => {
-    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
-    return b.updatedAt.localeCompare(a.updatedAt);
-  });
-}
-
-function makeProvisionalTitle(content: string): string {
-  return content.replace(/\s+/g, ' ').trim().slice(0, AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength);
-}
 
 // 将传输和供应商异常转换为用户可读的提示文案。
 function getErrorMessage(error: unknown): string {
@@ -157,71 +150,1162 @@ function getErrorMessage(error: unknown): string {
 
 // 仅在开发环境的预览路由中启用 fixture。
 function getPreviewState(): PreviewState | null {
-  if (!import.meta.env.DEV || window.location.pathname !== '/agent/preview') return null;
-  const value = new URLSearchParams(window.location.search).get('state') as PreviewState | null;
+  const previewAllowed =
+    import.meta.env.DEV || import.meta.env.MODE === 'test' || import.meta.env.VITEST === true;
+  const route = new URL(window.location.href, window.location.origin || 'http://127.0.0.1');
+  if (!previewAllowed || route.pathname !== '/agent/preview') return null;
+  const value = route.searchParams.get('state') as PreviewState | null;
   return value && PREVIEW_STATES.some((item) => item.id === value) ? value : 'empty';
 }
 
 // 根据当前地址选择生产状态或开发预览状态。
 export function App() {
-  const [theme, toggleTheme] = useTheme();
-  const [contentFontSize, setContentFontSize] = useContentFontSize();
   const preview = getPreviewState();
   return (
     <>
       {preview ? (
-        <AppShell
-          key={preview}
-          previewState={makeFixture(preview)}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-          contentFontSize={contentFontSize}
-          onContentFontSizeChange={setContentFontSize}
-        />
+        <AppShell key={preview} previewState={makeFixture(preview)} />
       ) : (
-        <PersistentAgentApp
-          theme={theme}
-          onToggleTheme={toggleTheme}
-          contentFontSize={contentFontSize}
-          onContentFontSizeChange={setContentFontSize}
-        />
+        <PersistentAgentApp />
       )}
       {preview ? <PreviewSwitcher active={preview} /> : null}
     </>
   );
 }
 
-function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }) {
+// 将工具耗时格式化为适合 Workbench 展示的短文本。
+function formatToolDuration(durationMs: number): string {
+  return durationMs < 1000 ? `${durationMs} 毫秒` : `${(durationMs / 1000).toFixed(1)} 秒`;
+}
+
+// detail 尚未 hydrate 时，用聊天 blocks 里的 tool_activity 恢复可点击的步骤列表。
+function toolCallViewsFromActivityBlocks(
+  blocks: AssistantContentBlock[],
+  runId: string,
+): ToolCallView[] {
+  return blocks.flatMap((block) => {
+    if (block.type !== 'tool_activity') return [];
+    const displayToolName = resolveActivityToolName(block.toolName, undefined);
+    return [
+      {
+        toolCallId: block.toolCallId,
+        runId,
+        stepId: block.toolCallId,
+        toolName: displayToolName,
+        title: block.title,
+        detail: persistedToolDetail(block.status, displayToolName),
+        status: block.status,
+        elapsed:
+          block.durationMs !== undefined
+            ? formatToolDuration(block.durationMs)
+            : block.status === 'running'
+              ? '进行中'
+              : '',
+        inputSummary: block.summary ?? '',
+        ...(block.toolName === 'bash' && block.terminalView
+          ? { terminal: block.terminalView }
+          : {}),
+      },
+    ];
+  });
+}
+
+// 从任意网页地址读取适合 Workbench 展示的域名。
+function sourceDomain(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+// 安全规范化来源 URL，损坏地址保留原值以避免实时投影中断。
+function canonicalUrl(url: string): string {
+  try {
+    return normalizeSourceUrl(url);
+  } catch {
+    return url;
+  }
+}
+
+// 返回来源可参与实时 canonical merge 的全部 URL。
+function sourceViewUrls(source: SourceView): string[] {
+  return [source.url, source.requestedUrl, source.normalizedUrl].filter((url): url is string =>
+    Boolean(url),
+  );
+}
+
+// 按固定优先级合并来源 provenance。
+function preferredProvenance(
+  left: SourceProvenance | undefined,
+  right: SourceProvenance,
+): SourceProvenance {
+  const priority = { user_provided: 3, search_clue: 2, model_proposed: 1, unknown: 0 };
+  return left && priority[left] >= priority[right] ? left : right;
+}
+
+type WorkbenchHeaderSource = { kind?: 'clue' | 'fetched'; used?: boolean };
+
+type WorkbenchHeaderExecution = {
+  toolName: string;
+  status?: string;
+  elapsed?: string;
+};
+
+function formatSourceEvidenceSubtitle(
+  sources: ReadonlyArray<WorkbenchHeaderSource>,
+): string | undefined {
+  if (!sources.length) return undefined;
+  const usedCount = sources.filter((source) => source.kind === 'fetched' && source.used).length;
+  const fetchedCount = sources.filter((source) => source.kind === 'fetched').length;
+  const clueCount = sources.filter((source) => source.kind === 'clue').length;
+  if (fetchedCount) {
+    return `${usedCount} 个回答采用 · ${fetchedCount} 个已读取 · ${clueCount} 个搜索线索`;
+  }
+  return `${clueCount} 个搜索线索`;
+}
+
+function workbenchExecutionPhase(
+  executions: ReadonlyArray<WorkbenchHeaderExecution>,
+): 'running' | 'completed' | 'idle' {
+  if (!executions.length) return 'idle';
+  if (
+    executions.some(
+      (item) =>
+        item.status === 'running' ||
+        item.status === 'pending' ||
+        item.status === 'waiting' ||
+        item.status === 'cancelling',
+    )
+  ) {
+    return 'running';
+  }
+  if (executions.every((item) => item.status === 'completed')) return 'completed';
+  return 'idle';
+}
+
+function workbenchElapsedHint(executions: ReadonlyArray<WorkbenchHeaderExecution>): string {
+  const elapsed = executions.at(-1)?.elapsed;
+  if (!elapsed || elapsed === '进行中') return '';
+  return ` · 最近 ${elapsed}`;
+}
+
+function workbenchHeader(
+  executions: ReadonlyArray<WorkbenchHeaderExecution>,
+  sources: ReadonlyArray<WorkbenchHeaderSource>,
+) {
+  // 根据当前调用集合选择 Workbench 标题和摘要。
+  const isFileTool = (toolName: string) =>
+    toolName === 'search_file' || toolName === 'read_file' || toolName === 'read_file_lines';
+  const isWebTool = (toolName: string) => toolName === 'web_search' || toolName === 'web_fetch';
+  const phase = workbenchExecutionPhase(executions);
+  const evidence = formatSourceEvidenceSubtitle(sources);
+  const elapsedHint = workbenchElapsedHint(executions);
+  const callCount = executions.length;
+
+  if (callCount > 0 && executions.every((item) => isFileTool(item.toolName))) {
+    const phaseCopy =
+      phase === 'running'
+        ? `正在读取 · ${callCount} 次文件调用${elapsedHint}`
+        : phase === 'completed'
+          ? `读取完成 · ${callCount} 次文件调用`
+          : `${callCount} 次文件调用`;
+    return { title: '文件读取', subtitle: phaseCopy };
+  }
+  if (callCount > 0 && executions.every((item) => isWebTool(item.toolName))) {
+    const subtitle =
+      phase === 'running'
+        ? `正在执行 · ${callCount} 次调用${elapsedHint}`
+        : phase === 'completed' && evidence
+          ? `复核完成 · ${evidence}`
+          : evidence
+            ? `${callCount} 次调用 · ${evidence}`
+            : `${callCount} 次调用 · ${sources.length} 个来源`;
+    return {
+      title: AGENT_UI_COPY.searchWorkbenchTitle,
+      subtitle,
+    };
+  }
+  const subtitle =
+    phase === 'running'
+      ? `正在执行 · ${callCount} 次调用${elapsedHint}`
+      : phase === 'completed' && evidence
+        ? `执行完成 · ${evidence}`
+        : sources.length
+          ? `${callCount} 次调用 · ${sources.length} 个来源`
+          : `${callCount} 次调用`;
+  return {
+    title: '工具执行',
+    subtitle,
+  };
+}
+
+// 将持久化 assistant metadata 投影为可恢复的轻量 Workbench。
+// eslint-disable-next-line react-refresh/only-export-components -- 导出纯投影函数供实时/恢复一致性单测复用。
+export function workbenchFromPersistedMessage(
+  message: PersistedMessage,
+): WorkbenchState | undefined {
+  // 从已持久化的 assistant metadata 恢复文件工具和来源投影。
+  if (message.role !== 'assistant') return undefined;
+  const metadata = assistantAgentMetadataRestoreSchema.safeParse(message.metadata);
+  if (!metadata.success) return undefined;
+  const executions = metadata.data.agent?.executions ?? [];
+  const sources = metadata.data.agent?.sources ?? [];
+  const context = metadata.data.context;
+  const contentBlocks = metadata.data.blocks ?? [];
+  const detailRef = metadata.data.agent?.detailRef;
+  const toolCallCount = metadata.data.agent?.toolCallCount ?? 0;
+  const hasToolActivity = contentBlocks.some((block) => block.type === 'tool_activity');
+  const artifactBlocks = contentBlocks.filter(
+    (block): block is AssistantArtifactBlock => block.type === 'artifact',
+  );
+  const bashTerminalByCallId = new Map<string, BashTerminalView>();
+  for (const block of contentBlocks) {
+    if (block.type === 'tool_activity' && block.toolName === 'bash' && block.terminalView) {
+      bashTerminalByCallId.set(block.toolCallId, block.terminalView);
+    }
+  }
+  if (
+    !executions.length &&
+    !sources.length &&
+    !hasToolActivity &&
+    !context &&
+    !metadata.data.plan &&
+    !artifactBlocks.length
+  )
+    return undefined;
+  const runIdForWorkbench = detailRef ?? message.runId;
+  if (!executions.length && runIdForWorkbench && (hasToolActivity || toolCallCount > 0)) {
+    const fallbackExecutions = toolCallViewsFromActivityBlocks(contentBlocks, runIdForWorkbench);
+    return {
+      runId: runIdForWorkbench,
+      title: '工具执行',
+      subtitle: fallbackExecutions.length
+        ? `${fallbackExecutions.length} 次调用`
+        : '正在加载工具详情…',
+      activeView: 'tool_results',
+      activityStatus: fallbackExecutions.some((item) => item.status === 'running')
+        ? 'running'
+        : 'completed',
+      executions: fallbackExecutions,
+      sources: [],
+      followMode: 'auto',
+      open: false,
+    };
+  }
+  const completedCount = executions.filter((execution) => execution.status === 'completed').length;
+  const cancelledCount = executions.filter((execution) => execution.status === 'cancelled').length;
+  let clueIndex = 0;
+  let candidateIndex = 0;
+  const sourceViews = sources.map((source) => {
+    if (source.kind === 'fetched') {
+      candidateIndex += 1;
+      return {
+        id: `F${candidateIndex}`,
+        title: source.title,
+        domain: sourceDomain(source.finalUrl),
+        url: source.finalUrl,
+        excerpt: source.passages[0]?.text ?? '已读取网页，但没有匹配当前问题的原文片段。',
+        time: new Date(source.retrievedAt).toLocaleString('zh-CN'),
+        kind: 'fetched' as const,
+        used: source.used,
+        author: source.author,
+        publishedAt: source.publishedAt,
+        contentType: source.contentType,
+        cacheStatus: source.cacheStatus,
+        truncated: source.truncated,
+        passages: source.passages,
+        provenance: source.provenance,
+        requestedUrl: source.requestedUrl,
+        normalizedUrl: source.normalizedUrl,
+        contentHash: source.contentHash,
+        toolCallIds: source.toolCallIds,
+      };
+    }
+    clueIndex += 1;
+    return {
+      id: `R${clueIndex}`,
+      title: source.title,
+      domain: source.domain,
+      url: source.url,
+      excerpt: source.snippet,
+      time: new Date(source.retrievedAt).toLocaleString('zh-CN'),
+      provider: source.provider,
+      kind: 'clue' as const,
+      used: source.used,
+      provenance: source.provenance,
+      toolCallIds: source.toolCallIds,
+    };
+  });
+  const header = workbenchHeader(executions, sourceViews);
+  const artifacts = artifactBlocks.map((block) => ({
+    artifactId: block.artifactId,
+    fileId: block.fileId,
+    fileName: block.fileName,
+    mediaType: block.mediaType,
+    fileKind: block.fileKind,
+    size: block.size,
+    status: block.status,
+    createdAt: block.createdAt,
+    ...(block.errorCode ? { errorCode: block.errorCode } : {}),
+    ...(block.lineCount !== undefined ? { lineCount: block.lineCount } : {}),
+    ...(block.characterCount !== undefined ? { characterCount: block.characterCount } : {}),
+  }));
+  return {
+    runId: message.runId ?? message.id,
+    title: context && !executions.length ? 'Context 调试' : header.title,
+    subtitle:
+      context && !executions.length ? `Model Round ${context.roundSequence}` : header.subtitle,
+    activeView: persistedActiveView(sources.length, Boolean(context && !executions.length)),
+    activityStatus: persistedActivityStatus(completedCount, cancelledCount, executions.length),
+    executions: executions.map((execution) => {
+      const input = asToolCopyInput(execution.input);
+      const publicName = execution.toolName === 'external_tool' ? execution.publicName : undefined;
+      const displayToolName = resolveActivityToolName(execution.toolName, publicName);
+      const terminal =
+        execution.toolName === 'bash'
+          ? mergeBashTerminalView(
+              bashTerminalFromInput(input),
+              bashTerminalByCallId.get(execution.toolCallId),
+            )
+          : undefined;
+      return {
+        toolCallId: execution.toolCallId,
+        runId: message.runId ?? message.id,
+        stepId: execution.toolCallId,
+        toolName: displayToolName,
+        title: streamToolTitle({
+          toolName: execution.toolName,
+          input: execution.input,
+          publicName,
+        }),
+        detail: persistedToolDetail(execution.status, displayToolName),
+        status: execution.status,
+        elapsed: formatToolDuration(execution.durationMs),
+        inputSummary: streamToolInputSummary({
+          toolName: execution.toolName,
+          input: execution.input,
+          publicName,
+        }),
+        ...(terminal ? { terminal } : {}),
+        outputSummary: persistedOutputSummary({
+          status: execution.status,
+          toolName: execution.toolName,
+          publicName,
+          toolInput: execution.input,
+          fileName: input.fileName,
+          title: input.title,
+          succeededCount: execution.succeededCount,
+          failedCount: execution.failedCount,
+          passageCount: execution.passageCount,
+          resultCount: execution.resultCount,
+          errorDetail: execution.error?.detail,
+        }),
+        ...(execution.toolName === 'external_tool' && execution.outputPreview !== undefined
+          ? {
+              outputPreview: execution.outputPreview,
+              outputPreviewTruncated:
+                Boolean(execution.outputRef) ||
+                (execution.outputBytes !== undefined &&
+                  execution.outputPreview.length < execution.outputBytes) ||
+                (execution.outputCharCount !== undefined &&
+                  execution.outputPreview.length < execution.outputCharCount),
+              ...(execution.outputRef ? { outputRef: execution.outputRef } : {}),
+              ...(execution.outputBytes !== undefined
+                ? { outputBytes: execution.outputBytes }
+                : {}),
+            }
+          : {}),
+        resultCount: execution.resultCount,
+        sourceCount:
+          execution.toolName === 'web_fetch' ? execution.succeededCount : execution.resultCount,
+        ...(execution.status === 'completed' &&
+        (execution.toolName === 'create_file' || execution.toolName === 'create_report')
+          ? (() => {
+              const matched = artifacts.find((item) => item.fileName === execution.input.fileName);
+              return matched ? { artifactId: matched.artifactId } : {};
+            })()
+          : {}),
+      };
+    }),
+    followMode: 'auto',
+    sources: sourceViews,
+    ...(artifacts.length ? { artifacts } : {}),
+    ...(context ? { context } : {}),
+    ...(metadata.data.plan ? { plan: metadata.data.plan } : {}),
+    open: Boolean((context || metadata.data.plan) && !executions.length),
+  };
+}
+
+function artifactRefsFromAssistantBlocks(
+  blocks: ReadonlyArray<AssistantContentBlock>,
+): ArtifactRef[] {
+  const seen = new Set<string>();
+  const artifacts: ArtifactRef[] = [];
+  for (const block of blocks) {
+    if (block.type !== 'artifact') continue;
+    if (seen.has(block.artifactId)) continue;
+    seen.add(block.artifactId);
+    const {
+      id: _id,
+      type: _type,
+      roundId: _roundId,
+      roundSequence: _roundSequence,
+      blockSequence: _blockSequence,
+      ...artifact
+    } = block;
+    artifacts.push(artifact);
+  }
+  return artifacts;
+}
+
+/** 合并会话级交付物，避免 Run 快照/工具流覆盖后「文件」Tab 消失。 */
+export function mergeWorkbenchDeliverables(
+  workbench: WorkbenchState,
+  previous?: WorkbenchState,
+  options?: { artifactSeries?: ArtifactSeriesRef[] },
+): WorkbenchState {
+  const artifactSeries = options?.artifactSeries?.length
+    ? options.artifactSeries
+    : workbench.artifactSeries?.length
+      ? workbench.artifactSeries
+      : previous?.artifactSeries;
+  const byId = new Map<string, ArtifactRef>();
+  for (const artifact of [
+    ...(previous?.artifacts ?? []),
+    ...(workbench.artifacts ?? []),
+    ...(artifactSeries?.flatMap((series) => series.versions) ?? []),
+  ]) {
+    byId.set(artifact.artifactId, artifact);
+  }
+  const artifacts = [...byId.values()];
+  return {
+    ...workbench,
+    ...(artifactSeries?.length ? { artifactSeries } : {}),
+    ...(artifacts.length ? { artifacts } : {}),
+  };
+}
+
+function isBashBackgroundToolResult(
+  result: BashPublicToolResult,
+): result is Extract<BashPublicToolResult, { kind: 'background' }> {
+  return 'kind' in result && result.kind === 'background';
+}
+
+function collectedArtifactFromCommandResult(
+  result: BashPublicToolResult,
+): ArtifactRef | undefined {
+  if (isBashBackgroundToolResult(result)) return undefined;
+  return result.collection?.status === 'collected' ? result.collection.artifact : undefined;
+}
+
+/** 工具流事件是否应展开 Workbench（用户对本 run 点过收起则不再自动展开）。 */
+export function resolveWorkbenchOpenOnToolEvent(
+  existingOpen: boolean | undefined,
+  event: ToolStreamEvent,
+  options: { suppressed: boolean; hasNewResource: boolean },
+): boolean {
+  if (options.suppressed) return existingOpen === true;
+  if (existingOpen === true) return true;
+  if (event.type === 'tool.started' || event.type === 'tool.failed') return true;
+  if (options.hasNewResource) return true;
+  return false;
+}
+
+// 将实时工具生命周期事件增量投影到当前 Workbench 状态。
+// eslint-disable-next-line react-refresh/only-export-components -- 导出纯投影函数供实时/恢复一致性单测复用。
+export function applyToolEvent(
+  current: WorkbenchState | undefined,
+  event: ToolStreamEvent,
+  open: boolean,
+  currentUserUrls: ReadonlySet<string> = new Set(),
+): WorkbenchState {
+  // 将实时工具事件归约为当前会话的 Workbench 状态。
+  const base: WorkbenchState = current ?? {
+    runId: event.messageId,
+    title: AGENT_UI_COPY.searchWorkbenchTitle,
+    subtitle: '正在搜索公开网页',
+    activeView: 'tool_results',
+    activityStatus: 'running',
+    executions: [],
+    followMode: 'auto',
+    sources: [],
+    open,
+  };
+  if (event.type === 'tool.started') {
+    const bashTerminal =
+      event.toolName === 'bash'
+        ? mergeBashTerminalView(
+            bashTerminalFromInput(event.input),
+            'terminalView' in event ? event.terminalView : undefined,
+          )
+        : undefined;
+    const publicName = 'publicName' in event ? event.publicName : undefined;
+    const displayToolName = resolveActivityToolName(event.toolName, publicName);
+    const tool: ToolCallView = {
+      toolCallId: event.toolCallId,
+      runId: event.messageId,
+      stepId: event.toolCallId,
+      toolName: displayToolName,
+      title: streamToolTitle({
+        toolName: event.toolName,
+        input: event.input,
+        publicName,
+      }),
+      detail: toolRunningDetail(displayToolName),
+      status: 'running',
+      elapsed: '进行中',
+      inputSummary: streamToolInputSummary({
+        toolName: event.toolName,
+        input: event.input,
+        publicName,
+      }),
+      ...(bashTerminal ? { terminal: bashTerminal } : {}),
+    };
+    const executions = base.executions.some((item) => item.toolCallId === event.toolCallId)
+      ? base.executions
+      : [...base.executions, tool];
+    const header = workbenchHeader(executions, base.sources);
+    return {
+      ...base,
+      open,
+      title: header.title,
+      subtitle: header.subtitle,
+      activityStatus: 'running',
+      executions,
+      ...(base.followMode === 'auto'
+        ? {
+            focusTarget: {
+              kind: 'tool_call' as const,
+              runId: event.messageId,
+              stepId: event.toolCallId,
+              toolCallId: event.toolCallId,
+            },
+          }
+        : {}),
+    };
+  }
+
+  const completedEvent = event.type === 'tool.completed' ? event : undefined;
+  const failedEvent = event.type === 'tool.failed' ? event : undefined;
+  const cancelledEvent = event.type === 'tool.cancelled' ? event : undefined;
+  const status = toolEventStatus(event.type);
+  const completedFetch = completedEvent?.toolName === 'web_fetch' ? completedEvent : undefined;
+  const completedApproval =
+    completedEvent?.toolName === 'approval_test' ? completedEvent : undefined;
+  const completedFileSearch =
+    completedEvent?.toolName === 'search_file' ? completedEvent : undefined;
+  const completedFileRead = completedEvent?.toolName === 'read_file' ? completedEvent : undefined;
+  const completedFileReadLines =
+    completedEvent?.toolName === 'read_file_lines' ? completedEvent : undefined;
+  const completedCreateFile =
+    completedEvent?.toolName === 'create_file' ? completedEvent : undefined;
+  const completedCreateReport =
+    completedEvent?.toolName === 'create_report' ? completedEvent : undefined;
+  const completedExecuteCommand =
+    completedEvent?.toolName === 'execute_command' &&
+    collectedArtifactFromCommandResult(completedEvent.result)
+      ? completedEvent
+      : undefined;
+  const completedExternal =
+    completedEvent?.toolName === 'external_tool' ? completedEvent : undefined;
+  const completedArtifact =
+    completedCreateFile ?? completedCreateReport ?? completedExecuteCommand;
+  const completedArtifactRef =
+    completedCreateFile?.result.artifact ??
+    completedCreateReport?.result.artifact ??
+    (completedExecuteCommand
+      ? collectedArtifactFromCommandResult(completedExecuteCommand.result)
+      : undefined);
+  const fetchSucceeded =
+    completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
+  const resultCount = liveToolCounts(
+    completedEvent,
+    completedFileSearch,
+    completedFileReadLines,
+    completedFileRead,
+  );
+  const sourceCount = completedFetch ? fetchSucceeded.length : resultCount;
+  const executions = base.executions.map((tool) =>
+    tool.toolCallId === event.toolCallId
+      ? {
+          ...tool,
+          status,
+          detail: completedEvent
+            ? liveCompletedDetail(completedEvent.toolName)
+            : (cancelledEvent?.detail ?? failedEvent?.detail ?? '工具执行失败'),
+          elapsed: formatToolDuration(event.durationMs),
+          ...(completedEvent?.toolName === 'bash'
+            ? {
+                terminal: mergeBashTerminalView(
+                  tool.terminal,
+                  'terminalView' in completedEvent ? completedEvent.terminalView : undefined,
+                ),
+              }
+            : {}),
+          outputSummary: completedEvent
+            ? liveOutputSummary({
+                toolName: completedEvent.toolName,
+                publicName:
+                  completedEvent.toolName === 'external_tool'
+                    ? completedEvent.publicName
+                    : undefined,
+                toolInput:
+                  completedEvent.toolName === 'external_tool' ? completedEvent.input : undefined,
+                fetchStats: completedFetch?.result.stats,
+                approvalEcho: completedApproval?.result.echoed,
+                fileSearchCount: completedFileSearch?.result.matches.length,
+                fileReadLineCount:
+                  completedFileRead?.result.scope === 'file'
+                    ? undefined
+                    : (completedFileRead?.result.lines.length ??
+                      completedFileReadLines?.result.lines.length),
+                fileName: completedCreateFile?.result.file.fileName,
+                reportTitle: completedCreateReport?.result.report.title,
+                searchResultCount:
+                  completedEvent.toolName === 'web_search'
+                    ? completedEvent.result.results.length
+                    : 0,
+              })
+            : (cancelledEvent?.detail ?? failedEvent?.detail),
+          ...(completedExternal
+            ? {
+                outputPreview: completedExternal.result.preview,
+                outputPreviewTruncated: completedExternal.result.truncated,
+              }
+            : {}),
+          ...(completedArtifactRef ? { artifactId: completedArtifactRef.artifactId } : {}),
+          resultCount,
+          sourceCount,
+        }
+      : tool,
+  );
+  const sources = [...base.sources];
+  if (event.type === 'tool.completed' && event.toolName === 'web_search') {
+    let clueNumber = nextSourceNumber(base.sources, 'R');
+    for (const source of event.result.results) {
+      const sourceKey = canonicalUrl(source.url);
+      const existing = sources.find((item) =>
+        sourceViewUrls(item).some((url) => canonicalUrl(url) === sourceKey),
+      );
+      if (existing) {
+        existing.toolCallIds = [...new Set([...(existing.toolCallIds ?? []), event.toolCallId])];
+        if (existing.kind === 'clue')
+          existing.provenance = preferredProvenance(existing.provenance, 'search_clue');
+      } else {
+        sources.push({
+          id: `R${clueNumber}`,
+          title: source.title,
+          domain: source.domain,
+          url: source.url,
+          excerpt: source.snippet,
+          time: new Date(event.completedAt).toLocaleString('zh-CN'),
+          provider: event.result.provider,
+          kind: 'clue',
+          provenance: 'search_clue',
+          toolCallIds: [event.toolCallId],
+        });
+        clueNumber += 1;
+      }
+    }
+  }
+  if (event.type === 'tool.completed' && event.toolName === 'web_fetch') {
+    let candidateNumber = nextSourceNumber(base.sources, 'F');
+    for (const source of event.result.results) {
+      if (source.status !== 'succeeded' || !source.passages.length) continue;
+      const resultUrls = new Set(
+        [source.requestedUrl, source.finalUrl, source.normalizedUrl].map(canonicalUrl),
+      );
+      const urlIndexes = sources.flatMap((item, index) =>
+        sourceViewUrls(item).some((url) => resultUrls.has(canonicalUrl(url))) ? [index] : [],
+      );
+      const hashIndexes = sources.flatMap((item, index) =>
+        item.contentHash === source.contentHash ? [index] : [],
+      );
+      const collisions = [...new Set([...urlIndexes, ...hashIndexes])].sort((a, b) => a - b);
+      const requestedKey = canonicalUrl(source.requestedUrl);
+      const provenance = fetchProvenance(
+        currentUserUrls.has(requestedKey),
+        urlIndexes.some((index) => sources[index]?.kind === 'clue'),
+      );
+      // 仅 hash 相同但 URL 不同的来源保留首次卡片，只聚合执行身份。
+      if (!urlIndexes.length && hashIndexes.length) {
+        const target = sources[hashIndexes[0]!];
+        if (target) {
+          target.toolCallIds = [
+            ...new Set([
+              ...(target.toolCallIds ?? []),
+              ...hashIndexes.flatMap((index) => sources[index]?.toolCallIds ?? []),
+              event.toolCallId,
+            ]),
+          ];
+          target.provenance = hashIndexes.reduce(
+            (value, index) => preferredProvenance(value, sources[index]?.provenance ?? 'unknown'),
+            preferredProvenance(target.provenance, provenance),
+          );
+        }
+        for (const index of hashIndexes.slice(1).reverse()) sources.splice(index, 1);
+        continue;
+      }
+      const existing = collisions[0] === undefined ? undefined : sources[collisions[0]];
+      const candidateId = existing?.kind === 'fetched' ? existing.id : `F${candidateNumber++}`;
+      const mergedToolCallIds = [
+        ...new Set([
+          ...(existing?.toolCallIds ?? []),
+          ...collisions.flatMap((index) => sources[index]?.toolCallIds ?? []),
+          event.toolCallId,
+        ]),
+      ];
+      const mergedProvenance = collisions.reduce(
+        (value, index) => preferredProvenance(value, sources[index]?.provenance ?? 'unknown'),
+        provenance as SourceProvenance,
+      );
+      const candidate: SourceView = {
+        id: candidateId,
+        title: source.title,
+        domain: sourceDomain(source.finalUrl),
+        url: source.finalUrl,
+        excerpt: source.passages[0]?.text ?? '',
+        time: new Date(source.retrievedAt).toLocaleString('zh-CN'),
+        kind: 'fetched',
+        used: false,
+        author: source.author,
+        publishedAt: source.publishedAt,
+        contentType: source.contentType,
+        cacheStatus: source.cacheStatus,
+        truncated: source.truncated,
+        passages: source.passages,
+        provenance: mergedProvenance,
+        requestedUrl: source.requestedUrl,
+        normalizedUrl: source.normalizedUrl,
+        contentHash: source.contentHash,
+        toolCallIds: mergedToolCallIds,
+      };
+      if (collisions[0] === undefined) sources.push(candidate);
+      else {
+        sources[collisions[0]] = candidate;
+        for (const index of collisions.slice(1).reverse()) sources.splice(index, 1);
+      }
+    }
+  }
+  const header = workbenchHeader(executions, sources);
+  const artifacts =
+    completedArtifactRef &&
+    !(base.artifacts ?? []).some((item) => item.artifactId === completedArtifactRef.artifactId)
+      ? [...(base.artifacts ?? []), completedArtifactRef]
+      : base.artifacts;
+  return {
+    ...base,
+    open,
+    title: header.title,
+    activityStatus: cancelledEvent ? 'cancelled' : base.activityStatus,
+    subtitle: header.subtitle,
+    activeView:
+      completedArtifact || event.type === 'tool.completed' ? 'tool_results' : base.activeView,
+    executions,
+    sources,
+    ...(completedArtifact && base.followMode === 'auto'
+      ? {
+          focusTarget: {
+            kind: 'tool_call' as const,
+            runId: base.runId,
+            stepId: event.toolCallId,
+            toolCallId: event.toolCallId,
+          },
+        }
+      : {}),
+    ...(artifacts?.length ? { artifacts } : {}),
+  };
+}
+
+// 将持久化消息转换为 Conversation 可直接渲染的项目。
+function toConversationItem(message: PersistedMessage): ConversationItem {
+  // 将后端消息转换为会话区域使用的用户或 assistant 项目。
+  if (message.role === 'user') {
+    const metadataSkillNames = Array.isArray(message.metadata?.skillNames)
+      ? message.metadata.skillNames.filter(
+          (value): value is string => typeof value === 'string' && value.length > 0,
+        )
+      : undefined;
+    return {
+      id: message.id,
+      kind: 'user',
+      content: message.content,
+      ...(metadataSkillNames?.length ? { skillNames: metadataSkillNames } : {}),
+      ...(typeof message.metadata?.pendingInputId === 'string'
+        ? { pendingInputId: message.metadata.pendingInputId }
+        : {}),
+      attachments: message.attachments,
+      createdAt: message.createdAt,
+    };
+  }
+  const metadata =
+    typeof message.metadata === 'object' && message.metadata !== null
+      ? (message.metadata as Record<string, unknown>)
+      : {};
+  const detailRef =
+    typeof metadata.agent === 'object' &&
+    metadata.agent !== null &&
+    !Array.isArray(metadata.agent) &&
+    typeof (metadata.agent as Record<string, unknown>).detailRef === 'string'
+      ? ((metadata.agent as Record<string, unknown>).detailRef as string)
+      : undefined;
+  const blocksValue = metadata.blocks;
+  const blocks = Array.isArray(blocksValue)
+    ? blocksValue.flatMap((value): AssistantContentBlock[] => {
+        // 兼容早期 Steer 持久化 bug：事件名被误写成内容块类型。
+        const candidate =
+          typeof value === 'object' && value !== null && !Array.isArray(value)
+            ? (value as Record<string, unknown>)
+            : value;
+        const normalized =
+          typeof candidate === 'object' &&
+          candidate !== null &&
+          !Array.isArray(candidate) &&
+          candidate.type === 'user.intervention'
+            ? { ...candidate, type: 'user_intervention' }
+            : candidate;
+        const parsed = assistantContentBlockSchema.safeParse(normalized);
+        return parsed.success ? [parsed.data] : [];
+      })
+    : [];
+  const restoredBlocks = blocks.length ? cloneAssistantBlocks(blocks) : [];
+  const errorValue = metadata.error;
+  const persistedError: { code: string; detail: string } | undefined =
+    typeof errorValue === 'object' &&
+    errorValue !== null &&
+    !Array.isArray(errorValue) &&
+    typeof (errorValue as Record<string, unknown>).code === 'string' &&
+    typeof (errorValue as Record<string, unknown>).detail === 'string'
+      ? {
+          code: (errorValue as { code: string; detail: string }).code,
+          detail: (errorValue as { code: string; detail: string }).detail,
+        }
+      : undefined;
+  const finalBlocks = restoredBlocks.length
+    ? restoredBlocks
+    : [{ id: `${message.id}-text-1`, type: 'text' as const, content: message.content }];
+  return {
+    id: message.id,
+    kind: 'assistant',
+    ...((message.runId ?? detailRef) ? { runId: message.runId ?? detailRef } : {}),
+    blocks: finalBlocks,
+    ...(message.deliveryStatus ? { deliveryStatus: message.deliveryStatus } : {}),
+    ...(persistedError ? { error: persistedError } : {}),
+    createdAt: message.createdAt,
+    workbench: workbenchFromPersistedMessage(message),
+  };
+}
+
+function messageWithRunDetail(
+  message: PersistedMessage,
+  detail: RunDetailResponse,
+): PersistedMessage {
+  const metadata =
+    typeof message.metadata === 'object' && message.metadata !== null ? message.metadata : {};
+  const existingAgent =
+    typeof metadata.agent === 'object' && metadata.agent !== null && !Array.isArray(metadata.agent)
+      ? metadata.agent
+      : {};
+  return {
+    ...message,
+    metadata: {
+      ...metadata,
+      agent: {
+        ...existingAgent,
+        executions: detail.executions,
+        sources: detail.sources,
+        detailRef: detail.runId,
+      },
+    },
+  };
+}
+
+function pendingStateForInput(
+  input: PendingUserInputView | undefined,
+): 'steer_pending' | 'steer_applied' | 'follow_up_pending' | undefined {
+  if (!input) return undefined;
+  if (input.kind === 'steer' && input.status === 'consumed') return 'steer_applied';
+  if (input.kind === 'steer') return 'steer_pending';
+  if (input.status === 'consumed') return 'follow_up_pending';
+  return 'follow_up_pending';
+}
+
+function mergePendingSteerState(
+  conversation: ConversationItem[],
+  pendingInputs: PendingUserInputView[],
+): ConversationItem[] {
+  return conversation.map((item) => {
+    if (item.kind !== 'user' || !item.pendingInputId) return item;
+    const pending = pendingInputs.find((input) => input.id === item.pendingInputId);
+    return { ...item, pendingState: pendingStateForInput(pending) };
+  });
+}
+
+function uniquePendingInputs(items: PendingUserInputView[]): PendingUserInputView[] {
+  // 合并重复的 Pending Input，并按服务端序号恢复稳定顺序。
+  const merged = new Map<string, PendingUserInputView>();
+  for (const item of items) {
+    const previous = merged.get(item.id);
+    // 延迟到达的全量列表不能把已提升的 Steer 回滚成 Follow-up。
+    if (!previous || item.kind === 'steer' || previous.status !== 'pending')
+      merged.set(item.id, item);
+  }
+  return [...merged.values()].sort((left, right) => left.sequence - right.sequence);
+}
+
+function preferRicherAssistant(
+  current: ConversationItem | undefined,
+  restored: ConversationItem,
+): ConversationItem {
+  if (
+    current?.kind === 'assistant' &&
+    restored.kind === 'assistant' &&
+    current.blocks.length > restored.blocks.length
+  ) {
+    const blockArtifacts = artifactRefsFromAssistantBlocks(current.blocks);
+    const workbenchSource = current.workbench ?? restored.workbench;
+    const workbench = workbenchSource
+      ? mergeWorkbenchDeliverables(
+          {
+            ...workbenchSource,
+            ...(blockArtifacts.length ? { artifacts: blockArtifacts } : {}),
+          },
+          restored.workbench,
+        )
+      : undefined;
+    return {
+      ...restored,
+      blocks: current.blocks,
+      ...(workbench ? { workbench } : {}),
+    };
+  }
+  return restored;
+}
+
+// 从首条用户输入构造创建会话时使用的临时标题。
+function makeProvisionalTitle(content: string): string {
+  return content.replace(/\s+/g, ' ').trim().slice(0, AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength);
+}
+
+// 基于历史版本修改时，服务端会自动把基础 Artifact 追加到用户消息。
+// 乐观消息同步派生同一文件卡片，避免等待 Run 快照刷新后才出现。
+export function optimisticRevisionAttachments(
+  explicitAttachments: FileRef[],
+  revisionContext: AgentUiState['revisionContext'],
+  workbench?: WorkbenchState,
+): FileRef[] {
+  if (!revisionContext) return explicitAttachments;
+  const baseArtifact = workbench?.artifactSeries
+    ?.flatMap((series) => series.versions)
+    .find((artifact) => artifact.artifactId === revisionContext.baseArtifactId);
+  if (!baseArtifact || explicitAttachments.some((item) => item.fileId === baseArtifact.fileId))
+    return explicitAttachments;
+  return [
+    ...explicitAttachments,
+    {
+      fileId: baseArtifact.fileId,
+      fileName: baseArtifact.fileName,
+      mediaType: baseArtifact.mediaType,
+      size: baseArtifact.size,
+      status: 'ready',
+      fileKind: baseArtifact.fileKind,
+      origin: 'agent_generated',
+      artifactId: baseArtifact.artifactId,
+      ...(baseArtifact.lineCount === undefined ? {} : { lineCount: baseArtifact.lineCount }),
+      ...(baseArtifact.characterCount === undefined
+        ? {}
+        : { characterCount: baseArtifact.characterCount }),
+    },
+  ];
+}
+
+// 将当前会话选择同步到可刷新恢复的查询参数。
+function updateSessionUrl(sessionId: string | null, replace = false): void {
+  const url = sessionId ? `/agent?session=${encodeURIComponent(sessionId)}` : '/agent';
+  window.history[replace ? 'replaceState' : 'pushState']({}, '', url);
+}
+
+// 按置顶优先、最近更新其次的规则稳定排列会话。
+function sortSessionSummaries(items: SessionSummary[]): SessionSummary[] {
+  return [...items].sort((a, b) => {
+    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+    return b.updatedAt.localeCompare(a.updatedAt);
+  });
+}
+
+export type SessionTimeGroup = {
+  id: 'pinned' | 'today' | 'yesterday' | 'week' | 'month' | 'older';
+  label: '置顶' | '今天' | '昨天' | '过去 7 天' | '过去 30 天' | '更早';
+  sessions: SessionSummary[];
+};
+
+function sessionTimeGroup(input: {
+  updatedAt: number;
+  today: number;
+  yesterday: number;
+  week: number;
+  month: number;
+  todayGroup: SessionTimeGroup;
+  yesterdayGroup: SessionTimeGroup;
+  weekGroup: SessionTimeGroup;
+  monthGroup: SessionTimeGroup;
+  older: SessionTimeGroup;
+}): SessionTimeGroup {
+  if (input.updatedAt >= input.today) return input.todayGroup;
+  if (input.updatedAt >= input.yesterday) return input.yesterdayGroup;
+  if (input.updatedAt >= input.week) return input.weekGroup;
+  if (input.updatedAt >= input.month) return input.monthGroup;
+  return input.older;
+}
+
+function snapshotDeliveryStatus(
+  status: string,
+): 'completed' | 'cancelled' | 'failed' | 'streaming' {
+  if (status === 'completed') return 'completed';
+  if (status === 'cancelled') return 'cancelled';
+  if (status === 'failed') return 'failed';
+  return 'streaming';
+}
+
+function snapshotActivityStatus(
+  controlStatus: string | undefined,
+  status: string,
+): WorkbenchState['activityStatus'] {
+  if (
+    controlStatus === 'paused' ||
+    controlStatus === 'pause_requested' ||
+    controlStatus === 'resuming' ||
+    controlStatus === 'waiting_for_user'
+  ) {
+    return controlStatus;
+  }
+  if (status === 'cancelled' || status === 'failed' || status === 'completed') return status;
+  return 'running';
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- 供点击文件卡片等导航单测复用。
+export function workbenchViewFromTarget(kind: WorkbenchFocusTarget['kind']): WorkspaceView {
+  if (kind === 'source' || kind === 'tool_call' || kind === 'activity') return 'tool_results';
+  if (kind === 'report' || kind === 'artifact') return 'deliverables';
+  return 'tool_results';
+}
+
+function clearArtifactWorkbenchFocus(workbench: WorkbenchState): WorkbenchState {
+  if (workbench.focusTarget?.kind !== 'artifact') return workbench;
+  const { focusTarget: _removed, ...rest } = workbench;
+  return rest;
+}
+
+function resumeWorkbenchAutoFollow(workbench: WorkbenchState): WorkbenchState {
+  const last = workbench.executions.at(-1);
+  return {
+    ...workbench,
+    followMode: 'auto',
+    activeView: 'tool_results',
+    ...(last
+      ? {
+          focusTarget: {
+            kind: 'tool_call' as const,
+            runId: last.runId,
+            stepId: last.stepId,
+            toolCallId: last.toolCallId,
+          },
+        }
+      : {}),
+  };
+}
+
+function runTerminalStatus(type: 'run.completed' | 'run.failed' | 'run.cancelled') {
+  if (type === 'run.completed') return 'completed';
+  if (type === 'run.cancelled') return 'cancelled';
+  return 'failed';
+}
+
+// 按用户本地自然日和最近活动时间分组；各时间区间互斥，置顶会话独立置于最前。
+export function groupSessionSummaries(
+  items: SessionSummary[],
+  now = new Date(),
+): SessionTimeGroup[] {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const boundary = (daysAgo: number) => {
+    const value = new Date(startOfToday);
+    value.setDate(value.getDate() - daysAgo);
+    return value.getTime();
+  };
+  const today = startOfToday.getTime();
+  const yesterday = boundary(1);
+  const week = boundary(7);
+  const month = boundary(30);
+  const pinned: SessionTimeGroup = { id: 'pinned', label: '置顶', sessions: [] };
+  const todayGroup: SessionTimeGroup = { id: 'today', label: '今天', sessions: [] };
+  const yesterdayGroup: SessionTimeGroup = { id: 'yesterday', label: '昨天', sessions: [] };
+  const weekGroup: SessionTimeGroup = { id: 'week', label: '过去 7 天', sessions: [] };
+  const monthGroup: SessionTimeGroup = { id: 'month', label: '过去 30 天', sessions: [] };
+  const older: SessionTimeGroup = { id: 'older', label: '更早', sessions: [] };
+  const groups = [pinned, todayGroup, yesterdayGroup, weekGroup, monthGroup, older];
+
+  for (const session of sortSessionSummaries(items)) {
+    if (session.isPinned) {
+      pinned.sessions.push(session);
+      continue;
+    }
+    const updatedAt = new Date(session.updatedAt).getTime();
+    const target = sessionTimeGroup({
+      updatedAt,
+      today,
+      yesterday,
+      week,
+      month,
+      todayGroup,
+      yesterdayGroup,
+      weekGroup,
+      monthGroup,
+      older,
+    });
+    target.sessions.push(session);
+  }
+
+  return groups.filter((group) => group.sessions.length > 0);
+}
+
+function WorkbenchOpenButton({
+  disabled,
+  title,
+  onClick,
+}: {
+  disabled: boolean;
+  title: string;
+  onClick: () => void;
+}) {
   return (
     <button
-      className="icon-button ml-auto border border-transparent text-text-secondary hover:border-border hover:bg-surface-hover"
+      className="workbench-open-button ml-auto shrink-0"
       type="button"
-      aria-label={theme === 'dark' ? '切换浅色主题' : '切换暗色主题'}
-      title={theme === 'dark' ? '切换浅色主题' : '切换暗色主题'}
-      onClick={onToggle}
+      aria-label={AGENT_UI_COPY.openWorkbench}
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
     >
-      {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+      <PanelRight size={18} strokeWidth={1.75} aria-hidden="true" />
+      <span className="workbench-open-button__label">{AGENT_UI_COPY.openWorkbenchLabel}</span>
     </button>
   );
 }
 
 // 管理生产页面的持久化会话、独立缓存和后台流。
-function PersistentAgentApp({
-  theme,
-  onToggleTheme,
-  contentFontSize,
-  onContentFontSizeChange,
-}: {
-  theme: Theme;
-  onToggleTheme: () => void;
-  contentFontSize: number;
-  onContentFontSizeChange: (size: number) => void;
-}) {
+function PersistentAgentApp() {
+  const confirm = useConfirm();
+  const [authUser, setAuthUser] = useState<AuthUserView | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
   // 会话列表与 sessionStates 分离：前者驱动 Sidebar，后者缓存各会话独立 UI 投影。
   const [serviceState, setServiceState] = useState<ServiceState>('checking');
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [sessionStates, setSessionStatesState] = useState<Record<string, AgentUiState>>({});
+  const [sessionDetailLoadingIds, setSessionDetailLoadingIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   // pendingSessions 允许不同会话并行生成，同时限制同一会话重复提交。
   const [pendingSessions, setPendingSessions] = useState<Record<string, boolean>>({});
   const [draftPending, setDraftPending] = useState(false);
@@ -239,11 +1323,16 @@ function PersistentAgentApp({
   const [error, setError] = useState<string | null>(null);
   const [pendingInputs, setPendingInputs] = useState<PendingUserInputView[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const pendingSubmitTaskRef = useRef<string | null>(null);
+  const skipClearPendingOnLoginCloseRef = useRef(false);
   const [reconnectRunId, setReconnectRunId] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('high');
   const [models, setModels] = useState<PublicModelConfig[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   // ref 为异步 SSE 回调提供最新值，避免闭包读取过期 React state。
   const selectedSessionIdRef = useRef<string | null>(null);
   const pendingSessionsRef = useRef<Record<string, boolean>>({});
@@ -254,8 +1343,23 @@ function PersistentAgentApp({
   // 每个 Run 最后成功归约的 SSE cursor。
   const runSequencesRef = useRef<Record<string, number>>({});
   const sessionStatesRef = useRef<Record<string, AgentUiState>>({});
+  const sessionPaginationRef = useRef<Record<string, string | undefined>>({});
+  const loadingOlderSessionRef = useRef<Set<string>>(new Set());
+  const [sessionNextBefore, setSessionNextBefore] = useState<Record<string, string | undefined>>(
+    {},
+  );
+  const [loadingOlderSessions, setLoadingOlderSessions] = useState<Set<string>>(new Set());
   // 草稿提交在创建持久化 Session 前可能跨越一次导航；递增 token 让旧请求失去“抢回”当前视图的资格。
   const draftSubmissionTokenRef = useRef(0);
+
+  useEffect(() => {
+    if (!authUser || !selectedModel || pendingSubmitTaskRef.current === null) return;
+    const task = pendingSubmitTaskRef.current;
+    pendingSubmitTaskRef.current = null;
+    if (prompt.trim() !== task) return;
+    void handleSubmit({ preventDefault: () => {} } as FormEvent<HTMLFormElement>);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 登录且模型就绪后续接一次发送
+  }, [authUser, selectedModel]);
 
   useEffect(() => {
     pendingSessionsRef.current = pendingSessions;
@@ -269,19 +1373,31 @@ function PersistentAgentApp({
     sessionStatesRef.current = sessionStates;
   }, [sessionStates]);
 
+  function applyPublicAgentConfig(config: Awaited<ReturnType<typeof getPublicAgentConfig>>): void {
+    const selected =
+      config.models.find((model) => model.id === config.defaultModel) ?? config.models[0];
+    setModels(config.models);
+    if (selected) {
+      setSelectedModel(selected.id);
+      setReasoningEffort(selected.reasoning.default);
+    }
+  }
+
   useEffect(() => {
     disposedRef.current = false;
     const controller = new AbortController();
-    void getPublicAgentConfig(controller.signal)
-      .then((config) => {
-        const selected =
-          config.models.find((model) => model.id === config.defaultModel) ?? config.models[0];
-        setModels(config.models);
-        if (selected) {
-          setSelectedModel(selected.id);
-          setReasoningEffort(selected.reasoning.default);
+    void getMe(controller.signal)
+      .then(setAuthUser)
+      .catch((error) => {
+        if (error instanceof ApiProblem && error.problem.code === 'AUTH_REQUIRED') {
+          setAuthUser(null);
+          return;
         }
+        setAuthUser(null);
       })
+      .finally(() => setAuthChecking(false));
+    void getPublicAgentConfig(controller.signal)
+      .then(applyPublicAgentConfig)
       .catch(() => undefined);
     return () => {
       disposedRef.current = true;
@@ -289,7 +1405,18 @@ function PersistentAgentApp({
       Object.values(runControllersRef.current).forEach((runController) => runController.abort());
       runControllersRef.current = {};
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅挂载时拉取会话与公开模型配置
   }, []);
+
+  useEffect(() => {
+    if (!authUser) return;
+    const controller = new AbortController();
+    void getPublicAgentConfig(controller.signal)
+      .then(applyPublicAgentConfig)
+      .catch(() => undefined);
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 登录成功后补拉模型配置（未登录时可能 401）
+  }, [authUser]);
 
   function setSessionStates(
     update: (current: Record<string, AgentUiState>) => Record<string, AgentUiState>,
@@ -314,53 +1441,483 @@ function PersistentAgentApp({
   }
 
   function applyRunSnapshot(sessionId: string, snapshot: RunSnapshot): void {
+    // Snapshot 是完整替换，但旧 HTTP/SSE 响应不能覆盖已经应用到更高 cursor 的 Live 状态。
     if (snapshot.lastEventSequence < (runSequencesRef.current[snapshot.runId] ?? 0)) return;
     runSequencesRef.current[snapshot.runId] = snapshot.lastEventSequence;
-    const target = sessionStatesRef.current[sessionId];
-    if (!target) return;
-    const result = applyRunSnapshotToSession(sessionId, target, snapshot, pendingInputs);
-    setPendingInputs(result.pendingInputs);
-    setSessionPending(sessionId, result.sessionPending);
-    setSessionStates((current) => ({
-      ...current,
-      [sessionId]: result.sessionState,
-    }));
-    if (result.errorDetail && selectedSessionIdRef.current === sessionId)
-      setError(result.errorDetail);
+    if (snapshot.pendingUserInputs) {
+      setPendingInputs(uniquePendingInputs(snapshot.pendingUserInputs));
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            conversation: mergePendingSteerState(target.conversation, snapshot.pendingUserInputs!),
+          },
+        };
+      });
+    }
+    const active = ['queued', 'running', 'cancel_requested'].includes(snapshot.status);
+    const controlStatus = snapshot.control?.state;
+    const activityStatus = snapshotActivityStatus(controlStatus, snapshot.status);
+    setSessionPending(sessionId, active);
+    const restored = toConversationItem({
+      id: snapshot.assistantMessageId,
+      sessionId,
+      role: 'assistant',
+      kind: 'assistant_delivery',
+      content: snapshot.assistantContent,
+      runId: snapshot.runId,
+      deliveryStatus: snapshotDeliveryStatus(snapshot.status),
+      createdAt: snapshot.createdAt,
+      metadata: {
+        model: 'restored',
+        deliveryStatus: snapshotDeliveryStatus(snapshot.status),
+        runId: snapshot.runId,
+        blocks: snapshot.blocks,
+        ...(snapshot.error &&
+        typeof snapshot.error.code === 'string' &&
+        typeof snapshot.error.detail === 'string'
+          ? { error: { code: snapshot.error.code, detail: snapshot.error.detail } }
+          : {}),
+        agent: {
+          toolCallCount: snapshot.toolCallCount,
+          executions: snapshot.executions,
+          sources: snapshot.sources,
+        },
+      },
+    });
+    if (restored.kind !== 'assistant') return;
+    const workbenchDraft = restored.workbench
+      ? {
+          ...restored.workbench,
+          runId: snapshot.runId,
+          activityStatus,
+          ...(snapshot.control?.phase ? { controlPhase: snapshot.control.phase } : {}),
+          ...(snapshot.activeInterrupt
+            ? { activeInterrupt: snapshot.activeInterrupt }
+            : { activeInterrupt: undefined }),
+          executions: restored.workbench.executions.map((item) => ({
+            ...item,
+            runId: snapshot.runId,
+          })),
+          ...(snapshot.context ? { context: snapshot.context } : {}),
+          ...(snapshot.plan ? { plan: snapshot.plan } : {}),
+        }
+      : undefined;
+    // 只替换目标 Run 对应的 Assistant Message；其他历史轮次和其他 Session 缓存保持不变。
+    setSessionStates((current) => {
+      const target = current[sessionId];
+      if (!target) return current;
+      const workbench = workbenchDraft
+        ? mergeWorkbenchDeliverables(workbenchDraft, target.workbench)
+        : undefined;
+      const existingAssistant = target.conversation.find(
+        (entry) => entry.kind === 'assistant' && entry.id === snapshot.assistantMessageId,
+      );
+      const item = {
+        ...preferRicherAssistant(existingAssistant, restored),
+        pending: active,
+        ...(workbench ? { workbench } : {}),
+      };
+      const exists = target.conversation.some(
+        (entry) => entry.kind === 'assistant' && entry.id === snapshot.assistantMessageId,
+      );
+      return {
+        ...current,
+        [sessionId]: {
+          ...target,
+          conversation: exists
+            ? target.conversation.map((entry) =>
+                entry.kind === 'assistant' && entry.id === snapshot.assistantMessageId
+                  ? item
+                  : entry,
+              )
+            : [...target.conversation, item],
+          ...(workbench ? { workbench } : {}),
+          ...(snapshot.context ? { context: snapshot.context } : {}),
+          ...(snapshot.activeInterrupt
+            ? { activeInterrupt: snapshot.activeInterrupt }
+            : { activeInterrupt: undefined }),
+          ...(active ? { activeRunId: snapshot.runId } : { activeRunId: undefined }),
+        },
+      };
+    });
+    if (snapshot.error && selectedSessionIdRef.current === sessionId)
+      setError(snapshot.error.detail);
   }
 
   function applyRunEvent(sessionId: string, event: RunStreamEvent, task = ''): void {
     const cursor = runSequencesRef.current[event.runId] ?? 0;
+    // 重放重复事件幂等忽略；非连续 Event 绝不能猜测应用，交给 observeRun 重新拉 Snapshot。
+    if (event.seq <= cursor) return;
     if (event.type === 'run.snapshot') {
       applyRunSnapshot(sessionId, event.payload as RunSnapshot);
       return;
     }
+    if (event.seq !== cursor + 1) throw new Error('RUN_EVENT_SEQUENCE_GAP');
+    // 只有确认目标 Session/Message 存在且成功归约后，下面各分支才推进 cursor。
     const target = sessionStatesRef.current[sessionId];
     if (!target) throw new Error('RUN_EVENT_TARGET_MISSING');
-    let result;
-    try {
-      result = applyRunEventToSession(
-        sessionId,
-        target,
-        pendingInputs,
-        Boolean(pendingSessionsRef.current[sessionId]),
-        event,
-        cursor,
-        task,
-      );
-    } catch (error) {
-      throw error;
+    if (event.type === 'user_input.updated') {
+      if (!('pendingUserInputs' in event.payload)) throw new Error('INVALID_USER_INPUT_UPDATE');
+      const update = event.payload;
+      const nextPending = uniquePendingInputs(update.pendingUserInputs ?? []);
+      setPendingInputs(nextPending);
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            conversation: mergePendingSteerState(target.conversation, nextPending),
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
     }
-    if (result.duplicate) return;
-    if (result.gap) throw new Error('RUN_EVENT_SEQUENCE_GAP');
-    runSequencesRef.current[event.runId] = result.nextCursor;
-    setPendingInputs(result.pendingInputs);
-    setSessionPending(sessionId, result.sessionPending);
-    setSessionStates((current) => ({
-      ...current,
-      [sessionId]: result.sessionState,
-    }));
-    if (result.errorDetail) setError(result.errorDetail);
+    if (event.type === 'user.intervention' && 'inputId' in event.payload) {
+      const intervention = event.payload;
+      if (
+        !target.conversation.some(
+          (item) => item.kind === 'assistant' && item.id === intervention.messageId,
+        )
+      )
+        throw new Error('RUN_EVENT_TARGET_MISSING');
+      setSessionStates((current) => {
+        const state = current[sessionId];
+        if (!state) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...state,
+            conversation: state.conversation
+              .filter(
+                (item) => !(item.kind === 'user' && item.pendingInputId === intervention.inputId),
+              )
+              .map((item) =>
+                item.kind === 'assistant' && item.id === intervention.messageId
+                  ? { ...item, blocks: appendUserIntervention(item.blocks, intervention) }
+                  : item,
+              ),
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    if (event.type === 'message.delta') {
+      const delta = event.payload as MessageDeltaEvent;
+      if (
+        !target.conversation.some(
+          (item) => item.kind === 'assistant' && item.id === delta.messageId,
+        )
+      )
+        throw new Error('RUN_EVENT_TARGET_MISSING');
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' && item.id === delta.messageId
+                ? { ...item, blocks: appendTextDelta(item.blocks, delta) }
+                : item,
+            ),
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    if (event.type === 'message.phase.completed' || event.type === 'message.discarded') {
+      const update = event.payload as MessagePhaseCompletedEvent | MessageDiscardedEvent;
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' && item.id === update.messageId
+                ? {
+                    ...item,
+                    blocks:
+                      update.type === 'message.phase.completed'
+                        ? completeTextPhase(item.blocks, update)
+                        : discardTextBlock(item.blocks, update),
+                  }
+                : item,
+            ),
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    if (event.type === 'reasoning.delta') {
+      const reasoning = event.payload as ReasoningDeltaEvent;
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' && item.id === reasoning.messageId
+                ? { ...item, blocks: appendReasoningDelta(item.blocks, reasoning) }
+                : item,
+            ),
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    if (event.type === 'model.round.completed') {
+      const round = event.payload as ModelRoundCompletedEvent;
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        const workbench =
+          target.workbench && round.context
+            ? { ...target.workbench, context: round.context }
+            : target.workbench;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' &&
+              item.blocks.some(
+                (b) =>
+                  b.type === 'reasoning' && b.roundSequence === round.observation.roundSequence,
+              )
+                ? {
+                    ...item,
+                    blocks: completeReasoning(
+                      item.blocks,
+                      round.observation.roundSequence,
+                      round.observation.durationMs,
+                    ),
+                  }
+                : item,
+            ),
+            ...(round.context ? { context: round.context } : {}),
+            workbench,
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    // 计划事件只替换计划投影，不影响文本、工具时间线或 Context。
+    if (event.type === 'plan.updated') {
+      const payload = event.payload as Extract<RunStreamEvent['payload'], { type: 'plan.updated' }>;
+      setSessionStates((current) => {
+        const state = current[sessionId];
+        if (!state) return current;
+        const plan = {
+          ...(payload.explanation ? { explanation: payload.explanation } : {}),
+          plan: payload.plan,
+        };
+        const workbench = state.workbench ?? {
+          runId: event.runId,
+          title: '执行计划',
+          subtitle: '正在按计划执行',
+          activeView: 'tool_results' as const,
+          activityStatus: 'running' as const,
+          executions: [],
+          followMode: 'auto' as const,
+          sources: [],
+          open: true,
+        };
+        return { ...current, [sessionId]: { ...state, workbench: { ...workbench, plan } } };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    if (
+      event.type === 'run.pause_requested' ||
+      event.type === 'run.paused' ||
+      event.type === 'run.resuming' ||
+      event.type === 'run.resumed' ||
+      event.type === 'run.phase_changed' ||
+      event.type === 'run.waiting_for_user' ||
+      event.type === 'interrupt.created' ||
+      event.type === 'interrupt.resolved' ||
+      event.type === 'interrupt.cancelled'
+    ) {
+      if (!('control' in event.payload)) return;
+      const control = event.payload.control;
+      if (!control) return;
+      setSessionPending(sessionId, true);
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            activeInterrupt:
+              event.type === 'interrupt.resolved' || event.type === 'interrupt.cancelled'
+                ? undefined
+                : 'interrupt' in event.payload
+                  ? event.payload.interrupt
+                  : control.activeInterrupt,
+            workbench: target.workbench
+              ? {
+                  ...target.workbench,
+                  activityStatus:
+                    control.state === 'paused' ||
+                    control.state === 'pause_requested' ||
+                    control.state === 'resuming' ||
+                    control.state === 'waiting_for_user'
+                      ? control.state
+                      : ('running' as const),
+                  controlPhase: control.phase,
+                  activeInterrupt:
+                    event.type === 'interrupt.resolved' || event.type === 'interrupt.cancelled'
+                      ? undefined
+                      : 'interrupt' in event.payload
+                        ? event.payload.interrupt
+                        : control.activeInterrupt,
+                }
+              : target.workbench,
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    if (
+      event.type === 'tool.started' ||
+      event.type === 'tool.completed' ||
+      event.type === 'tool.failed' ||
+      event.type === 'tool.cancelled'
+    ) {
+      const toolEvent = event.payload as ToolStreamEvent;
+      if (
+        !target.conversation.some(
+          (item) => item.kind === 'assistant' && item.id === toolEvent.messageId,
+        )
+      )
+        throw new Error('RUN_EVENT_TARGET_MISSING');
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        const existing = target.workbench?.runId === event.runId ? target.workbench : undefined;
+        const suppressed = target.autoOpenSuppressedRunIds?.includes(event.runId) ?? false;
+        const hasNewResource =
+          (toolEvent.type === 'tool.completed' &&
+            (toolEvent.toolName === 'web_search'
+              ? toolEvent.result.results.length > 0
+              : toolEvent.toolName === 'web_fetch' &&
+                toolEvent.result.results.some(
+                  (item) => item.status === 'succeeded' && item.passages.length > 0,
+                ))) ||
+          (toolEvent.type === 'tool.completed' &&
+            toolEvent.toolName === 'search_file' &&
+            toolEvent.result.matches.length > 0) ||
+          (toolEvent.type === 'tool.completed' &&
+            toolEvent.toolName === 'read_file' &&
+            ((toolEvent.result.scope === 'file' && (toolEvent.result.sections?.length ?? 0) > 0) ||
+              (toolEvent.result.scope !== 'file' && toolEvent.result.lines.length > 0))) ||
+          (toolEvent.type === 'tool.completed' &&
+            toolEvent.toolName === 'read_file_lines' &&
+            toolEvent.result.lines.length > 0) ||
+          (toolEvent.type === 'tool.completed' &&
+            (toolEvent.toolName === 'create_file' || toolEvent.toolName === 'create_report')) ||
+          (toolEvent.type === 'tool.completed' &&
+            toolEvent.toolName === 'execute_command' &&
+            Boolean(collectedArtifactFromCommandResult(toolEvent.result)));
+        const currentUserUrls = new Set(
+          [...task.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)].map((match) =>
+            canonicalUrl(match[0].replace(/[.,;:!?，。；：！？]+$/gu, '')),
+          ),
+        );
+        const workbench = mergeWorkbenchDeliverables(
+          applyToolEvent(
+            existing,
+            toolEvent,
+            resolveWorkbenchOpenOnToolEvent(existing?.open, toolEvent, {
+              suppressed,
+              hasNewResource,
+            }),
+            currentUserUrls,
+          ),
+          target.workbench,
+        );
+        workbench.runId = event.runId;
+        workbench.context = target.context;
+        workbench.executions = workbench.executions.map((item) => ({
+          ...item,
+          runId: event.runId,
+        }));
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            workbench,
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' && item.id === toolEvent.messageId
+                ? { ...item, blocks: applyToolActivityEvent(item.blocks, toolEvent), workbench }
+                : item,
+            ),
+          },
+        };
+      });
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    if (
+      event.type === 'run.completed' ||
+      event.type === 'run.failed' ||
+      event.type === 'run.cancelled'
+    ) {
+      const status = runTerminalStatus(event.type);
+      setSessionPending(sessionId, false);
+      setSessionStates((current) => {
+        const target = current[sessionId];
+        if (!target) return current;
+        const workbench = target.workbench
+          ? { ...target.workbench, activityStatus: status as WorkbenchState['activityStatus'] }
+          : undefined;
+        return {
+          ...current,
+          [sessionId]: {
+            ...target,
+            activeRunId: undefined,
+            activeInterrupt: undefined,
+            workbench,
+            conversation: target.conversation.map((item) =>
+              item.kind === 'assistant' && item.pending
+                ? {
+                    ...item,
+                    pending: false,
+                    deliveryStatus: status,
+                    workbench,
+                    ...(event.type === 'run.failed' && 'code' in event.payload
+                      ? { error: { code: event.payload.code, detail: event.payload.detail } }
+                      : {}),
+                  }
+                : item,
+            ),
+          },
+        };
+      });
+      if (event.type === 'run.failed' && 'detail' in event.payload) setError(event.payload.detail);
+      runSequencesRef.current[event.runId] = event.seq;
+      return;
+    }
+    runSequencesRef.current[event.runId] = event.seq;
   }
 
   async function observeRun(
@@ -439,20 +1996,44 @@ function PersistentAgentApp({
     }
   }
 
-  // 首次进入时检查服务、加载列表并恢复 URL 指定或最近会话。
+  // 未登录时也检查 API 就绪，否则 Composer 会一直禁用，无法走「发送 → 登录」流程。
   useEffect(() => {
+    if (authChecking || authUser) return;
+    const controller = new AbortController();
+    void getReadiness(controller.signal)
+      .then(() => setServiceState('ready'))
+      .catch((requestError) => {
+        if (controller.signal.aborted) return;
+        setServiceState('unavailable');
+        setError(getErrorMessage(requestError));
+      });
+    return () => controller.abort();
+  }, [authChecking, authUser]);
+
+  // 首次登录后检查服务、加载列表并恢复 URL 指定或最近会话。
+  useEffect(() => {
+    if (!authUser) return;
     const controller = new AbortController();
     void Promise.all([getReadiness(controller.signal), listSessions(controller.signal)])
       .then(([, loadedSessions]) => {
         setServiceState('ready');
         setSessions(loadedSessions);
         const requestedId = new URLSearchParams(window.location.search).get('session');
-        const target =
-          loadedSessions.find((session) => session.id === requestedId) ?? loadedSessions[0];
-        if (target) {
-          setSelectedSession(target.id);
-          updateSessionUrl(target.id, true);
-          void loadSessionDetail(target.id);
+        const ownedTarget = requestedId
+          ? loadedSessions.find((session) => session.id === requestedId)
+          : undefined;
+        if (ownedTarget) {
+          setSelectedSession(ownedTarget.id);
+          updateSessionUrl(ownedTarget.id, true);
+          void loadSessionDetail(ownedTarget.id);
+        } else if (requestedId) {
+          setSelectedSession(requestedId);
+          updateSessionUrl(requestedId, true);
+          void loadSessionDetail(requestedId);
+        } else if (loadedSessions[0]) {
+          setSelectedSession(loadedSessions[0].id);
+          updateSessionUrl(loadedSessions[0].id, true);
+          void loadSessionDetail(loadedSessions[0].id);
         } else {
           updateSessionUrl(null, true);
         }
@@ -463,12 +2044,95 @@ function PersistentAgentApp({
         setError(getErrorMessage(requestError));
       });
     return () => controller.abort();
-    // 初始化只执行一次；后续会话加载由用户操作或 Run 驱动。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authUser]);
 
   // 从 API 覆盖指定会话缓存，以数据库结果作为最终事实。
   // Active Run 期间禁止旧详情覆盖本地 Live Projection，改由独立 Run Observer 负责增量恢复。
+  async function hydrateRunDetail(sessionId: string, runId: string): Promise<void> {
+    const detail = await getRunDetail(runId);
+    setSessionStates((current) => {
+      const state = current[sessionId];
+      if (!state) return current;
+      let hydratedWorkbench: WorkbenchState | undefined;
+      const conversation = state.conversation.map((item) => {
+        if (item.kind !== 'assistant' || (item.runId ?? item.workbench?.runId) !== runId)
+          return item;
+        const message = {
+          id: item.id,
+          sessionId,
+          role: 'assistant' as const,
+          kind: 'assistant_delivery' as const,
+          content: item.blocks
+            .filter((block) => block.type === 'text')
+            .map((block) => block.content)
+            .join(''),
+          runId,
+          createdAt: item.createdAt ?? new Date().toISOString(),
+          deliveryStatus: item.deliveryStatus,
+          ...(item.error ? { error: item.error } : {}),
+          metadata: {
+            blocks: detail.blocks.length ? detail.blocks : item.blocks,
+            ...(item.deliveryStatus ? { deliveryStatus: item.deliveryStatus } : {}),
+            ...(item.error ? { error: item.error } : {}),
+          },
+        } satisfies PersistedMessage;
+        const restored = toConversationItem(messageWithRunDetail(message, detail));
+        if (restored.kind !== 'assistant') return item;
+        const currentWorkbench = item.workbench;
+        const restoredWorkbench = restored.workbench;
+        const hydrated = {
+          ...item,
+          runId,
+          workbench: restoredWorkbench
+            ? mergeWorkbenchDeliverables(
+                {
+                  ...restoredWorkbench,
+                  ...(currentWorkbench?.context ? { context: currentWorkbench.context } : {}),
+                  ...(currentWorkbench?.plan ? { plan: currentWorkbench.plan } : {}),
+                  open: currentWorkbench?.open ?? restoredWorkbench.open,
+                  activeView: currentWorkbench?.activeView ?? restoredWorkbench.activeView,
+                  followMode: currentWorkbench?.followMode ?? restoredWorkbench.followMode,
+                  ...(currentWorkbench?.focusTarget
+                    ? { focusTarget: currentWorkbench.focusTarget }
+                    : {}),
+                },
+                currentWorkbench,
+              )
+            : currentWorkbench,
+        } satisfies ConversationItem;
+        hydratedWorkbench = hydrated.workbench;
+        return hydrated;
+      });
+      return {
+        ...current,
+        [sessionId]: {
+          ...state,
+          conversation,
+          ...(hydratedWorkbench
+            ? {
+                workbench: mergeWorkbenchDeliverables(
+                  {
+                    ...hydratedWorkbench,
+                    ...(state.workbench?.runId === runId
+                      ? {
+                          open: state.workbench.open,
+                          activeView: state.workbench.activeView,
+                          followMode: state.workbench.followMode,
+                          ...(state.workbench.focusTarget
+                            ? { focusTarget: state.workbench.focusTarget }
+                            : {}),
+                        }
+                      : {}),
+                  },
+                  state.workbench,
+                ),
+              }
+            : {}),
+        },
+      };
+    });
+  }
+
   async function loadSessionDetail(sessionId: string, force = false): Promise<void> {
     if (pendingSessionsRef.current[sessionId]) return;
     if (
@@ -481,8 +2145,24 @@ function PersistentAgentApp({
     // Mark the session as loaded at request start so rapid navigation cannot
     // schedule a second detail request during the initial response window.
     if (!force) loadedSessionDetailsRef.current.add(sessionId);
+    const trackLoadingPlaceholder = !sessionStatesRef.current[sessionId];
+    if (trackLoadingPlaceholder) {
+      setSessionDetailLoadingIds((current) => {
+        if (current.has(sessionId)) return current;
+        const next = new Set(current);
+        next.add(sessionId);
+        return next;
+      });
+    }
     try {
-      const { session } = await getSession(sessionId);
+      const pageSize = 100;
+      const firstPage = await getSession(sessionId, undefined, { limit: pageSize });
+      const session = firstPage.session;
+      sessionPaginationRef.current[sessionId] = session.pagination?.nextBefore;
+      setSessionNextBefore((current) => ({
+        ...current,
+        [sessionId]: session.pagination?.nextBefore,
+      }));
       if (pendingSessionsRef.current[sessionId]) return;
       setPendingInputs(uniquePendingInputs(session.pendingUserInputs));
       setSessionStates((current) => {
@@ -529,6 +2209,25 @@ function PersistentAgentApp({
           [...conversation].reverse().find((item) => item.kind === 'assistant' && item.workbench);
         const restoredWorkbench =
           restoredItem?.kind === 'assistant' ? restoredItem.workbench : undefined;
+        const sessionArtifacts = session.artifactSeries.flatMap((series) => series.versions);
+        const latestAssistantRunId = [...session.messages]
+          .reverse()
+          .find((message) => message.role === 'assistant' && message.runId)?.runId;
+        const workbenchBase =
+          restoredWorkbench ??
+          (sessionArtifacts.length
+            ? {
+                runId: latestAssistantRunId ?? session.id,
+                title: '工具执行',
+                subtitle: `${sessionArtifacts.length} 个文件`,
+                activeView: 'tool_results' as const,
+                activityStatus: 'completed' as const,
+                executions: [],
+                followMode: 'auto' as const,
+                sources: [],
+                open: false,
+              }
+            : undefined);
         const cachedContext = activeWorkbench?.context ?? current[sessionId]?.context;
         return {
           ...current,
@@ -536,16 +2235,18 @@ function PersistentAgentApp({
             label: session.title,
             subtitle: '',
             conversation: restoredConversation,
-            ...(restoredWorkbench
+            ...(workbenchBase
               ? {
-                  workbench: {
-                    ...restoredWorkbench,
-                    artifactSeries: session.artifactSeries,
-                    artifacts: session.artifactSeries.flatMap((series) => series.versions),
-                    open: activeWorkbench?.open ?? false,
-                    activeView: activeWorkbench?.activeView ?? restoredWorkbench.activeView,
-                    ...(cachedContext ? { context: cachedContext } : {}),
-                  },
+                  workbench: mergeWorkbenchDeliverables(
+                    {
+                      ...workbenchBase,
+                      open: activeWorkbench?.open ?? workbenchBase.open ?? false,
+                      activeView: activeWorkbench?.activeView ?? workbenchBase.activeView,
+                      ...(cachedContext ? { context: cachedContext } : {}),
+                    },
+                    activeWorkbench,
+                    { artifactSeries: session.artifactSeries },
+                  ),
                 }
               : {}),
             ...(cachedContext ? { context: cachedContext } : {}),
@@ -557,10 +2258,63 @@ function PersistentAgentApp({
         setSessionPending(sessionId, true);
         void observeRun(sessionId, session.activeRun.runId);
       }
+      const latestAssistantRunId = [...session.messages]
+        .reverse()
+        .find((message) => message.role === 'assistant' && message.runId)?.runId;
+      if (latestAssistantRunId) {
+        void hydrateRunDetail(sessionId, latestAssistantRunId).catch(() => undefined);
+      }
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
       sessionDetailRequestsRef.current.delete(sessionId);
+      if (trackLoadingPlaceholder) {
+        setSessionDetailLoadingIds((current) => {
+          if (!current.has(sessionId)) return current;
+          const next = new Set(current);
+          next.delete(sessionId);
+          return next;
+        });
+      }
+    }
+  }
+
+  async function loadOlderMessages(sessionId: string): Promise<void> {
+    const before = sessionPaginationRef.current[sessionId];
+    if (!before || loadingOlderSessionRef.current.has(sessionId)) return;
+    loadingOlderSessionRef.current.add(sessionId);
+    setLoadingOlderSessions((current) => new Set(current).add(sessionId));
+    try {
+      const { session } = await getSession(sessionId, undefined, { limit: 100, before });
+      sessionPaginationRef.current[sessionId] = session.pagination?.nextBefore;
+      setSessionNextBefore((current) => ({
+        ...current,
+        [sessionId]: session.pagination?.nextBefore,
+      }));
+      setSessionStates((current) => {
+        const state = current[sessionId];
+        if (!state) return current;
+        const existingIds = new Set(state.conversation.map((item) => item.id));
+        const older = session.messages
+          .filter((message) => !existingIds.has(message.id))
+          .map(toConversationItem);
+        return {
+          ...current,
+          [sessionId]: {
+            ...state,
+            conversation: [...older, ...state.conversation].sort((a, b) =>
+              (a.createdAt ?? '').localeCompare(b.createdAt ?? ''),
+            ),
+          },
+        };
+      });
+    } finally {
+      loadingOlderSessionRef.current.delete(sessionId);
+      setLoadingOlderSessions((current) => {
+        const next = new Set(current);
+        next.delete(sessionId);
+        return next;
+      });
     }
   }
 
@@ -634,33 +2388,61 @@ function PersistentAgentApp({
   function focusCurrentWorkbench(target: WorkbenchFocusTarget): void {
     const sessionId = selectedSessionIdRef.current ?? selectedSessionId;
     if (!sessionId) return;
-    setSessionStates((current) => {
-      const state = current[sessionId];
-      if (!state) return current;
-      const historicalItem = state.conversation.find(
-        (item) =>
-          item.kind === 'assistant' &&
-          (item.workbench?.runId === target.runId || item.id === target.runId),
-      );
-      const historical =
-        historicalItem?.kind === 'assistant' ? historicalItem.workbench : undefined;
-      const workbench = state.workbench?.runId === target.runId ? state.workbench : historical;
-      if (!workbench) return current;
-      const activeView = workbenchViewFromTarget(target.kind);
-      return {
-        ...current,
-        [sessionId]: {
-          ...state,
-          workbench: {
-            ...workbench,
-            open: true,
-            activeView,
-            focusTarget: target,
-            followMode: 'pinned',
+    void hydrateRunDetail(sessionId, target.runId).catch(() => undefined);
+    startTransition(() => {
+      setSessionStates((current) => {
+        const state = current[sessionId];
+        if (!state) return current;
+        const historicalItem = state.conversation.find(
+          (item) =>
+            item.kind === 'assistant' &&
+            (item.workbench?.runId === target.runId ||
+              item.runId === target.runId ||
+              item.id === target.runId),
+        );
+        const historical =
+          historicalItem?.kind === 'assistant' ? historicalItem.workbench : undefined;
+        const workbench = state.workbench?.runId === target.runId ? state.workbench : historical;
+        if (!workbench) return current;
+        const activeView = workbenchViewFromTarget(target.kind);
+        return {
+          ...current,
+          [sessionId]: {
+            ...state,
+            workbench: mergeWorkbenchDeliverables(
+              {
+                ...workbench,
+                open: true,
+                activeView,
+                focusTarget: target,
+                followMode: 'pinned',
+              },
+              state.workbench,
+            ),
           },
-        },
-      };
+        };
+      });
     });
+  }
+
+  function openCurrentWorkbenchPanel(): void {
+    const sessionId = selectedSessionIdRef.current ?? selectedSessionId;
+    if (!sessionId) return;
+    startTransition(() => {
+      setSessionStates((current) => {
+        const state = current[sessionId];
+        if (!state?.workbench) return current;
+        return {
+          ...current,
+          [sessionId]: {
+            ...state,
+            workbench: { ...state.workbench, open: true },
+          },
+        };
+      });
+    });
+    const runId = sessionStatesRef.current[sessionId]?.workbench?.runId;
+    if (runId) void hydrateRunDetail(sessionId, runId).catch(() => undefined);
   }
 
   // 删除确认后的会话，并按最新列表决定恢复落点。
@@ -722,7 +2504,7 @@ function PersistentAgentApp({
     // 选择图片后立即创建临时附件，让 UI 在上传请求期间也能显示 loading。
     // 在 API 请求完成前先反馈给用户；临时地址只用于 UI，并在服务端预览接管后释放。
     const localPreviewUrl = URL.createObjectURL(file);
-    const pendingId = `pending-${crypto.randomUUID()}`;
+    const pendingId = `pending-${createClientId()}`;
     attachmentFilesRef.current[pendingId] = file;
     setAttachments((current) => [
       ...current,
@@ -746,6 +2528,15 @@ function PersistentAgentApp({
         const created = await createSession('文件任务');
         sessionId = created.id;
         setSessions((current) => [created, ...current]);
+        // 先写入空会话缓存，避免 loadSessionDetail 期间出现整页 skeleton 导致输入框闪动。
+        setSessionStates((current) => ({
+          ...current,
+          [created.id]: {
+            label: created.title,
+            subtitle: '',
+            conversation: [],
+          },
+        }));
         setSelectedSession(sessionId);
         updateSessionUrl(sessionId, true);
         await loadSessionDetail(sessionId);
@@ -821,11 +2612,20 @@ function PersistentAgentApp({
     }
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>,
+    promptOverride?: string,
+  ): Promise<void> {
     event.preventDefault();
-    const task = prompt.trim();
+    const task = (promptOverride ?? prompt).trim();
     const currentId = selectedSessionIdRef.current;
     if (!task) return;
+    if (authChecking) return;
+    if (!authUser) {
+      pendingSubmitTaskRef.current = task;
+      setLoginOpen(true);
+      return;
+    }
     // 运行中的消息进入 Pending User Input 收件箱，不创建第二个 Run。
     // 使用 ref 读取最新的运行态，避免 terminal/Follow-up 切换期间闭包里的
     // pendingSessions 旧值把消息误送到普通 Create Run（后端随后返回 active-run 冲突）。
@@ -851,10 +2651,11 @@ function PersistentAgentApp({
     if (currentId ? runtimeActive : draftPending) return;
     setPrompt('');
     setError(null);
+    const submittedSkills = [...selectedSkills];
     const createdAt = new Date().toISOString();
     // 乐观 ID 在服务端返回真实 messageId 前稳定定位本轮消息。
-    const localUserId = `local-user-${crypto.randomUUID()}`;
-    const localAssistantId = `local-assistant-${crypto.randomUUID()}`;
+    const localUserId = `local-user-${createClientId()}`;
+    const localAssistantId = `local-assistant-${createClientId()}`;
     let assistantMessageId = localAssistantId;
     let sessionId = currentId;
     const draftSubmissionToken = currentId ? undefined : ++draftSubmissionTokenRef.current;
@@ -867,6 +2668,7 @@ function PersistentAgentApp({
       id: localUserId,
       kind: 'user',
       content: task,
+      ...(submittedSkills.length ? { skillNames: submittedSkills } : {}),
       createdAt,
       ...(optimisticAttachments.length ? { attachments: optimisticAttachments } : {}),
     };
@@ -927,8 +2729,10 @@ function PersistentAgentApp({
         uiState.revisionContext
           ? { ...uiState.revisionContext, changeSummary: task.slice(0, 500) }
           : undefined,
+        selectedSkills,
       );
       setAttachments([]);
+      setSelectedSkills([]);
       if (uiState.revisionContext)
         setSessionStates((current) => ({
           ...current,
@@ -1122,6 +2926,9 @@ function PersistentAgentApp({
   }
 
   // 以下派生状态统一决定当前 Conversation、Composer 和 Workbench 布局。
+  const isSharedSessionView = Boolean(
+    selectedSessionId && !sessions.some((session) => session.id === selectedSessionId),
+  );
   const uiState = selectedSessionId
     ? (sessionStates[selectedSessionId] ?? {
         label: sessions.find((session) => session.id === selectedSessionId)?.title ?? '加载中…',
@@ -1129,15 +2936,36 @@ function PersistentAgentApp({
         conversation: [],
       })
     : draftState;
+  const sessionContentLoading = Boolean(
+    selectedSessionId &&
+    !sessionStates[selectedSessionId] &&
+    sessionDetailLoadingIds.has(selectedSessionId),
+  );
   // activeRunId 作为 Durable/Snapshot 侧的第二个信号，覆盖 Follow-up 新 Run
   // 刚创建但 pendingSessions React 状态尚未完成刷新的短窗口。
   const submitting = selectedSessionId
     ? Boolean(pendingSessions[selectedSessionId] || sessionStates[selectedSessionId]?.activeRunId)
     : draftPending;
-  const hasWorkbench = Boolean(uiState.workbench?.open);
+  const workbenchPresent = Boolean(uiState.workbench);
+  const workbenchOpen = Boolean(uiState.workbench?.open);
+
+  async function handleLogout(): Promise<void> {
+    if (!(await confirm(LOGOUT_CONFIRM))) return;
+    try {
+      await logout();
+    } catch {
+      // 仍清除本地态
+    }
+    setAuthUser(null);
+    setSessions([]);
+    setSelectedSession(null);
+    setSessionStatesState({});
+    updateSessionUrl(null, true);
+    toast.success('已退出登录');
+  }
 
   return (
-    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-sidebar text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
+    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-canvas text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
       <Sidebar
         serviceState={serviceState}
         serviceLabel=""
@@ -1154,8 +2982,10 @@ function PersistentAgentApp({
         }}
         onRename={(sessionId, title) => modifySession(sessionId, { title })}
         onTogglePin={(sessionId, isPinned) => void modifySession(sessionId, { isPinned })}
-        contentFontSize={contentFontSize}
-        onContentFontSizeChange={onContentFontSizeChange}
+        authUser={authUser}
+        onRequestLogin={() => setLoginOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onLogout={() => void handleLogout()}
       />
       {mobileNavOpen ? (
         <button
@@ -1191,240 +3021,345 @@ function PersistentAgentApp({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        authUser={authUser}
+        onAuthUserChange={setAuthUser}
+        onLogout={() => {
+          setSettingsOpen(false);
+          setAuthUser(null);
+          setSessions([]);
+          setSelectedSession(null);
+          setSessionStatesState({});
+          updateSessionUrl(null, true);
+          toast.success('已退出登录');
+        }}
+        onRequestLogin={() => {
+          setSettingsOpen(false);
+          setLoginOpen(true);
+        }}
+      />
+      <LoginDialog
+        open={loginOpen}
+        onOpenChange={(open) => {
+          setLoginOpen(open);
+          if (!open) {
+            if (skipClearPendingOnLoginCloseRef.current) {
+              skipClearPendingOnLoginCloseRef.current = false;
+            } else {
+              pendingSubmitTaskRef.current = null;
+            }
+          }
+        }}
+        onLoggedIn={(user) => {
+          skipClearPendingOnLoginCloseRef.current = true;
+          setAuthUser(user);
+          setLoginOpen(false);
+          toast.success('登录成功');
+        }}
+      />
       <main className="main-shell my-2 mr-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl bg-surface">
-        <div
-          className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}
-        >
-          <section className="conversation-column">
-            <header className="topbar flex min-h-14 items-center gap-2.5 bg-surface px-5 text-text-primary max-[720px]:min-h-[58px] max-[720px]:px-4">
-              <button
-                className="icon-button open-mobile-nav"
-                type="button"
-                aria-label="打开会话栏"
-                title="打开会话栏"
-                onClick={() => setMobileNavOpen(true)}
-              >
-                <Menu size={18} />
-              </button>
-              <div className="task-title flex min-w-0 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
-                <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-content font-medium">
-                  {uiState.label}
-                </span>
-              </div>
-              <ThemeToggle theme={theme} onToggle={onToggleTheme} />
-            </header>
-            <Conversation
-              state={uiState}
-              error={error}
-              onDismissError={() => setError(null)}
-              onReconnect={
-                reconnectRunId && selectedSessionId
-                  ? () => {
-                      setError(null);
-                      setReconnectRunId(null);
-                      void observeRun(selectedSessionId, reconnectRunId);
-                    }
-                  : undefined
-              }
-              onFocusWorkbench={focusCurrentWorkbench}
-              prompt={prompt}
-              submitting={submitting}
-              serviceState={serviceState}
-              composerMode={submitting && !uiState.activeInterrupt ? 'steer' : 'new-run'}
-              pendingInputs={pendingInputs}
-              onPromotePending={
-                submitting
-                  ? async (inputId) => {
-                      const sessionId = selectedSessionIdRef.current;
-                      const updated = (await promotePendingInput(inputId)) as PendingUserInputView;
-                      setPendingInputs((current) =>
-                        uniquePendingInputs(
-                          current.map((item) => (item.id === inputId ? updated : item)),
-                        ),
-                      );
-                      if (!sessionId) return;
-                      setSessionStates((current) => {
-                        const target = current[sessionId];
-                        if (
-                          !target ||
-                          target.conversation.some(
-                            (item) => item.kind === 'user' && item.pendingInputId === inputId,
+        <AgentSplitLayout
+          workbenchPresent={workbenchPresent}
+          workbenchOpen={workbenchOpen}
+          conversation={
+            <section className="conversation-column">
+              <header className="topbar flex min-h-14 items-center gap-2.5 bg-surface px-5 text-text-primary max-[720px]:min-h-[58px] max-[720px]:px-4">
+                <button
+                  className="icon-button open-mobile-nav"
+                  type="button"
+                  aria-label="打开会话栏"
+                  title="打开会话栏"
+                  onClick={() => setMobileNavOpen(true)}
+                >
+                  <Menu size={18} />
+                </button>
+                <div className="task-title flex min-w-0 flex-1 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
+                  <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-content font-medium">
+                    {uiState.label}
+                  </span>
+                </div>
+                <WorkbenchOpenButton
+                  disabled={!workbenchPresent || workbenchOpen}
+                  title={
+                    !workbenchPresent
+                      ? AGENT_UI_COPY.openWorkbenchUnavailable
+                      : workbenchOpen
+                        ? AGENT_UI_COPY.workbenchAlreadyOpen
+                        : AGENT_UI_COPY.openWorkbench
+                  }
+                  onClick={openCurrentWorkbenchPanel}
+                />
+              </header>
+              <Conversation
+                scopeKey={selectedSessionId ?? 'draft'}
+                sessionLoading={sessionContentLoading}
+                state={uiState}
+                error={error}
+                onDismissError={() => setError(null)}
+                onReconnect={
+                  reconnectRunId && selectedSessionId
+                    ? () => {
+                        setError(null);
+                        setReconnectRunId(null);
+                        void observeRun(selectedSessionId, reconnectRunId);
+                      }
+                    : undefined
+                }
+                onFocusWorkbench={focusCurrentWorkbench}
+                onLoadOlder={
+                  selectedSessionId && sessionNextBefore[selectedSessionId]
+                    ? () => void loadOlderMessages(selectedSessionId)
+                    : undefined
+                }
+                loadingOlder={Boolean(
+                  selectedSessionId && loadingOlderSessions.has(selectedSessionId),
+                )}
+                prompt={prompt}
+                submitting={submitting}
+                serviceState={serviceState}
+                hideComposer={isSharedSessionView}
+                composerMode={submitting && !uiState.activeInterrupt ? 'steer' : 'new-run'}
+                pendingInputs={pendingInputs}
+                onPromotePending={
+                  submitting
+                    ? async (inputId) => {
+                        const sessionId = selectedSessionIdRef.current;
+                        const updated = (await promotePendingInput(
+                          inputId,
+                        )) as PendingUserInputView;
+                        setPendingInputs((current) =>
+                          uniquePendingInputs(
+                            current.map((item) => (item.id === inputId ? updated : item)),
+                          ),
+                        );
+                        if (!sessionId) return;
+                        setSessionStates((current) => {
+                          const target = current[sessionId];
+                          if (
+                            !target ||
+                            target.conversation.some(
+                              (item) => item.kind === 'user' && item.pendingInputId === inputId,
+                            )
                           )
-                        )
-                          return current;
-                        return {
-                          ...current,
-                          [sessionId]: {
-                            ...target,
-                            conversation: [
-                              ...target.conversation,
-                              {
-                                id: `pending-user-${inputId}`,
-                                kind: 'user' as const,
-                                content: updated.content,
-                                pendingInputId: inputId,
-                                pendingState: 'steer_pending' as const,
-                                createdAt: new Date().toISOString(),
-                              },
-                            ],
-                          },
-                        };
-                      });
-                    }
-                  : undefined
-              }
-              onCancelPending={async (inputId) => {
-                try {
-                  const updated = (await cancelPendingInput(inputId)) as PendingUserInputView;
-                  setPendingInputs((current) =>
-                    uniquePendingInputs(
-                      current.map((item) => (item.id === inputId ? updated : item)),
-                    ),
-                  );
-                } catch (requestError) {
-                  setError(getErrorMessage(requestError));
-                }
-              }}
-              onSendPending={async (inputId) => {
-                const sessionId = selectedSessionIdRef.current;
-                const input = pendingInputs.find((item) => item.id === inputId);
-                if (!sessionId || !input) return;
-                try {
-                  const run = await sendPendingInput(inputId);
-                  setPendingInputs((current) => current.filter((item) => item.id !== inputId));
-                  setSessionStates((current) => {
-                    const target = current[sessionId];
-                    if (!target) return current;
-                    if (target.conversation.some((item) => item.id === run.userMessageId))
-                      return current;
-                    return {
-                      ...current,
-                      [sessionId]: {
-                        ...target,
-                        activeRunId: run.runId,
-                        conversation: [
-                          ...target.conversation,
-                          {
-                            id: run.userMessageId,
-                            kind: 'user' as const,
-                            content: input.content,
-                            createdAt: new Date().toISOString(),
-                          },
-                        ],
-                      },
-                    };
-                  });
-                  setSessionPending(sessionId, true);
-                  void observeRun(sessionId, run.runId);
-                } catch (requestError) {
-                  setError(getErrorMessage(requestError));
-                }
-              }}
-              reasoningEffort={reasoningEffort}
-              models={models}
-              selectedModel={selectedModel}
-              onModelChange={(modelId) => {
-                const model = models.find((candidate) => candidate.id === modelId);
-                if (!model) return;
-                setSelectedModel(model.id);
-                if (!model.reasoning.levels.includes(reasoningEffort))
-                  setReasoningEffort(model.reasoning.default);
-              }}
-              onReasoningEffortChange={setReasoningEffort}
-              attachments={attachments}
-              attachmentUploading={attachmentUploading}
-              onAttachmentSelected={(files) => {
-                void files.reduce(
-                  (chain, file) => chain.then(() => handleAttachment(file)),
-                  Promise.resolve(),
-                );
-              }}
-              onAttachmentRemove={removeAttachment}
-              onAttachmentRetry={(fileId) => void retryAttachment(fileId)}
-              onAttachmentCancel={removeAttachment}
-              onPromptChange={setPrompt}
-              onSubmit={(event) => void handleSubmit(event)}
-              onCancel={() => void handleCancel()}
-              onClarificationRespond={(interruptId, answer) =>
-                void handleClarificationResponse(interruptId, answer)
-              }
-              onApprovalSubmit={(interruptId, decisions) =>
-                void handleApprovalResponse(interruptId, decisions)
-              }
-            />
-          </section>
-          {uiState.workbench ? (
-            <WorkbenchShell
-              state={uiState.workbench}
-              onReviseArtifact={beginArtifactRevision}
-              onRestoreArtifact={(artifact) => void restoreArtifactVersion(artifact)}
-              onViewChange={(activeView) => {
-                if (!selectedSessionId) return;
-                setSessionStates((current) =>
-                  current[selectedSessionId]?.workbench
-                    ? {
-                        ...current,
-                        [selectedSessionId]: {
-                          ...current[selectedSessionId],
-                          workbench: { ...current[selectedSessionId].workbench!, activeView },
-                        },
-                      }
-                    : current,
-                );
-              }}
-              onExecutionSelect={(tool) => {
-                if (!selectedSessionId) return;
-                setSessionStates((current) =>
-                  current[selectedSessionId]?.workbench
-                    ? {
-                        ...current,
-                        [selectedSessionId]: {
-                          ...current[selectedSessionId],
-                          workbench: {
-                            ...current[selectedSessionId].workbench!,
-                            followMode: 'pinned',
-                            focusTarget: {
-                              kind: 'tool_call',
-                              runId: tool.runId,
-                              stepId: tool.stepId,
-                              toolCallId: tool.toolCallId,
+                            return current;
+                          return {
+                            ...current,
+                            [sessionId]: {
+                              ...target,
+                              conversation: [
+                                ...target.conversation,
+                                {
+                                  id: `pending-user-${inputId}`,
+                                  kind: 'user' as const,
+                                  content: updated.content,
+                                  pendingInputId: inputId,
+                                  pendingState: 'steer_pending' as const,
+                                  createdAt: new Date().toISOString(),
+                                },
+                              ],
                             },
-                          },
-                        },
+                          };
+                        });
                       }
-                    : current,
-                );
-              }}
-              onClose={() => {
-                if (!selectedSessionId) return;
-                setSessionStates((current) => {
-                  const state = current[selectedSessionId];
-                  if (!state?.workbench) return current;
-                  return {
-                    ...current,
-                    [selectedSessionId]: {
-                      ...state,
-                      autoOpenSuppressedRunIds: [
-                        ...new Set([
-                          ...(state.autoOpenSuppressedRunIds ?? []),
-                          state.workbench.runId,
-                        ]),
-                      ],
-                      workbench: { ...state.workbench, open: false },
-                    },
-                  };
-                });
-              }}
-            />
-          ) : null}
-        </div>
+                    : undefined
+                }
+                onCancelPending={async (inputId) => {
+                  try {
+                    const updated = (await cancelPendingInput(inputId)) as PendingUserInputView;
+                    setPendingInputs((current) =>
+                      uniquePendingInputs(
+                        current.map((item) => (item.id === inputId ? updated : item)),
+                      ),
+                    );
+                  } catch (requestError) {
+                    setError(getErrorMessage(requestError));
+                  }
+                }}
+                onSendPending={async (inputId) => {
+                  const sessionId = selectedSessionIdRef.current;
+                  const input = pendingInputs.find((item) => item.id === inputId);
+                  if (!sessionId || !input) return;
+                  try {
+                    const run = await sendPendingInput(inputId);
+                    setPendingInputs((current) => current.filter((item) => item.id !== inputId));
+                    setSessionStates((current) => {
+                      const target = current[sessionId];
+                      if (!target) return current;
+                      if (target.conversation.some((item) => item.id === run.userMessageId))
+                        return current;
+                      return {
+                        ...current,
+                        [sessionId]: {
+                          ...target,
+                          activeRunId: run.runId,
+                          conversation: [
+                            ...target.conversation,
+                            {
+                              id: run.userMessageId,
+                              kind: 'user' as const,
+                              content: input.content,
+                              createdAt: new Date().toISOString(),
+                            },
+                          ],
+                        },
+                      };
+                    });
+                    setSessionPending(sessionId, true);
+                    void observeRun(sessionId, run.runId);
+                  } catch (requestError) {
+                    setError(getErrorMessage(requestError));
+                  }
+                }}
+                reasoningEffort={reasoningEffort}
+                models={models}
+                selectedModel={selectedModel}
+                onModelChange={(modelId) => {
+                  const model = models.find((candidate) => candidate.id === modelId);
+                  if (!model) return;
+                  setSelectedModel(model.id);
+                  if (!model.reasoning.levels.includes(reasoningEffort))
+                    setReasoningEffort(model.reasoning.default);
+                }}
+                onReasoningEffortChange={setReasoningEffort}
+                selectedSkills={selectedSkills}
+                onSkillsChange={setSelectedSkills}
+                attachments={attachments}
+                attachmentUploading={attachmentUploading}
+                onAttachmentSelected={(files) => {
+                  void files.reduce(
+                    (chain, file) => chain.then(() => handleAttachment(file)),
+                    Promise.resolve(),
+                  );
+                }}
+                onAttachmentRemove={removeAttachment}
+                onAttachmentRetry={(fileId) => void retryAttachment(fileId)}
+                onAttachmentCancel={removeAttachment}
+                onPromptChange={setPrompt}
+                onSubmit={(event, promptOverride) => void handleSubmit(event, promptOverride)}
+                onCancel={() => void handleCancel()}
+                onClarificationRespond={(interruptId, answer) =>
+                  void handleClarificationResponse(interruptId, answer)
+                }
+                onApprovalSubmit={(interruptId, decisions) =>
+                  void handleApprovalResponse(interruptId, decisions)
+                }
+              />
+            </section>
+          }
+          workbench={
+            uiState.workbench ? (
+              <WorkbenchShell
+                state={uiState.workbench}
+                onReviseArtifact={beginArtifactRevision}
+                onRestoreArtifact={(artifact) => void restoreArtifactVersion(artifact)}
+                onArtifactDetailClose={() => {
+                  if (!selectedSessionId) return;
+                  startTransition(() => {
+                    setSessionStates((current) => {
+                      const state = current[selectedSessionId];
+                      if (!state?.workbench) return current;
+                      return {
+                        ...current,
+                        [selectedSessionId]: {
+                          ...state,
+                          workbench: clearArtifactWorkbenchFocus(state.workbench),
+                        },
+                      };
+                    });
+                  });
+                }}
+                onViewChange={(activeView) => {
+                  if (!selectedSessionId) return;
+                  startTransition(() => {
+                    setSessionStates((current) =>
+                      current[selectedSessionId]?.workbench
+                        ? {
+                            ...current,
+                            [selectedSessionId]: {
+                              ...current[selectedSessionId],
+                              workbench: { ...current[selectedSessionId].workbench!, activeView },
+                            },
+                          }
+                        : current,
+                    );
+                  });
+                }}
+                onExecutionSelect={(tool) => {
+                  if (!selectedSessionId) return;
+                  startTransition(() => {
+                    setSessionStates((current) =>
+                      current[selectedSessionId]?.workbench
+                        ? {
+                            ...current,
+                            [selectedSessionId]: {
+                              ...current[selectedSessionId],
+                              workbench: {
+                                ...current[selectedSessionId].workbench!,
+                                followMode: 'pinned',
+                                focusTarget: {
+                                  kind: 'tool_call',
+                                  runId: tool.runId,
+                                  stepId: tool.stepId,
+                                  toolCallId: tool.toolCallId,
+                                },
+                              },
+                            },
+                          }
+                        : current,
+                    );
+                  });
+                }}
+                onResumeAutoFollow={() => {
+                  if (!selectedSessionId) return;
+                  startTransition(() => {
+                    setSessionStates((current) => {
+                      const state = current[selectedSessionId];
+                      if (!state?.workbench) return current;
+                      return {
+                        ...current,
+                        [selectedSessionId]: {
+                          ...state,
+                          workbench: resumeWorkbenchAutoFollow(state.workbench),
+                        },
+                      };
+                    });
+                  });
+                }}
+                onClose={() => {
+                  if (!selectedSessionId) return;
+                  startTransition(() => {
+                    setSessionStates((current) => {
+                      const state = current[selectedSessionId];
+                      if (!state?.workbench) return current;
+                      return {
+                        ...current,
+                        [selectedSessionId]: {
+                          ...state,
+                          autoOpenSuppressedRunIds: [
+                            ...new Set([
+                              ...(state.autoOpenSuppressedRunIds ?? []),
+                              state.workbench.runId,
+                            ]),
+                          ],
+                          workbench: { ...state.workbench, open: false },
+                        },
+                      };
+                    });
+                  });
+                }}
+              />
+            ) : null
+          }
+        />
       </main>
     </div>
   );
 }
 
 // 渲染仅开发环境可用的 fixture 状态切换器。
-function PreviewSwitcher({ active }: { active: PreviewState }) {
+export function PreviewSwitcher({ active }: { active: PreviewState }) {
   return (
     <div className="preview-switcher" role="navigation" aria-label="预览状态">
       <span className="preview-switcher__label">Mock</span>
@@ -1445,21 +3380,7 @@ function PreviewSwitcher({ active }: { active: PreviewState }) {
 }
 
 // 管理开发预览中的对话与 Workbench 状态转换。
-export function AppShell({
-  previewState,
-  theme,
-  onToggleTheme,
-  contentFontSize,
-  onContentFontSizeChange,
-}: {
-  previewState?: AgentUiState;
-  theme?: Theme;
-  onToggleTheme?: () => void;
-  contentFontSize: number;
-  onContentFontSizeChange: (size: number) => void;
-}) {
-  const activeTheme = theme ?? 'light';
-  const toggleTheme = onToggleTheme ?? (() => undefined);
+export function AppShell({ previewState }: { previewState?: AgentUiState }) {
   const [serviceState, setServiceState] = useState<ServiceState>(
     previewState ? 'ready' : 'checking',
   );
@@ -1467,6 +3388,7 @@ export function AppShell({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(Boolean(previewState?.previewSubmitting));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [uiState, setUiState] = useState<AgentUiState>(previewState ?? makeFixture('empty'));
 
   useEffect(() => {
@@ -1482,6 +3404,18 @@ export function AppShell({
     submitting && !uiState.activeInterrupt ? ('steer' as const) : ('new-run' as const);
 
   // 打开 Workbench 并记录用户是否固定了当前定位。
+  function openWorkbenchPanel(): void {
+    startTransition(() => {
+      setUiState((current) => {
+        if (!current.workbench) return current;
+        return {
+          ...current,
+          workbench: { ...current.workbench, open: true },
+        };
+      });
+    });
+  }
+
   function focusWorkbench(target: WorkbenchFocusTarget, pinned = true) {
     setUiState((current) => {
       if (!current.workbench || current.workbench.runId !== target.runId) return current;
@@ -1500,9 +3434,9 @@ export function AppShell({
   }
 
   // 处理预览输入，追加一组不调用生产 API 的本地消息。
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>, promptOverride?: string) {
     event.preventDefault();
-    const task = prompt.trim();
+    const task = (promptOverride ?? prompt).trim();
     if (!task || submitting) return;
     setSubmitting(true);
     setError(null);
@@ -1533,7 +3467,8 @@ export function AppShell({
   }
 
   const serviceLabel = SERVICE_STATE_LABELS[serviceState];
-  const hasWorkbench = Boolean(uiState.workbench?.open);
+  const workbenchPresent = Boolean(uiState.workbench);
+  const workbenchOpen = Boolean(uiState.workbench?.open);
   return (
     <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-canvas text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
       <Sidebar
@@ -1541,8 +3476,7 @@ export function AppShell({
         serviceLabel={serviceLabel}
         mobileNavOpen={mobileNavOpen}
         onClose={() => setMobileNavOpen(false)}
-        contentFontSize={contentFontSize}
-        onContentFontSizeChange={onContentFontSizeChange}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
       {mobileNavOpen ? (
         <button
@@ -1552,81 +3486,122 @@ export function AppShell({
           onClick={() => setMobileNavOpen(false)}
         />
       ) : null}
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <main className="main-shell flex h-screen min-h-0 min-w-0 flex-col overflow-hidden bg-surface max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
-        <div
-          className={`workbench-grid min-h-0 min-w-0 flex-1 overflow-hidden ${hasWorkbench ? 'has-workbench' : 'without-workbench'}`}
-        >
-          <section className="conversation-column">
-            <header className="topbar flex min-h-14 items-center gap-2.5 bg-surface px-5 text-text-primary max-[720px]:min-h-[58px] max-[720px]:px-4">
-              <button
-                className="icon-button open-mobile-nav"
-                type="button"
-                aria-label="打开会话栏"
-                title="打开会话栏"
-                onClick={() => setMobileNavOpen(true)}
-              >
-                <Menu size={18} />
-              </button>
-              <div className="task-title flex min-w-0 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
-                <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-content font-medium">
-                  {uiState.label}
-                </span>
-                {uiState.subtitle ? (
-                  <span className="task-title__meta">{uiState.subtitle}</span>
-                ) : null}
-              </div>
-              <ThemeToggle theme={activeTheme} onToggle={toggleTheme} />
-            </header>
-            <Conversation
-              state={uiState}
-              error={error}
-              onDismissError={() => setError(null)}
-              onFocusWorkbench={(target) => focusWorkbench(target)}
-              prompt={prompt}
-              submitting={submitting}
-              serviceState={serviceState}
-              composerMode={composerMode}
-              pendingInputs={uiState.pendingInputs}
-              onPromptChange={setPrompt}
-              onSubmit={handleSubmit}
-            />
-          </section>
-          {uiState.workbench ? (
-            <WorkbenchShell
-              state={uiState.workbench}
-              onViewChange={(activeView) =>
-                setUiState((current) =>
-                  current.workbench
-                    ? { ...current, workbench: { ...current.workbench, activeView } }
-                    : current,
-                )
-              }
-              onExecutionSelect={(tool) =>
-                focusWorkbench({
-                  kind: 'tool_call',
-                  runId: tool.runId,
-                  stepId: tool.stepId,
-                  toolCallId: tool.toolCallId,
-                })
-              }
-              onClose={() =>
-                setUiState((current) => {
-                  if (!current.workbench) return current;
-                  return {
-                    ...current,
-                    autoOpenSuppressedRunIds: [
-                      ...new Set([
-                        ...(current.autoOpenSuppressedRunIds ?? []),
-                        current.workbench.runId,
-                      ]),
-                    ],
-                    workbench: { ...current.workbench, open: false },
-                  };
-                })
-              }
-            />
-          ) : null}
-        </div>
+        <AgentSplitLayout
+          workbenchPresent={workbenchPresent}
+          workbenchOpen={workbenchOpen}
+          conversation={
+            <section className="conversation-column">
+              <header className="topbar flex min-h-14 items-center gap-2.5 bg-surface px-5 text-text-primary max-[720px]:min-h-[58px] max-[720px]:px-4">
+                <button
+                  className="icon-button open-mobile-nav"
+                  type="button"
+                  aria-label="打开会话栏"
+                  title="打开会话栏"
+                  onClick={() => setMobileNavOpen(true)}
+                >
+                  <Menu size={18} />
+                </button>
+                <div className="task-title flex min-w-0 flex-1 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
+                  <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-content font-medium">
+                    {uiState.label}
+                  </span>
+                  {uiState.subtitle ? (
+                    <span className="task-title__meta">{uiState.subtitle}</span>
+                  ) : null}
+                </div>
+                <WorkbenchOpenButton
+                  disabled={!workbenchPresent || workbenchOpen}
+                  title={
+                    !workbenchPresent
+                      ? AGENT_UI_COPY.openWorkbenchUnavailable
+                      : workbenchOpen
+                        ? AGENT_UI_COPY.workbenchAlreadyOpen
+                        : AGENT_UI_COPY.openWorkbench
+                  }
+                  onClick={openWorkbenchPanel}
+                />
+              </header>
+              <Conversation
+                scopeKey="preview"
+                state={uiState}
+                error={error}
+                onDismissError={() => setError(null)}
+                onFocusWorkbench={(target) => focusWorkbench(target)}
+                prompt={prompt}
+                submitting={submitting}
+                serviceState={serviceState}
+                composerMode={composerMode}
+                pendingInputs={uiState.pendingInputs}
+                onPromptChange={setPrompt}
+                onSubmit={handleSubmit}
+              />
+            </section>
+          }
+          workbench={
+            uiState.workbench ? (
+              <WorkbenchShell
+                state={uiState.workbench}
+                onArtifactDetailClose={() =>
+                  startTransition(() =>
+                    setUiState((current) =>
+                      current.workbench
+                        ? {
+                            ...current,
+                            workbench: clearArtifactWorkbenchFocus(current.workbench),
+                          }
+                        : current,
+                    ),
+                  )
+                }
+                onViewChange={(activeView) =>
+                  startTransition(() =>
+                    setUiState((current) =>
+                      current.workbench
+                        ? { ...current, workbench: { ...current.workbench, activeView } }
+                        : current,
+                    ),
+                  )
+                }
+                onExecutionSelect={(tool) =>
+                  focusWorkbench({
+                    kind: 'tool_call',
+                    runId: tool.runId,
+                    stepId: tool.stepId,
+                    toolCallId: tool.toolCallId,
+                  })
+                }
+                onResumeAutoFollow={() => {
+                  startTransition(() => {
+                    setUiState((current) =>
+                      current.workbench
+                        ? { ...current, workbench: resumeWorkbenchAutoFollow(current.workbench) }
+                        : current,
+                    );
+                  });
+                }}
+                onClose={() =>
+                  startTransition(() =>
+                    setUiState((current) => {
+                      if (!current.workbench) return current;
+                      return {
+                        ...current,
+                        autoOpenSuppressedRunIds: [
+                          ...new Set([
+                            ...(current.autoOpenSuppressedRunIds ?? []),
+                            current.workbench.runId,
+                          ]),
+                        ],
+                        workbench: { ...current.workbench, open: false },
+                      };
+                    }),
+                  )
+                }
+              />
+            ) : null
+          }
+        />
       </main>
     </div>
   );
@@ -1646,8 +3621,10 @@ function Sidebar({
   onDelete,
   onRename,
   onTogglePin,
-  contentFontSize,
-  onContentFontSizeChange,
+  onOpenSettings,
+  authUser = null,
+  onRequestLogin,
+  onLogout,
 }: {
   serviceState: ServiceState;
   serviceLabel: string;
@@ -1661,9 +3638,12 @@ function Sidebar({
   onDelete?: (sessionId: string) => void;
   onRename?: (sessionId: string, title: string) => Promise<void>;
   onTogglePin?: (sessionId: string, isPinned: boolean) => void;
-  contentFontSize: number;
-  onContentFontSizeChange: (size: number) => void;
+  onOpenSettings?: () => void;
+  authUser?: AuthUserView | null;
+  onRequestLogin?: () => void;
+  onLogout?: () => void;
 }) {
+  const theme = useDocumentTheme();
   // 菜单状态同时保存目标会话和视口坐标，避免菜单受侧栏滚动裁剪。
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -1761,16 +3741,13 @@ function Sidebar({
         className={`session-sidebar flex h-screen min-h-screen min-w-0 flex-col overflow-hidden bg-sidebar p-[22px_0_16px_14px] max-[720px]:fixed max-[720px]:inset-y-0 max-[720px]:left-0 max-[720px]:z-20 max-[720px]:w-[min(286px,86vw)] max-[720px]:-translate-x-[102%] max-[720px]:transition-transform ${mobileNavOpen ? 'session-sidebar--open max-[720px]:translate-x-0' : ''}`}
       >
         <div className="brand-row flex items-center gap-2.5 px-2 pb-7 pr-[22px]">
-          <div
-            className="brand-mark grid h-8 w-8 place-items-center rounded-[9px] border border-accent bg-accent text-white"
-            aria-hidden="true"
-          >
-            H
-          </div>
-          <div className="min-w-0">
-            <strong className="block text-brand font-semibold">Harness</strong>
-            <span className="mt-0.5 block text-xs text-text-muted">Agent Workbench</span>
-          </div>
+          <img
+            className="brand-logo h-12 w-auto max-w-[min(240px,calc(100%-36px))] shrink object-contain object-left"
+            src={theme === 'dark' ? APP_BRAND.logoDarkSrc : APP_BRAND.logoLightSrc}
+            alt={APP_BRAND.name}
+            height={48}
+            decoding="async"
+          />
           <button
             className="icon-button close-mobile-nav"
             type="button"
@@ -1875,33 +3852,22 @@ function Sidebar({
             </div>
           ) : null}
         </div>
-        <div className="sidebar-footer mt-auto flex flex-wrap items-center gap-2 px-2 pt-3 text-ui-xs text-text-muted">
+        <div className="sidebar-footer mt-auto">
           {serviceLabel ? (
-            <>
+            <div className="sidebar-footer__status text-ui-xs text-text-muted">
               <span className={`status-dot status-dot--${serviceState}`} aria-hidden="true" />
               <span>{serviceLabel}</span>
               <span className="local-badge">本地</span>
-            </>
+            </div>
           ) : null}
-          <label className="ml-auto flex items-center gap-1.5">
-            <span className="sr-only">对话字号</span>
-            <span aria-hidden="true">字号</span>
-            <select
-              className="rounded-control border border-border bg-surface px-1.5 py-0.5 text-content text-text-primary"
-              value={contentFontSize}
-              aria-label="对话字号"
-              onChange={(event) => onContentFontSizeChange(Number(event.target.value))}
-            >
-              {Array.from(
-                { length: CONTENT_FONT_SIZE_MAX - CONTENT_FONT_SIZE_MIN + 1 },
-                (_, index) => CONTENT_FONT_SIZE_MIN + index,
-              ).map((size) => (
-                <option key={size} value={size}>
-                  {size}px
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="sidebar-footer-actions">
+            <SidebarUserMenu
+              authUser={authUser}
+              onRequestLogin={onRequestLogin}
+              onOpenSettings={onOpenSettings}
+              onLogout={onLogout}
+            />
+          </div>
         </div>
       </aside>
       {menuSessionId && menuAnchor && sessions

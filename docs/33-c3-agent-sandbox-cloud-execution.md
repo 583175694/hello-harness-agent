@@ -651,7 +651,7 @@ C3 不是 Python Runner、Notebook 或 Code Interpreter 的同义词，而是 Ha
 - Python、Node.js、Shell 和任务 CLI。
 - 数据处理、图表、网站构建和格式转换。
 - C5 Website Generation 的构建、测试和预览。
-- C6 Browser Use 的浏览器进程和文件下载。
+- C8 Browser Use 的浏览器进程和文件下载。
 - Skills 封装的成熟命令流程。
 
 通用 **`bash`**（C3-B 起；C3-A 为 `execute_command`）与结构化领域 Tool 长期共存：前者提供开放式命令能力，后者提供更明确的参数、审批和 UI。
@@ -693,7 +693,7 @@ C3 不是 Python Runner、Notebook 或 Code Interpreter 的同义词，而是 Ha
 | B12 | UI / 协议 | Terminal 卡片；`tool_activity` 扩展 `presentation: terminal`、`description`、`exitCode`/`exitSignal`（pill **只信 struct**，不从文本 parse） |
 | B13 | System prompt | 短段：检查 bash 结果中的 `[exit code: N]` |
 | B14 | first-cause | `timedOut` / `aborted` 互斥，与 DSH 一致 |
-| B15 | Bash 策略表 | 与 K5 同步一页：命令类别 ↔ 是否审批 ↔ 升权类型 ↔ 审计字段（见 §6.2.3–§6.2.5） |
+| B15 | Bash 策略表 | 与 K6 同步一页：命令类别 ↔ 是否审批 ↔ 升权类型 ↔ 审计字段（见 §6.2.3–§6.2.5） |
 
 #### 6.2.2 明确不进 C3-B
 
@@ -702,7 +702,7 @@ C3 不是 Python Runner、Notebook 或 Code Interpreter 的同义词，而是 Ha
 - orphan 对账、durable Sandbox 表、腾讯云 VPC 复验（C3-C）
 - agent-browser、多镜像矩阵、PTY / persistent bash、本机 Landlock 实现
 
-#### 6.2.3 Bash 命令策略 v1（K5 与 C3-B 共表）
+#### 6.2.3 Bash 命令策略 v1（K6 与 C3-B 共表）
 
 Host 判定优先于模型 `justification`。v1 建议分类：
 
@@ -840,7 +840,7 @@ C3-C4  完成通知(wakeup) + egress/install v2 + cancel 树 + inputFiles UI + �
 #### 6.4.2 与 C5 / C6 的分工
 
 - **C5**：用 C3（含 C3-D 浏览器能力）做构建/测试/预览；网站源码与构建结果仍进 Artifact。
-- **C6**：页面动作语义、登录态、用户接管、K5 写操作；C3-D 只提供 **容器内浏览器进程与文件**，不实现 C6 级协议。
+- **C6**：页面动作语义、登录态、用户接管、K6 写操作；C3-D 只提供 **容器内浏览器进程与文件**，不实现 C6 级协议。
 
 **对外表述**：C3-D 完成后，可称 Agent 在 **Session Sandbox** 内具备 **headless 浏览器自动化底座（agent-browser + Chromium）**；完整「Browser Use 产品面」仍依赖 **C6**。
 
@@ -1091,8 +1091,8 @@ apps/web                     job 读/杀卡片；bash 审批 inputFiles 列表
 
 - **C4 MCP**：高权限 MCP、Credential 和业务系统连接默认留在 Host，不能因为 Sandbox 可运行程序就搬入执行面。
 - **C5 Website Generation**：使用 C3 安装依赖、构建和测试；源码与构建结果最终进入 Artifact，不以 Sandbox 路径交付。
-- **C6 Browser Use**：C3 管理浏览器进程、文件、网络和隔离；C6 管理动作语义、登录、页面副作用、截图和用户接管。
-- **C7 Skills**：Skill 可以封装命令流程，但不能扩大 Sandbox 权限或绕过 Tool Policy。
+- **C8 Browser Use**（Capability 大版本）：C3 管理浏览器进程、文件、网络和隔离；C8 管理动作语义、登录、页面副作用、截图和用户接管（与 [implementation-status.md §7](./implementation-status.md) 一致，**客户端就绪后**启动）。注：本文 §6.3 表格内 **C7/C8/C10** 等为 **C3-C 批次小版本**，与 Capability **C7 User Memory / C8 Browser** 无关。
+- **C6 Skills**：Skill 可以封装命令流程，但不能扩大 Sandbox 权限或绕过 Tool Policy。
 
 ## 8. 后续开放问题
 

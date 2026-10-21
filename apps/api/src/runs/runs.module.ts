@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
+import { RunStorageModule } from '../run-storage/run-storage.module';
+import { SandboxModule } from '../sandbox/sandbox.module';
+import { McpModule } from '../mcp/mcp.module';
 import { ChatModule } from '../chat/chat.module';
 import { ModelModule } from '../model/model.module';
+import { FilesModule } from '../files/files.module';
 import { SessionTitleService } from '../sessions/session-title.service';
 import { ActiveRunRegistry } from './active-run.registry';
 import { RunCommandService } from './run-command.service';
@@ -10,11 +14,21 @@ import { RunRepository } from './run.repository';
 import { RunsController } from './runs.controller';
 import { RuntimeLifecycleRegistry } from '../agent-runtime/runtime-lifecycle';
 import { PendingUserInputService } from './pending-user-input.service';
-import { FilesModule } from '../files/files.module';
-import { SandboxModule } from '../sandbox/sandbox.module';
-import { SandboxJobWatcherService } from '../sandbox/sandbox-job-watcher.service';
+import { RunToolOutputService } from './run-tool-output.service';
+import { SkillsModule } from '../skills/skills.module';
+import { ToolsModule } from '../tools/tools.module';
+
 @Module({
-  imports: [ChatModule, ModelModule, FilesModule, SandboxModule],
+  imports: [
+    RunStorageModule,
+    SandboxModule,
+    McpModule,
+    ToolsModule,
+    ChatModule,
+    ModelModule,
+    FilesModule,
+    SkillsModule,
+  ],
   controllers: [RunsController],
   providers: [
     ActiveRunRegistry,
@@ -22,10 +36,10 @@ import { SandboxJobWatcherService } from '../sandbox/sandbox-job-watcher.service
     RunRepository,
     RunExecutor,
     RunCommandService,
+    RunToolOutputService,
     SessionTitleService,
     RuntimeLifecycleRegistry,
     PendingUserInputService,
-    SandboxJobWatcherService,
   ],
   exports: [RunCommandService, RunRepository, ActiveRunRegistry, PendingUserInputService],
 })

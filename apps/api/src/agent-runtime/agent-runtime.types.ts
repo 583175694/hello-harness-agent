@@ -1,4 +1,5 @@
 import type {
+  BashTerminalCommandInput,
   ClarificationRequest,
   ModelRoundObservation,
   ReasoningEffort,
@@ -8,10 +9,15 @@ import type { PlanSnapshot } from '@harness/agent-protocol';
 import type { ModelMessage } from '../model/model-adapter';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import type { RuntimeLifecycleController } from './runtime-lifecycle';
+import type { RunMcpSnapshot } from '../mcp/mcp.types';
+import type { SkillContextInput } from '../context-engineering/context-engineering.types';
 
 export type AgentRuntimeInput = {
+  userId: string;
   sessionId: string;
   runId?: string;
+  mcpSnapshot?: RunMcpSnapshot;
+  skills?: ReadonlyArray<SkillContextInput>;
   messageId: string;
   model: string;
   systemPrompt: string;
@@ -83,6 +89,7 @@ export type AgentRuntimeEvent =
       toolCallId: string;
       toolName: string;
       input: unknown;
+      bashTerminalInput?: BashTerminalCommandInput;
       startedAt: string;
       roundId: string;
       roundSequence: number;
@@ -101,6 +108,7 @@ export type AgentRuntimeEvent =
       toolCallId: string;
       toolName: string;
       input: unknown;
+      bashTerminalInput?: BashTerminalCommandInput;
       output: unknown;
       completedAt: string;
       durationMs: number;
@@ -113,6 +121,7 @@ export type AgentRuntimeEvent =
       toolCallId: string;
       toolName: string;
       input: unknown;
+      bashTerminalInput?: BashTerminalCommandInput;
       completedAt: string;
       durationMs: number;
       code: string;
@@ -127,6 +136,7 @@ export type AgentRuntimeEvent =
       toolCallId: string;
       toolName: string;
       input: unknown;
+      bashTerminalInput?: BashTerminalCommandInput;
       completedAt: string;
       durationMs: number;
       code: string;

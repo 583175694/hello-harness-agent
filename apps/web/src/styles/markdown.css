@@ -11,14 +11,6 @@
   --border: 60 4% 87%;
   --ring: 60 3% 43%;
   --radius: 7px;
-  --markdown-heading: #222220;
-  --markdown-muted: #686864;
-  --markdown-link: #3f5f78;
-  --markdown-link-hover: #26475f;
-  --markdown-border: #dededb;
-  --markdown-border-subtle: #e8e8e4;
-  --markdown-surface: #f7f7f5;
-  --markdown-surface-strong: #efefec;
   --markdown-flow-space: 11px;
 
   min-width: 0;
@@ -30,6 +22,10 @@
   color: var(--h-label-secondary);
   font-size: var(--h-content-font-size);
   line-height: var(--h-leading-content);
+}
+.markdown-content--user {
+  white-space: pre-wrap;
+  line-height: var(--h-leading-bubble);
 }
 .markdown-content > :first-child {
   margin-top: 0;
@@ -174,7 +170,7 @@
 }
 .markdown-content h5,
 .markdown-content h6 {
-  color: #4f4f4b;
+  color: var(--markdown-muted);
 }
 .markdown-content blockquote {
   margin: 12px 0 var(--markdown-flow-space);
@@ -231,10 +227,6 @@
   background: var(--theme-surface);
   outline: none;
 }
-.markdown-table-scroll:focus-visible {
-  border-color: #aaa9a4;
-  box-shadow: 0 0 0 2px rgb(23 23 23 / 8%);
-}
 .markdown-content table {
   width: 100%;
   max-width: 100%;
@@ -262,7 +254,7 @@
   border-bottom: 0;
 }
 .markdown-content th {
-  color: #3d3d3a;
+  color: var(--markdown-heading);
   background: var(--theme-sidebar);
   font-weight: 500;
 }
@@ -417,21 +409,12 @@
 }
 .markdown-content :not(pre) > code,
 .markdown-content [data-streamdown='inline-code'] {
-  border-color: #d0d7de;
-  color: #24292f;
-  background: #f6f8fa;
+  border: 1px solid var(--theme-border-subtle);
+  color: var(--theme-text-primary);
+  background: var(--theme-surface-subtle);
 }
 :root[data-theme='dark'] .markdown-content [data-streamdown='code-block'] {
   box-shadow: none;
-}
-:root[data-theme='dark'] .markdown-content [data-streamdown='code-block-body'] code span {
-  color: var(--shiki-dark, var(--sdm-c, var(--theme-terminal-fg))) !important;
-}
-:root[data-theme='dark'] .markdown-content :not(pre) > code,
-:root[data-theme='dark'] .markdown-content [data-streamdown='inline-code'] {
-  border-color: #3e4451;
-  color: #abb2bf;
-  background: #282c34;
 }
 .markdown-content [data-streamdown='mermaid-block'] > div:first-child {
   display: none;
@@ -502,7 +485,7 @@
   word-break: break-word;
 }
 .markdown-content [data-streamdown='table-header-cell'] {
-  color: #3d3d3a;
+  color: var(--markdown-heading);
   background: var(--theme-sidebar);
   font-weight: 500;
 }

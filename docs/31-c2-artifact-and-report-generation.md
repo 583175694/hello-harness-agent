@@ -1,10 +1,10 @@
 # C2 Artifact & Report Generation / 产物与报告生成方案
 
-> 文档状态：C2-A、当前范围的 C2-B 与 C2-C 已实施；C2-D 方案已冻结，待实施。
+> 文档状态：**C2-A–C2-D 已实施**。后续 Workbench 重构、模板/产物组等见各节「明确不做 / 后续升级」。
 >
-> 最后更新：2026-09-16。
+> 最后更新：2026-09-29（`create_file` 增加 `contentMode: html` 原生 HTML 交付）。
 >
-> 本文记录 C2 产物与报告生成能力的阶段方向，以及已经落地的 C2-A/C2-B 当前边界。Workbench 后续将独立重构，因此当前 C2-B 复用 Artifact 查看与下载链路，不冻结专用 Report Workbench。
+> 本文记录 C2 产物与报告生成能力的阶段方向、冻结契约与验收标准。当前 C2-B 仍复用 Artifact 查看与下载链路，不冻结专用 Report Workbench。
 
 ## 1. 规划原则
 
@@ -35,7 +35,7 @@ C2  Artifact & Report Generation
 | C2-A      | 已实现         | 通用生成文件、Artifact、预览、下载、删除和恢复闭环已落地 |
 | C2-B      | 当前范围已实现 | 正式 Markdown 报告、多报告持久化、Artifact 交付与恢复    |
 | C2-C      | 已实现         | Markdown、HTML、PDF、DOCX、XLSX 多格式输出闭环已落地    |
-| C2-D      | 方案已冻结     | 线性不可变版本、恢复、失败隔离与会话恢复，待实施         |
+| C2-D      | 已实现         | 线性不可变版本、revise/restore、乐观并发、Workbench 版本入口 |
 
 ## 3. C2 总体目标
 
@@ -412,7 +412,7 @@ C2-B 支持最小、诚实的可追溯性：
 - 服务端对两类 ID 去重并按模型提交顺序保留；`fileIds` 中未知、越权、已删除或不可用的引用仍使本次工具调用失败。
 - 没有网页来源是合法情况，例如报告完全基于用户文件或模型已有知识；UI 不显示空“来源”区域。
 
-当前 Workbench 分别展示 Artifact 和本次 Run 的来源投影，不建设 report-scoped 来源联动。C2-B 不引入 Evidence、Claim、`[Sx]`、锚点级 cited-by 或 Citation Validator；这些属于 K6。
+当前 Workbench 分别展示 Artifact 和本次 Run 的来源投影，不建设 report-scoped 来源联动。C2-B 不引入 Evidence、Claim、`[Sx]`、锚点级 cited-by 或 Citation Validator；这些属于 K7。
 
 ### 5.8 生命周期、幂等与失败边界
 
@@ -471,7 +471,7 @@ Conversation 在报告成功后展示：
 
 - PDF、DOCX、HTML 等多格式渲染和格式模板，属于 C2-C；
 - 在线编辑、局部修改、版本选择、覆盖与回滚，属于 C2-D；
-- Evidence/Claim 模型、逐主张引用、`[Sx]`、Citation Validator 和自动事实复核，属于 K6；
+- Evidence/Claim 模型、逐主张引用、`[Sx]`、Citation Validator 和自动事实复核，属于 K7；
 - 自动生成图表、执行数据分析代码和复杂表格处理，依赖 C3；
 - 公开分享链接、多人协作、评论、发布和全局报告管理器；
 - 报告模板市场、品牌主题、目录 AST、脚注引擎和后台通知；
@@ -510,7 +510,7 @@ C2-B 当前范围以下列内容作为完成标准：
 
 ## 6. C2-C 多格式输出
 
-> 状态：方案冻结，待实施。本阶段以“能稳定生成、打开、下载和恢复”为完成目标，不建设通用文档平台。
+> 状态：**已实施**（2026-09 前完成）。本阶段以“能稳定生成、打开、下载和恢复”为完成目标，不建设通用文档平台。
 
 ### 6.1 阶段目标与设计判断
 
@@ -528,7 +528,7 @@ C2-C 在现有 File、Artifact、COS 和规范化正文链路上增加 Markdown�
 
 统一发生在工具、存储和交付层，不强求所有格式共享同一种内容表示：
 
-- Markdown、HTML、PDF、DOCX 属于文档类输出，统一使用 Markdown 作为生成源；
+- Markdown、HTML、PDF、DOCX 属于文档类输出；**默认**统一使用 Markdown 作为生成源；**`.html` 可选 `contentMode: html`** 交付完整原生 HTML（见 §6.2、§6.4 HTML）；
 - XLSX 属于结构化工作簿输出，使用最小 `sheets/rows` 数据结构；
 - 模型不直接生成 PDF 二进制、Office Open XML、Base64 文件或服务端路径；
 - C2-C 不新增 Artifact Runtime、渲染微服务、任务队列、模板数据库或通用 Document AST。
@@ -544,6 +544,9 @@ C2-C 在现有 File、Artifact、COS 和规范化正文链路上增加 Markdown�
 ```ts
 type CreateFileInput = {
   fileName: string;
+
+  /** 省略 = Markdown 源（默认）。仅 `.html` 可设为 `html`，表示 content 为完整 HTML 文档。 */
+  contentMode?: 'html';
 
   // txt、md、markdown、json、html、pdf、docx 使用
   content?: string;
@@ -562,7 +565,8 @@ type CreateFileInput = {
 - 其他受支持格式必须提供非空 `content`，且不得提供 `sheets`；
 - `fileName` 仍只能是普通文件名，不能包含路径、对象 key 或空字节；
 - Markdown 文档源继续受字符数和字节数限制，XLSX 单独限制 Sheet 数、总行数、总单元格数和最终文件大小；
-- 工具描述必须明确：HTML、PDF 和 DOCX 的 `content` 是 Markdown，不是原始 HTML、XML 或 Base64；
+- **默认**：HTML、PDF 和 DOCX 的 `content` 是 Markdown，不是原始 HTML、XML 或 Base64；
+- **`contentMode: 'html'`**（可选）：仅当 `fileName` 以 `.html` 结尾；`content` 为完整 UTF-8 HTML 文档（`<!doctype html>` 或 `<html>`）；与 Markdown 模式互斥于同一调用（仍走 `create_file`，不增新工具）；
 - JSON Schema 保持扁平，由 Zod `superRefine` 完成扩展名相关的条件校验，不为首版引入复杂工具 schema。
 
 首版规模上限冻结为：最多 10 个 Sheet、每个 Sheet 最多 5,000 行、单次总计最多 100,000 个单元格、单个字符串单元格最多 32,000 个 Unicode 字符、最终 XLSX 文件最多 10 MB。Sheet 名最长 31 个 Unicode 字符；超出输入边界直接拒绝，不截断工作簿内容。
@@ -573,6 +577,16 @@ type CreateFileInput = {
 {
   "fileName": "industry-report.pdf",
   "content": "# 行业调研报告\n\n## 结论\n\n正文……"
+}
+```
+
+原生 HTML 单页示例（交互/动画、inline 资源；Workbench 预览见 [37-c5 §5.3–§5.5](./37-c5-workbench-ui-and-preview.md)）：
+
+```json
+{
+  "fileName": "landing.html",
+  "contentMode": "html",
+  "content": "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>Demo</title><style>body{font-family:system-ui;margin:0;padding:2rem}</style></head><body><h1 id=\"t\">Hello</h1><script>document.getElementById('t').textContent='Ready';</script></body></html>"
 }
 ```
 
@@ -627,7 +641,7 @@ create_file input
 
 `originalKey` 保存用户下载的真实 HTML、PDF、DOCX 或 XLSX；`normalizedKey` 保存后续 `read_file/search_file` 使用的可读文本。文档类格式保存输入 Markdown 作为规范化正文，XLSX 保存带 Sheet 边界的 Markdown 表格或稳定纯文本表示。
 
-数据库的 `FileKind` 已包含 PDF、DOCX 和 XLSX，但尚未包含 HTML。C2-C 需要增加 `html` 枚举迁移，并同步扩大 `fileRefSchema`、`artifactRefSchema`、文件 MIME 映射、文件图标和生成服务类型范围；不为多格式输出增加新表。首版只接受 `.html`，不增加 `.htm` 别名。
+数据库 `FileKind` 已包含 PDF、DOCX、XLSX 与 **html**（Prisma 枚举迁移已完成），并同步扩大 `fileRefSchema`、`artifactRefSchema`、文件 MIME 映射、文件图标和生成服务类型范围；不为多格式输出增加新表。首版只接受 `.html`，不增加 `.htm` 别名。
 
 `createFileInputSummarySchema` 也必须覆盖两类输入：文档类记录文件名、内容字符数和字节数；工作簿类记录输入类型、Sheet 数、总行数和总单元格数。完整正文和完整 Sheet 数据不得进入工具事件、快照、日志或模型上下文。
 
@@ -641,16 +655,37 @@ create_file input
 
 #### HTML
 
+**模式 A — 默认（Markdown → HTML）**
+
 ```text
 Markdown
 -> remark/rehype 受控解析
--> 固定 HTML 文档外壳和基础 CSS
+-> 固定 HTML 文档外壳和基础 CSS（含 <base target="_blank">）
 -> UTF-8 HTML Buffer
 ```
 
 首版支持标题、段落、粗体、斜体、删除线、列表、链接、引用、代码块、分隔线和 GFM 表格。首版不支持图片、原始 HTML、脚本、iframe、事件属性、数学公式、脚注、Mermaid、SVG、模型自定义 CSS、`data:` 资源和自动远程资源加载。普通 `https://` 超链接可以保留，但 HTML/PDF 生成不得自动访问链接目标。HTML 的规范化正文仍为输入 Markdown。
 
-`.html` 的 `content` 仍然是 Markdown，不是原始 HTML。服务端必须拒绝或转义原始 HTML，不能将模型提供的标签直接作为 HTML 文档执行。
+省略 `contentMode` 时，`.html` 的 `content` **必须是 Markdown**，不是原始 HTML。服务端必须拒绝或转义原始 HTML，不能将模型提供的标签直接作为 HTML 文档执行。
+
+**模式 B — `contentMode: 'html'`（原生 HTML 交付）**
+
+```text
+完整 HTML 字符串
+-> 服务端校验（禁外链 script/stylesheet、禁 iframe/embed 等）
+-> 必要时注入 <base target="_blank">
+-> originalKey 保存与 download 一致的字节；normalizedKey 为去标签文本摘要（供 search_file）
+```
+
+| 项 | 契约 |
+| --- | --- |
+| 适用 | 复杂单页落地页、inline CSS/JS、scroll 动画等；与 C5-B Workbench iframe 预览对齐（inline script 可运行；外链 CDN 仍可能被 preview CSP 拦截，见 37 号文档） |
+| 允许 | inline `<script>` / `<style>`、`https://` 普通超链接 |
+| 拒绝 | `<script src="https://…">`、外链 `<link rel="stylesheet">`、`@import url(https://…)`、`<iframe>` / `<object>` / `<embed>` |
+| 体积 | 与文档类相同：`content` 字符数 / 字节上限与最终 10 MB 文件上限 |
+| PDF/DOCX | **不**支持原生 HTML 模式；仍仅 Markdown 源 |
+
+模型应在用户要「可交互网页 / 落地页 / 动画单页」时使用 `contentMode: 'html'`；仅要「报告型网页排版」时用默认 Markdown + `.html` 即可。
 
 #### PDF
 
@@ -773,7 +808,7 @@ C2-C 继续复用 C2-A 的 `runId + toolCallId` 幂等约束和 Artifact/File �
 C2-C 不新增预览工具。Conversation 和 Artifact Workbench 继续使用现有文件卡片、下载和恢复链路：
 
 - Markdown 和 HTML 可以继续使用受控文本/Markdown 预览；
-- PDF、DOCX、XLSX 首版可以展示规范化正文预览并提供真实原文件下载；
+- PDF、DOCX、XLSX：Workbench 展示 **normalized 正文** 的 Markdown 结构预览（`DeliverableMarkdownPanel`），并提示下载二进制为版式权威；真实原文件仍走 **download**（契约见 [37-c5 §5.1](./37-c5-workbench-ui-and-preview.md)）；
 - 如果浏览器已有稳定 PDF 内嵌预览能力，可以复用，但不作为后端多格式生成完成的阻断项；
 - 不在本阶段开发 Word 或 Excel 浏览器编辑器。
 
@@ -840,9 +875,9 @@ C2-C 只有在以下内容一起完成时才算完成：
 - XLSX 出现稳定的公式或图表需求时，再通过显式结构扩展，不能从普通字符串隐式推断；
 - 多格式批量导出成为高频需求时，再设计产物组，不改变当前一次调用一个 Artifact 的语义。
 
-### 6.13 实施会话交接清单
+### 6.13 实施会话交接清单（归档）
 
-C2-C 方案已足够进入实现，不再等待新的产品或架构讨论。新实施会话应直接从以下前置确认和代码任务开始。
+C2-C 已按 §6.11 完成标准交付。以下清单保留作实施记录；新能力扩展见 §6.12，不重复开工 C2-C 本体。
 
 #### 开工前必须确认
 
@@ -901,7 +936,7 @@ C2-C 方案已足够进入实现，不再等待新的产品或架构讨论。新
 
 ## 7. C2-D 产物版本与迭代
 
-> 状态：方案已冻结，待实施。
+> 状态：**已实施**。实现落点：`ArtifactSeries` / 版本字段（Prisma）、`ArtifactsService`（create/revise/restore/current 推进）、Run `artifactVersionContext`、Workbench 版本 UI；集成测试见 `apps/api/test/integration/app.integration.spec.ts`（C2-D 版本链与并发冲突）。
 
 ### 7.1 阶段定位
 
@@ -1111,10 +1146,10 @@ C2-D 只有在以下行为全部通过自动化测试和真实端到端验证后
 ## 8. C2 推荐开发顺序
 
 ```text
-C2-A FileCreateTool + Artifact 完整闭环
--> C2-B 正式报告生成
--> C2-C 多格式输出
--> C2-D 版本与迭代
+C2-A FileCreateTool + Artifact 完整闭环   （已完成）
+-> C2-B 正式报告生成                      （已完成）
+-> C2-C 多格式输出                        （已完成）
+-> C2-D 版本与迭代                        （已完成）
 ```
 
 C2-A 实施前需要进一步冻结的内容仅包括工具输入输出、Artifact 最小元数据、首版格式和 API/Workbench 投影；不重新讨论是否采用工具驱动、是否暴露路径或是否拆成多个交付阶段。

@@ -1,5 +1,6 @@
-import { AgentShell } from '@/features/agent/components/AgentShell';
+import { ChatScreen } from '@/features/agent/screens/chat-screen';
 
-export default function AgentScreen() {
-  return <AgentShell />;
+/** Stitch 帧 A：Sheet closed / 会话主视图 */
+export default function AgentHomeScreen() {
+  return <ChatScreen />;
 }

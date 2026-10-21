@@ -1,0 +1,19 @@
+/* Shiki 双主题 token：Streamdown 在 span 上写入 --shiki-light / --shiki-dark，切换主题只改选用哪侧变量。 */
+
+.markdown-content [data-streamdown='code-block-body'] pre {
+  background: var(--shiki-light-bg, var(--sdm-bg, var(--theme-surface-subtle))) !important;
+}
+
+.markdown-content [data-streamdown='code-block-body'] code span {
+  color: var(--shiki-light, var(--sdm-c, var(--theme-text-primary))) !important;
+  background-color: var(--shiki-light-bg, var(--sdm-tbg, transparent));
+}
+
+:root[data-theme='dark'] .markdown-content [data-streamdown='code-block-body'] pre {
+  background: var(--shiki-dark-bg, var(--sdm-bg, var(--markdown-surface))) !important;
+}
+
+:root[data-theme='dark'] .markdown-content [data-streamdown='code-block-body'] code span {
+  color: var(--shiki-dark, var(--sdm-c, var(--theme-text-primary))) !important;
+  background-color: var(--shiki-dark-bg, var(--sdm-tbg, transparent));
+}

@@ -1,7 +1,7 @@
 # Mobile Agent Frontend（React Native）
 
-> 文档状态：**移动端产品与技术方案（待实施）**  
-> 最后更新：2026-09-24  
+> 文档状态：**Stitch v3 UI 骨架已落地（fixture / 预览）；P0 共享包与 API 联调按 §13.3–§13.4 待实施**  
+> 最后更新：2026-09-30（§13.3–§13.7 工程文件清单与当前进度；共享逻辑切至 `packages/` 见 §13.3）  
 > 关联：[19-agent-frontend.md](./19-agent-frontend.md)（Web 产品契约，Mobile 须语义 parity）、[11-api-protocol.md](./11-api-protocol.md)、[26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)、[18-project-structure.md](./18-project-structure.md)、[35-c4-mcp-client.md](./35-c4-mcp-client.md)（MCP Settings parity）  
 > 范围：**`apps/mobile` React Native 客户端，覆盖当前 Web `/agent` 已实现的全部 Agent 能力**，不是精简版或只读伴侣。
 
@@ -20,7 +20,8 @@
 | --- | --- |
 | 替代 Web 或 IDE | Mobile 是并列客户端，不删除 Web |
 | 本地跑 NestJS / PostgreSQL | 仍连接已有 API；真机通过 LAN/Tailscale/未来云端 URL |
-| Memory / Delegation / Skills UI | 与 Web 一致：能力未落地则不显示控件 |
+| Delegation UI | 与 Web 一致：能力未落地则不显示控件 |
+| Memory / Skills UI（静态） | **2026-10 已收口**：Settings 记忆、Composer Skill、memory_write 投影；**仍 fixture / 本地持久化**，API 联调见 P1+ |
 | 服务端重启后 Run 自动续跑 | 与 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 相同边界 |
 | OAuth 登录、多租户 | R1 仍为 local user，无账号体系 |
 | 在 Sandbox 内执行 MCP | 与 [35-c4-mcp-client.md](./35-c4-mcp-client.md) 一致：MCP 仅在 Host |
@@ -29,7 +30,7 @@
 
 - **行为语义**：Composer 模式、Progress 文案、Workbench Tab 可用性、`FOCUS_WORKBENCH_TARGET`、recovery 顺序以 [19-agent-frontend.md](./19-agent-frontend.md) 为准；本文只补充 **Mobile 布局、导航、Native 生命周期与工程结构**。
 - **冲突时**：产品语义以 `19` + `agent-protocol` 为准；Mobile 特有交互以本文为准。
-- **Debug Tab**：Web production 无 Debug；Mobile 同样 **不实现 Debug Tab**。Web Workbench 中的 **Context** Tab 是正式调试入口（Model Round JSON），Mobile **必须保留**。
+- **Debug / Context Tab**：Web 侧 Context 为桌面调试入口；Mobile Workbench Sheet **不暴露** Context/Debug（与 C5 窄屏策略一致；调试走 Web 或后续设置）。
 
 ---
 
@@ -72,7 +73,7 @@ Mobile 是 **本地 Harness Agent 的全功能客户端**，用户可以在外�
 
 | 借鉴 | Harness 落地 |
 | --- | --- |
-| 对话 + 工作区双面板 | Phone：**Segmented「对话 \| 工作台」**；Pad：**并排**（§5.2） |
+| 对话 + 工作区双面板 | Phone：**Chat 全屏 + Workbench Bottom Sheet**（§5.1）；Pad：**并排**（§5.2） |
 | 可观察 action 流 | **Activity 时间线 + 内联 tool_activity**（用户可读摘要） |
 | Signal→Plan→Execute→… 阶段感 | **Progress 文案 + Plan 步骤 + Activity 状态** 三处一致（复用 `ACTIVITY_STATUS_COPY`） |
 | Event stream 技术 | WebSocket；Harness 用 **Run SSE + Snapshot**，Mobile 复用同一客户端解析 |
@@ -149,7 +150,7 @@ Mobile 是 **本地 Harness Agent 的全功能客户端**，用户可以在外�
 | M-CONV-4 | CoT | `AgentChainOfThought` | 折叠过程、工具步骤、搜索摘要 |
 | M-CONV-5 | Markdown | 同源规则 | sanitize、外链、`[Sx]` 跳转 Sources（Report 内） |
 | M-CONV-6 | 长列表 | FlashList | >40 条虚拟化；吸底阈值对齐 `stickToBottomThresholdPx` |
-| M-CONV-7 | 点击 Activity | `FOCUS_WORKBENCH_TARGET` | 切工作台 Tab + 定位 execution |
+| M-CONV-7 | 点击 Activity | `FOCUS_WORKBENCH_TARGET` | 打开 Workbench Sheet + 定位 execution |
 | M-CONV-8 | 复制 | 本地 | 复制反馈时长对齐 Web |
 
 ### 4.5 Composer
@@ -183,17 +184,16 @@ Mobile 是 **本地 Harness Agent 的全功能客户端**，用户可以在外�
 | M-RPT-1 | Report 聚合 | `GET .../artifacts/reports/:id` |
 | M-RPT-2 | delete report | 若 Web 已暴露则 Mobile 同步 |
 
-### 4.7 Workbench（Tab 集合与 Web 一致）
+### 4.7 Workbench（Tab 集合与 Web C5 一致）
 
-动态 Tab 规则对齐 `WorkbenchShell`（`apps/web/src/features/agent/components/workbench-views.tsx`）：
+动态 Tab 规则对齐 Web `WorkbenchShell`（`workbench-views.tsx` + [37-c5-workbench-ui-and-preview.md](./37-c5-workbench-ui-and-preview.md)）：
 
-| Tab | 出现条件 | Mobile 内容 |
-| --- | --- | --- |
-| Activity | 始终 | master/detail：详情（含 **BashTerminalPanel**）+ 时间线 |
-| Artifact | 有 artifacts 或 artifactSeries | 版本、预览、下载、revise、restore 确认 |
-| Sources | sources.length > 0 | clue/fetched、passage、外链 |
-| Report | 有 report | Markdown Reader |
-| Context | 始终（Web 固定最后） | `RunContextDebug` JSON 树 |
+| Tab（Mobile 文案） | 内部 id | 出现条件 | Mobile 内容 |
+| --- | --- | --- | --- |
+| **实时跟随** | `activity` | 始终 | 当前 tool 详情（bash 终端 / MCP / JSON）+ 调用时间线；`web_search` / `web_fetch` 时主区为 **来源卡片**（无独立 Sources Tab） |
+| **文件** | `artifact` | 有 artifacts / series / report 投影（同 Web `workbenchHasDeliverablesTab`） | 版本、diff 预览、下载、revise |
+
+**不在 Mobile Sheet 暴露**：Context / Debug（调试走 Web 或后续设置）；独立 Report / Sources Tab（报告与来源归入上表）。
 
 Workbench 行为（与 Web §14.1 相同）：
 
@@ -232,31 +232,39 @@ Workbench 行为（与 Web §14.1 相同）：
 
 ```text
 Root
-├── SessionDrawer（Modal / 左滑）
+├── SessionDrawer（Modal / 左滑，背景 #fbfaf9 对齐 Web sidebar）
 │     ├── 新建任务
 │     ├── 会话列表（置顶优先）
 │     └── 会话 … 菜单（重命名 / 置顶 / 删除）
-├── ChatScreen（默认）
-│     ├── TopBar：菜单 · 标题 · 连接/Run 摘要 · 设置
-│     ├── SegmentedControl：[ 对话 | 工作台 ]
-│     ├── Panel A — 对话：MessageList + Composer 区
-│     └── Panel B — 工作台：WorkbenchShell（全 Tab）
+├── ChatScreen（默认、唯一主路由层）
+│     ├── TopBar：☰ · 标题 · Run 摘要（运行中绿点）· 「工作台 (N)」· ⚙
+│     ├── MessageList（画布 #f7f7f6；用户气泡 #edf3fe；助手无气泡）
+│     ├── Composer 区（sticky，surface #fff，border #ededeb）
+│     └── WorkbenchSheet（@gorhom/bottom-sheet，overlay；非 Tab、非独立路由）
+│           ├── detents：closed | peek(~38%) | half(~60%) | full(~92%)
+│           ├── Header：拖把手 · 标题「工作台 (N)」· 关闭
+│           ├── Segmented：Activity | Sources | Artifact/Report（动态 Tab，语义同 Web）
+│           └── Footer（Artifact Tab）：下载 · 主 CTA「基于此版本修改」（#171717）
 ├── PreviewScreen（Artifact / 文件 / 图片）
-├── ReportReaderScreen（可选：Report 全屏；也可内嵌 Workbench）
+├── ReportReaderScreen（可选全屏；大 Markdown 也可在 Sheet full detent）
 └── SettingsStack
       ├── General
       └── MCP（列表 → 详情表单）
 ```
 
-**Segmented「对话 | 工作台」**（OpenHands 双面板在手机上的折中）：
+**Workbench Bottom Sheet（Manus 式，Stitch v3 定稿，见 §5.5）**：
 
-- 默认 **对话**，符合 Manus「先看到流式进展与交付卡片」。
-- Run 进行中 **顶栏/底栏细条** 显示当前 Activity 标题，点击 **切到工作台** 并 auto-focus。
+- **禁止** 底部 Tab Bar 在「会话 / 工作台」之间切换页面；Chat 始终挂载，Sheet 关闭时仅对话 + Composer。
+- **主入口**：TopBar **「工作台 (N)」**（N 规则见 §5.5.2）。
+- **次入口（可选）**：Run 进行中 Composer 上方 **peek 条**（一行 Activity 标题 + chevron），与顶栏入口打开 **同一 Sheet**，避免双逻辑。
+- **内联 tool_activity**：对话区只保留 **一行摘要**（图标 + 工具名 + 状态 + chevron）；大段 diff、Terminal 全文、Report 预览在 Sheet 对应 Tab；点击行 → `FOCUS_WORKBENCH_TARGET` + Sheet 至少 `half`。
+- **HITL（clarification / tool_approval）**：**不得**使用 Workbench Bottom Sheet（无拖把手、无 detent、无「工作台」标题）。与 Web 相同：在 **Composer 壳内** 用 `composer-hitl-panel` 替换输入区（`hideComposerInput`）；长命令摘要可滚动，批准/拒绝固定在 panel 底。可选：极长多项审批时用 **居中 Modal**（`AlertDialog`），仍区别于 Workbench Sheet。
+- **Context Tab**：仍在 Sheet 内，与 Web 相同为最后一项；peek detent **不** 展示 Context JSON（仅 half/full）。
 
-**Bottom Sheet（可选 Peek）**：
+**不采用（设计已否决）**：
 
-- 高度约 45–50%，展示 **当前 execution 一行摘要 + 「全屏工作台」**。
-- 不替代全 Tab Workbench；Context JSON 与 Bash 长输出必须在 **全屏工作台** 内。
+- Segmented「对话 | 工作台」占满主屏。
+- Git「提交并推送分支」类 CTA（产品无 Host Git 集成）；Artifact 底栏仅 **下载 / 分享 / 基于此版本修改 / restore 确认**（对齐 C2-D）。
 
 ### 5.2 平板（iPad，宽度 ≥ 768pt）
 
@@ -276,16 +284,96 @@ flowchart TB
   subgraph shell [App Shell]
     DR[Session Drawer]
     CH[Chat Screen]
-    WB[Workbench Panel]
+    WB[Workbench Bottom Sheet]
     ST[Settings Stack]
   end
   DR --> CH
-  CH -->|Segmented| WB
+  CH -->|TopBar 工作台 N / peek 条 / tool 行| WB
   CH -->|FOCUS_WORKBENCH_TARGET| WB
   CH --> ST
   WB --> PR[Preview / Reader]
   CH --> PR
 ```
+
+### 5.4 Workbench Sheet 状态机（Phone）
+
+```text
+closed
+  -> openPeek | openHalf | openFull
+     （入口：工作台按钮 / peek 条 / focus target 默认 half）
+
+openPeek
+  -> drag up -> openHalf | openFull
+  -> drag down / close / scrim tap -> closed
+
+openHalf | openFull
+  -> drag down -> 下一 detent 或 closed
+  -> 切换 Tab 不改变 detent（保持用户高度）
+
+规则：
+- auto-open（Web 同）：新 Run 首次 tool call 可 openPeek；suppress 后不再自动弹。
+- followMode pinned：用户手动调高 Sheet 后不随 focus 自动降为 peek。
+- Composer：closed/peek 时可用；full 时 Sheet 覆盖 Composer，HITL interrupt 除外。
+- **Overlay 互斥**：`sessionDrawerOpen === true` 时 Workbench Sheet 必须为 `closed`（先关 Sheet 再开 Drawer，或开 Drawer 时自动关 Sheet）。
+```
+
+### 5.5 设计定稿（Stitch v3，2026-09-26）
+
+设计资产为 Stitch 内 **五帧**（393×852 iPhone 15 Pro full-bleed，Harness Web token）。**不强制** 再补 Dark / Settings / MCP 表单帧；实现以本文 + Web 对照为准。
+
+#### 5.5.1 帧清单与工程映射
+
+| 帧 | Stitch 标题（参考） | 定稿内容 | 实现锚点 |
+| --- | --- | --- | --- |
+| **A** | Sheet closed / 会话主视图 | Chat 画布、tool 一行摘要、Composer（+ 上传 / 上下文）、顶栏「工作台 (N)」；Sheet **closed** | `ChatScreen` + `ConversationPanel` |
+| **B** | Sources 视图 | Workbench Sheet ~60%，Tab **实时跟随**（`activityEmphasis: sources`）；来源卡片 + passage/标签 | `WorkbenchActivityContent` + `WorkbenchSourceCard` |
+| **C** | HITL 内嵌 Composer | **非 Sheet**：Composer 白壳内 `composer-hitl-panel`，`hideComposerInput`；bash/pytest 审批 + 沙箱说明 + 拒绝/批准 | `ComposerStack` / 复用 Web `Confirmation` 语义 |
+| **D** | Session Drawer | 左 Drawer ~78% `#fbfaf9`；新建、搜索、列表（进行中绿点）；底栏账号脱敏 + 设置 | `SessionDrawer` |
+| **+** | Workbench 半开 · 产物 | Sheet half+，Tab **文件**；diff 预览、版本 v1.2、**下载** + **基于此版本修改** | `artifact` + C2-D footer |
+
+**组件分工（冻结）**：
+
+```text
+Session Drawer     — 仅会话列表（D）
+Workbench Sheet    — 实时跟随 + 文件（动态 Tab；B 帧 = 跟随·来源卡片）
+Composer HITL Panel — 仅 clarification + tool_approval（C）；禁止与 Sheet 共用 @gorhom 实例
+```
+
+#### 5.5.2 冻结决策（实现必须遵守）
+
+1. **工作台 badge `(N)`**  
+   `N =` 当前 Session **active Run**（若存在）上：`status ∈ { running, queued, waiting, cancelling }` 的 **tool_activity 块数量** + **当前 Run Workbench 内 artifact 条数**（含 series 当前版本，不去重历史版本）。无 active Run 时 `N =` 最近一条 assistant Run 的 artifact 数，若无则隐藏 badge 数字仅显示「工作台」。
+
+2. **帧 A 内「查看产物 (k)」**  
+   与顶栏「工作台」打开 **同一 `WorkbenchSheet` 实例**；点击后 `detent >= half` 且 `activeView = artifact`。若另有「查看某报告」类文案，等价于 `FOCUS_WORKBENCH_TARGET` 指向该 `artifactId` / Report，**不**单独路由。
+
+3. **Workbench Tab 动态规则**  
+   与 Web C5 一致：**实时跟随**（`activity`）始终可用；**文件**（`artifact`）仅 `workbenchHasDeliverablesTab`；来源列表在跟随 Tab 内按 tool 类型展示（无独立 Sources Tab）。**Plan 不得作为独立 Tab**（仅 Plan 浮卡 / 可选 peek 条）。
+
+4. **Clarification HITL**  
+   与帧 C **同一 Composer panel 组件**；标题「需要补充信息」、选项 Chip + 可选自由文本、主按钮「提交回答」；不另出设计帧。
+
+5. **Overlay 互斥**  
+   Session Drawer 与 Workbench Sheet **不得同时打开**（见 §5.4）。HITL 显示时 Sheet 应为 `closed`（审批优先于浏览工作台）。
+
+6. **首版工程切片（MVP）**  
+   设计 freeze 覆盖全量 §4 parity，但 **建议先交付**：P0 抽包 → P1 Session/Settings URL → P2 Run/SSE → P3 Composer 主体 → P4 HITL → P5 Workbench Sheet（A/B/产物帧）。**P1.5 可选**：Composer peek 条（顶栏工作台已足够）。**P7 推送、iPad 并排、Maestro 全量** 属 P8，不阻塞 MVP 演示。
+
+#### 5.5.3 明确不做 / 不补帧
+
+| 项 | 说明 |
+| --- | --- |
+| Git commit / push | 无 Host Git；产物底栏仅 C2-D 动作 |
+| 来源 Tab 底栏 CTA | 无 bulk 导出 API；行内展开 + 外链 + Passage Modal |
+| HITL Bottom Sheet | 已否决；仅 Composer panel 或（极端）居中 Modal |
+| Dark Stitch 参考 | 实现跟 `theme.css` dark token；不阻塞开工 |
+| Settings / MCP UI | 无 Stitch 帧；对齐 Web `settings-dialog` |
+
+#### 5.5.4 文案与无障碍
+
+- 审批标题统一 **「需要批准工具调用」**（避免「批复」等别称）。  
+- 主按钮填充 Light `#171717` / Dark `#d8d8d8`；拒绝用 `#f8ecea` / `#984b41` 语义，避免满屏警示红块。  
+- 触控 44pt；Sheet 拖把手仅 Workbench 出现。
 
 ---
 
@@ -298,7 +386,8 @@ flowchart TB
 | ☰ | 打开 Session Drawer |
 | 标题 | 当前 Session title；过长截断 |
 | Run 摘要 | running：Activity 标题或 Plan 步骤「第 n/m 步」；paused/waiting 用 `ACTIVITY_STATUS_COPY` |
-| 连接指示 | live / reconnecting 点状或文案 |
+| **工作台 (N)** | 打开 Workbench Sheet；N 为 badge；**非 Tab 选中态** |
+| 连接指示 | live / reconnecting 点状或文案（可与 Run 摘要合并） |
 | ⚙ | Settings |
 
 ### 6.2 对话列表
@@ -339,6 +428,7 @@ flowchart TB
 
 ### 6.4 HITL — Clarification
 
+- **容器**：与 §6.5 相同 — **Composer 壳内 panel**，非 Workbench Sheet（Stitch 帧 C 组件复用，§5.5.2-4）。
 - 标题：「需要补充信息」。
 - 展示 `interrupt.payload.question`；有 options 则 **Chip 快捷选** + 仍允许自定义输入。
 - 提交：`controlRun` `{ type: 'respond', interruptId, payload: { answer } }`。
@@ -346,7 +436,8 @@ flowchart TB
 
 ### 6.5 HITL — Tool Approval
 
-- 标题：「需要批准工具调用（N 项）」。
+- **容器**：Composer 同宽圆角卡片（`shadow-composer`），**不是** `@gorhom/bottom-sheet` Workbench 实例。
+- 标题：「需要批准工具调用（N 项）」；右上 **×** → cancel Run（与 Web `composer-hitl-cancel` 一致）。
 - 每项：`toolTitle` + 可展开 `toolInputSummary`（Cline 检查点）。
 - 主操作：**批准**（全 approve）；扩展 v1.1 可支持逐项决策（若 Web 先支持则 Mobile 跟随）。
 - 拒绝路径：协议支持 `reject` + decisions；UI 与 Web 同步。
@@ -371,9 +462,11 @@ flowchart TB
 
 ### 6.7 Workbench — Sources
 
-- 顶栏统计：「X 个回答采用 · Y 已读取 · Z 线索」。
-- 列表项：domain、title、excerpt；fetched 展示 passage 入口。
-- 点 passage → **半屏 Modal** 展示 cited text；外链用 in-app browser（`SFSafariViewController` / Chrome Custom Tabs）。
+- 顶栏统计：「X 个回答采用 · Y 已读取 · Z 线索」（对齐 Web `SourcesView` header）。
+- 列表项：domain、title、excerpt；**点整行**展开 `<details>` 式 passage 列表（与 Web 内联 `candidate-passages` 相同）。
+- **无 Sheet 底栏 CTA**（不做「导出引用」「查看来源详情」全局按钮；无 bulk export API）。
+- 单条 passage 过长 → 半屏 **Passage Modal**；来源 URL → in-app browser（`SFSafariViewController` / Chrome Custom Tabs）。
+- 顶栏可选 **筛选** icon（Web 已有 placeholder）；Report 内 `[Sx]` → focus source（与 Web 一致）。
 
 ### 6.8 Workbench — Report
 
@@ -404,15 +497,15 @@ flowchart TB
 
 列表项展示 **状态 Badge**（connected / degraded / disconnected），与 Web `mcpStatusLabel` 一致。
 
-### 6.12 进行中细条（Manus 式）
+### 6.12 进行中 peek 条（Manus 式，可选）
 
-当 `submitting && workbench.activityStatus in (running, queued, …)`：
+当 `submitting && workbench.activityStatus in (running, queued, …)` 且 Sheet 为 `closed`：
 
 ```text
-[ ● 正在搜索公开来源 · 步骤 2/5 ]  → 点击切工作台 Tab
+Composer 上方：[ ● 正在搜索公开来源 · 步骤 2/5 › ]  → 打开 Sheet（建议 half + Activity focus）
 ```
 
-与 Plan 浮卡并存时：细条优先显示 **Plan 当前 in_progress 步骤标题**。
+与 Plan 浮卡并存时：peek 条优先显示 **Plan 当前 in_progress 步骤标题**。顶栏「工作台 (N)」始终可用，与 peek 条 **同一 Sheet 实例**。
 
 ---
 
@@ -516,7 +609,7 @@ hello-harness-agent/
 | 语言 | TypeScript strict | 与 monorepo 一致 |
 | 导航 | React Navigation 7 | Drawer + Native Stack |
 | 列表 | @shopify/flash-list | 长对话 |
-| Sheet | @gorhom/bottom-sheet | HITL、Peek、菜单 |
+| Sheet | @gorhom/bottom-sheet | **仅 Workbench Sheet**、ActionSheet 菜单；**HITL 不用 Sheet**（§5.5） |
 | 动画 | react-native-reanimated | Sheet / 列表 |
 | 服务端状态 | TanStack Query v5 | Session 列表、Config |
 | Run 观察 | 每 Session 单例 Observer | ref 存 cursor，与 Web 相同 |
@@ -530,6 +623,26 @@ hello-harness-agent/
 | JSON | 轻量树组件 | Context Tab |
 | E2E | Maestro | 黄金路径 |
 | 单测 | vitest/jest 在 packages | 与 web 共用 fixture |
+
+### 8.4.1 UI 定案（仅 React Native Reusables）
+
+**2026-09-26 共识**：Mobile **只有一套 UI 来源** — **[React Native Reusables](https://reactnativereusables.com/) + NativeWind v4**，组件 **CLI 添加后拷贝在** `apps/mobile/components/ui/`（与 Web shadcn 相同工作流）。**不再引入**第二套 UI 库（Tamagui、Paper、Gluestack、assistant-ui、Vercel AI Elements RN 等）。
+
+| 类型 | 做法 |
+| --- | --- |
+| Button / Input / Dialog / Tabs / Card… | Reusables → `components/ui/*` |
+| 聊天 / Composer / HITL / Tool 行 / Terminal | **`components/agent-elements/*` 自研**，仅用 Reusables 原语拼装；**不是** npm 上的「AI UI 库」 |
+| 业务状态与投影 | `packages/agent-*`（无 UI） |
+
+**与 Web 对称（实现方式，非共用 npm）**：Web `components/ui` + `ai-elements`；Mobile `components/ui`（Reusables）+ `agent-elements`。
+
+**Reusables 首装建议（按需 add，勿一次全库）**：`text`、`button`、`input`、`textarea`、`card`、`tabs`、`dialog`、`alert-dialog`、`separator`、`skeleton`、`label`；Toast 用 Reusables 自带或 **sonner-native** 二选一。
+
+**非 UI 库、但随 Reusables/Expo 常见依赖**（不算第二套设计系统）：`@rn-primitives/*`（Reusables 底层）、`lucide-react-native`、`react-native-reanimated`、`@gorhom/bottom-sheet`（仅 Workbench Sheet）、`@shopify/flash-list`。
+
+**Markdown / Terminal**：WebView 或轻量渲染包；不为此再选 UI Kit。
+
+**脚手架**：Reusables 官方 Expo 模板或现有 Expo 项目 + Reusables 文档接入；再挂 monorepo `@harness/agent-protocol` 等。
 
 ### 8.5 `apps/mobile` 目录（建议）
 
@@ -545,6 +658,8 @@ apps/mobile/
         McpServerFormScreen.tsx
         PreviewScreen.tsx
       components/
+        ui/                 # Reusables 拷贝（shadcn 等价）
+        agent-elements/     # 对标 web ai-elements
         conversation/
         composer/
         workbench/
@@ -561,6 +676,8 @@ apps/mobile/
 ```
 
 不提前创建空模块；按里程碑递增（与 [19-agent-frontend.md §21](./19-agent-frontend.md) 精神一致）。
+
+**当前（2026-09-30）**：`apps/mobile` 已存在（Expo Router、`src/features/agent/*`、`app/preview/*`），目录较上文 **更扁平**（组件暂集中在 `components/`，尚无 `hooks/`、`providers/`）。数据仍走 **fixture**，未依赖 `@harness/agent-client`。随 **P1** 起按 §13.4 引入 `lib/`、`hooks/`、`providers/`；`composer/`、`workbench/` 子目录可在 **P5** 前再拆，避免空壳模块。
 
 ### 8.6 脚本与 CI
 
@@ -587,10 +704,15 @@ maestro test apps/mobile/maestro/       # CI optional
 ### 9.2 Mobile 扩展（仅本地）
 
 ```ts
+type WorkbenchSheetDetent = 'closed' | 'peek' | 'half' | 'full';
+
 type MobileChromeState = {
-  primaryPanel: 'conversation' | 'workbench';
   sessionDrawerOpen: boolean;
-  workbenchPeekOpen: boolean;
+  workbenchSheet: {
+    detent: WorkbenchSheetDetent;
+    /** 用户是否手动拖高过；影响 auto-open 降级 */
+    userExpanded: boolean;
+  };
   apiBaseUrl: string;
   pushNotificationsEnabled: boolean;
 };
@@ -614,11 +736,17 @@ type MobileChromeState = {
 
 ## 10. 设计系统（Mobile）
 
-- **颜色**：与 Web `--theme-*` 暖灰语义对齐（background/surface/border/text-primary/muted）；RN 使用同一 token 名便于双端主题表。
-- **字号**：默认正文 15–16pt（可设置 12–17，对齐 Web content font size）。
-- **触控**：最小 hit area 44×44pt；列表行高密度但不低于 44pt 可点区域。
-- **图标**：与 Web lucide 语义一致（可用 `lucide-react-native`）。
-- **Motion**：Run 进行中 Activity Tab 图标 spin；减少大面积动画以保证 SSE 性能。
+与 Web [`design-system/README.md`](../apps/web/src/design-system/README.md) 及 Stitch **Harness Agent Mobile Workbench v2** 一致：
+
+- **颜色（Light）**：canvas `#f7f7f6`、sidebar/drawer `#fbfaf9`、surface `#ffffff`、subtle `#f1f1ef`、text `#171717` / secondary `#555551`、composer border `#ededeb`、user bubble `#edf3fe`、primary CTA `#171717`、link `#3f5f78`、approval `#eaf2ec` / rejection `#f8ecea`。
+- **颜色（Dark）**：canvas `#101010`、surface `#181818`、user bubble `#202020`（非蓝 tint）、primary CTA `#d8d8d8`。
+- **字号**：默认正文 **14px**（`text-content`），次级 13px；可设置 12–17，与 Web 侧栏字号联动语义相同。
+- **圆角**：control 8px、panel/sheet 12px、user bubble 22px。
+- **Elevation**：Sheet/Modal 用 `shadow-panel`（hairline + 软阴影），避免 border+shadow 叠加重框。
+- **画板参考**：iPhone 15 Pro **393×852**，全屏 bleed；Home Indicator 留白。
+- **触控**：最小 hit area 44×44pt。
+- **图标**：lucide 语义与 Web 一致（`lucide-react-native`）。
+- **Motion**：Sheet slide-up + scrim fade；Activity running 图标 spin；避免大面积动画影响 SSE。
 
 ---
 
@@ -631,7 +759,7 @@ type MobileChromeState = {
 2. Composer 选模型/推理 → 输入目标 → 发送
 3. createRun → Observer 订阅 SSE
 4. 对话区：text delta 穿插 tool_activity「搜索…」「读取…」
-5. 顶栏细条 / Plan 卡显示进度；用户点细条 → 工作台 Activity
+5. 顶栏「工作台」/ peek 条 / Plan 卡显示进度；用户点入口 → Sheet half + Activity
 6. Sources Tab 出现 → 用户点某来源 → passage Modal
 7. 最终 assistant 文本 + 若有 Report → Report Tab / Artifact 卡
 8. 用户切后台 10 分钟 → 回 App Snapshot 续看，无重复 block
@@ -694,17 +822,175 @@ type MobileChromeState = {
 
 里程碑 **不削减 §4 范围**；仅排序。
 
+### 13.1 设计交付（Stitch）
+
+| 状态 | 交付物 |
+| --- | --- |
+| **Freeze v3**（2026-09-26） | 五帧：A closed、B 来源、C HITL Composer、D Session Drawer、产物 Sheet；见 §5.5 |
+| 不补帧 | Dark、Settings/MCP、Clarification 单独帧（§5.5.3） |
+
+Stitch 源文件由设计侧保管；工程以 **本文 §5.5 + §6 + Web 组件** 为验收参照。
+
+### 13.2 工程里程碑
+
 | 阶段 | 交付 | 依赖 |
 | --- | --- | --- |
 | **P0** | `agent-client` + `agent-conversation` 抽包；Web 引用无回归 | 无 mobile |
-| **P1** | `apps/mobile` 脚手架；Settings API URL；Session CRUD；ready | P0 |
+| **P1** | Settings API URL；Session CRUD + **Session Drawer（D）**；ready（`apps/mobile` 脚手架与 Stitch 预览 **已完成**，见 §13.5） | P0 |
+| **P1.5** | （可选）Composer **peek 条** → 同一 Workbench Sheet | P1 |
 | **P2** | createRun + SSE + Snapshot 恢复 + cancel；对话 text/tool_activity | P1 |
 | **P3** | Composer 全量（模型/推理/附件/粘贴/队列/Plan/Context 环） | P2 |
 | **P4** | HITL clarification + approval；controlRun 全类型 | P3 |
-| **P5** | Workbench 全 Tab + focus/pinned/auto-open | P4 |
+| **P5** | Workbench Sheet（**A/B/产物帧**）+ detents + 动态 Tab + focus/pinned/auto-open | P4 |
 | **P6** | Bash Terminal + Artifact revise/restore + Report Reader | P5 |
 | **P7** | Settings MCP 全表单 + Test | P5 |
 | **P8** | 推送、Maestro、iPad 分屏、性能与硬ening | P6–P7 |
+
+### 13.3 P0 — 共享包切分（文件清单）
+
+**原则**：把 Web 与 Mobile 都要 **同一语义** 的无 UI 逻辑迁入 `packages/`，避免双份 SSE / Run reducer。Web 在 P0 改为 **import 包**（行为不变），不是为 Mobile 单独改产品行为。Mobile 仅消费包 + 保留 Native 壳。
+
+**P0 最小切片**（够支撑 §13.4 P1–P2；MCP 全量、auth、附件 API 等留在 Web 薄封装或后续补全）：
+
+#### `packages/agent-client/`
+
+| 路径 | 职责 |
+| --- | --- |
+| `package.json` | `@harness/agent-client`，依赖 `@harness/agent-protocol` |
+| `tsconfig.json` | 继承根 `tsconfig.base.json` |
+| `src/index.ts` | 导出 |
+| `src/types.ts` | `ApiClientConfig`（`baseUrl`、可注入 `fetch`、`getAuthHeaders?`）、`ConnectionState` |
+| `src/http.ts` | `apiFetch`、`parseResponse`、`ApiProblem`（自 Web `apps/web/src/api/client.ts` 拆出） |
+| `src/sse.ts` | SSE frame 解析 + `subscribeRun`（与 Web 相同：`fetch` + `ReadableStream`） |
+| `src/readiness.ts` | `getReadiness` |
+| `src/sessions.ts` | `listSessions`、`createSession`、`getSession`、`updateSession`、`deleteSession` |
+| `src/runs.ts` | `createRun`、`getRun`、`cancelRun`（P2 可不导 `controlRun`） |
+| `src/config.ts` | `getPublicAgentConfig` |
+| `src/create-client.ts` | `createAgentClient(config)` |
+
+#### `packages/agent-conversation/`
+
+| 路径 | 职责 |
+| --- | --- |
+| `package.json` | `@harness/agent-conversation` |
+| `src/index.ts` | 导出 |
+| `src/types.ts` | 自 Web 迁入：`AgentUiState`、`ConversationItem`、`WorkbenchState` 等（P2 可先子集） |
+| `src/conversation-blocks.ts` | 自 Web 迁入（或先 re-export 再物理迁移） |
+| `src/tool-copy.ts` | tool_activity 标题 |
+| `src/bash-transparent.ts` | `applyToolEvent` 依赖 |
+| `src/source-identifiers.ts` | Snapshot → conversation 需要则迁入 |
+| `src/workbench-projection.ts` | 自 `app.tsx` 拆：`applyToolEvent`、workbench 纯投影 |
+| `src/run-reducer.ts` | 自 `app.tsx` 拆：**纯函数** `applyRunSnapshot` / `applyRunEvent`（无 React `setState`） |
+| `src/run-observer.ts` | `observeRun`：Snapshot 对齐 → SSE → seq gap 时 `getRun` |
+| `src/session-state.ts` | `createEmptySessionState`、`mergeSessionDetail`、`pendingSessions` 辅助 |
+| `src/run-reducer.test.ts` | 与 `agent-testkit` 对齐：duplicate seq、gap、tool_activity 顺序 |
+
+#### Web 迁移（P0 验收：引用无回归）
+
+| 路径 | 变更 |
+| --- | --- |
+| `apps/web/package.json` | 依赖 `@harness/agent-client`、`@harness/agent-conversation` |
+| `apps/web/src/api/client.ts` | 薄封装：默认 `baseUrl` 仍读 `VITE_*`，委托 `agent-client` |
+| `apps/web/src/features/agent/model/*.ts` | 改为从 package re-export 或删重复 |
+| `apps/web/src/app.tsx` | Run 循环改调 `run-reducer` + `run-observer` |
+| 根 `package.json` | `check` 纳入新包 typecheck/test |
+
+**可选加速**：先建 package、**仅 Mobile 引用**，Web 暂不改 import；稳定后再让 Web 迁完，完成单源（见 §15 双端漂移对策）。
+
+### 13.4 P1–P2 — 最小可聊（文件清单与验收）
+
+**目标**：配置 API → 选 Session → 发 Run → SSE 看到 **user + assistant 流式 text + 内联 tool_activity** → **cancel** → 切 Session 不串线 → 冷启动 **Snapshot 恢复** 同一 assistant 轮。
+
+**本阶段不做**（仍用 fixture 或占位）：Markdown/CoT、Workbench 真数据、HITL、`controlRun`、附件上传、MCP 表单、登录 UI、FlashList、推送。
+
+#### P1 — 连接 + Session Drawer
+
+| 路径 | 新建 / 修改 | 职责 |
+| --- | --- | --- |
+| `apps/mobile/src/lib/storage.ts` | 新建 | AsyncStorage 封装 |
+| `apps/mobile/src/lib/agent-client.ts` | 新建 | 读持久化 `apiBaseUrl` → `createAgentClient` |
+| `apps/mobile/src/features/agent/model/mobile-chrome.types.ts` | 新建 | `MobileChromeState`（§9.2） |
+| `apps/mobile/src/features/agent/hooks/use-service-state.ts` | 新建 | `checking \| ready \| unavailable` |
+| `apps/mobile/src/features/agent/hooks/use-api-base-url.ts` | 新建 | Base URL 读写 |
+| `apps/mobile/src/features/agent/hooks/use-session-list.ts` | 新建 | `listSessions` + refresh |
+| `apps/mobile/src/features/agent/hooks/use-session-detail.ts` | 新建 | `getSession` → conversation 状态 |
+| `apps/mobile/src/features/agent/providers/agent-host-provider.tsx` | 新建 | Context：client、service、sessions、selectedSessionId |
+| `apps/mobile/src/features/agent/components/service-banner.tsx` | 新建 | 未 ready 提示 + 重试 |
+| `apps/mobile/src/features/agent/components/session-drawer-menu.tsx` | 新建 | 重命名 / 置顶 / 删除（确认） |
+| `apps/mobile/package.json` | 修改 | `@harness/agent-protocol`、`agent-client`、`agent-conversation`、AsyncStorage |
+| `apps/mobile/app/_layout.tsx` | 修改 | 包 `AgentHostProvider` |
+| `apps/mobile/app/settings/index.tsx` | 修改 | API URL 可编辑持久化 |
+| `apps/mobile/src/features/agent/components/session-drawer.tsx` | 修改 | 真列表、新建、选中、搜索 |
+| `apps/mobile/src/features/agent/components/chat-top-bar.tsx` | 修改 | 真标题；可选 ⚙ → Settings |
+| `apps/mobile/src/features/agent/screens/chat-screen.tsx` | 修改 | 去掉默认 fixture 数据源 |
+| `apps/mobile/app/index.tsx` | 修改 | 生产路径仅 `ChatScreen`（`/preview` 保留） |
+
+**P1 验收**：改 URL → ready → Drawer 与 API 一致 → 新建/删/置顶/改名生效。
+
+#### P2 — Run + SSE + 最小 Composer
+
+| 路径 | 新建 / 修改 | 职责 |
+| --- | --- | --- |
+| `apps/mobile/src/features/agent/hooks/use-run-observer.ts` | 新建 | 包装 `observeRun`；每 session 单 AbortController |
+| `apps/mobile/src/features/agent/hooks/use-active-run.ts` | 新建 | `createRun` / `cancelRun`；`activeRunId`、连接态 |
+| `apps/mobile/src/features/agent/hooks/use-public-config.ts` | 新建 | 默认 model（reasoning 可先固定 `off`） |
+| `apps/mobile/src/features/agent/model/map-conversation-to-mobile.ts` | 新建 | `ConversationItem[]` → 现有 RN 块 props（P3 可删） |
+| `apps/mobile/src/features/agent/components/composer-run-controls.tsx` | 新建 | 发送 / Stop / submitting / cancelling |
+| `apps/mobile/src/features/agent/components/connection-pill.tsx` | 新建 | `idle \| connecting \| live \| reconnecting \| offline` |
+| `apps/mobile/src/features/agent/components/composer-stack.tsx` | 修改 | `onSubmit` / `onCancel`；仅 `new-run` + disabled |
+| `apps/mobile/src/features/agent/components/conversation-panel.tsx` | 修改 | 真 conversation 数据 |
+| `apps/mobile/src/features/agent/components/assistant-turn-content.tsx` | 修改 | live tool_activity |
+| `apps/mobile/src/features/agent/components/tool-activity-row.tsx` | 修改 | 状态与 Web `tool-copy` 对齐 |
+| `apps/mobile/src/features/agent/screens/chat-screen.tsx` | 修改 | 挂载 observer；进 Session 续订 Run |
+| `apps/mobile/src/features/agent/components/agent-elements/user-message-bubble.tsx` | 修改 | `createdAt`、attachment 展示名 |
+| `apps/mobile/src/features/agent/components/assistant-text-block.tsx` | 可选 | 纯 Text 流式正文（暂不引 Markdown 包） |
+
+**P2 验收**：发消息 → 流式字 + tool 行 → Cancel → 杀 App 再进同 Session 恢复。
+
+#### 测试（与 P2 同步）
+
+| 路径 | 职责 |
+| --- | --- |
+| `packages/agent-conversation/src/run-reducer.test.ts` | reducer 契约 |
+| `apps/mobile/src/features/agent/model/map-conversation-to-mobile.test.ts` | 块顺序不丢 |
+| 根 `package.json` / CI | `@harness/agent-conversation` test + `@harness/mobile` typecheck |
+
+Maestro（`apps/mobile/maestro/p2-smoke.yaml`）建议在 P2 通过后补，不阻塞首次联调。
+
+### 13.5 当前工程现状（2026-09-30）
+
+| 项 | 状态 |
+| --- | --- |
+| `apps/mobile` | **已创建**：Expo 57 + Expo Router + NativeWind；`pnpm dev:mobile` |
+| Stitch 五帧 + UI Catalog | **已实现**：`/preview/*`、`ui-catalog`；`ChatScreen` 等走 **fixture** |
+| Workbench Bottom Sheet | **壳已接**：`WorkbenchSheet` + C5 双 Tab（动态）+ 跟随内嵌来源/终端 **静态样例** |
+| Settings | **静态已收口**：API URL / 主题 / 字号（AsyncStorage）；记忆 Hub·列表·表单；MCP 列表·表单（本地演示） |
+| Memory / Skills / Composer 壳层 | **静态已收口**：Skill picker、memory_write catalog、Connection/Service/Peek/Context 环、Markdown/CoT/Reader/iPad 并排 |
+| `@harness/agent-client` / `agent-conversation` | **未创建**（P0） |
+| 与 API 联调 | **未开始**（P1 起） |
+
+**保留策略**：`fixtures/*`、`app/preview/*` 继续服务设计与无后端回归；生产路由（`app/index.tsx`）在 P1 起 **不得** 再默认 import fixture。
+
+### 13.6 建议实施顺序（PR 链）
+
+```text
+1. agent-client（sessions + runs + sse + readiness + public config）
+2. agent-conversation（types + conversation-blocks + run-reducer + tests）
+3. Web 改引用 → pnpm check 绿
+4. Mobile lib + Provider + Settings URL + ServiceBanner
+5. Session Drawer 真 CRUD
+6. Composer + createRun + observer + conversation 映射
+7. cancel + 冷启动 Snapshot 恢复
+```
+
+### 13.7 P3+ 与现有 Mobile 文件（刻意不动项）
+
+| 模块 | 里程碑 | 说明 |
+| --- | --- | --- |
+| `WorkbenchSheet`、`workbench-*-view` | P5–P6 | P2 仍可用 fixture；P5 接动态 Tab / focus |
+| `ComposerHitlPanel`、Clarification | P4 | 预览帧保留，生产不接 |
+| `AgentChainOfThought`、`MarkdownView` | P3 / P6 | 见 §18 附录 A |
+| FlashList | P2 后性能项 | P2 仍可用 ScrollView |
 
 ---
 
@@ -744,12 +1030,13 @@ type MobileChromeState = {
 
 ## 17. 阅读顺序（Mobile 专项）
 
-1. 本文 §4 Parity 矩阵  
-2. [19-agent-frontend.md](./19-agent-frontend.md) — Composer / Workbench 语义  
-3. [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) — SSE/cursor  
-4. [35-c4-mcp-client.md](./35-c4-mcp-client.md) — MCP Settings  
-5. [31-c2-artifact-and-report-generation.md](./31-c2-artifact-and-report-generation.md) — Artifact 版本链  
-6. [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md) — Bash/Terminal 投影  
+1. 本文 §5.5 设计定稿（Stitch v3）+ §4 Parity 矩阵  
+2. 本文 §13.3–§13.7 — **P0 抽包与 P1–P2 文件清单、当前进度**  
+3. [19-agent-frontend.md](./19-agent-frontend.md) — Composer / Workbench 语义  
+4. [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) — SSE/cursor  
+5. [35-c4-mcp-client.md](./35-c4-mcp-client.md) — MCP Settings  
+6. [31-c2-artifact-and-report-generation.md](./31-c2-artifact-and-report-generation.md) — Artifact 版本链  
+7. [33-c3-agent-sandbox-cloud-execution.md](./33-c3-agent-sandbox-cloud-execution.md) — Bash/Terminal 投影  
 
 ---
 
@@ -759,8 +1046,8 @@ type MobileChromeState = {
 | --- | --- |
 | `Sidebar` | `SessionDrawer` |
 | `Conversation` | `ConversationPanel` + FlashList |
-| `Composer` / HITL | `ComposerStack` |
-| `WorkbenchShell` | `WorkbenchPanel` 或 `WorkbenchScreen` |
+| `Composer` / HITL | `ComposerStack`（含 `ComposerHitlPanel`，**非** WorkbenchSheet） |
+| `WorkbenchShell` | `WorkbenchSheet`（Phone overlay）/ `WorkbenchPanel`（Pad 并排） |
 | `BashTerminalPanel` | `BashTerminalView` |
 | `MarkdownContent` | `MarkdownView` |
 | `JsonViewer` | `ContextJsonTree` |
@@ -768,6 +1055,8 @@ type MobileChromeState = {
 | `PlanFloatingCard` | 同逻辑组件 |
 | `FollowUpQueue` | 同逻辑组件 |
 | `AgentChainOfThought` | 同逻辑 RN 布局 |
+| `components/ui/*`（shadcn） | `components/ui/*`（Reusables） |
+| `components/ai-elements/*` | `components/agent-elements/*` |
 
 ---
 

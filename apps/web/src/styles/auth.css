@@ -1,0 +1,172 @@
+.auth-screen {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: var(--theme-sidebar, var(--theme-bg));
+  color: var(--theme-text-primary);
+}
+
+.auth-card {
+  width: min(420px, 100%);
+  padding: 28px 24px 32px;
+  border-radius: 16px;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-surface);
+  box-shadow: var(--h-elevation-prominent, 0 12px 40px rgb(0 0 0 / 12%));
+}
+
+.auth-title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.auth-subtitle {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--theme-text-secondary);
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--theme-border);
+  background: transparent;
+  color: var(--theme-text-secondary);
+  cursor: pointer;
+}
+
+.auth-tab--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
+  color: var(--theme-text-primary);
+  font-weight: 500;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.auth-field input {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-bg);
+  color: inherit;
+}
+
+.auth-primary {
+  padding: 11px 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--theme-accent);
+  color: var(--theme-accent-fg, #fff);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.auth-link {
+  border: none;
+  background: none;
+  color: var(--theme-accent);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+}
+
+.auth-error {
+  margin: 0;
+  font-size: 13px;
+  color: #ef4444;
+}
+
+.auth-account-dl {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+  font-size: 13px;
+}
+
+.auth-account-dl dt {
+  color: var(--theme-text-secondary);
+}
+
+.auth-account-dl dd {
+  margin: 2px 0 0;
+}
+
+.auth-bind-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.auth-bind-form input {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-bg);
+}
+
+.auth-bind-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-section__title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.settings-inline-button {
+  margin-right: 8px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--theme-border);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.settings-inline-button--muted {
+  color: var(--theme-text-secondary);
+}
+
+.settings-danger-button {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, #ef4444 40%, var(--theme-border));
+  background: color-mix(in srgb, #ef4444 8%, transparent);
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 13px;
+}

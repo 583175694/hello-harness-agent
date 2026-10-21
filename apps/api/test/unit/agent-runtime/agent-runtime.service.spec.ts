@@ -7,6 +7,8 @@ import { BashCommandPolicyService } from '../../../src/sandbox/bash-command-poli
 import type { ContextEngineeringService } from '../../../src/context-engineering/context-engineering.service';
 import type { ModelAdapter, ModelRoundInput } from '../../../src/model/model-adapter';
 import type { ToolRegistryService } from '../../../src/tools/tool-registry.service';
+import { ToolInputValidationError } from '../../../src/tools/tool-registry.service';
+import type { ToolExposureService } from '../../../src/tools/tool-exposure/tool-exposure.service';
 import {
   RuntimeLifecycleController,
   type RuntimeLifecycleEvent,
@@ -66,6 +68,7 @@ function registry(overrides: Partial<ToolRegistryService> = {}): ToolRegistrySer
     executionPolicy: vi.fn((name: string) => ({
       timeoutMs: name === AGENT_TOOL_NAMES.webFetch ? 45_000 : 10_000,
     })),
+    approvalPolicy: vi.fn(() => 'auto_execute' as const),
     execute: vi.fn().mockResolvedValue({ status: 'succeeded', output: { value: 'ok' } }),
     resolveName: vi.fn((name: string) => name),
     ...overrides,
@@ -81,6 +84,7 @@ async function collect(
 ) {
   const events = [];
   for await (const event of runtime.run({
+    userId: 'local-user',
     sessionId: 'session-1',
     messageId: 'message-1',
     model: 'test-model',
@@ -97,6 +101,44 @@ async function collect(
 // 返回不输出控制台内容的 Logger 替身。
 function logger(): Logger {
   return { log: vi.fn(), warn: vi.fn() } as unknown as Logger;
+}
+
+function toolExposureService(): ToolExposureService {
+  return {
+    annotateSnapshot: (snapshot: import('../../../src/mcp/mcp.types').RunMcpSnapshot) =>
+      snapshot,
+    createIndex: () => null,
+    deferredCount: () => 0,
+    buildMcpDefinitions: () => [],
+    shouldInjectToolSearch: () => false,
+    toolSearchDefinition: () => ({
+      name: AGENT_TOOL_NAMES.toolSearch,
+      description: 'search',
+      parameters: { type: 'object' },
+    }),
+    canExecuteMcp: () => true,
+    exposureMetrics: () => ({
+      latchedToolCount: 0,
+      deferredCount: 0,
+      activatedCount: 0,
+      exposedToolCount: 0,
+    }),
+  } as unknown as ToolExposureService;
+}
+
+function agentRuntime(
+  model: ModelAdapter & { streamRound: ReturnType<typeof vi.fn> },
+  tools: ToolRegistryService = registry(),
+  context?: ContextEngineeringService,
+): AgentRuntimeService {
+  return new AgentRuntimeService(
+    model,
+    tools,
+    new BashCommandPolicyService(),
+    logger(),
+    toolExposureService(),
+    context,
+  );
 }
 
 describe('AgentRuntimeService model-led tool boundary', () => {
@@ -133,7 +175,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     ]);
 
     const events = await collect(
-      new AgentRuntimeService(model, registry(), new BashCommandPolicyService(), logger()),
+      agentRuntime(model),
       undefined,
       undefined,
       'high',
@@ -176,7 +218,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     ]);
     const lifecycle = new RuntimeLifecycleController('run-1');
     const execution = collect(
-      new AgentRuntimeService(model, registry(), new BashCommandPolicyService(), logger()),
+      agentRuntime(model),
       undefined,
       lifecycle,
     );
@@ -197,6 +239,137 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       }),
     ]);
     expect(model.streamRound).toHaveBeenCalledTimes(2);
+  });
+
+  it('auto-boosts bash network without tool approval', async () => {
+    const bashInput = {
+      command: 'curl -fsS https://example.com/doc',
+      description: 'fetch doc',
+    };
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'bash-network',
+              name: AGENT_TOOL_NAMES.bash,
+              arguments: JSON.stringify(bashInput),
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '完成' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const tools = registry({
+      resolveName: vi.fn((name: string) =>
+        name === AGENT_TOOL_NAMES.bash ? AGENT_TOOL_NAMES.bash : name,
+      ),
+      parseInput: vi.fn((_name: string, raw: string) => JSON.parse(raw)),
+      execute: vi.fn().mockResolvedValue({
+        status: 'succeeded',
+        output: {
+          exitCode: 0,
+          stdout: 'ok',
+          stderr: '',
+          timedOut: false,
+          aborted: false,
+          timeoutMs: 120_000,
+          durationMs: 1,
+        },
+      }),
+    });
+    const lifecycle = new RuntimeLifecycleController('run-bash-network');
+    const execution = collect(
+      agentRuntime(model, tools),
+      undefined,
+      lifecycle,
+    );
+    await vi.waitFor(() => expect(tools.execute).toHaveBeenCalled());
+    expect(lifecycle.snapshot().activeInterrupt).toBeUndefined();
+    await execution;
+    expect(tools.execute).toHaveBeenCalledWith(
+      AGENT_TOOL_NAMES.bash,
+      bashInput,
+      expect.objectContaining({ bashEgressBoost: true }),
+      expect.objectContaining({ userId: 'local-user' }),
+    );
+  });
+
+  it('requires approval for bash install before egress boost', async () => {
+    const bashInput = {
+      command: 'pip install requests',
+      description: 'install deps',
+    };
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'bash-install',
+              name: AGENT_TOOL_NAMES.bash,
+              arguments: JSON.stringify(bashInput),
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '完成' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const tools = registry({
+      resolveName: vi.fn((name: string) =>
+        name === AGENT_TOOL_NAMES.bash ? AGENT_TOOL_NAMES.bash : name,
+      ),
+      parseInput: vi.fn((_name: string, raw: string) => JSON.parse(raw)),
+      execute: vi.fn().mockResolvedValue({
+        status: 'succeeded',
+        output: {
+          exitCode: 0,
+          stdout: 'installed',
+          stderr: '',
+          timedOut: false,
+          aborted: false,
+          timeoutMs: 120_000,
+          durationMs: 1,
+        },
+      }),
+    });
+    const lifecycle = new RuntimeLifecycleController('run-bash-install');
+    const execution = collect(
+      agentRuntime(model, tools),
+      undefined,
+      lifecycle,
+    );
+    await vi.waitFor(() =>
+      expect(lifecycle.snapshot().activeInterrupt?.kind).toBe('tool_approval'),
+    );
+    expect(tools.execute).not.toHaveBeenCalled();
+    const interrupt = lifecycle.snapshot().activeInterrupt!;
+    if (interrupt.kind !== 'tool_approval') throw new Error('expected tool approval');
+    const item = interrupt.payload.items[0]!;
+    lifecycle.decideApproval(interrupt.interruptId, [
+      {
+        itemId: item.itemId,
+        toolCallId: item.toolCallId,
+        argumentsHash: item.argumentsHash,
+        decision: 'approve',
+      },
+    ]);
+    await execution;
+    expect(tools.execute).toHaveBeenCalledWith(
+      AGENT_TOOL_NAMES.bash,
+      bashInput,
+      expect.objectContaining({ bashEgressBoost: true }),
+      expect.objectContaining({ userId: 'local-user' }),
+    );
   });
 
   it.each([
@@ -229,7 +402,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       } as Partial<ToolRegistryService>);
       const lifecycle = new RuntimeLifecycleController('run-1');
       const execution = collect(
-        new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()),
+        agentRuntime(model, tools),
         undefined,
         lifecycle,
       );
@@ -289,7 +462,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     };
     const lifecycle = new RuntimeLifecycleController('run-1', undefined, [observer]);
 
-    await collect(new AgentRuntimeService(model, registry(), new BashCommandPolicyService(), logger()), undefined, lifecycle);
+    await collect(agentRuntime(model), undefined, lifecycle);
 
     expect(observed.map(({ boundary }) => boundary)).toEqual([
       'before_model_request',
@@ -333,7 +506,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     lifecycle.requestPause();
 
     const execution = collect(
-      new AgentRuntimeService(model, registry(), new BashCommandPolicyService(), logger()),
+      agentRuntime(model),
       undefined,
       lifecycle,
     );
@@ -381,7 +554,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     const tools = registry();
     const lifecycle = new RuntimeLifecycleController('run-1');
     const execution = collect(
-      new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()),
+      agentRuntime(model, tools),
       undefined,
       lifecycle,
     );
@@ -409,7 +582,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     ]);
 
     const events = await collect(
-      new AgentRuntimeService(model, registry(), new BashCommandPolicyService(), logger()),
+      agentRuntime(model),
       undefined,
       undefined,
       'high',
@@ -451,7 +624,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     ]);
 
     const events = await collect(
-      new AgentRuntimeService(model, registry(), new BashCommandPolicyService(), logger()),
+      agentRuntime(model),
       undefined,
       undefined,
       'high',
@@ -490,7 +663,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    await expect(collect(new AgentRuntimeService(model, registry(), new BashCommandPolicyService(), logger()))).rejects.toMatchObject(
+    await expect(collect(agentRuntime(model))).rejects.toMatchObject(
       { response: { code: AGENT_ERROR_CODES.modelReasoningOnly } },
     );
     expect(model.streamRound).toHaveBeenCalledTimes(2);
@@ -512,7 +685,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    const events = await collect(new AgentRuntimeService(model, registry(), new BashCommandPolicyService(), logger()));
+    const events = await collect(agentRuntime(model));
     expect(model.streamRound).toHaveBeenCalledTimes(2);
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -542,7 +715,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    await expect(collect(new AgentRuntimeService(model, registry(), new BashCommandPolicyService(), logger()))).rejects.toMatchObject(
+    await expect(collect(agentRuntime(model))).rejects.toMatchObject(
       { response: { code: AGENT_ERROR_CODES.modelOutputLimit } },
     );
     expect(model.streamRound).toHaveBeenCalledTimes(2);
@@ -574,11 +747,12 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    const events = await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
+    const events = await collect(agentRuntime(model, tools));
     expect(tools.execute).toHaveBeenCalledWith(
       AGENT_TOOL_NAMES.webSearch,
       { query: 'weather' },
       expect.anything(),
+      expect.objectContaining({ mcpSnapshot: undefined }),
     );
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -615,10 +789,11 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    const events = await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
+    const events = await collect(agentRuntime(model, tools));
     expect(tools.parseInput).toHaveBeenCalledWith(
       AGENT_TOOL_NAMES.createReport,
       expect.stringContaining('"title":"走势复盘"'),
+      expect.objectContaining({ mcpSnapshot: undefined }),
     );
     expect(JSON.parse(String(vi.mocked(tools.parseInput).mock.calls[0]?.[1]))).toMatchObject({
       title: '走势复盘',
@@ -673,7 +848,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    const events = await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
+    const events = await collect(agentRuntime(model, tools));
     expect(tools.execute).toHaveBeenCalledOnce();
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -710,7 +885,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         logFields: { 结果: 0 },
       }),
     });
-    const events = await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
+    const events = await collect(agentRuntime(model, tools));
 
     const secondInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
     expect(secondInput.messages.findLast((message) => message.role === 'tool')).toEqual({
@@ -823,7 +998,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       applyCollapsedToolPointers: vi.fn(),
     } as unknown as ContextEngineeringService;
 
-    await collect(new AgentRuntimeService(model, registry(), new BashCommandPolicyService(), logger(), context));
+    await collect(agentRuntime(model, registry(), context));
 
     const budgetMessages = trimToolResults.mock.calls[0]![0];
     expect(budgetMessages.slice(0, compiledMessages.length)).toEqual(compiledMessages);
@@ -867,7 +1042,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         logFields: { Provider: 'test' },
       }),
     });
-    const events = await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
+    const events = await collect(agentRuntime(model, tools));
     const secondInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
 
     const toolMessage = secondInput.messages.findLast((message) => message.role === 'tool');
@@ -915,7 +1090,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
     const tools = registry({ execute: vi.fn().mockRejectedValue(new Error('boom')) });
-    const events = await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
+    const events = await collect(agentRuntime(model, tools));
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -947,7 +1122,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       executionPolicy: vi.fn(() => ({ timeoutMs: 1 })),
       execute: vi.fn(() => new Promise(() => undefined)) as ToolRegistryService['execute'],
     });
-    const events = await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
+    const events = await collect(agentRuntime(model, tools));
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -986,7 +1161,8 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     const events: unknown[] = [];
     await expect(
       (async () => {
-        for await (const event of new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()).run({
+        for await (const event of agentRuntime(model, tools).run({
+          userId: 'local-user',
           sessionId: 'session-1',
           messageId: 'message-1',
           model: 'test-model',
@@ -1031,11 +1207,11 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         return { status: 'succeeded' as const, output: { name } };
       }) as ToolRegistryService['execute'],
     });
-    await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
+    await collect(agentRuntime(model, tools));
     expect(order).toEqual([AGENT_TOOL_NAMES.webSearch, AGENT_TOOL_NAMES.webFetch]);
   });
 
-  it('counts every declared call, skips the 41st, then requires a tool-free answer', async () => {
+  it('executes every call in one batch and counts a single investigation turn', async () => {
     const calls = Array.from({ length: 41 }, (_, index) => ({
       id: `call-${index + 1}`,
       name: AGENT_TOOL_NAMES.webSearch,
@@ -1047,30 +1223,182 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         { type: 'round.completed', finishReason: 'tool_calls' },
       ],
       [
-        { type: 'text.delta', delta: '达到调用上限后的最终回答' },
+        { type: 'text.delta', delta: '同轮多 call 后的最终回答' },
         { type: 'round.completed', finishReason: 'stop' },
       ],
     ]);
     const tools = registry();
-    const events = await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
+    const events = await collect(agentRuntime(model, tools));
 
-    expect(tools.execute).toHaveBeenCalledTimes(40);
-    expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(40);
+    expect(tools.execute).toHaveBeenCalledTimes(41);
+    expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(41);
     expect(events.at(-1)).toEqual({
       type: 'run.completed',
-      content: '达到调用上限后的最终回答',
-      toolCallCount: 40,
+      content: '同轮多 call 后的最终回答',
+      toolCallCount: 41,
     });
-    const finalInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
-    expect(finalInput.tools).toBeUndefined();
-    expect(
-      finalInput.messages.find(
-        (message) => message.role === 'tool' && message.toolCallId === 'call-41',
-      )?.content,
-    ).toContain(AGENT_ERROR_CODES.toolCallLimitExceeded);
+    const secondRoundInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
+    expect(secondRoundInput.tools?.map((tool) => tool.name)).toContain(AGENT_TOOL_NAMES.webSearch);
   });
 
-  it('counts success, failure, invalid arguments, and unknown tools toward one shared limit', async () => {
+  it('enters delivery after 40 investigation turns and allows create_report only', async () => {
+    const investigationRounds = Array.from({ length: 40 }, (_, index) => [
+      {
+        type: 'tool_calls.completed' as const,
+        calls: [
+          {
+            id: `call-${index + 1}`,
+            name: AGENT_TOOL_NAMES.webSearch,
+            arguments: '{"query":"x"}',
+          },
+        ],
+      },
+      { type: 'round.completed' as const, finishReason: 'tool_calls' },
+    ]);
+    const model = modelFromRounds([
+      ...investigationRounds,
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'delivery-call',
+              name: AGENT_TOOL_NAMES.createReport,
+              arguments: '{"title":"t","content":"body"}',
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '交付完成' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const tools = registry({
+      definitions: vi.fn(() => [
+        { name: AGENT_TOOL_NAMES.webSearch, description: '搜索网页', parameters: {} },
+        { name: AGENT_TOOL_NAMES.createReport, description: '写报告', parameters: {} },
+      ]),
+    });
+    await collect(agentRuntime(model, tools));
+
+    const deliveryRoundInput = model.streamRound.mock.calls[40]![0] as ModelRoundInput;
+    expect(deliveryRoundInput.tools?.map((tool) => tool.name).sort()).toEqual(
+      [AGENT_TOOL_NAMES.createReport, AGENT_TOOL_NAMES.updatePlan].sort(),
+    );
+    expect(
+      deliveryRoundInput.messages.some(
+        (message) => message.role === 'system' && message.content.includes('交付阶段'),
+      ),
+    ).toBe(true);
+  });
+
+  it('rejects read_file in delivery phase with TOOL_PHASE_RESTRICTED', async () => {
+    const investigationRounds = Array.from({ length: 40 }, (_, index) => [
+      {
+        type: 'tool_calls.completed' as const,
+        calls: [
+          {
+            id: `call-${index + 1}`,
+            name: AGENT_TOOL_NAMES.webSearch,
+            arguments: '{"query":"x"}',
+          },
+        ],
+      },
+      { type: 'round.completed' as const, finishReason: 'tool_calls' },
+    ]);
+    const model = modelFromRounds([
+      ...investigationRounds,
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'read-delivery',
+              name: AGENT_TOOL_NAMES.readFile,
+              arguments: '{"path":"a.txt","scope":"file"}',
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '最终回答' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const tools = registry({
+      definitions: vi.fn(() => [
+        { name: AGENT_TOOL_NAMES.webSearch, description: '搜索网页', parameters: {} },
+        { name: AGENT_TOOL_NAMES.readFile, description: '读文件', parameters: {} },
+      ]),
+      parseInput: vi.fn((name: string, raw: string) => JSON.parse(raw)),
+    });
+    await collect(agentRuntime(model, tools));
+
+    const deliveryRoundInput = model.streamRound.mock.calls[40]![0] as ModelRoundInput;
+    expect(
+      deliveryRoundInput.messages.find(
+        (message) => message.role === 'tool' && message.toolCallId === 'read-delivery',
+      )?.content,
+    ).toContain(AGENT_ERROR_CODES.toolPhaseRestricted);
+    expect(tools.execute).not.toHaveBeenCalledWith(
+      AGENT_TOOL_NAMES.readFile,
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('enters final_only after delivery turns are exhausted without counting the final text round', async () => {
+    const investigationRounds = Array.from({ length: 40 }, (_, index) => [
+      {
+        type: 'tool_calls.completed' as const,
+        calls: [
+          {
+            id: `inv-${index + 1}`,
+            name: AGENT_TOOL_NAMES.webSearch,
+            arguments: '{"query":"x"}',
+          },
+        ],
+      },
+      { type: 'round.completed' as const, finishReason: 'tool_calls' },
+    ]);
+    const deliveryRounds = Array.from({ length: 3 }, (_, index) => [
+      {
+        type: 'tool_calls.completed' as const,
+        calls: [
+          {
+            id: `del-${index + 1}`,
+            name: AGENT_TOOL_NAMES.createReport,
+            arguments: '{"title":"t","content":"c"}',
+          },
+        ],
+      },
+      { type: 'round.completed' as const, finishReason: 'tool_calls' },
+    ]);
+    const model = modelFromRounds([
+      ...investigationRounds,
+      ...deliveryRounds,
+      [
+        { type: 'text.delta', delta: '无工具最终回答' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const tools = registry({
+      definitions: vi.fn(() => [
+        { name: AGENT_TOOL_NAMES.webSearch, description: '搜索网页', parameters: {} },
+        { name: AGENT_TOOL_NAMES.createReport, description: '写报告', parameters: {} },
+      ]),
+    });
+    await collect(agentRuntime(model, tools));
+
+    const finalRoundInput = model.streamRound.mock.calls[43]![0] as ModelRoundInput;
+    expect(finalRoundInput.tools).toBeUndefined();
+    expect(finalRoundInput.messages.some((message) => message.role === 'tool')).toBe(true);
+  });
+
+  it('dispatches mixed outcomes in one batch without per-call turn cap', async () => {
     const calls = [
       {
         id: 'call-success',
@@ -1100,7 +1428,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         { type: 'round.completed', finishReason: 'tool_calls' },
       ],
       [
-        { type: 'text.delta', delta: '混合调用达到上限后的回答' },
+        { type: 'text.delta', delta: '混合调用后的回答' },
         { type: 'round.completed', finishReason: 'stop' },
       ],
     ]);
@@ -1126,16 +1454,16 @@ describe('AgentRuntimeService model-led tool boundary', () => {
           : { status: 'succeeded' as const, output: { ok: true } },
       ) as ToolRegistryService['execute'],
     });
-    const events = await collect(new AgentRuntimeService(model, tools, new BashCommandPolicyService(), logger()));
-    const finalInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
-    const toolMessages = finalInput.messages.filter((message) => message.role === 'tool');
+    const events = await collect(agentRuntime(model, tools));
+    const secondRoundInput = model.streamRound.mock.calls[1]![0] as ModelRoundInput;
+    const toolMessages = secondRoundInput.messages.filter((message) => message.role === 'tool');
 
-    expect(tools.execute).toHaveBeenCalledTimes(38);
-    expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(38);
+    expect(tools.execute).toHaveBeenCalledTimes(39);
+    expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(39);
     expect(events.at(-1)).toEqual({
       type: 'run.completed',
-      content: '混合调用达到上限后的回答',
-      toolCallCount: 40,
+      content: '混合调用后的回答',
+      toolCallCount: 41,
     });
     expect(toolMessages).toHaveLength(41);
     expect(
@@ -1146,6 +1474,109 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     ).toContain(AGENT_ERROR_CODES.unknownTool);
     expect(
       toolMessages.find((message) => message.toolCallId === 'call-extra-37')?.content,
-    ).toContain(AGENT_ERROR_CODES.toolCallLimitExceeded);
+    ).not.toContain(AGENT_ERROR_CODES.toolCallLimitExceeded);
+  });
+
+  it('defers MCP parse until after tool_search activates tools in the same batch', async () => {
+    const mcpName = 'mcp__demo__ping';
+    const activated = new Set<string>();
+    const tools = registry({
+      parseInput: vi.fn((name: string, raw: string) => {
+        if (name === AGENT_TOOL_NAMES.toolSearch) return JSON.parse(raw);
+        if (name === mcpName && !activated.has(mcpName)) {
+          throw new ToolInputValidationError(
+            AGENT_ERROR_CODES.mcpToolNotActivated,
+            '需要先 tool_search',
+          );
+        }
+        return JSON.parse(raw);
+      }),
+      execute: vi.fn(async (name: string) => {
+        if (name === AGENT_TOOL_NAMES.toolSearch) {
+          activated.add(mcpName);
+          return {
+            status: 'succeeded',
+            output: { tools: [], hint: '', activatedCandidates: [mcpName] },
+          };
+        }
+        return { status: 'succeeded', output: { ping: true } };
+      }),
+    });
+    const exposure: ToolExposureService = {
+      ...toolExposureService(),
+      deferredCount: () => 1,
+      shouldInjectToolSearch: () => true,
+      createIndex: () => ({ size: 1 }) as never,
+      buildMcpDefinitions: () => [{ name: mcpName, description: 'ping', parameters: {} }],
+    };
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            { id: 'call-mcp', name: mcpName, arguments: '{"message":"hi"}' },
+            {
+              id: 'call-search',
+              name: AGENT_TOOL_NAMES.toolSearch,
+              arguments: '{"query":"ping"}',
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '完成' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const runtime = new AgentRuntimeService(
+      model,
+      tools,
+      new BashCommandPolicyService(),
+      logger(),
+      exposure,
+    );
+    const events = [];
+    for await (const event of runtime.run({
+      userId: 'local-user',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      messageId: 'message-1',
+      model: 'test-model',
+      systemPrompt: 'test',
+      messages: [{ role: 'user', content: 'hello' }],
+      mcpSnapshot: {
+        catalogGeneration: 1,
+        entries: [
+          {
+            publicName: mcpName,
+            serverName: 'demo',
+            rawName: 'ping',
+            description: 'ping',
+            parameters: { type: 'object' },
+            defaultApproval: 'auto_execute',
+            boundGeneration: 1,
+            toolCallTimeoutMs: 60_000,
+            exposure: 'deferred',
+          },
+        ],
+        serverInstructions: [],
+        latchedServerNames: ['demo'],
+        serverIcons: [],
+        serverToolPolicy: [{ serverName: 'demo', enabledTools: null }],
+      },
+    })) {
+      events.push(event);
+    }
+    expect(tools.execute).toHaveBeenCalledWith(
+      mcpName,
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+    const toolEvents = events.filter(
+      (item) => item.type === 'tool.started' || item.type === 'tool.completed',
+    );
+    expect(toolEvents.map((item) => item.toolCallId)).toEqual(['call-mcp', 'call-mcp', 'call-search', 'call-search']);
   });
 });

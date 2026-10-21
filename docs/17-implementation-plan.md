@@ -53,13 +53,12 @@ R1  First User-Ready General Agent Release
 R-Reasoning  Reasoning Context Transcript
 Later Context Engineering
 Later Agent Loop Semantics（留档，未排期）
-P9  User Memory Read Path
-P10 User Memory Write/Review
+C7  User Memory（C7-A / C7-B / C7-C，见 41-c7-user-memory.md）
 P11 Bounded Delegation + Worker
 P12 Multi-user Authentication + Remote Storage
 ```
 
-Memory 和 Delegation 不阻塞 R1。
+C7 User Memory 和 Delegation 不阻塞 R1。
 
 ## 3. P0: Architecture and Product Freeze
 
@@ -536,36 +535,18 @@ Memory、Delegation、认证、远程存储和服务端重启自动续跑不是 
 
 本节当前只用于防止后续遗漏，不代表已经立项或冻结设计。以上能力不进入当前 Context Engineering 实施范围，不预先创建协议、数据库表、Runtime 接口或占位模块。正式启动前应先结合真实运行反馈决定哪些能力需要显式建模、哪些继续由模型隐式完成，并保证简单任务不被迫经过完整规划与反思流程。
 
-## 13. P9: User Memory Read Path
+## 13. C7: User Memory
 
-目标：从当前 user 的 active Memory 中检索相关 MemoryCard，并允许显式展开 prior-session sourceRefs。
+**专项规范**：[41-c7-user-memory.md](./41-c7-user-memory.md)
 
-范围：
+| 阶段 | 摘要 |
+|------|------|
+| **C7** | **单一 MVP**：pgvector + `MEMORY_EMBEDDING_BASE_URL`/`API_KEY`、`memory_write`、向量 Retriever、K5 注入、Settings（**共 N 条**）；无 Run-terminal Extractor |
+| **C7-C** | Worker 读 Memory 门控（与 §14 P11 同期）；可选 ConsolidationJob |
 
-- `memory_records`，固定 user scope
-- MemoryCard retrieval
-- relevance/freshness/confidence ranking
-- ContextCompileInput injection
-- MemoryInjectionTrace
-- sourceRef ownership check
+不做 project/workspace/org scope。
 
-明确不做 project/workspace/org scope 和自动写入。
-
-## 14. P10: User Memory Write/Review
-
-目标：安全生成跨 session user Memory。
-
-规则：
-
-- 用户明确表达的长期偏好可 auto-active。
-- 推断偏好和其他信息只能 candidate。
-- 网页事实和单次调研内容禁止写入 Memory。
-- 每条 active Memory 必须有 sourceRefs。
-- 删除 session 时重新评估引用它的 Memory。
-
-范围：Extractor、Policy、candidate review UI、dedup/conflict、delete/expire/supersede。
-
-## 15. P11: Bounded Delegation + Worker
+## 14. P11: Bounded Delegation + Worker
 
 目标：在单 Lead 质量稳定后增加一轮 bounded fan-out/fan-in。
 
@@ -573,7 +554,7 @@ Memory、Delegation、认证、远程存储和服务端重启自动续跑不是 
 
 Delegation 不能改变 R1 的工具安全、来源边界、预算和最终交付所有权。
 
-## 16. P12: Multi-user Authentication + Remote Storage
+## 15. P12: Multi-user Authentication + Remote Storage
 
 未来范围：
 
@@ -585,7 +566,7 @@ Delegation 不能改变 R1 的工具安全、来源边界、预算和最终交�
 
 不引入 project/workspace/org Memory scope，除非后续产品决策明确改变。
 
-## 17. 每阶段共同完成条件
+## 16. 每阶段共同完成条件
 
 每个阶段必须：
 

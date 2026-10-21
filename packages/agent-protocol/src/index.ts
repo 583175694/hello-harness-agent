@@ -1,11 +1,13 @@
 import { z } from 'zod';
-import { AGENT_PROTOCOL_LIMITS } from './common/constants.js';
+import { AGENT_PROTOCOL_LIMITS, AGENT_TOOL_NAMES } from './common/constants.js';
 import {
   userContentBlockSchema,
   fileSearchInputSchema,
   fileSearchResultSchema,
   fileReadLinesInputSchema,
   fileReadLinesResultSchema,
+  fileReadInputSchema,
+  fileReadResultSchema,
   createFileInputSummarySchema,
   createFileResultSchema,
   artifactRefSchema,
@@ -14,11 +16,9 @@ import {
 } from './files/contracts.js';
 import {
   bashInputSummarySchema,
-  bashPublicResultSchema,
   bashPublicToolResultSchema,
   bashTerminalViewSchema,
   executeCommandInputSummarySchema,
-  executeCommandPublicResultSchema,
   jobKillInputSchema,
   jobListInputSchema,
   jobOutputInputSchema,
@@ -34,15 +34,30 @@ export * from './files/contracts.js';
 export * from './sandbox/contracts.js';
 export * from './sandbox/bash-render.js';
 export * from './mcp/contracts.js';
+export * from './mcp/icons.js';
+export * from './auth/contracts.js';
+export * from './tools/external-tool.contracts.js';
+export * from './tools/mcp-display.js';
+export * from './memory/contracts.js';
+import {
+  memoryWriteInputSummarySchema,
+  memoryWriteResultSchema,
+} from './memory/contracts.js';
 import {
   webFetchInputSchema,
   webFetchPassageSchema,
   webFetchResultSchema,
   webFetchStatsSchema,
 } from './web-fetch/contracts.js';
+import {
+  externalToolInputSchema,
+  externalToolOutputPreviewSchema,
+  externalToolResultSchema,
+  externalToolSubKindSchema,
+} from './tools/external-tool.contracts.js';
 
 // 标识当前前后端共享协议版本，协议发生不兼容变化时递增。
-export const protocolVersion = '0.16.0';
+export const protocolVersion = '0.18.0';
 
 // 计划步骤的有限状态集合，前后端只使用这三种状态。
 export const planStepStatusSchema = z.enum(['pending', 'in_progress', 'completed']);
@@ -120,6 +135,25 @@ export const runContextDebugSchema = z.object({
   // 本轮模型输出，与发送给模型的 messages 分离，便于调试完整观察一轮输入/输出。
   response: z.unknown().optional(),
   tools: z.array(z.unknown()),
+  mcp: z
+    .object({
+      catalogGeneration: z.number().int().nonnegative(),
+      toolCount: z.number().int().nonnegative(),
+      latchedToolCount: z.number().int().nonnegative().optional(),
+      exposedToolCount: z.number().int().nonnegative().optional(),
+      deferredCount: z.number().int().nonnegative().optional(),
+      activatedCount: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+  memoryInjection: z
+    .object({
+      includedMemoryIds: z.array(z.string()),
+      includedSimilarities: z.record(z.number()).optional(),
+      omitted: z.array(z.object({ memoryId: z.string().optional(), reason: z.string() })),
+      tokenEstimate: z.number().int().nonnegative(),
+      queryEmbedFailed: z.boolean().optional(),
+    })
+    .optional(),
 });
 export const publicModelConfigSchema = z.object({
   id: z.string().min(1),
@@ -128,9 +162,40 @@ export const publicModelConfigSchema = z.object({
   supportsVision: z.boolean().optional(),
   context: modelContextProfileSchema.optional(),
 });
+export const memoryIndexingStatusSchema = z.enum(['ready', 'pending', 'failed']);
+
+export const memoryRecordViewSchema = z.object({
+  memoryId: z.string().min(1),
+  kind: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  status: z.string().min(1),
+  confidence: z.enum(['low', 'medium', 'high']),
+  freshness: z.enum(['fresh', 'stale', 'unknown']),
+  importance: z.enum(['low', 'medium', 'high']),
+  indexingStatus: memoryIndexingStatusSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const memoryListResponseSchema = z.object({
+  memories: z.array(memoryRecordViewSchema),
+  activeCount: z.number().int().nonnegative(),
+});
+
+export const memorySettingsViewSchema = z.object({
+  allowAgentWrite: z.boolean(),
+});
+
 export const publicAgentConfigSchema = z.object({
   defaultModel: z.string().min(1),
   models: z.array(publicModelConfigSchema).min(1),
+  capabilities: z
+    .object({
+      memoryRead: z.boolean(),
+      memoryWrite: z.boolean(),
+    })
+    .optional(),
 });
 
 // 定义聊天和未来工具循环共用的消息基础字段。
@@ -237,6 +302,9 @@ const toolExecutionBaseSchema = z.object({
   skippedCount: z.number().int().nonnegative().optional(),
   passageCount: z.number().int().nonnegative().optional(),
   networkAttemptCount: z.number().int().nonnegative().optional(),
+  outputRef: z.string().min(1).optional(),
+  outputBytes: z.number().int().nonnegative().optional(),
+  outputPreview: z.string().optional(),
   error: z
     .object({
       code: z.string().min(1),
@@ -270,12 +338,20 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
     input: z.object({}),
   }),
   toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.memoryWrite),
+    input: memoryWriteInputSummarySchema,
+  }),
+  toolExecutionBaseSchema.extend({
     toolName: z.literal('search_file'),
     input: fileSearchInputSchema,
   }),
   toolExecutionBaseSchema.extend({
     toolName: z.literal('read_file_lines'),
     input: fileReadLinesInputSchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal('read_file'),
+    input: fileReadInputSchema,
   }),
   toolExecutionBaseSchema.extend({
     toolName: z.literal('create_file'),
@@ -288,6 +364,14 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
   toolExecutionBaseSchema.extend({
     toolName: z.literal('bash'),
     input: bashInputSummarySchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.externalTool),
+    publicName: z.string().min(1),
+    subKind: externalToolSubKindSchema,
+    input: externalToolInputSchema,
+    outputPreview: externalToolOutputPreviewSchema.optional(),
+    outputCharCount: z.number().int().nonnegative().optional(),
   }),
 ]);
 
@@ -329,6 +413,8 @@ export const webFetchSourceSnapshotSchema = z.object({
   truncated: z.boolean(),
   passages: z.array(webFetchPassageSchema).max(AGENT_PROTOCOL_LIMITS.webFetchPassagesMax),
   toolCallIds: z.array(z.string().min(1)).min(1),
+  contentRef: z.string().min(1).optional(),
+  contentBytes: z.number().int().nonnegative().optional(),
 });
 
 // 定义调研 Workbench 可以恢复的线索和已读网页联合。
@@ -381,6 +467,8 @@ export const assistantToolActivityBlockSchema = z.object({
   exitCode: z.number().int().nullable().optional(),
   exitSignal: z.string().min(1).nullable().optional(),
   terminalView: bashTerminalViewSchema.optional(),
+  /** MCP 工具图标原始 src（https / data URI；Web 经同源代理展示）。 */
+  iconSrc: z.string().min(1).max(8192).optional(),
 });
 
 // 安全边界消费的 Steer，作为 assistant 流中的用户时间线节点保存。
@@ -427,11 +515,51 @@ export const assistantAgentMetadataSchema = z.object({
   error: z.object({ code: z.string().min(1), detail: z.string().min(1) }).optional(),
   agent: z
     .object({
-      toolCallCount: z.number().int().nonnegative().max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
-      executions: z.array(toolExecutionSnapshotSchema).max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
-      sources: z.array(researchSourceSnapshotSchema),
+      toolCallCount: z
+        .number()
+        .int()
+        .nonnegative()
+        .max(AGENT_PROTOCOL_LIMITS.agentMetadataExecutionsMax),
+      executions: z
+        .array(toolExecutionSnapshotSchema)
+        .max(AGENT_PROTOCOL_LIMITS.agentMetadataExecutionsMax),
+      sources: z.array(researchSourceSnapshotSchema).default([]),
+      detailRef: z.string().min(1).optional(),
     })
     .optional(),
+});
+
+/** 会话列表等轻量读路径可能省略 model；恢复 Workbench 时使用。 */
+export const assistantAgentMetadataRestoreSchema = assistantAgentMetadataSchema
+  .omit({ model: true })
+  .extend({
+    model: z.string().min(1).default('restored'),
+  });
+
+export const assistantResearchProjectionSchema = z.object({
+  executions: z.array(toolExecutionSnapshotSchema).max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
+  sources: z.array(researchSourceSnapshotSchema),
+  blocks: z.array(assistantContentBlockSchema).max(AGENT_PROTOCOL_LIMITS.assistantContentBlocksMax).default([]),
+  context: runContextDebugSchema.optional(),
+  plan: planSnapshotSchema.optional(),
+});
+
+export const runDetailResponseSchema = z.object({
+  runId: z.string().min(1),
+  messageId: z.string().min(1),
+  schemaVersion: z.number().int().positive(),
+  executions: z.array(toolExecutionSnapshotSchema).max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
+  sources: z.array(researchSourceSnapshotSchema),
+  blocks: z.array(assistantContentBlockSchema).default([]),
+  context: runContextDebugSchema.optional(),
+  plan: planSnapshotSchema.optional(),
+});
+
+export const runToolOutputUrlResponseSchema = z.object({
+  url: z.string().min(1),
+  expiresInSeconds: z.number().int().positive(),
+  byteSize: z.number().int().nonnegative(),
+  contentType: z.string().min(1),
 });
 
 // 定义 Web SSE 客户端消费的标准增量事件；Round/Block 字段让实时、重放和历史恢复同序。
@@ -460,6 +588,19 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     toolName: z.literal('get_current_time'),
     title: z.string().min(1),
     input: z.object({}),
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.memoryWrite),
+    title: z.string().min(1),
+    input: memoryWriteInputSummarySchema,
     startedAt: z.string().datetime(),
   }),
   z.object({
@@ -512,6 +653,19 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     toolName: z.literal('read_file_lines'),
     title: z.string().min(1),
     input: fileReadLinesInputSchema,
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('read_file'),
+    title: z.string().min(1),
+    input: fileReadInputSchema,
     startedAt: z.string().datetime(),
   }),
   z.object({
@@ -613,6 +767,22 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     jobId: z.string().min(1).optional(),
     startedAt: z.string().datetime(),
   }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.externalTool),
+    title: z.string().min(1),
+    publicName: z.string().min(1),
+    subKind: externalToolSubKindSchema,
+    input: externalToolInputSchema,
+    iconSrc: z.string().min(1).max(8192).optional(),
+    startedAt: z.string().datetime(),
+  }),
 ]);
 
 const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
@@ -681,6 +851,19 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     roundSequence: z.number().int().positive(),
     blockSequence: z.number().int().nonnegative(),
     toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.memoryWrite),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: memoryWriteResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
     toolName: z.literal('search_file'),
     completedAt: z.string().datetime(),
     durationMs: z.number().int().nonnegative(),
@@ -698,6 +881,19 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     completedAt: z.string().datetime(),
     durationMs: z.number().int().nonnegative(),
     result: fileReadLinesResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal('read_file'),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: fileReadResultSchema,
   }),
   z.object({
     type: z.literal('tool.completed'),
@@ -800,6 +996,22 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     result: sandboxJobToolTextResultSchema,
     presentation: z.literal('job').optional(),
     jobId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.externalTool),
+    publicName: z.string().min(1),
+    subKind: externalToolSubKindSchema,
+    input: externalToolInputSchema,
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: externalToolResultSchema,
   }),
 ]);
 
@@ -1027,6 +1239,7 @@ export const createRunRequestSchema = z.object({
   idempotencyKey: z.string().min(1).max(200),
   model: z.string().min(1),
   reasoningEffort: reasoningEffortSchema.optional().default('high'),
+  skillNames: z.array(z.string().regex(/^[a-z0-9][a-z0-9._-]*$/i)).max(8).optional(),
   attachmentId: z.string().min(1).optional(),
   attachmentIds: z
     .array(z.string().min(1))
@@ -1210,6 +1423,11 @@ export type RunControlCommand = z.infer<typeof runControlCommandSchema>;
 export type RunControlResponse = z.infer<typeof runControlResponseSchema>;
 export type PublicAgentConfig = z.infer<typeof publicAgentConfigSchema>;
 export type PublicModelConfig = z.infer<typeof publicModelConfigSchema>;
+export type MemoryRecordView = z.infer<typeof memoryRecordViewSchema>;
+export type MemoryWriteInputSummary = z.infer<typeof memoryWriteInputSummarySchema>;
+export type MemoryWriteResult = z.infer<typeof memoryWriteResultSchema>;
+export type MemoryListResponse = z.infer<typeof memoryListResponseSchema>;
+export type MemorySettingsView = z.infer<typeof memorySettingsViewSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export type ChatResponse = z.infer<typeof chatResponseSchema>;
 export type ToolCall = z.infer<typeof toolCallSchema>;
@@ -1224,6 +1442,10 @@ export type SearchSourceSnapshot = z.infer<typeof searchSourceSnapshotSchema>;
 export type WebFetchSourceSnapshot = z.infer<typeof webFetchSourceSnapshotSchema>;
 export type ResearchSourceSnapshot = z.infer<typeof researchSourceSnapshotSchema>;
 export type AssistantAgentMetadata = z.infer<typeof assistantAgentMetadataSchema>;
+export type AssistantAgentMetadataRestore = z.infer<typeof assistantAgentMetadataRestoreSchema>;
+export type AssistantResearchProjection = z.infer<typeof assistantResearchProjectionSchema>;
+export type RunDetailResponse = z.infer<typeof runDetailResponseSchema>;
+export type RunToolOutputUrlResponse = z.infer<typeof runToolOutputUrlResponseSchema>;
 export type AssistantTextBlock = z.infer<typeof assistantTextBlockSchema>;
 export type AssistantReasoningBlock = z.infer<typeof assistantReasoningBlockSchema>;
 export type AssistantToolActivityBlock = z.infer<typeof assistantToolActivityBlockSchema>;

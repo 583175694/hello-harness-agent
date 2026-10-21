@@ -22,7 +22,7 @@ async function bootstrap(): Promise<void> {
   app.useGlobalFilters(new HttpExceptionFilter());
   app.enableCors({
     origin: config.getOrThrow<string>(ENV_KEYS.webOrigin),
-    credentials: false,
+    credentials: true,
   });
   app.enableShutdownHooks();
 

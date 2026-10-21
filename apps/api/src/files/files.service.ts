@@ -8,7 +8,6 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 import { FileStorage, LocalFileStorage, type FileVariant } from '../file-storage/file-storage';
 import {
   FileProcessingService,
@@ -21,9 +20,15 @@ import {
   AGENT_ERROR_CODES,
   AGENT_PROTOCOL_LIMITS,
   type CreateFileInput,
+  type FileReadInput,
   type FileReadLinesInput,
   type FileSearchInput,
 } from '@harness/agent-protocol';
+import {
+  buildSectionIndex,
+  parseSectionIndexFromOverview,
+  type FileSectionIndexEntry,
+} from './file-section-index';
 import { createHash } from 'node:crypto';
 import {
   closeGeneratedFileRenderer,
@@ -42,6 +47,9 @@ const PERMANENT_PARSE_FAILURES = new Set([
   'PDF_PAGE_LIMIT_EXCEEDED',
   'PDF_TEXT_UNAVAILABLE',
 ]);
+
+/** 沙箱收集的二进制 Office/PDF 须走与上传相同的解析，不能 buffer.toString('utf8')。 */
+const SANDBOX_DOCUMENT_PARSE_KINDS = new Set(['pdf', 'docx', 'xlsx', 'pptx']);
 
 @Injectable()
 export class FilesService implements OnModuleInit, OnApplicationShutdown {
@@ -116,8 +124,9 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
       signal?: AbortSignal;
     },
   ) {
-    const session = await this.prisma.session.findFirst({
-      where: { id: input.sessionId, userId: LOCAL_USER_ID },
+    const session = await this.prisma.session.findUnique({
+      where: { id: input.sessionId },
+      select: { id: true, userId: true },
     });
     if (!session)
       throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
@@ -136,7 +145,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     await this.prisma.file.create({
       data: {
         id: fileId,
-        userId: LOCAL_USER_ID,
+        userId: session.userId,
         sessionId: input.sessionId,
         fileName: normalizedName,
         mediaType: prepared.mediaType,
@@ -222,7 +231,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async readOriginalBytes(fileId: string): Promise<Buffer> {
-    const file = await this.findOwned(fileId);
+    const file = await this.findFileById(fileId);
     if (!file.originalKey)
       throw new BadRequestException({
         code: AGENT_ERROR_CODES.fileNotReady,
@@ -241,8 +250,9 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     fileName: string;
     data: Uint8Array;
   }) {
-    const session = await this.prisma.session.findFirst({
-      where: { id: input.sessionId, userId: LOCAL_USER_ID },
+    const session = await this.prisma.session.findUnique({
+      where: { id: input.sessionId },
+      select: { id: true, userId: true },
     });
     if (!session)
       throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
@@ -268,7 +278,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     await this.prisma.file.create({
       data: {
         id: fileId,
-        userId: LOCAL_USER_ID,
+        userId: session.userId,
         sessionId: input.sessionId,
         fileName: input.fileName.trim(),
         mediaType,
@@ -309,7 +319,35 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         });
         return this.toPublicRef(file, true);
       }
-      const normalizedContent = buffer.toString('utf8');
+      let normalizedContent: string;
+      let parserVersion: string;
+      let contentHash: string;
+      let lineCount: number;
+      let characterCount: number;
+      let pageCount: number | undefined;
+      let overview: Record<string, unknown>;
+      if (SANDBOX_DOCUMENT_PARSE_KINDS.has(fileKind)) {
+        const parsed = await this.processor.parse({
+          buffer,
+          mimetype: mediaType,
+          originalname: input.fileName.trim(),
+        });
+        normalizedContent = parsed.normalizedContent ?? '';
+        parserVersion = parsed.parserVersion ?? 'c1-read-v1';
+        contentHash =
+          parsed.contentHash ?? createHash('sha256').update(normalizedContent, 'utf8').digest('hex');
+        lineCount = parsed.lineCount ?? normalizedContent.split('\n').length;
+        characterCount = parsed.characterCount ?? [...normalizedContent].length;
+        pageCount = parsed.pageCount;
+        overview = { ...(parsed.overview ?? {}), format: parsed.fileKind, source: 'sandbox' };
+      } else {
+        normalizedContent = buffer.toString('utf8');
+        parserVersion = 'c3-a-sandbox';
+        contentHash = createHash('sha256').update(normalizedContent, 'utf8').digest('hex');
+        lineCount = normalizedContent.split('\n').length;
+        characterCount = [...normalizedContent].length;
+        overview = { format: fileKind, source: 'sandbox' };
+      }
       const normalized = await this.storage.putNormalized({
         sessionId: input.sessionId,
         fileId,
@@ -321,11 +359,12 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         data: {
           originalKey: original.objectKey,
           normalizedKey: normalized.objectKey,
-          contentHash: createHash('sha256').update(normalizedContent, 'utf8').digest('hex'),
-          parserVersion: 'c3-a-sandbox',
-          lineCount: normalizedContent.split('\n').length,
-          characterCount: [...normalizedContent].length,
-          overview: { format: fileKind, source: 'sandbox' },
+          contentHash,
+          parserVersion,
+          ...(pageCount != null ? { pageCount } : {}),
+          lineCount,
+          characterCount,
+          overview: overview as never,
           status: 'ready',
           retryable: false,
           processingCompletedAt: new Date(),
@@ -353,8 +392,9 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     characterCount: number;
     size: number;
   }> {
-    const session = await this.prisma.session.findFirst({
-      where: { id: input.sessionId, userId: LOCAL_USER_ID },
+    const session = await this.prisma.session.findUnique({
+      where: { id: input.sessionId },
+      select: { id: true, userId: true },
     });
     if (!session)
       throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
@@ -382,7 +422,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     await this.prisma.file.create({
       data: {
         id: fileId,
-        userId: LOCAL_USER_ID,
+        userId: session.userId,
         sessionId: input.sessionId,
         fileName,
         mediaType: kind.mediaType,
@@ -466,7 +506,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
 
   // 恢复版本时逐字节复制已持久化的原文件和规范化正文，生成独立 File 身份。
   async cloneGeneratedFile(sourceFileId: string) {
-    const source = await this.findOwned(sourceFileId);
+    const source = await this.findFileById(sourceFileId);
     if (
       source.origin !== 'agent_generated' ||
       source.status !== 'ready' ||
@@ -493,7 +533,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     await this.prisma.file.create({
       data: {
         id: fileId,
-        userId: LOCAL_USER_ID,
+        userId: source.userId,
         sessionId: source.sessionId,
         fileName: source.fileName,
         mediaType: source.mediaType,
@@ -615,12 +655,13 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
 
   // 创建文件记录、保存原文件，并异步触发文本解析。
   async upload(
+    userId: string,
     sessionId: string,
     file: { buffer: Buffer; mimetype: string; originalname: string },
   ) {
     // 先校验和落库文件身份，再写对象；文本解析不阻塞上传响应。
     const session = await this.prisma.session.findFirst({
-      where: { id: sessionId, userId: LOCAL_USER_ID },
+      where: { id: sessionId, userId },
     });
     if (!session)
       throw new NotFoundException({ code: 'SESSION_NOT_FOUND', detail: '会话不存在。' });
@@ -636,7 +677,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     await this.prisma.file.create({
       data: {
         id: fileId,
-        userId: LOCAL_USER_ID,
+        userId: session.userId,
         sessionId,
         fileName: prepared.fileName,
         mediaType: prepared.mediaType,
@@ -795,14 +836,14 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   // 返回脱敏后的公共文件引用。
-  async get(fileId: string) {
-    return this.toPublicRef(await this.findOwned(fileId), true);
+  async get(userId: string, fileId: string) {
+    return this.toPublicRef(await this.findSharedReadable(userId, fileId), true);
   }
 
   // 从原始对象重新进入解析流程。
-  async retry(fileId: string) {
+  async retry(userId: string, fileId: string) {
     // 从原始对象恢复字节后重新进入后台解析，不信任上次失败时的临时状态。
-    const file = await this.findOwned(fileId);
+    const file = await this.findOwned(userId, fileId);
     if (!file.retryable || !file.originalKey)
       throw new BadRequestException({ code: 'FILE_NOT_RETRYABLE', detail: '该文件当前不可重试。' });
     this.logger.log(
@@ -838,36 +879,56 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     return this.toPublicRef({ ...file, status: 'processing', errorCode: null }, false);
   }
 
-  // 图片返回短期地址，文本类文件从 COS 读取规范化正文供受限预览。
-  async preview(fileId: string) {
-    // 图片返回短期 URL，文本返回受限的规范化正文预览。
-    const file = await this.findOwned(fileId);
+  // 图片经 API 直出字节（避免 302 外链导致 Workbench `<img>` 鉴权失败）；HTML 读 original；其余文本类读 normalized。
+  async preview(userId: string, fileId: string) {
+    const file = await this.findSharedReadable(userId, fileId);
     if (file.status !== 'ready')
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
-    if (file.fileKind !== 'image') {
-      const content = await this.readNormalizedContent(file);
-      return { fileId, content, contentType: 'text/plain' };
-    }
-    if (!file.previewKey)
-      throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
-    return {
-      fileId,
-      url: await this.storage.createReadUrl({
+    if (file.fileKind === 'image') {
+      const variant = file.previewKey ? 'preview' : file.originalKey ? 'original' : null;
+      if (!variant)
+        throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
+      const object = await this.storage.readObject({
         sessionId: file.sessionId,
+        fileId: file.id,
+        variant,
+      });
+      return {
         fileId,
-        variant: 'preview',
-      }),
-    };
+        content: object.content,
+        contentType:
+          variant === 'preview' && object.contentType ? object.contentType : file.mediaType,
+        binaryPreview: true as const,
+      };
+    }
+    if (file.fileKind === 'html' && file.origin === 'agent_generated') {
+      const ready = await this.findReadyForSharedReadable(userId, fileId);
+      const object = await this.storage.readObject({
+        sessionId: ready.sessionId,
+        fileId: ready.id,
+        variant: 'original',
+      });
+      return {
+        fileId,
+        content: object.content,
+        contentType: 'text/html; charset=utf-8',
+        htmlPreview: true as const,
+        fileName: ready.fileName,
+      };
+    }
+    const content = await this.readNormalizedContent(file);
+    return { fileId, content, contentType: 'text/plain' };
   }
 
   // 消息绑定前校验文件归属和 ready 状态。
   async findReadyForSession(
+    userId: string,
     sessionId: string,
     fileId: string,
     notFoundCode = 'ATTACHMENT_NOT_FOUND',
   ) {
     const file = await this.prisma.file.findFirst({
-      where: { id: fileId, sessionId, userId: LOCAL_USER_ID },
+      where: { id: fileId, sessionId, userId },
     });
     if (!file)
       throw new NotFoundException({
@@ -885,8 +946,9 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   // 文件工具统一通过 Session 归属、ready 和规范化正文对象三层校验。
-  async searchFile(sessionId: string, input: FileSearchInput) {
+  async searchFile(userId: string, sessionId: string, input: FileSearchInput) {
     const file = await this.findReadyForSession(
+      userId,
       sessionId,
       input.fileId,
       AGENT_ERROR_CODES.fileNotFound,
@@ -930,34 +992,152 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         (!/^\[\[page:(\d+)\]\]$/u.test(line) && line.toLocaleLowerCase().includes(needle) ? 1 : 0),
       0,
     );
-    if (
-      [...matches.map((match) => match.text).join('\n')].length >
-      AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters
-    )
-      throw new BadRequestException({
-        code: AGENT_ERROR_CODES.fileSearchResultTooLarge,
-        detail: '搜索结果超过单次文件工具结果限制，请缩小关键词或结果数量。',
-      });
+    // 搜索是“定位”工具，不应因为命中内容稍大而整次失败。
+    // 按稳定的文件顺序保留预算内的前几条，剩余内容通过 incomplete 告知模型，
+    // 让它继续缩小关键词或改用 read_file(scope=lines) 精确读取。
+    const resultBudget = AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters;
+    let usedCharacters = 0;
+    let resultTruncated = false;
+    const boundedMatches = [] as typeof matches;
+    for (const match of matches) {
+      const separatorCharacters = boundedMatches.length > 0 ? 1 : 0;
+      const remaining = resultBudget - usedCharacters - separatorCharacters;
+      if (remaining <= 0) {
+        resultTruncated = true;
+        break;
+      }
+      const textCharacters = Array.from(match.text);
+      const text = textCharacters.length > remaining
+        ? textCharacters.slice(0, remaining).join('')
+        : match.text;
+      if (!text) {
+        resultTruncated = true;
+        break;
+      }
+      boundedMatches.push({ ...match, text });
+      usedCharacters += separatorCharacters + Array.from(text).length;
+      if (Array.from(text).length < textCharacters.length) {
+        resultTruncated = true;
+        break;
+      }
+    }
     return {
       fileId: file.id,
       fileName: file.fileName,
       mediaType: file.mediaType,
       query: input.query,
-      incomplete: totalMatches > matches.length,
-      matches,
+      incomplete: totalMatches > boundedMatches.length || resultTruncated,
+      matches: boundedMatches,
     };
   }
 
+  async readFile(userId: string, sessionId: string, input: FileReadInput) {
+    if (input.scope === 'lines') {
+      const linesResult = await this.readFileLines(userId, sessionId, {
+        fileId: input.fileId,
+        startLine: input.startLine!,
+        endLine: input.endLine!,
+      });
+      return { scope: 'lines' as const, ...linesResult };
+    }
+    if (input.scope === 'section') {
+      return this.readFileSection(userId, sessionId, input.fileId, input.sectionId!);
+    }
+    return this.readFileOutline(userId, sessionId, input.fileId);
+  }
+
   // 按行读取规范化正文，并为 PDF 行恢复最近的页码标记。
-  async readFileLines(sessionId: string, input: FileReadLinesInput) {
+  async readFileLines(userId: string, sessionId: string, input: FileReadLinesInput) {
     if (input.endLine - input.startLine + 1 > AGENT_PROTOCOL_LIMITS.fileReadLinesMax)
       throw new BadRequestException({
         code: AGENT_ERROR_CODES.fileReadRangeTooLarge,
         detail: `单次最多读取 ${AGENT_PROTOCOL_LIMITS.fileReadLinesMax} 行。`,
       });
+    const { file, lines } = await this.loadReadableTextFile(userId, sessionId, input.fileId);
+    if (input.startLine > lines.length)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileLineOutOfRange,
+        detail: '请求的起始行超出文件范围。',
+      });
+    const outputLines = this.extractContentLines(lines, input.startLine, input.endLine);
+    const bounded = this.boundLinesToCharacterBudget(outputLines);
+    return {
+      fileId: file.id,
+      fileName: file.fileName,
+      mediaType: file.mediaType,
+      startLine: input.startLine,
+      endLine: Math.min(input.endLine, lines.length),
+      incomplete: input.endLine > lines.length || bounded.truncated,
+      lines: bounded.lines,
+    };
+  }
+
+  private async readFileSection(userId: string, sessionId: string, fileId: string, sectionId: string) {
+    const { file, content, lines } = await this.loadReadableTextFile(userId, sessionId, fileId);
+    const sections = this.resolveSectionIndex(file, content);
+    const section = sections.find((item) => item.sectionId === sectionId);
+    if (!section)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.fileSectionNotFound,
+        detail: '未找到对应的 sectionId，请先 read(scope=file) 查看 outline。',
+      });
+    const outputLines = this.extractContentLines(lines, section.startLine, section.endLine);
+    const bounded = this.boundLinesToCharacterBudget(outputLines);
+    return {
+      scope: 'section' as const,
+      fileId: file.id,
+      fileName: file.fileName,
+      mediaType: file.mediaType,
+      sectionId: section.sectionId,
+      startLine: section.startLine,
+      endLine: section.endLine,
+      incomplete: bounded.truncated,
+      lines: bounded.lines,
+    };
+  }
+
+  private async readFileOutline(userId: string, sessionId: string, fileId: string) {
+    const { file, content, lines } = await this.loadReadableTextFile(userId, sessionId, fileId);
+    const codePoints = [...content].length;
+    const sections = this.resolveSectionIndex(file, content);
+    const lineCount = lines.length;
+    const pageCount = file.pageCount ?? undefined;
+    const base = {
+      scope: 'file' as const,
+      fileId: file.id,
+      fileName: file.fileName,
+      mediaType: file.mediaType,
+      lineCount,
+      ...(pageCount ? { pageCount } : {}),
+      sections,
+    };
+    if (codePoints <= AGENT_PROTOCOL_LIMITS.fileReadSmallMaxCodePoints) {
+      const bounded = this.boundTextToCharacterBudget(content);
+      return {
+        ...base,
+        sizeTier: 'small' as const,
+        incomplete: bounded.truncated,
+        content: bounded.text,
+      };
+    }
+    const previewLines = AGENT_PROTOCOL_LIMITS.fileReadOutlinePreviewLines;
+    const head = this.formatPreviewLines(lines.slice(0, previewLines), 0);
+    const tailStart = Math.max(0, lines.length - previewLines);
+    const tail = this.formatPreviewLines(lines.slice(tailStart), tailStart);
+    const sizeTier = codePoints > AGENT_PROTOCOL_LIMITS.fileReadSmallMaxCodePoints * 4 ? 'large' : 'medium';
+    return {
+      ...base,
+      sizeTier,
+      incomplete: false,
+      preview: head && tail ? { head, tail } : undefined,
+    };
+  }
+
+  private async loadReadableTextFile(userId: string, sessionId: string, fileId: string) {
     const file = await this.findReadyForSession(
+      userId,
       sessionId,
-      input.fileId,
+      fileId,
       AGENT_ERROR_CODES.fileNotFound,
     );
     if (file.fileKind === 'image' || !file.normalizedKey)
@@ -966,23 +1146,33 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         detail: '该文件没有可读取的规范化正文。',
       });
     const content = await this.readNormalizedContent(file);
-    const lines = content.split('\n');
-    if (input.startLine > lines.length)
-      throw new BadRequestException({
-        code: AGENT_ERROR_CODES.fileLineOutOfRange,
-        detail: '请求的起始行超出文件范围。',
-      });
-    // 先截取请求范围，再过滤内部页码标记，避免把控制信息交给模型。
-    const selected = lines.slice(input.startLine - 1, Math.min(input.endLine, lines.length));
+    return { file, content, lines: content.split('\n') };
+  }
+
+  private resolveSectionIndex(
+    file: { overview: unknown; fileKind: string },
+    content: string,
+  ): FileSectionIndexEntry[] {
+    return (
+      parseSectionIndexFromOverview(file.overview) ??
+      buildSectionIndex(content, file.fileKind).sections
+    );
+  }
+
+  private extractContentLines(
+    lines: string[],
+    startLine: number,
+    endLine: number,
+  ): Array<{ line: number; page?: number; text: string }> {
+    const selected = lines.slice(startLine - 1, Math.min(endLine, lines.length));
     const outputLines: Array<{ line: number; page?: number; text: string }> = [];
-    // 读取范围可能从 PDF 页内中间行开始，先恢复范围起点之前最近的页标记。
     let page: number | undefined;
-    for (let index = 0; index < input.startLine - 1; index += 1) {
+    for (let index = 0; index < startLine - 1; index += 1) {
       const marker = lines[index]?.match(/^\[\[page:(\d+)\]\]$/u);
       if (marker) page = Number(marker[1]);
     }
     for (const [offset, text] of selected.entries()) {
-      const absoluteLine = input.startLine + offset;
+      const absoluteLine = startLine + offset;
       const marker = text.match(/^\[\[page:(\d+)\]\]$/u);
       if (marker) {
         page = Number(marker[1]);
@@ -990,27 +1180,48 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
       }
       outputLines.push({ line: absoluteLine, ...(page ? { page } : {}), text });
     }
-    const characterCount = [...outputLines.map((line) => line.text).join('\n')].length;
-    if (characterCount > AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters)
-      throw new BadRequestException({
-        code: AGENT_ERROR_CODES.fileReadResultTooLarge,
-        detail: '读取结果超过单次文件工具结果限制，请缩小行范围。',
-      });
-    return {
-      fileId: file.id,
-      fileName: file.fileName,
-      mediaType: file.mediaType,
-      startLine: input.startLine,
-      endLine: Math.min(input.endLine, lines.length),
-      incomplete: input.endLine > lines.length,
-      lines: outputLines,
-    };
+    return outputLines;
+  }
+
+  private boundLinesToCharacterBudget(
+    outputLines: Array<{ line: number; page?: number; text: string }>,
+  ): { lines: typeof outputLines; truncated: boolean } {
+    const resultBudget = AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters;
+    let usedCharacters = 0;
+    let truncated = false;
+    const boundedLines: typeof outputLines = [];
+    for (const line of outputLines) {
+      const separatorCharacters = boundedLines.length > 0 ? 1 : 0;
+      const lineCharacters = Array.from(line.text).length;
+      if (usedCharacters + separatorCharacters + lineCharacters > resultBudget) {
+        truncated = true;
+        break;
+      }
+      boundedLines.push(line);
+      usedCharacters += separatorCharacters + lineCharacters;
+    }
+    return { lines: boundedLines, truncated };
+  }
+
+  private boundTextToCharacterBudget(text: string): { text: string; truncated: boolean } {
+    const resultBudget = AGENT_PROTOCOL_LIMITS.fileReadResultMaxCharacters;
+    const characters = Array.from(text);
+    if (characters.length <= resultBudget) return { text, truncated: false };
+    return { text: characters.slice(0, resultBudget).join(''), truncated: true };
+  }
+
+  private formatPreviewLines(lines: string[], lineOffset: number): string {
+    const visible = lines
+      .map((line, index) => ({ line: lineOffset + index + 1, text: line }))
+      .filter(({ text }) => !/^\[\[page:(\d+)\]\]$/u.test(text))
+      .map(({ line, text }) => `${line}: ${text}`);
+    return visible.join('\n').trim();
   }
 
   // 只删除未绑定消息的文件，存储失败时登记补偿任务。
-  async deleteUnbound(fileId: string): Promise<{ deletedFileId: string }> {
+  async deleteUnbound(userId: string, fileId: string): Promise<{ deletedFileId: string }> {
     const file = await this.prisma.file.findFirst({
-      where: { id: fileId, userId: LOCAL_USER_ID },
+      where: { id: fileId, userId },
       include: { attachments: { select: { id: true } } },
     });
     if (!file) throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件不存在。' });
@@ -1056,7 +1267,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async deleteGeneratedFile(fileId: string): Promise<void> {
-    const file = await this.findOwned(fileId);
+    const file = await this.findFileById(fileId);
     if (file.origin !== 'agent_generated') return;
     try {
       await this.storage.deleteFile({ sessionId: file.sessionId, fileId: file.id });
@@ -1092,13 +1303,13 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
   // 通过 fileId 校验归属后生成读取地址。
   async readUrlById(fileId: string) {
-    const file = await this.findReadyForOwner(fileId);
+    const file = await this.findReadyForSharedReadable('', fileId);
     return this.readUrl(file);
   }
 
   // 本地存储专用读取路径，生产 COS 不经过这里。
-  async localContent(fileId: string, variant: FileVariant) {
-    const file = await this.findReadyForOwner(fileId);
+  async localContent(userId: string, fileId: string, variant: FileVariant) {
+    const file = await this.findReadyForSharedReadable(userId, fileId);
     if (!(this.storage instanceof LocalFileStorage))
       throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件内容不存在。' });
     const result = await this.storage.readObject({
@@ -1110,8 +1321,8 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
   }
 
   // 查询当前用户拥有的文件。
-  private async findOwned(fileId: string) {
-    const file = await this.prisma.file.findFirst({ where: { id: fileId, userId: LOCAL_USER_ID } });
+  private async findFileById(fileId: string) {
+    const file = await this.prisma.file.findUnique({ where: { id: fileId } });
     if (!file) throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件不存在。' });
     if (file.errorCode === AGENT_ERROR_CODES.artifactDeleted)
       throw new BadRequestException({
@@ -1120,18 +1331,78 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
       });
     return file;
   }
+
+  private async findOwned(userId: string, fileId: string) {
+    const file = await this.prisma.file.findFirst({ where: { id: fileId, userId } });
+    if (!file) throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件不存在。' });
+    if (file.errorCode === AGENT_ERROR_CODES.artifactDeleted)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.artifactDeleted,
+        detail: '产物已删除。',
+      });
+    return file;
+  }
+
+  // 会话链接分享：已登录用户凭 fileId 可读会话内附件（与 session detail 同能力边界）。
+  private async findSharedReadable(_userId: string, fileId: string) {
+    const file = await this.prisma.file.findFirst({ where: { id: fileId } });
+    if (!file) throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件不存在。' });
+    if (file.errorCode === AGENT_ERROR_CODES.artifactDeleted)
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.artifactDeleted,
+        detail: '产物已删除。',
+      });
+    return file;
+  }
+
   // 只有 ready 且存在原始对象的文件才能被读取。
-  private async findReadyForOwner(fileId: string) {
-    const file = await this.findOwned(fileId);
+  private async findReadyForSharedReadable(userId: string, fileId: string) {
+    const file = await this.findSharedReadable(userId, fileId);
     if (file.status !== 'ready' || !file.originalKey)
       throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
     return file;
+  }
+
+  // 只有 ready 且存在原始对象的文件才能被读取。
+  private async findReadyForOwner(userId: string, fileId: string) {
+    const file = await this.findOwned(userId, fileId);
+    if (file.status !== 'ready' || !file.originalKey)
+      throw new BadRequestException({ code: 'FILE_NOT_READY', detail: '文件尚未准备好。' });
+    return file;
+  }
+
+  /** 旧版 c3-a-sandbox 把 docx/xlsx 等 ZIP 二进制误存为 UTF-8 文本，预览会出现 PK 乱码。 */
+  private isMisencodedBinaryDocumentPreview(content: string, fileKind: string): boolean {
+    if (!SANDBOX_DOCUMENT_PARSE_KINDS.has(fileKind)) return false;
+    return content.startsWith('PK');
+  }
+
+  private async normalizedTextFromOriginal(file: {
+    id: string;
+    sessionId: string;
+    fileName: string;
+    mediaType: string;
+  }): Promise<string> {
+    const object = await this.storage.readObject({
+      sessionId: file.sessionId,
+      fileId: file.id,
+      variant: 'original',
+    });
+    const parsed = await this.processor.parse({
+      buffer: object.content,
+      mimetype: file.mediaType,
+      originalname: file.fileName,
+    });
+    return parsed.normalizedContent ?? '';
   }
 
   private async readNormalizedContent(file: {
     id: string;
     sessionId: string;
     normalizedKey: string | null;
+    fileKind?: string;
+    fileName?: string;
+    mediaType?: string;
   }) {
     // 只允许读取数据库已登记的 normalized 对象，并统一转换为 UTF-8 文本。
     if (!file.normalizedKey)
@@ -1145,7 +1416,21 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         fileId: file.id,
         variant: 'normalized',
       });
-      return new TextDecoder('utf-8', { fatal: false }).decode(result.content);
+      let content = new TextDecoder('utf-8', { fatal: false }).decode(result.content);
+      if (
+        file.fileKind &&
+        file.fileName &&
+        file.mediaType &&
+        this.isMisencodedBinaryDocumentPreview(content, file.fileKind)
+      ) {
+        content = await this.normalizedTextFromOriginal({
+          id: file.id,
+          sessionId: file.sessionId,
+          fileName: file.fileName,
+          mediaType: file.mediaType,
+        });
+      }
+      return content;
     } catch (error) {
       this.logger.warn(
         `文件正文读取失败 | 文件=${shortLogId(file.id)} | 原因=${describeLogError(error)}`,

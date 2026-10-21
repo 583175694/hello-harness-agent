@@ -142,6 +142,7 @@ export class ConversationBlockCollector {
     presentation?: 'terminal';
     description?: string;
     terminalView?: BashTerminalView;
+    iconSrc?: string;
   }): AssistantToolActivityBlock {
     const existing = this.findTool(input.toolCallId);
     if (existing) return { ...existing };
@@ -160,6 +161,7 @@ export class ConversationBlockCollector {
       ...(input.presentation ? { presentation: input.presentation } : {}),
       ...(input.description ? { description: input.description } : {}),
       ...(input.terminalView ? { terminalView: input.terminalView } : {}),
+      ...(input.iconSrc ? { iconSrc: input.iconSrc } : {}),
     };
     this.insert(block);
     return { ...block };
@@ -273,16 +275,24 @@ export class ConversationBlockCollector {
 
   // 将 canonical 工具名转换为简洁的用户可见动作标题。
   private toolTitle(toolName: string): string {
+    if (toolName.startsWith('mcp__')) {
+      const rest = toolName.slice('mcp__'.length);
+      const separator = rest.indexOf('__');
+      if (separator > 0) {
+        return `${rest.slice(0, separator)} · ${rest.slice(separator + 2)}`;
+      }
+    }
     if (toolName === 'web_search') return '搜索网页';
     if (toolName === 'web_fetch') return '读取网页';
     if (toolName === 'search_file') return '搜索文件';
-    if (toolName === 'read_file_lines') return '读取文件';
+    if (toolName === 'read_file_lines' || toolName === 'read_file') return '读取文件';
     if (toolName === 'create_file') return '生成文件';
     if (toolName === 'execute_command') return '执行命令';
     if (toolName === 'bash') return 'Bash';
     if (toolName === 'job_output') return 'Job 输出';
     if (toolName === 'job_list') return 'Job 列表';
     if (toolName === 'job_kill') return '终止 Job';
+    if (toolName === 'memory_write') return '写入记忆';
     return `运行工具 ${toolName}`;
   }
 

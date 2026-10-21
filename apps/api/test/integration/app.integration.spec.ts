@@ -129,7 +129,16 @@ describe('foundation API', () => {
         const preview = await request(app.getHttpServer())
           .get(`/api/agent/artifacts/${artifact.artifactId}/preview`)
           .expect(200);
-        expect(preview.text).toContain(file.fileKind === 'xlsx' ? '[Sheet:' : '# 中文报告');
+        if (file.fileKind === 'html') {
+          expect(preview.headers['content-type']).toMatch(/text\/html/u);
+          expect(preview.text).toMatch(/^<!doctype html>/iu);
+          expect(preview.headers['content-security-policy']).toContain("connect-src 'none'");
+          expect(preview.headers['referrer-policy']).toBe('no-referrer');
+          expect(preview.headers['cache-control']).toBe('private, no-store');
+          expect(Buffer.compare(preview.body, download.body)).toBe(0);
+        } else {
+          expect(preview.text).toContain(file.fileKind === 'xlsx' ? '[Sheet:' : '# 中文报告');
+        }
       }
 
       const restored = await request(app.getHttpServer())
@@ -382,7 +391,7 @@ describe('foundation API', () => {
           signal: abortController.signal,
         }),
       ).rejects.toMatchObject({ name: 'AbortError' });
-      expect(await artifacts.getSeries(seriesId)).toMatchObject({
+      expect(await artifacts.getSeries('local-user', seriesId)).toMatchObject({
         currentArtifactId: v1.artifact.artifactId,
         versions: [{ artifactId: v1.artifact.artifactId }],
       });
@@ -397,7 +406,7 @@ describe('foundation API', () => {
       const rejected = results.find((result) => result.status === 'rejected');
       expect(rejected).toMatchObject({ reason: { response: { code: 'ARTIFACT_VERSION_CONFLICT' } } });
 
-      const series = await artifacts.getSeries(seriesId);
+      const series = await artifacts.getSeries('local-user', seriesId);
       expect(series.versions).toHaveLength(2);
       expect(series.currentArtifactId).toBe(series.versions[1]?.artifactId);
       expect(await prisma.file.count({ where: { sessionId, origin: 'agent_generated' } })).toBe(2);

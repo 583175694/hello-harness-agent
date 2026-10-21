@@ -31,15 +31,18 @@ export const MessageResponse = memo(function MessageResponse({
   children,
   className,
   isAnimating = false,
+  variant = 'chat',
 }: {
   children: string;
   className?: string;
   isAnimating?: boolean;
+  variant?: 'chat' | 'report' | 'user';
 }) {
   return (
     <MarkdownContent
       className={classes('ai-message-response', className)}
       isAnimating={isAnimating}
+      variant={variant}
     >
       {children}
     </MarkdownContent>

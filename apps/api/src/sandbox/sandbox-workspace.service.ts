@@ -17,6 +17,7 @@ export class SandboxWorkspaceService {
   ) {}
 
   async stage(
+    userId: string,
     sessionId: string,
     session: SandboxSession,
     inputFiles: NonNullable<ExecuteCommandInput['inputFiles']>,
@@ -28,6 +29,7 @@ export class SandboxWorkspaceService {
     for (const item of inputFiles) {
       const path = assertWorkspaceFilePath(item.path);
       const file = await this.files.findReadyForSession(
+        userId,
         sessionId,
         item.fileId,
         AGENT_ERROR_CODES.fileNotFound,

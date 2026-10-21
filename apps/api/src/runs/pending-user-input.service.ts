@@ -1,7 +1,6 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
-import { LOCAL_USER_ID } from '../database/local-user.bootstrap';
 
 const MAX_PENDING = 3;
 
@@ -16,8 +15,13 @@ export class PendingUserInputService {
     });
   }
 
-  async findById(id: string) {
-    return this.prisma.pendingUserInput.findUnique({ where: { id } });
+  async findById(userId: string, id: string) {
+    const row = await this.prisma.pendingUserInput.findUnique({
+      where: { id },
+      include: { session: { select: { userId: true } } },
+    });
+    if (!row || row.session.userId !== userId) return null;
+    return row;
   }
 
   async activeRunId(sessionId: string): Promise<string | undefined> {
@@ -28,10 +32,15 @@ export class PendingUserInputService {
     return run?.id;
   }
 
-  async enqueueFollowUp(sessionId: string, content: string, idempotencyKey: string): Promise<void> {
+  async enqueueFollowUp(
+    userId: string,
+    sessionId: string,
+    content: string,
+    idempotencyKey: string,
+  ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const session = await tx.session.findFirst({
-        where: { id: sessionId, userId: LOCAL_USER_ID },
+        where: { id: sessionId, userId },
       });
       if (!session) return;
       const existing = await tx.pendingUserInput.findUnique({
@@ -58,11 +67,11 @@ export class PendingUserInputService {
     });
   }
 
-  async submit(sessionId: string, content: string, idempotencyKey: string) {
+  async submit(userId: string, sessionId: string, content: string, idempotencyKey: string) {
     const hash = createHash('sha256').update(content).digest('hex');
     return this.prisma.$transaction(async (tx) => {
       const session = await tx.session.findFirst({
-        where: { id: sessionId, userId: LOCAL_USER_ID },
+        where: { id: sessionId, userId },
       });
       if (!session) throw new NotFoundException('会话不存在。');
       const active = await tx.agentRun.findFirst({
@@ -99,7 +108,9 @@ export class PendingUserInputService {
     });
   }
 
-  async promote(id: string) {
+  async promote(userId: string, id: string) {
+    const owned = await this.findById(userId, id);
+    if (!owned) throw new NotFoundException('输入不存在。');
     const result = await this.prisma.pendingUserInput.updateMany({
       where: { id, kind: 'follow_up', status: 'pending' },
       data: { kind: 'steer' },
@@ -108,7 +119,9 @@ export class PendingUserInputService {
     return this.prisma.pendingUserInput.findUniqueOrThrow({ where: { id } });
   }
 
-  async cancel(id: string) {
+  async cancel(userId: string, id: string) {
+    const owned = await this.findById(userId, id);
+    if (!owned) throw new NotFoundException('输入不存在。');
     const result = await this.prisma.pendingUserInput.updateMany({
       where: { id, status: 'pending' },
       data: { status: 'cancelled' },
@@ -117,7 +130,9 @@ export class PendingUserInputService {
     return this.prisma.pendingUserInput.findUniqueOrThrow({ where: { id } });
   }
 
-  async demote(id: string) {
+  async demote(userId: string, id: string) {
+    const owned = await this.findById(userId, id);
+    if (!owned) throw new NotFoundException('输入不存在。');
     const result = await this.prisma.pendingUserInput.updateMany({
       where: { id, kind: 'steer', status: 'pending' },
       data: { kind: 'follow_up' },

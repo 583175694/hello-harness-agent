@@ -24,7 +24,7 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 
 ## 2. 当前基线
 
-当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答` 和真实 Workbench 投影。P7 General Web Research Hardening、P8 Model-led Tool Boundary、Connection-Durable Agent Loop 与 Reasoning Context Transcript 均已完成；Ordered Model Rounds、Canonical Live Projection、版本化 Checkpoint、Event Tail、严格 SSE cursor、Run 状态 CAS、durable model transcript 和选择性 reasoning replay 已落地。下一优先项是 Context Engineering；Memory 和 Delegation 尚未完成。评估体系暂缓，后续作为独立模块重新设计。
+当前仓库已经具备工程基线、durable Session/Message、OpenAI-compatible 普通对话、Chat SSE、通用工具循环、`web_search -> web_fetch -> 相关 Passage -> 普通回答` 和真实 Workbench 投影。P7 General Web Research Hardening、P8 Model-led Tool Boundary、Connection-Durable Agent Loop 与 Reasoning Context Transcript 均已完成；Ordered Model Rounds、Canonical Live Projection、版本化 Checkpoint、Event Tail、严格 SSE cursor、Run 状态 CAS、durable model transcript 和选择性 reasoning replay 已落地。下一优先项是 **K5 Context Engineering 全面优化**；**C7 User Memory MVP** 与 **C6 Skills Phase 1** 已落地（状态见 [implementation-status.md](./implementation-status.md)）；Delegation 尚未完成。评估体系暂缓，后续作为独立模块重新设计。
 
 详细代码状态、验证记录和已知限制统一维护在 [implementation-status.md](./implementation-status.md)。只有代码、测试和验收记录同时存在时，能力才算完成。
 
@@ -40,7 +40,7 @@ Harness Agent 是一个面向终端用户的本地任务工作台，产品形态
 - `steer`，从下一安全 step 生效
 - `cancel`
 - 主搜索供应商和 fallback 搜索供应商
-- 每个 assistant run 最多 40 次 Tool Call、Search/Fetch 单次能力边界，以及模型和工具各自独立的单操作超时与取消传播
+- 每个 assistant run 的 **Tool Turn 预算**（默认 40 investigation + 3 delivery turn，见 [25-model-led-tool-boundary.md](./25-model-led-tool-boundary.md) §4）、Search/Fetch 单次能力边界，以及模型和工具各自独立的单操作超时与取消传播
 - 搜索摘要 Clue、已读取 Source 和最终采用 Source 的轻量区分
 - 正文可用性判断、单次调用内去重和模型主导的调查停止决策
 - query-aware 原文 Passage 筛选，外部内容不能改变 Agent 指令和执行边界
@@ -91,7 +91,7 @@ User
       -> Artifact
 
 User
-  -> MemoryRecord                 # 后续 capability，可跨 session
+  -> MemoryRecord                 # C7，见 41-c7-user-memory.md
       -> sourceRefs
           -> prior Session/Run/State/Artifact
 ```
@@ -102,8 +102,7 @@ User
 - 不实现登录、密码或权限 UI。
 - `session` 是长期可恢复的会话聚合根，可包含多条消息和多次 run。
 - session 删除时级联清理其数据。
-- 后续 user Memory 仅允许 `user` scope，不支持 project/workspace/org scope。
-- 跨 session 证据只能从命中的 Memory `sourceRefs` 显式展开。
+- User Memory 语义、读写与验收以 [41-c7-user-memory.md](./41-c7-user-memory.md) 为准（user scope、MemoryCard、sourceRefs 显式展开）。
 
 ## 6. 工程选择
 
@@ -188,15 +187,24 @@ P6  Search Provider Tooling + Iterative Research
 P7  General Web Research Hardening
 P8  Recovery + Release Hardening
 R1  First User-Ready General Agent Release
-P9  User Memory Read Path
-P10 User Memory Write/Review
+C7  User Memory（C7-A read → C7-B write/review → C7-C delegation 联动）
 P11 Bounded Delegation + Worker
 P12 Multi-user Authentication + Remote Storage
 ```
 
-P8 Recovery 切片采用 [Connection-Durable Agent Loop](./26-connection-durable-agent-loop.md)：Run 已独立于客户端连接，Snapshot/sequence、Tail replay、客户端 cursor 和取消终态的时序加固已经完成；不实现服务端重启后的自动恢复。`R1` 是第一次真实用户发布。Memory、Delegation 和 process-durable recovery 不阻塞 R1。
+P8 Recovery 切片采用 [Connection-Durable Agent Loop](./26-connection-durable-agent-loop.md)：Run 已独立于客户端连接，Snapshot/sequence、Tail replay、客户端 cursor 和取消终态的时序加固已经完成；不实现服务端重启后的自动恢复。`R1` 是第一次真实用户发布。C7 User Memory、Delegation 和 process-durable recovery 不阻塞 R1。
 
 详细交付和验收见 [17-implementation-plan.md](./17-implementation-plan.md)。
+
+**Capability 大版本**（与上文 P 系列并行；**小版本**如 C7-A 见各专项文档）：
+
+```text
+C6  Skills
+C7  User Memory（C7-A / C7-B / C7-C）— 见 41-c7-user-memory.md
+C8  Browser Use / Computer Use
+C9  MCP Marketplace
+C10 Skills Marketplace
+```
 
 ## 10. R1 成功标准
 
@@ -224,7 +232,7 @@ Agent Loop turns model decisions into bounded execution.
 Tooling owns capability execution and canonical result normalization.
 State owns durable execution facts.
 Gateway owns frontend projection.
-Memory owns later user-scoped cross-session recall.
+C7 User Memory owns later user-scoped cross-session recall.
 Delegation owns later bounded fan-out/fan-in.
 ```
 

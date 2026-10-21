@@ -2,6 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PrismaService } from '../../../src/database/prisma.service';
 import { RunRepository } from '../../../src/runs/run.repository';
+import type { RunProjectionArchiver } from '../../../src/run-storage/run-projection.archiver';
+
+function passThroughArchiver(): RunProjectionArchiver {
+  return {
+    trimForCheckpoint: vi.fn((projection) => projection),
+    trimAndPersist: vi.fn(async (input) => input.projection),
+  } as unknown as RunProjectionArchiver;
+}
 
 function transcriptItem(overrides: Record<string, unknown> = {}) {
   return {
@@ -72,7 +80,7 @@ describe('RunRepository reasoning transcript boundaries', () => {
         ]),
       },
     };
-    const repository = new RunRepository(prisma as unknown as PrismaService);
+    const repository = new RunRepository(prisma as unknown as PrismaService, passThroughArchiver());
 
     await expect(repository.loadTranscript('run-1')).resolves.toContainEqual({
       role: 'tool',
@@ -103,7 +111,7 @@ describe('RunRepository reasoning transcript boundaries', () => {
       },
     };
     const prisma = { ...tx, $transaction: vi.fn(async (callback) => callback(tx)) };
-    const repository = new RunRepository(prisma as unknown as PrismaService);
+    const repository = new RunRepository(prisma as unknown as PrismaService, passThroughArchiver());
 
     await repository.appendTranscriptItem('run-1', {
       role: 'tool',
@@ -148,7 +156,7 @@ describe('RunRepository reasoning transcript boundaries', () => {
         ]),
       },
     };
-    const repository = new RunRepository(prisma as unknown as PrismaService);
+    const repository = new RunRepository(prisma as unknown as PrismaService, passThroughArchiver());
 
     await expect(repository.loadTranscript('run-1')).resolves.toEqual([
       { role: 'assistant', content: '回答', reasoning: '历史推理' },
@@ -203,7 +211,7 @@ describe('RunRepository reasoning transcript boundaries', () => {
         ]),
       },
     };
-    const repository = new RunRepository(prisma as unknown as PrismaService);
+    const repository = new RunRepository(prisma as unknown as PrismaService, passThroughArchiver());
 
     await expect(repository.loadTranscript('run-1')).rejects.toThrow(
       'MODEL_TRANSCRIPT_INCOMPATIBLE',
@@ -227,7 +235,7 @@ describe('RunRepository reasoning transcript boundaries', () => {
       modelTranscriptItem: { deleteMany },
       $transaction: vi.fn(async (callback) => callback(prisma)),
     };
-    const repository = new RunRepository(prisma as unknown as PrismaService);
+    const repository = new RunRepository(prisma as unknown as PrismaService, passThroughArchiver());
 
     await (
       repository as unknown as {
@@ -249,16 +257,20 @@ describe('RunRepository reasoning transcript boundaries', () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const tx = {
       agentRun: {
-        findUnique: vi.fn().mockResolvedValue({ metadata: { artifactVersionContext } }),
+        findUnique: vi.fn().mockResolvedValue({
+          metadata: { artifactVersionContext },
+          sessionId: 'session-1',
+        }),
         updateMany,
       },
       message: {
         findUnique: vi.fn().mockResolvedValue({ metadata: { draftVersion: 0 } }),
         update: vi.fn().mockResolvedValue({}),
       },
+      agentRunDetail: { upsert: vi.fn().mockResolvedValue({}) },
     };
     const prisma = { ...tx, $transaction: vi.fn(async (callback) => callback(tx)) };
-    const repository = new RunRepository(prisma as unknown as PrismaService);
+    const repository = new RunRepository(prisma as unknown as PrismaService, passThroughArchiver());
 
     await expect(
       repository.flush(
@@ -308,9 +320,10 @@ describe('RunRepository reasoning transcript boundaries', () => {
         deleteMany: vi.fn(),
       },
       message: { update: vi.fn().mockResolvedValue({}) },
+      agentRunDetail: { upsert: vi.fn().mockResolvedValue({}) },
     };
     const prisma = { ...tx, $transaction: vi.fn(async (callback) => callback(tx)) };
-    const repository = new RunRepository(prisma as unknown as PrismaService);
+    const repository = new RunRepository(prisma as unknown as PrismaService, passThroughArchiver());
 
     await expect(
       repository.terminal({
@@ -327,6 +340,18 @@ describe('RunRepository reasoning transcript boundaries', () => {
         } as never,
         lastEventSequence: 3,
         draftVersion: 1,
+        context: {
+          version: 1,
+          roundSequence: 1,
+          attempt: 1,
+          estimatedInputTokens: 100,
+          promptBudget: 200,
+          compactionTriggered: false,
+          finalResponseOnly: false,
+          messages: [{ role: 'user', content: 'large historical context' }],
+          response: { content: 'large model response' },
+          tools: [{ name: 'large tool definition' }],
+        },
         compactionState,
       }),
     ).resolves.toBe(true);
@@ -338,6 +363,25 @@ describe('RunRepository reasoning transcript boundaries', () => {
       }),
     );
     expect(tx.modelTranscriptItem.updateMany).toHaveBeenCalled();
+    expect(tx.message.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          metadata: expect.objectContaining({
+            deliveryStatus: 'completed',
+            agent: expect.objectContaining({ detailRef: 'run-1' }),
+          }),
+        }),
+      }),
+    );
+    expect(tx.agentRunDetail.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          researchProjection: expect.objectContaining({
+            context: expect.objectContaining({ messages: [], tools: [] }),
+          }),
+        }),
+      }),
+    );
   });
 
   it.each(['failed', 'cancelled'] as const)(
@@ -345,7 +389,7 @@ describe('RunRepository reasoning transcript boundaries', () => {
     async (status) => {
       const tx = {
         agentRun: {
-          findUnique: vi.fn().mockResolvedValue({ metadata: {} }),
+          findUnique: vi.fn().mockResolvedValue({ metadata: {}, sessionId: 'session-1' }),
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         contextCompactionState: { upsert: vi.fn() },
@@ -354,9 +398,10 @@ describe('RunRepository reasoning transcript boundaries', () => {
           deleteMany: vi.fn().mockResolvedValue({ count: 2 }),
         },
         message: { update: vi.fn().mockResolvedValue({}) },
+        agentRunDetail: { upsert: vi.fn().mockResolvedValue({}) },
       };
       const prisma = { ...tx, $transaction: vi.fn(async (callback) => callback(tx)) };
-      const repository = new RunRepository(prisma as unknown as PrismaService);
+      const repository = new RunRepository(prisma as unknown as PrismaService, passThroughArchiver());
 
       await repository.terminal({
         runId: 'run-1',
@@ -378,4 +423,64 @@ describe('RunRepository reasoning transcript boundaries', () => {
       expect(tx.modelTranscriptItem.deleteMany).toHaveBeenCalled();
     },
   );
+});
+
+describe('RunRepository run detail access', () => {
+  it('falls back to legacy message metadata when AgentRunDetail is missing', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'run-legacy',
+      assistantMessageId: 'assistant-legacy',
+      toolCallCount: 2,
+      detail: null,
+      messages: [
+        {
+          id: 'assistant-legacy',
+          metadata: {
+            agent: {
+              toolCallCount: 2,
+              executions: [
+                {
+                  toolCallId: 'call-1',
+                  toolName: 'web_search',
+                  status: 'completed',
+                  input: { query: 'test' },
+                  startedAt: '2026-10-12T04:00:00.000Z',
+                  completedAt: '2026-10-12T04:00:01.000Z',
+                  durationMs: 1000,
+                  resultCount: 1,
+                },
+              ],
+              sources: [],
+            },
+          },
+        },
+      ],
+    });
+    const repository = new RunRepository(
+      { agentRun: { findFirst } } as unknown as PrismaService,
+      passThroughArchiver(),
+    );
+
+    await expect(repository.detail('run-legacy', 'user-1')).resolves.toMatchObject({
+      runId: 'run-legacy',
+      executions: [{ toolCallId: 'call-1' }],
+    });
+  });
+
+  it('does not fall back to another user when reading run detail', async () => {
+    const findFirst = vi.fn().mockResolvedValue(undefined);
+    const repository = new RunRepository(
+      { agentRun: { findFirst } } as unknown as PrismaService,
+      passThroughArchiver(),
+    );
+
+    await expect(
+      repository.detail('run-belongs-to-someone-else', 'user-1'),
+    ).resolves.toBeUndefined();
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'run-belongs-to-someone-else', session: { userId: 'user-1' } },
+      }),
+    );
+  });
 });

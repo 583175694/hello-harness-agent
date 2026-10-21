@@ -8,7 +8,12 @@ import { SessionTitleService } from '../sessions/session-title.service';
 import { ActiveRunRegistry } from './active-run.registry';
 import { RunEventHub } from './run-event-hub';
 import { RunRepository } from './run.repository';
-import { shortLogId } from '../shared/logging.utils';
+import { toAgentFailure } from '../shared/agent-failure.utils';
+import {
+  describeLogAgentUpstreamError,
+  describeLogError,
+  shortLogId,
+} from '../shared/logging.utils';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import {
   RuntimeLifecycleRegistry,
@@ -16,7 +21,8 @@ import {
 } from '../agent-runtime/runtime-lifecycle';
 import type { ToolApprovalDecision } from '@harness/agent-protocol';
 import { PendingUserInputService } from './pending-user-input.service';
-import { RunCommandService } from './run-command.service';
+import { McpRunLatchService } from '../mcp/mcp-run-latch.service';
+import { ToolExposureService } from '../tools/tool-exposure/tool-exposure.service';
 
 @Injectable()
 export class RunExecutor implements OnModuleDestroy {
@@ -35,6 +41,8 @@ export class RunExecutor implements OnModuleDestroy {
     @Inject(RuntimeLifecycleRegistry) private readonly lifecycles: RuntimeLifecycleRegistry,
     @Inject(PendingUserInputService) private readonly pendingInputs: PendingUserInputService,
     @Inject(ModuleRef) private readonly moduleRef: ModuleRef,
+    @Inject(McpRunLatchService) private readonly mcpLatch: McpRunLatchService,
+    @Inject(ToolExposureService) private readonly toolExposure: ToolExposureService,
   ) {}
 
   // 启动一个 Run 的后台执行，并防止同一进程重复启动。
@@ -125,8 +133,32 @@ export class RunExecutor implements OnModuleDestroy {
   // 执行完整 Run 生命周期：加载上下文、运行模型循环、持久化投影并提交终态。
   private async execute(runId: string): Promise<void> {
     const active = this.registry.get(runId);
-    const stored = await this.repository.findOwned(runId);
-    if (!active || !stored) return;
+    const stored = await this.repository.findOwnedInternal(runId);
+    if (!active || !stored) {
+      this.logger.warn(
+        `Run 执行跳过 | Run=${shortLogId(runId)} | 原因=${!active ? '进程内未注册' : '数据库无记录'}`,
+        RunExecutor.name,
+      );
+      return;
+    }
+    const ownerUserId = stored.session.userId;
+    if (!active.mcpSnapshot) {
+      try {
+        const latched = await this.mcpLatch.captureForUser(ownerUserId, runId);
+        active.mcpSnapshot = this.toolExposure.annotateSnapshot(latched);
+      } catch (error) {
+        const failure = this.mcpLatchFailure(error);
+        this.logger.warn(
+          `MCP 快照绑定失败 | Run=${shortLogId(runId)} | 错误码=${failure.code} | 上游=${describeLogError(error)}`,
+          RunExecutor.name,
+        );
+        const terminal = this.events.commit(runId, 'run.failed', failure);
+        if (terminal) this.events.broadcast(runId, terminal);
+        await this.repository.forceFail(runId, stored.assistantMessageId, failure);
+        this.registry.remove(runId);
+        return;
+      }
+    }
     let lastControlState: RuntimeControlSnapshot['state'] = 'running';
     let lastControlPhase: RuntimeControlSnapshot['phase'] = 'tool_loop';
     const lifecycle = this.lifecycles.create(
@@ -191,10 +223,19 @@ export class RunExecutor implements OnModuleDestroy {
     const modelStepId = crypto.randomUUID();
     const heartbeat = setInterval(() => void this.repository.heartbeat(runId), 5_000);
     try {
+      const mcpToolCount = active.mcpSnapshot?.entries.length ?? 0;
+      this.logger.log(
+        `Run 执行开始 | Run=${shortLogId(runId)} | 会话=${shortLogId(stored.sessionId)} | 模型=${stored.model} | 推理=${stored.reasoningEffort} | MCP工具=${mcpToolCount} | CatalogGen=${active.mcpSnapshot?.catalogGeneration ?? 'none'}`,
+        RunExecutor.name,
+      );
       // queued -> running 使用数据库 CAS；失败说明取消或其他执行者已经抢先改变状态。
       const started = await this.repository.start(runId);
       if (!started) {
         const latest = await this.repository.snapshot(runId);
+        this.logger.warn(
+          `Run 启动 CAS 失败 | Run=${shortLogId(runId)} | 当前状态=${latest?.status ?? 'unknown'}`,
+          RunExecutor.name,
+        );
         if (latest) this.events.updateSnapshot(runId, latest);
         return;
       }
@@ -214,10 +255,16 @@ export class RunExecutor implements OnModuleDestroy {
           lastEventSequence: startedEvent.seq,
         };
       const messages = await this.repository.loadTranscript(runId);
+      this.logger.log(
+        `Run 已进入模型循环 | Run=${shortLogId(runId)} | Transcript=${messages.length} 条 | Assistant=${shortLogId(stored.assistantMessageId)}`,
+        RunExecutor.name,
+      );
       for await (const event of this.chat.streamPrepared(
         {
+          userId: ownerUserId,
           sessionId: stored.sessionId,
           runId,
+          mcpSnapshot: active.mcpSnapshot,
           userMessageId: stored.inputMessageId,
           assistantMessageId: stored.assistantMessageId,
           messages,
@@ -344,17 +391,26 @@ export class RunExecutor implements OnModuleDestroy {
       });
       if (!terminalCommitted) {
         // CAS 冲突说明合法终态已被其他竞争路径占用；撤销尚未广播的内存终态。
+        this.logger.warn(
+          `Run 终态 CAS 冲突 | Run=${shortLogId(runId)} | EventSeq=${terminal.seq} | DraftVersion=${draftVersion}`,
+          RunExecutor.name,
+        );
         this.events.rollback(runId, terminal, previousSnapshot);
         throw new Error('TERMINAL_CHECKPOINT_CONFLICT');
       }
       this.events.checkpointCommitted(runId, active.liveSnapshot, draftVersion);
       this.events.broadcast(runId, terminal);
+      this.logger.log(
+        `Run 正常结束 | Run=${shortLogId(runId)} | 会话=${shortLogId(stored.sessionId)} | EventSeq=${terminal.seq} | DraftVersion=${draftVersion} | 工具=${projection.toolCallCount} 次`,
+        RunExecutor.name,
+      );
       lifecycle.markTerminal('completed');
       active.liveSnapshot = { ...active.liveSnapshot, control: lifecycle.snapshot() };
       // Steer 可能在 final_answer 已开始流出后才提交；此时 onBeforeModelRequest
       // 已经执行完，不能再注入当前 Run。终态前最后一次条件降级确保它进入下一轮 Follow-up。
       await this.demotePendingSteersAtTerminal(runId, stored.sessionId);
       await this.startPendingFollowUp(
+        stored.session.userId,
         stored.sessionId,
         stored.model,
         stored.reasoningEffort as NonNullable<RunSnapshot['profile']>['reasoningEffort'],
@@ -365,6 +421,17 @@ export class RunExecutor implements OnModuleDestroy {
       const cancelled = active.abortController.signal.aborted && !this.shuttingDown;
       const status = cancelled ? 'cancelled' : 'failed';
       const failure = this.runFailure(cancelled, error);
+      if (cancelled) {
+        this.logger.log(
+          `Run 已取消 | Run=${shortLogId(runId)} | 会话=${shortLogId(stored.sessionId)}`,
+          RunExecutor.name,
+        );
+      } else {
+        this.logger.error(
+          `Run 失败 | Run=${shortLogId(runId)} | 会话=${shortLogId(stored.sessionId)} | 错误码=${failure.code} | 详情=${failure.detail} | 上游=${describeLogAgentUpstreamError(error)}`,
+          RunExecutor.name,
+        );
+      }
       await this.repository
         .finishStep(runId, modelStepId, status, undefined, failure)
         .catch(() => undefined);
@@ -394,6 +461,10 @@ export class RunExecutor implements OnModuleDestroy {
           lifecycle.markTerminal(status);
           active.liveSnapshot = { ...active.liveSnapshot, control: lifecycle.snapshot() };
         } else {
+          this.logger.warn(
+            `Run 失败终态 CAS 冲突，强制落库 | Run=${shortLogId(runId)} | EventSeq=${terminal.seq} | 错误码=${failure.code}`,
+            RunExecutor.name,
+          );
           this.events.rollback(runId, terminal, previousSnapshot);
           await this.repository.forceFail(runId, stored.assistantMessageId, failure);
         }
@@ -403,7 +474,7 @@ export class RunExecutor implements OnModuleDestroy {
           .forceFail(runId, stored.assistantMessageId, failure)
           .catch((fallbackError) => {
             this.logger.error(
-              `Run终态兜底失败 | Run=${shortLogId(runId)} | 原始错误=${this.describeError(terminalError).code} | 兜底错误=${this.describeError(fallbackError).code}`,
+              `Run终态兜底失败 | Run=${shortLogId(runId)} | 原始错误=${this.describeError(terminalError).code} | 原始上游=${describeLogAgentUpstreamError(terminalError)} | 兜底错误=${this.describeError(fallbackError).code} | 兜底上游=${describeLogAgentUpstreamError(fallbackError)}`,
               RunExecutor.name,
             );
           });
@@ -435,21 +506,24 @@ export class RunExecutor implements OnModuleDestroy {
       await manager.releaseRunLease(runId);
     } catch (error) {
       this.logger.warn(
-        `Sandbox 清理失败 | Run=${shortLogId(runId)} | 原因=${this.describeError(error).code}`,
+        `Sandbox 清理失败 | Run=${shortLogId(runId)} | 原因=${describeLogAgentUpstreamError(error)}`,
         RunExecutor.name,
       );
     }
   }
 
   private async startPendingFollowUp(
+    userId: string,
     sessionId: string,
     model: string,
     reasoningEffort: NonNullable<RunSnapshot['profile']>['reasoningEffort'],
   ): Promise<void> {
     const pending = await this.pendingInputs.claimFollowUp(sessionId);
     if (!pending) return;
+    const { RunCommandService } = await import('./run-command.service');
     const commands = this.moduleRef.get(RunCommandService, { strict: false });
-    await commands.create(sessionId, {
+    if (!commands) return;
+    await commands.create(userId, sessionId, {
       content: pending.content,
       idempotencyKey: `pending:${pending.id}`,
       model,
@@ -566,25 +640,7 @@ export class RunExecutor implements OnModuleDestroy {
 
   // 将未知异常转换为稳定的客户端错误结构。
   private describeError(error: unknown): { code: string; detail: string } {
-    if (error instanceof Error && error.message === 'MODEL_TRANSCRIPT_INCOMPATIBLE')
-      return {
-        code: 'MODEL_TRANSCRIPT_INCOMPATIBLE',
-        detail: '当前模型与该会话的推理上下文不兼容，请新建会话或恢复原模型。',
-      };
-    if (error instanceof Error && error.message === 'MODEL_TRANSCRIPT_INTEGRITY_ERROR')
-      return {
-        code: 'MODEL_TRANSCRIPT_INTEGRITY_ERROR',
-        detail: '会话模型上下文不完整，请删除该会话并新建会话。',
-      };
-    if (typeof error === 'object' && error !== null && 'response' in error) {
-      const response = (error as { response?: unknown }).response;
-      if (typeof response === 'object' && response !== null) {
-        const value = response as { code?: unknown; detail?: unknown };
-        if (typeof value.code === 'string' && typeof value.detail === 'string')
-          return { code: value.code, detail: value.detail };
-      }
-    }
-    return { code: 'MODEL_STREAM_FAILED', detail: '模型流式输出失败，请稍后重试。' };
+    return toAgentFailure(error);
   }
 
   // 在首轮回答完成后，异步生成并保存 Session 标题。
@@ -603,8 +659,11 @@ export class RunExecutor implements OnModuleDestroy {
     try {
       const title = await this.titles.generate(firstUser.content, completedAssistants[0]!.content);
       await this.prisma.session.update({ where: { id: sessionId }, data: { title } });
-    } catch {
-      // 标题是非关键后处理，失败时保留创建会话时的临时标题。
+    } catch (error) {
+      this.logger.warn(
+        `会话标题生成失败 | 会话=${shortLogId(sessionId)} | 原因=${describeLogAgentUpstreamError(error)}`,
+        RunExecutor.name,
+      );
     }
   }
 
@@ -624,6 +683,12 @@ export class RunExecutor implements OnModuleDestroy {
     if (state === 'resuming') return 'run.resuming';
     if (state === 'running') return 'run.resumed';
     return undefined;
+  }
+
+  private mcpLatchFailure(error: unknown): { code: string; detail: string } {
+    const described = this.describeError(error);
+    if (described.code !== 'UNKNOWN_ERROR') return described;
+    return { code: 'MCP_LATCH_FAILED', detail: described.detail || 'MCP 快照绑定失败。' };
   }
 
   private runFailure(cancelled: boolean, error: unknown): { code: string; detail: string } {

@@ -23,6 +23,22 @@ export const ENV_KEYS = {
   cosSecretKey: 'COS_SECRET_KEY',
   cosBucket: 'COS_BUCKET',
   cosRegion: 'COS_REGION',
+  authMode: 'AUTH_MODE',
+  authSessionTtlDays: 'AUTH_SESSION_TTL_DAYS',
+  authCookieName: 'AUTH_COOKIE_NAME',
+  authCodeTtlSeconds: 'AUTH_CODE_TTL_SECONDS',
+  authSendCodeMinIntervalSec: 'AUTH_SEND_CODE_MIN_INTERVAL_SEC',
+  authBootstrapAdminEmail: 'AUTH_BOOTSTRAP_ADMIN_EMAIL',
+  authBootstrapAdminPhone: 'AUTH_BOOTSTRAP_ADMIN_PHONE',
+  smtpHost: 'SMTP_HOST',
+  smtpPort: 'SMTP_PORT',
+  smtpUser: 'SMTP_USER',
+  smtpPass: 'SMTP_PASS',
+  smtpFrom: 'SMTP_FROM',
+  aliyunSmsAuthAccessKeyId: 'ALIYUN_SMS_AUTH_ACCESS_KEY_ID',
+  aliyunSmsAuthAccessKeySecret: 'ALIYUN_SMS_AUTH_ACCESS_KEY_SECRET',
+  aliyunSmsAuthSignName: 'ALIYUN_SMS_AUTH_SIGN_NAME',
+  aliyunSmsAuthTemplateCode: 'ALIYUN_SMS_AUTH_TEMPLATE_CODE',
 } as const;
 
 // 集中维护本地开发和外部 Provider 的默认配置。

@@ -80,6 +80,7 @@ export const mcpServerViewSchema = z.object({
   reconnectEnabled: z.boolean(),
   reconnectMaxAttempts: z.number().int().nonnegative(),
   status: mcpServerStatusSchema,
+  /** @deprecated 与 toolCountExposed 相同；保留以兼容旧客户端 */
   toolCount: z.number().int().nonnegative(),
   toolCountExposed: z.number().int().nonnegative(),
   toolCountTotal: z.number().int().nonnegative(),
@@ -88,6 +89,8 @@ export const mcpServerViewSchema = z.object({
   secretsConfigured: mcpSecretsConfiguredSchema,
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  /** MCP serverInfo.icons 解析后的展示 URL（可为 https 或 data URI）。 */
+  iconSrc: z.string().min(1).max(8192).optional(),
 });
 
 export const mcpServerListResponseSchema = z.object({
@@ -108,3 +111,38 @@ export type McpServerView = z.infer<typeof mcpServerViewSchema>;
 export type McpServerListResponse = z.infer<typeof mcpServerListResponseSchema>;
 export type McpServerTestResponse = z.infer<typeof mcpServerTestResponseSchema>;
 export type McpSecretInput = z.infer<typeof mcpSecretInputSchema>;
+
+/** Agent Tool `mcp_add_server` 入参（Host 固定 Streamable HTTP；识别由模型完成）。 */
+export const mcpAddServerAgentInputSchema = z
+  .object({
+    serverName: mcpServerNameSchema,
+    url: z.string().url(),
+    headers: z.record(z.string()).default({}),
+    enabled: z.boolean().default(true),
+    defaultApproval: mcpDefaultApprovalSchema.default('auto_execute'),
+  })
+  .strict();
+
+export const mcpAddServerStatusSchema = z.enum([
+  'created',
+  'already_exists',
+  'created_with_warning',
+  'rejected',
+]);
+
+export const mcpAddServerResultSchema = z
+  .object({
+    status: mcpAddServerStatusSchema,
+    serverName: mcpServerNameSchema,
+    enabled: z.boolean(),
+    defaultApproval: mcpDefaultApprovalSchema,
+    connectionOk: z.boolean().optional(),
+    toolNames: z.array(z.string().min(1)).optional(),
+    warning: z.string().min(1).optional(),
+    message: z.string().min(1).optional(),
+    urlRedacted: z.string().url().optional(),
+  })
+  .strict();
+
+export type McpAddServerAgentInput = z.infer<typeof mcpAddServerAgentInputSchema>;
+export type McpAddServerResult = z.infer<typeof mcpAddServerResultSchema>;

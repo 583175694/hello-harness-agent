@@ -5,7 +5,7 @@ import type { ReasoningCapability, ReasoningEffort } from '@harness/agent-protoc
 export type UserContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image_ref'; fileId: string; detail?: 'auto' }
-  // 文件正文不进入消息；模型需内容时通过 search_file/read_file_lines 获取。
+  // 文件正文不进入消息；模型需内容时通过 search_file/read_file 获取。
   | {
       type: 'file_ref';
       fileId: string;
@@ -35,9 +35,12 @@ export type ModelFinishReason =
   | 'unknown';
 
 export class ModelProviderResponseError extends Error {
-  constructor(message: string) {
-    super(message);
+  readonly responseBody?: unknown;
+
+  constructor(message: string, options?: { responseBody?: unknown; cause?: unknown }) {
+    super(message, options?.cause !== undefined ? { cause: options.cause } : undefined);
     this.name = 'ModelProviderResponseError';
+    this.responseBody = options?.responseBody;
   }
 }
 

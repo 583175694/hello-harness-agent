@@ -6,10 +6,11 @@ import { SessionsController } from './sessions.controller';
 import { SessionsService } from './sessions.service';
 import { SessionTitleService } from './session-title.service';
 import { FileStorageModule } from '../file-storage/file-storage.module';
+import { RunStorageModule } from '../run-storage/run-storage.module';
 import { SandboxModule } from '../sandbox/sandbox.module';
 
 @Module({
-  imports: [RunsModule, ModelModule, FileStorageModule, SandboxModule],
+  imports: [RunsModule, ModelModule, FileStorageModule, RunStorageModule, SandboxModule],
   controllers: [SessionsController],
   providers: [SessionsService, SessionTitleService],
 })

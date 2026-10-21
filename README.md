@@ -21,10 +21,10 @@
   真实工具 Activity、Clue/已读/采用来源 Workbench 与刷新恢复
   可配置模型、base URL 和 API key
   PostgreSQL 连接和 Prisma migration
-  单个本地用户自动初始化
+  邮箱/短信验证码登录与按用户隔离（生产 AUTH_MODE=required；开发可 AUTH_MODE=local）
   本地 Artifact 目录 readiness 检查
   结构化日志、配置校验和敏感字段脱敏
-  unit / integration / desktop+mobile E2E
+  unit / integration；UI 手工与回归用 agent-browser
 
 下一阶段
   全局 Context Engineering
@@ -79,6 +79,13 @@ Model-led Tool Boundary 已实现：模型负责是否继续调查，Runtime 只
 
 随后访问 `http://127.0.0.1:4317/agent`。
 
+### 账号与登录（本地测试）
+
+- 邮箱与短信是**同一 Harness 账号**的两种登录方式，不是两套独立账号。
+- 推荐路径：先用邮箱或手机**登录一次** → 打开 **设置 → 账号** → **绑定**另一种方式；之后两种方式进入同一会话与数据。
+- **请勿**用同一邮箱、同一手机号各登录一次做「两个测试号」，否则会生成两个 `users` 行，绑定时会提示已被其他账号占用；当前阶段不提供账号合并。
+- 开发环境未配置 SMTP/SMS 时，验证码会打印在 API 控制台日志中。
+
 **C3 沙箱（可选）**：在 `.env` 中配置 `SANDBOX_*` 并对模型暴露 `execute_command` 时，需先启动本机 OpenSandbox：`./dev/opensandbox-local/start.sh`。说明见 [`dev/opensandbox-local/README.md`](./dev/opensandbox-local/README.md) 与 [`docs/33-c3-agent-sandbox-cloud-execution.md`](./docs/33-c3-agent-sandbox-cloud-execution.md) §1.5。
 
 健康检查：
@@ -93,14 +100,13 @@ curl http://127.0.0.1:4318/readyz
 ```bash
 pnpm check             # lint + typecheck + unit tests + build
 pnpm test:integration  # API/PostgreSQL integration tests
-pnpm test:e2e          # desktop/mobile browser tests
 pnpm setup                  # 首次准备本地数据库、应用 migration 并生成 Prisma Client
 pnpm db -- update           # 拉取数据库变更后应用 migration 并生成 Prisma Client
 pnpm db -- migrate          # 仅在修改 schema.prisma 时创建开发 migration
 pnpm db -- studio           # 打开 Prisma Studio
 ```
 
-日常只需要在首次安装时运行 `pnpm setup`，拉取到新的 Prisma migration 后运行 `pnpm db -- update`。`pnpm db -- init|deploy|generate` 作为底层排障入口继续保留；运行 `pnpm db -- --help` 可查看完整参数。PostgreSQL 使用本机服务，Web 和 API 通过 pnpm 在宿主机运行。首次初始化会创建或更新 `.env` 中配置的 PostgreSQL 用户和数据库；停止或重启数据库由本机 PostgreSQL 服务管理。API、数据库端口和连接字符串从 `.env` 读取；修改 Web 端口时还需同步 `apps/web/package.json`、Playwright 配置和 `WEB_ORIGIN`。
+日常只需要在首次安装时运行 `pnpm setup`，拉取到新的 Prisma migration 后运行 `pnpm db -- update`。`pnpm db -- init|deploy|generate` 作为底层排障入口继续保留；运行 `pnpm db -- --help` 可查看完整参数。PostgreSQL 使用本机服务，Web 和 API 通过 pnpm 在宿主机运行。首次初始化会创建或更新 `.env` 中配置的 PostgreSQL 用户和数据库；停止或重启数据库由本机 PostgreSQL 服务管理。API、数据库端口和连接字符串从 `.env` 读取；修改 Web 端口时还需同步 `apps/web/package.json` 与 `WEB_ORIGIN`。
 
 ## 工程结构
 

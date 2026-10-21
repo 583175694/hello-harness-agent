@@ -43,6 +43,13 @@ GET    /api/agent/runs/:runId/sources
 
 GET    /api/agent/artifacts/:artifactId
 GET    /api/agent/artifacts/:artifactId/content
+
+GET    /api/agent/mcp/servers
+POST   /api/agent/mcp/servers
+PUT    /api/agent/mcp/servers/:id
+PATCH  /api/agent/mcp/servers/:id
+DELETE /api/agent/mcp/servers/:id
+POST   /api/agent/mcp/servers/:id/test
 ```
 
 Post-R1：
@@ -101,7 +108,7 @@ Content-Type: application/json
 
 会话列表默认按置顶优先、最近更新时间其次排序。
 
-删除 session 是真实删除：数据库子记录在事务内清理，Artifact 文件异步/事务后可靠清理，相关 user Memory 在 P10 重新评估。
+删除 session 是真实删除：数据库子记录在事务内清理，Artifact 文件异步/事务后可靠清理，相关 user Memory 在 C7-B 重新评估（Session 删除钩子）。
 
 普通对话请求只提交 `{ "content": "本轮消息" }`。Run 执行链加载 durable canonical transcript：完整回放与 Tool Call 绑定的 reasoning、Tool Call 和 Tool Result，并回放各轮最终正文；无 Tool Call 最终 Round 的 reasoning 不进入下一用户轮次。客户端始终不提交完整历史。活跃会话的并发发送和删除返回 `409 SESSION_BUSY`。
 
@@ -321,7 +328,7 @@ type ArtifactMetadata = {
 };
 ```
 
-Content endpoint 必须验证 Artifact 属于当前 local user，并设置安全 `Content-Type` / `Content-Disposition`。
+Content endpoint 必须验证 Artifact 属于当前 local user，并设置安全 `Content-Type` / `Content-Disposition`。Agent 生成的 `fileKind: html` 预览（`GET …/artifacts/:id/preview`）返回 **original** UTF-8 HTML（与 download 字节一致），并附带冻结的 `Content-Security-Policy`、`Referrer-Policy: no-referrer` 与 `Content-Disposition: inline`；非 HTML 预览仍为规范化文本或图片短期 URL。
 
 ## 14. Public Config
 
@@ -348,10 +355,16 @@ type PublicConfig = {
 
 不得返回 baseURL、API Key env name、provider secret 或完整内部 model config。
 
-## 15. Idempotency
+## 15. MCP Admin（C4-A / C4-B）
+
+Host 侧 MCP Server 配置（Streamable HTTP）。`GET /api/agent/mcp/servers` 返回 `servers[]` 与 `catalogGeneration`；响应含 `status`、`toolCountExposed` / `toolCountTotal`（`toolCount` 与 `toolCountExposed` 相同，兼容旧客户端；Settings UI 展示为 **可用 N / 共 M**）、`lastError`、`secretsConfigured`，**永不**返回凭证明文。`POST`/`PUT` 可携带 `secrets[]`（`header` | `env` | `bearer`），落库前 AES-GCM 加密，依赖部署 env `HARNESS_SECRETS_MASTER_KEY`；`PUT` 支持编辑 URL/headers/超时等（C4-B）。`PATCH` 支持 `enabled` / `defaultApproval` / `required` / **`enabledTools`**（`null` = 不过滤，全量进 catalog）。保存后 **同步** `reconcile`（connect + listTools）。`POST .../test` 仅探测，不写入 catalog。模型侧 MCP 工具名：`mcp__<serverName>__<rawName>`；**Resources** 不注册为 `mcp__*`，由 Host 工具 `list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource`（参数 `server` = `serverName`）按需读取（C4-B）。
+
+Workbench Chat SSE 对 MCP 与未注册外部工具使用合成 discriminant `external_tool`（`AGENT_TOOL_NAMES.externalTool`），真实公开名放在 `publicName`，`subKind` 为 `mcp` | `unknown`。`tool.completed.result` 为 `{ preview, charCount?, truncated? }`，不进入 `web_search` / Research sources 投影。Conversation `tool_activity` 块仍保存 Runtime 真实 `toolName`（含 `mcp__…`）。
+
+## 16. Idempotency
 
 Create run、clarification、steer、cancel 和 session delete 都必须支持 idempotency。相同 key + 相同 payload 返回同一结果；相同 key + 不同 payload 返回 conflict。Create Run payload hash 必须覆盖 `content + reasoningEffort`，并为其他会改变模型执行语义的 run profile 预留 canonical serialization；不能只 hash正文。
 
-## 16. Versioning
+## 17. Versioning
 
 所有 API/Stream schema 从 canonical protocol 生成或直接引用。未知 event 必须按 capability/version 过滤，不能由客户端猜测字段。

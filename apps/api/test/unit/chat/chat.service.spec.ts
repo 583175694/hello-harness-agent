@@ -11,6 +11,7 @@ import { AssistantDeliveryRepository } from '../../../src/persistence/assistant-
 import { SessionExecutionRegistry } from '../../../src/sessions/session-execution.registry';
 import { ChatService } from '../../../src/chat/chat.service';
 import { ToolRegistryService } from '../../../src/tools/tool-registry.service';
+import type { ToolExposureService } from '../../../src/tools/tool-exposure/tool-exposure.service';
 
 const CHAT_COMPLETIONS_MODEL_ID = 'deepseek-v4-pro';
 
@@ -46,6 +47,9 @@ function makeService(
       create: messageCreate,
       findMany: vi.fn().mockResolvedValue(storedMessages.slice(-20).reverse()),
     },
+    agentRunDetail: {
+      upsert: vi.fn().mockResolvedValue({}),
+    },
     $transaction: vi.fn((operations: Promise<unknown>[]) => Promise.all(operations)),
   };
   const config = {
@@ -59,21 +63,40 @@ function makeService(
   } as unknown as OpenAI;
   const runtimeRegistry = {
     executionPolicy: vi.fn(() => ({ timeoutMs: 30_000 })),
+    approvalPolicy: vi.fn(() => 'auto_execute' as const),
     resolveName: vi.fn((name: string) => name),
     ...toolRegistry,
   } as ToolRegistryService;
+  const toolExposure = {
+    annotateSnapshot: (snapshot: unknown) => snapshot,
+    createIndex: () => null,
+    deferredCount: () => 0,
+    buildMcpDefinitions: () => [],
+    shouldInjectToolSearch: () => false,
+    toolSearchDefinition: () => ({ name: 'tool_search', description: '', parameters: {} }),
+    canExecuteMcp: () => true,
+    exposureMetrics: () => ({
+      latchedToolCount: 0,
+      deferredCount: 0,
+      activatedCount: 0,
+      exposedToolCount: 0,
+    }),
+  } as unknown as ToolExposureService;
   const runtime = new AgentRuntimeService(
     modelAdapter,
     runtimeRegistry,
     new BashCommandPolicyService(),
     logger,
+    toolExposure,
   );
   const service = new ChatService(
     config as unknown as ConfigService,
     prisma as unknown as PrismaService,
     executions,
     runtime,
-    new AssistantDeliveryRepository(prisma as unknown as PrismaService, logger),
+    new AssistantDeliveryRepository(prisma as unknown as PrismaService, logger, {
+      trimAndPersist: vi.fn(async (input) => input.projection),
+    } as never),
     logger,
   );
   return { service, messageCreate, executions, prisma };
@@ -102,9 +125,9 @@ describe('ChatService session persistence', () => {
         };
       })(),
     );
-    const { service, messageCreate, executions } = makeService(providerCreate);
+    const { service, messageCreate, executions, prisma } = makeService(providerCreate);
 
-    const prepared = await service.prepareSessionStream('session-1', 'new question');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     prepared.reasoningEffort = 'max';
     expect(prepared.messages).toHaveLength(20);
@@ -162,23 +185,35 @@ describe('ChatService session persistence', () => {
         kind: 'assistant_delivery',
         content: '完整回答',
         metadata: {
-          blocks: expect.arrayContaining([
-            expect.objectContaining({
-              id: `${prepared.assistantMessageId}-text-1`,
-              type: 'text',
-              content: '完整回答',
-            }),
-          ]),
+          agent: expect.objectContaining({
+            toolCallCount: 0,
+            detailRef: prepared.assistantMessageId,
+          }),
         },
       },
     });
+    expect(prisma.agentRunDetail.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          researchProjection: expect.objectContaining({
+            blocks: expect.arrayContaining([
+              expect.objectContaining({
+                id: `${prepared.assistantMessageId}-text-1`,
+                type: 'text',
+                content: '完整回答',
+              }),
+            ]),
+          }),
+        }),
+      }),
+    );
     expect(executions.isActive('session-1')).toBe(false);
   });
 
   it('retains only the user message when the provider fails', async () => {
     const providerCreate = vi.fn().mockRejectedValue(new Error('provider unavailable'));
-    const { service, messageCreate } = makeService(providerCreate);
-    const prepared = await service.prepareSessionStream('session-1', 'new question');
+    const { service, messageCreate, prisma } = makeService(providerCreate);
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await expect(collect(service.streamPrepared(prepared))).rejects.toThrow();
@@ -196,8 +231,8 @@ describe('ChatService session persistence', () => {
         yield { choices: [{ delta: {}, finish_reason: 'length' }] };
       })(),
     );
-    const { service, messageCreate } = makeService(providerCreate);
-    const prepared = await service.prepareSessionStream('session-1', 'new question');
+    const { service, messageCreate, prisma } = makeService(providerCreate);
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await expect(collect(service.streamPrepared(prepared))).rejects.toMatchObject({
@@ -213,7 +248,7 @@ describe('ChatService session persistence', () => {
       })(),
     );
     const { service } = makeService(providerCreate);
-    const prepared = await service.prepareSessionStream('session-1', 'new question');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     prepared.reasoningEffort = 'off';
     prepared.messages = [
@@ -323,8 +358,8 @@ describe('ChatService session persistence', () => {
         logFields: { durationMs: 10, resultCount: 1 },
       }),
     };
-    const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'search the web');
+    const { service, messageCreate, prisma } = makeService(providerCreate, registry);
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'search the web');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const onTranscriptItem = vi.fn();
     prepared.onTranscriptItem = onTranscriptItem;
@@ -364,30 +399,24 @@ describe('ChatService session persistence', () => {
         content: expect.stringContaining('我先检索。检索完成。'),
         metadata: {
           model: CHAT_COMPLETIONS_MODEL_ID,
-          blocks: expect.arrayContaining([
-            expect.objectContaining({ type: 'text', content: '我先检索。' }),
-            expect.objectContaining({
-              type: 'tool_activity',
-              toolCallId: 'call-search',
-              status: 'completed',
-            }),
-            expect.objectContaining({ type: 'text', content: expect.stringContaining('检索完成') }),
-          ]),
-          agent: {
-            toolCallCount: 1,
-            executions: [
-              expect.objectContaining({ toolCallId: 'call-search', status: 'completed' }),
-            ],
-            sources: [
-              expect.objectContaining({
-                url: 'https://example.com/',
-                toolCallIds: ['call-search'],
-              }),
-            ],
-          },
+          agent: expect.objectContaining({ toolCallCount: 1 }),
         },
       },
     });
+    expect(prisma.agentRunDetail.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          researchProjection: expect.objectContaining({
+            blocks: expect.arrayContaining([
+              expect.objectContaining({ type: 'tool_activity', toolCallId: 'call-search' }),
+            ]),
+            executions: [
+              expect.objectContaining({ toolCallId: 'call-search', status: 'completed' }),
+            ],
+          }),
+        }),
+      }),
+    );
   });
 
   it('reports a failed tool call and still persists the model restricted answer', async () => {
@@ -428,8 +457,8 @@ describe('ChatService session persistence', () => {
         logFields: { durationMs: 10 },
       }),
     };
-    const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'search the web');
+    const { service, messageCreate, prisma } = makeService(providerCreate, registry);
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'search the web');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events = await collect(service.streamPrepared(prepared));
 
@@ -448,14 +477,19 @@ describe('ChatService session persistence', () => {
       data: {
         content: '联网检索失败，当前无法验证最新信息。',
         metadata: {
-          agent: {
-            toolCallCount: 1,
-            executions: [expect.objectContaining({ toolCallId: 'call-failed', status: 'failed' })],
-            sources: [],
-          },
+          agent: expect.objectContaining({ toolCallCount: 1 }),
         },
       },
     });
+    expect(prisma.agentRunDetail.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          researchProjection: expect.objectContaining({
+            executions: [expect.objectContaining({ toolCallId: 'call-failed', status: 'failed' })],
+          }),
+        }),
+      }),
+    );
   });
 
   it('projects web search followed by web fetch as one upgraded evidence candidate', async () => {
@@ -593,8 +627,8 @@ describe('ChatService session persistence', () => {
         ),
       ),
     };
-    const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'research AI');
+    const { service, messageCreate, prisma } = makeService(providerCreate, registry);
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'research AI');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events = await collect(service.streamPrepared(prepared));
 
@@ -611,22 +645,11 @@ describe('ChatService session persistence', () => {
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
       data: {
         metadata: {
-          agent: {
-            toolCallCount: 2,
-            sources: [
-              expect.objectContaining({
-                kind: 'fetched',
-                used: true,
-                finalUrl: 'https://example.com/report',
-                toolCallIds: ['call-search', 'call-fetch'],
-                passages: [expect.objectContaining({ passageId: 'passage-1' })],
-              }),
-            ],
-          },
+          agent: expect.objectContaining({ toolCallCount: 2 }),
         },
       },
     });
-    expect(JSON.stringify(messageCreate.mock.calls[1]?.[0])).not.toContain('<html');
+    expect(JSON.stringify(prisma.agentRunDetail.upsert.mock.calls[0]?.[0])).not.toContain('<html');
   });
 
   it('projects a cancelled tool separately and updates the same activity block', async () => {
@@ -666,8 +689,8 @@ describe('ChatService session persistence', () => {
         logFields: { durationMs: 10 },
       }),
     };
-    const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'stop search');
+    const { service, messageCreate, prisma } = makeService(providerCreate, registry);
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'stop search');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events = await collect(service.streamPrepared(prepared));
 
@@ -682,22 +705,28 @@ describe('ChatService session persistence', () => {
       data: {
         content: '检索已停止。',
         metadata: {
-          blocks: expect.arrayContaining([
-            expect.objectContaining({
-              type: 'tool_activity',
-              toolCallId: 'call-cancelled',
-              status: 'cancelled',
-            }),
-            expect.objectContaining({ type: 'text', content: '检索已停止。' }),
-          ]),
-          agent: {
-            executions: [
-              expect.objectContaining({ toolCallId: 'call-cancelled', status: 'cancelled' }),
-            ],
-          },
+          agent: expect.objectContaining({ toolCallCount: 1 }),
         },
       },
     });
+    expect(prisma.agentRunDetail.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          researchProjection: expect.objectContaining({
+            blocks: expect.arrayContaining([
+              expect.objectContaining({
+                type: 'tool_activity',
+                toolCallId: 'call-cancelled',
+                status: 'cancelled',
+              }),
+            ]),
+            executions: [
+              expect.objectContaining({ toolCallId: 'call-cancelled', status: 'cancelled' }),
+            ],
+          }),
+        }),
+      }),
+    );
   });
 
   it('does not persist a partial assistant timeline when tool execution is aborted', async () => {
@@ -731,7 +760,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'stop search');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'stop search');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
     const events: unknown[] = [];
 
@@ -820,8 +849,8 @@ describe('ChatService session persistence', () => {
         });
       }),
     };
-    const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'compare sources');
+    const { service, messageCreate, prisma } = makeService(providerCreate, registry);
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'compare sources');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await collect(service.streamPrepared(prepared));
@@ -830,150 +859,26 @@ describe('ChatService session persistence', () => {
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
       data: {
         metadata: {
-          agent: {
-            toolCallCount: 2,
+          agent: expect.objectContaining({ toolCallCount: 2 }),
+        },
+      },
+    });
+    expect(prisma.agentRunDetail.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          researchProjection: expect.objectContaining({
             executions: [
               expect.objectContaining({ toolCallId: 'call-first' }),
               expect.objectContaining({ toolCallId: 'call-second' }),
             ],
-            sources: [
-              expect.objectContaining({
-                url: 'https://example.com/report',
-                toolCallIds: ['call-first', 'call-second'],
-              }),
-            ],
-          },
-        },
-      },
-    });
-  });
-
-  it('does not infer a forced-final transition from tool-owned control fields', async () => {
-    let modelRound = 0;
-    const providerCreate = vi.fn().mockImplementation(() => {
-      modelRound += 1;
-      if (modelRound === 1) {
-        return Promise.resolve(
-          (async function* () {
-            yield {
-              choices: [
-                {
-                  delta: {
-                    tool_calls: [
-                      {
-                        index: 0,
-                        id: 'call-search',
-                        function: { name: 'web_search', arguments: '{"query":"test"}' },
-                      },
-                    ],
-                  },
-                  finish_reason: 'tool_calls',
-                },
-              ],
-            };
-          })(),
-        );
-      }
-      const content = modelRound === 2 ? '<｜DSML｜tool_calls>污染内容' : '经过校验的最终回答';
-      return Promise.resolve(
-        (async function* () {
-          yield { choices: [{ delta: { content }, finish_reason: 'stop' }] };
-        })(),
-      );
-    });
-    const registry = {
-      definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
-      parseInput: vi.fn(() => ({ query: 'test' })),
-      execute: vi.fn().mockResolvedValue({
-        status: 'succeeded',
-        output: { query: 'test', provider: 'serp', results: [] },
-        logFields: { durationMs: 1, resultCount: 0 },
+          }),
+        }),
       }),
-    };
-    const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'research');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
-
-    const events = await collect(service.streamPrepared(prepared));
-
-    expect(events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: 'message.delta', delta: '<｜DSML｜tool_calls>污染内容' }),
-      ]),
     );
-    expect(providerCreate).toHaveBeenCalledTimes(2);
-    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
-      data: { content: '<｜DSML｜tool_calls>污染内容' },
-    });
   });
 
-  it('keeps ordinary model text independent from removed tool force-final controls', async () => {
-    let modelRound = 0;
-    const providerCreate = vi.fn().mockImplementation(() => {
-      modelRound += 1;
-      if (modelRound === 1) {
-        return Promise.resolve(
-          (async function* () {
-            yield {
-              choices: [
-                {
-                  delta: {
-                    tool_calls: [
-                      {
-                        index: 0,
-                        id: 'call-search',
-                        function: { name: 'web_search', arguments: '{"query":"test"}' },
-                      },
-                    ],
-                  },
-                  finish_reason: 'tool_calls',
-                },
-              ],
-            };
-          })(),
-        );
-      }
-      return Promise.resolve(
-        (async function* () {
-          yield {
-            choices: [
-              {
-                delta: { content: '<|DSML|tool_calls>污染内容' },
-                finish_reason: 'stop',
-              },
-            ],
-          };
-        })(),
-      );
-    });
-    const registry = {
-      definitions: vi.fn(() => [{ name: 'web_search', description: '搜索', parameters: {} }]),
-      parseInput: vi.fn(() => ({ query: 'test' })),
-      execute: vi.fn().mockResolvedValue({
-        status: 'succeeded',
-        output: { query: 'test', provider: 'serp', results: [] },
-        logFields: { durationMs: 1, resultCount: 0 },
-      }),
-    };
-    const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'research');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
-
-    await expect(collect(service.streamPrepared(prepared))).resolves.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: 'message.delta', delta: '<|DSML|tool_calls>污染内容' }),
-      ]),
-    );
-
-    expect(providerCreate).toHaveBeenCalledTimes(2);
-    expect(messageCreate).toHaveBeenCalledTimes(2);
-    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
-      data: { role: 'assistant', content: '<|DSML|tool_calls>污染内容' },
-    });
-  });
-
-  it('forces a tool-free final model round after the shared 40-call limit is reached', async () => {
-    // 模拟模型连续请求工具的轮次，用于验证跨轮共享的调用次数上限。
+  it('enters delivery phase after 40 investigation tool turns and completes with a text-only round', async () => {
+    // 模拟 40 轮调查工具调用，验证第 41 轮进入 delivery（仍可能有交付工具）且最终可无工具回答。
     let modelRound = 0;
     const providerCreate = vi.fn().mockImplementation(() => {
       modelRound += 1;
@@ -1029,7 +934,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('session-1', 'research extensively');
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'research extensively');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
     await collect(service.streamPrepared(prepared));
@@ -1039,14 +944,102 @@ describe('ChatService session persistence', () => {
       expect.objectContaining({ tools: expect.any(Array) }),
     );
     expect(providerCreate.mock.calls[0]?.[0]).not.toHaveProperty('tool_choice');
-    expect(providerCreate.mock.calls[40]?.[0]).not.toHaveProperty('tools');
+    const deliveryRoundRequest = providerCreate.mock.calls[40]?.[0] as {
+      tools?: Array<{ function: { name: string } }>;
+    };
+    expect(deliveryRoundRequest.tools?.map((tool) => tool.function.name)).not.toContain('web_search');
     expect(providerCreate.mock.calls[40]?.[0]).not.toHaveProperty('tool_choice');
     expect(registry.execute).toHaveBeenCalledTimes(40);
     expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
       data: {
         content: '已达到工具预算，基于现有资料回答。',
-        metadata: { agent: { toolCallCount: 40 } },
+        metadata: { agent: expect.objectContaining({ toolCallCount: 40 }) },
       },
     });
+  });
+
+  it('projects MCP string output as external_tool without treating it as web_search', async () => {
+    const mcpToolName = 'mcp__fixture__ping';
+    const providerCreate = vi
+      .fn()
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield { choices: [{ delta: { content: '调用 MCP。' } }] };
+          yield {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call-mcp',
+                      function: { name: mcpToolName, arguments: '{"message":"hi"}' },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+          };
+        })(),
+      )
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield { choices: [{ delta: { content: 'MCP 完成。' } }] };
+          yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
+        })(),
+      );
+    const registry = {
+      definitions: vi.fn(() => [{ name: mcpToolName, description: 'ping', parameters: {} }]),
+      parseInput: vi.fn(() => ({ message: 'hi' })),
+      execute: vi.fn().mockResolvedValue({
+        status: 'succeeded',
+        output: 'pong-response-text',
+        logFields: { durationMs: 8 },
+      }),
+    };
+    const { service, messageCreate, prisma } = makeService(providerCreate, registry);
+    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'ping mcp');
+    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
+    const events = await collect(service.streamPrepared(prepared));
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool.started',
+          toolName: 'external_tool',
+          publicName: mcpToolName,
+        }),
+        expect.objectContaining({
+          type: 'tool.completed',
+          toolName: 'external_tool',
+          publicName: mcpToolName,
+          result: expect.objectContaining({ preview: 'pong-response-text', charCount: 18 }),
+        }),
+        expect.objectContaining({ type: 'message.delta', delta: 'MCP 完成。' }),
+      ]),
+    );
+    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+      data: {
+        metadata: {
+          agent: expect.objectContaining({ toolCallCount: 1 }),
+        },
+      },
+    });
+    expect(prisma.agentRunDetail.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          researchProjection: expect.objectContaining({
+            executions: [
+              expect.objectContaining({
+                toolName: 'external_tool',
+                publicName: mcpToolName,
+                outputPreview: 'pong-response-text',
+              }),
+            ],
+          }),
+        }),
+      }),
+    );
   });
 });

@@ -18,6 +18,9 @@ const frames = [
   { href: '/preview/c-hitl', title: 'C · HITL Composer', desc: '工具审批内嵌 Composer' },
   { href: '/preview/d-drawer', title: 'D · Session Drawer', desc: '左 Drawer ~78%' },
   { href: '/preview/artifact', title: '产物 · Artifact Tab', desc: 'Diff 预览 + 底栏 CTA' },
+  { href: '/preview/ipad-split', title: 'iPad · 并排工作台', desc: 'Conversation | Workbench 双栏' },
+  { href: '/reader/report', title: 'Reader · 报告全屏', desc: 'Markdown 报告阅读' },
+  { href: '/reader/preview', title: 'Reader · 文件预览', desc: 'Artifact diff 全屏' },
 ] as const;
 
 export default function PreviewIndexScreen() {
@@ -35,6 +38,12 @@ export default function PreviewIndexScreen() {
             </Text>
             <Text variant="body-sm" className="mt-1 text-secondary">
               {frame.desc}
+            </Text>
+            <Text variant="caption" className="mt-2 text-muted">
+              页面标识符{' '}
+              <Text variant="caption" className="font-mono">
+                {frame.href}
+              </Text>
             </Text>
           </Pressable>
         </Link>

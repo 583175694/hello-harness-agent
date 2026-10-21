@@ -4,23 +4,41 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AppPreferencesProvider, useAppPreferences } from '@/providers/app-preferences-provider';
+import { ThemeRoot } from '@/providers/theme-root';
+
+function RootNavigation() {
+  const { resolvedColorScheme } = useAppPreferences();
+  const isDark = resolvedColorScheme === 'dark';
+
+  return (
+    <>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="preview" />
+        <Stack.Screen name="reader" />
+        <Stack.Screen
+          name="settings"
+          options={{
+            headerShown: false,
+            animation: 'slide_from_right',
+          }}
+        />
+      </Stack>
+    </>
+  );
+}
 
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style="dark" />
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#f7f7f6' } }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="preview" />
-          <Stack.Screen
-            name="settings"
-            options={{
-              headerShown: false,
-              animation: 'slide_from_right',
-            }}
-          />
-        </Stack>
+        <AppPreferencesProvider>
+          <ThemeRoot>
+            <RootNavigation />
+          </ThemeRoot>
+        </AppPreferencesProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

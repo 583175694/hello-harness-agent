@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { FileText } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
@@ -16,9 +17,21 @@ export function ArtifactConversationCard({
   fileKind = 'text',
   onPress,
 }: ArtifactConversationCardProps) {
+  const router = useRouter();
+  const handlePress = () => {
+    if (onPress) {
+      onPress();
+      return;
+    }
+    router.push({
+      pathname: '/reader/preview',
+      params: { name: fileName, kind: fileKind },
+    });
+  };
+
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       className="flex-row items-center gap-3 rounded-xl border border-composer-border bg-surface px-3 py-2.5 active:bg-subtle"
     >
       <View className="h-9 w-9 items-center justify-center rounded-lg bg-subtle">

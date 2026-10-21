@@ -17,8 +17,11 @@ export default function AgentPreviewIndexScreen() {
             <Text variant="body" className="font-medium">
               {item.label}
             </Text>
-            <Text variant="caption" className="font-mono text-muted">
-              {item.id}
+            <Text variant="caption" className="text-muted">
+              页面标识符{' '}
+              <Text variant="caption" className="font-mono">
+                {item.id}
+              </Text>
             </Text>
           </Pressable>
         </Link>

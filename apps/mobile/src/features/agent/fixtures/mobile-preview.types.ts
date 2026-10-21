@@ -35,7 +35,11 @@ export type MobilePreviewState =
   | 'fetch-candidate'
   | 'fetch-failed'
   /** Preview：长会话滚动 / FlashList 压测 */
-  | 'scroll-stress';
+  | 'scroll-stress'
+  | 'skills'
+  | 'service-unavailable'
+  | 'composer-peek'
+  | 'memory-write-tool';
 
 export type MobileAssistantBlock =
   | { type: 'text'; content: string }
@@ -52,7 +56,8 @@ export type MobileAssistantBlock =
       versionNumber?: number;
       fileKind?: string;
     }
-  | { type: 'user_intervention'; content: string };
+  | { type: 'user_intervention'; content: string }
+  | { type: 'chain_of_thought'; id: string };
 
 export type MobileConversationItem =
   | {
@@ -60,6 +65,7 @@ export type MobileConversationItem =
       content: string;
       pendingState?: 'steer_pending' | 'steer_applied' | 'follow_up_pending';
       attachmentHint?: string;
+      skillNames?: string[];
     }
   | {
       kind: 'assistant';
@@ -77,12 +83,24 @@ export type MobileComposerFixture = {
   followUpItems?: Array<{ id: string; content: string }>;
   showAttachmentSamples?: boolean;
   submitting?: boolean;
+  selectedSkills?: string[];
+  showContextRing?: boolean;
+  composerTextMode?: 'new-run' | 'steer' | 'clarification' | 'disabled';
+};
+
+export type MobileChromeFixture = {
+  serviceState?: 'checking' | 'ready' | 'unavailable';
+  connectionState?: 'idle' | 'connecting' | 'live' | 'reconnecting' | 'offline';
+  runSummary?: string;
+  peekBarTitle?: string;
+  peekBarSubtitle?: string;
 };
 
 export type MobileChatFixture = {
   title?: string;
   conversation: MobileConversationItem[];
   composer: MobileComposerFixture;
+  chrome?: MobileChromeFixture;
   workbench?: {
     initialView?: WorkspaceView;
     initialSheetIndex?: number;

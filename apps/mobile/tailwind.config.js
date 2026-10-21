@@ -1,29 +1,34 @@
 /** @type {import('tailwindcss').Config} */
+function rgbVar(name) {
+  return `rgb(var(--${name}) / <alpha-value>)`;
+}
+
 module.exports = {
   content: ['./app/**/*.{js,jsx,ts,tsx}', './src/**/*.{js,jsx,ts,tsx}'],
   presets: [require('nativewind/preset')],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        canvas: '#f7f7f6',
-        drawer: '#fbfaf9',
-        surface: '#ffffff',
-        subtle: '#f1f1ef',
-        'composer-border': '#ededeb',
-        'user-bubble': '#edf3fe',
-        'user-bubble-border': '#dbe6f8',
-        primary: '#171717',
-        'primary-pressed': '#2c2c2a',
-        'primary-foreground': '#ffffff',
-        'subtle-pressed': '#e8e8e5',
-        secondary: '#555551',
-        muted: '#898986',
-        link: '#3f5f78',
-        approval: '#eaf2ec',
-        'approval-text': '#2f5d3a',
-        rejection: '#f8ecea',
-        'rejection-text': '#984b41',
-        border: '#dededb',
+        canvas: rgbVar('canvas'),
+        drawer: rgbVar('drawer'),
+        surface: rgbVar('surface'),
+        subtle: rgbVar('subtle'),
+        'composer-border': rgbVar('composer-border'),
+        'user-bubble': rgbVar('user-bubble'),
+        'user-bubble-border': rgbVar('user-bubble-border'),
+        primary: rgbVar('primary'),
+        'primary-pressed': rgbVar('primary-pressed'),
+        'primary-foreground': rgbVar('primary-foreground'),
+        'subtle-pressed': rgbVar('subtle-pressed'),
+        secondary: rgbVar('secondary'),
+        muted: rgbVar('muted'),
+        link: rgbVar('link'),
+        approval: rgbVar('approval'),
+        'approval-text': rgbVar('approval-text'),
+        rejection: rgbVar('rejection'),
+        'rejection-text': rgbVar('rejection-text'),
+        border: rgbVar('border'),
         terminal: '#0f1115',
         'overlay-scrim': 'rgba(0,0,0,0.4)',
       },

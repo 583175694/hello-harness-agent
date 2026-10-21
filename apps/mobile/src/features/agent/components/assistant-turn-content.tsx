@@ -8,6 +8,8 @@ import { ArtifactConversationCard } from './agent-elements/artifact-conversation
 import { AssistantMessageBlock } from './agent-elements/assistant-message-block';
 import { ReasoningBlock } from './agent-elements/reasoning-block';
 import { UserInterventionRow } from './agent-elements/user-intervention-row';
+import { AgentChainOfThought } from './agent-elements/agent-chain-of-thought';
+import { AssistantTextBlock } from './assistant-text-block';
 import { ToolActivityGroup } from './tool-activity-group';
 
 type RenderUnit =
@@ -89,11 +91,10 @@ export function AssistantTurnContent({
             );
           }
           if (unit.type === 'text') {
-            return (
-              <Text key={key} variant="body-sm" className="leading-relaxed text-primary" selectable>
-                {unit.content}
-              </Text>
-            );
+            return <AssistantTextBlock key={key} content={unit.content} />;
+          }
+          if (unit.type === 'chain_of_thought') {
+            return <AgentChainOfThought key={key} running={streaming} />;
           }
           if (unit.type === 'artifact') {
             return (

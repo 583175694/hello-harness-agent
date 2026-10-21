@@ -12,6 +12,7 @@ import {
 } from './ui-fixtures';
 import type { ToolActivityFixture } from './ui-fixtures';
 
+/** `id` 为与 Web `?state=` 对齐的页面标识符（非路由 path） */
 export const MOBILE_PREVIEW_STATES: Array<{ id: MobilePreviewState; label: string }> = [
   { id: 'empty', label: '空会话' },
   { id: 'direct-answer', label: '直接回答' },
@@ -45,6 +46,10 @@ export const MOBILE_PREVIEW_STATES: Array<{ id: MobilePreviewState; label: strin
   { id: 'limited-report', label: '受限报告' },
   { id: 'final-report', label: '最终报告' },
   { id: 'scroll-stress', label: '长会话滚动压测' },
+  { id: 'skills', label: 'Skills 发送' },
+  { id: 'service-unavailable', label: '服务不可用' },
+  { id: 'composer-peek', label: 'Composer peek 条' },
+  { id: 'memory-write-tool', label: 'memory_write 工具' },
 ];
 
 function text(content: string): MobileAssistantBlock {
@@ -325,7 +330,10 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
         { kind: 'user', content: '请查找生成式 AI 产业落地的原始依据。' },
         {
           kind: 'assistant',
-          blocks: [{ type: 'tool_activity', item: fetchTool(running, failed) }],
+          blocks: [
+            ...(running ? [{ type: 'chain_of_thought' as const, id: 'cot-fetch' }] : []),
+            { type: 'tool_activity', item: fetchTool(running, failed) },
+          ],
           streaming: running,
         },
       ],
@@ -445,6 +453,74 @@ export function makeMobilePreviewState(state: MobilePreviewState | 'default'): M
       {},
       { initialView: 'artifact', initialSheetIndex: 1 },
     );
+  }
+
+  if (state === 'skills') {
+    return {
+      title: 'Skills 预览',
+      conversation: [
+        {
+          kind: 'user',
+          content: '用 better-ui 规范润色移动端工作台。',
+          skillNames: ['better-ui'],
+        },
+        {
+          kind: 'assistant',
+          deliveryStatus: 'completed',
+          blocks: [text('已加载 Skill 上下文，将按设计 token 调整圆角与动效。')],
+        },
+      ],
+      composer: { selectedSkills: ['better-ui'] },
+    };
+  }
+
+  if (state === 'service-unavailable') {
+    return {
+      ...defaultAuthRefactorFixture(),
+      chrome: {
+        serviceState: 'unavailable',
+        connectionState: 'offline',
+        runSummary: '服务不可用',
+      },
+    };
+  }
+
+  if (state === 'composer-peek') {
+    return {
+      ...defaultAuthRefactorFixture(),
+      composer: { submitting: true, showPlan: true },
+      chrome: {
+        peekBarTitle: '正在搜索公开来源',
+        peekBarSubtitle: '步骤 2 / 5',
+        runSummary: '检索中',
+      },
+    };
+  }
+
+  if (state === 'memory-write-tool') {
+    return {
+      title: 'memory_write',
+      conversation: [
+        { kind: 'user', content: '记住：报告默认用简体中文。' },
+        {
+          kind: 'assistant',
+          blocks: [
+            {
+              type: 'tool_activity',
+              item: {
+                id: 'mem-write',
+                name: 'memory_write',
+                summary: '写入偏好：报告默认简体中文',
+                status: 'completed',
+                duration: '120ms',
+              },
+            },
+            text('已写入长期记忆，后续 Run 将自动召回相关偏好。'),
+          ],
+        },
+      ],
+      composer: {},
+    };
   }
 
   const statusCopy: Partial<Record<MobilePreviewState, string>> = {

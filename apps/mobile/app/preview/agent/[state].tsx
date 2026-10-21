@@ -5,12 +5,18 @@ import { MOBILE_PREVIEW_STATES } from '@/features/agent/fixtures/mobile-preview'
 
 export default function AgentPreviewStateScreen() {
   const { state } = useLocalSearchParams<{ state: string }>();
-  const valid = MOBILE_PREVIEW_STATES.some((item) => item.id === state);
+  const entry = MOBILE_PREVIEW_STATES.find((item) => item.id === state);
+  const valid = Boolean(entry);
   const previewState = (valid ? state : 'empty') as MobilePreviewState;
+  const screenTitle = entry
+    ? `${entry.label} · ${entry.id}`
+    : state
+      ? `页面标识符 ${state}`
+      : 'preview';
 
   return (
     <>
-      <Stack.Screen options={{ title: state ?? 'preview' }} />
+      <Stack.Screen options={{ title: screenTitle }} />
       <ChatScreen previewState={previewState} />
     </>
   );

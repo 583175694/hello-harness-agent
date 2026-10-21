@@ -1,6 +1,6 @@
 import type { ToolActivityFixture } from './ui-fixtures';
 
-/** Web `tool-copy` / Registry 已落地工具（不含未实现的 Memory/Delegation/Skills） */
+/** Web `tool-copy` / Registry 已落地工具（不含未实现的 Delegation） */
 export const PROJECT_TOOL_NAMES = [
   'web_search',
   'web_fetch',
@@ -14,6 +14,7 @@ export const PROJECT_TOOL_NAMES = [
   'job_list',
   'job_kill',
   'external_tool',
+  'memory_write',
 ] as const;
 
 export type ProjectToolName = (typeof PROJECT_TOOL_NAMES)[number];
@@ -31,6 +32,7 @@ const toolSummary: Record<ProjectToolName, string> = {
   job_list: '列出后台 job',
   job_kill: '(job_id: sb-7f2a)',
   external_tool: 'mcp__filesystem__read · path=/repo/README.md',
+  memory_write: '写入偏好：报告默认简体中文',
 };
 
 export const catalogToolActivities: ToolActivityFixture[] = PROJECT_TOOL_NAMES.map((name, index) => ({

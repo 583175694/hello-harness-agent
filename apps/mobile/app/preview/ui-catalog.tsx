@@ -1,3 +1,5 @@
+import { Link } from 'expo-router';
+import { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
@@ -9,7 +11,15 @@ import { PlanFloatingCard } from '@/features/agent/components/agent-elements/pla
 import { ReasoningBlock } from '@/features/agent/components/agent-elements/reasoning-block';
 import { UserInterventionRow } from '@/features/agent/components/agent-elements/user-intervention-row';
 import { UserMessageBubble } from '@/features/agent/components/agent-elements/user-message-bubble';
+import { AgentChainOfThought } from '@/features/agent/components/agent-elements/agent-chain-of-thought';
+import { ComposerContextRing } from '@/features/agent/components/agent-elements/composer-context-ring';
+import { SkillMentionChip } from '@/features/agent/components/agent-elements/skill-mention-chip';
 import { ChatTopBar } from '@/features/agent/components/chat-top-bar';
+import { ConnectionPill } from '@/features/agent/components/connection-pill';
+import { ComposerPeekBar } from '@/features/agent/components/composer-peek-bar';
+import { ServiceBanner } from '@/features/agent/components/service-banner';
+import { ContextJsonTree } from '@/features/agent/components/context-json-tree';
+import { WorkbenchContextView } from '@/features/agent/components/workbench-context-view';
 import { ComposerClarificationPanel } from '@/features/agent/components/composer-clarification-panel';
 import { ComposerHitlPanel } from '@/features/agent/components/composer-hitl-panel';
 import { ComposerStack } from '@/features/agent/components/composer-stack';
@@ -24,10 +34,12 @@ import {
   catalogFollowUpFixture,
   catalogToolActivities,
   catalogToolStatusSamples,
+  catalogContextFixture,
 } from '@/features/agent/fixtures/ui-catalog-fixtures';
 
 export default function UiCatalogScreen() {
   const insets = useSafeAreaInsets();
+  const [attachmentOpen, setAttachmentOpen] = useState(false);
 
   return (
     <View className="flex-1 bg-canvas" style={{ paddingTop: insets.top }}>
@@ -38,13 +50,22 @@ export default function UiCatalogScreen() {
         <View>
           <Text variant="headline">Agent UI 组件目录</Text>
           <Text variant="body-sm" className="mt-1 text-secondary">
-            与 Web `/agent` + protocol 已落地能力对齐；未实现能力（Memory / Delegation / Skills / Host
-            Git）无对应组件。
+            与 Web `/agent` 已落地能力静态对齐（含 Memory / Skills / memory_write）；Delegation / Host
+            Git 无对应组件。
           </Text>
         </View>
 
-        <CatalogSection title="壳层 · TopBar" description="左 Drawer · 中标题；工作台由工具行/快捷按钮打开">
-          <ChatTopBar />
+        <CatalogSection title="壳层 · TopBar" description="工作台 badge · 连接态 · 设置">
+          <ChatTopBar workbenchCount={3} runSummary="检索中" connectionState="live" />
+        </CatalogSection>
+
+        <CatalogSection title="壳层 · Connection / Service">
+          <View className="flex-row flex-wrap gap-2">
+            <ConnectionPill state="live" />
+            <ConnectionPill state="reconnecting" />
+            <ConnectionPill state="offline" />
+          </View>
+          <ServiceBanner state="unavailable" onRetry={() => undefined} />
         </CatalogSection>
 
         <CatalogSection title="用户消息" description="含 pendingState 与附件提示">
@@ -56,6 +77,16 @@ export default function UiCatalogScreen() {
             pendingState="follow_up_pending"
           />
           <UserMessageBubble content="带附件的用户消息" attachmentHint="requirements.md · 4 KB" />
+          <UserMessageBubble
+            content="用 Skill 润色 UI"
+            skillNames={['better-ui']}
+          />
+        </CatalogSection>
+
+        <CatalogSection title="Skills · mention chip">
+          <View className="flex-row flex-wrap">
+            <SkillMentionChip name="better-ui" mode="editable" onRemove={() => undefined} />
+          </View>
         </CatalogSection>
 
         <CatalogSection title="Assistant · 交付态">
@@ -79,6 +110,10 @@ export default function UiCatalogScreen() {
 
         <CatalogSection title="Assistant · user_intervention">
           <UserInterventionRow content="补充：优先覆盖 refresh token 旋转路径" />
+        </CatalogSection>
+
+        <CatalogSection title="Assistant · Chain of Thought">
+          <AgentChainOfThought running />
         </CatalogSection>
 
         <CatalogSection title="Assistant · artifact 块">
@@ -144,8 +179,23 @@ export default function UiCatalogScreen() {
           <FollowUpQueuePanel items={catalogFollowUpFixture} />
         </CatalogSection>
 
+        <CatalogSection title="Composer · peek 条">
+          <ComposerPeekBar title="正在搜索公开来源" subtitle="步骤 2 / 5" onPress={() => undefined} />
+        </CatalogSection>
+
+        <CatalogSection title="Composer · Context 环">
+          <ComposerContextRing
+            usedTokens={catalogContextFixture.estimatedInputTokens}
+            budgetTokens={catalogContextFixture.promptBudget}
+            compactionTriggered={catalogContextFixture.compactionTriggered}
+          />
+        </CatalogSection>
+
         <CatalogSection title="Composer · 默认">
-          <ComposerStack />
+          <ComposerStack
+            attachmentSheetOpen={attachmentOpen}
+            onAttachmentSheetOpenChange={setAttachmentOpen}
+          />
         </CatalogSection>
 
         <CatalogSection title="Composer · 附件预览条" description="showAttachmentSamples">
@@ -194,6 +244,24 @@ export default function UiCatalogScreen() {
             </Text>
             <WorkbenchReportView />
           </View>
+        </CatalogSection>
+
+        <CatalogSection title="Settings · 记忆 / MCP">
+          <Link href="/settings/memory">
+            <Text variant="body-sm" className="text-link">
+              打开记忆设置（Hub / 列表 / 表单）
+            </Text>
+          </Link>
+          <Link href="/settings/mcp">
+            <Text variant="body-sm" className="mt-2 text-link">
+              打开 MCP 列表与表单
+            </Text>
+          </Link>
+        </CatalogSection>
+
+        <CatalogSection title="Context 调试 JSON（Catalog）">
+          <WorkbenchContextView />
+          <ContextJsonTree />
         </CatalogSection>
 
         <CatalogSection title="Session Drawer" description="见 /preview/d-drawer 全屏帧">

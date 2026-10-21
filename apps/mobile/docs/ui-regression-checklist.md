@@ -19,5 +19,13 @@ Manual checks on iOS Simulator after better-ui polish changes.
 15. Workbench 已展开时切换 Tab：**抽屉 detent 高度不变**（不随内容跳动）；拉到最高档时 Sheet 顶缘在会话标题栏**下方**，标题在 scrim 下变暗。
 16. **仅检索无文件**：`/preview/b-sources` 无「文件」分段，主区为来源卡片；**default** 有「实时跟随 | 文件」两档。
 17. **Plan 浮卡**：点 pill 展开/收起详情，**无全屏 scrim**；pill 位置不跳、无闪一下换实例。
+18. **Settings**：主题切换 Light/Dark；字号 12–17 改变对话正文；API URL 编辑后重启 App 仍保留。
+19. **Settings → 记忆**：Hub 开关持久化；列表新增/编辑/删除仅本地；返回栈正常。
+20. **Settings → MCP**：列表 → 编辑/新建表单滚动与 Switch；保存 Alert 不崩溃。
+21. **Composer**：`+` → 附件与 Skill 入口；Skill picker 多选；用户消息 skill chips（`/preview/agent` → skills）。
+22. **Composer peek**：`/preview/agent` → composer-peek；点 peek 条打开 Workbench half。
+23. **来源 Passage**：Workbench 来源卡片「查看全文」半屏 Modal。
+24. **Reader**：Artifact 卡片或报告「全屏阅读」→ `/reader/*` 返回栈。
+25. **iPad 并排**：`/preview/ipad-split` 双栏；Phone 仍为 Bottom Sheet。
 
 Run: `pnpm --filter @harness/mobile ios` or Expo dev client.

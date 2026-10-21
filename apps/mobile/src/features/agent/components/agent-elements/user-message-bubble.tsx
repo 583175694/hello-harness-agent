@@ -1,10 +1,12 @@
 import { View } from 'react-native';
 import { Text } from '@/components/ui/text';
+import { SkillMentionChip } from './skill-mention-chip';
 
 type UserMessageBubbleProps = {
   content: string;
   pendingState?: 'steer_pending' | 'steer_applied' | 'follow_up_pending';
   attachmentHint?: string;
+  skillNames?: string[];
 };
 
 const pendingCopy: Record<NonNullable<UserMessageBubbleProps['pendingState']>, string> = {
@@ -13,10 +15,22 @@ const pendingCopy: Record<NonNullable<UserMessageBubbleProps['pendingState']>, s
   follow_up_pending: 'Follow-up 排队中',
 };
 
-export function UserMessageBubble({ content, pendingState, attachmentHint }: UserMessageBubbleProps) {
+export function UserMessageBubble({
+  content,
+  pendingState,
+  attachmentHint,
+  skillNames = [],
+}: UserMessageBubbleProps) {
   return (
     <View className="gap-1">
       <View className="w-full rounded-bubble bg-user-bubble px-4 py-3">
+        {skillNames.length > 0 ? (
+          <View className="mb-2 flex-row flex-wrap">
+            {skillNames.map((name) => (
+              <SkillMentionChip key={name} name={name} mode="readonly" />
+            ))}
+          </View>
+        ) : null}
         <Text variant="body-sm" className="leading-relaxed text-primary" selectable>
           {content}
         </Text>

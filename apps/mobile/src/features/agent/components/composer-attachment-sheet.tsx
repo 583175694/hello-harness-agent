@@ -7,7 +7,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { FileText, ImageIcon } from 'lucide-react-native';
+import { Box, FileText, ImageIcon } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
@@ -22,6 +22,7 @@ type ComposerAttachmentSheetProps = {
   onClose: () => void;
   onPickImages?: () => void;
   onPickFiles?: () => void;
+  onOpenSkills?: () => void;
 };
 
 export function ComposerAttachmentSheet({
@@ -29,6 +30,7 @@ export function ComposerAttachmentSheet({
   onClose,
   onPickImages,
   onPickFiles,
+  onOpenSkills,
 }: ComposerAttachmentSheetProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -126,7 +128,7 @@ export function ComposerAttachmentSheet({
             <View className="h-1 w-9 rounded-full bg-border" />
           </View>
           <Text variant="caption" className="px-4 pb-2 text-center text-muted">
-            添加附件
+            添加附件与 Skill
           </Text>
 
           <Pressable
@@ -145,6 +147,26 @@ export function ComposerAttachmentSheet({
               </Text>
               <Text variant="caption" className="text-muted">
                 从相册选择 PNG、JPEG、WebP
+              </Text>
+            </View>
+          </Pressable>
+
+          <Pressable
+            className="min-h-[52px] flex-row items-center gap-3 border-b border-composer-border px-5 active:bg-subtle"
+            onPress={() => {
+              onOpenSkills?.();
+              onClose();
+            }}
+          >
+            <View className="h-9 w-9 items-center justify-center rounded-full bg-subtle">
+              <Icon icon={Box} tone="link" size={20} />
+            </View>
+            <View>
+              <Text variant="body" className="font-medium">
+                Skill
+              </Text>
+              <Text variant="caption" className="text-muted">
+                从目录选择技能注入 Run
               </Text>
             </View>
           </Pressable>

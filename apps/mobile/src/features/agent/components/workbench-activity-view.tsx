@@ -1,16 +1,15 @@
 import { ScrollView, View } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { sourcesFixture, toolActivitiesFixture } from '../fixtures/ui-fixtures';
+import { BashTerminalView } from './bash-terminal-view';
 import { WorkbenchSourceCard, WorkbenchSourcesStatsHeader } from './workbench-sources-view';
 
 export type WorkbenchActivityEmphasis = 'default' | 'sources';
 
 type WorkbenchActivityContentProps = {
-  /** `sources`：检索/读取结果卡片（原独立 Sources Tab，现并入实时跟随）。 */
   emphasis?: WorkbenchActivityEmphasis;
 };
 
-/** Sheet 内嵌：由外层 BottomSheetScrollView 统一滚动 */
 export function WorkbenchActivityContent({ emphasis = 'default' }: WorkbenchActivityContentProps) {
   if (emphasis === 'sources') {
     return (
@@ -27,27 +26,15 @@ export function WorkbenchActivityContent({ emphasis = 'default' }: WorkbenchActi
 
   return (
     <>
-      <View className="border-b border-composer-border bg-[#16191f] p-3">
-        <View className="mb-2 flex-row items-center justify-between">
-          <Text variant="mono" className="text-zinc-200">
-            bash — pytest tests/test_auth_2fa.py
-          </Text>
-          <Text variant="caption" className="text-zinc-500">
-            284ms
-          </Text>
-        </View>
-        <View className="rounded-lg bg-terminal p-3">
-          <Text variant="mono" className="text-emerald-400">
-            $ pytest tests/test_auth_2fa.py -v --tb=short
-          </Text>
-          <Text variant="mono" className="mt-2 text-zinc-400">
-            ============================= test session starts ==============================
-          </Text>
-          <Text variant="mono" className="text-[#4ade80]">
-            tests/test_auth_2fa.py::test_totp_verification_success PASSED
-          </Text>
-        </View>
-      </View>
+      <BashTerminalView
+        title="bash — pytest tests/test_auth_2fa.py"
+        durationLabel="284ms"
+        commandLine="$ pytest tests/test_auth_2fa.py -v --tb=short"
+        outputLines={[
+          '============================= test session starts ==============================',
+          'tests/test_auth_2fa.py::test_totp_verification_success PASSED',
+        ]}
+      />
       <View className="gap-2 p-3">
         <Text variant="caption" className="mb-1 font-semibold uppercase tracking-wide text-muted">
           调用时间线
@@ -77,15 +64,10 @@ export function WorkbenchActivityContent({ emphasis = 'default' }: WorkbenchActi
   );
 }
 
-/** UI Catalog 固定高度预览：自带 ScrollView */
-export function WorkbenchActivityView({
-  emphasis = 'default',
-}: {
-  emphasis?: WorkbenchActivityEmphasis;
-}) {
+export function WorkbenchActivityView(props: WorkbenchActivityContentProps) {
   return (
-    <ScrollView className="flex-1" contentContainerClassName="flex-grow" showsVerticalScrollIndicator={false}>
-      <WorkbenchActivityContent emphasis={emphasis} />
+    <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+      <WorkbenchActivityContent {...props} />
     </ScrollView>
   );
 }

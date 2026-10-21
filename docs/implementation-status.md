@@ -77,13 +77,14 @@ C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@
 
 ### L6 Mobile Agent Frontend 状态
 
-**工程（2026-09-30）**：
+**工程（2026-10-20）**：
 
-- **`apps/mobile` 已创建**：Expo Router、`pnpm dev:mobile`；主会话与 Workbench 为 **fixture 驱动**，未接 API。
-- **共享包**：`agent-client` / `agent-conversation` **未抽**（里程碑 **P0**，文件清单见 [36 §13.3](./36-mobile-agent-frontend.md#133-p0--共享包切分文件清单)）。
-- **下一里程碑**：P0 抽包 → P1 Settings URL + Session Drawer CRUD → P2 Run/SSE（见 [36 §13.4](./36-mobile-agent-frontend.md#134-p1p2--最小可聊文件清单与验收)）。
+- **`apps/mobile` 已创建**：Expo Router、`pnpm dev:mobile`；主会话与 Workbench 仍为 **fixture 驱动**，未接 Run/SSE API。
+- **静态 UI 收口（2026-10）**：Memory/Skills/MCP/Composer 壳层、Dark 主题与本地 Settings、Markdown/CoT/Reader、iPad 并排等见 [36 §13.5](./36-mobile-agent-frontend.md#135-当前工程现状2026-09-30)。
+- **共享包**：`agent-client` / `agent-conversation` **未抽**（里程碑 **P0**）。
+- **下一里程碑**：P0 抽包 → P1 Session Drawer CRUD（API URL 已可本地编辑）→ P2 Run/SSE。
 
-**UI 定案**：**NativeWind + 自研 `agent-elements`**（`components/ui` 为基础原语）；Stitch v3 五帧与 `/preview`、`ui-catalog` 已可本地预览（docs/36 §5.5、§13.5）。
+**UI 定案**：**NativeWind + 自研 `agent-elements`**；Stitch v3、`/preview`、`ui-catalog`、 `/settings/*`、`/reader/*` 可本地预览。
 
 **排期**：仍属 **L6**，不在 §7 Agent Capability 主线内；工程顺序以 **docs/36 §13.2–§13.7** 为准（原 §13.2 里程碑表不变，§13.3 起为可执行文件清单）。
 

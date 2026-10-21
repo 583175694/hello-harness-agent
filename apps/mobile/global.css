@@ -1,3 +1,49 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --canvas: 247 247 246;
+    --drawer: 251 250 249;
+    --surface: 255 255 255;
+    --subtle: 241 241 239;
+    --composer-border: 237 237 235;
+    --user-bubble: 237 243 254;
+    --user-bubble-border: 219 230 248;
+    --primary: 23 23 23;
+    --primary-pressed: 44 44 42;
+    --primary-foreground: 255 255 255;
+    --subtle-pressed: 232 232 229;
+    --secondary: 85 85 81;
+    --muted: 137 137 134;
+    --link: 63 95 120;
+    --approval: 234 242 236;
+    --approval-text: 47 93 58;
+    --rejection: 248 236 234;
+    --rejection-text: 152 75 65;
+    --border: 222 222 219;
+  }
+
+  .dark {
+    --canvas: 16 16 16;
+    --drawer: 20 20 20;
+    --surface: 24 24 24;
+    --subtle: 32 32 32;
+    --composer-border: 42 42 42;
+    --user-bubble: 32 32 32;
+    --user-bubble-border: 48 48 48;
+    --primary: 216 216 216;
+    --primary-pressed: 200 200 200;
+    --primary-foreground: 16 16 16;
+    --subtle-pressed: 40 40 40;
+    --secondary: 180 180 176;
+    --muted: 130 130 126;
+    --link: 120 160 190;
+    --approval: 40 60 44;
+    --approval-text: 160 210 170;
+    --rejection: 60 36 32;
+    --rejection-text: 220 160 150;
+    --border: 48 48 48;
+  }
+}

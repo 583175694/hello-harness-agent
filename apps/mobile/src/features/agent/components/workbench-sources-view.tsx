@@ -1,9 +1,11 @@
-import { ScrollView, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, View } from 'react-native';
 import { ChevronDown, ChevronUp, Globe } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { ICON_CHEVRON_TONE } from '@/lib/theme';
 import { Text } from '@/components/ui/text';
 import { sourcesFixture, type SourceFixture } from '../fixtures/ui-fixtures';
+import { WorkbenchPassageModal } from './workbench-passage-modal';
 
 export function WorkbenchSourcesStatsHeader() {
   return (
@@ -33,6 +35,11 @@ export function WorkbenchSourcesStatsHeader() {
 }
 
 export function WorkbenchSourceCard({ source }: { source: SourceFixture }) {
+  const [passageOpen, setPassageOpen] = useState(false);
+  const longPassage =
+    source.passage?.chunk ??
+    '这是一段较长的原文摘录，用于演示 Passage 半屏 Modal。内容可能包含多句说明与引用上下文，便于用户在移动端阅读完整 passage 而不挤压 Workbench 列表布局。';
+
   return (
     <View className="mb-3 gap-2.5 rounded-xl border border-border bg-surface p-3 shadow-sm">
       <View className="flex-row items-center justify-between gap-2">
@@ -79,9 +86,14 @@ export function WorkbenchSourceCard({ source }: { source: SourceFixture }) {
               Chunk #3
             </Text>
           </View>
-          <Text variant="caption" className="leading-relaxed text-secondary">
+          <Text variant="caption" className="leading-relaxed text-secondary" numberOfLines={3}>
             “{source.passage.chunk}”
           </Text>
+          <Pressable onPress={() => setPassageOpen(true)} className="self-start pt-1 active:opacity-70">
+            <Text variant="caption" className="text-link">
+              查看全文
+            </Text>
+          </Pressable>
           <View className="flex-row flex-wrap gap-1 pt-1">
             {source.passage.tags.map((tag) => (
               <View key={tag} className="rounded border border-border bg-surface px-1.5 py-0.5">
@@ -97,6 +109,13 @@ export function WorkbenchSourceCard({ source }: { source: SourceFixture }) {
           “{source.excerpt}”
         </Text>
       )}
+      <WorkbenchPassageModal
+        visible={passageOpen}
+        title={source.title}
+        heading={source.passage?.heading ?? source.domain}
+        body={longPassage}
+        onClose={() => setPassageOpen(false)}
+      />
     </View>
   );
 }

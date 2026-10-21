@@ -52,6 +52,7 @@ export function ConversationPanel({
             content={item.content}
             pendingState={item.pendingState}
             attachmentHint={item.attachmentHint}
+            skillNames={item.skillNames}
           />
         );
       }

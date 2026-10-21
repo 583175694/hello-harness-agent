@@ -20,7 +20,8 @@
 | --- | --- |
 | 替代 Web 或 IDE | Mobile 是并列客户端，不删除 Web |
 | 本地跑 NestJS / PostgreSQL | 仍连接已有 API；真机通过 LAN/Tailscale/未来云端 URL |
-| Memory / Delegation / Skills UI | 与 Web 一致：能力未落地则不显示控件 |
+| Delegation UI | 与 Web 一致：能力未落地则不显示控件 |
+| Memory / Skills UI（静态） | **2026-10 已收口**：Settings 记忆、Composer Skill、memory_write 投影；**仍 fixture / 本地持久化**，API 联调见 P1+ |
 | 服务端重启后 Run 自动续跑 | 与 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 相同边界 |
 | OAuth 登录、多租户 | R1 仍为 local user，无账号体系 |
 | 在 Sandbox 内执行 MCP | 与 [35-c4-mcp-client.md](./35-c4-mcp-client.md) 一致：MCP 仅在 Host |
@@ -963,7 +964,8 @@ Maestro（`apps/mobile/maestro/p2-smoke.yaml`）建议在 P2 通过后补，不�
 | `apps/mobile` | **已创建**：Expo 57 + Expo Router + NativeWind；`pnpm dev:mobile` |
 | Stitch 五帧 + UI Catalog | **已实现**：`/preview/*`、`ui-catalog`；`ChatScreen` 等走 **fixture** |
 | Workbench Bottom Sheet | **壳已接**：`WorkbenchSheet` + C5 双 Tab（动态）+ 跟随内嵌来源/终端 **静态样例** |
-| Settings | **占位**：API URL 不可编辑；MCP 假数据列表 |
+| Settings | **静态已收口**：API URL / 主题 / 字号（AsyncStorage）；记忆 Hub·列表·表单；MCP 列表·表单（本地演示） |
+| Memory / Skills / Composer 壳层 | **静态已收口**：Skill picker、memory_write catalog、Connection/Service/Peek/Context 环、Markdown/CoT/Reader/iPad 并排 |
 | `@harness/agent-client` / `agent-conversation` | **未创建**（P0） |
 | 与 API 联调 | **未开始**（P1 起） |
 

@@ -14,9 +14,13 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.harness.agent"
+      "bundleIdentifier": "com.harness.agent",
+      "infoPlist": {
+        "CFBundleDisplayName": "皮皮虾"
+      }
     },
     "android": {
+      "label": "皮皮虾",
       "adaptiveIcon": {
         "backgroundColor": "#f7f7f6",
         "foregroundImage": "./assets/android-icon-foreground.png",

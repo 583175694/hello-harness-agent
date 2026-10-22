@@ -25,7 +25,6 @@ import { mobileWorkbenchViewFromFocus } from '../model/workbench-focus';
 import { AGENT_UI_COPY, AGENT_UI_LAYOUT } from '../config/ui.constants';
 import { catalogPlanFixture } from '../fixtures/ui-catalog-fixtures';
 import { useAgentHost } from '../hooks/use-agent-host';
-import { useApiBaseUrl } from '../hooks/use-api-base-url';
 import {
   readyComposerAttachmentsAsFileRefs,
   useComposerAttachments,
@@ -51,7 +50,6 @@ function ProductionChatScreenInner({
   forceSplitLayout = false,
 }: Pick<ChatScreenProps, 'showDrawer' | 'forceSplitLayout'>) {
   const host = useAgentHost();
-  const { apiBaseUrl } = useApiBaseUrl();
   useSessionDeepLink(host.selectSession);
   const attachments = useComposerAttachments();
   const insets = useSafeAreaInsets();
@@ -194,9 +192,7 @@ function ProductionChatScreenInner({
               : 'disabled';
 
   const activeRunSessionId = host.activeRunId && host.selectedSessionId ? host.selectedSessionId : null;
-  const runSummary =
-    mobileRunSummaryLine(host.workbench) ??
-    (__DEV__ ? `API ${apiBaseUrl}` : undefined);
+  const runSummary = mobileRunSummaryLine(host.workbench);
   const showRunPeek = mobileRunPeekVisible(host.workbench, host.activeRunId);
 
   return (

@@ -2,7 +2,7 @@
 
 > 文档类型：研发状态快照。它记录当前代码、验证结果和已知限制，不替代产品契约、架构文档或实施计划。
 >
-> 最后更新：2026-10-19（**K5-B 已落地**（MCP deferred + Host `tool_search`，§10 MVP）；Agent **当前研发**：**K5-C** 多来源预算/trace；**C5/C6/C7** 状态见下；**L6 Mobile**：`apps/mobile` Stitch UI 骨架已落地，**P0 共享包与 API 联调未启动**（docs/36 §13.3–§13.7）；**C8 Browser**、**C9/C10 市场** 后置）
+> 最后更新：2026-10-19（**K5-B 已落地**（MCP deferred + Host `tool_search`，§10 MVP）；Agent **当前研发**：**K5-C** 多来源预算/trace；**C5/C6/C7** 状态见下；**C8 Browser**、**C9/C10 市场** 后置）
 
 **用户反馈 / Bug 台账**：[38-user-feedback-bugs.md](./38-user-feedback-bugs.md)（解决后在该文档更新状态为「已解决」）。
 
@@ -74,19 +74,6 @@ C3-A 已实现 `SandboxManager`、`SandboxProvider`、`OpenSandboxProvider`（`@
 - **C4-C**：Host 工具 **`mcp_add_server`**；用户粘贴 JSON/CLI/混合文本，由**模型**识别 `serverName`/`url`/`headers` 后调用；Host 校验 HTTPS/SSRF、加密凭证、user scope 写入并 reconcile（§5.4；代码 `0b4e19c`）。
 
 大 catalog 未配 allowlist 时仍 **整包 definitions**（过渡态）；按需 expose / CE 预算属后续 **Kernel K5** 规划，**暂无独立设计文档**。stdio、Session 级 MCP、OAuth 不在 C4 范围。
-
-### L6 Mobile Agent Frontend 状态
-
-**工程（2026-10-20）**：
-
-- **`apps/mobile` 已创建**：Expo Router、`pnpm dev:mobile`；主会话与 Workbench 仍为 **fixture 驱动**，未接 Run/SSE API。
-- **静态 UI 收口（2026-10）**：Memory/Skills/MCP/Composer 壳层、Dark 主题与本地 Settings、Markdown/CoT/Reader、iPad 并排等见 [36 §13.5](./36-mobile-agent-frontend.md#135-当前工程现状2026-09-30)。
-- **共享包**：`agent-client` / `agent-conversation` **未抽**（里程碑 **P0**）。
-- **下一里程碑**：P0 抽包 → P1 Session Drawer CRUD（API URL 已可本地编辑）→ P2 Run/SSE。
-
-**UI 定案**：**NativeWind + 自研 `agent-elements`**；Stitch v3、`/preview`、`ui-catalog`、 `/settings/*`、`/reader/*` 可本地预览。
-
-**排期**：仍属 **L6**，不在 §7 Agent Capability 主线内；工程顺序以 **docs/36 §13.2–§13.7** 为准（原 §13.2 里程碑表不变，§13.3 起为可执行文件清单）。
 
 ### C5 Workbench 状态
 
@@ -528,7 +515,7 @@ Model-led 迁移的完成标准已经满足：对需要联网的普通用户问�
 | K5-C | 多来源预算 / trace / CE 仲裁 | **当前研发** | [39-k5 §7](./39-k5-context-engineering.md#7-统一-context-预算k5-c)；辩证 [§9](./39-k5-context-engineering.md#9-设计辩证与决策2026-10-16) |
 | C6 Skills | [40-c6-skills.md](./40-c6-skills.md) | **暂停雕琢** | Phase 1 已落地，Backlog [§4.9](./40-c6-skills.md#49-skills-主线暂停与遗留清单) |
 | C7 User Memory | [41-c7-user-memory.md](./41-c7-user-memory.md) | **MVP 已完成** | 写 Tool + 向量读 + Settings；**C7-C** Delegation 后置 |
-| C8 | Browser Use / Computer Use | **后置** | 依赖 C3-D、L6；结构化 Browser Tool 等与 **客户端就绪后** 再立项 |
+| C8 | Browser Use / Computer Use | **与 Desktop P1 对齐** | 本机向见 [00-desktop-client-roadmap.md](./00-desktop-client-roadmap.md)；Sandbox 底座 C3-D |
 
 **明确不在当前 Agent 高优先级**：文件化 Notes、`TODO.md`、Goal Reminder 文件、L6 Mobile/Desktop 客户端工程（客户端单独规划，例如 [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)）。
 
@@ -627,9 +614,9 @@ C7  User Memory                                     **MVP 已完成**（[41-c7-u
     - 已交付：`memory_write`、pgvector 检索、K5 `<user_memory>`、Settings CRUD 与条数展示
     - 后置：**C7-C** Delegation Worker 读门控；可选 ConsolidationJob
 
-C8  Browser Use / Computer Use                    **后置**（**客户端集成完成之后**再启动；C3-D 仅为底座）
-    - 结构化 Browser Tool：open/click/type/select/scroll/extract/screenshot/download 等（Sandbox 内 agent-browser）
-    - Computer Use 与客户端侧交互形态一并规划；统一 **K6** 页面写策略 **后置**
+C8  Browser Use / Computer Use                    **与 L6 Desktop P1 对齐**（产品优先级见 [00-desktop-client-roadmap.md](./00-desktop-client-roadmap.md) D-STD-10/11；C3-D 为 Sandbox 底座）
+    - 本机 Browser/Computer：Desktop 标配；Host 能力规格与 **K3 HITL** 同步演进
+    - Sandbox 内 agent-browser 等保留；统一 **K6** 页面写策略 **后置**
 
 C9  MCP Marketplace                               **规划，未启动**（C 系列后置；专项文档待建）
     - MCP 连接器/Server 的发现、目录与安装体验（在 C4 Host Client 之上；不改变 DB+reconcile 事实源）
@@ -640,7 +627,7 @@ C10 Skills Marketplace                            **规划，未启动**（C 系
     - 与 C9 分轨：C9 偏工具/MCP 扩展，C10 偏工作流与能力组合
 ```
 
-文件和图片上传共享同一 Artifact/Source 底座；**C5 产品阶段已完成**（Workbench + 静态 HTML 预览）；**C3 Sandbox** 执行面已具备，**C5-C** 级 job/dev server 工作台深化按需再做。Browser/Computer Use 执行在 C3-D，产品语义 **C8（后置）**。MCP 保持 **Registry + HITL**；**K6** Policy 后置；Context 与大 catalog 见 **K5（当前研发）**。
+文件和图片上传共享同一 Artifact/Source 底座；**C5 产品阶段已完成**（Workbench + 静态 HTML 预览）；**C3 Sandbox** 执行面已具备，**C5-C** 级 job/dev server 工作台深化按需再做。Browser/Computer Use：Sandbox 执行在 C3-D；本机向产品语义 **C8** 与 Desktop P1 对齐（见 [00-desktop-client-roadmap.md](./00-desktop-client-roadmap.md)）。MCP 保持 **Registry + HITL**；**K6** Policy 后置；Context 与大 catalog 见 **K5（当前研发）**。
 
 ### 7.3 低优先级扩展
 
@@ -667,7 +654,9 @@ L5  Cost / Quality / Runtime Console             最后建设展示层
 L6  Mobile / Desktop Clients                     **独立于 §7 Agent 主线排期**
     - Web、桌面端和移动端均作为 Task/Run/Event/Artifact/Approval 的客户端
     - 不为多端重新定义 Agent Kernel 或业务协议
-    - Mobile：**Stitch v3 UI 已 freeze**（docs/36 §5.5）；方案见 [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)；RN 工程待 P0 起；**C8 Browser/Computer Use 建议在 L6 客户端就绪后启动**
+    - Mobile 方案见 [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)
+    - Desktop：**产品总指挥**见 [00-desktop-client-roadmap.md](./00-desktop-client-roadmap.md)（标配 P1 / 差异化 P2–P4；工程壳优先）
+    - Desktop 本机 Browser/Computer、stdio MCP、本机 Skills：**P1**（与 C8/C4/C6 Host 规格同步演进）
 
 L7  Multi-user / Remote Storage / Operations      更后期
     - 认证、权限、Workspace、远程对象存储、多租户和团队协作
@@ -699,7 +688,7 @@ K3 Control & HITL Kernel（基本完成）
   -> C6 Skills 产品化（Backlog 见 40-c6-skills §4.9）
 
 【Capability 后置（客户端就绪后）】
-  -> C8 Browser Use / Computer Use（C3-D 底座已具备）
+  -> C8 Browser Use / Computer Use（本机向以 Desktop P1 为准；Sandbox 向 C3-D 已具备）
 
 【Capability 后置（市场与生态，专项文档待建）】
   -> C9 MCP Marketplace（建议在 K5 推进后）
@@ -715,7 +704,7 @@ K3 Control & HITL Kernel（基本完成）
   -> L5 成本/质量/运行控制台（展示层最后；采集可随 Capability 逐步埋点）
 
 【客户端（不在本节顺序内）】
-  -> L6 Desktop / Mobile（独立排期；完成后启动 C8 Browser）
+  -> L6 Desktop / Mobile（独立排期；Desktop P1 与 C8 本机能力对齐推进）
 ```
 
 第三方连接器优先走 C4 MCP；**C9/C10** 为后置市场类 Capability，不改变 Host MCP 主架构；Background Tasks 非当前前置；L5 控制台最后建设。
@@ -727,6 +716,7 @@ P8 的完成标准仍然不是“再增加一个工具”，而是现有 `Chat -
 ## 8. 关联文档
 
 - 产品与范围：[docs/00-agent-core-roadmap.md](./00-agent-core-roadmap.md)
+- Desktop 客户端总指挥：[docs/00-desktop-client-roadmap.md](./00-desktop-client-roadmap.md)
 - 实施阶段：[docs/17-implementation-plan.md](./17-implementation-plan.md)
 - Reasoning 与完整上下文：[docs/27-reasoning-context-transcript.md](./27-reasoning-context-transcript.md)
 - 前端契约：[docs/19-agent-frontend.md](./19-agent-frontend.md)

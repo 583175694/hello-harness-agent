@@ -18,6 +18,7 @@ export type ModelFixture = {
   id: string;
   label: string;
   reasoningLevels: ReasoningEffort[];
+  defaultReasoning?: ReasoningEffort;
 };
 
 export const modelFixtures: ModelFixture[] = [
@@ -35,6 +36,7 @@ const REASONING_LABEL: Record<ReasoningEffort, string> = {
 type ComposerModelMenuProps = {
   modelId: string;
   reasoningEffort: ReasoningEffort;
+  models?: ModelFixture[];
   onModelChange: (id: string) => void;
   onReasoningChange: (effort: ReasoningEffort) => void;
   disabled?: boolean;
@@ -43,18 +45,25 @@ type ComposerModelMenuProps = {
 export function ComposerModelMenu({
   modelId,
   reasoningEffort,
+  models,
   onModelChange,
   onReasoningChange,
   disabled,
 }: ComposerModelMenuProps) {
   const [open, setOpen] = useState(false);
-  const model = modelFixtures.find((m) => m.id === modelId) ?? modelFixtures[0]!;
+  const catalog = models?.length ? models : modelFixtures;
+  const model = catalog.find((m) => m.id === modelId) ?? catalog[0]!;
 
   const selectModel = (id: string) => {
     onModelChange(id);
-    const next = modelFixtures.find((m) => m.id === id);
-    if (next && !next.reasoningLevels.includes(reasoningEffort)) {
-      onReasoningChange(next.reasoningLevels[0] ?? 'off');
+    const next = catalog.find((m) => m.id === id);
+    if (next) {
+      const preferred = next.defaultReasoning ?? 'high';
+      onReasoningChange(
+        next.reasoningLevels.includes(preferred)
+          ? preferred
+          : (next.reasoningLevels[0] ?? 'off'),
+      );
     }
   };
 
@@ -86,14 +95,14 @@ export function ComposerModelMenu({
         <ComposerSheetHeader title="模型" actionLabel="完成" onAction={() => setOpen(false)} />
 
         <ScrollView className="max-h-40" showsVerticalScrollIndicator={false}>
-          {modelFixtures.map((m, index) => {
+          {catalog.map((m, index) => {
             const active = m.id === modelId;
             return (
               <Pressable
                 key={m.id}
                 onPress={() => selectModel(m.id)}
                 className={`min-h-[48px] flex-row items-center gap-2 px-4 active:bg-subtle ${
-                  index < modelFixtures.length - 1 ? 'border-b border-composer-border' : ''
+                  index < catalog.length - 1 ? 'border-b border-composer-border' : ''
                 }`}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: active }}

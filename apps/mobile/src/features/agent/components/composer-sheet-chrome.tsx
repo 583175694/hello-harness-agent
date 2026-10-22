@@ -3,8 +3,6 @@ import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
-import { COMPOSER_SHEET_CARD_SHADOW } from '@/lib/theme';
-
 export function ComposerSheetGrabHandle() {
   return (
     <View className="items-center pb-1 pt-2.5">
@@ -13,13 +11,10 @@ export function ComposerSheetGrabHandle() {
   );
 }
 
-/** iOS 式浮卡：白底 + 轻 shadow，与 scrim 分离 */
+/** 浮卡：白底 + 边框，与 scrim 分离（Mobile 不用 shadow，减轻合成开销）。 */
 export function ComposerSheetFloatingCard({ children }: { children: ReactNode }) {
   return (
-    <View
-      className="overflow-hidden rounded-[14px] bg-surface"
-      style={COMPOSER_SHEET_CARD_SHADOW}
-    >
+    <View className="overflow-hidden rounded-sheet border border-composer-border bg-surface">
       {children}
     </View>
   );

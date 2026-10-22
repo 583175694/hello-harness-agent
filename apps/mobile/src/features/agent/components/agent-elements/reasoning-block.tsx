@@ -1,71 +1,90 @@
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
-import { ChevronRight } from 'lucide-react-native';
+import { ChevronDown, Dot } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { ICON_CHEVRON_TONE } from '@/lib/theme';
 import { Text } from '@/components/ui/text';
-
-function formatElapsed(durationMs?: number): string {
-  if (durationMs == null || durationMs <= 0) return '';
-  const totalSec = Math.round(durationMs / 1000);
-  if (totalSec < 60) return `${totalSec} 秒`;
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return s > 0 ? `${m} 分 ${s} 秒` : `${m} 分`;
-}
-
-function thinkingLabel(streaming: boolean, durationMs?: number): string {
-  if (streaming) return '思考中…';
-  const elapsed = formatElapsed(durationMs);
-  return elapsed ? `思考了 ${elapsed}` : '思考过程';
-}
+import { reasoningTriggerLabel } from '../../lib/reasoning-label';
+import {
+  PROCESS_TIMELINE_FIRST_LINE_HEIGHT,
+  ProcessTimelineStep,
+} from './process-timeline-step';
 
 export function ReasoningBlock({
   content,
   durationMs,
   streaming = false,
+  nested = false,
+  showRail = false,
+  isLast = false,
 }: {
   content: string;
   durationMs?: number;
   streaming?: boolean;
+  nested?: boolean;
+  showRail?: boolean;
+  isLast?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(streaming);
 
   useEffect(() => {
     if (streaming) setOpen(true);
   }, [streaming]);
 
-  const label = thinkingLabel(streaming, durationMs);
+  const label = reasoningTriggerLabel(streaming, durationMs);
 
-  return (
-    <View>
-      <Pressable
-        onPress={() => setOpen((v) => !v)}
-        className="flex-row items-center gap-1 py-0.5 active:opacity-70"
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
+  const trigger = (
+    <Pressable
+      onPress={() => setOpen((v) => !v)}
+      className="min-h-[36px] active:opacity-80"
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+    >
+      <View
+        className="flex-row items-center gap-2"
+        style={{ height: PROCESS_TIMELINE_FIRST_LINE_HEIGHT }}
       >
-        <Text variant="body-sm" className="text-muted">
+        <Text variant="body-sm" className="min-w-0 flex-1 text-muted" numberOfLines={1}>
           {label}
         </Text>
         <Icon
-          icon={ChevronRight}
+          icon={ChevronDown}
           tone={ICON_CHEVRON_TONE.disclosure}
-          size={14}
-          style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }}
+          size={15}
+          style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}
         />
-      </Pressable>
-      {open ? (
-        <ScrollView
-          className="max-h-[320px] pt-1 pb-2"
-          showsVerticalScrollIndicator={false}
-          nestedScrollEnabled
-        >
-          <Text variant="body-sm" className="leading-relaxed text-muted">
-            {content}
-          </Text>
-        </ScrollView>
-      ) : null}
+      </View>
+    </Pressable>
+  );
+
+  const expanded = open ? (
+    <ScrollView
+      className="max-h-[320px] pb-1 pt-1"
+      showsVerticalScrollIndicator={false}
+      nestedScrollEnabled
+    >
+      <Text variant="body-sm" className="leading-relaxed text-secondary">
+        {content}
+      </Text>
+    </ScrollView>
+  ) : null;
+
+  if (showRail) {
+    return (
+      <ProcessTimelineStep
+        isLast={isLast}
+        icon={<Icon icon={Dot} tone="muted" size={15} strokeWidth={2.5} />}
+        footer={expanded}
+      >
+        {trigger}
+      </ProcessTimelineStep>
+    );
+  }
+
+  return (
+    <View className={nested ? '' : 'my-0.5'}>
+      {trigger}
+      {expanded}
     </View>
   );
 }

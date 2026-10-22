@@ -12,7 +12,7 @@ const toneClass: Record<NonNullable<BadgeProps['tone']>, string> = {
   default: 'bg-subtle text-secondary',
   success: 'bg-approval text-approval-text',
   dark: 'bg-primary text-primary-foreground',
-  muted: 'bg-[#e3e3e0] text-secondary',
+  muted: 'bg-subtle-pressed text-secondary',
 };
 
 export function Badge({ label, tone = 'default', className }: BadgeProps) {

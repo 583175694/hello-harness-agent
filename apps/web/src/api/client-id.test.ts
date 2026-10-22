@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createClientId } from './client';
+import { createClientId } from '@harness/agent-client';
 
 afterEach(() => vi.unstubAllGlobals());
 

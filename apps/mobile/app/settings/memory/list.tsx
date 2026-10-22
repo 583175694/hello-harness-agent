@@ -2,9 +2,14 @@ import { Link, useRouter } from 'expo-router';
 import { Alert, Pressable, ScrollView, View } from 'react-native';
 import { Plus, Trash2 } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
+import { PressableScale } from '@/components/ui/pressable-scale';
 import { Text } from '@/components/ui/text';
-import { MEMORY_KIND_LABEL } from '@/features/agent/fixtures/memory-fixtures';
-import { useMemoryLocal } from '@/features/agent/providers/memory-local-provider';
+import { MEMORY_KIND_LABEL, type MemoryKind } from '@/features/agent/fixtures/memory-fixtures';
+import { useMemoryApi } from '@/features/agent/providers/memory-api-provider';
+
+function kindLabel(kind: string): string {
+  return MEMORY_KIND_LABEL[kind as MemoryKind] ?? kind;
+}
 
 function indexingHint(status: 'ready' | 'pending' | 'failed'): string | null {
   if (status === 'failed') return '索引失败';
@@ -14,10 +19,15 @@ function indexingHint(status: 'ready' | 'pending' | 'failed'): string | null {
 
 export default function MemoryListScreen() {
   const router = useRouter();
-  const { memories, deleteMemory } = useMemoryLocal();
+  const { memories, deleteMemory, error } = useMemoryApi();
 
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-3 p-4 pb-24">
+      {error ? (
+        <Text variant="body-sm" className="text-destructive">
+          {error}
+        </Text>
+      ) : null}
       {memories.length === 0 ? (
         <Text variant="body-sm" className="text-center text-muted">
           暂无记忆，可点右下角新增。
@@ -41,7 +51,7 @@ export default function MemoryListScreen() {
             >
               <View className="flex-row items-center justify-between gap-2">
                 <Text variant="caption" className="text-muted">
-                  {MEMORY_KIND_LABEL[memory.kind]}
+                  {kindLabel(memory.kind)}
                 </Text>
                 {hint ? (
                   <Text variant="caption" className="text-warning">
@@ -63,7 +73,7 @@ export default function MemoryListScreen() {
                   {
                     text: '删除',
                     style: 'destructive',
-                    onPress: () => deleteMemory(memory.memoryId),
+                    onPress: () => void deleteMemory(memory.memoryId),
                   },
                 ])
               }
@@ -79,12 +89,12 @@ export default function MemoryListScreen() {
       })}
 
       <Link href="/settings/memory/form" asChild>
-        <Pressable className="mt-2 flex-row items-center justify-center gap-2 rounded-control bg-primary py-3 active:bg-primary-pressed">
-          <Icon icon={Plus} tone="onPrimary" size={18} />
-          <Text variant="body-sm" className="font-semibold text-primary-foreground">
-            新增记忆
-          </Text>
-        </Pressable>
+        <PressableScale
+          className="absolute bottom-6 right-4 h-14 w-14 items-center justify-center rounded-full border border-primary-pressed bg-primary"
+          accessibilityLabel="新增记忆"
+        >
+          <Icon icon={Plus} tone="onPrimary" size={24} />
+        </PressableScale>
       </Link>
     </ScrollView>
   );

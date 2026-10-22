@@ -382,13 +382,13 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     let completionTokens: number | null = null;
     let cachedTokens: number | null = null;
     for await (const event of stream) {
-      const value = event as unknown as Record<string, any>;
+      const value = event as unknown as Record<string, unknown>;
       if (configured.traceResponsesEvents) this.logResponseEvent(value);
       if (
         value.type === 'response.output_item.added' ||
         value.type === 'response.output_item.done'
       ) {
-        const item = value.item as Record<string, any> | undefined;
+        const item = value.item as Record<string, unknown> | undefined;
         if (!item) continue;
         if (item.type === 'message') {
           const id = String(item.id ?? '');
@@ -401,7 +401,10 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
           // DeepSeek may advertise final_answer on `added` and correct it to
           // commentary on `done`; the latter is authoritative.
           if (value.type === 'response.output_item.done') {
-            state.phase = item.phase ?? state.phase;
+            state.phase =
+              item.phase === 'commentary' || item.phase === 'final_answer'
+                ? item.phase
+                : state.phase;
             if (
               state.emittedText &&
               (state.phase === 'commentary' || state.phase === 'final_answer')
@@ -413,7 +416,8 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
               };
             }
           } else if (state.phase === null) {
-            state.phase = item.phase ?? null;
+            state.phase =
+              item.phase === 'commentary' || item.phase === 'final_answer' ? item.phase : null;
           }
           messageStates.set(id, state);
         }
@@ -476,15 +480,19 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
         continue;
       }
       if (value.type === 'response.completed' || value.type === 'response.incomplete') {
-        const response = value.response as Record<string, any> | undefined;
+        const response = value.response as Record<string, unknown> | undefined;
         if (value.type === 'response.incomplete') {
-          incompleteReason = String(response?.incomplete_details?.reason ?? 'unknown');
+          const incompleteDetails = response?.incomplete_details as
+            | Record<string, unknown>
+            | undefined;
+          incompleteReason = String(incompleteDetails?.reason ?? 'unknown');
         }
         finishReason = responsesFinishReason(value.type, incompleteReason);
-        const usage = response?.usage as Record<string, any> | undefined;
-        promptTokens = usage?.input_tokens ?? null;
-        completionTokens = usage?.output_tokens ?? null;
-        cachedTokens = usage?.input_tokens_details?.cached_tokens ?? null;
+        const usage = response?.usage as Record<string, unknown> | undefined;
+        promptTokens = (usage?.input_tokens as number | undefined) ?? null;
+        completionTokens = (usage?.output_tokens as number | undefined) ?? null;
+        const inputDetails = usage?.input_tokens_details as Record<string, unknown> | undefined;
+        cachedTokens = (inputDetails?.cached_tokens as number | undefined) ?? null;
       }
       if (value.type === 'response.failed') {
         const response = value.response as Record<string, unknown> | undefined;
@@ -675,8 +683,8 @@ export class OpenAICompatibleModelAdapter extends ModelAdapter {
     return this.tokenEstimator.countText(JSON.stringify(input));
   }
 
-  private logResponseEvent(event: Record<string, any>): void {
-    const item = event.item as Record<string, any> | undefined;
+  private logResponseEvent(event: Record<string, unknown>): void {
+    const item = event.item as Record<string, unknown> | undefined;
     const fields = [
       `类型=${String(event.type ?? 'unknown')}`,
       event.output_index !== undefined ? `输出序号=${String(event.output_index)}` : '',

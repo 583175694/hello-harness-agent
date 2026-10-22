@@ -11,18 +11,21 @@ import { X } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { OVERLAY_SCRIM_OPACITY } from '@/lib/theme';
+import { useThemeColors } from '@/lib/use-theme-colors';
 import { AGENT_UI_LAYOUT } from '../config/ui.constants';
 import { WorkbenchSheetWindowContainer } from './workbench-sheet-window-container';
 import {
   normalizeWorkbenchView,
   resolveMobileWorkbenchVisibleTabs,
 } from '../config/workbench-tabs';
+import type { WorkbenchState } from '@harness/agent-ui-types';
 import type { WorkspaceView } from '../fixtures/ui-fixtures';
 import {
   WorkbenchActivityContent,
   type WorkbenchActivityEmphasis,
 } from './workbench-activity-view';
 import { WorkbenchArtifactBody } from './workbench-artifact-view';
+import { WorkbenchRunControls } from './workbench-run-controls';
 import { WorkbenchSegmentedTabs } from './workbench-segmented-tabs';
 
 type WorkbenchSheetProps = {
@@ -30,10 +33,18 @@ type WorkbenchSheetProps = {
   workbenchCount?: number;
   hasDeliverables?: boolean;
   activityEmphasis?: WorkbenchActivityEmphasis;
+  workbench?: WorkbenchState;
+  selectedToolCallId?: string | null;
+  focusArtifactId?: string | null;
+  onSelectToolCall?: (toolCallId: string) => void;
   onDismiss?: () => void;
   onRequestClose?: () => void;
   onViewChange?: (view: WorkspaceView) => void;
   onSheetIndexChange?: (index: number) => void;
+  activeRunId?: string | null;
+  onPauseRun?: () => void;
+  onResumeRun?: () => void;
+  workbenchReportId?: string;
 };
 
 export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(function WorkbenchSheet(
@@ -42,14 +53,37 @@ export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(
     workbenchCount = 0,
     hasDeliverables,
     activityEmphasis = 'default',
+    workbench,
+    selectedToolCallId,
+    focusArtifactId,
+    onSelectToolCall,
     onDismiss,
     onRequestClose,
     onViewChange,
     onSheetIndexChange,
+    activeRunId,
+    onPauseRun,
+    onResumeRun,
+    workbenchReportId,
   },
   ref,
 ) {
   const insets = useSafeAreaInsets();
+  const themeColors = useThemeColors();
+  const sheetBackgroundStyle = useMemo(
+    () => ({
+      backgroundColor: themeColors.surface,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      borderTopWidth: 1,
+      borderColor: themeColors.composerBorder,
+    }),
+    [themeColors.composerBorder, themeColors.surface],
+  );
+  const handleIndicatorStyle = useMemo(
+    () => ({ backgroundColor: themeColors.border, width: 36 as const }),
+    [themeColors.border],
+  );
   const snapPoints = useMemo(
     () => [...AGENT_UI_LAYOUT.workbenchSheetSnapPoints],
     [],
@@ -99,7 +133,13 @@ export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(
   const renderTabBody = () => {
     if (activeView === 'artifact') {
       return (
-        <WorkbenchArtifactBody bottomInset={insets.bottom} useBottomSheetScroll />
+        <WorkbenchArtifactBody
+          bottomInset={insets.bottom}
+          useBottomSheetScroll
+          workbench={workbench}
+          focusArtifactId={focusArtifactId}
+          reportId={workbenchReportId}
+        />
       );
     }
 
@@ -111,7 +151,12 @@ export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(
         overScrollMode="never"
         keyboardShouldPersistTaps="handled"
       >
-        <WorkbenchActivityContent emphasis={activityEmphasis} />
+        <WorkbenchActivityContent
+          emphasis={activityEmphasis}
+          workbench={workbench}
+          selectedToolCallId={selectedToolCallId}
+          onSelectToolCall={onSelectToolCall}
+        />
       </BottomSheetScrollView>
     );
   };
@@ -130,20 +175,20 @@ export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(
       onChange={handleSheetChange}
       onDismiss={handleDismiss}
       backdropComponent={renderBackdrop}
-      handleIndicatorStyle={{ backgroundColor: '#dededb', width: 36 }}
-      backgroundStyle={{
-        backgroundColor: '#ffffff',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        borderTopWidth: 1,
-        borderColor: '#dededb',
-      }}
+      handleIndicatorStyle={handleIndicatorStyle}
+      backgroundStyle={sheetBackgroundStyle}
     >
       <View className="gap-3 border-b border-composer-border px-4 pb-2.5 pt-1">
-        <View className="flex-row items-center justify-between">
-          <Text variant="headline" className="text-[15px]">
+        <View className="flex-row items-center justify-between gap-2">
+          <Text variant="headline" className="shrink text-[15px]">
             工作台
           </Text>
+          <WorkbenchRunControls
+            activityStatus={workbench?.activityStatus}
+            activeRunId={activeRunId}
+            onPause={onPauseRun}
+            onResume={onResumeRun}
+          />
           <Pressable
             onPress={onRequestClose}
             className="h-10 w-10 items-center justify-center rounded-full active:bg-subtle"

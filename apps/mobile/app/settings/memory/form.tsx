@@ -1,29 +1,30 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, View } from 'react-native';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
 import {
   MEMORY_KIND_LABEL,
-  type MemoryFixture,
   type MemoryKind,
 } from '@/features/agent/fixtures/memory-fixtures';
-import { useMemoryLocal } from '@/features/agent/providers/memory-local-provider';
+import { useMemoryApi } from '@/features/agent/providers/memory-api-provider';
 
 const KINDS = Object.keys(MEMORY_KIND_LABEL) as MemoryKind[];
 
 export default function MemoryFormScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
-  const { memories, upsertMemory } = useMemoryLocal();
+  const { memories, saveMemory } = useMemoryApi();
   const editing = useMemo(
     () => (id ? memories.find((m) => m.memoryId === id) : undefined),
     [id, memories],
   );
 
-  const [kind, setKind] = useState<MemoryKind>('preference');
+  const [kind, setKind] = useState<string>('preference');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (editing) {
@@ -38,15 +39,25 @@ export default function MemoryFormScreen() {
       Alert.alert('请填写标题与内容');
       return;
     }
-    const memory: MemoryFixture = {
-      memoryId: editing?.memoryId ?? `mem-local-${Date.now()}`,
+    setSaving(true);
+    void saveMemory({
+      memoryId: editing?.memoryId,
       kind,
       title: title.trim(),
-      summary: content.trim(),
-      indexingStatus: 'ready',
-    };
-    upsertMemory(memory);
-    Alert.alert('已保存', '（本地演示，未同步服务端）', [{ text: '好的', onPress: () => router.back() }]);
+      content: content.trim(),
+    })
+      .then(() => {
+        Alert.alert('已保存', undefined, [{ text: '好的', onPress: () => router.back() }]);
+      })
+      .catch((requestError: unknown) => {
+        Alert.alert(
+          '保存失败',
+          requestError instanceof Error ? requestError.message : '请稍后重试',
+        );
+      })
+      .finally(() => {
+        setSaving(false);
+      });
   };
 
   return (
@@ -84,21 +95,20 @@ export default function MemoryFormScreen() {
         <Input
           value={content}
           onChangeText={setContent}
-          placeholder="记忆摘要"
+          placeholder="记忆正文"
           multiline
           className="min-h-[120px] py-2"
           textAlignVertical="top"
         />
       </View>
 
-      <Pressable
+      <Button
+        label={saving ? '保存中…' : '保存'}
+        disabled={saving}
         onPress={handleSave}
-        className="items-center rounded-control bg-primary py-3 active:bg-primary-pressed"
-      >
-        <Text variant="body-sm" className="font-semibold text-primary-foreground">
-          保存
-        </Text>
-      </Pressable>
+        className="min-h-12 w-full"
+        textClassName="font-semibold"
+      />
     </ScrollView>
   );
 }

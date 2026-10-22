@@ -7,6 +7,8 @@ export type AppPreferences = {
   themeMode: ThemeMode;
   contentFontSize: number;
   allowAgentMemoryWrite: boolean;
+  /** §7.4：Run 终态 / HITL 本地推送（后台时）。 */
+  pushNotificationsEnabled: boolean;
 };
 
 export const DEFAULT_PREFERENCES: AppPreferences = {
@@ -14,6 +16,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   themeMode: 'system',
   contentFontSize: 14,
   allowAgentMemoryWrite: true,
+  pushNotificationsEnabled: true,
 };
 
 const STORAGE_KEY = '@harness/mobile/preferences/v1';

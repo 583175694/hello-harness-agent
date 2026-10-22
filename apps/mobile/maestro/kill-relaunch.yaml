@@ -1,0 +1,18 @@
+# §12.2：杀 App 再进，Session 与消息仍可恢复（需 API + 已完成 p2-smoke 同类发送）。
+appId: com.harness.agent
+---
+- launchApp
+- tapOn: '打开会话列表'
+- tapOn: '新建会话'
+- tapOn: '关闭会话列表'
+- tapOn: '任务输入'
+- inputText: '重启恢复标记句。'
+- tapOn: '发送任务'
+- extendedWaitUntil:
+    visible: '重启恢复标记句。'
+    timeout: 90000
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: '重启恢复标记句。'
+    timeout: 120000

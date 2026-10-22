@@ -1,9 +1,9 @@
 import { Stack } from 'expo-router';
-import { MemoryLocalProvider } from '@/features/agent/providers/memory-local-provider';
+import { MemoryApiProvider } from '@/features/agent/providers/memory-api-provider';
 
 export default function MemorySettingsLayout() {
   return (
-    <MemoryLocalProvider>
+    <MemoryApiProvider>
       <Stack
         screenOptions={{
           headerShown: true,
@@ -17,6 +17,6 @@ export default function MemorySettingsLayout() {
         <Stack.Screen name="list" options={{ title: '记忆条目' }} />
         <Stack.Screen name="form" options={{ title: '编辑记忆' }} />
       </Stack>
-    </MemoryLocalProvider>
+    </MemoryApiProvider>
   );
 }

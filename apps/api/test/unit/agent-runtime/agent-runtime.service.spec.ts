@@ -1495,20 +1495,20 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         if (name === AGENT_TOOL_NAMES.toolSearch) {
           activated.add(mcpName);
           return {
-            status: 'succeeded',
+            status: 'succeeded' as const,
             output: { tools: [], hint: '', activatedCandidates: [mcpName] },
           };
         }
-        return { status: 'succeeded', output: { ping: true } };
+        return { status: 'succeeded' as const, output: { ping: true } };
       }),
     });
-    const exposure: ToolExposureService = {
+    const exposure = {
       ...toolExposureService(),
       deferredCount: () => 1,
       shouldInjectToolSearch: () => true,
       createIndex: () => ({ size: 1 }) as never,
       buildMcpDefinitions: () => [{ name: mcpName, description: 'ping', parameters: {} }],
-    };
+    } as unknown as ToolExposureService;
     const model = modelFromRounds([
       [
         {

@@ -24,20 +24,32 @@ const variantBaseSize: Record<NonNullable<TextProps['variant']>, number> = {
   mono: 12,
 };
 
+/** 对齐 Web `--h-content-font-size-secondary`：副标题随正文字号略缩。 */
+function resolveCaptionFontSize(contentFontSize: number): number {
+  const minusOne = contentFontSize - 1;
+  const minusTwo = contentFontSize - 2;
+  return Math.min(minusOne, Math.max(11, minusTwo));
+}
+
 export function Text({ variant = 'body', className, fixedSize = false, style, ...props }: TextProps) {
   const { preferences } = useAppPreferences();
   const base = variantBaseSize[variant];
-  const userSize =
-    !fixedSize && (variant === 'body' || variant === 'body-sm')
+  const userSize = !fixedSize
+    ? variant === 'body' || variant === 'body-sm'
       ? preferences.contentFontSize
-      : base;
+      : variant === 'caption'
+        ? resolveCaptionFontSize(preferences.contentFontSize)
+        : base
+    : base;
   const scale = userSize / base;
   const lineHeight =
     variant === 'body'
       ? Math.round(22 * scale)
       : variant === 'body-sm'
         ? Math.round(20 * scale)
-        : undefined;
+        : variant === 'caption'
+          ? Math.round(userSize * 1.45)
+          : undefined;
 
   return (
     <RNText

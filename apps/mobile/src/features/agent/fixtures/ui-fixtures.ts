@@ -5,12 +5,16 @@ export type ToolActivityStatus = 'running' | 'completed' | 'failed' | 'cancelled
 
 export type ToolActivityFixture = {
   id: string;
+  /** 原始 toolName，用于图标等；展示文案见 `name` / `summary` */
+  toolName?: string;
   name: string;
   summary: string;
   status?: ToolActivityStatus;
   statusLabel?: string;
   statusTone?: 'success' | 'neutral' | 'danger' | 'muted';
   duration?: string;
+  startedAt?: string;
+  completedAt?: string;
 };
 
 export type SourceFixture = {

@@ -2,6 +2,7 @@ import { Pressable, View } from 'react-native';
 import { ChevronRight } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { ICON_CHEVRON_TONE } from '@/lib/theme';
+import { useThemeColors } from '@/lib/use-theme-colors';
 import { SpinnerIcon } from '@/components/ui/spinner-icon';
 import { Text } from '@/components/ui/text';
 import type { ToolActivityFixture } from '../fixtures/ui-fixtures';
@@ -12,15 +13,16 @@ type ToolActivityRowProps = {
 };
 
 export function ToolActivityRow({ item, onPress }: ToolActivityRowProps) {
+  const themeColors = useThemeColors();
   const status = item.status ?? 'completed';
   const dotColor =
     status === 'running'
-      ? '#fbbf24'
+      ? themeColors.warning
       : status === 'failed'
-        ? '#984b41'
+        ? themeColors.danger
         : status === 'cancelled'
-          ? '#898986'
-          : '#4ade80';
+          ? themeColors.muted
+          : themeColors.terminalAccent;
 
   return (
     <Pressable

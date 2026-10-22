@@ -50,10 +50,7 @@ function previewToolStatus(status: ActivityStatus): ToolCallStatus {
   return status;
 }
 
-function previewWorkbenchView(
-  reportState: boolean,
-  state: PreviewState,
-): 'deliverables' | 'tool_results' {
+function previewWorkbenchView(reportState: boolean): 'deliverables' | 'tool_results' {
   if (reportState) return 'deliverables';
   return 'tool_results';
 }
@@ -679,7 +676,7 @@ function makeWorkbench(state: PreviewState, runId: string) {
     runId,
     title: reportState ? '中国与美国 AI 市场' : '中国 AI 市场调研',
     subtitle: status === 'running' ? '网页检索 · 正在执行' : `网页检索 · ${sources.length} 个来源`,
-    activeView: previewWorkbenchView(reportState, state),
+    activeView: previewWorkbenchView(reportState),
     activityStatus: executionStatus,
     controlPhase: state === 'final-answer' ? ('final_answer' as const) : ('tool_loop' as const),
     executions,

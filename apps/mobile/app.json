@@ -25,9 +25,17 @@
       "bundler": "metro"
     },
     "plugins": [
+      "expo-dev-client",
       "expo-router",
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "允许访问相册以添加图片附件。"
+        }
+      ],
+      "expo-notifications"
     ]
   }
 }

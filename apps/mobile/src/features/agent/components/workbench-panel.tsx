@@ -4,9 +4,11 @@ import {
   normalizeWorkbenchView,
   resolveMobileWorkbenchVisibleTabs,
 } from '../config/workbench-tabs';
+import type { WorkbenchState } from '@harness/agent-ui-types';
 import type { WorkspaceView } from '../fixtures/ui-fixtures';
 import { WorkbenchActivityContent, type WorkbenchActivityEmphasis } from './workbench-activity-view';
 import { WorkbenchArtifactBody } from './workbench-artifact-view';
+import { WorkbenchRunControls } from './workbench-run-controls';
 import { WorkbenchSegmentedTabs } from './workbench-segmented-tabs';
 
 type WorkbenchPanelProps = {
@@ -14,7 +16,15 @@ type WorkbenchPanelProps = {
   workbenchCount?: number;
   hasDeliverables?: boolean;
   activityEmphasis?: WorkbenchActivityEmphasis;
+  workbench?: WorkbenchState;
+  selectedToolCallId?: string | null;
+  focusArtifactId?: string | null;
+  onSelectToolCall?: (toolCallId: string) => void;
   onViewChange?: (view: WorkspaceView) => void;
+  activeRunId?: string | null;
+  onPauseRun?: () => void;
+  onResumeRun?: () => void;
+  workbenchReportId?: string;
 };
 
 export function WorkbenchPanel({
@@ -22,7 +32,15 @@ export function WorkbenchPanel({
   workbenchCount = 0,
   hasDeliverables,
   activityEmphasis = 'default',
+  workbench,
+  selectedToolCallId,
+  focusArtifactId,
+  onSelectToolCall,
   onViewChange,
+  activeRunId,
+  onPauseRun,
+  onResumeRun,
+  workbenchReportId,
 }: WorkbenchPanelProps) {
   const visibleTabs = resolveMobileWorkbenchVisibleTabs({ workbenchCount, hasDeliverables });
   const view = normalizeWorkbenchView(activeView, visibleTabs);
@@ -30,10 +48,18 @@ export function WorkbenchPanel({
 
   return (
     <View className="flex-1 border-l border-composer-border bg-surface">
-      <View className="border-b border-composer-border px-3 py-2">
-        <Text variant="body-sm" className="font-semibold">
-          工作台
-        </Text>
+      <View className="gap-2 border-b border-composer-border px-3 py-2">
+        <View className="flex-row items-center justify-between gap-2">
+          <Text variant="body-sm" className="font-semibold">
+            工作台
+          </Text>
+          <WorkbenchRunControls
+            activityStatus={workbench?.activityStatus}
+            activeRunId={activeRunId}
+            onPause={onPauseRun}
+            onResume={onResumeRun}
+          />
+        </View>
       </View>
       {showTabBar ? (
         <WorkbenchSegmentedTabs
@@ -44,9 +70,19 @@ export function WorkbenchPanel({
       ) : null}
       <View className="flex-1">
         {view === 'artifact' ? (
-          <WorkbenchArtifactBody bottomInset={0} />
+          <WorkbenchArtifactBody
+            bottomInset={0}
+            workbench={workbench}
+            focusArtifactId={focusArtifactId}
+            reportId={workbenchReportId}
+          />
         ) : (
-          <WorkbenchActivityContent emphasis={activityEmphasis} />
+          <WorkbenchActivityContent
+            emphasis={activityEmphasis}
+            workbench={workbench}
+            selectedToolCallId={selectedToolCallId}
+            onSelectToolCall={onSelectToolCall}
+          />
         )}
       </View>
     </View>

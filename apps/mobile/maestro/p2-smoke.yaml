@@ -1,0 +1,19 @@
+# P2+ 冒烟：需 Metro + 开发构建 + 可达 API（模拟器默认 127.0.0.1:4318）。
+appId: com.harness.agent
+---
+- launchApp
+- assertVisible:
+    text: '欢迎回来，想从哪里开始？'
+    optional: true
+- tapOn: '打开会话列表'
+- assertVisible:
+    text: '会话'
+    optional: true
+- tapOn: '新建会话'
+- tapOn: '关闭会话列表'
+- tapOn: '任务输入'
+- inputText: '用一句话介绍你自己。'
+- tapOn: '发送任务'
+- extendedWaitUntil:
+    visible: '用一句话介绍你自己。'
+    timeout: 120000

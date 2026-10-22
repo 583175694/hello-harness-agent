@@ -19,7 +19,7 @@ const variantClass: Record<NonNullable<ButtonProps['variant']>, string> = {
   primary: 'bg-primary active:bg-primary-pressed',
   secondary: 'bg-subtle border border-border active:bg-subtle-pressed',
   ghost: 'bg-transparent active:bg-subtle',
-  rejection: 'bg-rejection border border-[#f3d3cf] active:bg-[#f3dedb]',
+  rejection: 'bg-rejection border border-rejection-border active:bg-rejection-border-pressed',
 };
 
 const textVariantClass: Record<NonNullable<ButtonProps['variant']>, string> = {

@@ -29,7 +29,6 @@ import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 import { Skeleton } from '../../../components/ui/skeleton';
-import { MarkdownContent } from '../../../components/markdown-content';
 import { copyTextToClipboard } from '../../../lib/clipboard';
 import {
   Message,
@@ -1761,7 +1760,7 @@ export function Composer({
   onAttachmentRetry,
   onAttachmentCancel,
   context,
-  selectedSkills = [],
+  selectedSkills: _selectedSkills = [],
   onSkillsChange = () => undefined,
 }: {
   prompt: string;
@@ -1790,6 +1789,7 @@ export function Composer({
   selectedSkills?: string[];
   onSkillsChange?: (skills: string[]) => void;
 }) {
+  void _selectedSkills;
   const [draftPrompt, setDraftPrompt] = useState(prompt);
   const [editorResetKey] = useState(() => (prompt.trim() ? 1 : 0));
   const [seedPlainText] = useState(() => prompt);

@@ -55,7 +55,7 @@ describe('MemoryService.writeFromTool', () => {
   });
 
   it('rejects create when active cap reached in transaction', async () => {
-    const { service, repository } = createMemoryService({
+    const { service } = createMemoryService({
       createIfUnderActiveCap: vi.fn().mockResolvedValue('limit_exceeded'),
     });
     const result = await service.writeFromTool(

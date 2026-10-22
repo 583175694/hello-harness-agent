@@ -2,13 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * RGB 通道与 `src/lib/design-tokens.ts` 中 hex 保持一致（NativeWind 用 rgb(var(--*) / alpha)）。
+ */
 @layer base {
   :root {
     --canvas: 247 247 246;
     --drawer: 251 250 249;
     --surface: 255 255 255;
     --subtle: 241 241 239;
+    --surface-hover: 233 233 230;
     --composer-border: 237 237 235;
+    --composer-placeholder: 160 160 156;
     --user-bubble: 237 243 254;
     --user-bubble-border: 219 230 248;
     --primary: 23 23 23;
@@ -22,7 +27,16 @@
     --approval-text: 47 93 58;
     --rejection: 248 236 234;
     --rejection-text: 152 75 65;
+    --rejection-border: 243 211 207;
+    --rejection-border-pressed: 243 222 219;
+    --warning: 139 106 62;
+    --danger: 152 75 65;
     --border: 222 222 219;
+    --terminal-bg: 255 255 255;
+    --terminal-header-bg: 246 246 245;
+    --terminal-fg: 23 23 23;
+    --terminal-muted: 85 85 81;
+    --terminal-accent: 52 199 89;
   }
 
   .dark {
@@ -30,7 +44,9 @@
     --drawer: 20 20 20;
     --surface: 24 24 24;
     --subtle: 32 32 32;
-    --composer-border: 42 42 42;
+    --surface-hover: 37 37 37;
+    --composer-border: 56 56 56;
+    --composer-placeholder: 138 138 138;
     --user-bubble: 32 32 32;
     --user-bubble-border: 48 48 48;
     --primary: 216 216 216;
@@ -39,11 +55,20 @@
     --subtle-pressed: 40 40 40;
     --secondary: 180 180 176;
     --muted: 130 130 126;
-    --link: 120 160 190;
-    --approval: 40 60 44;
-    --approval-text: 160 210 170;
-    --rejection: 60 36 32;
-    --rejection-text: 220 160 150;
-    --border: 48 48 48;
+    --link: 143 181 207;
+    --approval: 29 42 32;
+    --approval-text: 169 197 174;
+    --rejection: 45 32 31;
+    --rejection-text: 216 170 163;
+    --rejection-border: 61 48 46;
+    --rejection-border-pressed: 74 56 53;
+    --warning: 201 160 107;
+    --danger: 226 141 133;
+    --border: 43 43 43;
+    --terminal-bg: 15 17 21;
+    --terminal-header-bg: 15 17 21;
+    --terminal-fg: 232 234 237;
+    --terminal-muted: 148 153 160;
+    --terminal-accent: 74 222 128;
   }
 }

@@ -1,0 +1,10 @@
+# §12.2：Settings MCP 列表与 API 一致（需已登录 Host 且至少 0 条 MCP 可渲染）。
+appId: com.harness.agent
+---
+- launchApp
+- tapOn: '打开会话列表'
+- tapOn: '设置'
+- tapOn: 'MCP 服务器'
+- assertVisible:
+    text: '与 Web Settings 共用 Host MCP API'
+    optional: true

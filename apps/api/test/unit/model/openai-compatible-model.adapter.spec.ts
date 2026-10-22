@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConfigService } from '@nestjs/config';
 import * as modelCatalog from '../../../src/model/model-catalog';
+import type { ModelRoundEvent } from '../../../src/model/model-adapter';
 import {
   fileRefMetadataText,
   normalizeProviderUsage,
@@ -157,7 +158,7 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
   }
 
   async function collect(adapter: OpenAICompatibleModelAdapter) {
-    const events = [];
+    const events: ModelRoundEvent[] = [];
     await withFlashResponsesCatalog(async () => {
       for await (const event of adapter.streamRound({
         model: 'deepseek-flash',
@@ -188,12 +189,12 @@ describe('OpenAICompatibleModelAdapter Responses API', () => {
     };
 
     await withFlashResponsesCatalog(async () => {
-      for await (const _event of adapter.streamRound({
+      for await (const event of adapter.streamRound({
         model: 'deepseek-flash',
         messages: [{ role: 'user', content: '直接回答' }],
         reasoningEffort: 'off',
       })) {
-        // Consume the complete stream so the adapter reaches its terminal event.
+        void event;
       }
     });
 

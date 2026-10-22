@@ -313,7 +313,6 @@ export class MemoryService {
       this.logger.log({ event: 'memory.tool.write', action: 'create', ok: false, reason: 'limit_exceeded' });
       return { ok: false, action: 'create', status: 'rejected', reason: 'limit_exceeded' };
     }
-    const record = created;
     const indexingStatus = syncEmbed
       ? await this.embedJob.embedRecord(memoryId, title, summary)
       : (this.embedJob.scheduleEmbed(memoryId, title, summary), 'pending' as const);

@@ -45,6 +45,11 @@ export class ArtifactsController {
     );
   }
 
+  @Get(':artifactId/report')
+  getReportForArtifact(@CurrentUser() user: RequestUser, @Param('artifactId') artifactId: string) {
+    return this.artifacts.getReportForArtifact(user.id, artifactId);
+  }
+
   @Get(':artifactId')
   get(@CurrentUser() user: RequestUser, @Param('artifactId') artifactId: string) {
     return this.artifacts.get(user.id, artifactId);

@@ -22,7 +22,7 @@ function groupSummary(items: ToolActivityFixture[]): string {
 
 type ToolActivityGroupProps = {
   items: ToolActivityFixture[];
-  onOpenWorkbench?: () => void;
+  onOpenWorkbench?: (toolCallId?: string) => void;
 };
 
 export function ToolActivityGroup({ items, onOpenWorkbench }: ToolActivityGroupProps) {
@@ -56,7 +56,7 @@ export function ToolActivityGroup({ items, onOpenWorkbench }: ToolActivityGroupP
             return (
               <Pressable
                 key={item.id}
-                onPress={onOpenWorkbench}
+                onPress={() => onOpenWorkbench?.(item.id)}
                 className="flex-row items-start gap-2 py-0.5 active:opacity-70"
               >
                 <Text variant="caption" className="font-mono text-muted">
@@ -72,7 +72,7 @@ export function ToolActivityGroup({ items, onOpenWorkbench }: ToolActivityGroupP
               </Pressable>
             );
           })}
-          <Pressable onPress={onOpenWorkbench} className="py-1 active:opacity-70">
+          <Pressable onPress={() => onOpenWorkbench?.()} className="py-1 active:opacity-70">
             <Text variant="caption" className="text-link">在工作台查看详情</Text>
           </Pressable>
         </View>

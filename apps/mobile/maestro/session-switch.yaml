@@ -1,0 +1,19 @@
+# §12.2：切换 Session 不串消息（需至少两个已存在会话或先跑 p2-smoke 两次）。
+appId: com.harness.agent
+---
+- launchApp
+- tapOn: '打开会话列表'
+- tapOn: '新建会话'
+- tapOn: '关闭会话列表'
+- tapOn: '任务输入'
+- inputText: '会话 A 标记句。'
+- tapOn: '发送任务'
+- extendedWaitUntil:
+    visible: '会话 A 标记句。'
+    timeout: 60000
+- tapOn: '打开会话列表'
+- tapOn: '新建会话'
+- tapOn: '关闭会话列表'
+- assertNotVisible:
+    text: '会话 A 标记句。'
+    optional: true

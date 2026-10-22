@@ -1,0 +1,20 @@
+# §12.2：API Base URL 生效 + Host ready 后 Composer 可输入（模拟器默认 127.0.0.1:4318）。
+appId: com.harness.agent
+---
+- launchApp
+- tapOn: '打开会话列表'
+- tapOn: '设置'
+- assertVisible: 'API Base URL'
+- assertVisible:
+    text: '当前生效'
+    optional: true
+- assertVisible:
+    text: '127.0.0.1:4318'
+    optional: true
+- back
+- tapOn: '任务输入'
+- inputText: 'ready 探针'
+- eraseText
+- assertVisible:
+    text: '欢迎回来，想从哪里开始？'
+    optional: true

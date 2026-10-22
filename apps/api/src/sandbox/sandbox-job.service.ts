@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import type { BashInput } from '@harness/agent-protocol';
 import { readSandboxRuntimeConfig, sandboxLimits } from './sandbox-config';
 import { SandboxManagerService } from './sandbox-manager.service';
-import { resolveWorkspacePath } from './sandbox-path';
 import { SANDBOX_WORKSPACE_ROOT } from './sandbox-config';
 import { mergeSandboxExecuteEnv, sandboxEnvExportShell } from './sandbox-shell-env';
 import type { SandboxSession } from './sandbox.types';

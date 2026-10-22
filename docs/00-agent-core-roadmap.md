@@ -236,6 +236,15 @@ C7 User Memory owns later user-scoped cross-session recall.
 Delegation owns later bounded fan-out/fan-in.
 ```
 
-## 12. 变更规则
+## 12. 多端客户端（产品总指挥分轨）
 
-产品范围或里程碑变化时，先更新本文和 `13-research-workflow.md`，再同步实施计划、协议、存储和专题文档。专题文档不得悄悄扩大 R1 范围。
+Host + Web 的产品范围与里程碑以 **本文** 为准。并列客户端 **不另造 Agent Kernel**，范围与优先级分轨维护：
+
+| 客户端 | 总指挥文档 |
+| --- | --- |
+| Mobile | [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)（parity 与 Native IA；联调见 [42-mobile-api-integration-plan.md](./42-mobile-api-integration-plan.md)） |
+| Desktop | [00-desktop-client-roadmap.md](./00-desktop-client-roadmap.md)（标配 P1、差异化 P2–P4；本机工作区与跨端执行端） |
+
+## 13. 变更规则
+
+产品范围或里程碑变化时，先更新本文和 `13-research-workflow.md`，再同步实施计划、协议、存储和专题文档。专题文档不得悄悄扩大 R1 范围。Mobile/Desktop 分轨变更时，先更新对应总指挥文档，再同步 [implementation-status.md](./implementation-status.md) § L6。

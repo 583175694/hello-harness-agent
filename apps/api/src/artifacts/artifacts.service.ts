@@ -299,6 +299,16 @@ export class ArtifactsService {
     return { report: this.reportRef(report), artifact: this.toRef(report.artifact), file: this.files.toPublicRef(report.artifact.file, false, { artifactId: report.artifact.id }) };
   }
 
+  async getReportForArtifact(_userId: string, artifactId: string) {
+    const report = await this.prisma.report.findFirst({
+      where: { artifactId },
+      include: { artifact: { include: { file: true, series: true } } },
+    });
+    if (!report) throw new NotFoundException({ code: AGENT_ERROR_CODES.reportNotFound, detail: '报告不存在。' });
+    if (report.status === 'deleted') throw new BadRequestException({ code: AGENT_ERROR_CODES.reportDeleted, detail: '报告已删除。' });
+    return { report: this.reportRef(report), artifact: this.toRef(report.artifact), file: this.files.toPublicRef(report.artifact.file, false, { artifactId: report.artifact.id }) };
+  }
+
   async deleteReport(userId: string, reportId: string) {
     const report = await this.prisma.report.findFirst({ where: { id: reportId, userId } });
     if (!report) throw new NotFoundException({ code: AGENT_ERROR_CODES.reportNotFound, detail: '报告不存在。' });

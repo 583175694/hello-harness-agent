@@ -20,13 +20,13 @@ export function BashTerminalView({
   const copyText = [commandLine, ...outputLines].join('\n');
 
   return (
-    <View className="border-b border-composer-border bg-[#16191f] p-3">
+    <View className="border-b border-composer-border bg-terminal-header p-3">
       <View className="mb-2 flex-row items-center justify-between">
-        <Text variant="mono" className="flex-1 text-zinc-200">
+        <Text variant="mono" className="flex-1 text-terminal-fg">
           {title}
         </Text>
         {durationLabel ? (
-          <Text variant="caption" className="text-zinc-500">
+          <Text variant="caption" className="text-terminal-muted">
             {durationLabel}
           </Text>
         ) : null}
@@ -39,11 +39,11 @@ export function BashTerminalView({
         </Pressable>
       </View>
       <View className="rounded-lg bg-terminal p-3">
-        <Text variant="mono" className="text-emerald-400">
+        <Text variant="mono" className="text-terminal-accent">
           {commandLine}
         </Text>
         {outputLines.map((line) => (
-          <Text key={line} variant="mono" className="mt-1 text-zinc-400">
+          <Text key={line} variant="mono" className="mt-1 text-terminal-muted">
             {line}
           </Text>
         ))}

@@ -2,9 +2,7 @@ import { Pressable, View } from 'react-native';
 import { Input } from '@/components/ui/input';
 import { SettingsSwitch } from '@/components/ui/settings-switch';
 import { Text } from '@/components/ui/text';
-import type { McpServerFixture } from '../fixtures/mcp-fixtures';
-
-type McpFormState = Omit<McpServerFixture, 'id' | 'status'>;
+import type { McpFormState } from '../model/mcp-form';
 
 type McpServerFormFieldsProps = {
   form: McpFormState;
@@ -119,15 +117,20 @@ export function McpServerFormFields({
           默认审批
         </Text>
         <View className="flex-row gap-2">
-          {(['manual', 'auto'] as const).map((mode) => (
+          {(
+            [
+              { id: 'require_approval' as const, label: '手动' },
+              { id: 'auto_execute' as const, label: '自动' },
+            ] as const
+          ).map((mode) => (
             <Pressable
-              key={mode}
-              onPress={() => patch({ defaultApproval: mode })}
+              key={mode.id}
+              onPress={() => patch({ defaultApproval: mode.id })}
               className={`rounded-full border px-3 py-1 ${
-                form.defaultApproval === mode ? 'border-primary bg-subtle' : 'border-border'
+                form.defaultApproval === mode.id ? 'border-primary bg-subtle' : 'border-border'
               }`}
             >
-              <Text variant="caption">{mode === 'manual' ? '手动' : '自动'}</Text>
+              <Text variant="caption">{mode.label}</Text>
             </Pressable>
           ))}
         </View>

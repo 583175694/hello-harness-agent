@@ -9,7 +9,7 @@ export type McpServerFixture = {
   toolCallTimeoutMs: number;
   required: boolean;
   failOnStartupError: boolean;
-  defaultApproval: 'auto' | 'manual';
+  defaultApproval: 'auto_execute' | 'require_approval';
   maxInstructionBytes: number;
   reconnectEnabled: boolean;
   reconnectMaxAttempts: number;
@@ -27,7 +27,7 @@ export const mcpServerFixtures: McpServerFixture[] = [
     toolCallTimeoutMs: 60_000,
     required: false,
     failOnStartupError: true,
-    defaultApproval: 'manual',
+    defaultApproval: 'require_approval',
     maxInstructionBytes: 32_768,
     reconnectEnabled: true,
     reconnectMaxAttempts: 3,
@@ -43,7 +43,7 @@ export const mcpServerFixtures: McpServerFixture[] = [
     toolCallTimeoutMs: 120_000,
     required: false,
     failOnStartupError: false,
-    defaultApproval: 'auto',
+    defaultApproval: 'auto_execute',
     maxInstructionBytes: 16_384,
     reconnectEnabled: true,
     reconnectMaxAttempts: 5,
@@ -59,7 +59,7 @@ export const mcpServerFixtures: McpServerFixture[] = [
     toolCallTimeoutMs: 90_000,
     required: true,
     failOnStartupError: true,
-    defaultApproval: 'manual',
+    defaultApproval: 'require_approval',
     maxInstructionBytes: 8192,
     reconnectEnabled: false,
     reconnectMaxAttempts: 1,
@@ -76,7 +76,7 @@ export function defaultMcpForm(): Omit<McpServerFixture, 'id' | 'status'> {
     toolCallTimeoutMs: 60_000,
     required: false,
     failOnStartupError: true,
-    defaultApproval: 'manual',
+    defaultApproval: 'require_approval',
     maxInstructionBytes: 32_768,
     reconnectEnabled: true,
     reconnectMaxAttempts: 3,

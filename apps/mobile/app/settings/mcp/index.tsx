@@ -1,10 +1,12 @@
 import { Link, useRouter } from 'expo-router';
-import { Pressable, ScrollView, View } from 'react-native';
+import { useCallback } from 'react';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { ChevronRight, Plus } from 'lucide-react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { ICON_CHEVRON_TONE } from '@/lib/theme';
-import { mcpServerFixtures } from '@/features/agent/fixtures/mcp-fixtures';
+import { useMcpServers } from '@/features/agent/hooks/use-mcp-servers';
 
 function StatusBadge({ status }: { status: string }) {
   const tone =
@@ -26,13 +28,32 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function McpSettingsScreen() {
   const router = useRouter();
+  const { servers, loading, error, refresh } = useMcpServers();
+
+  useFocusEffect(
+    useCallback(() => {
+      void refresh();
+    }, [refresh]),
+  );
 
   return (
-    <ScrollView className="flex-1" contentContainerClassName="gap-3 p-4">
+    <ScrollView
+      className="flex-1"
+      contentContainerClassName="gap-3 p-4"
+      refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
+    >
       <Text variant="body-sm" className="text-secondary">
-        对齐 Web Settings MCP 列表；保存与测试为本地演示，不调 API。
+        与 Web Settings 共用 Host MCP API（list / CRUD / test）。
       </Text>
-      {mcpServerFixtures.map((server) => (
+      {error ? (
+        <Text variant="body-sm" className="text-destructive">
+          {error}
+        </Text>
+      ) : null}
+      {loading && servers.length === 0 ? (
+        <ActivityIndicator className="py-8" />
+      ) : null}
+      {servers.map((server) => (
         <Pressable
           key={server.id}
           onPress={() => router.push(`/settings/mcp/${server.id}`)}
@@ -44,7 +65,7 @@ export default function McpSettingsScreen() {
             </Text>
             <StatusBadge status={server.status} />
           </View>
-          <Text variant="mono" className="mt-2 text-muted">
+          <Text variant="mono" className="mt-2 text-muted" numberOfLines={1}>
             {server.url}
           </Text>
           <View className="mt-2 flex-row items-center justify-end gap-1">

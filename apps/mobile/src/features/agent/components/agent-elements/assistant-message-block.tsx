@@ -58,7 +58,7 @@ export function AssistantMessageBlock({
       {children}
 
       {completed ? (
-        <Text variant="caption" className="pt-1 text-muted">
+        <Text variant="caption" className="pt-2 text-muted">
           ✓ 任务已完成
         </Text>
       ) : null}

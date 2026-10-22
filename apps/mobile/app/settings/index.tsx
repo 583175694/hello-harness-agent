@@ -1,5 +1,5 @@
 import { Link, useRouter } from 'expo-router';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, Switch, View } from 'react-native';
 import { Brain, ChevronRight, Server, Type } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
@@ -7,6 +7,7 @@ import { Text } from '@/components/ui/text';
 import { ICON_CHEVRON_TONE } from '@/lib/theme';
 import type { ThemeMode } from '@/lib/preferences';
 import { clampFontSize } from '@/lib/preferences';
+import { resolveMobileApiBaseUrl } from '@/lib/agent-client';
 import { useAppPreferences } from '@/providers/app-preferences-provider';
 
 const THEME_OPTIONS: { id: ThemeMode; label: string }[] = [
@@ -18,6 +19,7 @@ const THEME_OPTIONS: { id: ThemeMode; label: string }[] = [
 export default function SettingsScreen() {
   const router = useRouter();
   const { preferences, updatePreferences } = useAppPreferences();
+  const effectiveApiBaseUrl = resolveMobileApiBaseUrl(preferences.apiBaseUrl);
 
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 p-4">
@@ -117,6 +119,26 @@ export default function SettingsScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             className="border-0 bg-transparent px-0"
+          />
+        </View>
+        <Text variant="caption" className="mt-2 text-muted" fixedSize>
+          当前生效：{effectiveApiBaseUrl}
+          {preferences.apiBaseUrl.trim() ? '' : '（未填时使用模拟器 localhost）'}
+        </Text>
+        <View className="mt-4 flex-row items-center justify-between border-t border-composer-border pt-3">
+          <View className="mr-3 flex-1">
+            <Text variant="body-sm" fixedSize>
+              后台任务通知
+            </Text>
+            <Text variant="caption" className="text-muted" fixedSize>
+              Run 完成或需要确认时在后台推送本地通知
+            </Text>
+          </View>
+          <Switch
+            value={preferences.pushNotificationsEnabled}
+            onValueChange={(pushNotificationsEnabled) =>
+              void updatePreferences({ pushNotificationsEnabled })
+            }
           />
         </View>
       </View>

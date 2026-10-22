@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { FakeSandboxProvider } from '../../../src/sandbox/fake-sandbox.provider';
 import { SandboxManagerService } from '../../../src/sandbox/sandbox-manager.service';
 import { resolveWorkspacePath } from '../../../src/sandbox/sandbox-path';
-import { boundStream, boundStreamTail } from '../../../src/sandbox/sandbox-output';
+import { boundStreamTail } from '../../../src/sandbox/sandbox-output';
 
 describe('sandbox manager', () => {
   it('resolves workspace-relative paths and rejects escapes', () => {

@@ -12,7 +12,8 @@ import {
   type TextNode,
 } from 'lexical';
 
-import { $createSkillMentionNode, $isSkillMentionNode, SkillMentionNode } from './skill-mention-node';
+import type { SkillMentionNode } from './skill-mention-node';
+import { $createSkillMentionNode, $isSkillMentionNode } from './skill-mention-node';
 
 export type ComposerDocumentValue = {
   plainText: string;

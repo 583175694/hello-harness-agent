@@ -1,0 +1,9 @@
+# §12.2：打开 Workbench 实时跟随（空态或已有 Run 均可）。
+appId: com.harness.agent
+---
+- launchApp
+- tapOn: '打开工作台'
+- assertVisible: '工作台'
+- assertVisible:
+    text: '实时跟随'
+    optional: true

@@ -9,6 +9,16 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 
+import { observeRunConnection } from '@harness/agent-conversation';
+import {
+  applyRunEventToSession,
+  applyRunSnapshotToSession,
+  groupSessionSummaries,
+  sortSessionSummaries,
+  workbenchViewFromTarget,
+  type RunReducerDeps,
+  type SessionTimeGroup,
+} from '@harness/agent-run-state';
 import {
   ApiProblem,
   cancelRun,
@@ -37,14 +47,7 @@ import {
   deleteFile,
   restoreArtifact,
 } from './api/client';
-import type {
-  MessageDeltaEvent,
-  MessageDiscardedEvent,
-  MessagePhaseCompletedEvent,
-  ModelRoundCompletedEvent,
-  ReasoningDeltaEvent,
-  ToolStreamEvent,
-} from './api/client';
+import type { ToolStreamEvent } from './api/client';
 import {
   AGENT_PROTOCOL_LIMITS,
   assistantContentBlockSchema,
@@ -80,18 +83,8 @@ import type {
   ToolCallView,
   WorkbenchFocusTarget,
   WorkbenchState,
-  WorkspaceView,
 } from './features/agent/model/types';
-import {
-  appendTextDelta,
-  appendReasoningDelta,
-  completeReasoning,
-  applyToolActivityEvent,
-  cloneAssistantBlocks,
-  completeTextPhase,
-  discardTextBlock,
-  appendUserIntervention,
-} from './features/agent/model/conversation-blocks';
+import { cloneAssistantBlocks } from './features/agent/model/conversation-blocks';
 import {
   bashTerminalFromInput,
   mergeBashTerminalView,
@@ -546,14 +539,12 @@ function artifactRefsFromAssistantBlocks(
     if (block.type !== 'artifact') continue;
     if (seen.has(block.artifactId)) continue;
     seen.add(block.artifactId);
-    const {
-      id: _id,
-      type: _type,
-      roundId: _roundId,
-      roundSequence: _roundSequence,
-      blockSequence: _blockSequence,
-      ...artifact
-    } = block;
+    const { id, type, roundId, roundSequence, blockSequence, ...artifact } = block;
+    void id;
+    void type;
+    void roundId;
+    void roundSequence;
+    void blockSequence;
     artifacts.push(artifact);
   }
   return artifacts;
@@ -1083,6 +1074,18 @@ function preferRicherAssistant(
   return restored;
 }
 
+const runReducerDeps: RunReducerDeps = {
+  toConversationItem,
+  preferRicherAssistant,
+  mergePendingSteerState,
+  uniquePendingInputs,
+  mergeWorkbenchDeliverables,
+  applyToolEvent,
+  resolveWorkbenchOpenOnToolEvent,
+  collectedArtifactFromCommandResult,
+  canonicalUrl,
+};
+
 // 从首条用户输入构造创建会话时使用的临时标题。
 function makeProvisionalTitle(content: string): string {
   return content.replace(/\s+/g, ' ').trim().slice(0, AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength);
@@ -1126,75 +1129,14 @@ function updateSessionUrl(sessionId: string | null, replace = false): void {
   window.history[replace ? 'replaceState' : 'pushState']({}, '', url);
 }
 
-// 按置顶优先、最近更新其次的规则稳定排列会话。
-function sortSessionSummaries(items: SessionSummary[]): SessionSummary[] {
-  return [...items].sort((a, b) => {
-    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
-    return b.updatedAt.localeCompare(a.updatedAt);
-  });
-}
-
-export type SessionTimeGroup = {
-  id: 'pinned' | 'today' | 'yesterday' | 'week' | 'month' | 'older';
-  label: '置顶' | '今天' | '昨天' | '过去 7 天' | '过去 30 天' | '更早';
-  sessions: SessionSummary[];
-};
-
-function sessionTimeGroup(input: {
-  updatedAt: number;
-  today: number;
-  yesterday: number;
-  week: number;
-  month: number;
-  todayGroup: SessionTimeGroup;
-  yesterdayGroup: SessionTimeGroup;
-  weekGroup: SessionTimeGroup;
-  monthGroup: SessionTimeGroup;
-  older: SessionTimeGroup;
-}): SessionTimeGroup {
-  if (input.updatedAt >= input.today) return input.todayGroup;
-  if (input.updatedAt >= input.yesterday) return input.yesterdayGroup;
-  if (input.updatedAt >= input.week) return input.weekGroup;
-  if (input.updatedAt >= input.month) return input.monthGroup;
-  return input.older;
-}
-
-function snapshotDeliveryStatus(
-  status: string,
-): 'completed' | 'cancelled' | 'failed' | 'streaming' {
-  if (status === 'completed') return 'completed';
-  if (status === 'cancelled') return 'cancelled';
-  if (status === 'failed') return 'failed';
-  return 'streaming';
-}
-
-function snapshotActivityStatus(
-  controlStatus: string | undefined,
-  status: string,
-): WorkbenchState['activityStatus'] {
-  if (
-    controlStatus === 'paused' ||
-    controlStatus === 'pause_requested' ||
-    controlStatus === 'resuming' ||
-    controlStatus === 'waiting_for_user'
-  ) {
-    return controlStatus;
-  }
-  if (status === 'cancelled' || status === 'failed' || status === 'completed') return status;
-  return 'running';
-}
-
-// eslint-disable-next-line react-refresh/only-export-components -- 供点击文件卡片等导航单测复用。
-export function workbenchViewFromTarget(kind: WorkbenchFocusTarget['kind']): WorkspaceView {
-  if (kind === 'source' || kind === 'tool_call' || kind === 'activity') return 'tool_results';
-  if (kind === 'report' || kind === 'artifact') return 'deliverables';
-  return 'tool_results';
-}
+export type { SessionTimeGroup };
+export { groupSessionSummaries, workbenchViewFromTarget };
 
 function clearArtifactWorkbenchFocus(workbench: WorkbenchState): WorkbenchState {
   if (workbench.focusTarget?.kind !== 'artifact') return workbench;
-  const { focusTarget: _removed, ...rest } = workbench;
-  return rest;
+  const next = { ...workbench };
+  delete next.focusTarget;
+  return next;
 }
 
 function resumeWorkbenchAutoFollow(workbench: WorkbenchState): WorkbenchState {
@@ -1214,59 +1156,6 @@ function resumeWorkbenchAutoFollow(workbench: WorkbenchState): WorkbenchState {
         }
       : {}),
   };
-}
-
-function runTerminalStatus(type: 'run.completed' | 'run.failed' | 'run.cancelled') {
-  if (type === 'run.completed') return 'completed';
-  if (type === 'run.cancelled') return 'cancelled';
-  return 'failed';
-}
-
-// 按用户本地自然日和最近活动时间分组；各时间区间互斥，置顶会话独立置于最前。
-export function groupSessionSummaries(
-  items: SessionSummary[],
-  now = new Date(),
-): SessionTimeGroup[] {
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const boundary = (daysAgo: number) => {
-    const value = new Date(startOfToday);
-    value.setDate(value.getDate() - daysAgo);
-    return value.getTime();
-  };
-  const today = startOfToday.getTime();
-  const yesterday = boundary(1);
-  const week = boundary(7);
-  const month = boundary(30);
-  const pinned: SessionTimeGroup = { id: 'pinned', label: '置顶', sessions: [] };
-  const todayGroup: SessionTimeGroup = { id: 'today', label: '今天', sessions: [] };
-  const yesterdayGroup: SessionTimeGroup = { id: 'yesterday', label: '昨天', sessions: [] };
-  const weekGroup: SessionTimeGroup = { id: 'week', label: '过去 7 天', sessions: [] };
-  const monthGroup: SessionTimeGroup = { id: 'month', label: '过去 30 天', sessions: [] };
-  const older: SessionTimeGroup = { id: 'older', label: '更早', sessions: [] };
-  const groups = [pinned, todayGroup, yesterdayGroup, weekGroup, monthGroup, older];
-
-  for (const session of sortSessionSummaries(items)) {
-    if (session.isPinned) {
-      pinned.sessions.push(session);
-      continue;
-    }
-    const updatedAt = new Date(session.updatedAt).getTime();
-    const target = sessionTimeGroup({
-      updatedAt,
-      today,
-      yesterday,
-      week,
-      month,
-      todayGroup,
-      yesterdayGroup,
-      weekGroup,
-      monthGroup,
-      older,
-    });
-    target.sessions.push(session);
-  }
-
-  return groups.filter((group) => group.sessions.length > 0);
 }
 
 function WorkbenchOpenButton({
@@ -1343,6 +1232,7 @@ function PersistentAgentApp() {
   // 每个 Run 最后成功归约的 SSE cursor。
   const runSequencesRef = useRef<Record<string, number>>({});
   const sessionStatesRef = useRef<Record<string, AgentUiState>>({});
+  const pendingInputsRef = useRef<PendingUserInputView[]>([]);
   const sessionPaginationRef = useRef<Record<string, string | undefined>>({});
   const loadingOlderSessionRef = useRef<Set<string>>(new Set());
   const [sessionNextBefore, setSessionNextBefore] = useState<Record<string, string | undefined>>(
@@ -1372,6 +1262,10 @@ function PersistentAgentApp() {
   useEffect(() => {
     sessionStatesRef.current = sessionStates;
   }, [sessionStates]);
+
+  useEffect(() => {
+    pendingInputsRef.current = pendingInputs;
+  }, [pendingInputs]);
 
   function applyPublicAgentConfig(config: Awaited<ReturnType<typeof getPublicAgentConfig>>): void {
     const selected =
@@ -1405,7 +1299,7 @@ function PersistentAgentApp() {
       Object.values(runControllersRef.current).forEach((runController) => runController.abort());
       runControllersRef.current = {};
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅挂载时拉取会话与公开模型配置
+     
   }, []);
 
   useEffect(() => {
@@ -1415,7 +1309,7 @@ function PersistentAgentApp() {
       .then(applyPublicAgentConfig)
       .catch(() => undefined);
     return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 登录成功后补拉模型配置（未登录时可能 401）
+     
   }, [authUser]);
 
   function setSessionStates(
@@ -1441,483 +1335,58 @@ function PersistentAgentApp() {
   }
 
   function applyRunSnapshot(sessionId: string, snapshot: RunSnapshot): void {
-    // Snapshot 是完整替换，但旧 HTTP/SSE 响应不能覆盖已经应用到更高 cursor 的 Live 状态。
-    if (snapshot.lastEventSequence < (runSequencesRef.current[snapshot.runId] ?? 0)) return;
-    runSequencesRef.current[snapshot.runId] = snapshot.lastEventSequence;
-    if (snapshot.pendingUserInputs) {
-      setPendingInputs(uniquePendingInputs(snapshot.pendingUserInputs));
-      setSessionStates((current) => {
-        const target = current[sessionId];
-        if (!target) return current;
-        return {
-          ...current,
-          [sessionId]: {
-            ...target,
-            conversation: mergePendingSteerState(target.conversation, snapshot.pendingUserInputs!),
-          },
-        };
-      });
-    }
-    const active = ['queued', 'running', 'cancel_requested'].includes(snapshot.status);
-    const controlStatus = snapshot.control?.state;
-    const activityStatus = snapshotActivityStatus(controlStatus, snapshot.status);
-    setSessionPending(sessionId, active);
-    const restored = toConversationItem({
-      id: snapshot.assistantMessageId,
+    const target = sessionStatesRef.current[sessionId];
+    if (!target) return;
+    const cursor = runSequencesRef.current[snapshot.runId] ?? 0;
+    const result = applyRunSnapshotToSession(
       sessionId,
-      role: 'assistant',
-      kind: 'assistant_delivery',
-      content: snapshot.assistantContent,
-      runId: snapshot.runId,
-      deliveryStatus: snapshotDeliveryStatus(snapshot.status),
-      createdAt: snapshot.createdAt,
-      metadata: {
-        model: 'restored',
-        deliveryStatus: snapshotDeliveryStatus(snapshot.status),
-        runId: snapshot.runId,
-        blocks: snapshot.blocks,
-        ...(snapshot.error &&
-        typeof snapshot.error.code === 'string' &&
-        typeof snapshot.error.detail === 'string'
-          ? { error: { code: snapshot.error.code, detail: snapshot.error.detail } }
-          : {}),
-        agent: {
-          toolCallCount: snapshot.toolCallCount,
-          executions: snapshot.executions,
-          sources: snapshot.sources,
-        },
-      },
-    });
-    if (restored.kind !== 'assistant') return;
-    const workbenchDraft = restored.workbench
-      ? {
-          ...restored.workbench,
-          runId: snapshot.runId,
-          activityStatus,
-          ...(snapshot.control?.phase ? { controlPhase: snapshot.control.phase } : {}),
-          ...(snapshot.activeInterrupt
-            ? { activeInterrupt: snapshot.activeInterrupt }
-            : { activeInterrupt: undefined }),
-          executions: restored.workbench.executions.map((item) => ({
-            ...item,
-            runId: snapshot.runId,
-          })),
-          ...(snapshot.context ? { context: snapshot.context } : {}),
-          ...(snapshot.plan ? { plan: snapshot.plan } : {}),
-        }
-      : undefined;
-    // 只替换目标 Run 对应的 Assistant Message；其他历史轮次和其他 Session 缓存保持不变。
-    setSessionStates((current) => {
-      const target = current[sessionId];
-      if (!target) return current;
-      const workbench = workbenchDraft
-        ? mergeWorkbenchDeliverables(workbenchDraft, target.workbench)
-        : undefined;
-      const existingAssistant = target.conversation.find(
-        (entry) => entry.kind === 'assistant' && entry.id === snapshot.assistantMessageId,
-      );
-      const item = {
-        ...preferRicherAssistant(existingAssistant, restored),
-        pending: active,
-        ...(workbench ? { workbench } : {}),
-      };
-      const exists = target.conversation.some(
-        (entry) => entry.kind === 'assistant' && entry.id === snapshot.assistantMessageId,
-      );
-      return {
-        ...current,
-        [sessionId]: {
-          ...target,
-          conversation: exists
-            ? target.conversation.map((entry) =>
-                entry.kind === 'assistant' && entry.id === snapshot.assistantMessageId
-                  ? item
-                  : entry,
-              )
-            : [...target.conversation, item],
-          ...(workbench ? { workbench } : {}),
-          ...(snapshot.context ? { context: snapshot.context } : {}),
-          ...(snapshot.activeInterrupt
-            ? { activeInterrupt: snapshot.activeInterrupt }
-            : { activeInterrupt: undefined }),
-          ...(active ? { activeRunId: snapshot.runId } : { activeRunId: undefined }),
-        },
-      };
-    });
-    if (snapshot.error && selectedSessionIdRef.current === sessionId)
-      setError(snapshot.error.detail);
+      target,
+      snapshot,
+      pendingInputsRef.current,
+      cursor,
+      runReducerDeps,
+    );
+    if (result.skipped) return;
+    runSequencesRef.current[snapshot.runId] = result.nextCursor;
+    setPendingInputs(result.pendingInputs);
+    setSessionPending(sessionId, result.sessionPending);
+    setSessionStates((current) =>
+      current[sessionId] ? { ...current, [sessionId]: result.sessionState } : current,
+    );
+    if (result.errorDetail && selectedSessionIdRef.current === sessionId) {
+      setError(result.errorDetail);
+    }
   }
 
   function applyRunEvent(sessionId: string, event: RunStreamEvent, task = ''): void {
     const cursor = runSequencesRef.current[event.runId] ?? 0;
-    // 重放重复事件幂等忽略；非连续 Event 绝不能猜测应用，交给 observeRun 重新拉 Snapshot。
-    if (event.seq <= cursor) return;
     if (event.type === 'run.snapshot') {
       applyRunSnapshot(sessionId, event.payload as RunSnapshot);
       return;
     }
-    if (event.seq !== cursor + 1) throw new Error('RUN_EVENT_SEQUENCE_GAP');
-    // 只有确认目标 Session/Message 存在且成功归约后，下面各分支才推进 cursor。
     const target = sessionStatesRef.current[sessionId];
     if (!target) throw new Error('RUN_EVENT_TARGET_MISSING');
-    if (event.type === 'user_input.updated') {
-      if (!('pendingUserInputs' in event.payload)) throw new Error('INVALID_USER_INPUT_UPDATE');
-      const update = event.payload;
-      const nextPending = uniquePendingInputs(update.pendingUserInputs ?? []);
-      setPendingInputs(nextPending);
-      setSessionStates((current) => {
-        const target = current[sessionId];
-        if (!target) return current;
-        return {
-          ...current,
-          [sessionId]: {
-            ...target,
-            conversation: mergePendingSteerState(target.conversation, nextPending),
-          },
-        };
-      });
-      runSequencesRef.current[event.runId] = event.seq;
-      return;
+    const result = applyRunEventToSession(
+      sessionId,
+      target,
+      pendingInputsRef.current,
+      pendingSessionsRef.current[sessionId] ?? false,
+      event,
+      cursor,
+      task,
+      runReducerDeps,
+    );
+    if (result.duplicate) return;
+    if (result.gap) throw new Error('RUN_EVENT_SEQUENCE_GAP');
+    runSequencesRef.current[event.runId] = result.nextCursor;
+    setPendingInputs(result.pendingInputs);
+    setSessionPending(sessionId, result.sessionPending);
+    setSessionStates((current) =>
+      current[sessionId] ? { ...current, [sessionId]: result.sessionState } : current,
+    );
+    if (result.errorDetail && selectedSessionIdRef.current === sessionId) {
+      setError(result.errorDetail);
     }
-    if (event.type === 'user.intervention' && 'inputId' in event.payload) {
-      const intervention = event.payload;
-      if (
-        !target.conversation.some(
-          (item) => item.kind === 'assistant' && item.id === intervention.messageId,
-        )
-      )
-        throw new Error('RUN_EVENT_TARGET_MISSING');
-      setSessionStates((current) => {
-        const state = current[sessionId];
-        if (!state) return current;
-        return {
-          ...current,
-          [sessionId]: {
-            ...state,
-            conversation: state.conversation
-              .filter(
-                (item) => !(item.kind === 'user' && item.pendingInputId === intervention.inputId),
-              )
-              .map((item) =>
-                item.kind === 'assistant' && item.id === intervention.messageId
-                  ? { ...item, blocks: appendUserIntervention(item.blocks, intervention) }
-                  : item,
-              ),
-          },
-        };
-      });
-      runSequencesRef.current[event.runId] = event.seq;
-      return;
-    }
-    if (event.type === 'message.delta') {
-      const delta = event.payload as MessageDeltaEvent;
-      if (
-        !target.conversation.some(
-          (item) => item.kind === 'assistant' && item.id === delta.messageId,
-        )
-      )
-        throw new Error('RUN_EVENT_TARGET_MISSING');
-      setSessionStates((current) => {
-        const target = current[sessionId];
-        if (!target) return current;
-        return {
-          ...current,
-          [sessionId]: {
-            ...target,
-            conversation: target.conversation.map((item) =>
-              item.kind === 'assistant' && item.id === delta.messageId
-                ? { ...item, blocks: appendTextDelta(item.blocks, delta) }
-                : item,
-            ),
-          },
-        };
-      });
-      runSequencesRef.current[event.runId] = event.seq;
-      return;
-    }
-    if (event.type === 'message.phase.completed' || event.type === 'message.discarded') {
-      const update = event.payload as MessagePhaseCompletedEvent | MessageDiscardedEvent;
-      setSessionStates((current) => {
-        const target = current[sessionId];
-        if (!target) return current;
-        return {
-          ...current,
-          [sessionId]: {
-            ...target,
-            conversation: target.conversation.map((item) =>
-              item.kind === 'assistant' && item.id === update.messageId
-                ? {
-                    ...item,
-                    blocks:
-                      update.type === 'message.phase.completed'
-                        ? completeTextPhase(item.blocks, update)
-                        : discardTextBlock(item.blocks, update),
-                  }
-                : item,
-            ),
-          },
-        };
-      });
-      runSequencesRef.current[event.runId] = event.seq;
-      return;
-    }
-    if (event.type === 'reasoning.delta') {
-      const reasoning = event.payload as ReasoningDeltaEvent;
-      setSessionStates((current) => {
-        const target = current[sessionId];
-        if (!target) return current;
-        return {
-          ...current,
-          [sessionId]: {
-            ...target,
-            conversation: target.conversation.map((item) =>
-              item.kind === 'assistant' && item.id === reasoning.messageId
-                ? { ...item, blocks: appendReasoningDelta(item.blocks, reasoning) }
-                : item,
-            ),
-          },
-        };
-      });
-      runSequencesRef.current[event.runId] = event.seq;
-      return;
-    }
-    if (event.type === 'model.round.completed') {
-      const round = event.payload as ModelRoundCompletedEvent;
-      setSessionStates((current) => {
-        const target = current[sessionId];
-        if (!target) return current;
-        const workbench =
-          target.workbench && round.context
-            ? { ...target.workbench, context: round.context }
-            : target.workbench;
-        return {
-          ...current,
-          [sessionId]: {
-            ...target,
-            conversation: target.conversation.map((item) =>
-              item.kind === 'assistant' &&
-              item.blocks.some(
-                (b) =>
-                  b.type === 'reasoning' && b.roundSequence === round.observation.roundSequence,
-              )
-                ? {
-                    ...item,
-                    blocks: completeReasoning(
-                      item.blocks,
-                      round.observation.roundSequence,
-                      round.observation.durationMs,
-                    ),
-                  }
-                : item,
-            ),
-            ...(round.context ? { context: round.context } : {}),
-            workbench,
-          },
-        };
-      });
-      runSequencesRef.current[event.runId] = event.seq;
-      return;
-    }
-    // 计划事件只替换计划投影，不影响文本、工具时间线或 Context。
-    if (event.type === 'plan.updated') {
-      const payload = event.payload as Extract<RunStreamEvent['payload'], { type: 'plan.updated' }>;
-      setSessionStates((current) => {
-        const state = current[sessionId];
-        if (!state) return current;
-        const plan = {
-          ...(payload.explanation ? { explanation: payload.explanation } : {}),
-          plan: payload.plan,
-        };
-        const workbench = state.workbench ?? {
-          runId: event.runId,
-          title: '执行计划',
-          subtitle: '正在按计划执行',
-          activeView: 'tool_results' as const,
-          activityStatus: 'running' as const,
-          executions: [],
-          followMode: 'auto' as const,
-          sources: [],
-          open: true,
-        };
-        return { ...current, [sessionId]: { ...state, workbench: { ...workbench, plan } } };
-      });
-      runSequencesRef.current[event.runId] = event.seq;
-      return;
-    }
-    if (
-      event.type === 'run.pause_requested' ||
-      event.type === 'run.paused' ||
-      event.type === 'run.resuming' ||
-      event.type === 'run.resumed' ||
-      event.type === 'run.phase_changed' ||
-      event.type === 'run.waiting_for_user' ||
-      event.type === 'interrupt.created' ||
-      event.type === 'interrupt.resolved' ||
-      event.type === 'interrupt.cancelled'
-    ) {
-      if (!('control' in event.payload)) return;
-      const control = event.payload.control;
-      if (!control) return;
-      setSessionPending(sessionId, true);
-      setSessionStates((current) => {
-        const target = current[sessionId];
-        if (!target) return current;
-        return {
-          ...current,
-          [sessionId]: {
-            ...target,
-            activeInterrupt:
-              event.type === 'interrupt.resolved' || event.type === 'interrupt.cancelled'
-                ? undefined
-                : 'interrupt' in event.payload
-                  ? event.payload.interrupt
-                  : control.activeInterrupt,
-            workbench: target.workbench
-              ? {
-                  ...target.workbench,
-                  activityStatus:
-                    control.state === 'paused' ||
-                    control.state === 'pause_requested' ||
-                    control.state === 'resuming' ||
-                    control.state === 'waiting_for_user'
-                      ? control.state
-                      : ('running' as const),
-                  controlPhase: control.phase,
-                  activeInterrupt:
-                    event.type === 'interrupt.resolved' || event.type === 'interrupt.cancelled'
-                      ? undefined
-                      : 'interrupt' in event.payload
-                        ? event.payload.interrupt
-                        : control.activeInterrupt,
-                }
-              : target.workbench,
-          },
-        };
-      });
-      runSequencesRef.current[event.runId] = event.seq;
-      return;
-    }
-    if (
-      event.type === 'tool.started' ||
-      event.type === 'tool.completed' ||
-      event.type === 'tool.failed' ||
-      event.type === 'tool.cancelled'
-    ) {
-      const toolEvent = event.payload as ToolStreamEvent;
-      if (
-        !target.conversation.some(
-          (item) => item.kind === 'assistant' && item.id === toolEvent.messageId,
-        )
-      )
-        throw new Error('RUN_EVENT_TARGET_MISSING');
-      setSessionStates((current) => {
-        const target = current[sessionId];
-        if (!target) return current;
-        const existing = target.workbench?.runId === event.runId ? target.workbench : undefined;
-        const suppressed = target.autoOpenSuppressedRunIds?.includes(event.runId) ?? false;
-        const hasNewResource =
-          (toolEvent.type === 'tool.completed' &&
-            (toolEvent.toolName === 'web_search'
-              ? toolEvent.result.results.length > 0
-              : toolEvent.toolName === 'web_fetch' &&
-                toolEvent.result.results.some(
-                  (item) => item.status === 'succeeded' && item.passages.length > 0,
-                ))) ||
-          (toolEvent.type === 'tool.completed' &&
-            toolEvent.toolName === 'search_file' &&
-            toolEvent.result.matches.length > 0) ||
-          (toolEvent.type === 'tool.completed' &&
-            toolEvent.toolName === 'read_file' &&
-            ((toolEvent.result.scope === 'file' && (toolEvent.result.sections?.length ?? 0) > 0) ||
-              (toolEvent.result.scope !== 'file' && toolEvent.result.lines.length > 0))) ||
-          (toolEvent.type === 'tool.completed' &&
-            toolEvent.toolName === 'read_file_lines' &&
-            toolEvent.result.lines.length > 0) ||
-          (toolEvent.type === 'tool.completed' &&
-            (toolEvent.toolName === 'create_file' || toolEvent.toolName === 'create_report')) ||
-          (toolEvent.type === 'tool.completed' &&
-            toolEvent.toolName === 'execute_command' &&
-            Boolean(collectedArtifactFromCommandResult(toolEvent.result)));
-        const currentUserUrls = new Set(
-          [...task.matchAll(/https?:\/\/[^\s<>'"\])}]+/giu)].map((match) =>
-            canonicalUrl(match[0].replace(/[.,;:!?，。；：！？]+$/gu, '')),
-          ),
-        );
-        const workbench = mergeWorkbenchDeliverables(
-          applyToolEvent(
-            existing,
-            toolEvent,
-            resolveWorkbenchOpenOnToolEvent(existing?.open, toolEvent, {
-              suppressed,
-              hasNewResource,
-            }),
-            currentUserUrls,
-          ),
-          target.workbench,
-        );
-        workbench.runId = event.runId;
-        workbench.context = target.context;
-        workbench.executions = workbench.executions.map((item) => ({
-          ...item,
-          runId: event.runId,
-        }));
-        return {
-          ...current,
-          [sessionId]: {
-            ...target,
-            workbench,
-            conversation: target.conversation.map((item) =>
-              item.kind === 'assistant' && item.id === toolEvent.messageId
-                ? { ...item, blocks: applyToolActivityEvent(item.blocks, toolEvent), workbench }
-                : item,
-            ),
-          },
-        };
-      });
-      runSequencesRef.current[event.runId] = event.seq;
-      return;
-    }
-    if (
-      event.type === 'run.completed' ||
-      event.type === 'run.failed' ||
-      event.type === 'run.cancelled'
-    ) {
-      const status = runTerminalStatus(event.type);
-      setSessionPending(sessionId, false);
-      setSessionStates((current) => {
-        const target = current[sessionId];
-        if (!target) return current;
-        const workbench = target.workbench
-          ? { ...target.workbench, activityStatus: status as WorkbenchState['activityStatus'] }
-          : undefined;
-        return {
-          ...current,
-          [sessionId]: {
-            ...target,
-            activeRunId: undefined,
-            activeInterrupt: undefined,
-            workbench,
-            conversation: target.conversation.map((item) =>
-              item.kind === 'assistant' && item.pending
-                ? {
-                    ...item,
-                    pending: false,
-                    deliveryStatus: status,
-                    workbench,
-                    ...(event.type === 'run.failed' && 'code' in event.payload
-                      ? { error: { code: event.payload.code, detail: event.payload.detail } }
-                      : {}),
-                  }
-                : item,
-            ),
-          },
-        };
-      });
-      if (event.type === 'run.failed' && 'detail' in event.payload) setError(event.payload.detail);
-      runSequencesRef.current[event.runId] = event.seq;
-      return;
-    }
-    runSequencesRef.current[event.runId] = event.seq;
   }
 
   async function observeRun(
@@ -1933,43 +1402,21 @@ function PersistentAgentApp() {
     setReconnectRunId((current) => (current === runId ? null : current));
     let terminalObserved = false;
     try {
-      // 每轮恢复先读取 Latest Snapshot，再携带当前 cursor 订阅 SSE；指数退避期间 Run 继续在服务端执行。
-      for (const [attempt, delay] of [0, 1_000, 2_000, 4_000, 8_000].entries()) {
-        if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay));
-        if (controller.signal.aborted) return;
-        // 新建 Run 已有乐观消息，首连可跳过额外 Snapshot；重连必须先校准 Durable/Live 状态。
-        if (!(skipInitialSnapshot && attempt === 0)) {
-          const snapshot = await getRun(runId, controller.signal);
-          applyRunSnapshot(sessionId, snapshot);
-          if (['completed', 'failed', 'cancelled'].includes(snapshot.status)) {
-            terminalObserved = true;
-            return;
-          }
-        }
-        try {
-          // Last-Event-ID 使用“最后成功应用”的 cursor，而不是最后收到或最后解析的事件。
-          await subscribeRun(
-            runId,
-            runSequencesRef.current[runId],
-            (event) => {
-              applyRunEvent(sessionId, event, task);
-              terminalObserved =
-                event.type === 'run.completed' ||
-                event.type === 'run.failed' ||
-                event.type === 'run.cancelled' ||
-                (event.type === 'run.snapshot' &&
-                  'status' in event.payload &&
-                  ['completed', 'failed', 'cancelled'].includes(event.payload.status));
-            },
-            controller.signal,
-          );
-          if (terminalObserved) return;
-        } catch (requestError) {
-          if (controller.signal.aborted) return;
-          if (delay === 8_000) throw requestError;
-          continue;
-        }
-      }
+      const outcome = await observeRunConnection(
+        sessionId,
+        runId,
+        {
+          getRun,
+          subscribeRun,
+          getCursor: (activeRunId) => runSequencesRef.current[activeRunId],
+          applySnapshot: applyRunSnapshot,
+          applyEvent: applyRunEvent,
+          sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
+        },
+        { task, skipInitialSnapshot, signal: controller.signal },
+      );
+      terminalObserved = outcome.terminalObserved;
+      if (terminalObserved) return;
     } catch (requestError) {
       if (!controller.signal.aborted) setError(getErrorMessage(requestError));
       if (!controller.signal.aborted) setReconnectRunId(runId);

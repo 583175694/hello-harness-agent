@@ -47,7 +47,7 @@ export const catalogToolActivities: ToolActivityFixture[] = PROJECT_TOOL_NAMES.m
 
 export const catalogToolStatusSamples: ToolActivityFixture[] = (
   ['running', 'completed', 'failed', 'cancelled'] as const
-).map((status, i) => ({
+).map((status) => ({
   id: `status-${status}`,
   name: 'bash',
   summary: '(echo harness)',

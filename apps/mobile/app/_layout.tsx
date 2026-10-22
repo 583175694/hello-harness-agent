@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AgentHostProvider } from '@/features/agent/providers/agent-host-provider';
 import { AppPreferencesProvider, useAppPreferences } from '@/providers/app-preferences-provider';
 import { ThemeRoot } from '@/providers/theme-root';
 
@@ -35,9 +36,11 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AppPreferencesProvider>
-          <ThemeRoot>
-            <RootNavigation />
-          </ThemeRoot>
+          <AgentHostProvider>
+            <ThemeRoot>
+              <RootNavigation />
+            </ThemeRoot>
+          </AgentHostProvider>
         </AppPreferencesProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

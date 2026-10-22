@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { AGENT_TOOL_NAMES, mcpServerNameSchema } from '@harness/agent-protocol';
-import type { AgentTool, ToolExecutionContext, ToolExecutionResult } from './agent-tool.types';
+import type { AgentTool, ToolExecutionResult } from './agent-tool.types';
 
 const serverParamSchema = z.object({ server: mcpServerNameSchema }).strict();
 

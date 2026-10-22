@@ -3,8 +3,6 @@ import {
   $applyNodeReplacement,
   DecoratorNode,
   type DOMExportOutput,
-  type EditorConfig,
-  type LexicalEditor,
   type LexicalNode,
   type NodeKey,
   type SerializedLexicalNode,
@@ -92,7 +90,7 @@ export class SkillMentionNode extends DecoratorNode<JSX.Element> {
     return true;
   }
 
-  override decorate(_editor: LexicalEditor, _config: EditorConfig): JSX.Element {
+  override decorate(): JSX.Element {
     const name = this.__name;
     const label = this.__label;
     return <SkillMentionInline name={name} label={label} mode="editable" />;

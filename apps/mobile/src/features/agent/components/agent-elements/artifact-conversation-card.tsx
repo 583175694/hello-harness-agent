@@ -32,7 +32,7 @@ export function ArtifactConversationCard({
   return (
     <Pressable
       onPress={handlePress}
-      className="flex-row items-center gap-3 rounded-xl border border-composer-border bg-surface px-3 py-2.5 active:bg-subtle"
+      className="flex-row items-center gap-3 rounded-panel border border-composer-border bg-surface px-3 py-2.5 active:bg-subtle"
     >
       <View className="h-9 w-9 items-center justify-center rounded-lg bg-subtle">
         <Icon icon={FileText} tone="secondary" size={18} />

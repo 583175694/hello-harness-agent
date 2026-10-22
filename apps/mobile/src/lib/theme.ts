@@ -1,70 +1,77 @@
 /**
- * Design tokens shared outside Tailwind (icons, Reanimated pressables).
- * Settings panel fields are independent surfaces inside rounded-panel cards —
- * do not concentric-match inner control radius to panel radius.
+ * 运行时主题 API：`Icon`、StyleSheet、阴影等。颜色语义来自 `design-tokens.ts`。
  */
-export const colors = {
-  canvas: '#f7f7f6',
-  drawer: '#fbfaf9',
-  surface: '#ffffff',
-  subtle: '#f1f1ef',
-  composerBorder: '#ededeb',
-  userBubble: '#edf3fe',
-  userBubbleBorder: '#dbe6f8',
-  primary: '#171717',
-  primaryForeground: '#ffffff',
-  secondary: '#555551',
-  muted: '#898986',
-  link: '#3f5f78',
-  approval: '#2f5d3a',
-  approvalBright: '#4f8a64',
-  rejection: '#984b41',
-  border: '#dededb',
-  terminalAccent: '#fbbf24',
-  warning: '#d97706',
-  destructive: '#b91c1c',
-  /** Icons on terminal / dark chrome (e.g. diff header actions). */
-  onTerminal: '#9ca3af',
-  /** @deprecated Use `onTerminal` */
-  zincMuted: '#9ca3af',
-  /** Disclosure chevrons (expand rows, reasoning, tool groups). */
-  chevronIdle: '#c4c7c7',
-  overlayInverse: 'rgba(255,255,255,0.85)',
-  /** Full-screen scrim behind Drawer / attachment Modal; matches Workbench backdrop strength. */
-  overlayScrim: 'rgba(0,0,0,0.4)',
-} as const;
+import {
+  designTokensLight,
+  resolveDesignTokens,
+  type ColorScheme,
+  type DesignTokens,
+} from '@/lib/design-tokens';
 
-/** Gorhom BottomSheetBackdrop `opacity` prop — keep in sync with `colors.overlayScrim`. */
+export type { ColorScheme, DesignTokens };
+export { designTokensLight, designTokensDark, resolveDesignTokens } from '@/lib/design-tokens';
+
+/** @deprecated Use `resolveDesignTokens` / `useThemeColors`. */
+export const colors = designTokensLight;
+
+export type ThemeColors = DesignTokens;
+
+export function resolveColors(scheme: ColorScheme): DesignTokens {
+  return resolveDesignTokens(scheme);
+}
+
+/** Gorhom BottomSheetBackdrop `opacity` prop — keep in sync with `overlayScrim`. */
 export const OVERLAY_SCRIM_OPACITY = 0.4;
 
-export const iconColors = {
-  primary: colors.primary,
-  secondary: colors.secondary,
-  muted: colors.muted,
-  inverse: colors.primaryForeground,
-  link: colors.link,
-  approval: colors.approval,
-  approvalBright: colors.approvalBright,
-  rejection: colors.rejection,
-  warning: colors.warning,
-  onPrimary: colors.primaryForeground,
-  destructive: colors.destructive,
-  terminalAccent: colors.terminalAccent,
-  onTerminal: colors.onTerminal,
-  zincMuted: colors.zincMuted,
-  chevronIdle: colors.chevronIdle,
-  overlayInverse: colors.overlayInverse,
-} as const;
+export type IconTone =
+  | 'primary'
+  | 'secondary'
+  | 'muted'
+  | 'inverse'
+  | 'link'
+  | 'approval'
+  | 'approvalBright'
+  | 'rejection'
+  | 'warning'
+  | 'onPrimary'
+  | 'destructive'
+  | 'terminalAccent'
+  | 'onTerminal'
+  | 'zincMuted'
+  | 'chevronIdle'
+  | 'overlayInverse';
 
-export type IconTone = keyof typeof iconColors;
+function iconPalette(tokens: DesignTokens): Record<IconTone, string> {
+  return {
+    primary: tokens.primary,
+    secondary: tokens.secondary,
+    muted: tokens.muted,
+    inverse: tokens.primaryForeground,
+    link: tokens.link,
+    approval: tokens.approvalText,
+    approvalBright: tokens.terminalAccent,
+    rejection: tokens.rejectionText,
+    warning: tokens.warning,
+    onPrimary: tokens.primaryForeground,
+    destructive: tokens.danger,
+    terminalAccent: tokens.terminalAccent,
+    onTerminal: tokens.onTerminal,
+    zincMuted: tokens.onTerminal,
+    chevronIdle: tokens.chevronIdle,
+    overlayInverse: tokens.overlayInverse,
+  };
+}
+
+/** @deprecated Prefer `resolveIconColors(scheme)`. */
+export const iconColors = iconPalette(designTokensLight);
+
+export function resolveIconColors(scheme: ColorScheme): Record<IconTone, string> {
+  return iconPalette(resolveDesignTokens(scheme));
+}
 
 /** Adjacent label weight — drives stroke per better-ui icons.md. */
 export type IconTextWeight = 'regular' | 'medium' | 'semibold' | 'bold';
 
-/**
- * Lucide stroke width (render px) from icon size + adjacent text weight.
- * Override per call with `<Icon strokeWidth={2} />` when needed.
- */
 export function iconStrokeWidth(size: number, weight: IconTextWeight = 'regular'): number {
   if (weight === 'bold') {
     return 2.5;
@@ -79,30 +86,8 @@ export function iconStrokeWidth(size: number, weight: IconTextWeight = 'regular'
   return 2.5;
 }
 
-/**
- * Chevron / trailing icon tones (better-ui: one convention per semantic).
- * - disclosure: in-row expand/collapse (reasoning, tool group, source card)
- * - push: navigate forward (settings rows, drill-in lists)
- */
 export const ICON_CHEVRON_TONE = {
   disclosure: 'chevronIdle',
   push: 'muted',
 } as const satisfies Record<string, IconTone>;
 
-/** Composer 附件 / Skill 浮层卡片（better-ui：elevation 用 shadow，不用嵌套灰底） */
-export const COMPOSER_SHEET_CARD_SHADOW = {
-  shadowColor: '#000000',
-  shadowOpacity: 0.1,
-  shadowRadius: 20,
-  shadowOffset: { width: 0, height: 8 },
-  elevation: 12,
-} as const;
-
-/** Composer 底部抽屉面板（Skill / 模型等全宽圆顶 Sheet） */
-export const COMPOSER_BOTTOM_DRAWER_PANEL_SHADOW = {
-  shadowColor: '#000000',
-  shadowOpacity: 0.12,
-  shadowRadius: 24,
-  shadowOffset: { width: 0, height: -4 },
-  elevation: 16,
-} as const;

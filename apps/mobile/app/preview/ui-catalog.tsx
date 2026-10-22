@@ -186,6 +186,7 @@ export default function UiCatalogScreen() {
           <ComposerStack
             attachmentSheetOpen={attachmentOpen}
             onAttachmentSheetOpenChange={setAttachmentOpen}
+            attachmentSheetPresentation="modal"
           />
         </CatalogSection>
 

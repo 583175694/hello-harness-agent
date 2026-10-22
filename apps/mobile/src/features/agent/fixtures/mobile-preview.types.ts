@@ -1,3 +1,5 @@
+import type { FileRef } from '@harness/agent-protocol';
+
 import type { WorkspaceView } from './ui-fixtures';
 import type { ToolActivityFixture } from './ui-fixtures';
 
@@ -48,6 +50,8 @@ export type MobileAssistantBlock =
       content: string;
       durationMs?: number;
       streaming?: boolean;
+      startedAt?: string;
+      completedAt?: string;
     }
   | { type: 'tool_activity'; item: ToolActivityFixture }
   | {
@@ -65,6 +69,7 @@ export type MobileConversationItem =
       content: string;
       pendingState?: 'steer_pending' | 'steer_applied' | 'follow_up_pending';
       attachmentHint?: string;
+      attachments?: FileRef[];
       skillNames?: string[];
     }
   | {
@@ -72,6 +77,10 @@ export type MobileConversationItem =
       deliveryStatus?: 'streaming' | 'completed' | 'failed' | 'cancelled';
       streaming?: boolean;
       errorDetail?: string;
+      /** 执行过程（推理 / 工具 / 过程内文本），与 Web `presentation.process` 对齐 */
+      process?: MobileAssistantBlock[];
+      pendingText?: string;
+      finalText?: string;
       blocks: MobileAssistantBlock[];
       showQuickActions?: boolean;
     };

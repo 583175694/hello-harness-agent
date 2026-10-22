@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Modal, Pressable, RefreshControl, useWindowDimensions, View } from 'react-native';
 import Animated, {
   Easing,
   runOnJS,
@@ -7,6 +8,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
+import type { SessionSummary } from '@harness/agent-protocol';
 import { ChevronLeft, Plus, Search, Settings } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/components/ui/icon';
@@ -15,30 +17,62 @@ import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/cn';
 import { OVERLAY_MOTION_MS, OVERLAY_REDUCE_OPACITY_MS } from '@/lib/use-modal-animation-type';
 import { useReducedMotion } from '@/lib/use-reduced-motion';
-import { colors } from '@/lib/theme';
+import { useThemeColors } from '@/lib/use-theme-colors';
+import { AGENT_UI_COPY } from '../config/ui.constants';
+import { sessionSummaryToDrawerItem } from '../lib/session-utils';
 import { sessionDrawerFixture, type SessionDrawerItemFixture } from '../fixtures/ui-fixtures';
+import { SessionDrawerMenu } from './session-drawer-menu';
 
 const PANEL_WIDTH_RATIO = 0.78;
 const MOTION_EASING = Easing.out(Easing.quad);
-
 type SessionDrawerProps = {
   visible: boolean;
   /** Skip slide-out when navigating forward (e.g. Settings push). */
   exitInstant?: boolean;
   onClose?: () => void;
   onOpenSettings?: () => void;
+  /** 生产路径：API 会话列表；缺省为 fixture（Preview）。 */
+  dataSource?: 'api' | 'fixture';
+  sessions?: SessionSummary[];
+  selectedSessionId?: string | null;
+  onSelectSession?: (sessionId: string) => void;
+  onCreateSession?: () => void;
+  onRenameSession?: (sessionId: string, title: string) => void;
+  onTogglePinSession?: (sessionId: string, isPinned: boolean) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  /** 有进行中 Run 的 sessionId（Drawer 绿点） */
+  activeRunSessionId?: string | null;
+  /** 下拉刷新会话列表（打开 Drawer 不自动请求，由用户主动刷新）。 */
+  onRefreshSessions?: () => void | Promise<void>;
+  sessionsRefreshing?: boolean;
 };
 
-function SessionDrawerRow({ item }: { item: SessionDrawerItemFixture }) {
+type DrawerFlashItem =
+  | { kind: 'section'; id: string; label: string }
+  | { kind: 'draft'; id: 'draft' }
+  | { kind: 'session'; id: string; item: SessionDrawerItemFixture }
+  | { kind: 'empty'; id: 'empty' };
+
+const SessionDrawerRow = memo(function SessionDrawerRow({
+  item,
+  onPress,
+  onLongPress,
+}: {
+  item: SessionDrawerItemFixture;
+  onPress?: () => void;
+  onLongPress?: () => void;
+}) {
   return (
     <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
       className={cn(
         'relative min-h-11 justify-center rounded-lg px-3 py-2.5',
-        item.active ? 'bg-[#eaeae6]' : 'active:bg-subtle',
+        item.active ? 'bg-surface-hover' : 'active:bg-subtle-pressed',
       )}
     >
       <View className="flex-row items-center gap-2">
-        {item.running ? <View className="h-2 w-2 shrink-0 rounded-full bg-[#4ade80]" /> : null}
+        {item.running ? <View className="h-2 w-2 shrink-0 rounded-full bg-approval-text" /> : null}
         <View className="min-w-0 flex-1 flex-row items-baseline justify-between gap-2">
           <Text
             variant="body-sm"
@@ -54,28 +88,63 @@ function SessionDrawerRow({ item }: { item: SessionDrawerItemFixture }) {
       </View>
     </Pressable>
   );
-}
+});
 
 export function SessionDrawer({
   visible,
   exitInstant = false,
   onClose,
   onOpenSettings,
+  dataSource = 'fixture',
+  sessions = [],
+  selectedSessionId = null,
+  onSelectSession,
+  onCreateSession,
+  onRenameSession,
+  onTogglePinSession,
+  onDeleteSession,
+  activeRunSessionId = null,
+  onRefreshSessions,
+  sessionsRefreshing = false,
 }: SessionDrawerProps) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const panelWidth = useMemo(() => windowWidth * PANEL_WIDTH_RATIO, [windowWidth]);
   const reduceMotion = useReducedMotion();
+  const themeColors = useThemeColors();
 
   const [modalShown, setModalShown] = useState(false);
   const modalMountedRef = useRef(false);
+  const openMotionFrameRef = useRef<number | null>(null);
   const panelTranslateX = useSharedValue(-panelWidth);
   const scrimOpacity = useSharedValue(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [menuSession, setMenuSession] = useState<SessionSummary | null>(null);
 
   const hideModal = useCallback(() => {
     modalMountedRef.current = false;
     setModalShown(false);
   }, []);
+
+  const startOpenMotion = useCallback(() => {
+    if (!modalMountedRef.current) return;
+    if (reduceMotion) {
+      panelTranslateX.value = 0;
+      scrimOpacity.value = withTiming(1, {
+        duration: OVERLAY_REDUCE_OPACITY_MS,
+        easing: MOTION_EASING,
+      });
+      return;
+    }
+    scrimOpacity.value = withTiming(1, {
+      duration: OVERLAY_MOTION_MS,
+      easing: MOTION_EASING,
+    });
+    panelTranslateX.value = withTiming(0, {
+      duration: OVERLAY_MOTION_MS,
+      easing: MOTION_EASING,
+    });
+  }, [panelTranslateX, reduceMotion, scrimOpacity]);
 
   useEffect(() => {
     panelTranslateX.value = -panelWidth;
@@ -85,25 +154,23 @@ export function SessionDrawer({
     if (visible) {
       modalMountedRef.current = true;
       setModalShown(true);
-      if (reduceMotion) {
-        panelTranslateX.value = 0;
-        scrimOpacity.value = withTiming(1, {
-          duration: OVERLAY_REDUCE_OPACITY_MS,
-          easing: MOTION_EASING,
-        });
-      } else {
-        panelTranslateX.value = -panelWidth;
-        scrimOpacity.value = 0;
-        scrimOpacity.value = withTiming(1, {
-          duration: OVERLAY_MOTION_MS,
-          easing: MOTION_EASING,
-        });
-        panelTranslateX.value = withTiming(0, {
-          duration: OVERLAY_MOTION_MS,
-          easing: MOTION_EASING,
-        });
+      panelTranslateX.value = -panelWidth;
+      scrimOpacity.value = 0;
+      if (openMotionFrameRef.current !== null) {
+        cancelAnimationFrame(openMotionFrameRef.current);
       }
-      return;
+      openMotionFrameRef.current = requestAnimationFrame(() => {
+        openMotionFrameRef.current = requestAnimationFrame(() => {
+          openMotionFrameRef.current = null;
+          startOpenMotion();
+        });
+      });
+      return () => {
+        if (openMotionFrameRef.current !== null) {
+          cancelAnimationFrame(openMotionFrameRef.current);
+          openMotionFrameRef.current = null;
+        }
+      };
     }
 
     if (!modalMountedRef.current) {
@@ -141,7 +208,16 @@ export function SessionDrawer({
         easing: MOTION_EASING,
       });
     }
-  }, [visible, exitInstant, panelWidth, reduceMotion, hideModal, panelTranslateX, scrimOpacity]);
+  }, [
+    visible,
+    exitInstant,
+    panelWidth,
+    reduceMotion,
+    hideModal,
+    panelTranslateX,
+    scrimOpacity,
+    startOpenMotion,
+  ]);
 
   const panelAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: panelTranslateX.value }],
@@ -151,119 +227,240 @@ export function SessionDrawer({
     opacity: scrimOpacity.value,
   }));
 
-  const pinned = sessionDrawerFixture.filter((item) => item.pinned);
-  const recent = sessionDrawerFixture.filter((item) => !item.pinned);
+  const drawerItems = useMemo((): SessionDrawerItemFixture[] => {
+    if (dataSource === 'fixture') {
+      return sessionDrawerFixture;
+    }
+    const query = searchQuery.trim().toLowerCase();
+    const filtered = query
+      ? sessions.filter((session) => session.title.toLowerCase().includes(query))
+      : sessions;
+    return filtered.map((session) =>
+      sessionSummaryToDrawerItem(session, {
+        active: session.id === selectedSessionId,
+        running: Boolean(activeRunSessionId && session.id === activeRunSessionId),
+      }),
+    );
+  }, [activeRunSessionId, dataSource, searchQuery, sessions, selectedSessionId]);
+
+  const pinned = useMemo(() => drawerItems.filter((item) => item.pinned), [drawerItems]);
+  const recent = useMemo(() => drawerItems.filter((item) => !item.pinned), [drawerItems]);
+
+  const inDraftMode = dataSource === 'api' && selectedSessionId === null;
+
+  const flashListData = useMemo((): DrawerFlashItem[] => {
+    if (dataSource === 'api' && sessions.length === 0 && !searchQuery.trim() && !inDraftMode) {
+      return [{ kind: 'empty', id: 'empty' }];
+    }
+    const items: DrawerFlashItem[] = [];
+    if (inDraftMode && !searchQuery.trim()) {
+      items.push({ kind: 'draft', id: 'draft' });
+    }
+    if (pinned.length > 0) {
+      items.push({ kind: 'section', id: 'sec-pinned', label: '置顶' });
+      for (const item of pinned) {
+        items.push({ kind: 'session', id: item.id, item });
+      }
+    }
+    items.push({ kind: 'section', id: 'sec-recent', label: '最近' });
+    for (const item of recent) {
+      items.push({ kind: 'session', id: item.id, item });
+    }
+    return items;
+  }, [dataSource, inDraftMode, pinned, recent, searchQuery, sessions.length]);
+
+  const sessionById = useMemo(() => new Map(sessions.map((s) => [s.id, s])), [sessions]);
+
+  const handleSelect = useCallback(
+    (sessionId: string) => {
+      onSelectSession?.(sessionId);
+      onClose?.();
+    },
+    [onClose, onSelectSession],
+  );
+
+  const openRowMenu = useCallback(
+    (sessionId: string) => {
+      const session = sessionById.get(sessionId);
+      if (session) setMenuSession(session);
+    },
+    [sessionById],
+  );
+
+  const renderFlashItem = useCallback(
+    ({ item }: { item: DrawerFlashItem }) => {
+      if (item.kind === 'section') {
+        return (
+          <Text variant="caption" className="mb-1 px-1 pt-1 text-muted">
+            {item.label}
+          </Text>
+        );
+      }
+      if (item.kind === 'draft') {
+        return (
+          <View className="mb-1 min-h-11 justify-center rounded-lg bg-surface-hover px-3 py-2.5">
+            <Text variant="body-sm" className="font-semibold text-primary" numberOfLines={1}>
+              {AGENT_UI_COPY.defaultSessionTitle}
+            </Text>
+          </View>
+        );
+      }
+      if (item.kind === 'empty') {
+        return (
+          <Text variant="body-sm" className="px-1 py-4 text-muted">
+            暂无会话，点击「新对话」创建。
+          </Text>
+        );
+      }
+      return (
+        <SessionDrawerRow
+          item={item.item}
+          onPress={dataSource === 'api' ? () => handleSelect(item.item.id) : undefined}
+          onLongPress={dataSource === 'api' ? () => openRowMenu(item.item.id) : undefined}
+        />
+      );
+    },
+    [dataSource, handleSelect, openRowMenu],
+  );
+
+  const flashKeyExtractor = useCallback((item: DrawerFlashItem) => item.id, []);
+
+  const flashGetItemType = useCallback((item: DrawerFlashItem) => item.kind, []);
+
+  const refreshControl =
+    dataSource === 'api' && onRefreshSessions ? (
+      <RefreshControl
+        refreshing={sessionsRefreshing}
+        onRefresh={() => void onRefreshSessions()}
+        tintColor={themeColors.secondary}
+        colors={[themeColors.primary]}
+      />
+    ) : undefined;
 
   return (
-    <Modal visible={modalShown} animationType="none" transparent onRequestClose={onClose}>
-      <View className="flex-1">
-        <Animated.View
-          pointerEvents="box-none"
-          style={[
-            {
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              top: 0,
-              bottom: 0,
-              backgroundColor: colors.overlayScrim,
-            },
-            scrimAnimatedStyle,
-          ]}
-        />
+    <>
+      <Modal visible={modalShown} animationType="none" transparent onRequestClose={onClose}>
+        <View className="flex-1">
+          <Animated.View
+            pointerEvents="box-none"
+            style={[
+              {
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                top: 0,
+                bottom: 0,
+                backgroundColor: themeColors.overlayScrim,
+              },
+              scrimAnimatedStyle,
+            ]}
+          />
 
-        <Pressable
-          className="absolute bottom-0 right-0 top-0 items-center active:opacity-90"
-          style={{ left: panelWidth, paddingTop: insets.top }}
-          onPress={onClose}
-          accessibilityRole="button"
-          accessibilityLabel="关闭会话列表"
-        >
-          <View className="mt-2 h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/40">
-            <Icon icon={ChevronLeft} tone="overlayInverse" size={18} />
-          </View>
-        </Pressable>
+          <Pressable
+            className="absolute bottom-0 right-0 top-0 items-center active:opacity-90"
+            style={{ left: panelWidth, paddingTop: insets.top }}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="关闭会话列表"
+          >
+            <View className="mt-2 h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/40">
+              <Icon icon={ChevronLeft} tone="overlayInverse" size={18} />
+            </View>
+          </Pressable>
 
-        <Animated.View
-          className="border-r border-composer-border bg-drawer shadow-2xl"
-          style={[
-            {
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: panelWidth,
-              paddingTop: insets.top,
-            },
-            panelAnimatedStyle,
-          ]}
-        >
-          <View className="flex-1 px-4 pt-4">
-            <Pressable
-              className="mb-3 min-h-11 flex-row items-center gap-2 rounded-lg active:opacity-70"
-              accessibilityRole="button"
-              accessibilityLabel="新建会话"
-            >
-              <Icon icon={Plus} tone="primary" size={20} textWeight="semibold" />
-              <Text variant="body" className="font-semibold text-primary">
-                新对话
-              </Text>
-            </Pressable>
+          <Animated.View
+            className="border-r border-composer-border bg-drawer"
+            style={[
+              {
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: panelWidth,
+                paddingTop: insets.top,
+              },
+              panelAnimatedStyle,
+            ]}
+          >
+            <View className="min-h-0 flex-1 px-4 pt-4">
+              <Pressable
+                className={`mb-3 min-h-11 flex-row items-center gap-2 rounded-lg active:bg-subtle-pressed ${
+                  inDraftMode ? 'opacity-45' : ''
+                }`}
+                accessibilityRole="button"
+                accessibilityLabel="新建会话"
+                accessibilityState={{ disabled: inDraftMode }}
+                disabled={inDraftMode}
+                onPress={() => {
+                  if (inDraftMode) return;
+                  onCreateSession?.();
+                  onClose?.();
+                }}
+              >
+                <Icon icon={Plus} tone="primary" size={20} textWeight="semibold" />
+                <Text variant="body" className="font-semibold text-primary">
+                  新对话
+                </Text>
+              </Pressable>
 
-            <View className="relative mb-3">
-              <View className="pointer-events-none absolute bottom-0 left-3 top-0 justify-center">
-                <Icon icon={Search} tone="muted" size={16} />
+              <View className="relative mb-3">
+                <View className="pointer-events-none absolute bottom-0 left-3 top-0 justify-center">
+                  <Icon icon={Search} tone="muted" size={16} />
+                </View>
+                <Input
+                  className="h-10 pl-9"
+                  placeholder="搜索会话"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
               </View>
-              <Input className="h-10 pl-9" placeholder="搜索会话" />
+
+              <View className="min-h-0 flex-1">
+                <FlashList
+                  data={flashListData}
+                  renderItem={renderFlashItem}
+                  keyExtractor={flashKeyExtractor}
+                  getItemType={flashGetItemType}
+                  refreshControl={refreshControl}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  overScrollMode="never"
+                  style={{ flex: 1 }}
+                />
+              </View>
             </View>
 
-            <ScrollView
-              className="flex-1"
-              showsVerticalScrollIndicator={false}
-              nestedScrollEnabled
-              overScrollMode="never"
-              keyboardShouldPersistTaps="handled"
+            <View
+              className="border-t border-composer-border px-4 pt-2"
+              style={{ paddingBottom: Math.max(insets.bottom, 12) }}
             >
-              {pinned.length > 0 ? (
-                <View className="mb-3">
-                  <Text variant="caption" className="mb-1 px-1 text-muted">
-                    置顶
-                  </Text>
-                  {pinned.map((item) => (
-                    <SessionDrawerRow key={item.id} item={item} />
-                  ))}
-                </View>
-              ) : null}
-
-              <View>
-                <Text variant="caption" className="mb-1 px-1 text-muted">
-                  最近
+              <Pressable
+                onPress={onOpenSettings}
+                className="min-h-11 flex-row items-center gap-2.5 rounded-lg px-1 active:bg-subtle"
+                accessibilityRole="button"
+                accessibilityLabel="设置"
+                testID="session-drawer-settings"
+              >
+                <Icon icon={Settings} tone="secondary" size={20} />
+                <Text variant="body-sm" className="font-medium text-primary">
+                  设置
                 </Text>
-                {recent.map((item) => (
-                  <SessionDrawerRow key={item.id} item={item} />
-                ))}
-              </View>
-            </ScrollView>
-          </View>
+              </Pressable>
+            </View>
+          </Animated.View>
+        </View>
+      </Modal>
 
-          <View
-            className="border-t border-composer-border px-4 pt-2"
-            style={{ paddingBottom: Math.max(insets.bottom, 12) }}
-          >
-            <Pressable
-              onPress={onOpenSettings}
-              className="min-h-11 flex-row items-center gap-2.5 rounded-lg px-1 active:bg-subtle"
-              accessibilityRole="button"
-              accessibilityLabel="设置"
-            >
-              <Icon icon={Settings} tone="secondary" size={20} />
-              <Text variant="body-sm" className="font-medium text-primary">
-                设置
-              </Text>
-            </Pressable>
-          </View>
-        </Animated.View>
-      </View>
-    </Modal>
+      {dataSource === 'api' ? (
+        <SessionDrawerMenu
+          session={menuSession}
+          visible={menuSession !== null}
+          onClose={() => setMenuSession(null)}
+          onRename={(sessionId, title) => onRenameSession?.(sessionId, title)}
+          onTogglePin={(sessionId, isPinned) => onTogglePinSession?.(sessionId, isPinned)}
+          onDelete={(sessionId) => onDeleteSession?.(sessionId)}
+        />
+      ) : null}
+    </>
   );
 }

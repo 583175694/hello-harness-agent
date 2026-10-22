@@ -4,12 +4,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { ArtifactRef } from '@harness/agent-protocol';
 
+import type * as ClientModule from '../../../api/client';
+
 import { ConfirmProvider } from '../../../components/ui/confirm-provider';
 import { AGENT_UI_COPY } from '../config/ui.constants';
 import { WorkbenchShell, workbenchAsideAriaLabel } from './workbench-views';
 
 vi.mock('../../../api/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../api/client')>();
+  const actual = await importOriginal<typeof ClientModule>();
   return {
     ...actual,
     getArtifactPreview: vi.fn(async () => ({

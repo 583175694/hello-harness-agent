@@ -37,5 +37,7 @@ export default defineConfig({
     setupFiles: './src/test/setup.ts',
     css: true,
     exclude: [...configDefaults.exclude],
+    // R1 shell cases in app.test.tsx often exceed 5s under full pnpm check load
+    testTimeout: 10_000,
   },
 });

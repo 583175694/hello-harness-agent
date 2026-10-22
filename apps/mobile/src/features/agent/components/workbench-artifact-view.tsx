@@ -1,22 +1,42 @@
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, View } from 'react-native';
 import { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useRouter } from 'expo-router';
 import type { LucideIcon } from 'lucide-react-native';
-import { Download, Edit3, Eye } from 'lucide-react-native';
+import { Download, Edit3, Eye, RotateCcw } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/cn';
 import { AGENT_UI_BUTTON } from '../config/ui.constants';
+import type { ArtifactRef } from '@harness/agent-protocol';
 import { artifactsFixture, type ArtifactFixture } from '../fixtures/ui-fixtures';
+import { listWorkbenchArtifacts } from '../model/list-workbench-artifacts';
+import type { WorkbenchState } from '@harness/agent-ui-types';
+import { useAgentHost } from '../hooks/use-agent-host';
+import { useWorkbenchReport } from '../hooks/use-workbench-report';
+import { openArtifactDownload } from '@/lib/artifact-actions';
+import { MarkdownView } from '@/components/markdown-view';
 
 const { classNames: btn } = AGENT_UI_BUTTON;
 
 type WorkbenchArtifactBodyProps = {
   bottomInset?: number;
   useBottomSheetScroll?: boolean;
+  workbench?: WorkbenchState;
+  focusArtifactId?: string | null;
 };
+
+function artifactRowFromRef(artifact: ArtifactRef): ArtifactFixture {
+  const version =
+    artifact.versionNumber !== undefined ? `v${artifact.versionNumber}` : 'v1';
+  return {
+    id: artifact.artifactId,
+    name: artifact.logicalName ?? artifact.fileName,
+    version,
+    description: artifact.changeSummary ?? artifact.mediaType,
+  };
+}
 
 function ArtifactListRow({
   artifact,
@@ -116,12 +136,27 @@ function ArtifactTabAction({
 
 function WorkbenchArtifactActionBar({
   artifact,
+  artifactRef,
+  workbench,
   bottomInset = 0,
 }: {
   artifact: ArtifactFixture;
+  artifactRef?: ArtifactRef;
+  workbench?: WorkbenchState;
   bottomInset?: number;
 }) {
   const router = useRouter();
+  const host = useAgentHost();
+  const productionArtifactId = artifactRef?.artifactId;
+  const currentArtifactId =
+    artifactRef?.seriesId &&
+    workbench?.artifactSeries?.find((series) => series.seriesId === artifactRef.seriesId)
+      ?.currentArtifactId;
+  const canRestore = Boolean(
+    artifactRef &&
+      currentArtifactId &&
+      currentArtifactId !== artifactRef.artifactId,
+  );
 
   return (
     <View
@@ -136,42 +171,176 @@ function WorkbenchArtifactActionBar({
           onPress={() =>
             router.push({
               pathname: '/reader/preview',
-              params: { name: artifact.name, kind: 'text' },
+              params: productionArtifactId
+                ? {
+                    artifactId: productionArtifactId,
+                    name: artifact.name,
+                    kind: artifactRef?.fileKind ?? 'text',
+                  }
+                : { name: artifact.name, kind: 'text' },
             })
           }
         />
-        <ArtifactTabAction label="下载" icon={Download} variant="ghost" onPress={() => undefined} />
+        <ArtifactTabAction
+          label="下载"
+          icon={Download}
+          variant="ghost"
+          onPress={() => {
+            if (!productionArtifactId) return;
+            void openArtifactDownload(host.client, productionArtifactId);
+          }}
+        />
+        {canRestore ? (
+          <ArtifactTabAction
+            label="恢复"
+            accessibilityLabel="恢复为此版本"
+            icon={RotateCcw}
+            variant="ghost"
+            onPress={() => {
+              if (!artifactRef) return;
+              Alert.alert(
+                '恢复此版本？',
+                '将把系列当前版本指回所选版本，后续修改将基于该版本继续。',
+                [
+                  { text: '取消', style: 'cancel' },
+                  {
+                    text: '恢复',
+                    onPress: () => void host.restoreArtifactVersion(artifactRef),
+                  },
+                ],
+              );
+            }}
+          />
+        ) : null}
         <ArtifactTabAction
           label="修改"
           accessibilityLabel="基于此版本修改"
           icon={Edit3}
           variant="primary"
-          onPress={() => undefined}
+          onPress={() => {
+            if (!artifactRef) return;
+            host.beginArtifactRevision(artifactRef);
+          }}
         />
       </View>
     </View>
   );
 }
 
+function WorkbenchInlineReport({
+  workbench,
+  reportId,
+}: {
+  workbench?: WorkbenchState;
+  reportId?: string;
+}) {
+  const router = useRouter();
+  const fetched = useWorkbenchReport(reportId);
+  const staticReport = workbench?.report;
+  if (!reportId && !staticReport) return null;
+
+  const title =
+    fetched.status === 'ready'
+      ? fetched.report.title
+      : (staticReport?.title ?? '报告');
+  const updated =
+    fetched.status === 'ready'
+      ? new Date(fetched.report.updatedAt).toLocaleString('zh-CN')
+      : staticReport?.updated;
+  const summary = fetched.status === 'ready' ? fetched.report.summary : undefined;
+  const staticMarkdown =
+    typeof staticReport?.content === 'string' ? staticReport.content : null;
+  const markdown =
+    fetched.status === 'ready' ? fetched.markdown : staticMarkdown;
+
+  return (
+    <View className="mb-4 gap-2 rounded-sheet border border-composer-border bg-surface p-3">
+      <View className="flex-row items-baseline justify-between gap-2">
+        <Text variant="body-sm" className="min-w-0 flex-1 font-semibold" numberOfLines={2}>
+          {title}
+        </Text>
+        {updated ? (
+          <Text variant="caption" className="text-muted">
+            {updated}
+          </Text>
+        ) : null}
+      </View>
+      {summary ? (
+        <Text variant="caption" className="text-muted">
+          {summary}
+        </Text>
+      ) : null}
+      {fetched.status === 'loading' ? (
+        <View className="items-center py-4">
+          <ActivityIndicator />
+        </View>
+      ) : null}
+      {fetched.status === 'error' ? (
+        <Text variant="caption" className="text-destructive">
+          {fetched.message}
+        </Text>
+      ) : null}
+      {markdown ? (
+        <MarkdownView variant="report">{markdown}</MarkdownView>
+      ) : fetched.status !== 'loading' ? (
+        <Text variant="caption" className="text-muted">
+          报告正文暂不可用
+        </Text>
+      ) : null}
+      {fetched.status === 'ready' ? (
+        <Pressable
+          onPress={() =>
+            router.push({
+              pathname: '/reader/preview',
+              params: {
+                artifactId: fetched.report.artifactId,
+                name: title,
+                kind: 'markdown',
+              },
+            })
+          }
+          className="self-start active:opacity-70"
+        >
+          <Text variant="caption" className="text-link">
+            全屏阅读
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 function ArtifactFileList({
+  artifacts,
   selectedId,
   onSelect,
 }: {
+  artifacts: ArtifactFixture[];
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
+  if (!artifacts.length) {
+    return (
+      <View className="items-center py-10">
+        <Text variant="body-sm" className="text-muted">
+          暂无产物文件
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View className="gap-2">
       <Text variant="caption" className="px-0.5 font-medium text-muted">
         产物文件
       </Text>
-      <View className="overflow-hidden rounded-[14px] border border-composer-border bg-surface">
-        {artifactsFixture.map((artifact, index) => (
+      <View className="overflow-hidden rounded-sheet border border-composer-border bg-surface">
+        {artifacts.map((artifact, index) => (
           <ArtifactListRow
             key={artifact.id}
             artifact={artifact}
             selected={selectedId === artifact.id}
-            showDivider={index < artifactsFixture.length - 1}
+            showDivider={index < artifacts.length - 1}
             onPress={() => onSelect(artifact.id)}
           />
         ))}
@@ -183,14 +352,48 @@ function ArtifactFileList({
 export function WorkbenchArtifactBody({
   bottomInset = 0,
   useBottomSheetScroll = false,
-}: WorkbenchArtifactBodyProps) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = useMemo(
-    () => artifactsFixture.find((item) => item.id === selectedId),
-    [selectedId],
+  workbench,
+  focusArtifactId,
+  reportId,
+}: WorkbenchArtifactBodyProps & { reportId?: string }) {
+  const liveArtifacts = useMemo(
+    () => (workbench ? listWorkbenchArtifacts(workbench) : []),
+    [workbench],
   );
 
-  const list = <ArtifactFileList selectedId={selectedId} onSelect={setSelectedId} />;
+  const artifactById = useMemo(() => {
+    const map = new Map<string, ArtifactRef>();
+    for (const artifact of liveArtifacts) {
+      map.set(artifact.artifactId, artifact);
+    }
+    return map;
+  }, [liveArtifacts]);
+
+  const artifactRows = useMemo(() => {
+    if (!workbench) return artifactsFixture;
+    return liveArtifacts.map(artifactRowFromRef);
+  }, [workbench, liveArtifacts]);
+
+  const initialSelected = focusArtifactId ?? artifactRows[0]?.id ?? null;
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelected);
+
+  useEffect(() => {
+    if (focusArtifactId && artifactRows.some((row) => row.id === focusArtifactId)) {
+      setSelectedId(focusArtifactId);
+    }
+  }, [focusArtifactId, artifactRows]);
+
+  const selected = useMemo(
+    () => artifactRows.find((item) => item.id === selectedId),
+    [artifactRows, selectedId],
+  );
+
+  const list = (
+    <>
+      <WorkbenchInlineReport workbench={workbench} reportId={reportId} />
+      <ArtifactFileList artifacts={artifactRows} selectedId={selectedId} onSelect={setSelectedId} />
+    </>
+  );
 
   return (
     <View className="flex-1">
@@ -214,7 +417,14 @@ export function WorkbenchArtifactBody({
           {list}
         </ScrollView>
       )}
-      {selected ? <WorkbenchArtifactActionBar artifact={selected} bottomInset={bottomInset} /> : null}
+      {selected ? (
+        <WorkbenchArtifactActionBar
+          artifact={selected}
+          artifactRef={artifactById.get(selected.id)}
+          workbench={workbench}
+          bottomInset={bottomInset}
+        />
+      ) : null}
     </View>
   );
 }

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { McpDefaultApproval, McpServerConfig, Prisma } from '@prisma/client';
+import type { McpServerConfig, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 
 export type McpServerConfigRecord = McpServerConfig & {

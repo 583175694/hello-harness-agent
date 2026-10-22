@@ -18,10 +18,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OVERLAY_MOTION_MS, OVERLAY_REDUCE_OPACITY_MS } from '@/lib/use-modal-animation-type';
 import { useReducedMotion } from '@/lib/use-reduced-motion';
-import {
-  colors,
-  COMPOSER_BOTTOM_DRAWER_PANEL_SHADOW,
-} from '@/lib/theme';
+import { useThemeColors } from '@/lib/use-theme-colors';
 import { cn } from '@/lib/cn';
 
 const MOTION_EASING = Easing.out(Easing.quad);
@@ -55,20 +52,26 @@ export function ComposerBottomDrawer({
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
+  const themeColors = useThemeColors();
 
   const [modalShown, setModalShown] = useState(false);
   const modalMountedRef = useRef(false);
+  const closeAnimationActiveRef = useRef(false);
+  const onDidCloseRef = useRef(onDidClose);
+  onDidCloseRef.current = onDidClose;
   const sheetTranslateY = useSharedValue(windowHeight);
   const scrimOpacity = useSharedValue(0);
 
   const hideModal = useCallback(() => {
+    closeAnimationActiveRef.current = false;
     modalMountedRef.current = false;
     setModalShown(false);
-    onDidClose?.();
-  }, [onDidClose]);
+    onDidCloseRef.current?.();
+  }, []);
 
   useEffect(() => {
     if (visible) {
+      closeAnimationActiveRef.current = false;
       modalMountedRef.current = true;
       setModalShown(true);
       if (reduceMotion) {
@@ -92,9 +95,10 @@ export function ComposerBottomDrawer({
       return;
     }
 
-    if (!modalMountedRef.current) {
+    if (!modalMountedRef.current || closeAnimationActiveRef.current) {
       return;
     }
+    closeAnimationActiveRef.current = true;
 
     if (reduceMotion) {
       scrimOpacity.value = withTiming(
@@ -134,7 +138,11 @@ export function ComposerBottomDrawer({
 
   const resolvedSheetClassName =
     variant === 'panel'
-      ? cn('rounded-t-[20px] bg-surface', panelMaxHeightClassName, sheetClassName)
+      ? cn(
+          'rounded-t-sheetTop border border-b-0 border-composer-border bg-surface',
+          panelMaxHeightClassName,
+          sheetClassName,
+        )
       : cn('gap-2 px-3', sheetClassName);
 
   return (
@@ -143,7 +151,7 @@ export function ComposerBottomDrawer({
         <Animated.View
           pointerEvents="box-none"
           className="absolute inset-0"
-          style={[{ backgroundColor: colors.overlayScrim }, scrimAnimatedStyle]}
+          style={[{ backgroundColor: themeColors.overlayScrim }, scrimAnimatedStyle]}
         >
           <Pressable className="flex-1" onPress={onClose} accessibilityLabel="关闭" />
         </Animated.View>
@@ -152,9 +160,7 @@ export function ComposerBottomDrawer({
           className={resolvedSheetClassName}
           style={[
             sheetAnimatedStyle,
-            variant === 'panel'
-              ? { paddingBottom: bottomPad, ...COMPOSER_BOTTOM_DRAWER_PANEL_SHADOW }
-              : { paddingBottom: bottomPad },
+            { paddingBottom: bottomPad },
             sheetStyle,
           ]}
         >

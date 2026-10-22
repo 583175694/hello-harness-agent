@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, TextInput, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
-import { skillCatalogFixtures, type SkillCatalogItem } from '../fixtures/skill-fixtures';
+import type { SkillCatalogItem } from '../fixtures/skill-fixtures';
+import { useSkillCatalog } from '../hooks/use-skill-catalog';
+import { useComposerPlaceholderColor } from '@/lib/use-composer-placeholder';
 import { ComposerBottomDrawer } from './composer-bottom-drawer';
 import {
   ComposerSheetGrabHandle,
@@ -24,26 +26,24 @@ export function ComposerSkillPickerSheet({
   onToggleSkill,
 }: ComposerSkillPickerSheetProps) {
   const [query, setQuery] = useState('');
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return skillCatalogFixtures;
-    return skillCatalogFixtures.filter(
-      (s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q),
-    );
-  }, [query]);
+  const composerPlaceholderColor = useComposerPlaceholderColor();
+  const { skills: filtered, loading, fromApi } = useSkillCatalog(query, visible);
 
   return (
     <ComposerBottomDrawer visible={visible} onClose={onClose}>
       <ComposerSheetGrabHandle />
-      <ComposerSheetHeader title="Skill" actionLabel="完成" onAction={onClose} />
+      <ComposerSheetHeader
+        title={fromApi ? 'Skill · API' : 'Skill'}
+        actionLabel="完成"
+        onAction={onClose}
+      />
 
       <View className="mx-4 mb-2 h-10 justify-center rounded-full bg-subtle px-4">
         <TextInput
           value={query}
           onChangeText={setQuery}
           placeholder="搜索"
-          placeholderTextColor="#898986"
+          placeholderTextColor={composerPlaceholderColor}
           className="p-0 text-[15px] text-primary"
           returnKeyType="search"
           clearButtonMode="while-editing"
@@ -55,7 +55,11 @@ export function ComposerSkillPickerSheet({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {filtered.length === 0 ? (
+        {loading && filtered.length === 0 ? (
+          <View className="items-center py-10">
+            <ActivityIndicator />
+          </View>
+        ) : filtered.length === 0 ? (
           <Text variant="body-sm" className="px-4 py-10 text-center text-muted">
             没有匹配的技能
           </Text>

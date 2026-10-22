@@ -244,7 +244,7 @@ export function SettingsDialog({
   const [section, setSection] = useState<SettingsSection>('general');
   const [mcpFormMode, setMcpFormMode] = useState<McpFormMode | null>(null);
   const [servers, setServers] = useState<McpServerView[]>([]);
-  const [catalogGeneration, setCatalogGeneration] = useState(0);
+  const [, setCatalogGeneration] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<McpCreateServerRequest>(emptyForm);

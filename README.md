@@ -99,6 +99,7 @@ curl http://127.0.0.1:4318/readyz
 
 ```bash
 pnpm check             # lint + typecheck + unit tests + build
+pnpm dev:mobile        # Mobile Metro（Dev Client，需另开 expo run:ios/android）
 pnpm test:integration  # API/PostgreSQL integration tests
 pnpm setup                  # 首次准备本地数据库、应用 migration 并生成 Prisma Client
 pnpm db -- update           # 拉取数据库变更后应用 migration 并生成 Prisma Client
@@ -112,6 +113,7 @@ pnpm db -- studio           # 打开 Prisma Studio
 
 ```text
 apps/web                React/Vite 工作台
+apps/mobile             Expo/React Native 客户端（见 apps/mobile/README.md）
 apps/api                NestJS API + Prisma
 packages/agent-protocol 跨前后端 canonical schema/type
 packages/agent-testkit  确定性测试 fixtures

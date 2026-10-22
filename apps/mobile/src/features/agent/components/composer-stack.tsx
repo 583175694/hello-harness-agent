@@ -203,46 +203,6 @@ export function ComposerStack({
         ? 'hitl'
         : mode;
 
-  if (effectiveMode === 'clarification') {
-    const clarificationInterrupt =
-      activeInterrupt?.kind === 'clarification' ? activeInterrupt : undefined;
-    return (
-      <View className="bg-canvas px-3 pt-1" style={{ paddingBottom: safeBottom }}>
-        <ComposerClarificationPanel
-          interrupt={clarificationInterrupt}
-          submitting={hitlSubmitting || submitting}
-          onSubmit={(answer) => {
-            if (clarificationInterrupt) {
-              onClarificationRespond?.(answer);
-            }
-          }}
-          onCancelRun={onCancelRun}
-        />
-      </View>
-    );
-  }
-
-  if (effectiveMode === 'hitl') {
-    const approvalInterrupt =
-      activeInterrupt?.kind === 'tool_approval' ? activeInterrupt : undefined;
-    return (
-      <View
-        className="border-t border-composer-border bg-canvas px-3 pt-2"
-        style={{ paddingBottom: safeBottom }}
-      >
-        <ComposerHitlPanel
-          interrupt={approvalInterrupt}
-          submitting={hitlSubmitting || submitting}
-          onApprove={() => onToolApproval?.(true)}
-          onReject={() => onToolApproval?.(false)}
-          onCancelRun={onCancelRun}
-        />
-      </View>
-    );
-  }
-
-  const showStop = submitting && !draft.trim();
-
   const handleSend = useCallback(() => {
     const text = draft.trim();
     if (!text || inputDisabled || submitting) return;
@@ -270,6 +230,46 @@ export function ComposerStack({
     });
     setDraft('');
   }, [attachments, draft, inputDisabled, modelId, onSubmit, reasoningEffort, selectedSkills, submitting]);
+
+  if (effectiveMode === 'clarification') {
+    const clarificationInterrupt =
+      activeInterrupt?.kind === 'clarification' ? activeInterrupt : undefined;
+    return (
+      <View className="bg-canvas px-3 pt-1" style={{ paddingBottom: safeBottom }}>
+        <ComposerClarificationPanel
+          interrupt={clarificationInterrupt}
+          submitting={hitlSubmitting}
+          onSubmit={(answer) => {
+            if (clarificationInterrupt) {
+              onClarificationRespond?.(answer);
+            }
+          }}
+          onCancelRun={onCancelRun}
+        />
+      </View>
+    );
+  }
+
+  if (effectiveMode === 'hitl') {
+    const approvalInterrupt =
+      activeInterrupt?.kind === 'tool_approval' ? activeInterrupt : undefined;
+    return (
+      <View
+        className="border-t border-composer-border bg-canvas px-3 pt-2"
+        style={{ paddingBottom: safeBottom }}
+      >
+        <ComposerHitlPanel
+          interrupt={approvalInterrupt}
+          submitting={hitlSubmitting}
+          onApprove={() => onToolApproval?.(true)}
+          onReject={() => onToolApproval?.(false)}
+          onCancelRun={onCancelRun}
+        />
+      </View>
+    );
+  }
+
+  const showStop = submitting && !draft.trim();
 
   return (
     <>

@@ -84,7 +84,7 @@ export function ComposerClarificationPanel({
         accessibilityLabel="提交回答"
       >
         <Text variant="body-sm" className="font-medium text-primary-foreground">
-          {submitting ? '提交中…' : '提交回答'}
+          {submitting ? '正在提交回答' : '提交回答'}
         </Text>
       </PressableScale>
     </View>

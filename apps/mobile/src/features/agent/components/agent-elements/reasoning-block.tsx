@@ -10,6 +10,9 @@ import {
   ProcessTimelineStep,
 } from './process-timeline-step';
 
+/** 与 Web `ai-elements/reasoning.tsx` 的 AUTO_CLOSE_DELAY 一致。 */
+const REASONING_AUTO_CLOSE_MS = 1000;
+
 export function ReasoningBlock({
   content,
   durationMs,
@@ -28,7 +31,12 @@ export function ReasoningBlock({
   const [open, setOpen] = useState(streaming);
 
   useEffect(() => {
-    if (streaming) setOpen(true);
+    if (streaming) {
+      setOpen(true);
+      return;
+    }
+    const timer = setTimeout(() => setOpen(false), REASONING_AUTO_CLOSE_MS);
+    return () => clearTimeout(timer);
   }, [streaming]);
 
   const label = reasoningTriggerLabel(streaming, durationMs);

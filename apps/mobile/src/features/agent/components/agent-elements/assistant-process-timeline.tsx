@@ -184,7 +184,7 @@ export function AssistantProcessTimeline({
                   key={key}
                   content={block.content}
                   durationMs={block.durationMs}
-                  streaming={block.streaming ?? running}
+                  streaming={block.streaming === true}
                   nested
                   showRail
                   isLast={isLast}

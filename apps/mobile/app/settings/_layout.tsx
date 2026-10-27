@@ -16,6 +16,7 @@ export default function SettingsLayout() {
       }}
     >
       <Stack.Screen name="index" options={{ title: '设置' }} />
+      <Stack.Screen name="login" options={{ title: '登录' }} />
       <Stack.Screen name="mcp" options={{ headerShown: false }} />
       <Stack.Screen name="memory" options={{ headerShown: false }} />
     </Stack>

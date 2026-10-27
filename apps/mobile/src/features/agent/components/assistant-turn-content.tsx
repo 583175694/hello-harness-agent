@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useDeferredValue, useMemo } from 'react';
 import { View } from 'react-native';
 import type { MobileAssistantBlock } from '../fixtures/mobile-preview.types';
 import type { WorkbenchOpenRequest } from './workbench-activity-view';
@@ -115,6 +115,9 @@ export function AssistantTurnContent({
   }, [usePresentation, processItems, pendingText, finalText, artifactBlocks.length, blocks]);
   const finalVisible = Boolean(finalText?.trim() || pendingText?.trim());
   const completed = !streaming && (showQuickActions || deliveryStatus === 'completed');
+  const deferredPendingText = useDeferredValue(pendingText ?? '');
+  const pendingForRender =
+    streaming && pendingText?.trim() ? deferredPendingText : pendingText;
 
   const legacyExtras = useMemo(() => {
     if (usePresentation) return [];
@@ -137,8 +140,8 @@ export function AssistantTurnContent({
               running={streaming}
               finalOutputVisible={finalVisible}
             />
-            {pendingText?.trim() ? (
-              <AssistantTextBlock content={pendingText} />
+            {pendingForRender?.trim() ? (
+              <AssistantTextBlock content={pendingForRender} />
             ) : null}
             {finalText?.trim() ? (
               <AssistantTextBlock

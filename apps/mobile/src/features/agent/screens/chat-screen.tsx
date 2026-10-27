@@ -1,6 +1,7 @@
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
 import { useRouter } from 'expo-router';
+import type { WorkbenchState } from '@harness/agent-ui-types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +10,8 @@ import { ComposerPeekBar } from '../components/composer-peek-bar';
 import { ComposerStack } from '../components/composer-stack';
 import { ConversationPanel } from '../components/conversation-panel';
 import { ComposerBlockBanner } from '../components/composer-block-banner';
+import { AuthBanner } from '@/features/auth/auth-banner';
+import { useMobileAuth } from '@/providers/mobile-auth-provider';
 import { ServiceBanner, type ServiceState } from '../components/service-banner';
 import { SessionDrawer } from '../components/session-drawer';
 import { WorkbenchPanel } from '../components/workbench-panel';
@@ -24,7 +27,13 @@ import type { WorkspaceView } from '../fixtures/ui-fixtures';
 import { mobileWorkbenchViewFromFocus } from '../model/workbench-focus';
 import { AGENT_UI_COPY, AGENT_UI_LAYOUT } from '../config/ui.constants';
 import { catalogPlanFixture } from '../fixtures/ui-catalog-fixtures';
-import { useAgentHost } from '../hooks/use-agent-host';
+import {
+  useAgentHostComposerSnapshot,
+  useAgentHostConnectionState,
+  useAgentHostConversation,
+  useAgentHostSession,
+  useAgentHostWorkbenchSnapshot,
+} from '../hooks/use-agent-host';
 import {
   readyComposerAttachmentsAsFileRefs,
   useComposerAttachments,
@@ -45,12 +54,106 @@ type ChatScreenProps = {
   forceSplitLayout?: boolean;
 };
 
+function ProductionChatConversationStack({
+  bottomInset,
+  onOpenWorkbench,
+  showRunPeek,
+  runSummary,
+  workbench,
+}: {
+  bottomInset: number;
+  onOpenWorkbench: (request?: WorkbenchOpenRequest) => void;
+  showRunPeek: boolean;
+  runSummary: string | null;
+  workbench?: WorkbenchState;
+}) {
+  const conversation = useAgentHostConversation();
+  const { apiBaseUrl, sessionDetailLoading } = useAgentHostSession();
+  const composer = useAgentHostComposerSnapshot();
+  const isLandingSession =
+    !sessionDetailLoading && conversation.length === 0 && composer.activeInterrupt == null;
+
+  return (
+    <>
+      <ConversationPanel
+        conversation={conversation}
+        apiBaseUrl={apiBaseUrl}
+        bottomInset={bottomInset}
+        scrollEnabled
+        landingLayout={isLandingSession}
+        onOpenWorkbench={(request) => onOpenWorkbench(request ?? { view: 'activity' })}
+      />
+      {showRunPeek ? (
+        <ComposerPeekBar
+          title={runSummary ?? '正在执行任务'}
+          subtitle={mobileRunPeekSubtitle(workbench)}
+          onPress={() => onOpenWorkbench({ view: 'activity' })}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function ProductionChatComposer({
+  bottomInset,
+  composerTextMode,
+  attachments,
+}: {
+  bottomInset: number;
+  composerTextMode: 'new-run' | 'steer' | 'clarification' | 'disabled';
+  attachments: ReturnType<typeof useComposerAttachments>;
+}) {
+  const session = useAgentHostSession();
+  const composer = useAgentHostComposerSnapshot();
+
+  return (
+    <ComposerStack
+      composerTextMode={composerTextMode}
+      submitting={composer.runSubmitting}
+      bottomInset={bottomInset}
+      composerModels={composer.composerModels}
+      defaultModelId={composer.defaultModelId}
+      defaultReasoningEffort={composer.defaultReasoningEffort}
+      composerPlan={composer.composerPlan}
+      composerPlanExplanation={composer.composerPlanExplanation}
+      followUpItems={composer.followUpItems}
+      followUpSubmittingId={composer.followUpSubmittingId}
+      onFollowUpSend={(id) => void session.sendFollowUp(id)}
+      onFollowUpDismiss={(id) => void session.cancelFollowUp(id)}
+      composerRevisionSeed={composer.composerRevisionSeed}
+      activeInterrupt={composer.activeInterrupt}
+      hitlSubmitting={composer.hitlSubmitting}
+      onClarificationRespond={(answer) => void session.respondClarification(answer)}
+      onToolApproval={(approve) => void session.respondToolApproval(approve)}
+      composerAttachments={composer.activeInterrupt ? undefined : attachments.items}
+      onPickImages={() => void attachments.pickImages()}
+      onPickFiles={() => void attachments.pickFiles()}
+      onReconcileDraftChange={attachments.reconcileDraftChange}
+      onRemoveAttachment={attachments.removeItem}
+      onRetryAttachment={(id) => void attachments.retryItem(id)}
+      onSubmit={(payload) => {
+        const optimisticAttachments = readyComposerAttachmentsAsFileRefs(attachments.items);
+        attachments.clearItems();
+        void session.submitRun({
+          ...payload,
+          optimisticAttachments: optimisticAttachments.length ? optimisticAttachments : undefined,
+        });
+      }}
+      onCancelRun={() => void session.cancelActiveRun()}
+    />
+  );
+}
+
 function ProductionChatScreenInner({
   showDrawer = false,
   forceSplitLayout = false,
 }: Pick<ChatScreenProps, 'showDrawer' | 'forceSplitLayout'>) {
-  const host = useAgentHost();
-  useSessionDeepLink(host.selectSession);
+  const session = useAgentHostSession();
+  const workbenchSnap = useAgentHostWorkbenchSnapshot();
+  const composerSnap = useAgentHostComposerSnapshot();
+  const connectionState = useAgentHostConnectionState();
+  const { needsLogin, authChecking } = useMobileAuth();
+  useSessionDeepLink(session.selectSession);
   const attachments = useComposerAttachments();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -61,12 +164,15 @@ function ProductionChatScreenInner({
   const [drawerOpen, setDrawerOpen] = useState(showDrawer);
   const [drawerExitInstant, setDrawerExitInstant] = useState(false);
   const [serviceDismissed, setServiceDismissed] = useState(false);
+  const [authBannerDismissed, setAuthBannerDismissed] = useState(false);
 
-  const workbenchCount = host.workbenchCount;
-  const hasDeliverables = host.hasDeliverables;
+  const workbenchCount = workbenchSnap.workbenchCount;
+  const hasDeliverables = workbenchSnap.hasDeliverables;
+  const workbench = workbenchSnap.workbench;
+  const activeRunId = workbenchSnap.activeRunId;
   const [activityEmphasisOverride, setActivityEmphasisOverride] =
     useState<WorkbenchActivityEmphasis | null>(null);
-  const activityEmphasis = activityEmphasisOverride ?? host.activityEmphasis;
+  const activityEmphasis = activityEmphasisOverride ?? workbenchSnap.activityEmphasis;
   const visibleWorkbenchTabs = useMemo(
     () => resolveMobileWorkbenchVisibleTabs({ workbenchCount, hasDeliverables }),
     [workbenchCount, hasDeliverables],
@@ -119,8 +225,8 @@ function ProductionChatScreenInner({
   );
 
   useEffect(() => {
-    const target = host.workbench?.focusTarget;
-    if (!target || host.activeInterrupt) return;
+    const target = workbench?.focusTarget;
+    if (!target || composerSnap.activeInterrupt) return;
     setWorkbenchView(
       normalizeWorkbenchView(mobileWorkbenchViewFromFocus(target.kind), visibleWorkbenchTabs),
     );
@@ -130,7 +236,7 @@ function ProductionChatScreenInner({
     if (target.kind === 'artifact') {
       setFocusArtifactId(target.artifactId);
     }
-  }, [host.workbench?.focusTarget, host.activeInterrupt, visibleWorkbenchTabs]);
+  }, [workbench?.focusTarget, composerSnap.activeInterrupt, visibleWorkbenchTabs]);
 
   const closeWorkbench = useCallback(() => {
     if (isSplitLayout) {
@@ -159,41 +265,42 @@ function ProductionChatScreenInner({
   }, [drawerOpen]);
 
   useEffect(() => {
-    if (host.serviceState === 'unavailable') {
+    if (session.serviceState === 'unavailable') {
       setServiceDismissed(false);
     }
-  }, [host.serviceState]);
+  }, [session.serviceState]);
 
   const handleRetryService = useCallback(async () => {
-    const ready = await host.refreshReadiness();
+    const ready = await session.refreshReadiness();
     if (ready) {
-      await host.refreshSessions();
+      await session.refreshSessions();
     }
-  }, [host]);
+  }, [session]);
 
   const title =
-    host.sessionDetail?.title ??
-    (host.selectedSessionId ? '会话' : AGENT_UI_COPY.defaultSessionTitle);
-  const isLandingSession =
-    !host.sessionDetailLoading && host.conversation.length === 0 && host.activeInterrupt == null;
-  const serviceState = host.serviceState as ServiceState;
+    session.sessionDetail?.title ??
+    (session.selectedSessionId ? '会话' : AGENT_UI_COPY.defaultSessionTitle);
+  const serviceState = session.serviceState as ServiceState;
   const showServiceBanner = !serviceDismissed && serviceState !== 'ready';
+  const showAuthBanner =
+    !authBannerDismissed && serviceState === 'ready' && needsLogin && !authChecking;
   const composerTextMode =
-    host.composerBlock != null
+    composerSnap.composerBlock != null
       ? 'disabled'
-      : host.activeInterrupt?.kind === 'clarification'
+      : composerSnap.activeInterrupt?.kind === 'clarification'
         ? 'clarification'
-        : host.activeInterrupt != null
+        : composerSnap.activeInterrupt != null
           ? 'disabled'
-          : host.runSubmitting || host.activeRunId
+          : composerSnap.runSubmitting || activeRunId
             ? 'steer'
-            : serviceState === 'ready' && host.defaultModelId
+            : serviceState === 'ready' && composerSnap.defaultModelId && !needsLogin
               ? 'new-run'
               : 'disabled';
 
-  const activeRunSessionId = host.activeRunId && host.selectedSessionId ? host.selectedSessionId : null;
-  const runSummary = mobileRunSummaryLine(host.workbench);
-  const showRunPeek = mobileRunPeekVisible(host.workbench, host.activeRunId);
+  const activeRunSessionId =
+    activeRunId && session.selectedSessionId ? session.selectedSessionId : null;
+  const runSummary = mobileRunSummaryLine(workbench);
+  const showRunPeek = mobileRunPeekVisible(workbench, activeRunId);
 
   return (
     <>
@@ -206,7 +313,7 @@ function ProductionChatScreenInner({
           title={title}
           runSummary={runSummary}
           workbenchBadge={workbenchCount}
-          connectionState={host.connectionState}
+          connectionState={connectionState}
           onOpenDrawer={openDrawer}
           onOpenWorkbench={() => openWorkbench('activity')}
         />
@@ -217,66 +324,33 @@ function ProductionChatScreenInner({
             onDismiss={() => setServiceDismissed(true)}
           />
         ) : null}
-        {host.composerBlock ? (
+        {showAuthBanner ? (
+          <AuthBanner
+            onLogin={() => router.push('/settings/login')}
+            onDismiss={() => setAuthBannerDismissed(true)}
+          />
+        ) : null}
+        {composerSnap.composerBlock ? (
           <ComposerBlockBanner
-            block={host.composerBlock}
-            onCreateSession={() => void host.beginNewSession()}
-            onDismiss={host.dismissComposerBlock}
+            block={composerSnap.composerBlock}
+            onCreateSession={() => void session.beginNewSession()}
+            onDismiss={session.dismissComposerBlock}
           />
         ) : null}
 
         <View className="flex-1 flex-row">
           <View className="relative flex-1">
-            <ConversationPanel
-              conversation={host.conversation}
-              apiBaseUrl={host.apiBaseUrl}
+            <ProductionChatConversationStack
               bottomInset={insets.bottom + (showRunPeek ? 200 : 160)}
-              scrollEnabled
-              landingLayout={isLandingSession}
-              onOpenWorkbench={(request) => openWorkbench(request ?? { view: 'activity' })}
+              onOpenWorkbench={openWorkbench}
+              showRunPeek={showRunPeek}
+              runSummary={runSummary ?? null}
+              workbench={workbench}
             />
-            {showRunPeek ? (
-              <ComposerPeekBar
-                title={runSummary ?? '正在执行任务'}
-                subtitle={mobileRunPeekSubtitle(host.workbench)}
-                onPress={() => openWorkbench('activity')}
-              />
-            ) : null}
-            <ComposerStack
-              composerTextMode={composerTextMode}
-              submitting={host.runSubmitting}
+            <ProductionChatComposer
               bottomInset={insets.bottom}
-              composerModels={host.composerModels}
-              defaultModelId={host.defaultModelId}
-              defaultReasoningEffort={host.defaultReasoningEffort}
-              composerPlan={host.composerPlan}
-              composerPlanExplanation={host.composerPlanExplanation}
-              followUpItems={host.followUpItems}
-              followUpSubmittingId={host.followUpSubmittingId}
-              onFollowUpSend={(id) => void host.sendFollowUp(id)}
-              onFollowUpDismiss={(id) => void host.cancelFollowUp(id)}
-              composerRevisionSeed={host.composerRevisionSeed}
-              activeInterrupt={host.activeInterrupt}
-              hitlSubmitting={host.hitlSubmitting}
-              onClarificationRespond={(answer) => void host.respondClarification(answer)}
-              onToolApproval={(approve) => void host.respondToolApproval(approve)}
-              composerAttachments={host.activeInterrupt ? undefined : attachments.items}
-              onPickImages={() => void attachments.pickImages()}
-              onPickFiles={() => void attachments.pickFiles()}
-              onReconcileDraftChange={attachments.reconcileDraftChange}
-              onRemoveAttachment={attachments.removeItem}
-              onRetryAttachment={(id) => void attachments.retryItem(id)}
-              onSubmit={(payload) => {
-                const optimisticAttachments = readyComposerAttachmentsAsFileRefs(attachments.items);
-                attachments.clearItems();
-                void host.submitRun({
-                  ...payload,
-                  optimisticAttachments: optimisticAttachments.length
-                    ? optimisticAttachments
-                    : undefined,
-                });
-              }}
-              onCancelRun={() => void host.cancelActiveRun()}
+              composerTextMode={composerTextMode}
+              attachments={attachments}
             />
           </View>
           {isSplitLayout && workbenchOpen ? (
@@ -285,15 +359,15 @@ function ProductionChatScreenInner({
               workbenchCount={workbenchCount}
               hasDeliverables={hasDeliverables}
               activityEmphasis={activityEmphasis}
-              workbench={host.workbench}
+              workbench={workbench}
               selectedToolCallId={selectedToolCallId}
               focusArtifactId={focusArtifactId}
               onSelectToolCall={setSelectedToolCallId}
               onViewChange={setWorkbenchView}
-              activeRunId={host.activeRunId}
-              onPauseRun={() => void host.pauseActiveRun()}
-              onResumeRun={() => void host.resumeActiveRun()}
-              workbenchReportId={host.workbenchReportId}
+              activeRunId={activeRunId}
+              onPauseRun={() => void session.pauseActiveRun()}
+              onResumeRun={() => void session.resumeActiveRun()}
+              workbenchReportId={workbenchSnap.workbenchReportId}
             />
           ) : null}
         </View>
@@ -305,18 +379,18 @@ function ProductionChatScreenInner({
         onClose={() => setDrawerOpen(false)}
         onOpenSettings={openSettingsFromDrawer}
         dataSource="api"
-        sessions={host.sessions}
-        selectedSessionId={host.selectedSessionId}
+        sessions={session.sessions}
+        selectedSessionId={session.selectedSessionId}
         activeRunSessionId={activeRunSessionId}
-        onSelectSession={(sessionId) => void host.selectSession(sessionId)}
-        onCreateSession={() => void host.beginNewSession()}
-        onRenameSession={(sessionId, title) => void host.updateSession(sessionId, { title })}
+        onSelectSession={(sessionId) => void session.selectSession(sessionId)}
+        onCreateSession={() => void session.beginNewSession()}
+        onRenameSession={(sessionId, title) => void session.updateSession(sessionId, { title })}
         onTogglePinSession={(sessionId, isPinned) =>
-          void host.updateSession(sessionId, { isPinned })
+          void session.updateSession(sessionId, { isPinned })
         }
-        onDeleteSession={(sessionId) => void host.deleteSession(sessionId)}
-        onRefreshSessions={() => host.refreshSessions()}
-        sessionsRefreshing={host.sessionsLoading}
+        onDeleteSession={(sessionId) => void session.deleteSession(sessionId)}
+        onRefreshSessions={() => session.refreshSessions()}
+        sessionsRefreshing={session.sessionsLoading}
       />
 
       {!isSplitLayout ? (
@@ -326,16 +400,16 @@ function ProductionChatScreenInner({
           workbenchCount={workbenchCount}
           hasDeliverables={hasDeliverables}
           activityEmphasis={activityEmphasis}
-          workbench={host.workbench}
+          workbench={workbench}
           selectedToolCallId={selectedToolCallId}
           focusArtifactId={focusArtifactId}
           onSelectToolCall={setSelectedToolCallId}
           onRequestClose={closeWorkbench}
           onViewChange={setWorkbenchView}
-          activeRunId={host.activeRunId}
-          onPauseRun={() => void host.pauseActiveRun()}
-          onResumeRun={() => void host.resumeActiveRun()}
-          workbenchReportId={host.workbenchReportId}
+          activeRunId={activeRunId}
+          onPauseRun={() => void session.pauseActiveRun()}
+          onResumeRun={() => void session.resumeActiveRun()}
+          workbenchReportId={workbenchSnap.workbenchReportId}
         />
       ) : null}
     </>

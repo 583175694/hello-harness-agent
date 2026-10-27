@@ -19,7 +19,10 @@ import {
   type ReactNode,
 } from 'react';
 
+import { ApiProblem } from '@harness/agent-client';
+
 import { createMobileAgentClientForBaseUrl, resolveMobileApiBaseUrl } from '@/lib/agent-client';
+import { useMobileAuth } from '@/providers/mobile-auth-provider';
 import { bindRunNotificationDeepLink } from '@/lib/run-local-notifications';
 import { saveSelectedSessionId } from '@/lib/storage';
 import { useAppPreferences } from '@/providers/app-preferences-provider';
@@ -27,10 +30,19 @@ import { useAppPreferences } from '@/providers/app-preferences-provider';
 import type { ConnectionState } from '../components/connection-pill';
 import type { ModelFixture } from '../components/composer-model-menu';
 import type { MobileConversationItem } from '../fixtures/mobile-preview.types';
+import {
+  useAgentHostComposerSnapshot,
+  useAgentHostConnectionState,
+  useAgentHostConversation,
+  useAgentHostRunUiAllSlices,
+  useAgentHostWorkbenchSnapshot,
+} from '../hooks/use-agent-run-ui-slices';
 import { useAgentHostRun } from '../hooks/use-agent-host-run';
 import type { ComposerSubmitPayload } from '../model/composer-submit.types';
+import { createAgentRunUiStore } from '../model/agent-run-ui-store';
 import type { MobileServiceState } from '../model/mobile-chrome.types';
 import type { SessionComposerBlock } from '../lib/session-composer-block';
+import { AgentRunUiStoreContext } from './agent-run-ui-store-context';
 
 export type AgentHostContextValue = {
   client: AgentClient;
@@ -82,11 +94,37 @@ export type AgentHostContextValue = {
   deleteSession: (sessionId: string) => Promise<boolean>;
 };
 
-const AgentHostContext = createContext<AgentHostContextValue | null>(null);
+type AgentHostSessionContextValue = Omit<
+  AgentHostContextValue,
+  | 'conversation'
+  | 'connectionState'
+  | 'runSubmitting'
+  | 'defaultModelId'
+  | 'defaultReasoningEffort'
+  | 'composerModels'
+  | 'composerPlan'
+  | 'composerPlanExplanation'
+  | 'followUpItems'
+  | 'followUpSubmittingId'
+  | 'composerRevisionSeed'
+  | 'composerBlock'
+  | 'activeInterrupt'
+  | 'hitlSubmitting'
+  | 'workbench'
+  | 'workbenchReportId'
+  | 'workbenchCount'
+  | 'hasDeliverables'
+  | 'activityEmphasis'
+  | 'activeRunId'
+>;
+
+const AgentHostSessionContext = createContext<AgentHostSessionContextValue | null>(null);
 
 export function AgentHostProvider({ children }: { children: ReactNode }) {
   const { preferences, hydrated } = useAppPreferences();
+  const { authEpoch } = useMobileAuth();
   const resolvedBaseUrl = resolveMobileApiBaseUrl(preferences.apiBaseUrl);
+  const runUiStore = useMemo(() => createAgentRunUiStore(), []);
 
   const client = useMemo(
     () => createMobileAgentClientForBaseUrl(preferences.apiBaseUrl),
@@ -206,7 +244,10 @@ export function AgentHostProvider({ children }: { children: ReactNode }) {
         await refreshSessions();
         await selectSession(session.id);
         return session;
-      } catch {
+      } catch (error) {
+        if (error instanceof ApiProblem && error.problem.code === 'AUTH_REQUIRED') {
+          throw error;
+        }
         return null;
       }
     },
@@ -287,7 +328,13 @@ export function AgentHostProvider({ children }: { children: ReactNode }) {
       sessionsAbortRef.current?.abort();
       detailAbortRef.current?.abort();
     };
-  }, [hydrated, resolvedBaseUrl, client, refreshReadiness, startDraft]);
+  }, [hydrated, client, refreshReadiness, startDraft, authEpoch]);
+
+  /** API 地址变更后单独探活，避免 bootstrap cleanup abort 导致一直 unavailable。 */
+  useEffect(() => {
+    if (!hydrated) return;
+    void refreshReadiness();
+  }, [hydrated, resolvedBaseUrl, refreshReadiness]);
 
   const runHost = useAgentHostRun({
     client,
@@ -302,9 +349,13 @@ export function AgentHostProvider({ children }: { children: ReactNode }) {
     },
     ensureSessionSelected,
     pushNotificationsEnabled: preferences.pushNotificationsEnabled,
+    runUiStore,
   });
 
-  const value = useMemo<AgentHostContextValue>(
+  const runHostRef = useRef(runHost);
+  runHostRef.current = runHost;
+
+  const sessionValue = useMemo<AgentHostSessionContextValue>(
     () => ({
       client,
       apiBaseUrl: resolvedBaseUrl,
@@ -314,43 +365,29 @@ export function AgentHostProvider({ children }: { children: ReactNode }) {
       selectedSessionId,
       sessionDetail,
       sessionDetailLoading,
-      conversation: runHost.conversation,
-      connectionState: runHost.connectionState,
-      runSubmitting: runHost.runSubmitting,
-      defaultModelId: runHost.defaultModelId,
-      defaultReasoningEffort: runHost.defaultReasoningEffort,
-      composerModels: runHost.composerModels,
-      composerPlan: runHost.composerPlan,
-      composerPlanExplanation: runHost.composerPlanExplanation,
-      followUpItems: runHost.followUpItems,
-      followUpSubmittingId: runHost.followUpSubmittingId,
-      composerRevisionSeed: runHost.composerRevisionSeed,
-      composerBlock: runHost.composerBlock,
-      dismissComposerBlock: runHost.dismissComposerBlock,
-      activeInterrupt: runHost.activeInterrupt,
-      hitlSubmitting: runHost.hitlSubmitting,
-      workbench: runHost.workbench,
-      workbenchReportId: runHost.workbenchReportId,
-      workbenchCount: runHost.workbenchCount,
-      hasDeliverables: runHost.hasDeliverables,
-      activityEmphasis: runHost.activityEmphasis,
-      activeRunId: runHost.activeRunId,
       submitRun: runHost.submitRun,
       sendFollowUp: runHost.sendFollowUp,
       cancelFollowUp: runHost.cancelFollowUp,
       beginArtifactRevision: runHost.beginArtifactRevision,
-      respondClarification: (answer) =>
-        runHost.activeInterrupt?.kind === 'clarification'
-          ? runHost.respondClarification(runHost.activeInterrupt.interruptId, answer)
-          : Promise.resolve(),
-      respondToolApproval: (approve) =>
-        runHost.activeInterrupt?.kind === 'tool_approval'
-          ? runHost.respondToolApproval(runHost.activeInterrupt.interruptId, approve)
-          : Promise.resolve(),
+      respondClarification: (answer) => {
+        const interrupt = runUiStore.getComposer().activeInterrupt;
+        if (interrupt?.kind === 'clarification') {
+          return runHostRef.current.respondClarification(interrupt.interruptId, answer);
+        }
+        return Promise.resolve();
+      },
+      respondToolApproval: (approve) => {
+        const interrupt = runUiStore.getComposer().activeInterrupt;
+        if (interrupt?.kind === 'tool_approval') {
+          return runHostRef.current.respondToolApproval(interrupt.interruptId, approve);
+        }
+        return Promise.resolve();
+      },
       pauseActiveRun: runHost.pauseActiveRun,
       resumeActiveRun: runHost.resumeActiveRun,
       restoreArtifactVersion: runHost.restoreArtifactVersion,
       cancelActiveRun: runHost.cancelActiveRun,
+      dismissComposerBlock: runHost.dismissComposerBlock,
       refreshReadiness,
       refreshSessions,
       selectSession,
@@ -368,37 +405,15 @@ export function AgentHostProvider({ children }: { children: ReactNode }) {
       selectedSessionId,
       sessionDetail,
       sessionDetailLoading,
-      runHost.conversation,
-      runHost.connectionState,
-      runHost.runSubmitting,
-      runHost.defaultModelId,
-      runHost.defaultReasoningEffort,
-      runHost.composerModels,
-      runHost.composerPlan,
-      runHost.composerPlanExplanation,
-      runHost.followUpItems,
-      runHost.followUpSubmittingId,
-      runHost.composerRevisionSeed,
-      runHost.composerBlock,
-      runHost.dismissComposerBlock,
-      runHost.activeInterrupt,
-      runHost.hitlSubmitting,
-      runHost.workbench,
-      runHost.workbenchReportId,
-      runHost.workbenchCount,
-      runHost.hasDeliverables,
-      runHost.activityEmphasis,
-      runHost.activeRunId,
       runHost.submitRun,
       runHost.sendFollowUp,
       runHost.cancelFollowUp,
       runHost.beginArtifactRevision,
-      runHost.respondClarification,
-      runHost.respondToolApproval,
       runHost.pauseActiveRun,
       runHost.resumeActiveRun,
       runHost.restoreArtifactVersion,
       runHost.cancelActiveRun,
+      runHost.dismissComposerBlock,
       refreshReadiness,
       refreshSessions,
       selectSession,
@@ -406,16 +421,55 @@ export function AgentHostProvider({ children }: { children: ReactNode }) {
       createSession,
       updateSession,
       deleteSession,
+      runUiStore,
     ],
   );
 
-  return <AgentHostContext.Provider value={value}>{children}</AgentHostContext.Provider>;
+  return (
+    <AgentRunUiStoreContext.Provider value={runUiStore}>
+      <AgentHostSessionContext.Provider value={sessionValue}>{children}</AgentHostSessionContext.Provider>
+    </AgentRunUiStoreContext.Provider>
+  );
+}
+
+export function useAgentHostSession(): AgentHostSessionContextValue {
+  const ctx = useContext(AgentHostSessionContext);
+  if (!ctx) {
+    throw new Error('useAgentHostSession must be used within AgentHostProvider');
+  }
+  return ctx;
 }
 
 export function useAgentHost(): AgentHostContextValue {
-  const ctx = useContext(AgentHostContext);
-  if (!ctx) {
-    throw new Error('useAgentHost must be used within AgentHostProvider');
-  }
-  return ctx;
+  useAgentHostRunUiAllSlices();
+  const session = useAgentHostSession();
+  const conversation = useAgentHostConversation();
+  const connectionState = useAgentHostConnectionState();
+  const workbench = useAgentHostWorkbenchSnapshot();
+  const composer = useAgentHostComposerSnapshot();
+
+  return {
+    ...session,
+    conversation,
+    connectionState,
+    runSubmitting: composer.runSubmitting,
+    defaultModelId: composer.defaultModelId,
+    defaultReasoningEffort: composer.defaultReasoningEffort,
+    composerModels: composer.composerModels,
+    composerPlan: composer.composerPlan,
+    composerPlanExplanation: composer.composerPlanExplanation,
+    followUpItems: composer.followUpItems,
+    followUpSubmittingId: composer.followUpSubmittingId,
+    composerRevisionSeed: composer.composerRevisionSeed,
+    composerBlock: composer.composerBlock,
+    dismissComposerBlock: session.dismissComposerBlock,
+    activeInterrupt: composer.activeInterrupt,
+    hitlSubmitting: composer.hitlSubmitting,
+    workbench: workbench.workbench,
+    workbenchReportId: workbench.workbenchReportId,
+    workbenchCount: workbench.workbenchCount,
+    hasDeliverables: workbench.hasDeliverables,
+    activityEmphasis: workbench.activityEmphasis,
+    activeRunId: workbench.activeRunId,
+  };
 }

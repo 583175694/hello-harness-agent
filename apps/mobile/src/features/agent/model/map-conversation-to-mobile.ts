@@ -118,6 +118,35 @@ function mapAssistantPresentation(item: Extract<ConversationItem, { kind: 'assis
   };
 }
 
+type CachedMobileItem = {
+  source: ConversationItem;
+  mobile: MobileConversationItem;
+};
+
+const mobileItemCache = new Map<string, CachedMobileItem>();
+
+function sameConversationItem(a: ConversationItem, b: ConversationItem): boolean {
+  if (a === b) return true;
+  if (a.kind !== b.kind || a.id !== b.id) return false;
+  if (a.kind === 'user' && b.kind === 'user') {
+    return (
+      a.content === b.content &&
+      a.pendingState === b.pendingState &&
+      a.skillNames === b.skillNames &&
+      a.attachments === b.attachments
+    );
+  }
+  if (a.kind === 'assistant' && b.kind === 'assistant') {
+    return (
+      a.deliveryStatus === b.deliveryStatus &&
+      a.pending === b.pending &&
+      a.blocks === b.blocks &&
+      a.error?.detail === b.error?.detail
+    );
+  }
+  return false;
+}
+
 export function mapConversationItemToMobile(item: ConversationItem): MobileConversationItem {
   if (item.kind === 'user') {
     return {
@@ -144,5 +173,31 @@ export function mapConversationItemToMobile(item: ConversationItem): MobileConve
 }
 
 export function mapConversationToMobile(items: ConversationItem[]): MobileConversationItem[] {
-  return items.map(mapConversationItemToMobile);
+  const next: MobileConversationItem[] = [];
+  const activeIds = new Set<string>();
+
+  for (const item of items) {
+    activeIds.add(item.id);
+    const cached = mobileItemCache.get(item.id);
+    if (cached && sameConversationItem(cached.source, item)) {
+      next.push(cached.mobile);
+      continue;
+    }
+    const mobile = mapConversationItemToMobile(item);
+    mobileItemCache.set(item.id, { source: item, mobile });
+    next.push(mobile);
+  }
+
+  for (const id of mobileItemCache.keys()) {
+    if (!activeIds.has(id)) {
+      mobileItemCache.delete(id);
+    }
+  }
+
+  return next;
+}
+
+/** Test-only: reset incremental map cache between cases. */
+export function resetMapConversationToMobileCacheForTests(): void {
+  mobileItemCache.clear();
 }

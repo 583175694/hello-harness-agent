@@ -23,8 +23,11 @@ import {
   mobileWorkbenchBadgeCount,
 } from '../model/mobile-workbench-metrics';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert } from 'react-native';
+import { router } from 'expo-router';
 
 import type { ConnectionState } from '../components/connection-pill';
+import type { AgentRunUiStore } from '../model/agent-run-ui-store';
 import { mapConversationToMobile } from '../model/map-conversation-to-mobile';
 import { mobileRunReducerDeps } from '../model/mobile-run-reducer-deps';
 import type { ComposerSubmitPayload } from '../model/composer-submit.types';
@@ -54,6 +57,7 @@ type UseAgentHostRunParams = {
   createSession: (title?: string) => Promise<{ id: string } | null>;
   ensureSessionSelected: (sessionId: string) => void;
   pushNotificationsEnabled: boolean;
+  runUiStore: AgentRunUiStore;
 };
 
 export function useAgentHostRun({
@@ -66,6 +70,7 @@ export function useAgentHostRun({
   createSession,
   ensureSessionSelected,
   pushNotificationsEnabled,
+  runUiStore,
 }: UseAgentHostRunParams) {
   const pushNotificationsEnabledRef = useRef(pushNotificationsEnabled);
   pushNotificationsEnabledRef.current = pushNotificationsEnabled;
@@ -77,7 +82,6 @@ export function useAgentHostRun({
   const pendingSessionsRef = useRef<Record<string, boolean>>({});
   const selectedSessionIdRef = useRef<string | null>(selectedSessionId);
 
-  const [uiRevision, setUiRevision] = useState(0);
   const [sessionReportIds, setSessionReportIds] = useState<Record<string, string>>({});
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
   const [reconnectRunId, setReconnectRunId] = useState<string | null>(null);
@@ -92,7 +96,95 @@ export function useAgentHostRun({
     selectedSessionIdRef.current = selectedSessionId;
   }, [selectedSessionId]);
 
-  const bumpUi = useCallback(() => setUiRevision((value) => value + 1), []);
+  const syncSelectedRunUi = useCallback(() => {
+    const sessionId = selectedSessionIdRef.current;
+    const selectedState = sessionId ? sessionStatesRef.current[sessionId] : undefined;
+
+    const mapped = mapConversationToMobile(selectedState?.conversation ?? []);
+    const previousConversation = runUiStore.getConversation();
+    if (
+      previousConversation.length !== mapped.length ||
+      !previousConversation.every((item, index) => item === mapped[index])
+    ) {
+      runUiStore.publishConversation(mapped);
+    }
+
+    const workbench: WorkbenchState | undefined = selectedState?.workbench;
+    const workbenchReportId = sessionId ? sessionReportIds[sessionId] : undefined;
+    const activeRunId = selectedState?.activeRunId ?? sessionDetail?.activeRun?.runId ?? null;
+    const workbenchCount = mobileWorkbenchBadgeCount({
+      workbench,
+      conversation: selectedState?.conversation ?? [],
+      activeRunId,
+    });
+    const artifactCount = countWorkbenchArtifacts(workbench);
+    const hasDeliverables = mobileWorkbenchHasDeliverablesTab({
+      workbenchCount,
+      hasDeliverables:
+        artifactCount > 0 || Boolean(workbench?.report) || Boolean(workbenchReportId),
+    });
+    const activityEmphasis = mobileWorkbenchActivityEmphasis(workbench);
+
+    runUiStore.publishWorkbench({
+      workbench,
+      workbenchReportId,
+      workbenchCount,
+      hasDeliverables,
+      activityEmphasis,
+      activeRunId,
+    });
+
+    const composerModels = publicConfig ? modelsFromPublicConfig(publicConfig) : [];
+    const defaultReasoningEffort: ReasoningEffort = publicConfig
+      ? defaultReasoningForModel(
+          publicConfig,
+          defaultModelId ?? publicConfig.defaultModel ?? publicConfig.models[0]?.id ?? '',
+        )
+      : 'high';
+    const composerPlan = selectedState?.workbench?.plan?.plan;
+    const composerPlanExplanation = selectedState?.workbench?.plan?.explanation;
+    const followUpItems = pendingInputsRef.current
+      .filter((input) => input.kind === 'follow_up' && input.status === 'pending')
+      .map((input) => ({ id: input.id, content: input.content }));
+    const rawInterrupt = selectedState?.activeInterrupt;
+    const activeInterrupt: PendingInterruptSnapshot | null =
+      rawInterrupt?.status === 'pending' ? (rawInterrupt as PendingInterruptSnapshot) : null;
+    const runSubmitting = sessionId ? Boolean(pendingSessionsRef.current[sessionId]) : false;
+    const composerBlock = sessionId ? (composerBlocks[sessionId] ?? null) : null;
+
+    runUiStore.publishComposer({
+      runSubmitting,
+      defaultModelId,
+      defaultReasoningEffort,
+      composerModels,
+      composerPlan,
+      composerPlanExplanation,
+      followUpItems,
+      followUpSubmittingId,
+      composerRevisionSeed,
+      composerBlock,
+      activeInterrupt,
+      hitlSubmitting,
+    });
+  }, [
+    composerBlocks,
+    composerRevisionSeed,
+    defaultModelId,
+    followUpSubmittingId,
+    hitlSubmitting,
+    publicConfig,
+    runUiStore,
+    sessionDetail?.activeRun?.runId,
+    sessionReportIds,
+  ]);
+
+  useEffect(() => {
+    syncSelectedRunUi();
+  }, [selectedSessionId, syncSelectedRunUi]);
+
+  useEffect(() => {
+    runUiStore.publishConnection(connectionState);
+  }, [connectionState, runUiStore]);
 
   const maybeNotifyRunAttention = useCallback(
     (
@@ -137,9 +229,9 @@ export function useAgentHostRun({
         }
         return { ...prev, [sessionId]: block };
       });
-      bumpUi();
+      syncSelectedRunUi();
     },
-    [bumpUi],
+    [syncSelectedRunUi],
   );
 
   const applyComposerBlockFromError = useCallback(
@@ -159,17 +251,21 @@ export function useAgentHostRun({
   const setSessionPending = useCallback(
     (sessionId: string, pending: boolean) => {
       pendingSessionsRef.current = { ...pendingSessionsRef.current, [sessionId]: pending };
-      bumpUi();
+      if (sessionId === selectedSessionIdRef.current) {
+        syncSelectedRunUi();
+      }
     },
-    [bumpUi],
+    [syncSelectedRunUi],
   );
 
   const setSessionState = useCallback(
     (sessionId: string, next: AgentUiState) => {
       sessionStatesRef.current = { ...sessionStatesRef.current, [sessionId]: next };
-      bumpUi();
+      if (sessionId === selectedSessionIdRef.current) {
+        syncSelectedRunUi();
+      }
     },
-    [bumpUi],
+    [syncSelectedRunUi],
   );
 
   useEffect(() => {
@@ -460,8 +556,18 @@ export function useAgentHostRun({
 
       let sessionId = selectedSessionIdRef.current;
       if (!sessionId) {
-        const created = await createSession(task.slice(0, 80));
-        sessionId = created?.id ?? null;
+        try {
+          const created = await createSession(task.slice(0, 80));
+          sessionId = created?.id ?? null;
+        } catch (error) {
+          if (error instanceof ApiProblem && error.problem.code === 'AUTH_REQUIRED') {
+            Alert.alert('需要登录', '请先登录后再发送消息。', [
+              { text: '取消', style: 'cancel' },
+              { text: '去登录', onPress: () => router.push('/settings/login') },
+            ]);
+          }
+          return;
+        }
         if (!sessionId) return;
         ensureSessionSelected(sessionId);
       }
@@ -492,7 +598,7 @@ export function useAgentHostRun({
                 // promote 失败时仍保留 pending 队列项。
               }
             }
-            bumpUi();
+            syncSelectedRunUi();
           }
         } catch (error) {
           applyComposerBlockFromError(sessionId, error);
@@ -607,7 +713,7 @@ export function useAgentHostRun({
       refreshSessions,
       setSessionPending,
       setSessionState,
-      bumpUi,
+      syncSelectedRunUi,
     ],
   );
 
@@ -666,14 +772,14 @@ export function useAgentHostRun({
         setConnectionState('connecting');
         await observeRun(sessionId, run.runId, input.content, true);
         await refreshSessions();
-        bumpUi();
+        syncSelectedRunUi();
       } catch {
         // 发送失败时保留队列项。
       } finally {
         setFollowUpSubmittingId(null);
       }
     },
-    [bumpUi, client, observeRun, refreshSessions, setSessionPending, setSessionState],
+    [syncSelectedRunUi, client, observeRun, refreshSessions, setSessionPending, setSessionState],
   );
 
   const cancelFollowUp = useCallback(
@@ -683,12 +789,12 @@ export function useAgentHostRun({
         pendingInputsRef.current = uniquePendingInputs(
           pendingInputsRef.current.map((item) => (item.id === inputId ? updated : item)),
         );
-        bumpUi();
+        syncSelectedRunUi();
       } catch {
         // 取消失败时忽略。
       }
     },
-    [bumpUi, client],
+    [syncSelectedRunUi, client],
   );
 
   const respondClarification = useCallback(
@@ -828,76 +934,36 @@ export function useAgentHostRun({
     }
   }, [client, sessionDetail?.activeRun?.runId]);
 
-  const selectedState = selectedSessionId ? sessionStatesRef.current[selectedSessionId] : undefined;
-  void uiRevision;
-  const conversation = mapConversationToMobile(selectedState?.conversation ?? []);
-  const runSubmitting = selectedSessionId
-    ? Boolean(pendingSessionsRef.current[selectedSessionId])
-    : false;
-
-  const composerModels = publicConfig ? modelsFromPublicConfig(publicConfig) : [];
-  const defaultReasoningEffort: ReasoningEffort = publicConfig
-    ? defaultReasoningForModel(
-        publicConfig,
-        defaultModelId ?? publicConfig.defaultModel ?? publicConfig.models[0]?.id ?? '',
-      )
-    : 'high';
-  const composerPlan = selectedState?.workbench?.plan?.plan;
-  const composerPlanExplanation = selectedState?.workbench?.plan?.explanation;
-  const followUpItems = pendingInputsRef.current
-    .filter((input) => input.kind === 'follow_up' && input.status === 'pending')
-    .map((input) => ({ id: input.id, content: input.content }));
-
-  const rawInterrupt = selectedState?.activeInterrupt;
-  const activeInterrupt: PendingInterruptSnapshot | null =
-    rawInterrupt?.status === 'pending' ? (rawInterrupt as PendingInterruptSnapshot) : null;
-
-  const workbench: WorkbenchState | undefined = selectedState?.workbench;
-  const workbenchReportId = selectedSessionId
-    ? sessionReportIds[selectedSessionId]
-    : undefined;
-  const activeRunId = selectedState?.activeRunId ?? sessionDetail?.activeRun?.runId ?? null;
-  const workbenchCount = mobileWorkbenchBadgeCount({
-    workbench,
-    conversation: selectedState?.conversation ?? [],
-    activeRunId,
-  });
-  const artifactCount = countWorkbenchArtifacts(workbench);
-  const hasDeliverables = mobileWorkbenchHasDeliverablesTab({
-    workbenchCount,
-    hasDeliverables:
-      artifactCount > 0 || Boolean(workbench?.report) || Boolean(workbenchReportId),
-  });
-  const activityEmphasis = mobileWorkbenchActivityEmphasis(workbench);
-  const composerBlock = selectedSessionId ? (composerBlocks[selectedSessionId] ?? null) : null;
-
   const dismissComposerBlock = useCallback(() => {
     if (!selectedSessionId) return;
     setComposerBlockForSession(selectedSessionId, null);
   }, [selectedSessionId, setComposerBlockForSession]);
 
+  const workbenchSnapshot = runUiStore.getWorkbench();
+  const composerSnapshot = runUiStore.getComposer();
+
   return {
-    conversation,
-    connectionState,
-    runSubmitting,
-    defaultModelId,
-    defaultReasoningEffort,
+    conversation: runUiStore.getConversation(),
+    connectionState: runUiStore.getConnection(),
+    runSubmitting: composerSnapshot.runSubmitting,
+    defaultModelId: composerSnapshot.defaultModelId,
+    defaultReasoningEffort: composerSnapshot.defaultReasoningEffort,
     publicConfig,
-    composerModels,
-    composerPlan,
-    composerPlanExplanation,
-    followUpItems,
-    followUpSubmittingId,
-    composerRevisionSeed,
-    composerBlock,
+    composerModels: composerSnapshot.composerModels,
+    composerPlan: composerSnapshot.composerPlan,
+    composerPlanExplanation: composerSnapshot.composerPlanExplanation,
+    followUpItems: composerSnapshot.followUpItems,
+    followUpSubmittingId: composerSnapshot.followUpSubmittingId,
+    composerRevisionSeed: composerSnapshot.composerRevisionSeed,
+    composerBlock: composerSnapshot.composerBlock,
     dismissComposerBlock,
-    activeInterrupt,
-    hitlSubmitting,
-    workbench,
-    workbenchReportId,
-    workbenchCount,
-    hasDeliverables,
-    activityEmphasis,
+    activeInterrupt: composerSnapshot.activeInterrupt,
+    hitlSubmitting: composerSnapshot.hitlSubmitting,
+    workbench: workbenchSnapshot.workbench,
+    workbenchReportId: workbenchSnapshot.workbenchReportId,
+    workbenchCount: workbenchSnapshot.workbenchCount,
+    hasDeliverables: workbenchSnapshot.hasDeliverables,
+    activityEmphasis: workbenchSnapshot.activityEmphasis,
     respondClarification,
     respondToolApproval,
     submitRun,
@@ -908,6 +974,6 @@ export function useAgentHostRun({
     pauseActiveRun,
     resumeActiveRun,
     cancelActiveRun,
-    activeRunId,
+    activeRunId: workbenchSnapshot.activeRunId,
   };
 }

@@ -6,6 +6,7 @@ import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AgentHostProvider } from '@/features/agent/providers/agent-host-provider';
 import { AppPreferencesProvider, useAppPreferences } from '@/providers/app-preferences-provider';
+import { MobileAuthProvider } from '@/providers/mobile-auth-provider';
 import { ThemeRoot } from '@/providers/theme-root';
 
 function RootNavigation() {
@@ -36,11 +37,13 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AppPreferencesProvider>
-          <AgentHostProvider>
-            <ThemeRoot>
-              <RootNavigation />
-            </ThemeRoot>
-          </AgentHostProvider>
+          <MobileAuthProvider>
+            <AgentHostProvider>
+              <ThemeRoot>
+                <RootNavigation />
+              </ThemeRoot>
+            </AgentHostProvider>
+          </MobileAuthProvider>
         </AppPreferencesProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

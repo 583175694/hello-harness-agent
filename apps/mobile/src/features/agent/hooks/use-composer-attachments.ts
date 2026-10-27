@@ -16,7 +16,7 @@ import { ApiProblem } from '@harness/agent-client';
 
 import { AGENT_UI_BEHAVIOR } from '../config/ui.constants';
 import { resolveLongTextPaste } from '../lib/composer-paste';
-import { useAgentHost } from './use-agent-host';
+import { useAgentHostSession } from './use-agent-host';
 
 function fileKindFromRef(fileKind?: string): 'file' | 'image' {
   return fileKind === 'image' ? 'image' : 'file';
@@ -105,7 +105,7 @@ function normalizePickedImageMeta(asset: ImagePickerAsset): { name: string; mime
 }
 
 export function useComposerAttachments() {
-  const { client, apiBaseUrl, selectedSessionId, createSession } = useAgentHost();
+  const { client, apiBaseUrl, selectedSessionId, createSession } = useAgentHostSession();
   const [items, setItems] = useState<ComposerAttachmentFixture[]>([]);
   const controllersRef = useRef<Record<string, AbortController>>({});
   const localSourcesRef = useRef<Record<string, LocalAttachmentSource>>({});

@@ -1,4 +1,5 @@
 import Markdown from 'react-native-markdown-display';
+import { useMemo, type ComponentProps } from 'react';
 import { Linking, View, type ViewStyle } from 'react-native';
 import { useThemeColors } from '@/lib/use-theme-colors';
 
@@ -30,18 +31,8 @@ export function MarkdownView({
   const headingTop = (level: number, defaultTop: number) =>
     leadingHeadingLevel === level ? 0 : defaultTop;
 
-  return (
-    <View style={style}>
-      <Markdown
-        onLinkPress={(url) => {
-          if (url.startsWith('source:')) {
-            onSourcePress?.(url.replace('source:', ''));
-            return false;
-          }
-          void Linking.openURL(url);
-          return false;
-        }}
-        style={{
+  const markdownStyles = useMemo(
+    () => ({
           body: {
             color: theme.primary,
             fontSize,
@@ -169,7 +160,22 @@ export function MarkdownView({
             borderColor: theme.border,
             color: theme.secondary,
           },
+    }),
+    [flow, fontSize, leadingHeadingLevel, lineHeight, theme],
+  );
+
+  return (
+    <View style={style}>
+      <Markdown
+        onLinkPress={(url) => {
+          if (url.startsWith('source:')) {
+            onSourcePress?.(url.replace('source:', ''));
+            return false;
+          }
+          void Linking.openURL(url);
+          return false;
         }}
+        style={markdownStyles as ComponentProps<typeof Markdown>['style']}
       >
         {children}
       </Markdown>

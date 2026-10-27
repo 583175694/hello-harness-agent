@@ -1,6 +1,6 @@
 import { Link, useRouter } from 'expo-router';
 import { Pressable, ScrollView, Switch, View } from 'react-native';
-import { Brain, ChevronRight, Server, Type } from 'lucide-react-native';
+import { Brain, ChevronRight, LogIn, LogOut, Server, Type, User } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
@@ -9,6 +9,7 @@ import type { ThemeMode } from '@/lib/preferences';
 import { clampFontSize } from '@/lib/preferences';
 import { resolveMobileApiBaseUrl } from '@/lib/agent-client';
 import { useAppPreferences } from '@/providers/app-preferences-provider';
+import { useMobileAuth } from '@/providers/mobile-auth-provider';
 
 const THEME_OPTIONS: { id: ThemeMode; label: string }[] = [
   { id: 'system', label: '跟随系统' },
@@ -19,10 +20,55 @@ const THEME_OPTIONS: { id: ThemeMode; label: string }[] = [
 export default function SettingsScreen() {
   const router = useRouter();
   const { preferences, updatePreferences } = useAppPreferences();
+  const { authUser, needsLogin, logout } = useMobileAuth();
   const effectiveApiBaseUrl = resolveMobileApiBaseUrl(preferences.apiBaseUrl);
 
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 p-4">
+      <View className="rounded-panel border border-border bg-surface p-4">
+        <Text variant="headline" className="mb-3 text-[15px]" fixedSize>
+          账号
+        </Text>
+        {authUser ? (
+          <View className="flex-row items-center justify-between py-2">
+            <View className="flex-row items-center gap-3">
+              <Icon icon={User} tone="secondary" size={18} />
+              <View>
+                <Text variant="body-sm" fixedSize>
+                  {authUser.displayName || authUser.phone || authUser.email || '已登录'}
+                </Text>
+                {authUser.phone ? (
+                  <Text variant="caption" className="text-muted" fixedSize>
+                    {authUser.phone}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+            <Pressable
+              onPress={() => void logout()}
+              className="flex-row items-center gap-1 active:opacity-70"
+            >
+              <Icon icon={LogOut} tone="secondary" size={16} />
+              <Text variant="caption" className="text-link" fixedSize>
+                退出
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Link href="/settings/login" asChild>
+            <Pressable className="flex-row items-center justify-between py-2 active:opacity-70">
+              <View className="flex-row items-center gap-3">
+                <Icon icon={LogIn} tone="secondary" size={18} />
+                <Text variant="body-sm" fixedSize>
+                  {needsLogin ? '登录（线上环境必需）' : '登录'}
+                </Text>
+              </View>
+              <Icon icon={ChevronRight} tone={ICON_CHEVRON_TONE.push} size={18} />
+            </Pressable>
+          </Link>
+        )}
+      </View>
+
       <View className="rounded-panel border border-border bg-surface p-4">
         <Text variant="headline" className="mb-3 text-[15px]" fixedSize>
           通用
@@ -123,7 +169,7 @@ export default function SettingsScreen() {
         </View>
         <Text variant="caption" className="mt-2 text-muted" fixedSize>
           当前生效：{effectiveApiBaseUrl}
-          {preferences.apiBaseUrl.trim() ? '' : '（未填时使用模拟器 localhost）'}
+          {preferences.apiBaseUrl.trim() ? '' : `（未填时使用 ${effectiveApiBaseUrl}）`}
         </Text>
         <View className="mt-4 flex-row items-center justify-between border-t border-composer-border pt-3">
           <View className="mr-3 flex-1">

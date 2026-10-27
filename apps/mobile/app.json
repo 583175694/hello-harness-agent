@@ -21,6 +21,7 @@
     },
     "android": {
       "label": "皮皮虾",
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#f7f7f6",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -44,7 +45,15 @@
           "photosPermission": "允许访问相册以添加图片附件。"
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ]
   }
 }

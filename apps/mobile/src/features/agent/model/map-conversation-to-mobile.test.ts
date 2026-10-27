@@ -1,9 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationItem } from '@harness/agent-ui-types';
 
-import { mapConversationToMobile } from './map-conversation-to-mobile';
+import {
+  mapConversationToMobile,
+  resetMapConversationToMobileCacheForTests,
+} from './map-conversation-to-mobile';
 
 describe('mapConversationToMobile', () => {
+  it('reuses cached mobile items when upstream conversation references are unchanged', () => {
+    resetMapConversationToMobileCacheForTests();
+    const user: ConversationItem = { id: 'u1', kind: 'user', content: 'hello' };
+    const assistant: ConversationItem = {
+      id: 'a1',
+      kind: 'assistant',
+      deliveryStatus: 'completed',
+      blocks: [{ id: 't1', type: 'text', content: 'done', phase: 'final', roundSequence: 1, roundId: 'r1', blockSequence: 0 }],
+    };
+    const first = mapConversationToMobile([user, assistant]);
+    const second = mapConversationToMobile([user, assistant]);
+    expect(first[0]).toBe(second[0]);
+    expect(first[1]).toBe(second[1]);
+  });
+
   it('preserves user then assistant tool_activity order', () => {
     const items: ConversationItem[] = [
       { id: 'u1', kind: 'user', content: 'hello' },

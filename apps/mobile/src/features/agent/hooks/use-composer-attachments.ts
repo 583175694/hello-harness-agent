@@ -4,7 +4,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import type { ImagePickerAsset } from 'expo-image-picker';
 import { useCallback, useRef, useState } from 'react';
-import { Alert } from 'react-native';
+import { showAppAlert } from '@/lib/app-alert';
 
 import {
   guessUploadMimeType,
@@ -115,7 +115,10 @@ export function useComposerAttachments() {
     if (selectedSessionId) return selectedSessionId;
     const created = await createSession('新对话');
     if (created?.id) return created.id;
-    Alert.alert('无法上传', '请先确认 API 已连接（顶栏地址可达），再重试。');
+    showAppAlert({
+      title: '无法上传',
+      message: '请先确认 API 已连接（顶栏地址可达），再重试。',
+    });
     return null;
   }, [createSession, selectedSessionId]);
 
@@ -204,7 +207,7 @@ export function useComposerAttachments() {
         }
       } catch (error) {
         if ((error as Error).name === 'AbortError') return;
-        Alert.alert('上传失败', uploadFailureMessage(error));
+        showAppAlert({ title: '上传失败', message: uploadFailureMessage(error) });
         setItems((prev) =>
           prev.map((item) => (item.id === tempId ? { ...item, status: 'failed' } : item)),
         );
@@ -284,7 +287,10 @@ export function useComposerAttachments() {
       if (result.canceled || !result.assets?.length) {
         const permission = await ImagePicker.getMediaLibraryPermissionsAsync();
         if (!permission.granted && permission.canAskAgain === false) {
-          Alert.alert('需要相册权限', '请在系统设置中允许访问照片。');
+          showAppAlert({
+            title: '需要相册权限',
+            message: '请在系统设置中允许访问照片。',
+          });
         }
         return;
       }
@@ -318,10 +324,10 @@ export function useComposerAttachments() {
         const name = inferUploadFileName(asset.name ?? 'upload.bin', asset.uri);
         const mimeType = guessUploadMimeType(name, asset.mimeType);
         if (!isSupportedUploadMime(mimeType)) {
-          Alert.alert(
-            '不支持的文件类型',
-            '仅支持图片、TXT、Markdown、CSV、JSON、PDF、DOCX、XLSX、PPTX。',
-          );
+          showAppAlert({
+            title: '不支持的文件类型',
+            message: '仅支持图片、TXT、Markdown、CSV、JSON、PDF、DOCX、XLSX、PPTX。',
+          });
           continue;
         }
         await uploadLocal(sessionId, { uri: asset.uri, name, mimeType, kind: 'file' });
@@ -329,7 +335,7 @@ export function useComposerAttachments() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('PickingInProgress')) return;
-      Alert.alert('无法打开文件', '请稍后再试。');
+      showAppAlert({ title: '无法打开文件', message: '请稍后再试。' });
       if (__DEV__) {
         console.warn('[pickFiles]', error);
       }

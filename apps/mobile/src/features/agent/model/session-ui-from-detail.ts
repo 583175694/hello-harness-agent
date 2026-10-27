@@ -15,6 +15,14 @@ function latestAssistantMessage(messages: PersistedMessage[]): PersistedMessage 
   return undefined;
 }
 
+function latestAssistantRunId(session: SessionDetail): string | undefined {
+  for (let index = session.messages.length - 1; index >= 0; index -= 1) {
+    const message = session.messages[index];
+    if (message?.role === 'assistant' && message.runId) return message.runId;
+  }
+  return undefined;
+}
+
 function mergeSessionWorkbench(
   session: SessionDetail,
   existing?: AgentUiState,
@@ -22,11 +30,30 @@ function mergeSessionWorkbench(
   const prior = existing?.workbench;
   const lastAssistant = latestAssistantMessage(session.messages);
   const restored = lastAssistant ? workbenchFromPersistedMessage(lastAssistant) : undefined;
-  if (!restored && !session.artifactSeries?.length) {
+  const artifactCount =
+    session.artifactSeries?.reduce((sum, series) => sum + series.versions.length, 0) ?? 0;
+
+  if (!restored && !artifactCount) {
     return prior;
   }
-  const base = (restored ?? prior) as WorkbenchState | undefined;
+
+  let base = (restored ?? prior) as WorkbenchState | undefined;
+  if (!base && artifactCount > 0) {
+    const runId = latestAssistantRunId(session) ?? session.id;
+    base = {
+      runId,
+      title: '工具执行',
+      subtitle: `${artifactCount} 个文件`,
+      activeView: 'tool_results',
+      activityStatus: 'completed',
+      executions: [],
+      followMode: 'auto',
+      sources: [],
+      open: false,
+    };
+  }
   if (!base) return undefined;
+
   return {
     ...base,
     open: prior?.open ?? base.open ?? false,
@@ -34,6 +61,35 @@ function mergeSessionWorkbench(
     focusTarget: prior?.focusTarget ?? base.focusTarget,
     activeView: prior?.activeView ?? base.activeView,
     ...(session.artifactSeries?.length ? { artifactSeries: session.artifactSeries } : {}),
+  };
+}
+
+function findExistingConversationItem(
+  currentConversation: ConversationItem[],
+  item: ConversationItem,
+): ConversationItem | undefined {
+  const byId = currentConversation.find((candidate) => candidate.id === item.id);
+  if (byId) return byId;
+  if (item.kind !== 'user') return undefined;
+  return currentConversation.find(
+    (candidate) =>
+      candidate.kind === 'user' &&
+      candidate.content.trim() === item.content.trim() &&
+      Boolean(candidate.attachments?.length) &&
+      !item.attachments?.length,
+  );
+}
+
+function preferRicherUser(
+  current: ConversationItem | undefined,
+  restored: ConversationItem,
+): ConversationItem {
+  if (restored.kind !== 'user') return restored;
+  if (current?.kind !== 'user') return restored;
+  return {
+    ...restored,
+    attachments: restored.attachments?.length ? restored.attachments : current.attachments,
+    skillNames: restored.skillNames?.length ? restored.skillNames : current.skillNames,
   };
 }
 
@@ -46,12 +102,11 @@ export function buildAgentUiStateFromSessionDetail(
     session.pendingUserInputs,
   );
   const currentConversation = existing?.conversation ?? [];
-  const conversation = restored.map((item: ConversationItem) =>
-    preferRicherAssistant(
-      currentConversation.find((candidate) => candidate.id === item.id),
-      item,
-    ),
-  );
+  const conversation = restored.map((item: ConversationItem) => {
+    const current = findExistingConversationItem(currentConversation, item);
+    if (item.kind === 'user') return preferRicherUser(current, item);
+    return preferRicherAssistant(current, item);
+  });
 
   const workbench = mergeSessionWorkbench(session, existing);
 

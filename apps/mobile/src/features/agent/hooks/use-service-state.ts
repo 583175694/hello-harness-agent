@@ -1,6 +1,6 @@
-import { useAgentHost } from './use-agent-host';
+import { useAgentHostSession } from './use-agent-host';
 
 export function useServiceState() {
-  const { serviceState, refreshReadiness } = useAgentHost();
+  const { serviceState, refreshReadiness } = useAgentHostSession();
   return { serviceState, refreshReadiness };
 }

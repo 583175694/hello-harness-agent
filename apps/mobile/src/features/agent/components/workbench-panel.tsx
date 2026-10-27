@@ -25,6 +25,7 @@ type WorkbenchPanelProps = {
   onPauseRun?: () => void;
   onResumeRun?: () => void;
   workbenchReportId?: string;
+  usePreviewFixtures?: boolean;
 };
 
 export function WorkbenchPanel({
@@ -41,6 +42,7 @@ export function WorkbenchPanel({
   onPauseRun,
   onResumeRun,
   workbenchReportId,
+  usePreviewFixtures,
 }: WorkbenchPanelProps) {
   const visibleTabs = resolveMobileWorkbenchVisibleTabs({ workbenchCount, hasDeliverables });
   const view = normalizeWorkbenchView(activeView, visibleTabs);
@@ -82,6 +84,7 @@ export function WorkbenchPanel({
             workbench={workbench}
             selectedToolCallId={selectedToolCallId}
             onSelectToolCall={onSelectToolCall}
+            usePreviewFixtures={usePreviewFixtures}
           />
         )}
       </View>

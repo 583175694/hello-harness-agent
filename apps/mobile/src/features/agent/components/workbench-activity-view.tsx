@@ -1,5 +1,5 @@
 import { Pressable, ScrollView, View } from 'react-native';
-import type { ToolCallView, WorkbenchState } from '@harness/agent-ui-types';
+import type { SourceView, ToolCallView, WorkbenchState } from '@harness/agent-ui-types';
 import { Text } from '@/components/ui/text';
 import { sourcesFixture, toolActivitiesFixture } from '../fixtures/ui-fixtures';
 import { resolveFocusedToolCallId } from '../model/workbench-focus';
@@ -12,7 +12,7 @@ export type WorkbenchOpenRequest = {
   view?: 'activity' | 'artifact';
   toolCallId?: string;
   artifactId?: string;
-  /** 对话内 [Sx] 等入口打开时优先展示来源区块 */
+  /** 对话内 [Sx] 等入口：优先聚焦 web 工具并展示关联来源 */
   emphasis?: WorkbenchActivityEmphasis;
 };
 
@@ -21,13 +21,18 @@ type WorkbenchActivityContentProps = {
   workbench?: WorkbenchState;
   selectedToolCallId?: string | null;
   onSelectToolCall?: (toolCallId: string) => void;
+  /** Preview / UI Catalog：无 workbench 时展示 fixture */
+  usePreviewFixtures?: boolean;
 };
 
 function WorkbenchActivityEmpty() {
   return (
     <View className="items-center px-4 py-12">
-      <Text variant="body-sm" className="text-center text-muted">
-        暂无工具执行记录。发送任务后，实时跟随会出现在这里。
+      <Text variant="body-sm" className="text-center font-medium text-primary">
+        暂无过程记录
+      </Text>
+      <Text variant="caption" className="mt-2 text-center text-muted">
+        助手的检索、读取与命令执行会显示在这里。
       </Text>
     </View>
   );
@@ -43,18 +48,57 @@ function terminalLines(tool: ToolCallView): string[] {
   return chunks.join('\n\n').split('\n').slice(0, 40);
 }
 
-function ExecutionDetail({ tool }: { tool: ToolCallView }) {
+function relatedSourcesForTool(sources: SourceView[], tool: ToolCallView): SourceView[] {
+  const scoped = sources.filter((source) => source.toolCallIds?.includes(tool.toolCallId));
+  return scoped.length ? scoped : sources;
+}
+
+function isWebResearchTool(tool: ToolCallView): boolean {
+  return tool.toolName === 'web_search' || tool.toolName === 'web_fetch';
+}
+
+function ExecutionDetail({
+  tool,
+  relatedSources,
+}: {
+  tool: ToolCallView;
+  relatedSources: SourceView[];
+}) {
   if (tool.terminal) {
     const cmd = tool.terminal.workdir
       ? `$ cd ${tool.terminal.workdir} && ${tool.terminal.command}`
       : `$ ${tool.terminal.command}`;
     return (
-      <BashTerminalView
-        title={tool.terminal.description || tool.title}
-        durationLabel={tool.elapsed}
-        commandLine={cmd}
-        outputLines={terminalLines(tool)}
-      />
+      <>
+        <BashTerminalView
+          title={tool.terminal.description || tool.title}
+          durationLabel={tool.elapsed}
+          commandLine={cmd}
+          outputLines={terminalLines(tool)}
+        />
+        {relatedSources.length > 0 && isWebResearchTool(tool) ? (
+          <View className="border-t border-composer-border px-4 pb-3 pt-2">
+            <WorkbenchSourcesStatsHeader sources={relatedSources} />
+            {relatedSources.map((source) => (
+              <WorkbenchSourceCard key={source.id} source={source} />
+            ))}
+          </View>
+        ) : null}
+      </>
+    );
+  }
+
+  if (isWebResearchTool(tool) && relatedSources.length > 0) {
+    return (
+      <View className="border-b border-composer-border px-4 pb-3 pt-2">
+        <Text variant="body-sm" className="mb-2 font-semibold text-primary">
+          {tool.title}
+        </Text>
+        <WorkbenchSourcesStatsHeader sources={relatedSources} />
+        {relatedSources.map((source) => (
+          <WorkbenchSourceCard key={source.id} source={source} />
+        ))}
+      </View>
     );
   }
 
@@ -122,36 +166,43 @@ function LiveWorkbenchActivity({
   const executions = workbench.executions ?? [];
   const sources = workbench.sources ?? [];
 
-  if (emphasis === 'sources' && sources.length > 0) {
-    return (
-      <View className="px-4 pb-3">
-        <WorkbenchSourcesStatsHeader sources={sources} />
-        {sources.map((source) => (
-          <WorkbenchSourceCard key={source.id} source={source} />
-        ))}
-      </View>
-    );
-  }
-
   if (!executions.length) {
+    if (sources.length > 0) {
+      return (
+        <View className="px-4 pb-3">
+          <WorkbenchSourcesStatsHeader sources={sources} />
+          {sources.map((source) => (
+            <WorkbenchSourceCard key={source.id} source={source} />
+          ))}
+        </View>
+      );
+    }
     return <WorkbenchActivityEmpty />;
   }
 
-  const focusedId = resolveFocusedToolCallId(
+  let focusedId = resolveFocusedToolCallId(
     executions,
     workbench.focusTarget,
     workbench.artifacts,
     selectedToolCallId,
   );
+
+  if (emphasis === 'sources' && !selectedToolCallId) {
+    const webTool = executions.find(isWebResearchTool);
+    if (webTool) focusedId = webTool.toolCallId;
+  }
+
   const selected =
     executions.find((tool) => tool.toolCallId === focusedId) ?? executions.at(-1);
   if (!selected) {
     return <WorkbenchActivityEmpty />;
   }
 
+  const relatedSources = relatedSourcesForTool(sources, selected);
+
   return (
     <>
-      <ExecutionDetail tool={selected} />
+      <ExecutionDetail tool={selected} relatedSources={relatedSources} />
       <View className="gap-2 p-3">
         <View className="px-1">
           <Text variant="caption" className="font-semibold uppercase tracking-wide text-muted">
@@ -179,23 +230,7 @@ function LiveWorkbenchActivity({
   );
 }
 
-export function WorkbenchActivityContent({
-  emphasis = 'default',
-  workbench,
-  selectedToolCallId,
-  onSelectToolCall,
-}: WorkbenchActivityContentProps) {
-  if (workbench) {
-    return (
-      <LiveWorkbenchActivity
-        workbench={workbench}
-        emphasis={emphasis}
-        selectedToolCallId={selectedToolCallId}
-        onSelectToolCall={onSelectToolCall}
-      />
-    );
-  }
-
+function PreviewFixtureWorkbenchActivity({ emphasis }: { emphasis?: WorkbenchActivityEmphasis }) {
   if (emphasis === 'sources') {
     return (
       <View className="px-4 pb-3">
@@ -249,10 +284,41 @@ export function WorkbenchActivityContent({
   );
 }
 
-export function WorkbenchActivityView(props: WorkbenchActivityContentProps) {
+export function WorkbenchActivityContent({
+  emphasis = 'default',
+  workbench,
+  selectedToolCallId,
+  onSelectToolCall,
+  usePreviewFixtures = false,
+}: WorkbenchActivityContentProps) {
+  if (workbench) {
+    return (
+      <LiveWorkbenchActivity
+        workbench={workbench}
+        emphasis={emphasis}
+        selectedToolCallId={selectedToolCallId}
+        onSelectToolCall={onSelectToolCall}
+      />
+    );
+  }
+
+  if (usePreviewFixtures) {
+    return <PreviewFixtureWorkbenchActivity emphasis={emphasis} />;
+  }
+
+  if (emphasis === 'sources') {
+    return <WorkbenchActivityEmpty />;
+  }
+
+  return <WorkbenchActivityEmpty />;
+}
+
+export function WorkbenchActivityView(
+  props: WorkbenchActivityContentProps & { usePreviewFixtures?: boolean },
+) {
   return (
     <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-      <WorkbenchActivityContent {...props} />
+      <WorkbenchActivityContent {...props} usePreviewFixtures={props.usePreviewFixtures ?? true} />
     </ScrollView>
   );
 }

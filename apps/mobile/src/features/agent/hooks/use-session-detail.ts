@@ -1,15 +1,15 @@
-import { useAgentHost } from './use-agent-host';
+import { useAgentHostConversation, useAgentHostSession } from './use-agent-host';
 
 export function useSessionDetail() {
   const {
     selectedSessionId,
     sessionDetail,
     sessionDetailLoading,
-    conversation,
     selectSession,
     updateSession,
     deleteSession,
-  } = useAgentHost();
+  } = useAgentHostSession();
+  const conversation = useAgentHostConversation();
   return {
     selectedSessionId,
     sessionDetail,

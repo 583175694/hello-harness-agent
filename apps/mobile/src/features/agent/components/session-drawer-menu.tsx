@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Modal, Pressable, View } from 'react-native';
+import { Modal, Pressable, View } from 'react-native';
+import { showAppAlert } from '@/lib/app-alert';
 import type { SessionSummary } from '@harness/agent-protocol';
 
 import { Input } from '@/components/ui/input';
@@ -39,20 +40,21 @@ export function SessionDrawerMenu({
 
   const confirmDelete = useCallback(() => {
     if (!session) return;
-    Alert.alert(
-      '删除会话',
-      `确定删除「${session.title}」吗？会话中的消息、报告和证据也会一并删除。`,
-      [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '删除',
-        style: 'destructive',
-        onPress: () => {
-          onDelete(session.id);
-          closeAll();
+    showAppAlert({
+      title: '删除会话',
+      message: `确定删除「${session.title}」吗？会话中的消息、报告和证据也会一并删除。`,
+      buttons: [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: () => {
+            onDelete(session.id);
+            closeAll();
+          },
         },
-      },
-    ]);
+      ],
+    });
   }, [closeAll, onDelete, session]);
 
   if (!session) return null;

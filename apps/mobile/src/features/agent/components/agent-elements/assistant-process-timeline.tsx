@@ -18,6 +18,7 @@ import { SpinnerIcon } from '@/components/ui/spinner-icon';
 import { Text } from '@/components/ui/text';
 import { ICON_CHEVRON_TONE } from '@/lib/theme';
 import type { MobileAssistantBlock } from '../../fixtures/mobile-preview.types';
+import type { WorkbenchOpenRequest } from '../workbench-activity-view';
 import { AssistantTextBlock } from '../assistant-text-block';
 import { ReasoningBlock } from './reasoning-block';
 import {
@@ -41,13 +42,17 @@ function ProcessToolStep({
   summary,
   status,
   toolName,
+  toolCallId,
   isLast,
+  onPress,
 }: {
   title: string;
   summary?: string;
   status?: string;
   toolName: string;
+  toolCallId?: string;
   isLast?: boolean;
+  onPress?: () => void;
 }) {
   const running = status === 'running';
   const failed = status === 'failed';
@@ -59,29 +64,49 @@ function ProcessToolStep({
     <Icon icon={StepIcon} tone={failed ? 'destructive' : 'muted'} size={15} textWeight="medium" />
   );
 
+  const body = (
+    <View className="min-w-0">
+      <View
+        className="justify-center"
+        style={{ height: PROCESS_TIMELINE_FIRST_LINE_HEIGHT }}
+      >
+        <Text variant="body-sm" className="text-secondary" numberOfLines={1} ellipsizeMode="tail">
+          {title}
+        </Text>
+      </View>
+      {summary && summary !== title ? (
+        <Text
+          variant="caption"
+          className="text-muted"
+          style={{ marginTop: 2 }}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {summary}
+        </Text>
+      ) : null}
+    </View>
+  );
+
+  if (!onPress) {
+    return (
+      <ProcessTimelineStep isLast={isLast ?? false} icon={icon}>
+        {body}
+      </ProcessTimelineStep>
+    );
+  }
+
   return (
     <ProcessTimelineStep isLast={isLast ?? false} icon={icon}>
-      <View className="min-w-0">
-        <View
-          className="justify-center"
-          style={{ height: PROCESS_TIMELINE_FIRST_LINE_HEIGHT }}
-        >
-          <Text variant="body-sm" className="text-secondary" numberOfLines={1} ellipsizeMode="tail">
-            {title}
-          </Text>
-        </View>
-        {summary && summary !== title ? (
-          <Text
-            variant="caption"
-            className="text-muted"
-            style={{ marginTop: 2 }}
-            numberOfLines={1}
-            ellipsizeMode="tail"
-          >
-            {summary}
-          </Text>
-        ) : null}
-      </View>
+      <Pressable
+        onPress={onPress}
+        disabled={!toolCallId}
+        className="min-h-[36px] active:opacity-80"
+        accessibilityRole="button"
+        accessibilityLabel={`打开工作台：${title}`}
+      >
+        {body}
+      </Pressable>
     </ProcessTimelineStep>
   );
 }
@@ -90,6 +115,7 @@ type AssistantProcessTimelineProps = {
   items: MobileAssistantBlock[];
   running?: boolean;
   finalOutputVisible?: boolean;
+  onOpenWorkbench?: (request?: WorkbenchOpenRequest) => void;
 };
 
 /** 对齐 Web `ChainOfThought` + `ai-reasoning` + `ai-chain-step` 轨道布局。 */
@@ -97,6 +123,7 @@ export function AssistantProcessTimeline({
   items,
   running = false,
   finalOutputVisible = false,
+  onOpenWorkbench,
 }: AssistantProcessTimelineProps) {
   const [open, setOpen] = useState(() => !(finalOutputVisible && !running));
   const [userExpanded, setUserExpanded] = useState(false);
@@ -105,10 +132,10 @@ export function AssistantProcessTimeline({
   const hasProcess = items.length > 0;
 
   useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    if (!running || !open) return;
+    const timer = setInterval(() => setNow(Date.now()), 2500);
     return () => clearInterval(timer);
-  }, [running]);
+  }, [open, running]);
 
   useEffect(() => {
     if (running && hasProcess) {
@@ -198,10 +225,16 @@ export function AssistantProcessTimeline({
                 <ProcessToolStep
                   key={key}
                   toolName={tool.toolName ?? tool.name}
+                  toolCallId={tool.id}
                   title={tool.name}
                   summary={tool.summary}
                   status={tool.status}
                   isLast={isLast}
+                  onPress={
+                    onOpenWorkbench && tool.id
+                      ? () => onOpenWorkbench({ view: 'activity', toolCallId: tool.id })
+                      : undefined
+                  }
                 />
               );
             }

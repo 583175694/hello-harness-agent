@@ -45,6 +45,7 @@ type WorkbenchSheetProps = {
   onPauseRun?: () => void;
   onResumeRun?: () => void;
   workbenchReportId?: string;
+  usePreviewFixtures?: boolean;
 };
 
 export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(function WorkbenchSheet(
@@ -65,6 +66,7 @@ export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(
     onPauseRun,
     onResumeRun,
     workbenchReportId,
+    usePreviewFixtures,
   },
   ref,
 ) {
@@ -156,6 +158,7 @@ export const WorkbenchSheet = forwardRef<BottomSheetModal, WorkbenchSheetProps>(
           workbench={workbench}
           selectedToolCallId={selectedToolCallId}
           onSelectToolCall={onSelectToolCall}
+          usePreviewFixtures={usePreviewFixtures}
         />
       </BottomSheetScrollView>
     );

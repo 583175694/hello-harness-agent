@@ -1,10 +1,10 @@
 import type { McpServerView } from '@harness/agent-protocol';
 import { useCallback, useEffect, useState } from 'react';
 
-import { useAgentHost } from './use-agent-host';
+import { useAgentHostSession } from './use-agent-host';
 
 export function useMcpServers() {
-  const { client, serviceState } = useAgentHost();
+  const { client, serviceState } = useAgentHostSession();
   const [servers, setServers] = useState<McpServerView[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

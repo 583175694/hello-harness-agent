@@ -16,9 +16,18 @@ function useRunUiStore() {
   return store;
 }
 
+function getConversationRenderEpoch(store: ReturnType<typeof useRunUiStore>): string {
+  return `${store.getConversationStructureEpoch()}:${store.getConversationTailEpoch()}`;
+}
+
 export function useAgentHostConversation(): MobileConversationItem[] {
   const store = useRunUiStore();
-  return useSyncExternalStore(store.subscribeConversation, store.getConversation, store.getConversation);
+  useSyncExternalStore(
+    store.subscribeConversation,
+    () => getConversationRenderEpoch(store),
+    () => getConversationRenderEpoch(store),
+  );
+  return store.getConversation();
 }
 
 export function useAgentHostWorkbenchSnapshot(): AgentRunWorkbenchSnapshot {

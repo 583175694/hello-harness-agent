@@ -44,7 +44,9 @@ export function ReasoningBlock({
   const trigger = (
     <Pressable
       onPress={() => setOpen((v) => !v)}
-      className="min-h-[36px] active:opacity-80"
+      className={`min-h-[36px] rounded-md active:opacity-80 ${
+        streaming && !nested ? 'bg-subtle/90 px-1' : ''
+      }`}
       accessibilityRole="button"
       accessibilityState={{ expanded: open }}
     >

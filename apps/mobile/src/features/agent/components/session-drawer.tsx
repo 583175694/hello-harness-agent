@@ -1,6 +1,13 @@
 import { FlashList } from '@shopify/flash-list';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, RefreshControl, useWindowDimensions, View } from 'react-native';
+import {
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { UI_HIT_SLOP, UI_HIT_SLOP_ICON } from '@/lib/ui-hit-slop';
 import Animated, {
   Easing,
   runOnJS,
@@ -66,8 +73,9 @@ const SessionDrawerRow = memo(function SessionDrawerRow({
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
+      hitSlop={UI_HIT_SLOP}
       className={cn(
-        'relative min-h-11 justify-center rounded-lg px-3 py-2.5',
+        'relative min-h-12 justify-center rounded-xl px-3 py-2.5',
         item.active ? 'bg-surface-hover' : 'active:bg-subtle-pressed',
       )}
     >
@@ -90,7 +98,7 @@ const SessionDrawerRow = memo(function SessionDrawerRow({
   );
 });
 
-export function SessionDrawer({
+function SessionDrawerInner({
   visible,
   exitInstant = false,
   onClose,
@@ -120,7 +128,6 @@ export function SessionDrawer({
   const scrimOpacity = useSharedValue(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [menuSession, setMenuSession] = useState<SessionSummary | null>(null);
-
   const hideModal = useCallback(() => {
     modalMountedRef.current = false;
     setModalShown(false);
@@ -337,29 +344,46 @@ export function SessionDrawer({
       />
     ) : undefined;
 
+  if (!modalShown) {
+    return dataSource === 'api' ? (
+      <SessionDrawerMenu
+        session={menuSession}
+        visible={menuSession !== null}
+        onClose={() => setMenuSession(null)}
+        onRename={(sessionId, title) => onRenameSession?.(sessionId, title)}
+        onTogglePin={(sessionId, isPinned) => onTogglePinSession?.(sessionId, isPinned)}
+        onDelete={(sessionId) => onDeleteSession?.(sessionId)}
+      />
+    ) : null;
+  }
+
   return (
     <>
-      <Modal visible={modalShown} animationType="none" transparent onRequestClose={onClose}>
-        <View className="flex-1">
+      <View
+        pointerEvents="box-none"
+        style={[StyleSheet.absoluteFill, { zIndex: 360, elevation: 28 }]}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="关闭会话列表"
+          onPress={onClose}
+          style={StyleSheet.absoluteFill}
+        >
           <Animated.View
-            pointerEvents="box-none"
+            pointerEvents="none"
             style={[
-              {
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                top: 0,
-                bottom: 0,
-                backgroundColor: themeColors.overlayScrim,
-              },
+              StyleSheet.absoluteFill,
+              { backgroundColor: themeColors.overlayScrim },
               scrimAnimatedStyle,
             ]}
           />
+        </Pressable>
 
           <Pressable
             className="absolute bottom-0 right-0 top-0 items-center active:opacity-90"
             style={{ left: panelWidth, paddingTop: insets.top }}
             onPress={onClose}
+            hitSlop={UI_HIT_SLOP_ICON}
             accessibilityRole="button"
             accessibilityLabel="关闭会话列表"
           >
@@ -382,9 +406,10 @@ export function SessionDrawer({
               panelAnimatedStyle,
             ]}
           >
-            <View className="min-h-0 flex-1 px-4 pt-4">
+            <View className="min-h-0 flex-1 px-4 pt-3">
               <Pressable
-                className={`mb-3 min-h-11 flex-row items-center gap-2 rounded-lg active:bg-subtle-pressed ${
+                hitSlop={UI_HIT_SLOP}
+                className={`mb-3 min-h-12 flex-row items-center gap-2 rounded-xl bg-surface px-2 active:bg-subtle-pressed ${
                   inDraftMode ? 'opacity-45' : ''
                 }`}
                 accessibilityRole="button"
@@ -436,7 +461,8 @@ export function SessionDrawer({
             >
               <Pressable
                 onPress={onOpenSettings}
-                className="min-h-11 flex-row items-center gap-2.5 rounded-lg px-1 active:bg-subtle"
+                hitSlop={UI_HIT_SLOP}
+                className="min-h-12 flex-row items-center gap-2.5 rounded-xl px-1 active:bg-subtle"
                 accessibilityRole="button"
                 accessibilityLabel="设置"
                 testID="session-drawer-settings"
@@ -448,8 +474,7 @@ export function SessionDrawer({
               </Pressable>
             </View>
           </Animated.View>
-        </View>
-      </Modal>
+      </View>
 
       {dataSource === 'api' ? (
         <SessionDrawerMenu
@@ -464,3 +489,5 @@ export function SessionDrawer({
     </>
   );
 }
+
+export const SessionDrawer = memo(SessionDrawerInner);

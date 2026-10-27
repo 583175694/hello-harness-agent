@@ -21,6 +21,7 @@
     },
     "android": {
       "label": "皮皮虾",
+      "softwareKeyboardLayoutMode": "resize",
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#f7f7f6",

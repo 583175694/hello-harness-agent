@@ -66,6 +66,7 @@ export type MobileAssistantBlock =
 export type MobileConversationItem =
   | {
       kind: 'user';
+      id?: string;
       content: string;
       pendingState?: 'steer_pending' | 'steer_applied' | 'follow_up_pending';
       attachmentHint?: string;
@@ -74,6 +75,7 @@ export type MobileConversationItem =
     }
   | {
       kind: 'assistant';
+      id?: string;
       deliveryStatus?: 'streaming' | 'completed' | 'failed' | 'cancelled';
       streaming?: boolean;
       errorDetail?: string;

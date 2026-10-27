@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, TextInput, View } from 'react-native';
+import { Pressable, TextInput, View } from 'react-native';
+import { showAppAlert } from '@/lib/app-alert';
 import { ArrowUp, Plus, Square } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { PressableScale } from '@/components/ui/pressable-scale';
@@ -33,6 +34,11 @@ type ComposerStackProps = MobileComposerFixture & {
   onAttachmentSheetOpenChange?: (open: boolean) => void;
   /** 预览页等无全屏 relative 容器时用 `modal` */
   attachmentSheetPresentation?: 'overlay' | 'modal';
+  skillPickerOpen?: boolean;
+  onSkillPickerOpenChange?: (open: boolean) => void;
+  /** 由 Chat 根层渲染附件/Skill overlay 时设为 true */
+  hideInlineOverlays?: boolean;
+  onToggleSkill?: (name: string) => void;
   onSubmit?: (payload: ComposerSubmitPayload) => void;
   composerModels?: ModelFixture[];
   defaultModelId?: string | null;
@@ -69,6 +75,10 @@ export function ComposerStack({
   attachmentSheetOpen: attachmentSheetOpenProp,
   onAttachmentSheetOpenChange,
   attachmentSheetPresentation = 'overlay',
+  skillPickerOpen: skillPickerOpenProp,
+  onSkillPickerOpenChange,
+  hideInlineOverlays = false,
+  onToggleSkill,
   onSubmit,
   onCancelRun,
   composerModels,
@@ -95,7 +105,7 @@ export function ComposerStack({
   const safeBottom = Math.max(bottomInset, 8);
   const composerPlaceholderColor = useComposerPlaceholderColor();
   const [attachmentSheetOpenLocal, setAttachmentSheetOpenLocal] = useState(false);
-  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const [skillPickerOpenLocal, setSkillPickerOpenLocal] = useState(false);
   const afterAttachmentSheetCloseRef = useRef<(() => void) | null>(null);
   const [selectedSkillsLocal, setSelectedSkillsLocal] = useState<string[]>(
     selectedSkillsProp ?? [],
@@ -120,6 +130,16 @@ export function ComposerStack({
   }, [composerRevisionSeed]);
 
   const selectedSkills = selectedSkillsProp ?? selectedSkillsLocal;
+
+  const skillPickerControlled = skillPickerOpenProp !== undefined;
+  const skillPickerOpen = skillPickerControlled ? skillPickerOpenProp : skillPickerOpenLocal;
+  const setSkillPickerOpen = (open: boolean) => {
+    if (skillPickerControlled) {
+      onSkillPickerOpenChange?.(open);
+    } else {
+      setSkillPickerOpenLocal(open);
+    }
+  };
 
   const attachmentSheetControlled = attachmentSheetOpenProp !== undefined;
   const attachmentSheetOpen = attachmentSheetControlled
@@ -147,20 +167,22 @@ export function ComposerStack({
 
   const toggleSkill = useCallback(
     (name: string) => {
-      if (selectedSkillsProp) return;
+      if (selectedSkillsProp !== undefined && onToggleSkill) {
+        onToggleSkill(name);
+        return;
+      }
       setSelectedSkillsLocal((prev) =>
         prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name],
       );
     },
-    [selectedSkillsProp],
+    [onToggleSkill, selectedSkillsProp],
   );
 
   const removeSkill = useCallback(
     (name: string) => {
-      if (selectedSkillsProp) return;
-      setSelectedSkillsLocal((prev) => prev.filter((s) => s !== name));
+      toggleSkill(name);
     },
-    [selectedSkillsProp],
+    [toggleSkill],
   );
 
   const attachments =
@@ -210,12 +232,12 @@ export function ComposerStack({
       (item) => item.status === 'processing' || item.status === 'failed',
     );
     if (blocked.length > 0) {
-      Alert.alert(
-        '附件未就绪',
-        blocked.some((item) => item.status === 'failed')
+      showAppAlert({
+        title: '附件未就绪',
+        message: blocked.some((item) => item.status === 'failed')
           ? '请先重试或移除上传失败的附件。'
           : '请等待附件上传完成。',
-      );
+      });
       return;
     }
     const attachmentIds = attachments
@@ -352,6 +374,7 @@ export function ComposerStack({
               <View className="flex-1 flex-row items-center justify-end gap-1">
                 {composerTextMode !== 'steer' && composerTextMode !== 'clarification' ? (
                   <ComposerModelMenu
+                    presentation={hideInlineOverlays ? 'overlay' : 'modal'}
                     modelId={modelId}
                     reasoningEffort={reasoningEffort}
                     models={composerModels}
@@ -379,21 +402,25 @@ export function ComposerStack({
         </View>
       </View>
 
-      <ComposerAttachmentSheet
-        presentation={attachmentSheetPresentation}
-        visible={attachmentSheetOpen}
-        onClose={() => setAttachmentSheetOpen(false)}
-        onDidClose={handleAttachmentSheetDidClose}
-        onOpenSkills={() => closeAttachmentSheetThen(() => setSkillPickerOpen(true))}
-        onPickImages={onPickImages}
-        onPickFiles={onPickFiles}
-      />
-      <ComposerSkillPickerSheet
-        visible={skillPickerOpen}
-        selected={selectedSkills}
-        onClose={() => setSkillPickerOpen(false)}
-        onToggleSkill={toggleSkill}
-      />
+      {!hideInlineOverlays ? (
+        <>
+          <ComposerAttachmentSheet
+            presentation={attachmentSheetPresentation}
+            visible={attachmentSheetOpen}
+            onClose={() => setAttachmentSheetOpen(false)}
+            onDidClose={handleAttachmentSheetDidClose}
+            onOpenSkills={() => closeAttachmentSheetThen(() => setSkillPickerOpen(true))}
+            onPickImages={onPickImages}
+            onPickFiles={onPickFiles}
+          />
+          <ComposerSkillPickerSheet
+            visible={skillPickerOpen}
+            selected={selectedSkills}
+            onClose={() => setSkillPickerOpen(false)}
+            onToggleSkill={toggleSkill}
+          />
+        </>
+      ) : null}
     </>
   );
 }

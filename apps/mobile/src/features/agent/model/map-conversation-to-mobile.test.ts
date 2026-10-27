@@ -22,6 +22,49 @@ describe('mapConversationToMobile', () => {
     expect(first[1]).toBe(second[1]);
   });
 
+  it('remaps only the streaming assistant row when text grows but block structure is unchanged', () => {
+    resetMapConversationToMobileCacheForTests();
+    const user: ConversationItem = { id: 'u1', kind: 'user', content: 'hello' };
+    const assistantV1: ConversationItem = {
+      id: 'a1',
+      kind: 'assistant',
+      deliveryStatus: 'streaming',
+      pending: true,
+      blocks: [
+        {
+          id: 't1',
+          type: 'text',
+          content: 'hel',
+          phase: 'final',
+          roundSequence: 1,
+          roundId: 'r1',
+          blockSequence: 0,
+        },
+      ],
+    };
+    const first = mapConversationToMobile([user, assistantV1]);
+    const assistantV2: ConversationItem = {
+      ...assistantV1,
+      blocks: [
+        {
+          id: 't1',
+          type: 'text',
+          content: 'hello world',
+          phase: 'final',
+          roundSequence: 1,
+          roundId: 'r1',
+          blockSequence: 0,
+        },
+      ],
+    };
+    const second = mapConversationToMobile([user, assistantV2]);
+    expect(first[0]).toBe(second[0]);
+    expect(first[1]).not.toBe(second[1]);
+    if (first[1]?.kind === 'assistant' && second[1]?.kind === 'assistant') {
+      expect(second[1].finalText).toContain('hello world');
+    }
+  });
+
   it('preserves user then assistant tool_activity order', () => {
     const items: ConversationItem[] = [
       { id: 'u1', kind: 'user', content: 'hello' },

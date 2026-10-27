@@ -1,4 +1,5 @@
 import { Pressable, View } from 'react-native';
+import { UI_HIT_SLOP_ICON } from '@/lib/ui-hit-slop';
 import { Menu, PanelRight } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
@@ -30,7 +31,7 @@ export function ChatTopBar({
       <View className="h-10 flex-row items-center">
         <Pressable
           onPress={onOpenDrawer}
-          hitSlop={8}
+          hitSlop={UI_HIT_SLOP_ICON}
           className="h-10 w-10 items-center justify-center rounded-control active:bg-subtle"
           accessibilityRole="button"
           accessibilityLabel="打开会话列表"
@@ -53,7 +54,7 @@ export function ChatTopBar({
 
         <Pressable
           onPress={onOpenWorkbench}
-          hitSlop={8}
+          hitSlop={UI_HIT_SLOP_ICON}
           className="relative ml-0.5 h-10 w-10 items-center justify-center rounded-control active:bg-subtle"
           accessibilityRole="button"
           accessibilityLabel={

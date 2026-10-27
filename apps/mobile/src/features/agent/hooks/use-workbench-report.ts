@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import type { ReportRef } from '@harness/agent-protocol';
 import { loadReportAggregate } from '@/lib/artifact-actions';
-import { useAgentHost } from './use-agent-host';
+import { useAgentHostSession } from './use-agent-host';
 
 type WorkbenchReportState =
   | { status: 'idle' }
@@ -11,7 +11,7 @@ type WorkbenchReportState =
   | { status: 'error'; message: string };
 
 export function useWorkbenchReport(reportId: string | null | undefined): WorkbenchReportState {
-  const { client } = useAgentHost();
+  const { client } = useAgentHostSession();
   const [state, setState] = useState<WorkbenchReportState>({ status: 'idle' });
 
   useEffect(() => {

@@ -1,13 +1,8 @@
-import { useAgentHost } from './use-agent-host';
+import { useAgentHostComposerSnapshot, useAgentHostSession } from './use-agent-host';
 
 export function useHitl() {
-  const {
-    activeInterrupt,
-    hitlSubmitting,
-    respondClarification,
-    respondToolApproval,
-    cancelActiveRun,
-  } = useAgentHost();
+  const { cancelActiveRun, respondClarification, respondToolApproval } = useAgentHostSession();
+  const { activeInterrupt, hitlSubmitting } = useAgentHostComposerSnapshot();
   return {
     activeInterrupt,
     hitlSubmitting,

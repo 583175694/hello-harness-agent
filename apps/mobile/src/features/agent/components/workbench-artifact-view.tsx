@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { showAppAlert } from '@/lib/app-alert';
 import { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useRouter } from 'expo-router';
 import type { LucideIcon } from 'lucide-react-native';
@@ -13,7 +14,7 @@ import type { ArtifactRef } from '@harness/agent-protocol';
 import { artifactsFixture, type ArtifactFixture } from '../fixtures/ui-fixtures';
 import { listWorkbenchArtifacts } from '../model/list-workbench-artifacts';
 import type { WorkbenchState } from '@harness/agent-ui-types';
-import { useAgentHost } from '../hooks/use-agent-host';
+import { useAgentHostSession } from '../hooks/use-agent-host';
 import { useWorkbenchReport } from '../hooks/use-workbench-report';
 import { openArtifactDownload } from '@/lib/artifact-actions';
 import { MarkdownView } from '@/components/markdown-view';
@@ -25,6 +26,8 @@ type WorkbenchArtifactBodyProps = {
   useBottomSheetScroll?: boolean;
   workbench?: WorkbenchState;
   focusArtifactId?: string | null;
+  /** UI Catalog / Preview 专用，生产路径不得传入 */
+  previewArtifactRows?: ArtifactFixture[];
 };
 
 function artifactRowFromRef(artifact: ArtifactRef): ArtifactFixture {
@@ -146,7 +149,7 @@ function WorkbenchArtifactActionBar({
   bottomInset?: number;
 }) {
   const router = useRouter();
-  const host = useAgentHost();
+  const session = useAgentHostSession();
   const productionArtifactId = artifactRef?.artifactId;
   const currentArtifactId =
     artifactRef?.seriesId &&
@@ -187,7 +190,7 @@ function WorkbenchArtifactActionBar({
           variant="ghost"
           onPress={() => {
             if (!productionArtifactId) return;
-            void openArtifactDownload(host.client, productionArtifactId);
+            void openArtifactDownload(session.client, productionArtifactId);
           }}
         />
         {canRestore ? (
@@ -198,17 +201,17 @@ function WorkbenchArtifactActionBar({
             variant="ghost"
             onPress={() => {
               if (!artifactRef) return;
-              Alert.alert(
-                '恢复此版本？',
-                '将把系列当前版本指回所选版本，后续修改将基于该版本继续。',
-                [
+              showAppAlert({
+                title: '恢复此版本？',
+                message: '将把系列当前版本指回所选版本，后续修改将基于该版本继续。',
+                buttons: [
                   { text: '取消', style: 'cancel' },
                   {
                     text: '恢复',
-                    onPress: () => void host.restoreArtifactVersion(artifactRef),
+                    onPress: () => void session.restoreArtifactVersion(artifactRef),
                   },
                 ],
-              );
+              });
             }}
           />
         ) : null}
@@ -219,7 +222,7 @@ function WorkbenchArtifactActionBar({
           variant="primary"
           onPress={() => {
             if (!artifactRef) return;
-            host.beginArtifactRevision(artifactRef);
+            session.beginArtifactRevision(artifactRef);
           }}
         />
       </View>
@@ -354,6 +357,7 @@ export function WorkbenchArtifactBody({
   useBottomSheetScroll = false,
   workbench,
   focusArtifactId,
+  previewArtifactRows,
   reportId,
 }: WorkbenchArtifactBodyProps & { reportId?: string }) {
   const liveArtifacts = useMemo(
@@ -370,9 +374,10 @@ export function WorkbenchArtifactBody({
   }, [liveArtifacts]);
 
   const artifactRows = useMemo(() => {
-    if (!workbench) return artifactsFixture;
+    if (previewArtifactRows?.length) return previewArtifactRows;
+    if (!workbench) return [];
     return liveArtifacts.map(artifactRowFromRef);
-  }, [workbench, liveArtifacts]);
+  }, [previewArtifactRows, workbench, liveArtifacts]);
 
   const initialSelected = focusArtifactId ?? artifactRows[0]?.id ?? null;
   const [selectedId, setSelectedId] = useState<string | null>(initialSelected);
@@ -430,5 +435,5 @@ export function WorkbenchArtifactBody({
 }
 
 export function WorkbenchArtifactView() {
-  return <WorkbenchArtifactBody bottomInset={0} />;
+  return <WorkbenchArtifactBody bottomInset={0} previewArtifactRows={artifactsFixture} />;
 }

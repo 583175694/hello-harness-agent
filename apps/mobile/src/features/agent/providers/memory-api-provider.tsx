@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 
-import { useAgentHost } from '../hooks/use-agent-host';
+import { useAgentHostSession } from '../hooks/use-agent-host';
 
 type MemoryApiContextValue = {
   memories: MemoryRecordView[];
@@ -32,7 +32,7 @@ type MemoryApiContextValue = {
 const MemoryApiContext = createContext<MemoryApiContextValue | null>(null);
 
 export function MemoryApiProvider({ children }: { children: ReactNode }) {
-  const { client, serviceState } = useAgentHost();
+  const { client, serviceState } = useAgentHostSession();
   const [memories, setMemories] = useState<MemoryRecordView[]>([]);
   const [activeCount, setActiveCount] = useState(0);
   const [loading, setLoading] = useState(false);

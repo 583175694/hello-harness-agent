@@ -125,6 +125,33 @@ type CachedMobileItem = {
 
 const mobileItemCache = new Map<string, CachedMobileItem>();
 
+/** 块结构/状态指纹；不含 text 正文，用于流式仅改字时的增量映射。 */
+function assistantPresentationStructureKey(
+  item: Extract<ConversationItem, { kind: 'assistant' }>,
+): string {
+  const parts: string[] = [
+    item.deliveryStatus ?? '',
+    item.pending ? '1' : '0',
+    item.error?.detail ?? '',
+  ];
+  for (const block of item.blocks) {
+    if (block.type === 'text') {
+      parts.push(`t:${block.id}:${block.phase}`);
+      continue;
+    }
+    if (block.type === 'tool_activity') {
+      parts.push(`a:${block.id}:${block.status}`);
+      continue;
+    }
+    if (block.type === 'reasoning') {
+      parts.push(`r:${block.id}:${block.completedAt ? 'done' : 'open'}`);
+      continue;
+    }
+    parts.push(`${block.type}:${'id' in block ? block.id : ''}`);
+  }
+  return parts.join('\u001f');
+}
+
 function sameConversationItem(a: ConversationItem, b: ConversationItem): boolean {
   if (a === b) return true;
   if (a.kind !== b.kind || a.id !== b.id) return false;
@@ -151,6 +178,7 @@ export function mapConversationItemToMobile(item: ConversationItem): MobileConve
   if (item.kind === 'user') {
     return {
       kind: 'user',
+      id: item.id,
       content: item.content,
       pendingState: item.pendingState,
       skillNames: item.skillNames,
@@ -162,6 +190,7 @@ export function mapConversationItemToMobile(item: ConversationItem): MobileConve
   const mapped = mapAssistantPresentation(item);
   return {
     kind: 'assistant',
+    id: item.id,
     deliveryStatus: item.deliveryStatus,
     streaming,
     process: mapped.process,
@@ -181,6 +210,17 @@ export function mapConversationToMobile(items: ConversationItem[]): MobileConver
     const cached = mobileItemCache.get(item.id);
     if (cached && sameConversationItem(cached.source, item)) {
       next.push(cached.mobile);
+      continue;
+    }
+    if (
+      cached &&
+      item.kind === 'assistant' &&
+      cached.source.kind === 'assistant' &&
+      assistantPresentationStructureKey(cached.source) === assistantPresentationStructureKey(item)
+    ) {
+      const mobile = mapConversationItemToMobile(item);
+      mobileItemCache.set(item.id, { source: item, mobile });
+      next.push(mobile);
       continue;
     }
     const mobile = mapConversationItemToMobile(item);

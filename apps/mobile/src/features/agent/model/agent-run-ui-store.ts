@@ -55,6 +55,10 @@ const EMPTY_WORKBENCH: AgentRunWorkbenchSnapshot = {
 export type AgentRunUiStore = {
   subscribeConversation: (listener: Listener) => () => void;
   getConversation: () => MobileConversationItem[];
+  /** 列表结构（条数/非尾部项）变化时递增。 */
+  getConversationStructureEpoch: () => number;
+  /** 仅尾部 assistant 流式改字时递增；`data` 数组引用可保持不变。 */
+  getConversationTailEpoch: () => number;
   subscribeWorkbench: (listener: Listener) => () => void;
   getWorkbench: () => AgentRunWorkbenchSnapshot;
   subscribeComposer: (listener: Listener) => () => void;
@@ -62,6 +66,8 @@ export type AgentRunUiStore = {
   subscribeConnection: (listener: Listener) => () => void;
   getConnection: () => ConnectionState;
   publishConversation: (conversation: MobileConversationItem[]) => void;
+  /** 仅替换最后一项（就地更新 `data` 数组，减轻 FlashList 滚动抖动）。 */
+  publishConversationTail: (tail: MobileConversationItem) => void;
   publishWorkbench: (snapshot: AgentRunWorkbenchSnapshot) => void;
   publishComposer: (snapshot: AgentRunComposerSnapshot) => void;
   publishConnection: (connection: ConnectionState) => void;
@@ -75,6 +81,8 @@ export type AgentRunUiStore = {
 
 export function createAgentRunUiStore(): AgentRunUiStore {
   let conversation: MobileConversationItem[] = [];
+  let structureEpoch = 0;
+  let tailEpoch = 0;
   let workbench: AgentRunWorkbenchSnapshot = EMPTY_WORKBENCH;
   let composer: AgentRunComposerSnapshot = EMPTY_COMPOSER;
   let connection: ConnectionState = 'idle';
@@ -90,6 +98,8 @@ export function createAgentRunUiStore(): AgentRunUiStore {
       return () => conversationListeners.delete(listener);
     },
     getConversation: () => conversation,
+    getConversationStructureEpoch: () => structureEpoch,
+    getConversationTailEpoch: () => tailEpoch,
     subscribeWorkbench(listener) {
       workbenchListeners.add(listener);
       return () => workbenchListeners.delete(listener);
@@ -107,7 +117,30 @@ export function createAgentRunUiStore(): AgentRunUiStore {
     getConnection: () => connection,
     publishConversation(next) {
       if (next === conversation) return;
+      if (
+        next.length === conversation.length &&
+        next.length > 0 &&
+        next.every((item, index) => item === conversation[index])
+      ) {
+        return;
+      }
       conversation = next;
+      structureEpoch += 1;
+      tailEpoch += 1;
+      conversationListeners.forEach((listener) => listener());
+    },
+    publishConversationTail(tail) {
+      if (conversation.length === 0) {
+        conversation = [tail];
+        structureEpoch += 1;
+        tailEpoch += 1;
+        conversationListeners.forEach((listener) => listener());
+        return;
+      }
+      const lastIndex = conversation.length - 1;
+      if (conversation[lastIndex] === tail) return;
+      conversation[lastIndex] = tail;
+      tailEpoch += 1;
       conversationListeners.forEach((listener) => listener());
     },
     publishWorkbench(next) {

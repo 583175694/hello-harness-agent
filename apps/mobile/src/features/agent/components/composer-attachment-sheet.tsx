@@ -1,5 +1,6 @@
-import { useRef, type RefObject } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { Pressable, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { Box, FileText, ImageIcon } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -8,6 +9,7 @@ import {
   ComposerSheetFloatingCard,
 } from './composer-sheet-chrome';
 import { ComposerBottomDrawer } from './composer-bottom-drawer';
+import { useOverlaySlideUp } from '@/lib/use-overlay-slide-up';
 import { useThemeColors } from '@/lib/use-theme-colors';
 
 type AttachmentAction = {
@@ -59,6 +61,17 @@ export function ComposerAttachmentSheet({
   const insets = useSafeAreaInsets();
   const themeColors = useThemeColors();
   const overlayRef = useRef<View>(null);
+  const wasVisibleRef = useRef(false);
+  const { contentAnimatedStyle, scrimAnimatedStyle } = useOverlaySlideUp(
+    visible && presentation === 'overlay',
+  );
+
+  useEffect(() => {
+    if (wasVisibleRef.current && !visible) {
+      onDidClose?.();
+    }
+    wasVisibleRef.current = visible;
+  }, [visible, onDidClose]);
 
   const actions: AttachmentAction[] = [
     {
@@ -73,7 +86,10 @@ export function ComposerAttachmentSheet({
       label: 'Skill',
       hint: '从目录选择技能注入 Run',
       icon: Box,
-      onPress: () => onOpenSkills?.(),
+      onPress: () => {
+        onClose();
+        requestAnimationFrame(() => onOpenSkills?.());
+      },
     },
     {
       key: 'files',
@@ -125,15 +141,20 @@ export function ComposerAttachmentSheet({
       className="absolute inset-0 z-[100] justify-end"
       pointerEvents="box-none"
     >
-      <Pressable
+      <Animated.View
+        pointerEvents="auto"
         className="absolute inset-0"
-        style={{ backgroundColor: themeColors.overlayScrim }}
-        onPress={onClose}
-        accessibilityLabel="关闭"
-      />
-      <View className="gap-2 px-3" style={{ paddingBottom: bottomPad }} pointerEvents="box-none">
+        style={[{ backgroundColor: themeColors.overlayScrim }, scrimAnimatedStyle]}
+      >
+        <Pressable className="flex-1" onPress={onClose} accessibilityLabel="关闭" />
+      </Animated.View>
+      <Animated.View
+        className="gap-2 px-3"
+        style={[{ paddingBottom: bottomPad }, contentAnimatedStyle]}
+        pointerEvents="box-none"
+      >
         {sheetBody}
-      </View>
+      </Animated.View>
     </View>
   );
 }

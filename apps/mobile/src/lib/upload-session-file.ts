@@ -7,6 +7,8 @@ import {
   FileSystemUploadType,
 } from 'expo-file-system/legacy';
 
+import { getMobileAuthHeaders } from './mobile-auth-api';
+
 export type LocalFilePayload = {
   uri: string;
   name: string;
@@ -54,6 +56,10 @@ async function assertReadableFileUri(uri: string): Promise<void> {
   }
 }
 
+async function uploadAuthHeaders(): Promise<Record<string, string>> {
+  return getMobileAuthHeaders();
+}
+
 export async function uploadSessionTextFile(
   baseUrl: string,
   sessionId: string,
@@ -71,6 +77,7 @@ export async function uploadSessionTextFile(
   const response = await fetch(sessionFilesUrl(baseUrl, sessionId), {
     method: 'POST',
     body: form,
+    headers: await uploadAuthHeaders(),
     signal,
   });
 
@@ -79,6 +86,30 @@ export async function uploadSessionTextFile(
     throw new ApiProblem(problemDetailsSchema.parse(data));
   }
   return fileRefSchema.parse(data);
+}
+
+async function uploadSessionFileFromUriFetch(
+  baseUrl: string,
+  sessionId: string,
+  local: LocalFilePayload,
+  signal?: AbortSignal,
+): Promise<FileRef> {
+  const form = new FormData();
+  form.append('file', {
+    uri: local.uri,
+    name: local.name,
+    type: local.mimeType,
+  } as unknown as Blob);
+
+  const response = await fetch(sessionFilesUrl(baseUrl, sessionId), {
+    method: 'POST',
+    body: form,
+    headers: await uploadAuthHeaders(),
+    signal,
+  });
+
+  const body = await response.text();
+  return parseUploadResponse(response.status, body);
 }
 
 async function uploadSessionFileFromUriLegacy(
@@ -91,6 +122,7 @@ async function uploadSessionFileFromUriLegacy(
     fieldName: 'file',
     mimeType: local.mimeType,
     httpMethod: 'POST',
+    headers: await uploadAuthHeaders(),
   });
   return parseUploadResponse(result.status, result.body);
 }
@@ -108,6 +140,7 @@ async function uploadSessionFileFromUriModern(
     mimeType: local.mimeType,
     httpMethod: 'POST',
     signal,
+    headers: await uploadAuthHeaders(),
   });
   return parseUploadResponse(result.status, result.body);
 }
@@ -125,14 +158,19 @@ export async function uploadSessionFileFromUri(
   await assertReadableFileUri(local.uri);
 
   try {
-    return await uploadSessionFileFromUriLegacy(baseUrl, sessionId, local);
-  } catch (legacyError) {
-    if ((legacyError as Error).name === 'AbortError') throw legacyError;
+    return await uploadSessionFileFromUriFetch(baseUrl, sessionId, local, signal);
+  } catch (fetchError) {
+    if ((fetchError as Error).name === 'AbortError') throw fetchError;
     try {
-      return await uploadSessionFileFromUriModern(baseUrl, sessionId, local, signal);
-    } catch (modernError) {
-      if ((modernError as Error).name === 'AbortError') throw modernError;
-      throw legacyError instanceof Error ? legacyError : modernError;
+      return await uploadSessionFileFromUriLegacy(baseUrl, sessionId, local);
+    } catch (legacyError) {
+      if ((legacyError as Error).name === 'AbortError') throw legacyError;
+      try {
+        return await uploadSessionFileFromUriModern(baseUrl, sessionId, local, signal);
+      } catch (modernError) {
+        if ((modernError as Error).name === 'AbortError') throw modernError;
+        throw fetchError instanceof Error ? fetchError : legacyError;
+      }
     }
   }
 }

@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { View } from 'react-native';
 import type { MobileAssistantBlock } from '../fixtures/mobile-preview.types';
 import type { WorkbenchOpenRequest } from './workbench-activity-view';
@@ -20,6 +20,8 @@ type AssistantTurnContentProps = {
   finalText?: string;
   blocks: MobileAssistantBlock[];
   showQuickActions?: boolean;
+  /** Preview / UI Catalog：仅有 `blocks`、无 `process` 时使用旧版逐块渲染 */
+  previewLegacyBlocks?: boolean;
   onOpenWorkbench?: (request?: WorkbenchOpenRequest) => void;
 };
 
@@ -77,7 +79,7 @@ function legacyRenderBlock(
   return null;
 }
 
-export function AssistantTurnContent({
+function AssistantTurnContentInner({
   deliveryStatus,
   streaming,
   errorDetail,
@@ -86,9 +88,10 @@ export function AssistantTurnContent({
   finalText,
   blocks,
   showQuickActions,
+  previewLegacyBlocks = false,
   onOpenWorkbench,
 }: AssistantTurnContentProps) {
-  const usePresentation = process !== undefined;
+  const usePresentation = process !== undefined || !previewLegacyBlocks;
   const processItems = process ?? [];
   const artifactBlocks = useMemo(
     () => blocks.filter((b): b is Extract<MobileAssistantBlock, { type: 'artifact' }> => b.type === 'artifact'),
@@ -115,10 +118,6 @@ export function AssistantTurnContent({
   }, [usePresentation, processItems, pendingText, finalText, artifactBlocks.length, blocks]);
   const finalVisible = Boolean(finalText?.trim() || pendingText?.trim());
   const completed = !streaming && (showQuickActions || deliveryStatus === 'completed');
-  const deferredPendingText = useDeferredValue(pendingText ?? '');
-  const pendingForRender =
-    streaming && pendingText?.trim() ? deferredPendingText : pendingText;
-
   const legacyExtras = useMemo(() => {
     if (usePresentation) return [];
     return blocks.filter((b) => b.type !== 'artifact');
@@ -139,9 +138,10 @@ export function AssistantTurnContent({
               items={processItems}
               running={streaming}
               finalOutputVisible={finalVisible}
+              onOpenWorkbench={onOpenWorkbench}
             />
-            {pendingForRender?.trim() ? (
-              <AssistantTextBlock content={pendingForRender} />
+            {pendingText?.trim() ? (
+              <AssistantTextBlock content={pendingText} streaming={Boolean(streaming)} />
             ) : null}
             {finalText?.trim() ? (
               <AssistantTextBlock
@@ -171,3 +171,5 @@ export function AssistantTurnContent({
     </AssistantMessageBlock>
   );
 }
+
+export const AssistantTurnContent = memo(AssistantTurnContentInner);

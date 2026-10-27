@@ -1,51 +1,28 @@
-import { ApiProblem, createClientId, type AgentClient, type ToolStreamEvent } from '@harness/agent-client';
-import { observeRunConnection } from '@harness/agent-conversation';
+import { ApiProblem, type AgentClient } from '@harness/agent-client';
 import type {
-  ArtifactRef,
   PendingUserInputView,
-  PendingInterruptSnapshot,
   PublicAgentConfig,
-  RunSnapshot,
-  RunStreamEvent,
   SessionDetail,
-  ToolApprovalDecision,
 } from '@harness/agent-protocol';
+import type { AgentUiState } from '@harness/agent-ui-types';
 import { uniquePendingInputs } from '@harness/agent-projection';
-import {
-  applyRunEventToSession,
-  applyRunSnapshotToSession,
-} from '@harness/agent-run-state';
-import type { AgentUiState, ConversationItem, WorkbenchState } from '@harness/agent-ui-types';
-import { mobileWorkbenchHasDeliverablesTab } from '../config/workbench-tabs';
-import {
-  countWorkbenchArtifacts,
-  mobileWorkbenchActivityEmphasis,
-  mobileWorkbenchBadgeCount,
-} from '../model/mobile-workbench-metrics';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert } from 'react-native';
-import { router } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ConnectionState } from '../components/connection-pill';
 import type { AgentRunUiStore } from '../model/agent-run-ui-store';
-import { mapConversationToMobile } from '../model/map-conversation-to-mobile';
-import { mobileRunReducerDeps } from '../model/mobile-run-reducer-deps';
-import type { ComposerSubmitPayload } from '../model/composer-submit.types';
-import {
-  defaultReasoningForModel,
-  modelsFromPublicConfig,
-} from '../model/public-config-models';
-import type { ReasoningEffort } from '@harness/agent-protocol';
 import { buildAgentUiStateFromSessionDetail } from '../model/session-ui-from-detail';
 import { inferLatestReportArtifactId } from '../model/resolve-report-artifact';
 import { notifyRunAttention } from '@/lib/run-local-notifications';
 import { loadSessionReportIds, saveSessionReportId } from '@/lib/storage';
-import { BACKGROUND_RUN_SNAPSHOT_POLL_MS } from '../config/run-lifecycle.constants';
 import { useAppStateRunLifecycle } from './use-app-state-run-lifecycle';
 import {
   isSessionComposerBlockCode,
   type SessionComposerBlock,
 } from '../lib/session-composer-block';
+import { createRunCommands } from './agent-host-run-commands';
+import { createRunStreamHandlers } from './agent-host-run-stream';
+import { createSyncSelectedRunUi } from './agent-host-run-sync-ui';
+import { createRunUiSyncCoalescer } from './run-ui-sync-coalescer';
 
 type UseAgentHostRunParams = {
   client: AgentClient;
@@ -74,6 +51,7 @@ export function useAgentHostRun({
 }: UseAgentHostRunParams) {
   const pushNotificationsEnabledRef = useRef(pushNotificationsEnabled);
   pushNotificationsEnabledRef.current = pushNotificationsEnabled;
+
   const sessionStatesRef = useRef<Record<string, AgentUiState>>({});
   const runSequencesRef = useRef<Record<string, number>>({});
   const runControllersRef = useRef<Record<string, AbortController>>({});
@@ -96,91 +74,93 @@ export function useAgentHostRun({
     selectedSessionIdRef.current = selectedSessionId;
   }, [selectedSessionId]);
 
-  const syncSelectedRunUi = useCallback(() => {
-    const sessionId = selectedSessionIdRef.current;
-    const selectedState = sessionId ? sessionStatesRef.current[sessionId] : undefined;
+  const sessionStoreRef = useMemo(
+    () => ({
+      sessionStatesRef,
+      runSequencesRef,
+      runControllersRef,
+      pendingInputsRef,
+      pendingSessionsRef,
+      selectedSessionIdRef,
+      setSessionPending: () => {},
+      setSessionState: () => {},
+      composerBlocks,
+      setComposerBlocks,
+    }),
+    [composerBlocks, setComposerBlocks],
+  );
 
-    const mapped = mapConversationToMobile(selectedState?.conversation ?? []);
-    const previousConversation = runUiStore.getConversation();
-    if (
-      previousConversation.length !== mapped.length ||
-      !previousConversation.every((item, index) => item === mapped[index])
-    ) {
-      runUiStore.publishConversation(mapped);
-    }
-
-    const workbench: WorkbenchState | undefined = selectedState?.workbench;
-    const workbenchReportId = sessionId ? sessionReportIds[sessionId] : undefined;
-    const activeRunId = selectedState?.activeRunId ?? sessionDetail?.activeRun?.runId ?? null;
-    const workbenchCount = mobileWorkbenchBadgeCount({
-      workbench,
-      conversation: selectedState?.conversation ?? [],
-      activeRunId,
-    });
-    const artifactCount = countWorkbenchArtifacts(workbench);
-    const hasDeliverables = mobileWorkbenchHasDeliverablesTab({
-      workbenchCount,
-      hasDeliverables:
-        artifactCount > 0 || Boolean(workbench?.report) || Boolean(workbenchReportId),
-    });
-    const activityEmphasis = mobileWorkbenchActivityEmphasis(workbench);
-
-    runUiStore.publishWorkbench({
-      workbench,
-      workbenchReportId,
-      workbenchCount,
-      hasDeliverables,
-      activityEmphasis,
-      activeRunId,
-    });
-
-    const composerModels = publicConfig ? modelsFromPublicConfig(publicConfig) : [];
-    const defaultReasoningEffort: ReasoningEffort = publicConfig
-      ? defaultReasoningForModel(
-          publicConfig,
-          defaultModelId ?? publicConfig.defaultModel ?? publicConfig.models[0]?.id ?? '',
-        )
-      : 'high';
-    const composerPlan = selectedState?.workbench?.plan?.plan;
-    const composerPlanExplanation = selectedState?.workbench?.plan?.explanation;
-    const followUpItems = pendingInputsRef.current
-      .filter((input) => input.kind === 'follow_up' && input.status === 'pending')
-      .map((input) => ({ id: input.id, content: input.content }));
-    const rawInterrupt = selectedState?.activeInterrupt;
-    const activeInterrupt: PendingInterruptSnapshot | null =
-      rawInterrupt?.status === 'pending' ? (rawInterrupt as PendingInterruptSnapshot) : null;
-    const runSubmitting = sessionId ? Boolean(pendingSessionsRef.current[sessionId]) : false;
-    const composerBlock = sessionId ? (composerBlocks[sessionId] ?? null) : null;
-
-    runUiStore.publishComposer({
-      runSubmitting,
-      defaultModelId,
-      defaultReasoningEffort,
-      composerModels,
-      composerPlan,
-      composerPlanExplanation,
-      followUpItems,
-      followUpSubmittingId,
+  const syncSelectedRunUi = useMemo(
+    () =>
+      createSyncSelectedRunUi({
+        store: sessionStoreRef,
+        runUiStore,
+        sessionDetailActiveRunId: sessionDetail?.activeRun?.runId,
+        sessionReportIds,
+        publicConfig,
+        defaultModelId,
+        followUpSubmittingId,
+        composerRevisionSeed,
+        hitlSubmitting,
+      }),
+    [
       composerRevisionSeed,
-      composerBlock,
-      activeInterrupt,
+      defaultModelId,
+      followUpSubmittingId,
       hitlSubmitting,
-    });
-  }, [
-    composerBlocks,
-    composerRevisionSeed,
-    defaultModelId,
-    followUpSubmittingId,
-    hitlSubmitting,
-    publicConfig,
-    runUiStore,
-    sessionDetail?.activeRun?.runId,
-    sessionReportIds,
-  ]);
+      publicConfig,
+      runUiStore,
+      sessionDetail?.activeRun?.runId,
+      sessionReportIds,
+      sessionStoreRef,
+    ],
+  );
+
+  const runUiSync = useMemo(
+    () =>
+      createRunUiSyncCoalescer({
+        sync: syncSelectedRunUi,
+        store: {
+          selectedSessionIdRef,
+          sessionStatesRef,
+          pendingSessionsRef,
+        },
+      }),
+    [syncSelectedRunUi],
+  );
+
+  const flushRunUiSync = useCallback(
+    (options?: { forceMeta?: boolean }) => {
+      runUiSync.flush(options);
+    },
+    [runUiSync],
+  );
+
+  const setSessionPending = useCallback(
+    (sessionId: string, pending: boolean) => {
+      pendingSessionsRef.current[sessionId] = pending;
+      if (sessionId === selectedSessionIdRef.current) {
+        runUiSync.schedule('coalesced');
+      }
+    },
+    [runUiSync],
+  );
+
+  const setSessionState = useCallback(
+    (sessionId: string, next: AgentUiState) => {
+      sessionStatesRef.current[sessionId] = next;
+      if (sessionId === selectedSessionIdRef.current) {
+        runUiSync.schedule('coalesced');
+      }
+    },
+    [runUiSync],
+  );
 
   useEffect(() => {
-    syncSelectedRunUi();
-  }, [selectedSessionId, syncSelectedRunUi]);
+    flushRunUiSync({ forceMeta: true });
+  }, [selectedSessionId, flushRunUiSync]);
+
+  useEffect(() => () => runUiSync.cancel(), [runUiSync]);
 
   useEffect(() => {
     runUiStore.publishConnection(connectionState);
@@ -229,9 +209,9 @@ export function useAgentHostRun({
         }
         return { ...prev, [sessionId]: block };
       });
-      syncSelectedRunUi();
+      flushRunUiSync({ forceMeta: true });
     },
-    [syncSelectedRunUi],
+    [flushRunUiSync],
   );
 
   const applyComposerBlockFromError = useCallback(
@@ -246,26 +226,6 @@ export function useAgentHostRun({
       return error.problem.detail;
     },
     [setComposerBlockForSession],
-  );
-
-  const setSessionPending = useCallback(
-    (sessionId: string, pending: boolean) => {
-      pendingSessionsRef.current = { ...pendingSessionsRef.current, [sessionId]: pending };
-      if (sessionId === selectedSessionIdRef.current) {
-        syncSelectedRunUi();
-      }
-    },
-    [syncSelectedRunUi],
-  );
-
-  const setSessionState = useCallback(
-    (sessionId: string, next: AgentUiState) => {
-      sessionStatesRef.current = { ...sessionStatesRef.current, [sessionId]: next };
-      if (sessionId === selectedSessionIdRef.current) {
-        syncSelectedRunUi();
-      }
-    },
-    [syncSelectedRunUi],
   );
 
   useEffect(() => {
@@ -285,163 +245,73 @@ export function useAgentHostRun({
       .catch(() => undefined);
   }, [client, serviceReady]);
 
-  const applyRunSnapshot = useCallback(
-    (sessionId: string, snapshot: RunSnapshot) => {
-      const target = sessionStatesRef.current[sessionId];
-      if (!target) return;
-      const cursor = runSequencesRef.current[snapshot.runId] ?? 0;
-      const result = applyRunSnapshotToSession(
-        sessionId,
-        target,
-        snapshot,
-        pendingInputsRef.current,
-        cursor,
-        mobileRunReducerDeps,
-      );
-      if (result.skipped) return;
-      runSequencesRef.current[snapshot.runId] = result.nextCursor;
-      pendingInputsRef.current = result.pendingInputs;
-      setSessionPending(sessionId, result.sessionPending);
-      setSessionState(sessionId, result.sessionState);
-      setConnectionState('live');
-      maybeNotifyPendingInterrupt(sessionId, result.sessionState);
-    },
-    [maybeNotifyPendingInterrupt, setSessionPending, setSessionState],
+  const stream = useMemo(
+    () =>
+      createRunStreamHandlers({
+        client,
+        store: {
+          sessionStatesRef,
+          runSequencesRef,
+          runControllersRef,
+          pendingInputsRef,
+          pendingSessionsRef,
+          selectedSessionIdRef,
+          setSessionPending,
+          setSessionState,
+          composerBlocks,
+          setComposerBlocks,
+        },
+        refreshSessions,
+        setConnectionState,
+        setReconnectRunId,
+        reconnectRunId,
+        selectedSessionId,
+        sessionDetailActiveRunId: sessionDetail?.activeRun?.runId,
+        maybeNotifyRunAttention,
+        maybeNotifyPendingInterrupt,
+        setSessionPending,
+        setSessionState,
+        setSessionReportIds,
+      }),
+    [
+      client,
+      composerBlocks,
+      maybeNotifyPendingInterrupt,
+      maybeNotifyRunAttention,
+      reconnectRunId,
+      refreshSessions,
+      selectedSessionId,
+      sessionDetail?.activeRun?.runId,
+      setSessionPending,
+      setSessionState,
+    ],
   );
 
-  const applyRunEvent = useCallback(
-    (sessionId: string, event: RunStreamEvent, task = '') => {
-      if (event.type === 'run.snapshot') {
-        applyRunSnapshot(sessionId, event.payload as RunSnapshot);
-        return;
-      }
-      const target = sessionStatesRef.current[sessionId];
-      if (!target) throw new Error('RUN_EVENT_TARGET_MISSING');
-      const cursor = runSequencesRef.current[event.runId] ?? 0;
-      const result = applyRunEventToSession(
-        sessionId,
-        target,
-        pendingInputsRef.current,
-        pendingSessionsRef.current[sessionId] ?? false,
-        event,
-        cursor,
-        task,
-        mobileRunReducerDeps,
-      );
-      if (result.duplicate) return;
-      if (result.gap) throw new Error('RUN_EVENT_SEQUENCE_GAP');
-      if (event.type === 'tool.completed') {
-        const toolEvent = event as unknown as ToolStreamEvent;
-        if (toolEvent.type === 'tool.completed' && toolEvent.toolName === 'create_report') {
-          const reportId = toolEvent.result.report.reportId;
-          setSessionReportIds((current) => ({
-            ...current,
-            [sessionId]: reportId,
-          }));
-          void saveSessionReportId(sessionId, reportId);
-        }
-      }
-      runSequencesRef.current[event.runId] = result.nextCursor;
-      pendingInputsRef.current = result.pendingInputs;
-      setSessionPending(sessionId, result.sessionPending);
-      setSessionState(sessionId, result.sessionState);
-      setConnectionState('live');
-      maybeNotifyPendingInterrupt(sessionId, result.sessionState);
-    },
-    [applyRunSnapshot, maybeNotifyPendingInterrupt, setSessionPending, setSessionState],
-  );
-
-  const observeRun = useCallback(
-    async (
-      sessionId: string,
-      runId: string,
-      task = '',
-      skipInitialSnapshot = false,
-    ): Promise<void> => {
-      if (runControllersRef.current[runId]) return;
-      const controller = new AbortController();
-      runControllersRef.current[runId] = controller;
-      setReconnectRunId((current) => (current === runId ? null : current));
-      setConnectionState('connecting');
-      let terminalObserved = false;
-      try {
-        const outcome = await observeRunConnection(
-          sessionId,
-          runId,
-          {
-            getRun: (activeRunId, signal) => client.getRun(activeRunId, signal),
-            subscribeRun: (activeRunId, cursor, onEvent, signal) =>
-              client.subscribeRun(activeRunId, cursor, onEvent, signal),
-            getCursor: (activeRunId) => runSequencesRef.current[activeRunId],
-            applySnapshot: applyRunSnapshot,
-            applyEvent: applyRunEvent,
-          },
-          { task, skipInitialSnapshot, signal: controller.signal },
-        );
-        terminalObserved = outcome.terminalObserved;
-        if (terminalObserved) {
-          setConnectionState('idle');
-        } else if (!controller.signal.aborted) {
-          setConnectionState('reconnecting');
-          setReconnectRunId(runId);
-        }
-      } catch {
-        if (!controller.signal.aborted) {
-          setConnectionState('offline');
-          setReconnectRunId(runId);
-        }
-      } finally {
-        delete runControllersRef.current[runId];
-        if (!controller.signal.aborted) {
-          try {
-            if (terminalObserved) {
-              setReconnectRunId(null);
-              setSessionPending(sessionId, false);
-              const state = sessionStatesRef.current[sessionId];
-              const lastAssistant = state?.conversation
-                .filter((item) => item.kind === 'assistant')
-                .at(-1);
-              const status =
-                lastAssistant?.kind === 'assistant' ? lastAssistant.deliveryStatus : undefined;
-              if (status === 'completed') {
-                maybeNotifyRunAttention(sessionId, 'completed');
-              } else if (status === 'failed' || status === 'cancelled') {
-                maybeNotifyRunAttention(
-                  sessionId,
-                  'failed',
-                  lastAssistant?.kind === 'assistant' ? lastAssistant.error?.detail : undefined,
-                );
-              }
-              await refreshSessions();
-            } else {
-              const snapshot = await client.getRun(runId);
-              applyRunSnapshot(sessionId, snapshot);
-            }
-          } catch {
-            // Run 已持久化；刷新失败保留当前投影。
-          }
-        }
-      }
-    },
-    [applyRunEvent, applyRunSnapshot, client, maybeNotifyRunAttention, refreshSessions, setSessionPending],
-  );
+  const { observeRun, hydrateLatestRunSnapshot, applyRunSnapshot } = stream;
 
   useEffect(() => {
     if (!sessionDetail || !selectedSessionId || sessionDetail.id !== selectedSessionId) return;
-    if (pendingSessionsRef.current[sessionDetail.id]) return;
+
+    const sessionId = sessionDetail.id;
+    const runLive = Boolean(pendingSessionsRef.current[sessionId] || sessionDetail.activeRun);
 
     pendingInputsRef.current = uniquePendingInputs(sessionDetail.pendingUserInputs);
-    const next = buildAgentUiStateFromSessionDetail(
-      sessionDetail,
-      sessionStatesRef.current[sessionDetail.id],
-    );
-    setSessionState(sessionDetail.id, next);
+
+    if (!runLive) {
+      const next = buildAgentUiStateFromSessionDetail(
+        sessionDetail,
+        sessionStatesRef.current[sessionId],
+      );
+      setSessionState(sessionId, next);
+    } else {
+      flushRunUiSync({ forceMeta: true });
+    }
 
     if (
-      !sessionReportIds[sessionDetail.id] &&
-      !reportHydratedSessionsRef.current.has(sessionDetail.id)
+      !sessionReportIds[sessionId] &&
+      !reportHydratedSessionsRef.current.has(sessionId)
     ) {
-      reportHydratedSessionsRef.current.add(sessionDetail.id);
+      reportHydratedSessionsRef.current.add(sessionId);
       const artifactId = inferLatestReportArtifactId(sessionDetail);
       if (artifactId) {
         void client
@@ -450,19 +320,25 @@ export function useAgentHostRun({
             const reportId = bundle.report.reportId;
             setSessionReportIds((current) => ({
               ...current,
-              [sessionDetail.id]: reportId,
+              [sessionId]: reportId,
             }));
-            void saveSessionReportId(sessionDetail.id, reportId);
+            void saveSessionReportId(sessionId, reportId);
           })
           .catch(() => undefined);
       }
     }
 
     if (sessionDetail.activeRun) {
-      setSessionPending(sessionDetail.id, true);
-      void observeRun(sessionDetail.id, sessionDetail.activeRun.runId);
+      setSessionPending(sessionId, true);
+      void observeRun(sessionId, sessionDetail.activeRun.runId);
     } else {
       setConnectionState('idle');
+      const latestRunId = [...sessionDetail.messages]
+        .reverse()
+        .find((message) => message.role === 'assistant' && message.runId)?.runId;
+      if (latestRunId) {
+        void hydrateLatestRunSnapshot(sessionId, latestRunId);
+      }
     }
   }, [
     observeRun,
@@ -472,8 +348,10 @@ export function useAgentHostRun({
     sessionDetail?.id,
     sessionReportIds,
     client,
+    hydrateLatestRunSnapshot,
     setSessionPending,
     setSessionState,
+    flushRunUiSync,
   ]);
 
   useEffect(() => {
@@ -491,448 +369,70 @@ export function useAgentHostRun({
     };
   }, []);
 
-  const abortAllRunObservers = useCallback(() => {
-    Object.values(runControllersRef.current).forEach((controller) => controller.abort());
-    runControllersRef.current = {};
-  }, []);
-
-  const backgroundPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const pollPendingRunsSnapshot = useCallback(async () => {
-    for (const [sessionId, pending] of Object.entries(pendingSessionsRef.current)) {
-      if (!pending) continue;
-      const runId = sessionStatesRef.current[sessionId]?.activeRunId;
-      if (!runId) continue;
-      try {
-        const snapshot = await client.getRun(runId);
-        applyRunSnapshot(sessionId, snapshot);
-      } catch {
-        // 后台轮询失败保留上次投影，foreground 再续 SSE。
-      }
-    }
-  }, [applyRunSnapshot, client]);
-
-  const startBackgroundRunPolling = useCallback(() => {
-    if (backgroundPollTimerRef.current) return;
-    backgroundPollTimerRef.current = setInterval(() => {
-      void pollPendingRunsSnapshot();
-    }, BACKGROUND_RUN_SNAPSHOT_POLL_MS);
-  }, [pollPendingRunsSnapshot]);
-
-  const stopBackgroundRunPolling = useCallback(() => {
-    if (!backgroundPollTimerRef.current) return;
-    clearInterval(backgroundPollTimerRef.current);
-    backgroundPollTimerRef.current = null;
-  }, []);
-
-  const resumeActiveRunObserver = useCallback(() => {
-    const sessionId = selectedSessionIdRef.current;
-    if (!sessionId) return;
-    const state = sessionStatesRef.current[sessionId];
-    const runId = state?.activeRunId ?? sessionDetail?.activeRun?.runId;
-    if (!runId || !pendingSessionsRef.current[sessionId]) return;
-    void observeRun(sessionId, runId, '', false);
-  }, [observeRun, sessionDetail?.activeRun?.runId]);
-
   useAppStateRunLifecycle({
     onBackground: () => {
-      abortAllRunObservers();
-      void pollPendingRunsSnapshot();
-      startBackgroundRunPolling();
+      stream.abortAllRunObservers();
+      void stream.pollPendingRunsSnapshot();
+      stream.startBackgroundRunPolling();
     },
     onForeground: () => {
-      stopBackgroundRunPolling();
-      resumeActiveRunObserver();
+      stream.stopBackgroundRunPolling();
+      stream.resumeActiveRunObserver();
     },
   });
 
-  useEffect(() => () => stopBackgroundRunPolling(), [stopBackgroundRunPolling]);
+  useEffect(() => () => stream.stopBackgroundRunPolling(), [stream]);
 
-  const submitRun = useCallback(
-    async (payload: ComposerSubmitPayload) => {
-      const task = payload.content.trim();
-      const modelId = payload.modelId || defaultModelId;
-      if (!task || !modelId) return;
-
-      let sessionId = selectedSessionIdRef.current;
-      if (!sessionId) {
-        try {
-          const created = await createSession(task.slice(0, 80));
-          sessionId = created?.id ?? null;
-        } catch (error) {
-          if (error instanceof ApiProblem && error.problem.code === 'AUTH_REQUIRED') {
-            Alert.alert('需要登录', '请先登录后再发送消息。', [
-              { text: '取消', style: 'cancel' },
-              { text: '去登录', onPress: () => router.push('/settings/login') },
-            ]);
-          }
-          return;
-        }
-        if (!sessionId) return;
-        ensureSessionSelected(sessionId);
-      }
-
-      const runtimeActive = Boolean(
-        pendingSessionsRef.current[sessionId] ||
-          sessionStatesRef.current[sessionId]?.activeRunId,
-      );
-      if (runtimeActive) {
-        try {
-          const result = (await client.submitPendingInput(sessionId, task)) as {
-            input?: PendingUserInputView;
-          };
-          if (result.input) {
-            pendingInputsRef.current = uniquePendingInputs([
-              ...pendingInputsRef.current,
-              result.input,
-            ]);
-            if (result.input.kind === 'steer' && result.input.status === 'pending') {
-              try {
-                const promoted = (await client.promotePendingInput(result.input.id)) as PendingUserInputView;
-                pendingInputsRef.current = uniquePendingInputs(
-                  pendingInputsRef.current.map((item) =>
-                    item.id === promoted.id ? promoted : item,
-                  ),
-                );
-              } catch {
-                // promote 失败时仍保留 pending 队列项。
-              }
-            }
-            syncSelectedRunUi();
-          }
-        } catch (error) {
-          applyComposerBlockFromError(sessionId, error);
-          // 队列失败时保留 Composer 草稿，由用户重试。
-        }
-        return;
-      }
-
-      const localUserId = createClientId();
-      const localAssistantId = createClientId();
-      const optimisticUser: ConversationItem = {
-        id: localUserId,
-        kind: 'user',
-        content: task,
-        createdAt: new Date().toISOString(),
-        attachments: payload.optimisticAttachments?.length
-          ? payload.optimisticAttachments
-          : undefined,
-        skillNames: payload.skillNames,
-      };
-      const optimisticAssistant: ConversationItem = {
-        id: localAssistantId,
-        kind: 'assistant',
-        blocks: [],
-        pending: true,
-        deliveryStatus: 'streaming',
-      };
-
-      const base = sessionStatesRef.current[sessionId] ?? {
-        label: task.slice(0, 80),
-        subtitle: '',
-        conversation: [],
-      };
-      setSessionState(sessionId, {
-        ...base,
-        conversation: [...base.conversation, optimisticUser, optimisticAssistant],
-      });
-      setSessionPending(sessionId, true);
-      setConnectionState('connecting');
-
-      const sessionRevision = sessionStatesRef.current[sessionId]?.revisionContext;
-      const artifactVersionContext =
-        payload.artifactVersionContext ??
-        (sessionRevision
-          ? { ...sessionRevision, changeSummary: task.slice(0, 500) }
-          : undefined);
-
-      try {
-        const run = await client.createRun(
-          sessionId,
-          task,
-          modelId,
-          payload.reasoningEffort,
-          payload.attachmentIds ?? [],
-          artifactVersionContext,
-          payload.skillNames ?? [],
-        );
-        const current = sessionStatesRef.current[sessionId];
-        if (current) {
-          setSessionState(sessionId, {
-            ...current,
-            revisionContext: undefined,
-            activeRunId: run.runId,
-            conversation: current.conversation.map((item) => {
-              if (item.id === localUserId) return { ...item, id: run.userMessageId };
-              if (item.id === localAssistantId) {
-                return { ...item, id: run.assistantMessageId, runId: run.runId };
-              }
-              return item;
-            }),
-          });
-        }
-        await observeRun(sessionId, run.runId, task, true);
-        await refreshSessions();
-        setComposerRevisionSeed(null);
-      } catch (error) {
-        const blockDetail = applyComposerBlockFromError(sessionId, error);
-        setSessionPending(sessionId, false);
-        setConnectionState('offline');
-        const failureText = blockDetail ?? '本次回答未完成，请稍后重试。';
-        const current = sessionStatesRef.current[sessionId];
-        if (current) {
-          setSessionState(sessionId, {
-            ...current,
-            conversation: current.conversation.map((item) =>
-              item.kind === 'assistant' && item.id === localAssistantId
-                ? {
-                    ...item,
-                    pending: false,
-                    deliveryStatus: 'failed',
-                    blocks: [
-                      {
-                        id: `${localAssistantId}-failed`,
-                        type: 'text',
-                        content: failureText,
-                      },
-                    ],
-                  }
-                : item,
-            ),
-          });
-        }
-      }
-    },
+  const commands = useMemo(
+    () =>
+      createRunCommands({
+        client,
+        store: {
+          sessionStatesRef,
+          runSequencesRef,
+          runControllersRef,
+          pendingInputsRef,
+          pendingSessionsRef,
+          selectedSessionIdRef,
+          setSessionPending,
+          setSessionState,
+          composerBlocks,
+          setComposerBlocks,
+        },
+        defaultModelId,
+        sessionDetailActiveRunId: sessionDetail?.activeRun?.runId,
+        createSession,
+        ensureSessionSelected,
+        refreshSessions,
+        reloadSessionDetail,
+        setConnectionState,
+        setFollowUpSubmittingId,
+        setHitlSubmitting,
+        setComposerRevisionSeed,
+        setSessionPending,
+        setSessionState,
+        syncSelectedRunUi: () => flushRunUiSync({ forceMeta: true }),
+        applyComposerBlockFromError,
+        observeRun,
+        applyRunSnapshot,
+      }),
     [
       applyComposerBlockFromError,
+      applyRunSnapshot,
       client,
+      composerBlocks,
       createSession,
       defaultModelId,
       ensureSessionSelected,
+      flushRunUiSync,
       observeRun,
       refreshSessions,
+      reloadSessionDetail,
+      sessionDetail?.activeRun?.runId,
       setSessionPending,
       setSessionState,
-      syncSelectedRunUi,
     ],
   );
-
-  const beginArtifactRevision = useCallback(
-    (artifact: ArtifactRef) => {
-      const sessionId = selectedSessionIdRef.current;
-      if (!sessionId || !artifact.seriesId || artifact.versionNumber === undefined) return;
-      const series = sessionStatesRef.current[sessionId]?.workbench?.artifactSeries?.find(
-        (item) => item.seriesId === artifact.seriesId,
-      );
-      const expectedCurrentArtifactId = series?.currentArtifactId;
-      if (!expectedCurrentArtifactId) return;
-      const current = sessionStatesRef.current[sessionId];
-      if (!current) return;
-      setSessionState(sessionId, {
-        ...current,
-        revisionContext: {
-          seriesId: artifact.seriesId,
-          baseArtifactId: artifact.artifactId,
-          expectedCurrentArtifactId,
-        },
-      });
-      setComposerRevisionSeed(
-        `请基于 ${artifact.logicalName ?? artifact.fileName} v${artifact.versionNumber} 修改：`,
-      );
-    },
-    [setSessionState],
-  );
-
-  const sendFollowUp = useCallback(
-    async (inputId: string) => {
-      const sessionId = selectedSessionIdRef.current;
-      const input = pendingInputsRef.current.find((item) => item.id === inputId);
-      if (!sessionId || !input) return;
-      setFollowUpSubmittingId(inputId);
-      try {
-        const run = await client.sendPendingInput(inputId);
-        pendingInputsRef.current = pendingInputsRef.current.filter((item) => item.id !== inputId);
-        const current = sessionStatesRef.current[sessionId];
-        if (current && !current.conversation.some((item) => item.id === run.userMessageId)) {
-          setSessionState(sessionId, {
-            ...current,
-            activeRunId: run.runId,
-            conversation: [
-              ...current.conversation,
-              {
-                id: run.userMessageId,
-                kind: 'user',
-                content: input.content,
-                createdAt: new Date().toISOString(),
-              },
-            ],
-          });
-        }
-        setSessionPending(sessionId, true);
-        setConnectionState('connecting');
-        await observeRun(sessionId, run.runId, input.content, true);
-        await refreshSessions();
-        syncSelectedRunUi();
-      } catch {
-        // 发送失败时保留队列项。
-      } finally {
-        setFollowUpSubmittingId(null);
-      }
-    },
-    [syncSelectedRunUi, client, observeRun, refreshSessions, setSessionPending, setSessionState],
-  );
-
-  const cancelFollowUp = useCallback(
-    async (inputId: string) => {
-      try {
-        const updated = (await client.cancelPendingInput(inputId)) as PendingUserInputView;
-        pendingInputsRef.current = uniquePendingInputs(
-          pendingInputsRef.current.map((item) => (item.id === inputId ? updated : item)),
-        );
-        syncSelectedRunUi();
-      } catch {
-        // 取消失败时忽略。
-      }
-    },
-    [syncSelectedRunUi, client],
-  );
-
-  const respondClarification = useCallback(
-    async (interruptId: string, answer: string) => {
-      const sessionId = selectedSessionIdRef.current;
-      if (!sessionId) return;
-      const runId = sessionStatesRef.current[sessionId]?.activeRunId;
-      if (!runId) return;
-      setHitlSubmitting(true);
-      try {
-        const result = await client.controlRun(runId, {
-          type: 'respond',
-          interruptId,
-          payload: { answer: answer.trim() },
-        });
-        applyRunSnapshot(sessionId, result.snapshot);
-        if (result.snapshot.status === 'running' || result.snapshot.status === 'queued') {
-          void observeRun(sessionId, runId, '', true);
-        }
-      } catch {
-        try {
-          applyRunSnapshot(sessionId, await client.getRun(runId));
-        } catch {
-          // keep prior projection
-        }
-      } finally {
-        setHitlSubmitting(false);
-      }
-    },
-    [applyRunSnapshot, client, observeRun],
-  );
-
-  const respondToolApproval = useCallback(
-    async (interruptId: string, approve: boolean) => {
-      const sessionId = selectedSessionIdRef.current;
-      if (!sessionId) return;
-      const state = sessionStatesRef.current[sessionId];
-      const runId = state?.activeRunId;
-      const interrupt = state?.activeInterrupt;
-      if (!runId || interrupt?.kind !== 'tool_approval' || interrupt.interruptId !== interruptId) {
-        return;
-      }
-      const decisions: ToolApprovalDecision[] = interrupt.payload.items.map((item) => ({
-        itemId: item.itemId,
-        toolCallId: item.toolCallId,
-        argumentsHash: item.argumentsHash,
-        decision: approve ? 'approve' : 'reject',
-      }));
-      setHitlSubmitting(true);
-      try {
-        const result = await client.controlRun(runId, {
-          type: approve ? 'approve' : 'reject',
-          interruptId,
-          decisions,
-        });
-        applyRunSnapshot(sessionId, result.snapshot);
-        if (result.snapshot.status === 'running' || result.snapshot.status === 'queued') {
-          void observeRun(sessionId, runId, '', true);
-        }
-      } catch {
-        try {
-          applyRunSnapshot(sessionId, await client.getRun(runId));
-        } catch {
-          // keep prior projection
-        }
-      } finally {
-        setHitlSubmitting(false);
-      }
-    },
-    [applyRunSnapshot, client, observeRun],
-  );
-
-  const controlActiveRun = useCallback(
-    async (command: { type: 'pause' } | { type: 'resume' }) => {
-      const sessionId = selectedSessionIdRef.current;
-      if (!sessionId) return;
-      const runId =
-        sessionStatesRef.current[sessionId]?.activeRunId ?? sessionDetail?.activeRun?.runId;
-      if (!runId) return;
-      try {
-        const result = await client.controlRun(runId, command);
-        applyRunSnapshot(sessionId, result.snapshot);
-        if (result.snapshot.status === 'running' || result.snapshot.status === 'queued') {
-          void observeRun(sessionId, runId, '', true);
-        }
-      } catch {
-        try {
-          applyRunSnapshot(sessionId, await client.getRun(runId));
-        } catch {
-          // keep prior projection
-        }
-      }
-    },
-    [applyRunSnapshot, client, observeRun, sessionDetail?.activeRun?.runId],
-  );
-
-  const pauseActiveRun = useCallback(
-    () => controlActiveRun({ type: 'pause' }),
-    [controlActiveRun],
-  );
-
-  const resumeActiveRun = useCallback(
-    () => controlActiveRun({ type: 'resume' }),
-    [controlActiveRun],
-  );
-
-  const restoreArtifactVersion = useCallback(
-    async (artifact: ArtifactRef) => {
-      const sessionId = selectedSessionIdRef.current;
-      if (!sessionId || !artifact.seriesId) return;
-      const expectedCurrentArtifactId = sessionStatesRef.current[
-        sessionId
-      ]?.workbench?.artifactSeries?.find((series) => series.seriesId === artifact.seriesId)
-        ?.currentArtifactId;
-      if (!expectedCurrentArtifactId) return;
-      try {
-        await client.restoreArtifact(artifact.artifactId, expectedCurrentArtifactId);
-        await refreshSessions();
-        await reloadSessionDetail(sessionId);
-      } catch {
-        // 恢复失败时保留当前投影。
-      }
-    },
-    [client, refreshSessions, reloadSessionDetail],
-  );
-
-  const cancelActiveRun = useCallback(async () => {
-    const sessionId = selectedSessionIdRef.current;
-    if (!sessionId) return;
-    const state = sessionStatesRef.current[sessionId];
-    const runId = state?.activeRunId ?? sessionDetail?.activeRun?.runId;
-    if (!runId) return;
-    try {
-      await client.cancelRun(runId);
-    } catch {
-      // 取消请求失败时仍依赖 SSE 终态。
-    }
-  }, [client, sessionDetail?.activeRun?.runId]);
 
   const dismissComposerBlock = useCallback(() => {
     if (!selectedSessionId) return;
@@ -964,16 +464,16 @@ export function useAgentHostRun({
     workbenchCount: workbenchSnapshot.workbenchCount,
     hasDeliverables: workbenchSnapshot.hasDeliverables,
     activityEmphasis: workbenchSnapshot.activityEmphasis,
-    respondClarification,
-    respondToolApproval,
-    submitRun,
-    sendFollowUp,
-    cancelFollowUp,
-    beginArtifactRevision,
-    restoreArtifactVersion,
-    pauseActiveRun,
-    resumeActiveRun,
-    cancelActiveRun,
+    respondClarification: commands.respondClarification,
+    respondToolApproval: commands.respondToolApproval,
+    submitRun: commands.submitRun,
+    sendFollowUp: commands.sendFollowUp,
+    cancelFollowUp: commands.cancelFollowUp,
+    beginArtifactRevision: commands.beginArtifactRevision,
+    restoreArtifactVersion: commands.restoreArtifactVersion,
+    pauseActiveRun: commands.pauseActiveRun,
+    resumeActiveRun: commands.resumeActiveRun,
+    cancelActiveRun: commands.cancelActiveRun,
     activeRunId: workbenchSnapshot.activeRunId,
   };
 }

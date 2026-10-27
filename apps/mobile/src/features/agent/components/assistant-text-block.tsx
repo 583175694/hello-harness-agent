@@ -14,11 +14,17 @@ function leadingMarkdownHeadingLevel(content: string): number | undefined {
 
 type AssistantTextBlockProps = {
   content: string;
+  /** 流式阶段用纯 Text，避免每 token 重跑 Markdown 解析。 */
+  streaming?: boolean;
   onSourcePress?: (label: string) => void;
 };
 
-export function AssistantTextBlock({ content, onSourcePress }: AssistantTextBlockProps) {
-  if (looksLikeMarkdown(content)) {
+export function AssistantTextBlock({
+  content,
+  streaming = false,
+  onSourcePress,
+}: AssistantTextBlockProps) {
+  if (!streaming && looksLikeMarkdown(content)) {
     return (
       <MarkdownView
         variant="chat"

@@ -6,8 +6,12 @@ import { Text } from '@/components/ui/text';
 import type { SkillCatalogItem } from '../fixtures/skill-fixtures';
 import { useSkillCatalog } from '../hooks/use-skill-catalog';
 import { useComposerPlaceholderColor } from '@/lib/use-composer-placeholder';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useThemeColors } from '@/lib/use-theme-colors';
 import { ComposerBottomDrawer } from './composer-bottom-drawer';
 import {
+  ComposerSheetCancelRow,
+  ComposerSheetFloatingCard,
   ComposerSheetGrabHandle,
   ComposerSheetHeader,
 } from './composer-sheet-chrome';
@@ -17,26 +21,24 @@ type ComposerSkillPickerSheetProps = {
   selected: string[];
   onClose: () => void;
   onToggleSkill: (name: string) => void;
+  /** overlay：与 Workbench BottomSheet 并存；modal：Preview / Catalog */
+  presentation?: 'overlay' | 'modal';
 };
 
-export function ComposerSkillPickerSheet({
-  visible,
+function SkillPickerBody({
   selected,
   onClose,
   onToggleSkill,
-}: ComposerSkillPickerSheetProps) {
+  visible,
+}: Pick<ComposerSkillPickerSheetProps, 'selected' | 'onClose' | 'onToggleSkill' | 'visible'>) {
   const [query, setQuery] = useState('');
   const composerPlaceholderColor = useComposerPlaceholderColor();
-  const { skills: filtered, loading, fromApi } = useSkillCatalog(query, visible);
+  const { skills: filtered, loading } = useSkillCatalog(query, visible);
 
   return (
-    <ComposerBottomDrawer visible={visible} onClose={onClose}>
+    <>
       <ComposerSheetGrabHandle />
-      <ComposerSheetHeader
-        title={fromApi ? 'Skill · API' : 'Skill'}
-        actionLabel="完成"
-        onAction={onClose}
-      />
+      <ComposerSheetHeader title="Skill" actionLabel="完成" onAction={onClose} />
 
       <View className="mx-4 mb-2 h-10 justify-center rounded-full bg-subtle px-4">
         <TextInput
@@ -93,6 +95,63 @@ export function ComposerSkillPickerSheet({
           })
         )}
       </ScrollView>
-    </ComposerBottomDrawer>
+    </>
+  );
+}
+
+export function ComposerSkillPickerSheet({
+  visible,
+  selected,
+  onClose,
+  onToggleSkill,
+  presentation = 'overlay',
+}: ComposerSkillPickerSheetProps) {
+  const insets = useSafeAreaInsets();
+  const themeColors = useThemeColors();
+  const bottomPad = Math.max(insets.bottom, 10);
+
+  if (presentation === 'modal') {
+    return (
+      <ComposerBottomDrawer visible={visible} onClose={onClose}>
+        <SkillPickerBody
+          visible={visible}
+          selected={selected}
+          onClose={onClose}
+          onToggleSkill={onToggleSkill}
+        />
+      </ComposerBottomDrawer>
+    );
+  }
+
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <View className="absolute inset-0 z-[110] justify-end" pointerEvents="box-none">
+      <Pressable
+        className="absolute inset-0"
+        style={{ backgroundColor: themeColors.overlayScrim }}
+        onPress={onClose}
+        accessibilityLabel="关闭"
+      />
+      <View
+        className="gap-2 px-3"
+        style={{ paddingBottom: bottomPad }}
+        pointerEvents="box-none"
+      >
+        <ComposerSheetFloatingCard>
+          <SkillPickerBody
+            visible={visible}
+            selected={selected}
+            onClose={onClose}
+            onToggleSkill={onToggleSkill}
+          />
+        </ComposerSheetFloatingCard>
+        <ComposerSheetFloatingCard>
+          <ComposerSheetCancelRow label="取消" onPress={onClose} />
+        </ComposerSheetFloatingCard>
+      </View>
+    </View>
   );
 }

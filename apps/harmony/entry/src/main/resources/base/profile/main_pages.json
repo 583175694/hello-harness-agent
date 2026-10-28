@@ -1,0 +1,10 @@
+{
+  "src": [
+    "pages/PreviewMenuPage",
+    "pages/PreviewChatPage",
+    "pages/PreviewSettingsPage",
+    "pages/PreviewMcpPage",
+    "pages/PreviewMemoryPage",
+    "pages/PreviewReaderPage"
+  ]
+}

@@ -8,10 +8,8 @@ import { useThemeColors } from '@/lib/use-theme-colors';
 import { ComposerBottomDrawer } from './composer-bottom-drawer';
 import { ComposerSegmentedControl } from './composer-segmented-control';
 import {
-  ComposerSheetCancelRow,
   ComposerSheetFloatingCard,
   ComposerSheetGrabHandle,
-  ComposerSheetHeader,
 } from './composer-sheet-chrome';
 
 export type ReasoningEffort = 'off' | 'low' | 'high' | 'max';
@@ -68,18 +66,15 @@ function ModelMenuBody({
   return (
     <>
       <ComposerSheetGrabHandle />
-      <ComposerSheetHeader title="模型" actionLabel="完成" onAction={onClose} />
 
-      <ScrollView className="max-h-40" showsVerticalScrollIndicator={false}>
-        {catalog.map((m, index) => {
+      <ScrollView className="max-h-48" showsVerticalScrollIndicator={false}>
+        {catalog.map((m) => {
           const active = m.id === modelId;
           return (
             <Pressable
               key={m.id}
               onPress={() => selectModel(m.id)}
-              className={`min-h-[48px] flex-row items-center gap-2 px-4 active:bg-subtle ${
-                index < catalog.length - 1 ? 'border-b border-composer-border' : ''
-              }`}
+              className="min-h-[48px] flex-row items-center gap-2 px-4 active:bg-subtle"
               accessibilityRole="radio"
               accessibilityState={{ selected: active }}
               accessibilityLabel={m.label}
@@ -99,9 +94,9 @@ function ModelMenuBody({
         })}
       </ScrollView>
 
-      <View className="border-t border-composer-border px-4 pb-1 pt-3">
+      <View className="px-4 pb-6 pt-4">
         <Text variant="caption" className="mb-2.5 font-medium text-muted">
-          推理强度
+          思考强度
         </Text>
         <ComposerSegmentedControl
           value={reasoningEffort}
@@ -206,9 +201,6 @@ export function ComposerModelMenu({
                 selectModel={selectModel}
                 onReasoningChange={onReasoningChange}
               />
-            </ComposerSheetFloatingCard>
-            <ComposerSheetFloatingCard>
-              <ComposerSheetCancelRow label="取消" onPress={close} />
             </ComposerSheetFloatingCard>
           </View>
         </View>

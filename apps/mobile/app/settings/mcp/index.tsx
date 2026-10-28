@@ -42,9 +42,11 @@ export default function McpSettingsScreen() {
       contentContainerClassName="gap-3 p-4"
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
     >
-      <Text variant="body-sm" className="text-secondary">
-        与 Web Settings 共用 Host MCP API（list / CRUD / test）。
-      </Text>
+      <View className="rounded-panel border border-border bg-subtle p-3">
+        <Text variant="caption" className="text-muted">
+          与 Web Settings 共用 Host MCP API（list / CRUD / test）。
+        </Text>
+      </View>
       {error ? (
         <Text variant="body-sm" className="text-destructive">
           {error}

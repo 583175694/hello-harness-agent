@@ -9,12 +9,18 @@ export const AGENT_UI_LAYOUT = {
   workbenchTopInset: (safeAreaTop: number) => safeAreaTop + 48,
   /** Composer Plan 浮卡 — 仅在对话/composer  subtree 内叠放 */
   composerPlanZIndex: 1,
+  /** Plan 详情相对屏幕左右 inset（对齐 Web calc(100vw - 24px)） */
+  planOverlayHorizontalInsetPx: 12,
   /** Workbench BottomSheet — 须盖住 Plan 与 Composer（靠 Modal 层 + 数值兜底） */
   workbenchSheetZIndex: 100,
   workbenchSheetElevation: 32,
   /** 三档 detent：低 / 中 / 最高（打开 Workbench 默认最高档） */
   workbenchSheetSnapPoints: ['44%', '72%', '98%'] as const,
   workbenchSheetDefaultSnapIndex: 2,
+  /** Composer 多行输入：最小一行高度、最多约 5 行（与 Gate A 原生一致）。 */
+  composerInputMinHeightPx: 44,
+  composerInputMaxHeightPx: 120,
+  composerInputMaxLines: 5,
 } as const;
 
 /** 与 Web `AGENT_UI_BEHAVIOR` 对齐的交互阈值。 */

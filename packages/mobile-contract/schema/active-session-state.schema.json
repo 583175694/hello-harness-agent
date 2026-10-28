@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness.local/mobile-contract/active-session-state.schema.json",
+  "title": "ActiveSessionState",
+  "description": "Phase A Preview fixture root; Phase B Engine projection must validate against the same shape.",
+  "type": "object",
+  "required": ["schemaVersion", "scenarioId", "conversation", "composer"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "scenarioId": { "type": "string", "minLength": 1 },
+    "title": { "type": "string" },
+    "conversation": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/conversationItem" }
+    },
+    "composer": { "$ref": "#/$defs/composer" },
+    "chrome": { "$ref": "#/$defs/chrome" },
+    "workbench": { "$ref": "#/$defs/workbench" },
+    "sessionDrawer": { "$ref": "#/$defs/sessionDrawer" },
+    "uiHints": { "$ref": "#/$defs/uiHints" },
+    "replay": { "$ref": "#/$defs/replay" }
+  },
+  "$defs": {
+    "replay": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "assistantTail": {
+          "type": "object",
+          "required": ["tickMs", "codepointsPerTick"],
+          "properties": {
+            "tickMs": { "type": "integer", "minimum": 16 },
+            "codepointsPerTick": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "uiHints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "initialDrawerOpen": { "type": "boolean" }
+      }
+    },
+    "sessionDrawer": {
+      "type": "object",
+      "required": ["sessions"],
+      "additionalProperties": false,
+      "properties": {
+        "draftTitle": { "type": "string" },
+        "searchPlaceholder": { "type": "string" },
+        "sessions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sessionDrawerItem" }
+        }
+      }
+    },
+    "sessionDrawerItem": {
+      "type": "object",
+      "required": ["id", "title", "time"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "time": { "type": "string" },
+        "active": { "type": "boolean" },
+        "pinned": { "type": "boolean" },
+        "running": { "type": "boolean" }
+      }
+    },
+    "composer": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "mode": { "enum": ["default", "hitl", "clarification"] },
+        "composerTextMode": {
+          "enum": ["new-run", "steer", "clarification", "disabled"]
+        },
+        "submitting": { "type": "boolean" }
+      }
+    },
+    "chrome": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "serviceState": { "enum": ["checking", "ready", "unavailable"] },
+        "connectionState": {
+          "enum": ["idle", "connecting", "live", "reconnecting", "offline"]
+        },
+        "runSummary": { "type": "string" },
+        "peekBarTitle": { "type": "string" },
+        "peekBarSubtitle": { "type": "string" }
+      }
+    },
+    "workbench": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "conversationItem": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "content"],
+          "properties": {
+            "kind": { "const": "user" },
+            "id": { "type": "string" },
+            "content": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "required": ["kind", "blocks"],
+          "properties": {
+            "kind": { "const": "assistant" },
+            "id": { "type": "string" },
+            "deliveryStatus": {
+              "enum": ["streaming", "completed", "failed", "cancelled"]
+            },
+            "streaming": { "type": "boolean" },
+            "pendingText": { "type": "string" },
+            "finalText": { "type": "string" },
+            "blocks": { "type": "array" }
+          },
+          "additionalProperties": true
+        }
+      ]
+    }
+  }
+}

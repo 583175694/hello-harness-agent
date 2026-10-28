@@ -25,12 +25,17 @@ hello-harness-agent/
   apps/
     web/
     api/
-    mobile/                 # L6 React Native（Expo）；见 docs/36
+    mobile/                 # L6 React Native（Expo）；冻结，见 docs/36
+    android/                # Native Release（v1）；见 docs/43
+    ios/                    # Native Release（v1）；见 docs/43
+    harmony/                # HarmonyOS NEXT（v1.1 Gate B′）；见 docs/43
   packages/
     agent-protocol/
     agent-testkit/
     agent-client/             # P0 计划；HTTP + SSE（docs/36 §13.3）
     agent-conversation/       # P0 计划；Run reducer / 投影（docs/36 §13.3）
+    mobile-core/              # KMP：domain + API/SSE（无 UI）；docs/43
+    mobile-contract/          # Preview fixture + domain golden；docs/43
   docs/
   artifacts/
   scripts/
@@ -45,7 +50,12 @@ hello-harness-agent/
 ```text
 apps/web                 终端用户任务工作台
 apps/api                 NestJS API + modular Agent backend
-apps/mobile              Mobile Agent 客户端（Stitch UI + 后续 API 联调，docs/36）
+apps/mobile              Mobile Agent（RN，已冻结；parity 参考，docs/36）
+apps/android             Native Mobile Agent（Compose，Release v1，docs/43）
+apps/ios                 Native Mobile Agent（SwiftUI，Release v1，docs/43）
+apps/harmony             Native Mobile Agent（ArkTS，Release v1.1，docs/43）
+packages/mobile-core     KMP 共享层（Run 归约、直连 Harness API，docs/43）
+packages/mobile-contract Preview / golden 契约（三端共用，docs/43）
 packages/agent-protocol  唯一跨模块 schema/type 来源
 packages/agent-testkit   deterministic fixtures and contracts
 packages/agent-client    （P0）Web/Mobile 共享 API 客户端
@@ -55,6 +65,8 @@ artifacts                本地 Artifact 内容根目录；P1 仅用于 readines
 ```
 
 当前代码严格停在 P1：API 只有 bootstrap、database、health 和 capability boundary；Web 只有工作台壳层；protocol/testkit 只包含 P1 所需的错误与 fixture。后文的 Runtime、Context、Tooling、Research 等目录是目标形态，不应在对应阶段前创建。
+
+**Native Mobile（Release）**：架构与 Phase A/B 见 [43-native-mobile-clients-architecture.md](./43-native-mobile-clients-architecture.md)。`apps/android`、`apps/ios`、`apps/harmony` 与 `packages/mobile-core`、`packages/mobile-contract` 按实施阶段创建；`apps/mobile`（RN）冻结不作 Release。
 
 ## 3. Canonical Protocol
 

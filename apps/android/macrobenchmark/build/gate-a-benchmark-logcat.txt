@@ -1,0 +1,100 @@
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at com.harness.agent.macrobenchmark.LongThreadScrollBenchmark.$r8$lambda$HNIKmb00_3xnQQsVVoexW52HCOk(Unknown Source:0)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at com.harness.agent.macrobenchmark.LongThreadScrollBenchmark$$ExternalSyntheticLambda1.invoke(D8$$SyntheticClass:0)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkPhaseKt$runPhase$2$tracePath$1.invoke(MacrobenchmarkPhase.kt:139)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkPhaseKt$runPhase$2$tracePath$1.invoke(MacrobenchmarkPhase.kt:105)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.perfetto.PerfettoCaptureWrapper.record(PerfettoCaptureWrapper.kt:137)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.perfetto.PerfettoCaptureWrapper.record$default(PerfettoCaptureWrapper.kt:95)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkPhaseKt.runPhase(MacrobenchmarkPhase.kt:105)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkKt$macrobenchmark$4.invoke(Macrobenchmark.kt:267)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkKt$macrobenchmark$4.invoke(Macrobenchmark.kt:264)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.perfetto.PerfettoTraceProcessor$Companion.runServer-VtjQ1oo(PerfettoTraceProcessor.kt:133)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.perfetto.PerfettoTraceProcessor$Companion.runServer(PerfettoTraceProcessor.kt:108)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkKt.macrobenchmark(Macrobenchmark.kt:264)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkKt.macrobenchmarkWithStartupMode(Macrobenchmark.kt:401)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.macro.junit4.MacrobenchmarkRule.measureRepeated(MacrobenchmarkRule.kt:108)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at com.harness.agent.macrobenchmark.LongThreadScrollBenchmark.scrollConversationList(LongThreadScrollBenchmark.kt:27)
+10-28 10:41:34.613  8754  8768 W UiDevice: 	at androidx.benchmark.macro.junit4.MacrobenchmarkRule$applyInternal$1.evaluate(MacrobenchmarkRule.kt:207)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at com.harness.agent.macrobenchmark.LongThreadScrollBenchmark.scrollConversationList$lambda$2(LongThreadScrollBenchmark.kt:45)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at com.harness.agent.macrobenchmark.LongThreadScrollBenchmark.$r8$lambda$HNIKmb00_3xnQQsVVoexW52HCOk(Unknown Source:0)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at com.harness.agent.macrobenchmark.LongThreadScrollBenchmark$$ExternalSyntheticLambda1.invoke(D8$$SyntheticClass:0)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkPhaseKt$runPhase$2$tracePath$1.invoke(MacrobenchmarkPhase.kt:139)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkPhaseKt$runPhase$2$tracePath$1.invoke(MacrobenchmarkPhase.kt:105)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.perfetto.PerfettoCaptureWrapper.record(PerfettoCaptureWrapper.kt:137)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.perfetto.PerfettoCaptureWrapper.record$default(PerfettoCaptureWrapper.kt:95)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkPhaseKt.runPhase(MacrobenchmarkPhase.kt:105)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkKt$macrobenchmark$4.invoke(Macrobenchmark.kt:267)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkKt$macrobenchmark$4.invoke(Macrobenchmark.kt:264)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.perfetto.PerfettoTraceProcessor$Companion.runServer-VtjQ1oo(PerfettoTraceProcessor.kt:133)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.perfetto.PerfettoTraceProcessor$Companion.runServer(PerfettoTraceProcessor.kt:108)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkKt.macrobenchmark(Macrobenchmark.kt:264)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.macro.MacrobenchmarkKt.macrobenchmarkWithStartupMode(Macrobenchmark.kt:401)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.macro.junit4.MacrobenchmarkRule.measureRepeated(MacrobenchmarkRule.kt:108)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at com.harness.agent.macrobenchmark.LongThreadScrollBenchmark.scrollConversationList(LongThreadScrollBenchmark.kt:27)
+10-28 10:41:39.886  8754  8768 W UiDevice: 	at androidx.benchmark.macro.junit4.MacrobenchmarkRule$applyInternal$1.evaluate(MacrobenchmarkRule.kt:207)
+10-28 10:41:40.011  1771  5267 I MediaProvider: Invalidating LocalCallingIdentity cache for package com.harness.agent.macrobenchmark. Reason: owned_database_row_deleted:/storage/emulated/0/Android/media/com.harness.agent.macrobenchmark/temporaryScript2560423404332867207.tmp
+10-28 10:41:40.047  8754  8768 D Benchmark: kill -TERM command output - Output(stdout=, stderr=)
+10-28 10:41:40.241  8754  8768 D Benchmark: Waiting 100 ms for [ProcessPid(processName=perfetto, pid=9304)] to die
+10-28 10:41:40.253  8754  8768 I PerfettoCapture: Writing to /storage/emulated/0/Android/media/com.harness.agent.macrobenchmark/LongThreadScrollBenchmark_scrollConversationList_iter004_2026-10-28-02-41-39.perfetto-trace.
+10-28 10:41:40.404  1771  4064 I MediaProvider: Invalidating LocalCallingIdentity cache for package com.harness.agent.macrobenchmark. Reason: owned_database_row_deleted:/storage/emulated/0/Android/media/com.harness.agent.macrobenchmark/temporaryScript4260552754915308550.tmp
+10-28 10:41:40.409  8754  8768 D Benchmark: Moving /storage/emulated/0/Android/media/com.harness.agent.macrobenchmark/LongThreadScrollBenchmark_scrollConversationList_iter004_2026-10-28-02-41-39.perfetto-trace to /sdcard/Android/media/com.harness.agent.macrobenchmark/additional_test_output/LongThreadScrollBenchmark_scrollConversationList_iter004_2026-10-28-02-41-39.perfetto-trace
+10-28 10:41:40.426  8754  8768 D Benchmark: Iteration 4 captured UiState{highlight_process=HighlightProcess{cmdline=com.harness.agent}}
+10-28 10:41:41.003  8754  8766 I .macrobenchmark: Waiting for a blocking GC ProfileSaver
+10-28 10:41:41.150  8754  8766 I .macrobenchmark: WaitForGcToComplete blocked ProfileSaver on Background for 147.621ms
+10-28 10:41:41.595  8754  8768 D Benchmark: Killing process com.harness.agent
+10-28 10:41:42.914  1771  1991 I MediaProvider: Invalidating LocalCallingIdentity cache for package com.harness.agent.macrobenchmark. Reason: owned_database_row_deleted:/storage/emulated/0/Android/media/com.harness.agent.macrobenchmark/temporaryScript2742366687187338985.tmp
+10-28 10:41:42.949  8754  8768 W Benchmark: WARNING: Running on Emulator
+10-28 10:41:42.949  8754  8768 W Benchmark:     Benchmark is running on an emulator, which is not representative of
+10-28 10:41:42.949  8754  8768 W Benchmark:     real user devices. Use a physical device to benchmark. Emulator
+10-28 10:41:42.949  8754  8768 W Benchmark:     benchmark improvements might not carry over to a real user's
+10-28 10:41:42.949  8754  8768 W Benchmark:     experience (or even regress real device performance).
+10-28 10:41:42.949  8754  8768 W Benchmark: 
+10-28 10:41:42.949  8754  8768 W Benchmark: WARNING: Benchmark Target is Debuggable
+10-28 10:41:42.949  8754  8768 W Benchmark:     Target package com.harness.agent is running with debuggable=true in its manifest,
+10-28 10:41:42.949  8754  8768 W Benchmark:     which drastically reduces runtime performance in order to support debugging
+10-28 10:41:42.949  8754  8768 W Benchmark:     features. Run benchmarks with debuggable=false. Debuggable affects execution
+10-28 10:41:42.949  8754  8768 W Benchmark:     speed in ways that mean benchmark improvements might not carry over to a
+10-28 10:41:42.949  8754  8768 W Benchmark:     real user's experience (or even regress release performance).
+10-28 10:41:42.949  8754  8768 W Benchmark: 
+10-28 10:41:43.013  8754  8768 D Benchmark: writing results to /storage/emulated/0/Android/media/com.harness.agent.macrobenchmark/com.harness.agent.macrobenchmark-benchmarkData.json
+10-28 10:41:43.293  1771  9264 I MediaProvider: Invalidating LocalCallingIdentity cache for package com.harness.agent.macrobenchmark. Reason: owned_database_row_deleted:/storage/emulated/0/Android/media/com.harness.agent.macrobenchmark/temporaryScript962471504384065796.tmp
+10-28 10:41:43.297  8754  8759 W .macrobenchmark: Suspending all threads took: 113.016ms
+10-28 10:41:43.383  8754  8768 D Benchmark: Clocks not locked: online cores with min freq == min avail freq
+10-28 10:41:43.384  8754  8768 D Benchmark: cpu0 CoreDir(path=/sys/devices/system/cpu/cpu0, online=true, availableFreqs=[1, 2], setSpeedKhz=1, maxFreqKhz=2)
+10-28 10:41:43.849  9384  9384 I artd    : GetBestInfo: /data/app/~~zhF4pND_eze54JxAog507w==/com.harness.agent.macrobenchmark-iKzTBokwfre0by_UM5dZEg==/base.apk has no usable artifacts
+10-28 10:41:45.750  1771  8887 I MediaProvider: Invalidating LocalCallingIdentity cache for package com.harness.agent.macrobenchmark. Reason: owned_database_row_deleted:/storage/emulated/0/Android/media/com.harness.agent.macrobenchmark/temporaryScript7993205573448822299.tmp
+10-28 10:41:45.871  8754  8768 D Benchmark: Moving /storage/emulated/0/Android/media/com.harness.agent.macrobenchmark/com.harness.agent.macrobenchmark-benchmarkData.json to /sdcard/Android/media/com.harness.agent.macrobenchmark/additional_test_output/com.harness.agent.macrobenchmark-benchmarkData.json
+10-28 10:41:45.883  8754  8768 I TestRunner: finished: scrollConversationList(com.harness.agent.macrobenchmark.LongThreadScrollBenchmark)
+10-28 10:41:45.912  1771  1852 V MediaProvider: Deleted backup of old file path: /storage/emulated/0/Android/media/com.harness.agent.macrobenchmark/com.harness.agent.macrobenchmark-benchmarkData.json
+10-28 10:41:46.161   615  1456 I ActivityManager: Force stopping com.harness.agent.macrobenchmark appid=10214 user=0: finished inst
+10-28 10:41:46.167   615  1456 I ActivityManager: Killing 8754:com.harness.agent.macrobenchmark/u0a214 (adj 0): stop com.harness.agent.macrobenchmark due to finished inst
+10-28 10:41:46.628   615   629 V ActivityManager: Got obituary of 8754:com.harness.agent.macrobenchmark
+10-28 10:41:48.791   615   648 I ActivityManager: Force stopping com.harness.agent.macrobenchmark appid=10214 user=-1: deletePackageX
+10-28 10:41:49.087   615   817 D BackgroundInstallControlService: handlePackageRemove: removing com.harness.agent.macrobenchmark from 0
+10-28 10:41:49.275   615   678 I ActivityManager: Force stopping com.harness.agent.macrobenchmark appid=10214 user=0: pkg removed
+10-28 10:41:49.627   615   736 V StorageManagerService: Package com.harness.agent.macrobenchmark does not have legacy storage
+10-28 10:41:49.630  1008  1008 D CarrierSvcBindHelper: onPackageRemoved: com.harness.agent.macrobenchmark
+10-28 10:41:49.635  1008  1202 I SatelliteAppTracker: onPackageRemoved : com.harness.agent.macrobenchmark
+10-28 10:41:49.656  6283  9544 I Finsky  : [208] Asset module storage cleared for package com.harness.agent.macrobenchmark.
+10-28 10:41:49.699   615   763 W WifiService: Couldn't get PackageInfo for package:com.harness.agent.macrobenchmark
+10-28 10:41:49.699   615   763 D WifiService: Remove settings for package:com.harness.agent.macrobenchmark
+10-28 10:41:49.699   615   763 D WifiConfigManager: Remove all networks for app ApplicationInfo{7192bd2 com.harness.agent.macrobenchmark}
+10-28 10:41:49.699   615   763 I PasspointManager: No app ops listener found for com.harness.agent.macrobenchmark
+10-28 10:41:49.776   615   709 I RollbackManager: broadcast=ACTION_PACKAGE_FULLY_REMOVED pkg=com.harness.agent.macrobenchmark
+10-28 10:41:49.776   615   763 W WifiService: Couldn't get PackageInfo for package:com.harness.agent.macrobenchmark
+10-28 10:41:49.776   615   763 D WifiService: Remove settings for package:com.harness.agent.macrobenchmark
+10-28 10:41:49.777   615   763 D WifiConfigManager: Remove all networks for app ApplicationInfo{904a094 com.harness.agent.macrobenchmark}
+10-28 10:41:49.777   615   763 I PasspointManager: No app ops listener found for com.harness.agent.macrobenchmark
+10-28 10:41:49.938   615   615 I Telecom : CarModeTracker: Package com.harness.agent.macrobenchmark is not tracked.: SSH.oR@AaQ
+10-28 10:41:50.396   615   814 D ShortcutService: removing package: com.harness.agent.macrobenchmark userId=0
+10-28 10:41:50.536  6800  9565 I ProximityAuth: [RecentAppsMediator] Package removed: (user=UserHandle{0}) com.harness.agent.macrobenchmark
+10-28 10:41:50.572   615   615 I ConditionProviders: Disallowing condition provider com.harness.agent.macrobenchmark (userSet: true)
+10-28 10:41:50.593  1771  1771 I MediaProvider: Invalidating LocalCallingIdentity cache for package com.harness.agent.macrobenchmark. Reason: package android.intent.action.PACKAGE_REMOVED
+10-28 10:41:50.720  5499  5499 I Finsky:background: [2] Package no longer installed: com.harness.agent.macrobenchmark
+10-28 10:41:50.721  5499  5499 I Finsky:background: [2] Package no longer installed: com.harness.agent.macrobenchmark
+10-28 10:41:50.723  5499  5499 I Finsky:background: [2] Package no longer installed: com.harness.agent.macrobenchmark
+10-28 10:41:50.732  5499  5578 I Finsky:background: [52] IQ:PSL: skipping onPackageRemoved(replacing=false) for untracked package=com.harness.agent.macrobenchmark
+10-28 10:41:50.756  1350  1350 D PersistedStoragePackageUninstalledReceiver: Received android.intent.action.PACKAGE_FULLY_REMOVED for com.harness.agent.macrobenchmark for u0
+10-28 10:41:52.061  1771  1982 D MediaProvider: Deleted 3 Android/media items belonging to com.harness.agent.macrobenchmark on /data/user/0/com.google.android.providers.media.module/databases/external.db
+10-28 10:41:52.062  1771  1982 D MediaProvider: Orphaned 1 items belonging to com.harness.agent.macrobenchmark on /data/user/0/com.google.android.providers.media.module/databases/external.db
+10-28 10:41:52.062  1771  1982 I FuseDaemon: Successfully deleted rows in leveldb for owner_id: 0 and ownerPackageIdentifier: com.harness.agent.macrobenchmark::0
+10-28 10:41:52.242  6800  9580 W RWIPackageIntentOps: Registries cleared for package: com.harness.agent.macrobenchmark

@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "stock-market-review",
+  "title": "请你复盘一下今天股市情况",
+  "conversation": [
+    {
+      "kind": "user",
+      "content": "请你复盘一下今天股市情况"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "streaming",
+      "process": [
+        {
+          "type": "reasoning",
+          "content": "先拉取指数与板块数据，再对照新闻与政策面，最后整理成可汇报的结构。",
+          "durationMs": 8000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "tushare-daily",
+            "name": "index_daily",
+            "summary": "trade_date=20261026, ts_code=000001.SH",
+            "status": "failed",
+            "duration": "2 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "tushare-err",
+            "name": "tushare",
+            "summary": "抱歉，您没有接口权限 [40203]",
+            "status": "failed"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "web-search",
+            "name": "web_search",
+            "summary": "2026年10月26日 A股 收盘 复盘 上证指数",
+            "status": "running"
+          }
+        }
+      ],
+      "pendingText": "正在汇总公开来源…"
+    }
+  ],
+  "composer": {
+    "submitting": true,
+    "composerTextMode": "steer",
+    "composerPlaceholder": "补充方向，将从下一步骤应用……"
+  },
+  "chrome": {
+    "connectionState": "live",
+    "serviceState": "ready",
+    "runSummary": "正在执行",
+    "peekBarTitle": "正在执行",
+    "peekBarSubtitle": "工具循环进行中"
+  },
+  "sessionDrawer": {
+    "draftTitle": "新对话",
+    "searchPlaceholder": "搜索会话",
+    "sessions": [
+      { "id": "s1", "title": "请你复盘一下今天股市情况", "time": "刚刚", "active": true, "running": true },
+      { "id": "s2", "title": "新能源板块资金流向", "time": "10 分钟前", "pinned": true },
+      { "id": "s3", "title": "港股科技 ADR 对比", "time": "1 小时前" },
+      { "id": "s4", "title": "美联储议息会议纪要摘要", "time": "3 小时前" },
+      { "id": "s5", "title": "量化策略回测 2025Q3", "time": "昨天", "pinned": true },
+      { "id": "s6", "title": "可转债溢价率扫描", "time": "昨天" },
+      { "id": "s7", "title": "ETF 折溢价监控", "time": "2 天前" },
+      { "id": "s8", "title": "北向资金周报", "time": "3 天前" },
+      { "id": "s9", "title": "行业轮动模型参数", "time": "4 天前" },
+      { "id": "s10", "title": "期权隐含波动率曲面", "time": "5 天前" },
+      { "id": "s11", "title": "macro CPI 数据解读", "time": "1 周前" },
+      { "id": "s12", "title": "券商金股 10 月组合", "time": "1 周前" }
+    ]
+  },
+  "workbench": {
+    "initialView": "activity",
+    "initialSheetIndex": 2,
+    "workbenchCount": 2,
+    "hasDeliverables": true,
+    "toolExecutions": [
+      {
+        "id": "tushare-daily",
+        "toolName": "index_daily",
+        "title": "index_daily",
+        "inputSummary": "trade_date=20261026, ts_code=000001.SH",
+        "outputSummary": "tushare API 错误 [40203]: 抱歉，您没有接口访问权限。",
+        "status": "failed",
+        "elapsed": "2 秒"
+      },
+      {
+        "id": "web-search",
+        "toolName": "web_search",
+        "title": "web_search",
+        "inputSummary": "2026年10月26日 A股 收盘 复盘 上证指数",
+        "outputSummary": "检索到 12 条公开报道与复盘帖，正在抽取一致口径…",
+        "status": "running",
+        "elapsed": "38 秒",
+        "linkedSourceIndexes": [0, 1, 2]
+      }
+    ],
+    "sources": [
+      {
+        "title": "上证报 · 2026-10-26 收盘综述",
+        "url": "https://example.com/sh-review-1026",
+        "snippet": "沪指缩量震荡，科技成长板块相对强势…"
+      },
+      {
+        "title": "财联社 · A股午评",
+        "url": "https://example.com/cls-noon",
+        "snippet": "北向资金净流入，半导体链领涨…"
+      },
+      {
+        "title": "东方财富 · 复盘帖精选",
+        "url": "https://example.com/eastmoney-recap",
+        "snippet": "情绪指标中性，连板高度受限…"
+      }
+    ],
+    "deliverableFiles": [
+      {
+        "id": "f1",
+        "fileName": "market-recap-20261026.md",
+        "subtitle": "Markdown · 12 KB",
+        "previewMarkdown": "# 2026-10-26 A股复盘（草稿）\n\n## 指数\n\n- 上证：…\n- 深证：…\n\n## 板块\n\n1. 半导体\n2. 券商"
+      },
+      {
+        "id": "f2",
+        "fileName": "index-daily.csv",
+        "subtitle": "CSV · 4 KB",
+        "previewMarkdown": "date,open,close,volume\n20261026,…"
+      }
+    ]
+  }
+}

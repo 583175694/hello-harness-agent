@@ -17,7 +17,7 @@ type ChatTopBarProps = {
 
 export function ChatTopBar({
   title = sessionFixture.title,
-  runSummary,
+  runSummary: _runSummary,
   workbenchBadge = 0,
   connectionState = 'live',
   onOpenDrawer,
@@ -25,9 +25,8 @@ export function ChatTopBar({
 }: ChatTopBarProps) {
   const showConnectionIndicator =
     connectionState !== 'live' && connectionState !== 'idle';
-  const subtitle = runSummary;
   return (
-    <View className="relative min-h-12 border-b border-composer-border/80 bg-canvas px-1 pb-1 pt-0.5">
+    <View className="relative border-b border-composer-border/80 bg-canvas px-1 pb-0.5 pt-0.5">
       <View className="h-10 flex-row items-center">
         <Pressable
           onPress={onOpenDrawer}
@@ -43,11 +42,6 @@ export function ChatTopBar({
           <Text variant="body-sm" className="truncate font-semibold text-primary" numberOfLines={1}>
             {title}
           </Text>
-          {subtitle ? (
-            <Text variant="caption" className="truncate text-muted" numberOfLines={1}>
-              {subtitle}
-            </Text>
-          ) : null}
         </View>
 
         {showConnectionIndicator ? <ConnectionPill state={connectionState} compact /> : null}

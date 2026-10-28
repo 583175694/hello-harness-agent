@@ -131,7 +131,7 @@ export function ConversationPanel({
               }
             : {
                 paddingHorizontal: 16,
-                paddingTop: 12,
+                paddingTop: 6,
                 paddingBottom: bottomInset,
               }
         }

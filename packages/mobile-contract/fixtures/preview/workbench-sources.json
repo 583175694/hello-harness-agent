@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "workbench-sources",
+  "title": "来源",
+  "conversation": [
+    { "kind": "user", "content": "列出引用来源。" }
+  ],
+  "composer": {},
+  "workbench": {
+    "initialView": "sources",
+    "initialSheetIndex": 2,
+    "activityEmphasis": "sources",
+    "sources": [
+      {
+        "title": "示例来源 A",
+        "url": "https://example.com/a",
+        "snippet": "摘要片段…",
+        "passageHeading": "§2 背景",
+        "passageBody": "这是 Passage 半屏 Modal 的正文预览。Phase A 仅展示 UI，不拉取真实 URL。"
+      },
+      { "title": "示例来源 B", "url": "https://example.com/b", "snippet": "另一段摘要…" },
+      {
+        "title": "示例来源 C · 含 Passage",
+        "url": "https://example.com/c",
+        "snippet": "可点开 Passage 半屏…",
+        "passageHeading": "引用段落",
+        "passageBody": "Passage Modal 用于展示可引用原文，Phase A 为静态 Mock。"
+      }
+    ]
+  }
+}

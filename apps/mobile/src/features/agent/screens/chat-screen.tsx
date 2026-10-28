@@ -7,6 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChatTopBar } from '../components/chat-top-bar';
 import { ComposerPeekBar } from '../components/composer-peek-bar';
 import { ComposerStack } from '../components/composer-stack';
+import { PlanFloatingCard } from '../components/agent-elements/plan-floating-card';
+import { AGENT_UI_LAYOUT } from '../config/ui.constants';
 import { ChatComposerOverlays } from '../components/chat-composer-overlays';
 import { ConversationPanel } from '../components/conversation-panel';
 import { ComposerBlockBanner } from '../components/composer-block-banner';
@@ -98,11 +100,15 @@ function ProductionChatComposer({
   composerTextMode,
   attachments,
   composerOverlays,
+  planHostOverlay,
+  onChromeLayout,
 }: {
   bottomInset: number;
   composerTextMode: 'new-run' | 'steer' | 'clarification' | 'disabled';
   attachments: ReturnType<typeof useComposerAttachments>;
   composerOverlays: ReturnType<typeof useComposerOverlayState>;
+  planHostOverlay?: boolean;
+  onChromeLayout?: (height: number) => void;
 }) {
   const session = useAgentHostSession();
   const composer = useAgentHostComposerSnapshot();
@@ -110,6 +116,8 @@ function ProductionChatComposer({
   return (
     <ComposerStack
       hideInlineOverlays
+      planHostOverlay={planHostOverlay}
+      onChromeLayout={onChromeLayout}
       attachmentSheetOpen={composerOverlays.attachmentSheetOpen}
       onAttachmentSheetOpenChange={composerOverlays.setAttachmentSheetOpen}
       skillPickerOpen={composerOverlays.skillPickerOpen}
@@ -254,6 +262,12 @@ function ProductionChatScreenInner({
     activeRunId && session.selectedSessionId ? session.selectedSessionId : null;
   const runSummary = mobileRunSummaryLine(workbench);
   const showRunPeek = mobileRunPeekVisible(workbench, activeRunId);
+  const [composerChromeHeight, setComposerChromeHeight] = useState(0);
+  const planHostVisible =
+    Boolean(composerSnap.composerPlan?.length) &&
+    composerSnap.runSubmitting &&
+    composerTextMode !== 'clarification' &&
+    composerSnap.activeInterrupt == null;
 
   return (
     <>
@@ -307,7 +321,24 @@ function ProductionChatScreenInner({
                 composerTextMode={composerTextMode}
                 attachments={attachments}
                 composerOverlays={composerOverlays}
+                planHostOverlay={planHostVisible}
+                onChromeLayout={setComposerChromeHeight}
               />
+              {planHostVisible ? (
+                <View
+                  pointerEvents="box-none"
+                  className="absolute inset-x-0 items-center"
+                  style={{
+                    bottom: composerChromeHeight + 8,
+                    zIndex: AGENT_UI_LAYOUT.composerPlanZIndex,
+                  }}
+                >
+                  <PlanFloatingCard
+                    plan={composerSnap.composerPlan}
+                    explanation={composerSnap.composerPlanExplanation}
+                  />
+                </View>
+              ) : null}
             </View>
           </ChatKeyboardShell>
         </View>
@@ -396,6 +427,7 @@ function PreviewChatScreenInner({
   const [serviceState, setServiceState] = useState<ServiceState>(
     fixture.chrome?.serviceState ?? 'ready',
   );
+  const [composerChromeHeight, setComposerChromeHeight] = useState(0);
 
   const workbenchConfig = fixture.workbench;
   const workbenchCount = workbenchConfig?.workbenchCount ?? 0;
@@ -448,7 +480,15 @@ function PreviewChatScreenInner({
   const connectionState = chrome?.connectionState ?? 'live';
   const runSummary = chrome?.runSummary;
   const showPeek =
-    composer.submitting && !isSplitLayout && Boolean(chrome?.peekBarTitle);
+    composer.submitting &&
+    !composer.showPlan &&
+    !isSplitLayout &&
+    Boolean(chrome?.peekBarTitle);
+  const planHostVisible =
+    composer.showPlan &&
+    composer.submitting &&
+    composer.mode !== 'clarification' &&
+    composer.mode !== 'hitl';
   const peekTitle =
     chrome?.peekBarTitle ??
     catalogPlanFixture.plan.find((s) => s.status === 'in_progress')?.step ??
@@ -495,7 +535,29 @@ function PreviewChatScreenInner({
                   onPress={() => openWorkbench('activity')}
                 />
               ) : null}
-              <ComposerStack {...composer} bottomInset={insets.bottom} />
+              <ComposerStack
+                {...composer}
+                bottomInset={insets.bottom}
+                planHostOverlay={planHostVisible}
+                onChromeLayout={setComposerChromeHeight}
+              />
+              {planHostVisible ? (
+                <View
+                  pointerEvents="box-none"
+                  className="absolute inset-x-0 items-center"
+                  style={{
+                    bottom: composerChromeHeight + 8,
+                    zIndex: AGENT_UI_LAYOUT.composerPlanZIndex,
+                  }}
+                >
+                  <PlanFloatingCard
+                    plan={composer.composerPlan ?? catalogPlanFixture.plan}
+                    explanation={
+                      composer.composerPlanExplanation ?? catalogPlanFixture.explanation
+                    }
+                  />
+                </View>
+              ) : null}
             </View>
           </ChatKeyboardShell>
         </View>

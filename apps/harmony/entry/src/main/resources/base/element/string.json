@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Harness Native Mobile Preview"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Harness Agent"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Harness"
+    }
+  ]
+}

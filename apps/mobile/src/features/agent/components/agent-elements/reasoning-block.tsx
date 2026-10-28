@@ -4,6 +4,7 @@ import { ChevronDown, Dot } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { ICON_CHEVRON_TONE } from '@/lib/theme';
 import { Text } from '@/components/ui/text';
+import { configureProcessExpandLayoutAnimation } from '../../lib/process-layout-animation';
 import { reasoningTriggerLabel } from '../../lib/reasoning-label';
 import {
   PROCESS_TIMELINE_FIRST_LINE_HEIGHT,
@@ -43,7 +44,10 @@ export function ReasoningBlock({
 
   const trigger = (
     <Pressable
-      onPress={() => setOpen((v) => !v)}
+      onPress={() => {
+        configureProcessExpandLayoutAnimation();
+        setOpen((v) => !v);
+      }}
       className={`min-h-[36px] rounded-md active:opacity-80 ${
         streaming && !nested ? 'bg-subtle/90 px-1' : ''
       }`}

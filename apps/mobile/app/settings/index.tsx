@@ -134,7 +134,12 @@ export default function SettingsScreen() {
           <Pressable className="flex-row items-center justify-between border-b border-composer-border py-3 active:opacity-70">
             <View className="flex-row items-center gap-3">
               <Icon icon={Brain} tone="secondary" size={18} />
-              <Text variant="body-sm">记忆</Text>
+              <View>
+                <Text variant="body-sm">记忆</Text>
+                <Text variant="caption" className="text-muted">
+                  条目与 Agent 写入开关
+                </Text>
+              </View>
             </View>
             <Icon icon={ChevronRight} tone={ICON_CHEVRON_TONE.push} size={18} />
           </Pressable>
@@ -143,7 +148,12 @@ export default function SettingsScreen() {
           <Pressable className="flex-row items-center justify-between py-3 active:opacity-70">
             <View className="flex-row items-center gap-3">
               <Icon icon={Server} tone="secondary" size={18} />
-              <Text variant="body-sm">MCP 服务器</Text>
+              <View>
+                <Text variant="body-sm">MCP 服务器</Text>
+                <Text variant="caption" className="text-muted">
+                  Host MCP CRUD / Test
+                </Text>
+              </View>
             </View>
             <Icon icon={ChevronRight} tone={ICON_CHEVRON_TONE.push} size={18} />
           </Pressable>
@@ -151,7 +161,7 @@ export default function SettingsScreen() {
       </View>
 
       <View className="rounded-panel border border-border bg-surface p-4">
-        <Text variant="headline" className="mb-2 text-[15px]" fixedSize>
+        <Text variant="headline" className="mb-3 text-[15px]" fixedSize>
           连接
         </Text>
         <Text variant="body-sm" className="text-secondary" fixedSize>

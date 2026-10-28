@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "hitl-tool-approval",
+  "title": "工具审批",
+  "conversation": [
+    { "kind": "user", "content": "执行需要审批的工具调用。" }
+  ],
+  "composer": {
+    "mode": "hitl",
+    "composerTextMode": "disabled",
+    "toolApproval": {
+      "title": "需要批准工具调用",
+      "sandboxNote": "Docker 沙箱 #2 · 无外部出站网络 · 预估 3.2s",
+      "items": [
+        {
+          "itemId": "bash-1",
+          "toolName": "bash",
+          "command": "pytest tests/test_auth_2fa.py -v --tb=short"
+        }
+      ]
+    }
+  },
+  "workbench": { "initialView": "activity" },
+  "previewTransitions": {
+    "afterHitlApprove": {
+      "composer": {
+        "mode": "default",
+        "submitting": true,
+        "composerTextMode": "steer"
+      }
+    },
+    "afterHitlReject": {
+      "composer": {
+        "mode": "default",
+        "submitting": false,
+        "composerTextMode": "new-run"
+      }
+    }
+  }
+}

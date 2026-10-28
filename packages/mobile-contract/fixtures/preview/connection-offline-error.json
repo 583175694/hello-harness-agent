@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "connection-offline-error",
+  "title": "连接错误",
+  "conversation": [],
+  "composer": { "composerTextMode": "disabled" },
+  "chrome": {
+    "connectionState": "offline",
+    "serviceState": "unavailable",
+    "runSummary": "服务不可用"
+  },
+  "problemDetails": {
+    "title": "无法连接服务",
+    "detail": "Preview 假状态：展示 offline / ProblemDetails UI（Phase A 无真 HTTP）。"
+  }
+}

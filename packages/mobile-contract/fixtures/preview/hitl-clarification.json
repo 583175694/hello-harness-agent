@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "hitl-clarification",
+  "title": "澄清问题",
+  "conversation": [
+    { "kind": "user", "content": "对比近三年的市场数据。" },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "blocks": [{ "type": "text", "content": "需要确认时间范围与指标口径。" }]
+    }
+  ],
+  "composer": {
+    "mode": "clarification",
+    "composerTextMode": "clarification",
+    "clarification": {
+      "question": "你更关注近 12 个月还是近 3 年的口径？",
+      "options": ["近 12 个月", "近 3 年", "两者都要"],
+      "allowFreeText": true
+    }
+  },
+  "previewTransitions": {
+    "afterClarification": {
+      "composer": {
+        "mode": "default",
+        "submitting": true,
+        "composerTextMode": "new-run"
+      }
+    }
+  }
+}

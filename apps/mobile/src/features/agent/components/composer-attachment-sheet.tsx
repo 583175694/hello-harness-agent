@@ -5,8 +5,8 @@ import { Box, FileText, ImageIcon } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ComposerSheetActionRow,
-  ComposerSheetCancelRow,
   ComposerSheetFloatingCard,
+  ComposerSheetGrabHandle,
 } from './composer-sheet-chrome';
 import { ComposerBottomDrawer } from './composer-bottom-drawer';
 import { useOverlaySlideUp } from '@/lib/use-overlay-slide-up';
@@ -103,6 +103,7 @@ export function ComposerAttachmentSheet({
   const sheetBody = (
     <>
       <ComposerSheetFloatingCard>
+        <ComposerSheetGrabHandle />
         {actions.map((action, index) => (
           <ComposerSheetActionRow
             key={action.key}
@@ -110,14 +111,11 @@ export function ComposerAttachmentSheet({
             hint={action.hint}
             icon={action.icon}
             onPress={action.onPress}
-            showDivider={index < actions.length - 1}
+            showDivider={false}
           />
         ))}
       </ComposerSheetFloatingCard>
 
-      <ComposerSheetFloatingCard>
-        <ComposerSheetCancelRow label="取消" onPress={onClose} />
-      </ComposerSheetFloatingCard>
     </>
   );
 

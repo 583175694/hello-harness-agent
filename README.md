@@ -114,6 +114,10 @@ pnpm db -- studio           # 打开 Prisma Studio
 ```text
 apps/web                React/Vite 工作台
 apps/mobile             Expo/React Native 客户端（见 apps/mobile/README.md）
+apps/android            Native Android Preview（Gate A 静态 UI）
+apps/ios                Native iOS Preview（Gate A 静态 UI）
+apps/harmony            HarmonyOS Preview（Gate A 静态 UI）
+packages/mobile-contract  三端 Preview fixture / tokens（Gate A）
 apps/api                NestJS API + Prisma
 packages/agent-protocol 跨前后端 canonical schema/type
 packages/agent-testkit  确定性测试 fixtures
@@ -121,6 +125,25 @@ scripts                 本地开发和 PostgreSQL 初始化脚本
 artifacts               本地 Artifact 内容根目录
 docs                    产品、架构与实施文档
 ```
+
+## Native Mobile Gate A（静态 UI）
+
+Phase A 三端 Preview + contract 门禁（无 `mobile-core`、无 Harness SSE）。详见 [`docs/44-native-mobile-phase-a-static-ui.md`](./docs/44-native-mobile-phase-a-static-ui.md) 与 [`docs/native-mobile-gate-a-evidence.md`](./docs/native-mobile-gate-a-evidence.md)。
+
+```bash
+pnpm validate:gate-a
+pnpm gate-a:verify:all              # macOS：Paparazzi + 鸿蒙 assert + iOS Snapshot
+pnpm gate-a:list-snapshot-baselines   # 核对关键 Snapshot PNG 是否已生成/待提交
+pnpm gate-a:prep-commit               # 合并前：validate + 快照清单 + git 范围提示
+pnpm gate-a:audit                     # 本地审计：validate + 快照 + blockers 摘要
+pnpm gate-a:completion                # validate + 人工证据进度 + audit ❌ 摘要
+pnpm gate-a:human-evidence            # 57/32 签字格、runbook、git 状态（不跑 Paparazzi）
+pnpm gate-a:launch:android            # adb 装 Preview（debug）
+pnpm gate-a:launch:ios                # 模拟器装 Preview
+pnpm gate-a:launch:harmony            # sync rawfile（DevEco Run entry）
+```
+
+手验与未证毕项：[`docs/native-mobile-gate-a-open-items.md`](./docs/native-mobile-gate-a-open-items.md) · Goal 阻塞：[`docs/native-mobile-gate-a-blockers.md`](./docs/native-mobile-gate-a-blockers.md) · **关 Goal 签字**：[`docs/native-mobile-gate-a-signoff-checklist.md`](./docs/native-mobile-gate-a-signoff-checklist.md)。三端 Preview 快速手验：[`android`](./apps/android/docs/gate-a-quick-smoke.md) · [`ios`](./apps/ios/docs/gate-a-quick-smoke.md) · [`harmony`](./apps/harmony/docs/gate-a-quick-smoke.md)。
 
 ## 阅读顺序
 

@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "process-timeline-tools",
+  "title": "RN 性能与交互优化 Skill",
+  "conversation": [
+    {
+      "kind": "user",
+      "content": "有没有什么比较好的 RN 性能优化应用或者 Skill？交互优化也想要一个 Skill。"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "process": [
+        {
+          "type": "reasoning",
+          "content": "用户要两类能力：RN 性能审计（FPS、TTI、列表、内存）和交互打磨（手势、动效、无障碍）。先列已有 Skill，再搜 RN 官方与社区文档，最后打包可安装的 Skill 正文。",
+          "durationMs": 6200
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "skills-list",
+            "name": "skills.list",
+            "summary": "匹配 performance / react-native / interaction",
+            "status": "completed",
+            "duration": "1 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "仓库里缺少 RN 专用 Skill；Web 向的 summarize 不能覆盖 Hermes、FlashList、Reanimated。需要自行撰写并引用公开文档。",
+          "durationMs": 6000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "web-search-rn-perf",
+            "name": "web_search",
+            "summary": "React Native performance optimization 2025 FlashList Hermes",
+            "status": "completed",
+            "duration": "18 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "优先 React Native 官网 Profiling、FlatList 优化与 JS 线程阻塞说明；交互侧看 Reanimated 与 Pressable 最佳实践。",
+          "durationMs": 2000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "bash-readme",
+            "name": "bash",
+            "summary": "curl -sL agent-skills/README.md | head -n 80",
+            "status": "completed",
+            "duration": "3 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "web-fetch-profiling",
+            "name": "web_fetch",
+            "summary": "reactnative.dev/docs/profiling",
+            "status": "completed",
+            "duration": "5 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "Profiling 页强调 JS vs UI 线程、Systrace 与 React DevTools；FlatList 需 windowSize、getItemLayout、memo 子项。记下可写进 rn-perf-audit 的检查清单。",
+          "durationMs": 9000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "web-search-interaction",
+            "name": "web_search",
+            "summary": "React Native gesture handler pressable animation accessibility",
+            "status": "completed",
+            "duration": "11 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "read-file-existing",
+            "name": "read_file",
+            "summary": ".agents/skills/react-native-best-practices/SKILL.md",
+            "status": "completed",
+            "duration": "1 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "已有 RN 最佳实践 Skill 偏指南型；用户要的是可执行的 audit + polish 两个独立 Skill，需补安装说明与触发词。",
+          "durationMs": 3000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "bash-rn-docs",
+            "name": "bash",
+            "summary": "获取 RN Profiling 与 FlatList 优化文档正文",
+            "status": "completed",
+            "duration": "4 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "bash-devtools",
+            "name": "bash",
+            "summary": "确认 RN DevTools 与 JS 加载优化文档",
+            "status": "completed",
+            "duration": "6 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "DevTools 章节可映射到「如何向用户解释卡顿来源」；Bundle 体积与 inline requires 写进 perf Skill 的「快速 wins」一节。",
+          "durationMs": 25000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "bash-write-perf-skill",
+            "name": "bash",
+            "summary": "撰写 rn-perf-audit 技能正文（SKILL.md + 检查表）",
+            "status": "completed",
+            "duration": "8 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "交互 Skill 聚焦：hitSlop、reduce motion、Tab 切换 150ms 内反馈、Pressable 0.96 scale；与 better-ui 动效规则对齐但不复制 Web 文案。",
+          "durationMs": 29000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "bash-write-interaction-skill",
+            "name": "bash",
+            "summary": "撰写 rn-interaction-polish 技能正文",
+            "status": "completed",
+            "duration": "7 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "create-report",
+            "name": "create_report",
+            "summary": "React Native 性能与交互优化 Skill 包（可直接安装）",
+            "status": "completed",
+            "duration": "2 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "报告已含两个 Skill 摘要与 rn-skills-pack.md 路径；回答里说明「为何自写」与安装步骤即可。",
+          "durationMs": 4100
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "web-search-running",
+            "name": "web_search",
+            "summary": "（补检）Expo SDK 54 performance checklist",
+            "status": "running",
+            "statusLabel": "执行中"
+          }
+        }
+      ],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已经写好，可直接安装使用。完整正文在 **rn-skills-pack.md**（含两个 Skill 的触发方式与检查表）。\n\n### 为什么是「自己写」\n\n公开 Skill 多面向 Web；RN 需要单独覆盖 **JS/UI 线程**、列表回收、Hermes 与原生手势，通用 summarize 不够用。\n\n### 两个 Skill\n\n1. **rn-perf-audit** — 定位 JS vs UI 掉帧、10 条渲染规则（memo、Context 拆分）、FlashList windowSize / getItemLayout。\n2. **rn-interaction-polish** — Pressable 反馈、动效时长、无障碍与 reduce motion。\n\n需要我把 pack 同步进工作台 **文件** Tab 也可以说一声。"
+        }
+      ]
+    }
+  ],
+  "composer": {
+    "submitting": true,
+    "composerTextMode": "steer",
+    "showPlan": true,
+    "selectedModelLabel": "DeepSeek V3.1 Flash · 中",
+    "attachmentNames": [],
+    "plan": {
+      "explanation": "检索 → 读文档 → 撰写双 Skill → 生成报告。",
+      "steps": [
+        { "step": "列出已有 Skill", "status": "completed" },
+        { "step": "检索 RN 性能文档", "status": "completed" },
+        { "step": "撰写 rn-perf-audit", "status": "completed" },
+        { "step": "撰写 rn-interaction-polish", "status": "in_progress" },
+        { "step": "生成安装报告", "status": "pending" }
+      ]
+    }
+  },
+  "chrome": {
+    "connectionState": "live",
+    "serviceState": "ready",
+    "runSummary": "Run 进行中"
+  },
+  "workbench": {
+    "initialView": "activity",
+    "initialSheetIndex": 1,
+    "workbenchCount": 8,
+    "activityTimeline": [
+      { "id": "pt-1", "kind": "tool", "title": "skills.list", "status": "completed" },
+      { "id": "pt-2", "kind": "tool", "title": "web_search · RN perf", "status": "completed" },
+      { "id": "pt-3", "kind": "bash", "title": "fetch profiling 文档", "status": "completed" },
+      { "id": "pt-4", "kind": "read", "title": "read_file · RN best practices", "status": "completed" },
+      { "id": "pt-5", "kind": "bash", "title": "撰写 rn-perf-audit", "status": "completed" },
+      { "id": "pt-6", "kind": "bash", "title": "撰写 rn-interaction-polish", "status": "completed" },
+      { "id": "pt-7", "kind": "write", "title": "create_report · Skill 包", "status": "completed" },
+      { "id": "pt-8", "kind": "tool", "title": "web_search · Expo checklist", "status": "running", "highlighted": true }
+    ]
+  }
+}

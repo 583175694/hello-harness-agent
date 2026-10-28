@@ -1,0 +1,336 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "rich-session-showcase",
+  "title": "研究任务 · 全量展示",
+  "conversation": [
+    {
+      "kind": "user",
+      "content": "帮我调研 2025 年企业级 AI Agent 落地案例，并整理成可汇报的材料。"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "process": [
+        {
+          "type": "reasoning",
+          "content": "任务是企业 Agent 落地调研：需要可汇报结构、可引用来源编号，以及 Workbench 可展开的过程时间线手验数据。",
+          "durationMs": 5200
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "search-1",
+            "name": "web_search",
+            "summary": "(Agent 架构 / 落地案例)",
+            "status": "completed",
+            "duration": "38 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "第一轮结果偏 Copilot 与客服场景；补搜 Workbench、过程可见性相关竞品与案例研究。",
+          "durationMs": 6800
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "search-1b",
+            "name": "web_search",
+            "summary": "enterprise agent workbench UX case study 2025",
+            "status": "completed",
+            "duration": "22 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "fetch-gartner",
+            "name": "web_fetch",
+            "summary": "example.com/reports/enterprise-agents-2025",
+            "status": "completed",
+            "duration": "6 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "read-1",
+            "name": "read_file",
+            "summary": "internal/playbook.md",
+            "status": "completed",
+            "duration": "2 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "playbook 强调「来源可点击 + Passage」；报告骨架：摘要 → 三案例 → 风险 → 下一步 checklist。",
+          "durationMs": 4100
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "bash-gate",
+            "name": "bash",
+            "summary": "pnpm gate-a:verify:all（fixture 演示用输出）",
+            "status": "completed",
+            "duration": "284 ms"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "grep-stats",
+            "name": "grep",
+            "summary": "workbench|ProcessTimeline apps/android apps/ios",
+            "status": "completed",
+            "duration": "1 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "三端均已有 ProcessTimeline；本条 mock 用于长思维链折叠/滚动测试，不必与真实 grep 结果一致。",
+          "durationMs": 2400
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "write-report",
+            "name": "create_report",
+            "summary": "企业 Agent 落地调研（Mock）report.md",
+            "status": "completed",
+            "duration": "3 秒"
+          }
+        }
+      ],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已完成检索与初稿整理。**结论摘要**：Copilot 类场景仍占主导，Workbench 式「过程可见」成为差异化卖点。\n\n详细时间线、来源与报告见工作台（可上下滑动查看）。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "content": "把 README 的修改也放进 artifact diff，方便评审。"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已在 **文件** Tab 写入 v2/v3 版本与 diff 预览；需要全屏时可点「全屏查看 diff」。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "content": "补充几个制造业和 IoT 场景的案例，最好带引用来源编号。"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "process": [
+        {
+          "type": "reasoning",
+          "content": "用户要制造业 / IoT 案例且带来源编号；先搜 MES + 预测性维护，再搜视觉质检 Agent。",
+          "durationMs": 4500
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "search-2",
+            "name": "web_search",
+            "summary": "manufacturing IoT agent case study 2025",
+            "status": "completed",
+            "duration": "12 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "search-2b",
+            "name": "web_search",
+            "summary": "predictive maintenance agent MES integration",
+            "status": "completed",
+            "duration": "9 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "read-s3",
+            "name": "read_file",
+            "summary": "sources/manufacturing-s3.md",
+            "status": "completed",
+            "duration": "1 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "将 IoT 场景与制造业 MES 集成案例分开叙述，避免与上一节 Copilot 重复；引用标 [S3][S4]。",
+          "durationMs": 3200
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "memory-note",
+            "name": "memory_write",
+            "summary": "用户偏好：案例必须带 URL 与 Passage",
+            "status": "completed",
+            "duration": "1 秒"
+          }
+        }
+      ],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已补充 **制造业 / IoT** 两节：\n\n1. **预测性维护**：传感器告警 → Agent 拉取工单系统 → 生成检修 Runbook（来源 [S3]）。\n2. **产线质检**：视觉模型 + `read_file` 工艺卡，异常批次自动开 Incident（来源 [S4]）。\n\n可在工作台 **关联来源** 查看 Passage 段落。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "content": "给一段可粘贴到 PPT 的三行结论。"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "- 过程可见 > 黑盒答案\n- 来源可引用 > 纯生成\n- Workbench 四 Tab 覆盖评审全流程"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "content": "代码块渲染也测一下：给一段 TypeScript 配置示例。"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "```ts\nexport const previewFixtures = [\n  'rich-session-showcase.json',\n  'stock-market-review.json',\n] as const;\n```\n\n以上仅用于 Preview 壳层演示，无真实 API 调用。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "content": "如果 HITL 打断，界面会怎样？（本 Mock 仅文字说明即可）"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "真实运行时会切到 **Composer 澄清 / 工具审批** 面板；Gate A Preview 请切换 fixture `hitl-clarification.json` 或 `hitl-tool-approval.json` 查看静态态。本对话继续用于长线程与 Markdown 混排手验。"
+        }
+      ]
+    }
+  ],
+  "composer": {
+    "composerTextMode": "steer",
+    "submitting": true,
+    "showPlan": false,
+    "selectedModelLabel": "DeepSeek Reasoner · 高",
+    "attachmentNames": ["brief-2025-q1.pdf"],
+    "followUps": [
+      {
+        "id": "fu-showcase-1",
+        "content": "补充：三端 Gate A 快照各自覆盖哪些 fixture？"
+      },
+      {
+        "id": "fu-showcase-2",
+        "content": "把 Workbench 里 bash 步骤的执行输出单独解释一下"
+      }
+    ]
+  },
+  "chrome": {
+    "connectionState": "live",
+    "serviceState": "ready"
+  },
+  "sessionDrawer": {
+    "draftTitle": "新对话",
+    "searchPlaceholder": "搜索会话",
+    "sessions": [
+      {
+        "id": "active",
+        "title": "研究任务 · 全量展示",
+        "time": "刚刚",
+        "active": true,
+        "pinned": false,
+        "running": false
+      },
+      {
+        "id": "p1",
+        "title": "agent-auth-refactor",
+        "time": "1 分钟前",
+        "pinned": true,
+        "running": true
+      }
+    ]
+  },
+  "workbench": {
+    "initialView": "activity",
+    "initialSheetIndex": 2,
+    "workbenchCount": 6,
+    "activityTimeline": [
+      { "id": "a1", "kind": "plan", "title": "拆解调研问题与子任务", "status": "completed" },
+      { "id": "a2", "kind": "tool", "title": "web_search · 企业 Agent 案例", "status": "completed" },
+      { "id": "a3", "kind": "tool", "title": "web_search · Workbench UX 竞品", "status": "completed" },
+      { "id": "a4", "kind": "read", "title": "读取 playbook.md（内部）", "status": "completed" },
+      { "id": "a5", "kind": "tool", "title": "fetch · Gartner 公开摘要页", "status": "completed", "highlighted": true },
+      { "id": "a6", "kind": "write", "title": "写入 report.md 草稿", "status": "completed" },
+      { "id": "a7", "kind": "tool", "title": "grep · 代码库引用统计", "status": "completed" },
+      { "id": "a8", "kind": "bash", "title": "pnpm gate-a:verify:all", "status": "completed", "highlighted": true },
+      { "id": "a9", "kind": "tool", "title": "diff · README.md v2→v3", "status": "completed" },
+      { "id": "a10", "kind": "plan", "title": "汇总来源与引用段落", "status": "completed" },
+      { "id": "a11", "kind": "tool", "title": "lint · mobile-contract fixtures", "status": "completed" },
+      { "id": "a12", "kind": "write", "title": "生成汇报用 Markdown", "status": "completed" }
+    ],
+    "bashSnippet": "$ pnpm gate-a:verify:all\n✓ validate:gate-a\n✓ Paparazzi (Android)\n✓ HarnessTests (iOS)\n✓ harmony assert\n\n$ git status --short apps/android apps/ios apps/harmony\n M PreviewScreens.kt\n M WorkbenchSheetOverlay.kt\n?? rich-session-showcase.json",
+    "sources": [
+      {
+        "title": "Enterprise AI Agents — Field Notes 2025",
+        "url": "https://example.com/reports/enterprise-agents-2025",
+        "snippet": "落地集中在客服、研发助手与运维 Runbook 自动化…",
+        "passageHeading": "§3 可见性",
+        "passageBody": "用户期望看到检索、读取与命令的**过程时间线**，而非仅最终答案。Workbench 抽屉式面板成为主流交互范式。"
+      },
+      {
+        "title": "Harness Phase A — Static Preview",
+        "url": "https://example.com/docs/gate-a",
+        "snippet": "Gate A 要求 fixture 驱动、无 SSE…",
+        "passageHeading": "Mock 数据",
+        "passageBody": "演示场景应覆盖 Activity / Sources / Report / Artifact 四 Tab，便于设计评审与截图。"
+      },
+      {
+        "title": "React Native Sheet Patterns",
+        "url": "https://example.com/ui/bottom-sheet",
+        "snippet": "Detent 44% / 72% / 98%…"
+      },
+      {
+        "title": "Markdown in Chat Bubbles",
+        "url": "https://example.com/chat/markdown",
+        "snippet": "标题、列表与代码块轻量渲染…"
+      },
+      {
+        "title": "Source without passage",
+        "url": "https://example.com/minimal",
+        "snippet": "仅摘要，无 Passage 按钮。"
+      }
+    ],
+    "reportMarkdown": "# 企业 Agent 落地调研（Mock）\n\n## 摘要\n\n- **场景**：客服、研发、运维三类为主。\n- **差异化**：过程可见（Workbench）+ 可引用来源。\n- **风险**：幻觉引用、权限边界、长任务可取消性。\n\n## 案例片段\n\n1. **Copilot 工作台**：检索 → 读取 → Bash 日志。\n2. **Research 模式**：多轮 web_search + 报告 Tab。\n3. **Artifact 评审**：版本树 + diff 全屏阅读。\n\n## 代码示例\n\n```ts\nconst tabs = ['activity', 'sources', 'report', 'artifact'] as const;\n```\n\n## 下一步\n\n- [ ] 产品评审本 Mock 场景\n- [ ] 手验 44% detent 仍露出 Composer\n- [ ] 签字表 57 格\n\n---\n\n*Fixture: rich-session-showcase.json · 内容区可上下滑动*",
+    "artifactVersions": [
+      { "id": "v1", "label": "README.md · v1", "selected": false },
+      { "id": "v2", "label": "README.md · v2", "selected": false },
+      { "id": "v3", "label": "README.md · v3（当前）", "selected": true }
+    ],
+    "artifactDiffPreview": "--- a/README.md\n+++ b/README.md\n@@ -1,6 +1,10 @@\n # Harness Agent\n \n Phase A static preview.\n+\n+## Workbench\n+\n+- Activity timeline + bash\n+- Sources with Passage\n",
+    "artifactRestorePrompt": "恢复 v2 将覆盖当前 README.md（Preview 静态确认）。"
+  }
+}

@@ -22,7 +22,7 @@ type ProcessTimelineStepProps = {
 export function ProcessTimelineStep({ icon, isLast, children, footer }: ProcessTimelineStepProps) {
   return (
     <View
-      className="flex-row"
+      className="flex-row items-start"
       style={{
         gap: PROCESS_TIMELINE_RAIL_GAP,
         minHeight: PROCESS_TIMELINE_STEP_MIN_HEIGHT,

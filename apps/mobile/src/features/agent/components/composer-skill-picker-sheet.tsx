@@ -9,12 +9,7 @@ import { useComposerPlaceholderColor } from '@/lib/use-composer-placeholder';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '@/lib/use-theme-colors';
 import { ComposerBottomDrawer } from './composer-bottom-drawer';
-import {
-  ComposerSheetCancelRow,
-  ComposerSheetFloatingCard,
-  ComposerSheetGrabHandle,
-  ComposerSheetHeader,
-} from './composer-sheet-chrome';
+import { ComposerSheetFloatingCard, ComposerSheetGrabHandle } from './composer-sheet-chrome';
 
 type ComposerSkillPickerSheetProps = {
   visible: boolean;
@@ -38,7 +33,6 @@ function SkillPickerBody({
   return (
     <>
       <ComposerSheetGrabHandle />
-      <ComposerSheetHeader title="Skill" actionLabel="完成" onAction={onClose} />
 
       <View className="mx-4 mb-2 h-10 justify-center rounded-full bg-subtle px-4">
         <TextInput
@@ -147,9 +141,6 @@ export function ComposerSkillPickerSheet({
             onClose={onClose}
             onToggleSkill={onToggleSkill}
           />
-        </ComposerSheetFloatingCard>
-        <ComposerSheetFloatingCard>
-          <ComposerSheetCancelRow label="取消" onPress={onClose} />
         </ComposerSheetFloatingCard>
       </View>
     </View>

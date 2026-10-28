@@ -14,6 +14,7 @@ import { PressableScale } from '@/components/ui/pressable-scale';
 import { SpinnerIcon } from '@/components/ui/spinner-icon';
 import { Text } from '@/components/ui/text';
 import { useReducedMotion } from '@/lib/use-reduced-motion';
+import { AGENT_UI_LAYOUT } from '../../config/ui.constants';
 import { catalogPlanFixture } from '../../fixtures/ui-catalog-fixtures';
 
 const DETAIL_ENTER_MS = 200;
@@ -144,8 +145,13 @@ export function PlanFloatingCard({
   }
 
   return (
-    <View className="relative w-full max-w-[360px] items-center" accessibilityRole="summary">
-      <PlanDetailsPanel open={open}>
+    <View
+      className="w-full items-center"
+      style={{ paddingHorizontal: AGENT_UI_LAYOUT.planOverlayHorizontalInsetPx }}
+      accessibilityRole="summary"
+    >
+      <View className="relative w-full max-w-[360px] items-center">
+        <PlanDetailsPanel open={open}>
         {explanation ? (
           <Text variant="caption" className="mb-2.5 text-muted">
             {explanation}
@@ -176,21 +182,22 @@ export function PlanFloatingCard({
             </Text>
           </View>
         ))}
-      </PlanDetailsPanel>
+        </PlanDetailsPanel>
 
-      <PressableScale
-        scaleEnabled={false}
-        onPress={() => setOpen(!open)}
-        className="min-h-[38px] flex-row items-center gap-2 rounded-full border border-composer-border bg-surface px-4 py-2 active:opacity-90"
-        accessibilityRole="button"
-        accessibilityLabel={`执行计划，第 ${activeIndex + 1} / ${plan.length} 步`}
-        accessibilityState={{ expanded: open }}
-      >
-        <SpinnerIcon tone="primary" size={14} textWeight="semibold" />
-        <Text variant="body-sm" className="font-semibold text-primary">
-          第 {activeIndex + 1} / {plan.length} 步
-        </Text>
-      </PressableScale>
+        <PressableScale
+          scaleEnabled={false}
+          onPress={() => setOpen(!open)}
+          className="min-h-[38px] flex-row items-center gap-2 rounded-full border border-composer-border bg-surface px-4 py-2 active:opacity-90"
+          accessibilityRole="button"
+          accessibilityLabel={`执行计划，第 ${activeIndex + 1} / ${plan.length} 步`}
+          accessibilityState={{ expanded: open }}
+        >
+          <SpinnerIcon tone="primary" size={14} textWeight="semibold" />
+          <Text variant="body-sm" className="font-semibold text-primary">
+            第 {activeIndex + 1} / {plan.length} 步
+          </Text>
+        </PressableScale>
+      </View>
     </View>
   );
 }

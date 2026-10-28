@@ -1,0 +1,9 @@
+**/oh_modules/
+**/node_modules/
+.local/
+.idea/
+*.hap
+/build/
+**/.hvigor/
+**/build/
+.cxx/

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "empty-landing",
+  "title": "新对话",
+  "conversation": [],
+  "composer": { "composerTextMode": "new-run" },
+  "chrome": { "connectionState": "idle", "serviceState": "ready" },
+  "uiHints": { "initialDrawerOpen": false },
+  "sessionDrawer": {
+    "draftTitle": "新对话",
+    "searchPlaceholder": "搜索会话",
+    "sessions": [
+      {
+        "id": "p1",
+        "title": "agent-auth-refactor",
+        "time": "1 分钟前",
+        "active": true,
+        "pinned": true,
+        "running": true
+      },
+      {
+        "id": "p2",
+        "title": "payment-gateway-stripe-webhook",
+        "time": "4 小时前",
+        "pinned": true
+      },
+      { "id": "r1", "title": "user-profile-api-migration", "time": "昨天" },
+      { "id": "r2", "title": "redis-caching-layer-opt", "time": "3 天前" },
+      { "id": "r3", "title": "fix-jwt-token-leak-in-cors", "time": "5 天前" }
+    ]
+  }
+}

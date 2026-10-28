@@ -1,0 +1,13 @@
+{
+  "name": "@harness/mobile-contract",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Native Mobile preview fixtures, design tokens, and JSON schemas",
+  "scripts": {
+    "validate": "node scripts/validate-preview-fixtures.mjs",
+    "validate:gate-a": "node scripts/validate-preview-fixtures.mjs && node scripts/verify-gate-a-invariants.mjs && node scripts/verify-gate-a-ui-regression-static.mjs && node scripts/verify-gate-a-screens.mjs && node scripts/verify-gate-a-ui-states.mjs",
+    "generate:long-thread": "node scripts/generate-long-thread-fixture.mjs",
+    "list:gate-a-snapshot-baselines": "node scripts/list-gate-a-snapshot-baselines.mjs",
+    "report:gate-a-human-evidence": "node scripts/verify-gate-a-human-evidence.mjs"
+  }
+}

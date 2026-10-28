@@ -21,6 +21,7 @@ import type { MobileAssistantBlock } from '../../fixtures/mobile-preview.types';
 import type { WorkbenchOpenRequest } from '../workbench-activity-view';
 import { AssistantTextBlock } from '../assistant-text-block';
 import { ReasoningBlock } from './reasoning-block';
+import { configureProcessExpandLayoutAnimation } from '../../lib/process-layout-animation';
 import {
   PROCESS_TIMELINE_FIRST_LINE_HEIGHT,
   PROCESS_TIMELINE_RAIL_GAP,
@@ -75,13 +76,7 @@ function ProcessToolStep({
         </Text>
       </View>
       {summary && summary !== title ? (
-        <Text
-          variant="caption"
-          className="text-muted"
-          style={{ marginTop: 2 }}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
+        <Text variant="caption" className="mt-0.5 text-muted" numberOfLines={1} ellipsizeMode="tail">
           {summary}
         </Text>
       ) : null}
@@ -182,6 +177,7 @@ export function AssistantProcessTimeline({
     <View className="w-full max-w-[620px]">
       <Pressable
         onPress={() => {
+          configureProcessExpandLayoutAnimation();
           setUserExpanded(true);
           setOpen((v) => !v);
         }}

@@ -1,0 +1,10 @@
+#Wed Oct 28 10:39:28 CST 2026
+base.2=/Users/sz-0203017616/code/other/hello-harness-agent/apps/android/macrobenchmark/build/intermediates/dex/previewBenchmark/mergeProjectDexPreviewBenchmark/11/classes.dex
+path.2=11/classes.dex
+base.1=/Users/sz-0203017616/code/other/hello-harness-agent/apps/android/macrobenchmark/build/intermediates/dex/previewBenchmark/mergeProjectDexPreviewBenchmark/0/classes.dex
+path.1=0/classes.dex
+base.0=/Users/sz-0203017616/code/other/hello-harness-agent/apps/android/macrobenchmark/build/intermediates/dex/previewBenchmark/mergeExtDexPreviewBenchmark/classes.dex
+renamed.2=classes3.dex
+renamed.1=classes2.dex
+renamed.0=classes.dex
+path.0=classes.dex

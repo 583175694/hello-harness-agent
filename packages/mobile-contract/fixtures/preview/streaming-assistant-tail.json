@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "streaming-assistant-tail",
+  "title": "流式预览",
+  "conversation": [
+    { "kind": "user", "content": "简要介绍 Phase A 静态 UI 的目标。" },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "streaming",
+      "streaming": true,
+      "pendingText": "Phase A 在三端实现可发布级静态体验，数据来自 mobile-contract 的 Preview fixture 与 ReplayController 模拟流式 tail（约 100ms 合并）。",
+      "blocks": []
+    }
+  ],
+  "composer": {
+    "composerTextMode": "disabled",
+    "submitting": true,
+    "followUps": [
+      { "id": "fu-1", "content": "补充：三端都要过 Gate A 快照" },
+      { "id": "fu-2", "content": "再给一个 workbench 样例" }
+    ]
+  },
+  "chrome": { "connectionState": "live", "serviceState": "ready", "runSummary": "撰写中" },
+  "replay": {
+    "assistantTail": {
+      "tickMs": 100,
+      "codepointsPerTick": 6
+    }
+  }
+}

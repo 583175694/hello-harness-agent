@@ -38,6 +38,9 @@ type ComposerStackProps = MobileComposerFixture & {
   onSkillPickerOpenChange?: (open: boolean) => void;
   /** 由 Chat 根层渲染附件/Skill overlay 时设为 true */
   hideInlineOverlays?: boolean;
+  /** Plan 由 Chat 根层 overlay 渲染，避免被 Composer 气泡 clip */
+  planHostOverlay?: boolean;
+  onChromeLayout?: (height: number) => void;
   onToggleSkill?: (name: string) => void;
   onSubmit?: (payload: ComposerSubmitPayload) => void;
   composerModels?: ModelFixture[];
@@ -78,6 +81,8 @@ export function ComposerStack({
   skillPickerOpen: skillPickerOpenProp,
   onSkillPickerOpenChange,
   hideInlineOverlays = false,
+  planHostOverlay = false,
+  onChromeLayout,
   onToggleSkill,
   onSubmit,
   onCancelRun,
@@ -203,6 +208,7 @@ export function ComposerStack({
   const queuedFollowUps = followUpItemsProp ?? [];
   const livePlan = composerPlan;
   const planVisible =
+    !planHostOverlay &&
     (showPlan || Boolean(livePlan?.length)) &&
     submitting &&
     !attachmentSheetOpen &&
@@ -297,7 +303,12 @@ export function ComposerStack({
     <>
       <View
         className="bg-canvas px-3 pt-1"
-        style={{ paddingBottom: safeBottom, paddingTop: planVisible ? 8 : 4 }}
+        style={{ paddingBottom: safeBottom, paddingTop: 4 }}
+        onLayout={
+          onChromeLayout
+            ? (e) => onChromeLayout(e.nativeEvent.layout.height)
+            : undefined
+        }
       >
         {followUpVisible ? (
           <View className="mb-2">
@@ -311,18 +322,6 @@ export function ComposerStack({
         ) : null}
 
         <View className="relative">
-          {planVisible ? (
-            <View
-              className="absolute bottom-full mb-2.5 w-full items-center"
-              style={{ zIndex: AGENT_UI_LAYOUT.composerPlanZIndex }}
-            >
-              <PlanFloatingCard
-                plan={livePlan ?? catalogPlanFixture.plan}
-                explanation={composerPlanExplanation ?? catalogPlanFixture.explanation}
-              />
-            </View>
-          ) : null}
-
           <View className="gap-2 rounded-bubble border border-composer-border bg-surface px-3 py-2.5">
             {selectedSkills.length > 0 ? (
               <View className="flex-row flex-wrap">
@@ -344,22 +343,40 @@ export function ComposerStack({
               />
             ) : null}
 
-            <TextInput
-              multiline
-              editable={!inputDisabled}
-              accessibilityLabel="任务输入"
-              value={draft}
-              onChangeText={(text) => {
-                setDraft((before) =>
-                  onReconcileDraftChange ? onReconcileDraftChange(before, text) : text,
-                );
-                if (text.startsWith('/')) setSkillPickerOpen(true);
-              }}
-              placeholder={placeholder}
-              placeholderTextColor={composerPlaceholderColor}
-              className="min-h-[44px] max-h-24 flex-1 px-0 py-1 text-[14px] leading-[22px] text-primary"
-              textAlignVertical="top"
-            />
+            <View className="relative w-full">
+              {planVisible ? (
+                <View
+                  className="absolute bottom-full mb-2.5 w-full items-center"
+                  style={{ zIndex: AGENT_UI_LAYOUT.composerPlanZIndex }}
+                >
+                  <PlanFloatingCard
+                    plan={livePlan ?? catalogPlanFixture.plan}
+                    explanation={composerPlanExplanation ?? catalogPlanFixture.explanation}
+                  />
+                </View>
+              ) : null}
+              <TextInput
+                multiline
+                scrollEnabled
+                editable={!inputDisabled}
+                accessibilityLabel="任务输入"
+                value={draft}
+                onChangeText={(text) => {
+                  setDraft((before) =>
+                    onReconcileDraftChange ? onReconcileDraftChange(before, text) : text,
+                  );
+                  if (text.startsWith('/')) setSkillPickerOpen(true);
+                }}
+                placeholder={placeholder}
+                placeholderTextColor={composerPlaceholderColor}
+                className="w-full px-0 py-1 text-[14px] leading-[22px] text-primary"
+                style={{
+                  minHeight: AGENT_UI_LAYOUT.composerInputMinHeightPx,
+                  maxHeight: AGENT_UI_LAYOUT.composerInputMaxHeightPx,
+                }}
+                textAlignVertical="top"
+              />
+            </View>
 
             <View className="flex-row items-center justify-between gap-2">
               <Pressable
@@ -372,7 +389,7 @@ export function ComposerStack({
               </Pressable>
 
               <View className="flex-1 flex-row items-center justify-end gap-1">
-                {composerTextMode !== 'steer' && composerTextMode !== 'clarification' ? (
+                {composerTextMode !== 'clarification' ? (
                   <ComposerModelMenu
                     presentation={hideInlineOverlays ? 'overlay' : 'modal'}
                     modelId={modelId}

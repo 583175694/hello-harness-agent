@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuite name="com.harness.agent.macrobenchmark.LongThreadScrollBenchmark" tests="1" failures="0" errors="0" skipped="0" time="132.046" timestamp="2026-10-28T02:41:55" hostname="localhost">
+  <properties>
+    <property name="device" value="Medium_Phone_API_36.0(AVD) - 16" />
+    <property name="flavor" value="preview" />
+    <property name="project" value=":macrobenchmark" />
+  </properties>
+  <testcase name="scrollConversationList" classname="com.harness.agent.macrobenchmark.LongThreadScrollBenchmark" time="128.906" />
+</testsuite>

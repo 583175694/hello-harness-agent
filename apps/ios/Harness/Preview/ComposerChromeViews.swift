@@ -1,33 +1,5 @@
 import SwiftUI
 
-struct ComposerPeekBarView: View {
-    let title: String
-    let subtitle: String?
-    let onPress: () -> Void
-
-    var body: some View {
-        Button(action: onPress) {
-            HStack {
-                Circle().fill(HarnessColors.link).frame(width: 8, height: 8)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.subheadline)
-                    if let subtitle, !subtitle.isEmpty {
-                        Text(subtitle).font(.caption).foregroundStyle(HarnessColors.muted)
-                    }
-                }
-                Spacer()
-                Text("›").font(.caption)
-            }
-            .padding(12)
-            .background(HarnessColors.surface)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(HarnessColors.border))
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-    }
-}
-
 struct PlanFloatingCardView: View {
     let plan: PlanFixture
     var lockCollapsed: Bool = false

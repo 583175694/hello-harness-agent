@@ -1,20 +1,18 @@
 import { router } from '@kit.ArkUI';
-import { AppButton } from '../coreui/AppButton';
 import { AppScaffold } from '../coreui/AppScaffold';
-import { AppTextField } from '../coreui/AppTextField';
 import { AppTopBar } from '../coreui/AppTopBar';
 import { HarnessColors } from '../coreui/HarnessColors';
-import { HarnessDivider } from '../coreui/HarnessDivider';
 import { SettingsSection } from '../coreui/SettingsSection';
+import { SettingsSoftDivider } from '../coreui/SettingsSoftDivider';
 import { PreviewLocalPreferences, PreviewMemoryEntry } from '../preview/PreviewLocalPreferences';
+import { harnessPageTransition } from '../coreui/HarnessPageTransition';
 
-const CONTROL_RADIUS: number = 8;
+const ROW_MIN_HEIGHT: number = 48;
 
 @Entry
 @Component
 struct PreviewMemoryPage {
   @State entries: PreviewMemoryEntry[] = [];
-  @State draft: string = '';
   @State allowWrite: boolean = PreviewLocalPreferences.memoryAllowWrite;
   @State themeDark: boolean = PreviewLocalPreferences.themeDark;
 
@@ -29,6 +27,10 @@ struct PreviewMemoryPage {
     this.entries = PreviewLocalPreferences.listMemory();
   }
 
+  pageTransition() {
+    harnessPageTransition()
+  }
+
   build() {
     AppScaffold({
       topBar: () => {
@@ -41,71 +43,42 @@ struct PreviewMemoryPage {
       },
       content: () => {
         Scroll() {
-          Column({ space: 12 }) {
-            SettingsSection({ title: '写入', useDark: this.themeDark }) {
+          Column({ space: 20 }) {
+            SettingsSection({ sectionLabel: '写入', useDark: this.themeDark }) {
               Row() {
-                Column({ space: 4 }) {
-                  Text('允许 Agent 写入记忆')
-                    .fontSize(15)
-                    .fontColor(HarnessColors.primaryText(this.themeDark))
-                  Text('本地开关 · 不调用 API')
-                    .fontSize(12)
-                    .fontColor(HarnessColors.mutedText(this.themeDark))
-                }
-                .layoutWeight(1)
-                .alignItems(HorizontalAlign.Start)
+                Text('允许 Agent 写入记忆')
+                  .fontSize(16)
+                  .layoutWeight(1)
+                  .fontColor(HarnessColors.secondaryText(this.themeDark))
                 Toggle({ type: ToggleType.Switch, isOn: this.allowWrite })
+                  .selectedColor(HarnessColors.primary)
                   .onChange((on: boolean) => {
                     this.allowWrite = on;
                     PreviewLocalPreferences.memoryAllowWrite = on;
                   })
               }
               .width('100%')
+              .height(ROW_MIN_HEIGHT)
+              .padding({ left: 16, right: 16 })
             }
 
-            SettingsSection({ title: '新增', useDark: this.themeDark }) {
-              Column() {
-                AppTextField({
-                  label: '记忆条目',
-                  placeholder: '输入要记住的内容…',
-                  text: this.draft,
-                  useDark: this.themeDark,
-                  onChange: (v: string) => {
-                    this.draft = v;
-                  },
-                })
-              }
-              .width('100%')
-              .padding({ left: 12, right: 12, top: 4, bottom: 4 })
-              .borderRadius(CONTROL_RADIUS)
-              .backgroundColor(HarnessColors.canvas(this.themeDark))
-              .border({ width: 1, color: HarnessColors.composerBorderColor(this.themeDark) })
-              AppButton({
-                label: '添加',
-                enabled: this.draft.trim().length > 0,
-                useDark: this.themeDark,
-                onClick: () => {
-                  PreviewLocalPreferences.addMemory(this.draft);
-                  this.entries = PreviewLocalPreferences.listMemory();
-                  this.draft = '';
-                },
-              })
-                .margin({ top: 12 })
-            }
-
-            SettingsSection({ title: '条目', useDark: this.themeDark }) {
+            SettingsSection({ sectionLabel: '条目', useDark: this.themeDark }) {
               if (this.entries.length === 0) {
-                Text('暂无记忆').fontSize(14).fontColor(HarnessColors.mutedText(this.themeDark))
+                Text('暂无记忆')
+                  .fontSize(14)
+                  .fontColor(HarnessColors.mutedText(this.themeDark))
+                  .width('100%')
+                  .padding({ left: 16, top: 14, bottom: 14 })
               } else {
                 ForEach(this.entries, (e: PreviewMemoryEntry, index: number) => {
                   Column() {
                     Row() {
                       Text(e.text)
-                        .fontSize(14)
-                        .fontColor(HarnessColors.primaryText(this.themeDark))
+                        .fontSize(15)
+                        .fontColor(HarnessColors.secondaryText(this.themeDark))
                         .layoutWeight(1)
                       Text('删除')
-                        .fontSize(13)
+                        .fontSize(14)
                         .fontColor(HarnessColors.linkText(this.themeDark))
                         .onClick(() => {
                           PreviewLocalPreferences.deleteMemory(e.id);
@@ -113,16 +86,17 @@ struct PreviewMemoryPage {
                         })
                     }
                     .width('100%')
-                    .padding({ top: 10, bottom: 10 })
+                    .height(ROW_MIN_HEIGHT)
+                    .padding({ left: 16, right: 16 })
                     if (index < this.entries.length - 1) {
-                      HarnessDivider({ useDark: this.themeDark })
+                      SettingsSoftDivider({ useDark: this.themeDark })
                     }
                   }
                 }, (e: PreviewMemoryEntry) => e.id)
               }
             }
           }
-          .padding({ left: 16, right: 16, top: 4, bottom: 24 })
+          .padding({ left: 16, right: 16, top: 8, bottom: 24 })
         }
         .width('100%')
         .height('100%')

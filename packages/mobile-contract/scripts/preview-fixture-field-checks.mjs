@@ -40,8 +40,6 @@ export function runPreviewFixtureFieldChecks(loadJson, { fail, ok }) {
   const processFix = loadJson('process-timeline-tools.json');
   if (!processFix || !conversationHasProcess(processFix)) {
     fail('process-timeline-tools.json must include assistant process blocks');
-  } else if (!processFix.chrome?.peekBarTitle) {
-    fail('process-timeline-tools.json must include chrome.peekBarTitle');
   } else {
     ok('process-timeline-tools.json');
   }

@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.harness.agent.coreui.motion.harnessPressOpacity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,11 +23,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Tag
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Tag
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -65,43 +67,6 @@ fun Modifier.floatAboveAnchor(
                 placeable.placeRelative(x, -placeable.height - gapPx)
             }
         }
-
-@Composable
-fun ComposerPeekBar(
-    title: String,
-    subtitle: String?,
-    onPress: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = LocalHarnessColors.current
-    Row(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp)
-                .clip(RoundedCornerShape(HarnessLayout.controlRadius))
-                .border(1.dp, colors.composerBorder, RoundedCornerShape(HarnessLayout.controlRadius))
-                .background(colors.surface)
-                .clickable(onClick = onPress)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier =
-                Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(colors.link),
-        )
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
-            AppText(text = title, style = AppTextStyle.Body)
-            if (!subtitle.isNullOrBlank()) {
-                AppText(text = subtitle, style = AppTextStyle.Muted)
-            }
-        }
-        AppText(text = "›", style = AppTextStyle.Caption)
-    }
-}
 
 @Composable
 fun PlanFloatingCard(
@@ -198,7 +163,7 @@ private fun PlanStepRow(step: PlanStepFixture) {
             when (step.status) {
                 "completed" ->
                     Icon(
-                        imageVector = Icons.Filled.Check,
+                        imageVector = Icons.Rounded.Check,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = colors.muted,
@@ -225,12 +190,19 @@ fun ComposerModelMenuChip(
     enabled: Boolean = true,
 ) {
     val colors = LocalHarnessColors.current
+    val interactionSource = androidx.compose.runtime.remember { MutableInteractionSource() }
     Row(
         modifier =
             modifier
                 .defaultMinSize(minHeight = HarnessLayout.composerPlusSize)
+                .harnessPressOpacity(enabled = enabled, interactionSource = interactionSource)
                 .clip(RoundedCornerShape(HarnessLayout.controlRadius))
-                .clickable(enabled = enabled, onClick = onClick)
+                .clickable(
+                    enabled = enabled,
+                    onClick = onClick,
+                    interactionSource = interactionSource,
+                    indication = null,
+                )
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -241,7 +213,7 @@ fun ComposerModelMenuChip(
             modifier = Modifier.weight(1f, fill = false),
         )
         Icon(
-            imageVector = Icons.Filled.ArrowDropDown,
+            imageVector = Icons.Rounded.ArrowDropDown,
             contentDescription = null,
             modifier = Modifier.size(14.dp),
             tint = colors.muted,
@@ -276,7 +248,7 @@ fun ComposerAuxiliarySheets(
     ) {
         ComposerSheetActionRow(
             label = "照片与图片",
-            icon = Icons.Filled.Image,
+            icon = Icons.Rounded.Image,
             onClick = {
                 onAttachmentPicked("preview-photo.jpg")
                 onAttachmentOpenChange(false)
@@ -284,7 +256,7 @@ fun ComposerAuxiliarySheets(
         )
         ComposerSheetActionRow(
             label = "文件",
-            icon = Icons.Filled.AttachFile,
+            icon = Icons.Rounded.AttachFile,
             onClick = {
                 onAttachmentPicked("document-preview.pdf")
                 onAttachmentOpenChange(false)
@@ -292,7 +264,7 @@ fun ComposerAuxiliarySheets(
         )
         ComposerSheetActionRow(
             label = "Skill",
-            icon = Icons.Filled.Tag,
+            icon = Icons.Rounded.Tag,
             onClick = {
                 onAttachmentOpenChange(false)
                 onSkillOpenChange(true)

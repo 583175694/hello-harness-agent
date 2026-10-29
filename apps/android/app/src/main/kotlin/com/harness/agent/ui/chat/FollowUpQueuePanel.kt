@@ -11,9 +11,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.SubdirectoryArrowLeft
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.SubdirectoryArrowLeft
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -55,7 +55,7 @@ fun FollowUpQueuePanel(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Filled.SubdirectoryArrowLeft,
+                    imageVector = Icons.Rounded.SubdirectoryArrowLeft,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
                     tint = colors.muted,
@@ -74,13 +74,13 @@ fun FollowUpQueuePanel(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     FollowUpGhostIconButton(
-                        icon = Icons.Filled.ArrowUpward,
+                        icon = Icons.Rounded.ArrowUpward,
                         contentDescription = "发送跟进",
                         tint = colors.secondary,
                         onClick = { onSend(item.id) },
                     )
                     FollowUpGhostIconButton(
-                        icon = Icons.Filled.Close,
+                        icon = Icons.Rounded.Close,
                         contentDescription = "移除跟进",
                         tint = colors.muted,
                         onClick = { onDismiss(item.id) },

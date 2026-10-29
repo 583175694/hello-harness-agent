@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 import type { PendingInterruptSnapshot } from '@harness/agent-protocol';
-import { X } from 'lucide-react-native';
-import { Icon } from '@/components/ui/icon';
-import { PressableScale } from '@/components/ui/pressable-scale';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/cn';
 import { AGENT_UI_BUTTON } from '../config/ui.constants';
@@ -34,32 +31,25 @@ export function ComposerClarificationPanel({
   const allowFreeText = interrupt?.payload.allowFreeText ?? true;
 
   return (
-    <View className="rounded-bubble border border-composer-border bg-surface p-3.5">
-      <View className="mb-2 flex-row items-center justify-between">
-        <Text variant="body" className="font-semibold">
-          需要补充信息
+    <View className="gap-2.5">
+      <View className="flex-row items-start gap-2">
+        <Text variant="body-sm" className="min-w-0 flex-1 leading-5 text-secondary">
+          {question}
         </Text>
-        <Pressable
-          onPress={onCancelRun}
-          className="flex-row items-center gap-1 px-1 active:opacity-70"
-          accessibilityRole="button"
-        >
-          <Icon icon={X} tone="secondary" size={14} />
-          <Text variant="caption" className="text-secondary">
-            取消运行
+        <Pressable onPress={onCancelRun} className="shrink-0 pt-0.5 active:opacity-70" accessibilityRole="button">
+          <Text variant="caption" className="text-muted">
+            取消
           </Text>
         </Pressable>
       </View>
-      <Text variant="body-sm" className="mb-3 text-secondary">
-        {question}
-      </Text>
       {options.length > 0 ? (
-        <View className="mb-3 flex-row flex-wrap gap-2">
+        <View className="flex-row flex-wrap gap-2">
           {options.map((opt) => (
             <Pressable
               key={opt}
-              onPress={() => setAnswer(opt)}
-              className={cn(btn.chipOption, answer === opt && 'border-primary bg-subtle')}
+              onPress={() => onSubmit?.(opt)}
+              disabled={submitting}
+              className={cn(btn.chipOption, submitting && 'opacity-50')}
             >
               <Text variant="caption" className="text-primary">
                 {opt}
@@ -69,24 +59,26 @@ export function ComposerClarificationPanel({
         </View>
       ) : null}
       {allowFreeText ? (
-        <TextInput
-          value={answer}
-          onChangeText={setAnswer}
-          placeholder="输入回答"
-          className="mb-3 min-h-10 rounded-lg border border-composer-border px-3 py-2 text-[14px] text-primary"
-          editable={!submitting}
-        />
+        <View className="flex-row items-center gap-2">
+          <TextInput
+            value={answer}
+            onChangeText={setAnswer}
+            placeholder="其他…"
+            className="min-h-10 flex-1 rounded-lg border border-composer-border px-3 py-2 text-[14px] text-primary"
+            editable={!submitting}
+          />
+          <Pressable
+            onPress={() => onSubmit?.(answer.trim())}
+            disabled={submitting || !answer.trim()}
+            className={cn('shrink-0 px-1 active:opacity-70', (submitting || !answer.trim()) && 'opacity-40')}
+            accessibilityLabel="提交"
+          >
+            <Text variant="body-sm" className="text-link">
+              提交
+            </Text>
+          </Pressable>
+        </View>
       ) : null}
-      <PressableScale
-        onPress={() => onSubmit?.(answer.trim())}
-        disabled={submitting || !answer.trim()}
-        className={cn(btn.primaryCta, (submitting || !answer.trim()) && 'opacity-50')}
-        accessibilityLabel="提交回答"
-      >
-        <Text variant="body-sm" className="font-medium text-primary-foreground">
-          {submitting ? '正在提交回答' : '提交回答'}
-        </Text>
-      </PressableScale>
     </View>
   );
 }

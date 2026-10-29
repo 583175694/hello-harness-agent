@@ -5,50 +5,54 @@ struct PreviewDevMenuView: View {
     @Bindable var store: PreviewSessionStore
     var onOpenSettings: () -> Void
     var onSelectFixture: (String) -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var sortedFixtures: [PreviewFixtureDescriptor] {
+        store.fixtures.sorted { a, b in
+            let ra = GateAPreviewFixtures.demoFixtureSortRank(a.fileName)
+            let rb = GateAPreviewFixtures.demoFixtureSortRank(b.fileName)
+            if ra != rb { return ra < rb }
+            return a.fileName < b.fileName
+        }
+    }
 
     var body: some View {
-        AppScaffold(title: "演示场景") {
-            Text("Gate A 十场景（mobile-contract/fixtures/preview）")
-                .font(.caption)
-                .foregroundStyle(HarnessColors.muted)
-            Button {
-                onOpenSettings()
-            } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("设置")
-                        .font(.body)
-                        .foregroundStyle(HarnessColors.primary)
-                    Text("主题 · 字号 · Reduce Motion · MCP / Memory")
-                        .font(.caption)
-                        .foregroundStyle(HarnessColors.muted)
+        ScrollView {
+            VStack(alignment: .leading, spacing: HarnessLayout.settingsGroupGap) {
+                settingsGroup(sectionLabel: "快捷") {
+                    Button(action: onOpenSettings) {
+                        settingsNavRowLabel(title: "设置", trailing: nil)
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: settingsRowMinHeight, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("dev-menu-settings")
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("dev-menu-settings")
-            List(store.fixtures.sorted { a, b in
-                let ra = GateAPreviewFixtures.demoFixtureSortRank(a.fileName)
-                let rb = GateAPreviewFixtures.demoFixtureSortRank(b.fileName)
-                if ra != rb { return ra < rb }
-                return a.fileName < b.fileName
-            }) { fixture in
-                Button {
-                    store.load(fileName: fixture.fileName)
-                    onSelectFixture(fixture.fileName)
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(fixture.title)
-                            .font(.body)
-                            .foregroundStyle(HarnessColors.primary)
-                        Text(fixture.fileName)
-                            .font(.caption)
-                            .foregroundStyle(HarnessColors.muted)
+
+                settingsGroup(sectionLabel: "场景") {
+                    ForEach(Array(sortedFixtures.enumerated()), id: \.element.fileName) { index, fixture in
+                        VStack(spacing: 0) {
+                            Button {
+                                store.load(fileName: fixture.fileName)
+                                onSelectFixture(fixture.fileName)
+                            } label: {
+                                settingsNavRowLabel(title: fixture.title, trailing: nil)
+                                    .padding(.horizontal, 16)
+                                    .frame(minHeight: settingsRowMinHeight, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("dev-menu-fixture-\(fixture.fileName)")
+                            if index < sortedFixtures.count - 1 {
+                                SettingsSoftDividerView()
+                            }
+                        }
                     }
                 }
-                .accessibilityIdentifier("dev-menu-fixture-\(fixture.fileName)")
             }
-            .listStyle(.plain)
+            .padding(.vertical, 8)
         }
+        .background(HarnessColors.canvas(colorScheme))
+        .navigationTitle("演示场景")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -36,16 +38,18 @@ import com.harness.agent.coreui.primitives.Badge
 import com.harness.agent.coreui.primitives.AppScaffold
 import com.harness.agent.coreui.primitives.AppText
 import com.harness.agent.coreui.primitives.AppTextStyle
-import com.harness.agent.coreui.primitives.AppTopBar
-import com.harness.agent.coreui.primitives.ListRow
+import com.harness.agent.ui.settings.SettingsGroup
+import com.harness.agent.ui.settings.SettingsNavRow
+import com.harness.agent.ui.settings.SettingsTopBar
+import com.harness.agent.coreui.tokens.HarnessLayout
 import com.harness.agent.coreui.tokens.LocalHarnessColors
 import com.harness.agent.preview.PreviewAppPreferences
 import com.harness.agent.preview.PreviewSessionViewModel
+import com.harness.agent.ui.chat.ConversationScrollOnEnterAndUserSendEffect
 import com.harness.agent.ui.chat.ProblemDetailsCard
 import com.harness.agent.ui.chat.ServiceBanner
 import com.harness.agent.ui.chat.ChatLandingHero
 import com.harness.agent.ui.chat.ChatTopBar
-import com.harness.agent.ui.chat.ComposerPeekBar
 import com.harness.agent.preview.PreviewUiAction
 import com.harness.agent.ui.chat.ComposerStack
 import com.harness.agent.preview.PreviewChromeFlags
@@ -69,46 +73,40 @@ fun PreviewDevMenuScreen(
                 compareBy({ MainActivity.demoFixtureSortRank(it.fileName) }, { it.fileName }),
             )
         }
+    val colors = LocalHarnessColors.current
     AppScaffold(
         topBar = {
-            Row(
-                modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (onBack != null) {
-                    AppText(
-                        text = "←",
-                        style = AppTextStyle.Title,
-                        modifier =
-                            Modifier
-                                .clickable(onClick = onBack)
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
-                }
-                AppText(text = "演示场景", style = AppTextStyle.Title, modifier = Modifier.weight(1f))
+            if (onBack != null) {
+                SettingsTopBar(title = "演示场景", onBack = onBack)
             }
         },
     ) {
-        AppText(
-            text = "Gate A 十场景（mobile-contract/fixtures/preview）",
-            style = AppTextStyle.Caption,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        ListRow(
-            title = "设置",
-            subtitle = "主题 · 字号 · Reduce Motion · MCP / Memory",
-            onClick = onOpenSettings,
-            modifier = Modifier.testTag("dev-menu-settings"),
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(fixtures) { item ->
-                ListRow(
-                    title = item.title,
-                    subtitle = item.fileName,
-                    onClick = { onOpenScenario(item.fileName) },
-                    modifier = Modifier.testTag("dev-menu-fixture-${item.fileName}"),
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(colors.canvas)
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = 8.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
+        ) {
+            SettingsGroup(sectionLabel = "快捷") {
+                SettingsNavRow(
+                    title = "设置",
+                    onClick = onOpenSettings,
+                    showDivider = false,
+                    modifier = Modifier.testTag("dev-menu-settings"),
                 )
+            }
+            SettingsGroup(sectionLabel = "场景") {
+                fixtures.forEachIndexed { index, item ->
+                    SettingsNavRow(
+                        title = item.title,
+                        onClick = { onOpenScenario(item.fileName) },
+                        showDivider = index < fixtures.lastIndex,
+                        modifier = Modifier.testTag("dev-menu-fixture-${item.fileName}"),
+                    )
+                }
             }
         }
     }
@@ -121,6 +119,7 @@ fun PreviewChatShellScreen(
     fixtureFileName: String,
     onLoadDemoFixture: () -> Unit = {},
     onOpenSettings: () -> Unit,
+    onOpenLogin: () -> Unit = {},
     onOpenReportReader: (title: String, markdown: String) -> Unit,
     onOpenArtifactReader: (title: String, diff: String) -> Unit,
 ) {
@@ -164,6 +163,11 @@ fun PreviewChatShellScreen(
         onOpenSettings = {
             viewModel.setDrawerOpen(false)
             onOpenSettings()
+        },
+        composerBlock = preferences.resolveComposerBlock(),
+        onOpenLogin = {
+            viewModel.setDrawerOpen(false)
+            onOpenLogin()
         },
         onLoadDemoFixture = onLoadDemoFixture,
         onOpenReportReader = onOpenReportReader,
@@ -231,6 +235,8 @@ private fun PreviewChatShellLayout(
     onTogglePin: (String) -> Unit,
     onDeleteSession: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    composerBlock: com.harness.agent.preview.PreviewComposerBlockKind = com.harness.agent.preview.PreviewComposerBlockKind.NONE,
+    onOpenLogin: () -> Unit = {},
     onLoadDemoFixture: () -> Unit = {},
     onOpenReportReader: (title: String, markdown: String) -> Unit,
     onOpenArtifactReader: (title: String, diff: String) -> Unit,
@@ -242,6 +248,13 @@ private fun PreviewChatShellLayout(
     var serviceBannerDismissed by rememberSaveable(state.scenarioId) { mutableStateOf(false) }
     var composerChromeHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
+    val conversationListState = rememberLazyListState()
+    val conversation = state.conversation
+    ConversationScrollOnEnterAndUserSendEffect(
+        listState = conversationListState,
+        conversation = conversation,
+        sessionKey = state.scenarioId,
+    )
 
     LaunchedEffect(drawerOpen, workbenchOpen) {
         if (drawerOpen || workbenchOpen) {
@@ -285,7 +298,10 @@ private fun PreviewChatShellLayout(
                             onDismiss = { serviceBannerDismissed = true },
                         )
                     }
-                    if (state.problemTitle != null || state.problemDetail != null) {
+                    if (
+                        state.chrome.serviceState == "ready" &&
+                        (state.problemTitle != null || state.problemDetail != null)
+                    ) {
                         ProblemDetailsCard(title = state.problemTitle, detail = state.problemDetail)
                     }
                     Box(
@@ -304,34 +320,27 @@ private fun PreviewChatShellLayout(
                                 )
                             else ->
                                 LazyColumn(
+                                    state = conversationListState,
                                     modifier =
                                         Modifier
                                             .fillMaxSize()
-                                            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp),
-                                    reverseLayout = true,
-                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            .padding(start = 12.dp, end = 12.dp, top = 4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(HarnessLayout.chatListTurnSpacing),
                                 ) {
-                                    item {
-                                        AppText(
-                                            text = "共 ${state.conversation.size} 条对话 · 向下滚动验证长列表",
-                                            style = AppTextStyle.Caption,
-                                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                                        )
-                                    }
                                     itemsIndexed(
-                                        items = state.conversation.asReversed(),
+                                        items = conversation,
                                         key = { index, item ->
-                                            val position = state.conversation.lastIndex - index
                                             when (item) {
                                                 is com.harness.agent.model.ConversationItem.User ->
-                                                    "u-$position-${item.content.hashCode()}"
+                                                    "u-$index-${item.content.hashCode()}"
                                                 is com.harness.agent.model.ConversationItem.Assistant ->
-                                                    "a-$position-${item.deliveryStatus}"
+                                                    "a-$index-${item.deliveryStatus}"
                                             }
                                         },
                                     ) { _, item ->
                                         ConversationTurnRow(
                                             item = item,
+                                            previewReduceMotion = previewReduceMotion,
                                             onOpenWorkbenchStep = onOpenWorkbenchFromProcess,
                                         )
                                     }
@@ -340,24 +349,12 @@ private fun PreviewChatShellLayout(
                     }
                 }
             }
-            if (
-                state.composer.submitting &&
-                    !state.composer.showPlan &&
-                    !state.chrome.peekBarTitle.isNullOrBlank()
-            ) {
-                ComposerPeekBar(
-                    title = state.chrome.peekBarTitle!!,
-                    subtitle = state.chrome.peekBarSubtitle,
-                    onPress = {
-                        dismissKeyboard()
-                        onWorkbenchOpenChange(true)
-                    },
-                )
-            }
             ComposerStack(
                 state = state.composer,
                 workbenchOpen = workbenchOpen,
                 previewReduceMotion = previewReduceMotion,
+                composerBlock = composerBlock,
+                onLoginClick = onOpenLogin,
                 onPreviewAction = onPreviewAction,
                 modifier =
                     Modifier.onSizeChanged { size ->

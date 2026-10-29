@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ConversationTurnRowView: View {
     let item: ConversationItem
+    var previewReduceMotion: Bool = false
     var onOpenWorkbenchStep: ((String) -> Void)? = nil
 
     var body: some View {
@@ -15,6 +16,7 @@ struct ConversationTurnRowView: View {
                 summary: summary,
                 markdownContent: markdown,
                 process: process,
+                previewReduceMotion: previewReduceMotion,
                 onOpenWorkbenchStep: onOpenWorkbenchStep
             )
         }
@@ -28,14 +30,14 @@ struct UserMessageBubbleView: View {
     var body: some View {
         HStack {
             Spacer(minLength: 48)
-            Text(text)
-                .font(.system(size: max(13, contentFontSize - 1)))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+            ChatMarkdownView(markdown: text, compact: true)
+                .padding(.horizontal, HarnessLayout.chatBubblePaddingHorizontal)
+                .padding(.vertical, HarnessLayout.chatBubblePaddingVertical)
                 .background(HarnessColors.userBubble)
                 .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.bubbleRadius, style: .continuous))
-                .frame(maxWidth: UIScreen.main.bounds.width * 0.82, alignment: .trailing)
+                .frame(maxWidth: HarnessLayout.userBubbleMaxWidth, alignment: .trailing)
         }
+        .padding(.vertical, HarnessLayout.chatTurnVerticalPadding)
     }
 }
 
@@ -45,28 +47,33 @@ struct AssistantMessageBubbleView: View {
     let summary: String?
     let markdownContent: String?
     let process: [ProcessBlock]
+    var previewReduceMotion: Bool = false
     var onOpenWorkbenchStep: ((String) -> Void)? = nil
     @Environment(\.previewContentFontSize) private var contentFontSize
 
+    private var assistantBodyMarkdown: String {
+        if let markdownContent, !markdownContent.isEmpty { return markdownContent }
+        return summary ?? ""
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             AssistantProcessTimelineView(
                 blocks: process,
                 running: status == "streaming",
-                finalOutputVisible: markdownContent != nil || summary != nil,
-                onOpenWorkbench: onOpenWorkbenchStep
+                finalOutputVisible: !assistantBodyMarkdown.isEmpty,
+                onOpenWorkbench: onOpenWorkbenchStep,
+                previewReduceMotion: previewReduceMotion
             )
             if status == "streaming" {
                 Text(pendingText?.isEmpty == false ? pendingText! : "▍")
                     .font(.system(size: contentFontSize))
-                ProgressView()
-            } else if let markdownContent {
-                MarkdownBodyView(markdown: markdownContent)
             } else {
-                Text(summary ?? "")
-                    .font(.system(size: contentFontSize))
+                ChatMarkdownView(markdown: assistantBodyMarkdown)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .padding(.vertical, HarnessLayout.chatTurnVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

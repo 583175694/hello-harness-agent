@@ -1,7 +1,7 @@
 package com.harness.agent.ui.chat
 
-import android.provider.Settings
 import androidx.compose.animation.core.FastOutSlowInEasing
+import com.harness.agent.coreui.motion.rememberHarnessReduceMotion
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -30,9 +30,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,12 +54,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.harness.agent.coreui.feedback.AppConfirmDialog
+import com.harness.agent.coreui.feedback.AppConfirmRequest
 import com.harness.agent.coreui.primitives.AppDivider
 import com.harness.agent.coreui.primitives.AppSheet
 import com.harness.agent.coreui.primitives.AppText
@@ -93,22 +95,14 @@ fun SessionDrawerOverlay(
     onOpenSettings: () -> Unit,
     previewReduceMotion: Boolean = false,
 ) {
-    val context = LocalContext.current
-    val systemReduceMotion =
-        remember {
-            try {
-                Settings.Global.getFloat(context.contentResolver, Settings.Global.TRANSITION_ANIMATION_SCALE) == 0f
-            } catch (_: Exception) {
-                false
-            }
-        }
-    val reduceMotion = previewReduceMotion || systemReduceMotion
+    val reduceMotion = rememberHarnessReduceMotion(previewReduceMotion)
+    val motionMs = if (reduceMotion) 150 else MOTION_MS
 
     val panelProgress by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
         animationSpec =
             if (reduceMotion) {
-                tween(durationMillis = 120)
+                tween(durationMillis = motionMs)
             } else {
                 tween(durationMillis = MOTION_MS, easing = FastOutSlowInEasing)
             },
@@ -117,7 +111,7 @@ fun SessionDrawerOverlay(
 
     val scrimAlpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = if (reduceMotion) 120 else MOTION_MS),
+        animationSpec = tween(durationMillis = motionMs),
         label = "drawerScrim",
     )
 
@@ -130,7 +124,7 @@ fun SessionDrawerOverlay(
         val panelWidth = maxWidth * PANEL_WIDTH_RATIO
         val panelWidthPx = with(density) { panelWidth.toPx() }
         val offsetX =
-            if (reduceMotion && panelProgress >= 1f) {
+            if (reduceMotion) {
                 0
             } else {
                 (-panelWidthPx * (1f - panelProgress)).roundToInt()
@@ -150,6 +144,11 @@ fun SessionDrawerOverlay(
                     .fillMaxHeight()
                     .width(panelWidth)
                     .offset { IntOffset(offsetX, 0) }
+                    .graphicsLayer {
+                        if (reduceMotion) {
+                            alpha = panelProgress
+                        }
+                    }
                     .border(
                         width = 1.dp,
                         color = LocalHarnessColors.current.composerBorder,
@@ -172,13 +171,29 @@ fun SessionDrawerOverlay(
         }
     }
 
+    var deleteConfirm by remember { mutableStateOf<AppConfirmRequest?>(null) }
+
     SessionDrawerContextMenu(
         target = menuTarget,
         onDismiss = onDismissMenu,
         onRename = onRenameSession,
         onTogglePin = onTogglePin,
-        onDelete = onDeleteSession,
+        onRequestDelete = { id, title ->
+            deleteConfirm =
+                AppConfirmRequest(
+                    title = "删除会话",
+                    message = "确定删除「$title」？Preview 中仅从侧栏列表移除。",
+                    confirmLabel = "删除",
+                    destructive = true,
+                    onConfirm = {
+                        onDeleteSession(id)
+                        onDismissMenu()
+                    },
+                )
+        },
     )
+
+    AppConfirmDialog(request = deleteConfirm, onDismiss = { deleteConfirm = null })
 }
 
 @Composable
@@ -227,7 +242,7 @@ private fun DrawerPanelContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Add,
+                    imageVector = Icons.Rounded.Add,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = colors.primary,
@@ -250,7 +265,7 @@ private fun DrawerPanelContent(
                     },
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Filled.Search,
+                            imageVector = Icons.Rounded.Search,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = colors.muted,
@@ -369,7 +384,7 @@ private fun DrawerPanelContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Settings,
+                    imageVector = Icons.Rounded.Settings,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = colors.secondary,
@@ -444,7 +459,7 @@ private fun SessionDrawerContextMenu(
     onDismiss: () -> Unit,
     onRename: (String, String) -> Unit,
     onTogglePin: (String) -> Unit,
-    onDelete: (String) -> Unit,
+    onRequestDelete: (String, String) -> Unit,
 ) {
     var renameDraft by remember(target?.id) { mutableStateOf(target?.title.orEmpty()) }
     AppSheet(
@@ -458,7 +473,7 @@ private fun SessionDrawerContextMenu(
         AppDivider()
         ListRowAction("重命名") { onRename(target.id, renameDraft.ifBlank { target.title }) }
         ListRowAction(if (target.pinned) "取消置顶" else "置顶") { onTogglePin(target.id) }
-        ListRowAction("删除会话") { onDelete(target.id) }
+        ListRowAction("删除会话") { onRequestDelete(target.id, target.title) }
     }
 }
 

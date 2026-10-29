@@ -26,7 +26,7 @@ export function ChatTopBar({
   const showConnectionIndicator =
     connectionState !== 'live' && connectionState !== 'idle';
   return (
-    <View className="relative border-b border-composer-border/80 bg-canvas px-1 pb-0.5 pt-0.5">
+    <View className="relative bg-canvas px-1 pb-0.5 pt-0.5">
       <View className="h-10 flex-row items-center">
         <Pressable
           onPress={onOpenDrawer}
@@ -55,7 +55,7 @@ export function ChatTopBar({
             workbenchBadge > 0 ? `打开工作台，${workbenchBadge} 项更新` : '打开工作台'
           }
         >
-          <Icon icon={PanelRight} tone="primary" size={20} />
+          <Icon icon={PanelRight} tone="primary" size={20} textWeight="medium" />
           {workbenchBadge > 0 ? (
             <View className="absolute -right-0.5 -top-0.5 min-h-[16px] min-w-[16px] items-center justify-center rounded-full bg-primary px-1">
               <Text variant="caption" className="text-[10px] font-semibold text-primary-foreground">

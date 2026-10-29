@@ -1,48 +1,57 @@
 package com.harness.agent.ui.settings
 
-import android.widget.Toast
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.harness.agent.coreui.motion.harnessPressOpacity
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.harness.agent.coreui.primitives.AppButton
-import com.harness.agent.coreui.primitives.AppDivider
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import com.harness.agent.coreui.feedback.AppConfirmDialog
+import com.harness.agent.coreui.feedback.AppConfirmRequest
+import com.harness.agent.coreui.feedback.LocalAppToast
 import com.harness.agent.coreui.primitives.AppScaffold
+import com.harness.agent.coreui.primitives.harnessSwitchColors
 import com.harness.agent.coreui.primitives.AppText
-import com.harness.agent.coreui.primitives.AppTextField
+import com.harness.agent.coreui.primitives.SettingsTextField
 import com.harness.agent.coreui.primitives.AppTextStyle
 import com.harness.agent.coreui.primitives.AppTopBar
-import com.harness.agent.coreui.primitives.Badge
-import com.harness.agent.coreui.primitives.SettingsSwitch
 import com.harness.agent.coreui.tokens.HarnessLayout
 import com.harness.agent.coreui.tokens.LocalHarnessColors
 import com.harness.agent.preview.PreviewAppPreferences
+import com.harness.agent.preview.PreviewComposerBlockKind
 import com.harness.agent.preview.PreviewMcpServer
 import com.harness.agent.preview.PreviewThemeMode
 import java.util.UUID
@@ -51,120 +60,144 @@ import java.util.UUID
 fun PreviewSettingsRootScreen(
     preferences: PreviewAppPreferences,
     onBack: () -> Unit,
+    onOpenLogin: () -> Unit = {},
     onOpenMemory: () -> Unit,
     onOpenMcp: () -> Unit,
+    onOpenConnection: () -> Unit,
     onOpenPreviewScenarios: () -> Unit = {},
 ) {
-    val colors = LocalHarnessColors.current
-    val effectiveApi =
-        preferences.apiBaseUrl.trim().ifBlank { "（未填 — Phase B 联调后生效）" }
+    val toast = LocalAppToast.current
 
     AppScaffold(
         topBar = {
             SettingsTopBar(title = "设置", onBack = onBack)
         },
     ) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            SettingsSection(title = "通用") {
-                AppText(text = "主题", style = AppTextStyle.Caption)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    themeChip("跟随系统", preferences.themeMode == PreviewThemeMode.SYSTEM) {
-                        preferences.updateThemeMode(PreviewThemeMode.SYSTEM)
-                    }
-                    themeChip("浅色", preferences.themeMode == PreviewThemeMode.LIGHT) {
-                        preferences.updateThemeMode(PreviewThemeMode.LIGHT)
-                    }
-                    themeChip("深色", preferences.themeMode == PreviewThemeMode.DARK) {
-                        preferences.updateThemeMode(PreviewThemeMode.DARK)
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                AppDivider()
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    AppText(text = "正文字号", style = AppTextStyle.Body, modifier = Modifier.weight(1f))
-                    SettingsStepperButton(label = "−") {
-                        preferences.updateContentFontSize(preferences.contentFontSize - 1)
-                    }
-                    AppText(text = "${preferences.contentFontSize}px", style = AppTextStyle.Body)
-                    SettingsStepperButton(label = "+") {
-                        preferences.updateContentFontSize(preferences.contentFontSize + 1)
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                AppDivider()
-                SettingsSwitch(
-                    label = "Reduce Motion",
+        Column(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
+            ) {
+            SettingsGroup(sectionLabel = "通用") {
+                SettingsNavRow(
+                    title = "外观",
+                    trailingValue = themeModeLabel(preferences.themeMode),
+                    onClick = { preferences.updateThemeMode(nextThemeMode(preferences.themeMode)) },
+                    showDivider = true,
+                )
+                SettingsFontSizeRow(
+                    value = preferences.contentFontSize,
+                    onDecrement = { preferences.updateContentFontSize(preferences.contentFontSize - 1) },
+                    onIncrement = { preferences.updateContentFontSize(preferences.contentFontSize + 1) },
+                    showDivider = true,
+                )
+                SettingsToggleRow(
+                    title = "Reduce Motion",
                     checked = preferences.reduceMotion,
                     onCheckedChange = preferences::updateReduceMotion,
-                    description = "Drawer / Workbench 减少滑动动画（Preview 假保存）",
+                    showDivider = true,
                 )
+                if (preferences.isLoggedIn) {
+                    SettingsNavRow(
+                        title = preferences.authProfile?.displayName ?: "账号",
+                        trailingValue = preferences.authProfile?.phone,
+                        showChevron = false,
+                        interactive = false,
+                        onClick = {},
+                        showDivider = false,
+                    )
+                } else {
+                    SettingsNavRow(
+                        title = "登录",
+                        onClick = onOpenLogin,
+                        showDivider = false,
+                    )
+                }
             }
 
-            SettingsSection(title = "Agent") {
-                SettingsNavRow(
-                    title = "记忆",
-                    subtitle = "本地假数据 · UI+Local",
-                    onClick = onOpenMemory,
-                )
-                SettingsNavRow(
-                    title = "MCP 服务器",
-                    subtitle = "CRUD + Test 模拟",
-                    onClick = onOpenMcp,
-                )
-                SettingsNavRow(
-                    title = "演示场景",
-                    subtitle = "切换 Gate A fixture（开发用）",
-                    onClick = onOpenPreviewScenarios,
+            SettingsGroup(sectionLabel = "开发") {
+                SettingsToggleRow(
+                    title = "Composer 阻断",
+                    checked = preferences.composerBlockDemo == PreviewComposerBlockKind.TRANSCRIPT_INCOMPATIBLE,
+                    onCheckedChange = { on ->
+                        preferences.updateComposerBlockDemo(
+                            if (on) PreviewComposerBlockKind.TRANSCRIPT_INCOMPATIBLE else PreviewComposerBlockKind.NONE,
+                        )
+                    },
                     showDivider = false,
                 )
             }
 
-            SettingsSection(title = "连接") {
-                AppText(text = "API Base URL（仅编辑器 UI）", style = AppTextStyle.Caption)
-                Spacer(Modifier.height(8.dp))
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .background(colors.canvas, RoundedCornerShape(HarnessLayout.controlRadius))
-                            .border(1.dp, colors.composerBorder, RoundedCornerShape(HarnessLayout.controlRadius))
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                ) {
-                    AppTextField(
-                        value = preferences.apiBaseUrl,
-                        onValueChange = preferences::updateApiBaseUrl,
-                        label = "http://192.168.x.x:4318",
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                AppText(text = "当前生效：$effectiveApi", style = AppTextStyle.Muted)
+            SettingsGroup(sectionLabel = "Agent") {
+                SettingsNavRow(title = "记忆", onClick = onOpenMemory, showDivider = true)
+                SettingsNavRow(title = "MCP 服务器", onClick = onOpenMcp, showDivider = true)
+                SettingsNavRow(
+                    title = "演示场景",
+                    onClick = onOpenPreviewScenarios,
+                    showDivider = true,
+                )
             }
 
-            Surface(
-                color = colors.subtle,
-                shape = RoundedCornerShape(HarnessLayout.panelRadius),
+            SettingsGroup(sectionLabel = "连接") {
+                SettingsNavRow(
+                    title = "API Base URL",
+                    trailingValue = apiConnectionSummary(preferences.apiBaseUrl),
+                    onClick = onOpenConnection,
+                    showDivider = false,
+                )
+            }
+
+            }
+            SettingsBottomDock {
+                if (preferences.isLoggedIn) {
+                    SettingsPillButton(
+                        text = "退出登录",
+                        style = SettingsPillStyle.Subtle,
+                        onClick = {
+                            preferences.updateAuthProfile(null)
+                            toast.show("已退出登录")
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PreviewConnectionScreen(
+    preferences: PreviewAppPreferences,
+    onBack: () -> Unit,
+) {
+    AppScaffold(topBar = { SettingsTopBar(title = "连接", onBack = onBack) }) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Column(
                 modifier =
                     Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, colors.composerBorder, RoundedCornerShape(HarnessLayout.panelRadius)),
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
             ) {
-                AppText(
-                    text = "Phase A：所有保存均为本地 KV，不发起 Harness HTTP。",
-                    style = AppTextStyle.Caption,
-                    modifier = Modifier.padding(12.dp),
-                )
+                SettingsGroup {
+                    Column(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 16.dp),
+                    ) {
+                        SettingsTextField(
+                            value = preferences.apiBaseUrl,
+                            onValueChange = preferences::updateApiBaseUrl,
+                            label = "API Base URL",
+                            placeholder = "http://192.168.x.x:4318",
+                        )
+                    }
+                }
             }
         }
     }
@@ -177,31 +210,36 @@ fun PreviewMcpListScreen(
     onEditServer: (String) -> Unit,
 ) {
     AppScaffold(topBar = { SettingsTopBar(title = "MCP 服务器", onBack = onBack) }) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            AppText(
-                text = "列表与表单为静态 UI；Test 按钮弹出本地 Alert。",
-                style = AppTextStyle.Muted,
-            )
-            SettingsSection(title = "已配置") {
-                if (preferences.mcpServers.isEmpty()) {
-                    AppText(text = "暂无服务器", style = AppTextStyle.Muted)
-                } else {
-                    preferences.mcpServers.forEachIndexed { index, server ->
-                        McpServerRow(
-                            server = server,
-                            onClick = { onEditServer(server.id) },
-                            showDivider = index < preferences.mcpServers.lastIndex,
+        Column(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
+            ) {
+                SettingsGroup(sectionLabel = "已配置") {
+                    if (preferences.mcpServers.isEmpty()) {
+                        AppText(
+                            text = "暂无服务器",
+                            style = AppTextStyle.Muted,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                         )
+                    } else {
+                        preferences.mcpServers.forEachIndexed { index, server ->
+                            McpServerRow(
+                                server = server,
+                                onClick = { onEditServer(server.id) },
+                                showDivider = index < preferences.mcpServers.lastIndex,
+                            )
+                        }
                     }
                 }
             }
-            AppButton(text = "添加服务器", onClick = { onEditServer("new") })
+            SettingsBottomDock {
+                SettingsPillButton(text = "添加服务器", onClick = { onEditServer("new") })
+            }
         }
     }
 }
@@ -216,86 +254,89 @@ fun PreviewMcpFormScreen(
     var name by remember(serverId) { mutableStateOf(existing?.serverName ?: "") }
     var url by remember(serverId) { mutableStateOf(existing?.url ?: "") }
     var enabled by remember(serverId) { mutableStateOf(existing?.enabled ?: true) }
-    var showTestAlert by remember { mutableStateOf(false) }
-    val context = LocalContext.current
+    var testConfirm by remember { mutableStateOf<AppConfirmRequest?>(null) }
+    val toast = LocalAppToast.current
 
-    val colors = LocalHarnessColors.current
     AppScaffold(topBar = { SettingsTopBar(title = if (existing == null) "新建 MCP" else "编辑 MCP", onBack = onBack) }) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            SettingsSection(title = "连接") {
-                SettingsFieldShell {
-                    AppTextField(value = name, onValueChange = { name = it }, label = "名称")
-                }
-                Spacer(Modifier.height(8.dp))
-                SettingsFieldShell {
-                    AppTextField(value = url, onValueChange = { url = it }, label = "URL / 命令")
-                }
-                SettingsSwitch(label = "启用", checked = enabled, onCheckedChange = { enabled = it })
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppButton(
-                    text = "Test",
-                    onClick = {
-                        showTestAlert = true
-                        Toast.makeText(context, "Preview：MCP test 已模拟", Toast.LENGTH_SHORT).show()
-                    },
-                )
-                if (existing != null) {
-                    AppButton(
-                        text = "删除",
-                        onClick = {
-                            preferences.deleteMcpServer(existing.id)
-                            onBack()
-                        },
-                    )
-                }
-            }
-            AppButton(
-                text = "保存",
-                enabled = name.isNotBlank() && url.isNotBlank(),
-                onClick = {
-                    val id = existing?.id ?: UUID.randomUUID().toString()
-                    preferences.upsertMcpServer(
-                        PreviewMcpServer(id = id, serverName = name.trim(), url = url.trim(), enabled = enabled),
-                    )
-                    onBack()
-                },
-            )
-            Surface(
-                color = colors.subtle,
-                shape = RoundedCornerShape(HarnessLayout.panelRadius),
+        Column(modifier = Modifier.fillMaxSize()) {
+            Column(
                 modifier =
                     Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, colors.composerBorder, RoundedCornerShape(HarnessLayout.panelRadius)),
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
             ) {
-                AppText(
-                    text = "Test 与保存均为 Preview 本地模拟。",
-                    style = AppTextStyle.Caption,
-                    modifier = Modifier.padding(12.dp),
+                SettingsGroup(sectionLabel = "连接") {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        SettingsTextField(value = name, onValueChange = { name = it }, label = "名称", placeholder = "服务器名称")
+                        SettingsTextField(
+                            value = url,
+                            onValueChange = { url = it },
+                            label = "URL / 命令",
+                            placeholder = "stdio://…",
+                        )
+                        SettingsToggleRow(
+                            title = "启用",
+                            checked = enabled,
+                            onCheckedChange = { enabled = it },
+                            showDivider = false,
+                        )
+                    }
+                }
+            }
+            SettingsBottomDock {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SettingsPillButton(
+                        text = "Test",
+                        style = SettingsPillStyle.Subtle,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            toast.show("连接成功")
+                            testConfirm =
+                                AppConfirmRequest(
+                                    title = "MCP Test",
+                                    message = "连接成功。",
+                                    confirmLabel = "确定",
+                                    dismissLabel = "",
+                                    onConfirm = {},
+                                )
+                        },
+                    )
+                    if (existing != null) {
+                        SettingsPillButton(
+                            text = "删除",
+                            style = SettingsPillStyle.Subtle,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                preferences.deleteMcpServer(existing.id)
+                                onBack()
+                            },
+                        )
+                    }
+                }
+                SettingsPillButton(
+                    text = "保存",
+                    enabled = name.isNotBlank() && url.isNotBlank(),
+                    onClick = {
+                        val id = existing?.id ?: UUID.randomUUID().toString()
+                        preferences.upsertMcpServer(
+                            PreviewMcpServer(id = id, serverName = name.trim(), url = url.trim(), enabled = enabled),
+                        )
+                        onBack()
+                    },
                 )
             }
         }
     }
 
-    if (showTestAlert) {
-        AlertDialog(
-            onDismissRequest = { showTestAlert = false },
-            title = { AppText(text = "MCP Test（Preview）", style = AppTextStyle.Title) },
-            text = { AppText(text = "连接成功（本地模拟）。Phase B 将调用 Host MCP API。", style = AppTextStyle.Body) },
-            confirmButton = {
-                TextButton(onClick = { showTestAlert = false }) {
-                    AppText(text = "确定", style = AppTextStyle.Body)
-                }
-            },
-        )
-    }
+    AppConfirmDialog(request = testConfirm, onDismiss = { testConfirm = null })
 }
 
 @Composable
@@ -303,60 +344,37 @@ fun PreviewMemoryHubScreen(
     preferences: PreviewAppPreferences,
     onBack: () -> Unit,
 ) {
-    var draft by remember { mutableStateOf("") }
-
     AppScaffold(topBar = { SettingsTopBar(title = "记忆", onBack = onBack) }) {
         Column(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
         ) {
-            SettingsSection(title = "写入") {
-                SettingsSwitch(
-                    label = "允许 Agent 写入记忆",
-                    description = "本地开关 · 不调用 API",
+            SettingsGroup(sectionLabel = "写入") {
+                SettingsToggleRow(
+                    title = "允许 Agent 写入记忆",
                     checked = preferences.allowAgentMemoryWrite,
                     onCheckedChange = preferences::updateAllowAgentMemoryWrite,
+                    showDivider = false,
                 )
             }
-            SettingsSection(title = "新增") {
-                SettingsFieldShell {
-                    AppTextField(value = draft, onValueChange = { draft = it }, label = "记忆条目")
-                }
-                Spacer(Modifier.height(8.dp))
-                AppButton(
-                    text = "添加",
-                    enabled = draft.isNotBlank(),
-                    onClick = {
-                        preferences.addMemoryEntry(draft)
-                        draft = ""
-                    },
-                )
-            }
-            SettingsSection(title = "条目") {
+            SettingsGroup(sectionLabel = "条目") {
                 if (preferences.memoryEntries.isEmpty()) {
-                    AppText(text = "暂无记忆", style = AppTextStyle.Muted)
+                    AppText(
+                        text = "暂无记忆",
+                        style = AppTextStyle.Muted,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    )
                 } else {
                     preferences.memoryEntries.forEachIndexed { index, entry ->
-                        Row(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            AppText(text = entry.text, style = AppTextStyle.Body, modifier = Modifier.weight(1f))
-                            AppText(
-                                text = "删除",
-                                style = AppTextStyle.Link,
-                                modifier = Modifier.clickable { preferences.deleteMemoryEntry(entry.id) },
-                            )
-                        }
-                        if (index < preferences.memoryEntries.lastIndex) {
-                            AppDivider()
-                        }
+                        SettingsMemoryEntryRow(
+                            text = entry.text,
+                            onDelete = { preferences.deleteMemoryEntry(entry.id) },
+                            showDivider = index < preferences.memoryEntries.lastIndex,
+                        )
                     }
                 }
             }
@@ -365,172 +383,325 @@ fun PreviewMemoryHubScreen(
 }
 
 @Composable
-private fun SettingsTopBar(
+internal fun SettingsTopBar(
     title: String,
     onBack: () -> Unit,
 ) {
-    AppTopBar(
-        title = title,
-        trailing = {
-            AppText(
-                text = "返回",
-                style = AppTextStyle.Link,
-                modifier = Modifier.clickable(onClick = onBack).padding(end = 8.dp),
+    val colors = LocalHarnessColors.current
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .background(colors.canvas)
+                .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AppText(
+            text = "‹",
+            style = AppTextStyle.Title,
+            modifier =
+                Modifier
+                    .clickable(onClick = onBack)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+        )
+        Text(
+            text = title,
+            color = colors.secondary,
+            fontSize = 17.sp,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(modifier = Modifier.size(40.dp))
+    }
+}
+
+@Composable
+internal fun SettingsGroup(
+    sectionLabel: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val colors = LocalHarnessColors.current
+    Column(modifier = Modifier.fillMaxWidth()) {
+        if (!sectionLabel.isNullOrBlank()) {
+            Text(
+                text = sectionLabel,
+                color = colors.muted,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
             )
-        },
+        }
+        Surface(
+            color = colors.surface,
+            shape = RoundedCornerShape(HarnessLayout.settingsCardRadius),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(content = content)
+        }
+    }
+}
+
+@Composable
+internal fun SettingsSoftDivider() {
+    val colors = LocalHarnessColors.current
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 16.dp),
+        thickness = 0.5.dp,
+        color = colors.settingsDivider,
     )
 }
 
 @Composable
-private fun SettingsNavRow(
+internal fun SettingsRowSlot(
+    showDivider: Boolean,
+    content: @Composable () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            content()
+        }
+        if (showDivider) {
+            SettingsSoftDivider()
+        }
+    }
+}
+
+@Composable
+internal fun SettingsNavRow(
     title: String,
-    subtitle: String? = null,
-    onClick: () -> Unit,
-    showDivider: Boolean = true,
+    trailingValue: String? = null,
+    onClick: () -> Unit = {},
+    showChevron: Boolean = true,
+    showDivider: Boolean = false,
+    interactive: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LocalHarnessColors.current
-    Column(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+    val interactionSource = remember { MutableInteractionSource() }
+    SettingsRowSlot(showDivider = showDivider) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            modifier =
+                modifier
+                    .fillMaxWidth()
+                    .heightIn(min = HarnessLayout.settingsRowMinHeight)
+                    .then(
+                        if (interactive) {
+                            Modifier
+                                .harnessPressOpacity(interactionSource = interactionSource)
+                                .clickable(
+                                    onClick = onClick,
+                                    interactionSource = interactionSource,
+                                    indication = null,
+                                )
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                color = colors.secondary,
+                fontSize = 16.sp,
+                modifier = Modifier.weight(1f),
+            )
+            if (!trailingValue.isNullOrBlank()) {
+                Text(
+                    text = trailingValue,
+                    color = colors.muted,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(end = 2.dp),
+                )
+            }
+            if (showChevron) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = colors.composerPlaceholder,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsFontSizeRow(
+    value: Int,
+    onDecrement: () -> Unit,
+    onIncrement: () -> Unit,
+    showDivider: Boolean = false,
+) {
+    val colors = LocalHarnessColors.current
+    SettingsRowSlot(showDivider = showDivider) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = HarnessLayout.settingsRowMinHeight)
+                    .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text = "正文字号", color = colors.secondary, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            Row(
+                modifier =
+                    Modifier
+                        .background(colors.subtle, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 2.dp, vertical = 1.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "−",
+                    color = colors.secondary,
+                    fontSize = 15.sp,
+                    modifier =
+                        Modifier
+                            .clickable(onClick = onDecrement)
+                            .padding(horizontal = 10.dp, vertical = 3.dp),
+                )
+                Text(
+                    text = "$value",
+                color = colors.muted,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(horizontal = 6.dp),
+            )
+            Text(
+                text = "+",
+                color = colors.secondary,
+                fontSize = 15.sp,
+                modifier =
+                    Modifier
+                        .clickable(onClick = onIncrement)
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+            )
+        }
+    }
+}
+}
+
+@Composable
+private fun SettingsToggleRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    subtitle: String? = null,
+    showDivider: Boolean = false,
+) {
+    val colors = LocalHarnessColors.current
+    SettingsRowSlot(showDivider = showDivider) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = HarnessLayout.settingsRowMinHeight)
+                    .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                AppText(text = title, style = AppTextStyle.Body)
-                if (subtitle != null) {
-                    AppText(text = subtitle, style = AppTextStyle.Muted)
+                Text(text = title, color = colors.secondary, fontSize = 16.sp)
+                if (!subtitle.isNullOrBlank()) {
+                    Text(text = subtitle, color = colors.muted, fontSize = 12.sp)
                 }
             }
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = colors.muted,
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = harnessSwitchColors(),
             )
         }
-        if (showDivider) {
-            AppDivider()
-        }
     }
 }
 
-@Composable
-private fun SettingsFieldShell(
-    content: @Composable () -> Unit,
-) {
-    val colors = LocalHarnessColors.current
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(colors.canvas, RoundedCornerShape(HarnessLayout.controlRadius))
-                .border(1.dp, colors.composerBorder, RoundedCornerShape(HarnessLayout.controlRadius))
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-    ) {
-        content()
-    }
+private fun apiConnectionSummary(raw: String): String {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return "未配置"
+    return if (trimmed.length > 18) trimmed.take(18) + "…" else trimmed
 }
 
-@Composable
-private fun SettingsSection(
-    title: String,
-    content: @Composable () -> Unit,
-) {
-    val colors = LocalHarnessColors.current
-    Surface(
-        color = colors.surface,
-        shape = RoundedCornerShape(HarnessLayout.panelRadius),
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .border(1.dp, colors.composerBorder, RoundedCornerShape(HarnessLayout.panelRadius)),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            AppText(text = title, style = AppTextStyle.Title)
-            Spacer(Modifier.height(12.dp))
-            content()
-        }
+private fun themeModeLabel(mode: PreviewThemeMode): String =
+    when (mode) {
+        PreviewThemeMode.SYSTEM -> "跟随系统"
+        PreviewThemeMode.LIGHT -> "浅色"
+        PreviewThemeMode.DARK -> "深色"
     }
-}
 
-@Composable
-private fun SettingsStepperButton(
-    label: String,
-    onClick: () -> Unit,
-) {
-    val colors = LocalHarnessColors.current
-    Surface(
-        onClick = onClick,
-        color = colors.surface,
-        shape = RoundedCornerShape(HarnessLayout.controlRadius),
-        modifier =
-            Modifier
-                .size(32.dp)
-                .border(1.dp, colors.composerBorder, RoundedCornerShape(HarnessLayout.controlRadius)),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AppText(text = label, style = AppTextStyle.Title)
-        }
+private fun nextThemeMode(mode: PreviewThemeMode): PreviewThemeMode =
+    when (mode) {
+        PreviewThemeMode.SYSTEM -> PreviewThemeMode.LIGHT
+        PreviewThemeMode.LIGHT -> PreviewThemeMode.DARK
+        PreviewThemeMode.DARK -> PreviewThemeMode.SYSTEM
     }
-}
-
-@Composable
-private fun themeChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val colors = LocalHarnessColors.current
-    val shape = RoundedCornerShape(999.dp)
-    Surface(
-        color = if (selected) colors.subtle else colors.surface,
-        shape = shape,
-        modifier =
-            Modifier
-                .clickable(onClick = onClick)
-                .border(
-                    width = 1.dp,
-                    color = if (selected) colors.primary else colors.composerBorder,
-                    shape = shape,
-                ),
-    ) {
-        AppText(text = label, style = AppTextStyle.Caption, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
-    }
-}
 
 @Composable
 private fun McpServerRow(
     server: PreviewMcpServer,
     onClick: () -> Unit,
-    showDivider: Boolean = true,
+    showDivider: Boolean = false,
 ) {
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick),
-    ) {
+    SettingsRowSlot(showDivider = showDivider) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = HarnessLayout.settingsRowMinHeight)
+                    .clickable(onClick = onClick)
+                    .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AppText(text = server.serverName, style = AppTextStyle.Body, modifier = Modifier.weight(1f))
-                    Badge(text = if (server.enabled) "已启用" else "未启用")
-                }
-                AppText(text = server.url, style = AppTextStyle.Muted)
-            }
+            Text(
+                text = server.serverName,
+                color = LocalHarnessColors.current.secondary,
+                fontSize = 16.sp,
+                modifier = Modifier.weight(1f),
+            )
+            val colors = LocalHarnessColors.current
+            Text(
+                text = if (server.enabled) "已启用" else "未启用",
+                color = colors.muted,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(end = 2.dp),
+            )
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                 contentDescription = null,
-                tint = LocalHarnessColors.current.muted,
+                tint = colors.composerPlaceholder,
+                modifier = Modifier.size(18.dp),
             )
         }
-        if (showDivider) {
-            AppDivider()
+    }
+}
+
+@Composable
+private fun SettingsMemoryEntryRow(
+    text: String,
+    onDelete: () -> Unit,
+    showDivider: Boolean,
+) {
+    val colors = LocalHarnessColors.current
+    SettingsRowSlot(showDivider = showDivider) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = HarnessLayout.settingsRowMinHeight)
+                    .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = text,
+                color = colors.secondary,
+                fontSize = 15.sp,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "删除",
+                color = colors.link,
+                fontSize = 14.sp,
+                modifier = Modifier.clickable(onClick = onDelete),
+            )
         }
     }
 }

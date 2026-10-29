@@ -29,6 +29,7 @@ import {
 } from '@harness/agent-protocol';
 
 import { mcpIconDisplayUrl } from '../model/mcp-icon-display';
+import { processTimelineToolIconKind } from '@harness/agent-conversation';
 import { isMcpPublicToolName, mcpInlineActivityLabel } from '../model/tool-copy';
 import type { AssistantProcessItem } from './assistant-message-adapter';
 import {
@@ -47,16 +48,17 @@ function mcpToolIconImageSrc(block: AssistantToolActivityBlock): string | undefi
   return mcpIconDisplayUrl(mcpServerIconFallbackSrc(parsed.serverName));
 }
 
+const PROCESS_TIMELINE_TOOL_ICONS = {
+  search: Search,
+  fileSearch: FileSearch,
+  fileText: FileText,
+  terminal: Terminal,
+  clock: Clock3,
+  plug: Plug,
+} as const satisfies Record<ReturnType<typeof processTimelineToolIconKind>, LucideIcon>;
+
 function toolIcon(toolName: string): LucideIcon {
-  if (toolName === 'web_search' || toolName === 'web_fetch') return Search;
-  if (toolName === 'search_file' || toolName === 'read_file' || toolName === 'read_file_lines')
-    return FileSearch;
-  if (toolName === 'create_file' || toolName === 'create_report') return FileText;
-  if (toolName === 'bash') return Terminal;
-  if (toolName === 'get_current_time') return Clock3;
-  if (toolName === 'execute_command') return Clock3;
-  if (isMcpPublicToolName(toolName)) return Plug;
-  return Clock3;
+  return PROCESS_TIMELINE_TOOL_ICONS[processTimelineToolIconKind(toolName)];
 }
 
 function formatElapsed(ms: number): string {

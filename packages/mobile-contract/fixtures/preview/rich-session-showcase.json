@@ -237,17 +237,7 @@
     "submitting": true,
     "showPlan": false,
     "selectedModelLabel": "DeepSeek Reasoner · 高",
-    "attachmentNames": ["brief-2025-q1.pdf"],
-    "followUps": [
-      {
-        "id": "fu-showcase-1",
-        "content": "补充：三端 Gate A 快照各自覆盖哪些 fixture？"
-      },
-      {
-        "id": "fu-showcase-2",
-        "content": "把 Workbench 里 bash 步骤的执行输出单独解释一下"
-      }
-    ]
+    "attachmentNames": ["brief-2025-q1.pdf", "screenshot-ui.png"]
   },
   "chrome": {
     "connectionState": "live",
@@ -302,7 +292,7 @@
         "passageBody": "用户期望看到检索、读取与命令的**过程时间线**，而非仅最终答案。Workbench 抽屉式面板成为主流交互范式。"
       },
       {
-        "title": "Harness Phase A — Static Preview",
+        "title": "Harness 演示会话",
         "url": "https://example.com/docs/gate-a",
         "snippet": "Gate A 要求 fixture 驱动、无 SSE…",
         "passageHeading": "Mock 数据",
@@ -330,7 +320,7 @@
       { "id": "v2", "label": "README.md · v2", "selected": false },
       { "id": "v3", "label": "README.md · v3（当前）", "selected": true }
     ],
-    "artifactDiffPreview": "--- a/README.md\n+++ b/README.md\n@@ -1,6 +1,10 @@\n # Harness Agent\n \n Phase A static preview.\n+\n+## Workbench\n+\n+- Activity timeline + bash\n+- Sources with Passage\n",
+    "artifactDiffPreview": "--- a/README.md\n+++ b/README.md\n@@ -1,6 +1,10 @@\n # Harness Agent\n \n Static preview.\n+\n+## Workbench\n+\n+- Activity timeline + bash\n+- Sources with Passage\n",
     "artifactRestorePrompt": "恢复 v2 将覆盖当前 README.md（Preview 静态确认）。"
   }
 }

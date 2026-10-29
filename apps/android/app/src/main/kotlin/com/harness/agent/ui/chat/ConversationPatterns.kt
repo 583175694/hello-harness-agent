@@ -2,24 +2,22 @@ package com.harness.agent.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.harness.agent.coreui.markdown.MarkdownBody
+import com.harness.agent.coreui.markdown.ChatMarkdown
 import com.harness.agent.coreui.primitives.AppText
 import com.harness.agent.coreui.primitives.AppTextStyle
-import com.harness.agent.coreui.primitives.Spinner
 import com.harness.agent.coreui.tokens.HarnessLayout
-import com.harness.agent.coreui.tokens.LocalContentFontSizeSp
 import com.harness.agent.coreui.tokens.LocalHarnessColors
-import androidx.compose.material3.Text
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import com.harness.agent.model.ConversationItem
 
 @Composable
@@ -27,6 +25,7 @@ fun ConversationTurnRow(
     item: ConversationItem,
     modifier: Modifier = Modifier,
     onOpenWorkbenchStep: ((toolCallId: String) -> Unit)? = null,
+    previewReduceMotion: Boolean = false,
 ) {
     when (item) {
         is ConversationItem.User -> UserMessageBubble(text = item.content, modifier = modifier)
@@ -35,6 +34,7 @@ fun ConversationTurnRow(
                 item = item,
                 modifier = modifier,
                 onOpenWorkbenchStep = onOpenWorkbenchStep,
+                previewReduceMotion = previewReduceMotion,
             )
     }
 }
@@ -45,27 +45,29 @@ fun UserMessageBubble(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalHarnessColors.current
-    Box(
+    BoxWithConstraints(
         modifier =
             modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
-        contentAlignment = Alignment.CenterEnd,
+                .padding(vertical = HarnessLayout.chatTurnVerticalPadding),
     ) {
+        val maxBubbleWidth = maxWidth * 0.82f
         Box(
             modifier =
                 Modifier
-                    .fillMaxWidth(0.82f)
+                    .align(Alignment.CenterEnd)
+                    .widthIn(max = maxBubbleWidth)
+                    .wrapContentWidth(Alignment.End)
                     .background(colors.userBubble, RoundedCornerShape(HarnessLayout.bubbleRadius))
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(
+                        horizontal = HarnessLayout.chatBubblePaddingHorizontal,
+                        vertical = HarnessLayout.chatBubblePaddingVertical,
+                    ),
         ) {
-            val contentFont = LocalContentFontSizeSp.current.coerceIn(13, 20)
-            Text(
-                text = text,
-                color = colors.primary,
-                fontSize = (contentFont - 1).sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.Normal,
+            ChatMarkdown(
+                markdown = text,
+                compact = true,
+                modifier = Modifier.wrapContentWidth(Alignment.Start),
             )
         }
     }
@@ -76,29 +78,34 @@ fun AssistantMessageBubble(
     item: ConversationItem.Assistant,
     modifier: Modifier = Modifier,
     onOpenWorkbenchStep: ((toolCallId: String) -> Unit)? = null,
+    previewReduceMotion: Boolean = false,
 ) {
     Column(
         modifier =
             modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
+                .padding(vertical = HarnessLayout.chatTurnVerticalPadding),
     ) {
         AssistantProcessTimeline(
             blocks = item.process,
             running = item.deliveryStatus == "streaming",
-            finalOutputVisible = item.markdownContent != null || item.summary != null,
+            finalOutputVisible = item.assistantBodyMarkdown().isNotBlank(),
             onOpenWorkbench = onOpenWorkbenchStep,
+            previewReduceMotion = previewReduceMotion,
         )
         when {
             item.deliveryStatus == "streaming" -> {
                 val body = item.pendingText.orEmpty().ifEmpty { "▍" }
                 AppText(text = body, style = AppTextStyle.Body)
-                Spinner(modifier = Modifier.padding(top = 6.dp))
             }
-            item.markdownContent != null ->
-                MarkdownBody(markdown = item.markdownContent)
             else ->
-                AppText(text = item.summary.orEmpty(), style = AppTextStyle.Body)
+                ChatMarkdown(
+                    markdown = item.assistantBodyMarkdown(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
         }
     }
 }
+
+internal fun ConversationItem.Assistant.assistantBodyMarkdown(): String =
+    markdownContent?.takeIf { it.isNotBlank() } ?: summary.orEmpty()

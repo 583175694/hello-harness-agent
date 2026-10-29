@@ -2,6 +2,7 @@ package com.harness.agent.snapshot
 
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
+import com.harness.agent.coreui.feedback.AppToastHost
 import com.harness.agent.coreui.tokens.HarnessTheme
 import com.harness.agent.preview.PreviewAppPreferences
 import com.harness.agent.ui.settings.PreviewMemoryHubScreen
@@ -24,12 +25,15 @@ class GateASettingsSnapshotTest {
         val prefs = PreviewAppPreferences(paparazzi.context)
         paparazzi.snapshot {
             HarnessTheme(darkTheme = false) {
+                AppToastHost {
                 PreviewSettingsRootScreen(
                     preferences = prefs,
                     onBack = {},
                     onOpenMemory = {},
                     onOpenMcp = {},
+                    onOpenConnection = {},
                 )
+                }
             }
         }
     }

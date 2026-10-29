@@ -109,7 +109,6 @@ class GateAFixtureSnapshotTest {
                     onOpenWorkbench = {},
                 )
                 ServiceBanner(serviceState = state.chrome.serviceState, onRetry = {}, onDismiss = {})
-                ProblemDetailsCard(title = state.problemTitle, detail = state.problemDetail)
             }
         }
     }

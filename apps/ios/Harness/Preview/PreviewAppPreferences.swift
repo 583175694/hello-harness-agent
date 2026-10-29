@@ -19,6 +19,17 @@ struct PreviewMemoryEntry: Identifiable, Equatable {
     var text: String
 }
 
+struct PreviewAuthProfile: Equatable {
+    var displayName: String
+    var phone: String
+}
+
+enum PreviewComposerBlockKind: String, CaseIterable {
+    case none
+    case loginRequired
+    case transcriptIncompatible
+}
+
 @Observable
 final class PreviewAppPreferences {
     var themeMode: PreviewThemeMode {
@@ -40,6 +51,16 @@ final class PreviewAppPreferences {
     var readerMarkdown: String = ""
     var readerIsArtifact: Bool = false
 
+    var authProfile: PreviewAuthProfile? {
+        didSet { persistAuth() }
+    }
+
+    var composerBlockDemo: PreviewComposerBlockKind {
+        didSet { defaults.set(composerBlockDemo.rawValue, forKey: Keys.composerBlockDemo) }
+    }
+
+    var isLoggedIn: Bool { authProfile != nil }
+
     var mcpServers: [PreviewMcpServer]
     var memoryEntries: [PreviewMemoryEntry]
 
@@ -53,8 +74,23 @@ final class PreviewAppPreferences {
         apiBaseUrl = defaults.string(forKey: Keys.apiUrl) ?? ""
         allowAgentMemoryWrite = defaults.object(forKey: Keys.memoryWrite) as? Bool ?? true
         reduceMotion = defaults.object(forKey: Keys.reduceMotion) as? Bool ?? false
+        authProfile = Self.loadAuth(from: defaults)
+        let blockRaw = defaults.string(forKey: Keys.composerBlockDemo) ?? PreviewComposerBlockKind.none.rawValue
+        composerBlockDemo = PreviewComposerBlockKind(rawValue: blockRaw) ?? .none
         mcpServers = Self.loadMcp(from: defaults) ?? Self.defaultMcp
         memoryEntries = Self.loadMemory(from: defaults) ?? Self.defaultMemory
+    }
+
+    func resolveComposerBlock() -> PreviewComposerBlockKind {
+        if composerBlockDemo != .none { return composerBlockDemo }
+        if !apiBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isLoggedIn {
+            return .loginRequired
+        }
+        return .none
+    }
+
+    func updateAuthProfile(_ profile: PreviewAuthProfile?) {
+        authProfile = profile
     }
 
     func preferredColorScheme(_ system: ColorScheme) -> ColorScheme? {
@@ -125,6 +161,23 @@ final class PreviewAppPreferences {
         }
     }
 
+    private func persistAuth() {
+        if let profile = authProfile {
+            defaults.set(profile.phone, forKey: Keys.authPhone)
+            defaults.set(profile.displayName, forKey: Keys.authName)
+        } else {
+            defaults.removeObject(forKey: Keys.authPhone)
+            defaults.removeObject(forKey: Keys.authName)
+        }
+    }
+
+    private static func loadAuth(from defaults: UserDefaults) -> PreviewAuthProfile? {
+        let phone = (defaults.string(forKey: Keys.authPhone) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !phone.isEmpty else { return nil }
+        let name = (defaults.string(forKey: Keys.authName) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return PreviewAuthProfile(displayName: name.isEmpty ? phone : name, phone: phone)
+    }
+
     private enum Keys {
         static let theme = "preview.themeMode"
         static let fontSize = "preview.contentFontSize"
@@ -133,6 +186,9 @@ final class PreviewAppPreferences {
         static let reduceMotion = "preview.reduceMotion"
         static let mcp = "preview.mcpServers"
         static let memory = "preview.memoryEntries"
+        static let authPhone = "preview.authPhone"
+        static let authName = "preview.authDisplayName"
+        static let composerBlockDemo = "preview.composerBlockDemo"
     }
 
     private static let defaultMcp: [PreviewMcpServer] = [

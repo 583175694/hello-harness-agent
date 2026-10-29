@@ -11,14 +11,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.ViewColumn
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import com.harness.agent.coreui.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,9 +58,11 @@ fun ChatTopBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             HarnessIconButton(
-                icon = Icons.Outlined.Menu,
+                icon = Icons.Rounded.Menu,
                 contentDescription = "打开会话列表",
                 onClick = onOpenDrawer,
+                iconSizeDp = 22,
+                showSubtlePressBackground = true,
             )
             Text(
                 text = title,
@@ -79,16 +80,14 @@ fun ChatTopBar(
                 ConnectionPill(connectionState = connectionState)
             }
             HarnessIconButton(
-                icon = Icons.Outlined.ViewColumn,
+                iconDrawable = R.drawable.harness_ic_panel_right,
                 contentDescription = "打开工作台",
                 onClick = onOpenWorkbench,
                 modifier = Modifier.padding(start = 2.dp),
+                iconSizeDp = 20,
+                showSubtlePressBackground = true,
             )
         }
-        HorizontalDivider(
-            color = colors.composerBorder.copy(alpha = HarnessLayout.composerDividerAlpha),
-            thickness = 1.dp,
-        )
     }
 }
 

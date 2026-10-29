@@ -1176,7 +1176,7 @@ function WorkbenchOpenButton({
       disabled={disabled}
       onClick={onClick}
     >
-      <PanelRight size={18} strokeWidth={1.75} aria-hidden="true" />
+      <PanelRight size={20} strokeWidth={2} aria-hidden="true" />
       <span className="workbench-open-button__label">{AGENT_UI_COPY.openWorkbenchLabel}</span>
     </button>
   );

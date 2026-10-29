@@ -94,9 +94,10 @@ struct ComposerModelMenuSheetView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 10)
 
-            ComposerReasoningSegmentedControl(
+            HarnessSlidingSegmentedControl(
                 options: activeModel.reasoningOptions,
-                selection: $reasoningEffort
+                selection: $reasoningEffort,
+                label: ComposerModelMenuLabels.reasoningShortLabel
             )
             .padding(.horizontal, 12)
 
@@ -106,30 +107,3 @@ struct ComposerModelMenuSheetView: View {
     }
 }
 
-private struct ComposerReasoningSegmentedControl: View {
-    let options: [String]
-    @Binding var selection: String
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(options, id: \.self) { option in
-                let selected = option == selection
-                Button {
-                    selection = option
-                } label: {
-                    Text(ComposerModelMenuLabels.reasoningShortLabel(option))
-                        .font(.caption.weight(selected ? .semibold : .regular))
-                        .foregroundStyle(selected ? HarnessColors.primaryForeground : HarnessColors.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(selected ? HarnessColors.primary : Color.clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(4)
-        .background(HarnessColors.subtle)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}

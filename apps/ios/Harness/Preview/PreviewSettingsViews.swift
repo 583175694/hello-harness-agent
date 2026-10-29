@@ -1,171 +1,234 @@
 import SwiftUI
+import UIKit
 
 struct PreviewSettingsRootView: View {
     @Bindable var preferences: PreviewAppPreferences
     var onOpenPreviewScenarios: () -> Void = {}
+    var onOpenLogin: () -> Void = {}
+    var onOpenMemory: () -> Void = {}
+    var onOpenMcp: () -> Void = {}
+    var onOpenConnection: () -> Void = {}
+    @Environment(\.appToast) private var appToast
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         AppScaffold(title: "设置") {
+            VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    settingsSection("通用") {
-                        Text("主题").font(.caption).foregroundStyle(HarnessColors.muted)
-                        HStack(spacing: 8) {
-                            themeChip("跟随系统", selected: preferences.themeMode == .system) { preferences.themeMode = .system }
-                            themeChip("浅色", selected: preferences.themeMode == .light) { preferences.themeMode = .light }
-                            themeChip("深色", selected: preferences.themeMode == .dark) { preferences.themeMode = .dark }
-                        }
-                        Divider().overlay(HarnessColors.composerBorder)
-                        HStack {
-                            Text("正文字号")
-                            Spacer()
-                            settingsStepperButton("−") { preferences.contentFontSize = max(13, preferences.contentFontSize - 1) }
-                            Text("\(preferences.contentFontSize)px").font(.body)
-                            settingsStepperButton("+") { preferences.contentFontSize = min(20, preferences.contentFontSize + 1) }
-                        }
-                        Divider().overlay(HarnessColors.composerBorder)
-                        Toggle("Reduce Motion", isOn: $preferences.reduceMotion)
-                        Text("Drawer / Workbench 减少滑动动画（Preview 假保存）")
-                            .font(.caption)
-                            .foregroundStyle(HarnessColors.muted)
-                    }
-
-                    settingsSection("Agent") {
-                        settingsNavLink(title: "记忆", subtitle: "本地假数据 · UI+Local") {
-                            PreviewMemoryHubView(preferences: preferences)
-                        }
-                        settingsNavLink(title: "MCP 服务器", subtitle: "CRUD + Test 模拟") {
-                            PreviewMcpListView(preferences: preferences)
-                        }
+                VStack(alignment: .leading, spacing: 20) {
+                    settingsGroup(sectionLabel: "通用") {
                         Button {
-                            onOpenPreviewScenarios()
+                            preferences.themeMode = nextThemeMode(preferences.themeMode)
                         } label: {
-                            settingsNavRowLabel(title: "演示场景", subtitle: "切换 Gate A fixture（开发用）")
+                            settingsNavRowLabel(title: "外观", trailing: themeModeLabel(preferences.themeMode))
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: settingsRowMinHeight)
                         }
-                        .buttonStyle(.plain)
-                    }
-
-                    settingsSection("连接") {
-                        Text("API Base URL（仅编辑器 UI）").font(.caption).foregroundStyle(HarnessColors.muted)
-                        TextField("http://192.168.x.x:4318", text: $preferences.apiBaseUrl)
-                            .textFieldStyle(.roundedBorder)
-                            .padding(10)
-                            .background(HarnessColors.canvas)
-                            .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous)
-                                    .stroke(HarnessColors.composerBorder, lineWidth: 1)
-                            )
-                        Text("当前生效：\(preferences.apiBaseUrl.trimmingCharacters(in: .whitespaces).isEmpty ? "（未填 — Phase B 联调后生效）" : preferences.apiBaseUrl)")
-                            .font(.caption)
-                            .foregroundStyle(HarnessColors.muted)
-                    }
-
-                    Text("Phase A：本地 KV 假保存，无 Harness HTTP。")
-                        .font(.caption)
-                        .foregroundStyle(HarnessColors.muted)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(HarnessColors.subtle)
-                        .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous)
-                                .stroke(HarnessColors.composerBorder, lineWidth: 1)
+                        .buttonStyle(HarnessPressScaleButtonStyle())
+                        settingsSoftDivider()
+                        settingsFontSizeRow(
+                            value: preferences.contentFontSize,
+                            onDecrement: { preferences.contentFontSize = max(13, preferences.contentFontSize - 1) },
+                            onIncrement: { preferences.contentFontSize = min(20, preferences.contentFontSize + 1) }
                         )
+                        settingsSoftDivider()
+                        Toggle(isOn: $preferences.reduceMotion) {
+                            Text("Reduce Motion")
+                                .foregroundStyle(HarnessColors.secondary(colorScheme))
+                        }
+                        .tint(HarnessColors.primary(colorScheme))
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: settingsRowMinHeight)
+                        settingsSoftDivider()
+                        if preferences.isLoggedIn, let profile = preferences.authProfile {
+                            settingsNavRowLabel(title: profile.displayName, trailing: profile.phone, showChevron: false)
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: settingsRowMinHeight)
+                        } else {
+                            Button(action: onOpenLogin) {
+                                settingsNavRowLabel(title: "登录", trailing: nil)
+                                    .padding(.horizontal, 16)
+                                    .frame(minHeight: settingsRowMinHeight)
+                            }
+                            .buttonStyle(HarnessPressScaleButtonStyle())
+                        }
+                    }
+
+                    settingsGroup(sectionLabel: "开发") {
+                        Toggle(isOn: Binding(
+                            get: { preferences.composerBlockDemo == .transcriptIncompatible },
+                            set: { on in preferences.composerBlockDemo = on ? .transcriptIncompatible : .none }
+                        )) {
+                            Text("Composer 阻断")
+                                .font(.body)
+                                .foregroundStyle(HarnessColors.secondary(colorScheme))
+                        }
+                        .tint(HarnessColors.primary(colorScheme))
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: settingsRowMinHeight)
+                    }
+
+                    settingsGroup(sectionLabel: "Agent") {
+                        settingsNavRowButton(title: "记忆", action: onOpenMemory)
+                        settingsNavRowButton(title: "MCP 服务器", showDividerAfter: true, action: onOpenMcp)
+                        Button(action: onOpenPreviewScenarios) {
+                            settingsNavRowLabel(title: "演示场景", trailing: nil)
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: settingsRowMinHeight)
+                        }
+                        .buttonStyle(HarnessPressScaleButtonStyle())
+                    }
+
+                    settingsGroup(sectionLabel: "连接") {
+                        Button(action: onOpenConnection) {
+                            settingsNavRowLabel(
+                                title: "API Base URL",
+                                trailing: apiConnectionSummary(preferences.apiBaseUrl)
+                            )
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: settingsRowMinHeight)
+                        }
+                        .buttonStyle(HarnessPressScaleButtonStyle())
+                    }
+
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, 8)
+            }
+            if preferences.isLoggedIn {
+                settingsPillButton("退出登录", style: .subtle) {
+                    preferences.updateAuthProfile(nil)
+                    appToast.show("已退出登录")
+                }
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+            }
             }
         }
     }
 
-    @ViewBuilder
-    private func settingsSection(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.headline)
-            content()
+    private func settingsFontSizeRow(value: Int, onDecrement: @escaping () -> Void, onIncrement: @escaping () -> Void) -> some View {
+        HStack {
+            Text("正文字号")
+                .font(.body)
+                .foregroundStyle(HarnessColors.secondary(colorScheme))
+            Spacer()
+            HStack(spacing: 0) {
+                Button("−", action: onDecrement)
+                    .font(.system(size: 15))
+                    .foregroundStyle(HarnessColors.secondary(colorScheme))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                Text("\(value)")
+                    .font(.system(size: 14))
+                    .foregroundStyle(HarnessColors.muted(colorScheme))
+                    .padding(.horizontal, 6)
+                Button("+", action: onIncrement)
+                    .font(.system(size: 15))
+                    .foregroundStyle(HarnessColors.secondary(colorScheme))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+            }
+            .background(HarnessColors.subtle(colorScheme))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(HarnessColors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous)
-                .stroke(HarnessColors.composerBorder, lineWidth: 1)
-        )
+        .padding(.horizontal, 16)
+        .frame(minHeight: settingsRowMinHeight)
     }
 
-    private func settingsStepperButton(_ label: String, action: @escaping () -> Void) -> some View {
-        Button(label, action: action)
-            .font(.body.weight(.semibold))
-            .frame(width: 32, height: 32)
-            .background(HarnessColors.surface)
-            .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous)
-                    .stroke(HarnessColors.composerBorder, lineWidth: 1)
-            )
+    private func themeModeLabel(_ mode: PreviewThemeMode) -> String {
+        switch mode {
+        case .system: return "跟随系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
     }
 
-    private func themeChip(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(label, action: action)
-            .font(.caption)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(selected ? HarnessColors.subtle : HarnessColors.surface)
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(selected ? HarnessColors.primary : HarnessColors.composerBorder, lineWidth: 1)
-            )
+    private func nextThemeMode(_ mode: PreviewThemeMode) -> PreviewThemeMode {
+        switch mode {
+        case .system: return .light
+        case .light: return .dark
+        case .dark: return .system
+        }
+    }
+}
+
+struct PreviewConnectionSettingsView: View {
+    @Bindable var preferences: PreviewAppPreferences
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    settingsGroup {
+                        VStack(alignment: .leading, spacing: 8) {
+                            settingsTextField(
+                                label: "API Base URL",
+                                text: $preferences.apiBaseUrl,
+                                placeholder: "http://192.168.x.x:4318"
+                            )
+                        }
+                        .padding(16)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+        }
+        .background(HarnessColors.canvas(colorScheme))
+        .navigationTitle("连接")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
 struct PreviewMcpListView: View {
     @Bindable var preferences: PreviewAppPreferences
+    var onAddServer: () -> Void = {}
+    var onEditServer: (String) -> Void = { _ in }
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("列表与表单为静态 UI；Test 按钮弹出本地 Alert。")
-                    .font(.caption)
-                    .foregroundStyle(HarnessColors.muted)
-                settingsSectionCard("已配置") {
+        VStack(spacing: 0) {
+            ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                settingsGroup(sectionLabel: "已配置") {
                     if preferences.mcpServers.isEmpty {
-                        Text("暂无服务器").font(.caption).foregroundStyle(HarnessColors.muted)
+                        Text("暂无服务器")
+                            .font(.caption)
+                            .foregroundStyle(HarnessColors.muted(colorScheme))
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: settingsRowMinHeight, alignment: .leading)
                     } else {
                         ForEach(Array(preferences.mcpServers.enumerated()), id: \.element.id) { index, server in
-                            NavigationLink {
-                                PreviewMcpFormView(preferences: preferences, serverId: server.id)
-                            } label: {
-                                settingsNavRowLabel(
-                                    title: server.serverName,
-                                    subtitle: server.url,
-                                    trailing: server.enabled ? "已启用" : "未启用"
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            if index < preferences.mcpServers.count - 1 {
-                                Divider().overlay(HarnessColors.composerBorder)
+                            VStack(spacing: 0) {
+                                Button {
+                                    onEditServer(server.id)
+                                } label: {
+                                    settingsNavRowLabel(
+                                        title: server.serverName,
+                                        trailing: server.enabled ? "已启用" : "未启用"
+                                    )
+                                    .padding(.horizontal, 16)
+                                    .frame(minHeight: settingsRowMinHeight, alignment: .leading)
+                                }
+                                .buttonStyle(HarnessPressScaleButtonStyle())
+                                if index < preferences.mcpServers.count - 1 {
+                                    SettingsSoftDividerView()
+                                }
                             }
                         }
                     }
                 }
-                NavigationLink {
-                    PreviewMcpFormView(preferences: preferences, serverId: "new")
-                } label: {
-                    Text("添加服务器")
-                        .font(.body.weight(.medium))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(HarnessColors.primary)
-                        .foregroundStyle(HarnessColors.primaryForeground)
-                        .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous))
-                }
-                .buttonStyle(.plain)
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 8)
+            }
+            Button(action: onAddServer) {
+                settingsPillLabel("添加服务器", style: .primary)
+            }
+            .buttonStyle(HarnessPressScaleButtonStyle())
+            .padding(.top, 12)
+            .padding(.bottom, 8)
         }
-        .background(HarnessColors.canvas)
+        .background(HarnessColors.canvas(colorScheme))
         .navigationTitle("MCP 服务器")
     }
 }
@@ -176,59 +239,69 @@ struct PreviewMcpFormView: View {
     @State private var name: String = ""
     @State private var url: String = ""
     @State private var enabled: Bool = true
-    @State private var showTestAlert = false
+    @State private var testConfirm: AppConfirmRequest?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appToast) private var appToast
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                settingsSectionCard("连接") {
-                    settingsFieldShell {
-                        TextField("名称", text: $name)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    settingsGroup(sectionLabel: "连接") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            settingsTextField(label: "名称", text: $name, placeholder: "服务器名称")
+                            settingsTextField(label: "URL / 命令", text: $url, placeholder: "stdio://…")
+                            Toggle(isOn: $enabled) {
+                                Text("启用").foregroundStyle(HarnessColors.secondary(colorScheme))
+                            }
+                            .tint(HarnessColors.primary(colorScheme))
+                            .frame(minHeight: settingsRowMinHeight)
+                        }
+                        .padding(16)
                     }
-                    settingsFieldShell {
-                        TextField("URL / 命令", text: $url)
-                    }
-                    .padding(.top, 8)
-                    Toggle("启用", isOn: $enabled)
-                        .padding(.top, 8)
                 }
+                .padding(.vertical, 8)
+            }
+            VStack(spacing: 10) {
                 HStack(spacing: 8) {
-                    Button("Test") { showTestAlert = true }
-                        .buttonStyle(.bordered)
+                    Button {
+                        appToast.show("连接成功")
+                        testConfirm = AppConfirmRequest(
+                            title: "MCP Test",
+                            message: "连接成功。",
+                            confirmLabel: "确定",
+                            dismissLabel: ""
+                        ) {}
+                    } label: {
+                        settingsPillLabel("Test", style: .subtle)
+                    }
+                    .buttonStyle(HarnessPressScaleButtonStyle())
                     if serverId != "new" {
-                        Button("删除", role: .destructive) {
+                        Button {
                             preferences.deleteMcp(id: serverId)
                             dismiss()
+                        } label: {
+                            settingsPillLabel("删除", style: .subtle)
                         }
+                        .buttonStyle(HarnessPressScaleButtonStyle())
                     }
                 }
-                Button("保存") {
+                Button {
                     let id = serverId == "new" ? UUID().uuidString : serverId
                     preferences.upsertMcp(PreviewMcpServer(id: id, serverName: name, url: url, enabled: enabled))
                     dismiss()
+                } label: {
+                    settingsPillLabel("保存", style: .primary)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(HarnessColors.primary)
-                .foregroundStyle(HarnessColors.primaryForeground)
-                .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous))
+                .buttonStyle(HarnessPressScaleButtonStyle())
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || url.isEmpty)
-                Text("Test 与保存均为 Preview 本地模拟。")
-                    .font(.caption)
-                    .foregroundStyle(HarnessColors.muted)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(HarnessColors.subtle)
-                    .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous)
-                            .stroke(HarnessColors.composerBorder, lineWidth: 1)
-                    )
+                .opacity(name.trimmingCharacters(in: .whitespaces).isEmpty || url.isEmpty ? 0.45 : 1)
             }
-            .padding(.vertical, 4)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
         }
-        .background(HarnessColors.canvas)
+        .background(HarnessColors.canvas(colorScheme))
         .navigationTitle(serverId == "new" ? "新建 MCP" : "编辑 MCP")
         .onAppear {
             if let existing = preferences.mcpServers.first(where: { $0.id == serverId }) {
@@ -237,134 +310,336 @@ struct PreviewMcpFormView: View {
                 enabled = existing.enabled
             }
         }
-        .alert("MCP Test（Preview）", isPresented: $showTestAlert) {
-            Button("确定", role: .cancel) {}
-        } message: {
-            Text("连接成功（本地模拟）。")
+        .appConfirmDialog($testConfirm)
+    }
+}
+
+struct PreviewLoginView: View {
+    @Bindable var preferences: PreviewAppPreferences
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.appToast) private var appToast
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var phone = ""
+    @State private var code = ""
+    @State private var codeSent = false
+
+    var body: some View {
+        AppScaffold(title: "登录") {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        settingsTextField(label: "手机号", text: $phone, placeholder: "11 位手机号", keyboard: .phonePad)
+                        if codeSent {
+                            settingsTextField(label: "验证码", text: $code, placeholder: "6 位验证码", keyboard: .numberPad)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+                Button(action: submit) {
+                    settingsPillLabel(primaryLabel, style: .primary)
+                }
+                .buttonStyle(HarnessPressScaleButtonStyle())
+                .disabled(phone.trimmingCharacters(in: .whitespaces).count < 6)
+                .opacity(phone.trimmingCharacters(in: .whitespaces).count < 6 ? 0.45 : 1)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+            }
         }
+    }
+
+    private var primaryLabel: String {
+        if !codeSent { return "发送验证码" }
+        return code.trimmingCharacters(in: .whitespaces).count >= 4 ? "登录" : "请输入验证码"
+    }
+
+    private func submit() {
+        let trimmedPhone = phone.trimmingCharacters(in: .whitespaces)
+        guard trimmedPhone.count >= 6 else {
+            appToast.show("请输入有效手机号")
+            return
+        }
+        if !codeSent {
+            codeSent = true
+            appToast.show("验证码已发送")
+            return
+        }
+        guard code.trimmingCharacters(in: .whitespaces).count >= 4 else {
+            appToast.show("请输入验证码")
+            return
+        }
+        preferences.updateAuthProfile(PreviewAuthProfile(displayName: maskPhone(trimmedPhone), phone: trimmedPhone))
+        appToast.show("登录成功")
+        dismiss()
+    }
+
+    private func maskPhone(_ phone: String) -> String {
+        let digits = phone.filter(\.isNumber)
+        guard digits.count >= 7 else { return phone }
+        return "\(digits.prefix(3))****\(digits.suffix(4))"
     }
 }
 
 struct PreviewMemoryHubView: View {
     @Bindable var preferences: PreviewAppPreferences
-    @State private var draft = ""
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                settingsSectionCard("写入") {
-                    Toggle("允许 Agent 写入记忆", isOn: $preferences.allowAgentMemoryWrite)
-                    Text("本地开关 · 不调用 API")
-                        .font(.caption)
-                        .foregroundStyle(HarnessColors.muted)
-                }
-                settingsSectionCard("新增") {
-                    settingsFieldShell {
-                        TextField("记忆条目", text: $draft)
+            VStack(alignment: .leading, spacing: 20) {
+                settingsGroup(sectionLabel: "写入") {
+                    Toggle(isOn: $preferences.allowAgentMemoryWrite) {
+                        Text("允许 Agent 写入记忆")
+                            .foregroundStyle(HarnessColors.secondary(colorScheme))
                     }
-                    Button("添加") {
-                        preferences.addMemory(draft)
-                        draft = ""
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(HarnessColors.primary)
-                    .foregroundStyle(HarnessColors.primaryForeground)
-                    .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous))
-                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .padding(.top, 8)
+                    .tint(HarnessColors.primary(colorScheme))
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: settingsRowMinHeight)
                 }
-                settingsSectionCard("条目") {
+                settingsGroup(sectionLabel: "条目") {
                     if preferences.memoryEntries.isEmpty {
-                        Text("暂无记忆").font(.caption).foregroundStyle(HarnessColors.muted)
+                        Text("暂无记忆")
+                            .font(.caption)
+                            .foregroundStyle(HarnessColors.muted(colorScheme))
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: settingsRowMinHeight, alignment: .leading)
                     } else {
                         ForEach(Array(preferences.memoryEntries.enumerated()), id: \.element.id) { index, entry in
-                            HStack(alignment: .top) {
-                                Text(entry.text)
-                                    .font(.body)
-                                Spacer(minLength: 8)
-                                Button("删除", role: .destructive) {
-                                    preferences.deleteMemory(id: entry.id)
+                            VStack(spacing: 0) {
+                                HStack {
+                                    Text(entry.text)
+                                        .font(.body)
+                                        .foregroundStyle(HarnessColors.secondary(colorScheme))
+                                    Spacer()
+                                    Button("删除") {
+                                        preferences.deleteMemory(id: entry.id)
+                                    }
+                                    .font(.subheadline)
+                                    .foregroundStyle(HarnessColors.link(colorScheme))
                                 }
-                            }
-                            .padding(.vertical, 8)
-                            if index < preferences.memoryEntries.count - 1 {
-                                Divider().overlay(HarnessColors.composerBorder)
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: settingsRowMinHeight)
+                                if index < preferences.memoryEntries.count - 1 {
+                                    SettingsSoftDividerView()
+                                }
                             }
                         }
                     }
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 8)
         }
-        .background(HarnessColors.canvas)
+        .background(HarnessColors.canvas(colorScheme))
         .navigationTitle("记忆")
     }
 }
 
 // MARK: - Shared settings chrome (Gate A)
 
-@ViewBuilder
-private func settingsSectionCard(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-    VStack(alignment: .leading, spacing: 12) {
-        Text(title).font(.headline)
-        content()
+let settingsRowMinHeight: CGFloat = 48
+
+private enum SettingsPillStyle {
+    case subtle
+    case primary
+}
+
+private struct SettingsPillLabelView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let title: String
+    let style: SettingsPillStyle
+
+    var body: some View {
+        Text(title)
+            .font(.body)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .foregroundStyle(
+                style == .primary
+                    ? HarnessColors.primaryForeground(colorScheme)
+                    : HarnessColors.secondary(colorScheme)
+            )
+            .background(
+                style == .primary
+                    ? HarnessColors.primary(colorScheme)
+                    : HarnessColors.subtle(colorScheme)
+            )
+            .clipShape(Capsule())
     }
-    .padding(16)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(HarnessColors.surface)
-    .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous))
-    .overlay(
-        RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous)
-            .stroke(HarnessColors.composerBorder, lineWidth: 1)
-    )
+}
+
+@ViewBuilder
+private func settingsPillLabel(_ title: String, style: SettingsPillStyle) -> some View {
+    SettingsPillLabelView(title: title, style: style)
+}
+
+private func settingsPillButton(
+    _ title: String,
+    style: SettingsPillStyle = .primary,
+    enabled: Bool = true,
+    action: @escaping () -> Void
+) -> some View {
+    Button(action: action) {
+        settingsPillLabel(title, style: style)
+    }
+    .buttonStyle(HarnessPressScaleButtonStyle())
+    .disabled(!enabled)
+    .opacity(enabled ? 1 : 0.45)
+}
+
+struct SettingsSoftDividerView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Divider()
+            .overlay(HarnessColors.settingsDivider(colorScheme))
+            .padding(.leading, 16)
+    }
+}
+
+@ViewBuilder
+private func settingsSoftDivider() -> some View {
+    SettingsSoftDividerView()
+}
+
+private struct SettingsTextFieldView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let label: String
+    @Binding var text: String
+    var placeholder: String = ""
+    var keyboard: UIKeyboardType = .default
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(HarnessColors.muted(colorScheme))
+            TextField(placeholder, text: $text)
+                .keyboardType(keyboard)
+                .font(.body)
+                .foregroundStyle(HarnessColors.secondary(colorScheme))
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(HarnessColors.subtle(colorScheme))
+                .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous)
+                        .stroke(HarnessColors.composerBorder(colorScheme), lineWidth: 1)
+                )
+        }
+    }
+}
+
+@ViewBuilder
+private func settingsTextField(
+    label: String,
+    text: Binding<String>,
+    placeholder: String = "",
+    keyboard: UIKeyboardType = .default
+) -> some View {
+    SettingsTextFieldView(label: label, text: text, placeholder: placeholder, keyboard: keyboard)
+}
+
+private func apiConnectionSummary(_ raw: String) -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespaces)
+    if trimmed.isEmpty { return "未配置" }
+    if trimmed.count > 18 { return String(trimmed.prefix(18)) + "…" }
+    return trimmed
+}
+
+struct SettingsGroup<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+    var sectionLabel: String?
+    private let content: () -> Content
+
+    init(sectionLabel: String? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.sectionLabel = sectionLabel
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let sectionLabel, !sectionLabel.isEmpty {
+                Text(sectionLabel)
+                    .font(.system(size: 12))
+                    .foregroundStyle(HarnessColors.muted(colorScheme))
+                    .padding(.leading, 4)
+                    .padding(.bottom, -2)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(HarnessColors.surface(colorScheme))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+}
+
+@ViewBuilder
+func settingsGroup(sectionLabel: String? = nil, @ViewBuilder content: @escaping () -> some View) -> some View {
+    SettingsGroup(sectionLabel: sectionLabel, content: content)
+}
+
+@ViewBuilder
+private func settingsSectionCard(_ title: String, @ViewBuilder content: @escaping () -> some View) -> some View {
+    settingsGroup(sectionLabel: title) {
+        content()
+            .padding(16)
+    }
 }
 
 @ViewBuilder
 private func settingsFieldShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
     content()
-        .padding(10)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(HarnessColors.canvas)
-        .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous)
-                .stroke(HarnessColors.composerBorder, lineWidth: 1)
-        )
 }
 
-private func settingsNavRowLabel(title: String, subtitle: String, trailing: String? = nil) -> some View {
-    HStack(alignment: .center) {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.body)
-            if !subtitle.isEmpty {
-                Text(subtitle).font(.caption).foregroundStyle(HarnessColors.muted)
+struct SettingsNavRowLabelView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let title: String
+    var trailing: String?
+    var showChevron: Bool = true
+
+    var body: some View {
+        HStack(alignment: .center) {
+            Text(title)
+                .font(.body)
+                .foregroundStyle(HarnessColors.secondary(colorScheme))
+            Spacer(minLength: 8)
+            if let trailing, !trailing.isEmpty {
+                Text(trailing)
+                    .font(.subheadline)
+                    .foregroundStyle(HarnessColors.muted(colorScheme))
+            }
+            if showChevron {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(HarnessColors.composerPlaceholder(colorScheme))
             }
         }
-        Spacer(minLength: 8)
-        if let trailing {
-            Text(trailing).font(.caption2).foregroundStyle(HarnessColors.secondary)
-        }
-        Image(systemName: "chevron.right")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(HarnessColors.muted)
     }
-    .padding(.vertical, 8)
 }
 
-private func settingsNavLink<Destination: View>(
+func settingsNavRowLabel(title: String, trailing: String? = nil, showChevron: Bool = true) -> some View {
+    SettingsNavRowLabelView(title: title, trailing: trailing, showChevron: showChevron)
+}
+
+func settingsNavRowButton(
     title: String,
-    subtitle: String,
-    @ViewBuilder destination: () -> Destination
+    showDividerAfter: Bool = true,
+    action: @escaping () -> Void
 ) -> some View {
     VStack(spacing: 0) {
-        NavigationLink {
-            destination()
-        } label: {
-            settingsNavRowLabel(title: title, subtitle: subtitle)
+        Button(action: action) {
+            settingsNavRowLabel(title: title, trailing: nil)
+                .padding(.horizontal, 16)
+                .frame(minHeight: settingsRowMinHeight)
         }
-        .buttonStyle(.plain)
-        Divider().overlay(HarnessColors.composerBorder)
+        .buttonStyle(HarnessPressScaleButtonStyle())
+        if showDividerAfter {
+            settingsSoftDivider()
+        }
     }
 }
 

@@ -43,21 +43,15 @@ class ReplayController(
                 }
                 stateFlow.value =
                     stateFlow.value.withAssistantAt(index) {
-                        val md = target.asMarkdownIfNeeded()
                         it.copy(
                             deliveryStatus = "completed",
                             pendingText = null,
-                            summary = if (md == null) target else null,
-                            markdownContent = md,
+                            summary = null,
+                            markdownContent = target,
                             tailTarget = null,
                         )
                     }
             }
-    }
-
-    private fun String.asMarkdownIfNeeded(): String? {
-        if (contains("```") || contains("\n#") || contains("\n- ")) return this
-        return null
     }
 
     private fun ActiveSessionState.withAssistantAt(

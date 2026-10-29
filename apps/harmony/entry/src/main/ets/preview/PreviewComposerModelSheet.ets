@@ -1,5 +1,6 @@
 import { HarnessColors } from '../coreui/HarnessColors';
 import { PreviewLocalPreferences } from './PreviewLocalPreferences';
+import { SlidingSegmentTrack } from './SlidingSegmentTrack';
 
 interface PreviewModelDef {
   id: string;
@@ -145,32 +146,31 @@ export struct PreviewComposerModelSheet {
           .fontColor(HarnessColors.mutedText(this.useDark))
           .padding({ left: 16, top: 16, bottom: 10 })
 
-        Row({ space: 4 }) {
-          ForEach(this.activeModel().reasoningOptions, (option: string) => {
-            Text(reasoningShortLabel(option))
-              .fontSize(12)
-              .fontColor(
-                option === this.reasoningEffort ? HarnessColors.primaryForeground(this.useDark) :
-                  HarnessColors.secondaryText(this.useDark),
-              )
-              .layoutWeight(1)
-              .textAlign(TextAlign.Center)
-              .padding({ top: 8, bottom: 8 })
-              .backgroundColor(
-                option === this.reasoningEffort ? HarnessColors.primaryText(this.useDark) :
-                  Color.Transparent,
-              )
-              .borderRadius(8)
-              .onClick(() => {
-                this.reasoningEffort = option;
-              })
-          }, (option: string) => option)
+        SlidingSegmentTrack({
+          segmentCount: this.activeModel().reasoningOptions.length,
+          selectedIndex: Math.max(0, this.activeModel().reasoningOptions.indexOf(this.reasoningEffort)),
+          useDark: this.useDark,
+        }) {
+          Row({ space: 0 }) {
+            ForEach(this.activeModel().reasoningOptions, (option: string) => {
+              Text(reasoningShortLabel(option))
+                .fontSize(12)
+                .fontWeight(option === this.reasoningEffort ? FontWeight.Medium : FontWeight.Normal)
+                .fontColor(
+                  option === this.reasoningEffort ? HarnessColors.primaryForeground(this.useDark) :
+                    HarnessColors.secondaryText(this.useDark),
+                )
+                .height(34)
+                .layoutWeight(1)
+                .textAlign(TextAlign.Center)
+                .onClick(() => {
+                  this.reasoningEffort = option;
+                })
+            }, (option: string) => option)
+          }
+          .width('100%')
         }
-        .width('100%')
-        .padding(4)
         .margin({ left: 12, right: 12 })
-        .backgroundColor(HarnessColors.subtleBg(this.useDark))
-        .borderRadius(8)
 
         Blank().height(32)
       }

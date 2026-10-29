@@ -15,7 +15,6 @@ import { AgentChainOfThought } from '@/features/agent/components/agent-elements/
 import { SkillMentionChip } from '@/features/agent/components/agent-elements/skill-mention-chip';
 import { ChatTopBar } from '@/features/agent/components/chat-top-bar';
 import { ConnectionPill } from '@/features/agent/components/connection-pill';
-import { ComposerPeekBar } from '@/features/agent/components/composer-peek-bar';
 import { ServiceBanner } from '@/features/agent/components/service-banner';
 import { ComposerClarificationPanel } from '@/features/agent/components/composer-clarification-panel';
 import { ComposerHitlPanel } from '@/features/agent/components/composer-hitl-panel';
@@ -176,10 +175,6 @@ export default function UiCatalogScreen() {
 
         <CatalogSection title="Composer · Follow-up Queue">
           <FollowUpQueuePanel items={catalogFollowUpFixture} />
-        </CatalogSection>
-
-        <CatalogSection title="Composer · peek 条">
-          <ComposerPeekBar title="正在搜索公开来源" subtitle="步骤 2 / 5" onPress={() => undefined} />
         </CatalogSection>
 
         <CatalogSection title="Composer · 默认">

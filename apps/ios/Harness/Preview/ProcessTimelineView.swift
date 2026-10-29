@@ -1,10 +1,19 @@
 import SwiftUI
 
+/// 时间线 disclosure：无背景，仅 label 透明度变化。
+private struct ProcessTimelineTextButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.72 : 1)
+    }
+}
+
 struct AssistantProcessTimelineView: View {
     let blocks: [ProcessBlock]
     var running: Bool = false
     var finalOutputVisible: Bool = false
     var onOpenWorkbench: ((String) -> Void)? = nil
+    var previewReduceMotion: Bool = false
 
     @State private var open = true
     @State private var userExpanded = false
@@ -27,46 +36,41 @@ struct AssistantProcessTimelineView: View {
             VStack(alignment: .leading, spacing: 0) {
                 Button {
                     userExpanded = true
-                    withAnimation(.easeOut(duration: 0.22)) {
-                        open.toggle()
-                    }
+                    open.toggle()
                 } label: {
-                    HStack {
+                    HStack(spacing: 6) {
                         Text(headerLabel).font(.subheadline).foregroundStyle(HarnessColors.muted)
-                        Spacer()
-                        Image(systemName: "chevron.down")
+                        HarnessSymbol.image("chevron.down", size: 14)
                             .rotationEffect(.degrees(open ? 180 : 0))
-                            .animation(.easeOut(duration: 0.14), value: open)
-                            .font(.caption)
                             .foregroundStyle(HarnessColors.muted)
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ProcessTimelineTextButtonStyle())
                 .padding(.vertical, 4)
-                if open {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(renderable.enumerated()), id: \.offset) { displayIndex, pair in
-                            ProcessTimelineRow(
-                                block: pair.1,
-                                isLast: displayIndex == renderable.count - 1,
-                                onOpenWorkbench: onOpenWorkbench
-                            )
-                        }
-                    }
-                    .padding(.leading, 4)
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity.combined(with: .move(edge: .top)),
-                            removal: .opacity.combined(with: .move(edge: .top))
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(renderable.enumerated()), id: \.offset) { displayIndex, pair in
+                        ProcessTimelineRow(
+                            block: pair.1,
+                            isLast: displayIndex == renderable.count - 1,
+                            reduceMotion: previewReduceMotion,
+                            onOpenWorkbench: onOpenWorkbench
                         )
-                    )
+                    }
                 }
+                .padding(.leading, 4)
+                .scaleEffect(x: 1, y: open ? 1 : 0, anchor: .top)
+                .opacity(open ? 1 : 0)
+                .animation(previewReduceMotion ? nil : .easeOut(duration: 0.22), value: open)
+                .accessibilityHidden(!open)
             }
-            .animation(.easeOut(duration: 0.22), value: open)
             .padding(.vertical, 4)
+            .clipped()
             .onAppear {
                 if !userExpanded, finalOutputVisible, !running {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { open = false }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        guard !userExpanded, finalOutputVisible, !running else { return }
+                        open = false
+                    }
                 }
                 if running { open = true }
             }
@@ -81,8 +85,12 @@ struct AssistantProcessTimelineView: View {
 private struct ProcessTimelineRow: View {
     let block: ProcessBlock
     let isLast: Bool
+    var reduceMotion: Bool = false
     var onOpenWorkbench: ((String) -> Void)? = nil
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var reasoningOpen = false
+
+    private var prefersReducedMotion: Bool { reduceMotion || accessibilityReduceMotion }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -102,21 +110,8 @@ private struct ProcessTimelineRow: View {
                 switch block {
                 case .toolActivity(let id, let name, let summary, let status, _):
                     Group {
-                        HStack(spacing: 6) {
-                            Text(name)
-                                .font(.subheadline)
-                                .foregroundStyle(HarnessColors.secondary)
-                                .lineLimit(1)
-                            if status == "running" { ProgressView().scaleEffect(0.7) }
-                        }
-                        .frame(height: 20, alignment: .leading)
-                        if !summary.isEmpty, summary != name {
-                            Text(summary)
-                                .font(.caption)
-                                .foregroundStyle(HarnessColors.muted)
-                                .lineLimit(1)
-                                .padding(.top, 2)
-                        }
+                        ToolActivityInlineLabelView(toolName: name, title: name, summary: summary)
+                            .frame(height: 20, alignment: .leading)
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -124,76 +119,114 @@ private struct ProcessTimelineRow: View {
                         onOpenWorkbench(id)
                     }
                 case .reasoning(let content, let durationMs, let streaming):
-                    Button {
-                        withAnimation(.easeOut(duration: 0.22)) {
-                            reasoningOpen.toggle()
+                    let showReasoningBody = reasoningOpen || streaming
+                    VStack(alignment: .leading, spacing: 0) {
+                        Button {
+                            toggleReasoningOpen()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(ProcessTimelineLabels.reasoningTriggerLabel(streaming: streaming, durationMs: durationMs))
+                                    .font(.subheadline)
+                                    .foregroundStyle(HarnessColors.muted)
+                                    .lineLimit(1)
+                                HarnessSymbol.image("chevron.down", size: 14)
+                                    .foregroundStyle(HarnessColors.muted)
+                                    .rotationEffect(.degrees(showReasoningBody ? 180 : 0))
+                                    .animation(prefersReducedMotion ? nil : .easeOut(duration: 0.14), value: reasoningOpen)
+                                    .accessibilityHidden(true)
+                            }
+                            .frame(height: 20, alignment: .leading)
                         }
-                    } label: {
-                        HStack {
-                            Text(ProcessTimelineLabels.reasoningTriggerLabel(streaming: streaming, durationMs: durationMs))
-                                .font(.subheadline)
-                                .foregroundStyle(HarnessColors.muted)
-                                .lineLimit(1)
-                            Spacer()
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(HarnessColors.muted)
-                                .rotationEffect(.degrees(reasoningOpen || streaming ? 180 : 0))
-                                .animation(.easeOut(duration: 0.14), value: reasoningOpen)
-                                .accessibilityHidden(true)
-                        }
-                        .frame(height: 20, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                    if reasoningOpen || streaming {
+                        .buttonStyle(ProcessTimelineTextButtonStyle())
                         Text(content)
-                            .font(.caption)
-                            .foregroundStyle(HarnessColors.secondary)
-                            .padding(.top, 4)
-                            .transition(
-                                .asymmetric(
-                                    insertion: .opacity.combined(with: .move(edge: .top)),
-                                    removal: .opacity.combined(with: .move(edge: .top))
-                                )
-                            )
+                            .font(.subheadline)
+                            .foregroundStyle(HarnessColors.muted)
+                            .lineSpacing(6)
+                            .padding(.top, 6)
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 8)
+                            .scaleEffect(x: 1, y: showReasoningBody ? 1 : 0, anchor: .top)
+                            .opacity(showReasoningBody ? 1 : 0)
+                            .animation(prefersReducedMotion ? nil : .easeOut(duration: 0.22), value: showReasoningBody)
+                            .accessibilityHidden(!showReasoningBody)
                     }
+                    .clipped()
                 case .text(let content):
                     Text(content)
-                        .font(.caption)
-                        .foregroundStyle(HarnessColors.muted)
+                        .font(.subheadline)
+                        .foregroundStyle(HarnessColors.secondary)
+                        .lineSpacing(4)
                         .padding(.vertical, 4)
                 }
             }
-            .animation(.easeOut(duration: 0.22), value: reasoningOpen)
         }
         .frame(minHeight: 42, alignment: .top)
         .padding(.top, 4)
         .padding(.bottom, 8)
     }
 
+    private func toggleReasoningOpen() {
+        if prefersReducedMotion {
+            reasoningOpen.toggle()
+        } else {
+            withAnimation(.easeOut(duration: 0.22)) {
+                reasoningOpen.toggle()
+            }
+        }
+    }
+
     @ViewBuilder
     private var railIcon: some View {
         switch block {
         case .toolActivity(_, let name, _, let status, _):
-            if status == "running" {
-                ProgressView().scaleEffect(0.8)
-            } else {
-                Image(systemName: toolSymbol(name))
-                    .font(.system(size: 14))
-                    .foregroundStyle(status == "failed" ? HarnessColors.danger : HarnessColors.muted)
-            }
-        case .reasoning:
-            Text("◎").font(.caption).foregroundStyle(HarnessColors.muted)
-        case .text:
-            Circle().fill(HarnessColors.border).frame(width: 6, height: 6)
+            HarnessSymbol.image(ProcessTimelineLabels.toolRailSymbolName(toolName: name), size: 15)
+                .foregroundStyle(status == "failed" ? HarnessColors.danger : (status == "running" ? HarnessColors.link : HarnessColors.muted))
+        case .reasoning, .text:
+            ProcessTimelineNodeDot()
         }
     }
+}
 
-    private func toolSymbol(_ name: String) -> String {
-        let n = name.lowercased()
-        if n.contains("search") || n.contains("fetch") || n.contains("web") { return "magnifyingglass" }
-        if n.contains("file") || n.contains("read") { return "doc.text" }
-        if n.contains("bash") || n.contains("terminal") { return "terminal" }
-        return "clock"
+private struct ProcessTimelineNodeDot: View {
+    var body: some View {
+        Circle().fill(HarnessColors.border).frame(width: 6, height: 6)
+    }
+}
+
+struct ToolActivityInlineLabelView: View {
+    let toolName: String
+    let title: String
+    let summary: String
+
+    private var inlineSummary: String? {
+        ProcessTimelineLabels.toolActivityInlineSummary(toolName: toolName, title: title, summary: summary)
+    }
+
+    var body: some View {
+        if let inlineSummary {
+            HStack(spacing: 0) {
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundStyle(HarnessColors.muted)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Text("|")
+                    .font(.subheadline)
+                    .foregroundStyle(HarnessColors.muted.opacity(0.45))
+                    .padding(.horizontal, 6)
+                Text(inlineSummary)
+                    .font(.subheadline)
+                    .foregroundStyle(HarnessColors.muted)
+                    .lineLimit(1)
+                    .layoutPriority(-1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text(ProcessTimelineLabels.toolActivityPrimaryLine(toolName: toolName, title: title, summary: summary))
+                .font(.subheadline)
+                .foregroundStyle(HarnessColors.muted)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }

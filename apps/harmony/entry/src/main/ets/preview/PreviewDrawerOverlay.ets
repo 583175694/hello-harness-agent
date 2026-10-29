@@ -2,6 +2,7 @@ import { AppTextField } from '../coreui/AppTextField';
 import { HarnessColors } from '../coreui/HarnessColors';
 import { HarnessDivider } from '../coreui/HarnessDivider';
 import { Spinner } from '../coreui/Spinner';
+import { AppAlert, AppToast } from '../coreui/AppFeedback';
 import { PreviewLocalPreferences } from './PreviewLocalPreferences';
 import { SessionDrawerRow } from './PreviewModels';
 
@@ -45,14 +46,20 @@ export struct PreviewDrawerOverlay {
   }
 
   private previewSessionAction(label: string): void {
-    AlertDialog.show({
-      title: label,
-      message: 'Preview 假操作（Phase A 静态）',
-      primaryButton: {
-        value: '确定',
-        action: () => {
-          this.closeSessionMenu();
-        },
+    AppAlert.info(label, '演示环境暂不支持此操作', () => {
+      this.closeSessionMenu();
+    });
+  }
+
+  private confirmDeleteSession(title: string): void {
+    AppAlert.confirm({
+      title: '删除会话',
+      message: `确定删除「${title}」？Preview 中仅为静态确认。`,
+      confirmLabel: '删除',
+      cancelLabel: '取消',
+      onConfirm: () => {
+        AppToast.show('已删除（Preview 模拟）');
+        this.closeSessionMenu();
       },
     });
   }
@@ -150,7 +157,7 @@ export struct PreviewDrawerOverlay {
           .width('100%')
           .backgroundColor(HarnessColors.subtleBg(this.useDark))
           .borderRadius(8)
-          .onClick(() => this.previewSessionAction('已删除'))
+          .onClick(() => this.confirmDeleteSession(this.menuTarget!.title))
         Text('完成')
           .fontSize(14)
           .fontWeight(FontWeight.Medium)

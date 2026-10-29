@@ -2,7 +2,7 @@ package com.harness.agent.ui.chat
 
 import com.harness.agent.model.ProcessBlock
 
-/** 对齐 RN `formatProcessElapsedLabel`（折叠头，中文）。 */
+/** 对齐 Web `formatProcessElapsedLabel`（折叠头，中文）。 */
 internal fun formatProcessTimelineHeaderLabel(
     blocks: List<ProcessBlock>,
     running: Boolean,
@@ -35,4 +35,40 @@ internal fun reasoningTriggerLabel(
         return "Thought for $seconds seconds"
     }
     return "Thought"
+}
+
+/** 对齐 Web `agent-chain-of-thought`：部分工具不 inline summary。 */
+internal fun toolActivityInlineSummary(
+    toolName: String,
+    title: String,
+    summary: String,
+): String? {
+    if (summary.isBlank() || summary == title) return null
+    val n = toolName.lowercase()
+    if (n == "web_search" || n == "web_fetch") return null
+    if (n.contains("bash") || n.contains("command") || n.contains("terminal")) return null
+    return summary
+}
+
+internal fun toolActivityPrimaryLine(
+    toolName: String,
+    title: String,
+    summary: String,
+): String {
+    if (toolActivityInlineSummary(toolName, title, summary) != null) return title
+    val n = toolName.lowercase()
+    if ((n == "web_search" || n == "web_fetch") && summary.isNotBlank() && summary != title) {
+        return "搜索：$summary"
+    }
+    return title.ifBlank { "tool" }
+}
+
+internal fun toolActivityAccessibilityLabel(
+    toolName: String,
+    title: String,
+    summary: String,
+): String {
+    val inline = toolActivityInlineSummary(toolName, title, summary)
+    val line = toolActivityPrimaryLine(toolName, title, summary)
+    return if (inline != null) "$line，$inline" else line
 }

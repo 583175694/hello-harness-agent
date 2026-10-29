@@ -1275,7 +1275,7 @@ summary:focus-visible {
   padding: 0;
 }
 .message-list--static {
-  padding: 30px 0 18px;
+  padding: 30px 0 0;
 }
 .message-list__row {
   position: absolute;
@@ -1670,6 +1670,7 @@ summary:focus-visible {
 }
 .agent-chain-tool__title {
   flex: 0 1 auto;
+  color: var(--theme-text-muted);
 }
 .agent-chain-tool__summary {
   flex: 0 1 auto;
@@ -4089,6 +4090,11 @@ summary:focus-visible {
 }
 [data-theme='dark'] .workspace-tabs__indicator {
   background: var(--theme-accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-tabs__indicator {
+    transition: none;
+  }
 }
 .workbench-tabpanel--animated {
   animation: workbench-tabpanel-in 220ms cubic-bezier(0.22, 1, 0.36, 1);

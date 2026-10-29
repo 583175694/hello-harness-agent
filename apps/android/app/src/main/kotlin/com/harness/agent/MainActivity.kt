@@ -8,12 +8,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.harness.agent.coreui.motion.rememberHarnessReduceMotion
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.harness.agent.coreui.feedback.AppToastHost
 import com.harness.agent.coreui.tokens.HarnessTheme
+import com.harness.agent.ui.settings.PreviewLoginScreen
 import com.harness.agent.preview.MobileContractPreviewLoader
 import com.harness.agent.preview.PreviewAgentSessionPort
 import com.harness.agent.preview.PreviewAppPreferences
@@ -24,6 +29,11 @@ import com.harness.agent.ui.reader.PreviewReportReaderScreen
 import com.harness.agent.ui.settings.PreviewMcpFormScreen
 import com.harness.agent.ui.settings.PreviewMcpListScreen
 import com.harness.agent.ui.settings.PreviewMemoryHubScreen
+import com.harness.agent.ui.settings.PreviewConnectionScreen
+import com.harness.agent.ui.navigation.harnessNavEnterTransition
+import com.harness.agent.ui.navigation.harnessNavExitTransition
+import com.harness.agent.ui.navigation.harnessNavPopEnterTransition
+import com.harness.agent.ui.navigation.harnessNavPopExitTransition
 import com.harness.agent.ui.settings.PreviewSettingsRootScreen
 
 class MainActivity : ComponentActivity() {
@@ -42,10 +52,27 @@ class MainActivity : ComponentActivity() {
                 darkTheme = preferences.resolveDarkTheme(),
                 contentFontSizeSp = preferences.contentFontSize,
             ) {
+                AppToastHost {
                 val navController = rememberNavController()
                 var selectedFixture by remember { mutableStateOf(initialFixture) }
+                val reduceMotion = rememberHarnessReduceMotion(preferences.reduceMotion)
 
-                NavHost(navController = navController, startDestination = "chat") {
+                NavHost(
+                    navController = navController,
+                    startDestination = "chat",
+                    enterTransition = {
+                        if (reduceMotion) EnterTransition.None else harnessNavEnterTransition()
+                    },
+                    exitTransition = {
+                        if (reduceMotion) ExitTransition.None else harnessNavExitTransition()
+                    },
+                    popEnterTransition = {
+                        if (reduceMotion) EnterTransition.None else harnessNavPopEnterTransition()
+                    },
+                    popExitTransition = {
+                        if (reduceMotion) ExitTransition.None else harnessNavPopExitTransition()
+                    },
+                ) {
                     composable("dev-menu") {
                         PreviewDevMenuScreen(
                             viewModel = viewModel,
@@ -71,6 +98,7 @@ class MainActivity : ComponentActivity() {
                                 viewModel.selectFixture(PREVIEW_DEMO_FIXTURE)
                             },
                             onOpenSettings = { navController.navigate("settings") },
+                            onOpenLogin = { navController.navigate("settings/login") },
                             onOpenReportReader = { title, markdown ->
                                 preferences.openReader(title, markdown, isArtifact = false)
                                 navController.navigate("reader/report")
@@ -85,9 +113,24 @@ class MainActivity : ComponentActivity() {
                         PreviewSettingsRootScreen(
                             preferences = preferences,
                             onBack = { navController.popBackStack() },
+                            onOpenLogin = { navController.navigate("settings/login") },
                             onOpenMemory = { navController.navigate("settings/memory") },
                             onOpenMcp = { navController.navigate("settings/mcp") },
+                            onOpenConnection = { navController.navigate("settings/connection") },
                             onOpenPreviewScenarios = { navController.navigate("dev-menu") },
+                        )
+                    }
+                    composable("settings/connection") {
+                        PreviewConnectionScreen(
+                            preferences = preferences,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+                    composable("settings/login") {
+                        PreviewLoginScreen(
+                            preferences = preferences,
+                            onBack = { navController.popBackStack() },
+                            onLoggedIn = { navController.popBackStack() },
                         )
                     }
                     composable("settings/memory") {
@@ -121,6 +164,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+                }
             }
         }
     }
@@ -133,6 +177,7 @@ class MainActivity : ComponentActivity() {
         /** Dev Menu 置顶演示 fixture（越靠前越靠上） */
         val PREVIEW_DEMO_FIXTURE_ORDER =
             listOf(
+                "chat-markdown-gallery.json",
                 "rich-session-showcase.json",
                 "stock-market-review.json",
             )

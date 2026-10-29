@@ -15,6 +15,32 @@ enum HarnessColors {
     static let userBubbleBorder = Color(red: 0.86, green: 0.90, blue: 0.97)
     static let composerBorder = Color(red: 0.93, green: 0.93, blue: 0.92)
     static let primaryForeground = Color.white
+    static let composerPlaceholder = Color(red: 0.63, green: 0.63, blue: 0.61)
+
+    static let canvasDark = Color(red: 0.06, green: 0.06, blue: 0.06)
+    static let surfaceDark = Color(red: 0.09, green: 0.09, blue: 0.09)
+    static let subtleDark = Color(red: 0.13, green: 0.13, blue: 0.13)
+    static let primaryDark = Color(red: 0.85, green: 0.85, blue: 0.85)
+    static let primaryForegroundDark = Color(red: 0.06, green: 0.06, blue: 0.06)
+    static let secondaryDark = Color(red: 0.71, green: 0.71, blue: 0.69)
+    static let mutedDark = Color(red: 0.51, green: 0.51, blue: 0.49)
+    static let linkDark = Color(red: 0.56, green: 0.71, blue: 0.81)
+    static let composerBorderDark = Color(red: 0.22, green: 0.22, blue: 0.22)
+    static let settingsDividerDark = Color(red: 0.16, green: 0.16, blue: 0.16)
+
+    static func canvas(_ scheme: ColorScheme) -> Color { scheme == .dark ? canvasDark : canvas }
+    static func surface(_ scheme: ColorScheme) -> Color { scheme == .dark ? surfaceDark : surface }
+    static func subtle(_ scheme: ColorScheme) -> Color { scheme == .dark ? subtleDark : subtle }
+    static func primary(_ scheme: ColorScheme) -> Color { scheme == .dark ? primaryDark : primary }
+    static func primaryForeground(_ scheme: ColorScheme) -> Color { scheme == .dark ? primaryForegroundDark : primaryForeground }
+    static func secondary(_ scheme: ColorScheme) -> Color { scheme == .dark ? secondaryDark : secondary }
+    static func muted(_ scheme: ColorScheme) -> Color { scheme == .dark ? mutedDark : muted }
+    static func link(_ scheme: ColorScheme) -> Color { scheme == .dark ? linkDark : link }
+    static func composerBorder(_ scheme: ColorScheme) -> Color { scheme == .dark ? composerBorderDark : composerBorder }
+    static func composerPlaceholder(_ scheme: ColorScheme) -> Color { scheme == .dark ? mutedDark : composerPlaceholder }
+    static func settingsDivider(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? settingsDividerDark : Color(red: 0.93, green: 0.93, blue: 0.91)
+    }
 }
 
 enum HarnessCopy {
@@ -26,6 +52,7 @@ enum GateAPreviewFixtures {
     static let demoShowcase = "rich-session-showcase.json"
     /// Dev Menu 置顶演示 fixture（越靠前越靠上）
     static let demoFixtureOrder = [
+        "chat-markdown-gallery.json",
         "rich-session-showcase.json",
         "stock-market-review.json",
     ]
@@ -40,6 +67,26 @@ enum HarnessLayout {
     static let controlRadius: CGFloat = 8
     static let panelRadius: CGFloat = 12
     static let bubbleRadius: CGFloat = 22
+    static let chatTurnVerticalPadding: CGFloat = 8
+    /// 对齐 Web `.user-message-content` max-width（约 82% 屏宽）。
+    static var userBubbleMaxWidth: CGFloat { UIScreen.main.bounds.width * 0.82 }
+    /// 对齐 Web `--markdown-flow-space`（11px）。
+    static let chatMarkdownBlockGap: CGFloat = 11
+    /// 对齐 Web `.markdown-content li + li`（4px）。
+    static let chatMarkdownListItemGap: CGFloat = 4
+
+    static func chatMarkdownLineSpacing(for contentFontSize: CGFloat, compact: Bool) -> CGFloat {
+        let leadingAt14: CGFloat = compact ? 22 : 24
+        let leading = contentFontSize * leadingAt14 / 14
+        return max(0, leading - contentFontSize)
+    }
+    static let chatBubblePaddingHorizontal: CGFloat = 16
+    static let chatBubblePaddingVertical: CGFloat = 12
+    static let chatListTurnSpacing: CGFloat = 10
+    static let chatAssistantBodyPadding: CGFloat = 14
+    static let settingsCardRadius: CGFloat = 16
+    static let settingsGroupGap: CGFloat = 20
+    static let composerAttachmentStripHeight: CGFloat = 52
     static let composerPlusSize: CGFloat = 44
     static let composerSendSize: CGFloat = 32
     static let composerMinInputHeight: CGFloat = 44

@@ -1,12 +1,24 @@
 import { router } from '@kit.ArkUI';
 import { AppScaffold } from '../coreui/AppScaffold';
-import { AppText } from '../coreui/AppText';
 import { AppTopBar } from '../coreui/AppTopBar';
-import { ListRow } from '../coreui/ListRow';
 import { HarnessColors } from '../coreui/HarnessColors';
+import { SettingsNavRow } from '../coreui/SettingsNavRow';
+import { SettingsSection } from '../coreui/SettingsSection';
 import { PreviewFixtureDescriptor } from '../preview/PreviewFixtures';
 import { PreviewAgentSessionPort } from '../preview/PreviewAgentSessionPort';
 import { PreviewLocalPreferences } from '../preview/PreviewLocalPreferences';
+import { harnessPageTransition } from '../coreui/HarnessPageTransition';
+
+const DEMO_FIXTURE_ORDER: string[] = [
+  'chat-markdown-gallery.json',
+  'rich-session-showcase.json',
+  'stock-market-review.json',
+];
+
+function demoFixtureSortRank(fileName: string): number {
+  const index = DEMO_FIXTURE_ORDER.indexOf(fileName);
+  return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+}
 
 @Entry
 @Component
@@ -33,22 +45,19 @@ struct PreviewMenuPage {
         errors++;
       }
     });
-    const demoOrder: string[] = ['rich-session-showcase.json', 'stock-market-review.json'];
     this.fixtures = list.sort((a, b) => {
-      const ai = demoOrder.indexOf(a.fileName);
-      const bi = demoOrder.indexOf(b.fileName);
-      if (ai >= 0 && bi >= 0) {
-        return ai - bi;
-      }
-      if (ai >= 0) {
-        return -1;
-      }
-      if (bi >= 0) {
-        return 1;
+      const ra = demoFixtureSortRank(a.fileName);
+      const rb = demoFixtureSortRank(b.fileName);
+      if (ra !== rb) {
+        return ra - rb;
       }
       return a.fileName.localeCompare(b.fileName);
     });
     this.loadErrors = errors;
+  }
+
+  pageTransition() {
+    harnessPageTransition()
   }
 
   build() {
@@ -62,41 +71,34 @@ struct PreviewMenuPage {
         })
       },
       content: () => {
-        Column({ space: 8 }) {
-          AppText({
-            text: 'Gate A 十场景（mobile-contract/fixtures/preview）',
-            fontSize: 12,
-            muted: true,
-            useDark: this.themeDark,
-          })
-            .margin({ top: 8, left: 12, right: 12 })
-          if (this.loadErrors > 0) {
-            Text(`请先运行 sync-mobile-contract.sh（${this.loadErrors} 个 fixture 未加载）`)
-              .fontSize(12)
-              .fontColor(HarnessColors.dangerText(this.themeDark))
-              .padding({ left: 12, right: 12, top: 4, bottom: 4 })
-              .width('100%')
-          }
-          Row() {
-            ListRow({
-              title: '设置',
-              subtitle: '主题 · 字号 · Reduce Motion · MCP / Memory',
-              useDark: this.themeDark,
-              onClick: () => {
-                router.pushUrl({ url: 'pages/PreviewSettingsPage' });
-              },
-            })
-          }
-          .width('100%')
-          .padding({ left: 12, right: 12 })
-          .id('dev-menu-settings')
-          List() {
-            ForEach(this.fixtures, (item: PreviewFixtureDescriptor) => {
-              ListItem() {
-                ListRow({
+        Scroll() {
+          Column({ space: 20 }) {
+            if (this.loadErrors > 0) {
+              Text(`部分场景未加载（${this.loadErrors}），请先运行 sync-mobile-contract.sh`)
+                .fontSize(12)
+                .fontColor(HarnessColors.dangerText(this.themeDark))
+                .width('100%')
+                .padding({ left: 4, right: 4 })
+            }
+
+            SettingsSection({ sectionLabel: '快捷', useDark: this.themeDark }) {
+              SettingsNavRow({
+                title: '设置',
+                useDark: this.themeDark,
+                showDivider: false,
+                onClick: () => {
+                  router.pushUrl({ url: 'pages/PreviewSettingsPage' });
+                },
+              })
+            }
+            .id('dev-menu-settings')
+
+            SettingsSection({ sectionLabel: '场景', useDark: this.themeDark }) {
+              ForEach(this.fixtures, (item: PreviewFixtureDescriptor, index: number) => {
+                SettingsNavRow({
                   title: item.title,
-                  subtitle: item.fileName,
                   useDark: this.themeDark,
+                  showDivider: index < this.fixtures.length - 1,
                   onClick: () => {
                     router.replaceUrl({
                       url: 'pages/PreviewChatPage',
@@ -104,15 +106,16 @@ struct PreviewMenuPage {
                     });
                   },
                 })
-              }
-              .id(`dev-menu-fixture-${item.fileName}`)
-            }, (item: PreviewFixtureDescriptor) => item.fileName)
+                  .id(`dev-menu-fixture-${item.fileName}`)
+              }, (item: PreviewFixtureDescriptor) => item.fileName)
+            }
           }
-          .layoutWeight(1)
-          .padding({ left: 12, right: 12 })
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 8, bottom: 16 })
         }
         .width('100%')
         .height('100%')
+        .scrollBar(BarState.Off)
         .backgroundColor(HarnessColors.canvas(this.themeDark))
       },
     })

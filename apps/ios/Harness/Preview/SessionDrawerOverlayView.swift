@@ -31,10 +31,10 @@ struct SessionDrawerOverlayView: View {
                 if store.drawerOpen {
                     drawerPanel(width: panelWidth)
                         .frame(width: panelWidth)
-                        .transition(.move(edge: .leading))
+                        .transition(reduceMotion ? .opacity : .move(edge: .leading))
                 }
             }
-            .animation(reduceMotion ? .easeOut(duration: 0.12) : .easeOut(duration: 0.28), value: store.drawerOpen)
+            .animation(reduceMotion ? .easeOut(duration: 0.15) : .easeOut(duration: 0.28), value: store.drawerOpen)
         }
         .onChange(of: store.drawerOpen) { _, isOpen in
             if !isOpen {
@@ -130,6 +130,7 @@ private struct SessionDrawerMenuSheet: View {
     @Bindable var store: PreviewSessionStore
     let target: SessionDrawerItem
     @State private var renameDraft: String = ""
+    @State private var deleteConfirm: AppConfirmRequest?
 
     var body: some View {
         NavigationStack {
@@ -137,10 +138,21 @@ private struct SessionDrawerMenuSheet: View {
                 TextField("重命名", text: $renameDraft)
                 Button("重命名") { store.renameSession(id: target.id, title: renameDraft) }
                 Button(target.pinned ? "取消置顶" : "置顶") { store.togglePinSession(id: target.id) }
-                Button("删除会话", role: .destructive) { store.deleteSession(id: target.id) }
+                Button("删除会话", role: .destructive) {
+                    deleteConfirm = AppConfirmRequest(
+                        title: "删除会话",
+                        message: "确定删除「\(target.title)」？Preview 中仅从侧栏列表移除。",
+                        confirmLabel: "删除",
+                        destructive: true
+                    ) {
+                        store.deleteSession(id: target.id)
+                        store.sessionMenuTarget = nil
+                    }
+                }
             }
             .navigationTitle(target.title)
             .onAppear { renameDraft = target.title }
+            .appConfirmDialog($deleteConfirm)
         }
     }
 }

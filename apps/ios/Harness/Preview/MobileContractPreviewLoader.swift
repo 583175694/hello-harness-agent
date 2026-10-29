@@ -85,23 +85,24 @@ final class MobileContractPreviewLoader {
                     let status = row["deliveryStatus"] as? String ?? "completed"
                     let pendingRaw = row["pendingText"] as? String
                     let streaming = status == "streaming"
-                    let joined = joinTextBlocks(row["blocks"] as? [[String: Any]])
-                    let isMarkdown = !streaming && (joined?.contains("```") == true || joined?.contains("\n#") == true || joined?.contains("\n- ") == true)
-                    var summary: String?
-                    if !streaming, !isMarkdown {
-                        if let pendingRaw, !pendingRaw.isEmpty {
-                            summary = pendingRaw
-                        } else {
-                            summary = joined
-                        }
+                    let joined = joinTextBlocks(row["blocks"] as? [[String: Any]])?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let finalizedBody: String?
+                    if streaming {
+                        finalizedBody = nil
+                    } else if let joined, !joined.isEmpty {
+                        finalizedBody = joined
+                    } else if let pendingRaw, !pendingRaw.isEmpty {
+                        finalizedBody = pendingRaw
+                    } else {
+                        finalizedBody = nil
                     }
                     conversation.append(
                         .assistant(
                             status: status,
                             pendingText: streaming ? nil : pendingRaw,
-                            summary: streaming ? nil : summary,
+                            summary: nil,
                             tailTarget: streaming ? pendingRaw : nil,
-                            markdownContent: isMarkdown ? joined : nil,
+                            markdownContent: finalizedBody,
                             process: parseProcess(row["process"] as? [[String: Any]])
                         )
                     )

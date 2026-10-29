@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "chat-markdown-gallery",
+  "title": "直接回答 · Markdown 全组件",
+  "conversation": [
+    {
+      "kind": "user",
+      "content": "什么是生成式 AI？"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "# Markdown 组件检查\n\n这是一段普通文本，包含**粗体**、*斜体*、***粗斜体***、~~删除线~~、`行内代码`，以及 [外部链接](https://example.com)。\n\n![占位图片](https://placehold.co/640x180/e8eef5/475569?text=Markdown+Image \"图片标题\")\n\n> 生成结果仍然需要人工复核。\n>\n> 支持多段引用与换行。\n\n## 标题层级\n\n### 三级标题\n\n#### 四级标题\n\n##### 五级标题\n\n###### 六级标题\n\n## 列表与任务\n\n- 明确目标\n  - 补充必要上下文\n  - 说明输出格式\n- 检查结果\n\n1. 编写提示词\n   1. 给出约束\n   2. 提供示例\n2. 复核输出\n\n- [x] 明确目标\n- [ ] 人工复核\n\n## 表格与代码\n\n| 能力 | 示例 | 覆盖 |\n| :--- | :---: | ---: |\n| 文本 | 摘要与问答 | ✅ |\n| 代码 | 生成与解释 | ✅ |\n\n```ts\nconst answer = 'Hello, Markdown';\nconsole.log(answer);\n```\n\n未标注语言的代码块也会保留：\n\n```\nplain text\n```\n\n## 数学与流程图\n\n行内公式 $E = mc^2$，块级公式：\n\n$$\n\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}\n$$\n\n```mermaid\nflowchart LR\n  A[输入] --> B{校验}\n  B -->|通过| C[生成回答]\n  B -->|失败| D[提示修正]\n```\n\n---\n\n以上组件应在浅色和深色主题下保持清晰。"
+        }
+      ]
+    }
+  ],
+  "composer": {
+    "composerMode": "default",
+    "composerTextMode": "new-run",
+    "submitting": false,
+    "placeholder": "继续输入以测试 Markdown…",
+    "modelLabel": "默认模型"
+  },
+  "workbench": {
+    "initialView": "activity",
+    "initialSheetIndex": -1,
+    "workbenchCount": 0
+  }
+}

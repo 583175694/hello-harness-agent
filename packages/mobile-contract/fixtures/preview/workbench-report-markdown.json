@@ -10,7 +10,7 @@
       "blocks": [
         {
           "type": "text",
-          "content": "# Phase A 报告摘要\n\n完成态 Markdown 渲染（对照 RN `MarkdownView` chat variant）。\n\n- 支持标题与列表\n- 支持 fenced code\n\n```ts\nconst gate = 'A';\n```\n\n详细正文见 Workbench Report Tab。"
+          "content": "# 报告摘要\n\n完成态 Markdown 渲染（对照 RN `MarkdownView` chat variant）。\n\n- 支持标题与列表\n- 支持 fenced code\n\n```ts\nconst preview = true;\n```\n\n详细正文见 Workbench Report Tab。"
         }
       ]
     }
@@ -25,7 +25,7 @@
       { "id": "v3", "label": "README.md · v3（当前）", "selected": true },
       { "id": "v2", "label": "README.md · v2", "selected": false }
     ],
-    "artifactDiffPreview": "--- a/README.md\n+++ b/README.md\n@@ -1,3 +1,4 @@\n # Harness\n+Phase A artifact diff 预览",
+    "artifactDiffPreview": "--- a/README.md\n+++ b/README.md\n@@ -1,3 +1,4 @@\n # Harness\n+Artifact diff 预览",
     "artifactRestorePrompt": "恢复 v2 将覆盖工作区中的 README.md（静态确认）。",
     "contextJsonPreview": "{\n  \"modelRound\": 2,\n  \"inputTokens\": 4200,\n  \"outputTokens\": 890\n}"
   }

@@ -1,15 +1,15 @@
 import { router } from '@kit.ArkUI';
 import { AppScaffold } from '../coreui/AppScaffold';
-import { AppTextField } from '../coreui/AppTextField';
 import { AppTopBar } from '../coreui/AppTopBar';
 import { HarnessColors } from '../coreui/HarnessColors';
-import { HarnessDivider } from '../coreui/HarnessDivider';
 import { SettingsNavRow } from '../coreui/SettingsNavRow';
+import { SettingsSoftDivider } from '../coreui/SettingsSoftDivider';
 import { SettingsSection } from '../coreui/SettingsSection';
+import { AppToast } from '../coreui/AppFeedback';
+import { SettingsPillButton } from '../coreui/SettingsPillButton';
+import { PreviewComposerBlockKind } from '../preview/PreviewAuth';
 import { PreviewLocalPreferences } from '../preview/PreviewLocalPreferences';
-
-const PANEL_RADIUS: number = 12;
-const CONTROL_RADIUS: number = 8;
+import { harnessPageTransition } from '../coreui/HarnessPageTransition';
 
 @Entry
 @Component
@@ -18,37 +18,55 @@ struct PreviewSettingsPage {
   @State apiUrl: string = PreviewLocalPreferences.apiUrl;
   @State reduceMotion: boolean = PreviewLocalPreferences.reduceMotion;
   @State contentFontSize: number = PreviewLocalPreferences.contentFontSize;
+  @State transcriptBlockDemo: boolean =
+    PreviewLocalPreferences.composerBlockDemo === PreviewComposerBlockKind.TRANSCRIPT_INCOMPATIBLE;
 
   onPageShow(): void {
     this.themeDark = PreviewLocalPreferences.themeDark;
+    this.apiUrl = PreviewLocalPreferences.apiUrl;
+  }
+
+  private apiSummary(): string {
+    const t = this.apiUrl.trim();
+    if (t.length === 0) {
+      return '未配置';
+    }
+    return t.length > 18 ? `${t.substring(0, 18)}…` : t;
+  }
+
+  private themeLabel(): string {
+    return this.themeDark ? '深色' : '浅色';
+  }
+
+  private cycleTheme(): void {
+    this.themeDark = !this.themeDark;
+    PreviewLocalPreferences.themeDark = this.themeDark;
   }
 
   @Builder
-  themeChip(label: string, selected: boolean, onPick: () => void) {
-    Text(label)
-      .fontSize(12)
-      .fontColor(HarnessColors.primaryText(this.themeDark))
-      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-      .borderRadius(999)
-      .backgroundColor(selected ? HarnessColors.subtleBg(this.themeDark) : HarnessColors.surface(this.themeDark))
-      .border({
-        width: 1,
-        color: selected ? HarnessColors.primaryText(this.themeDark) : HarnessColors.composerBorderColor(this.themeDark),
-      })
-      .onClick(() => onPick())
+  fontSizeStepper(onDecrement: () => void, onIncrement: () => void) {
+    Row() {
+      Text('−')
+        .fontSize(15)
+        .fontColor(HarnessColors.secondaryText(this.themeDark))
+        .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+        .onClick(() => onDecrement())
+      Text(`${this.contentFontSize}`)
+        .fontSize(14)
+        .fontColor(HarnessColors.mutedText(this.themeDark))
+        .padding({ left: 6, right: 6 })
+      Text('+')
+        .fontSize(15)
+        .fontColor(HarnessColors.secondaryText(this.themeDark))
+        .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+        .onClick(() => onIncrement())
+    }
+    .borderRadius(8)
+    .backgroundColor(HarnessColors.subtle(this.themeDark))
   }
 
-  @Builder
-  stepperButton(label: string, onClick: () => void) {
-    Text(label)
-      .fontSize(16)
-      .fontWeight(FontWeight.Medium)
-      .width(32)
-      .height(32)
-      .textAlign(TextAlign.Center)
-      .borderRadius(CONTROL_RADIUS)
-      .border({ width: 1, color: HarnessColors.composerBorderColor(this.themeDark) })
-      .onClick(() => onClick())
+  pageTransition() {
+    harnessPageTransition()
   }
 
   build() {
@@ -62,113 +80,148 @@ struct PreviewSettingsPage {
         })
       },
       content: () => {
-        Scroll() {
-          Column({ space: 12 }) {
-            SettingsSection({ title: '通用', useDark: this.themeDark }) {
-              Text('主题').fontSize(12).fontColor(HarnessColors.mutedText(this.themeDark))
-              Row({ space: 8 }) {
-                this.themeChip('跟随系统', !this.themeDark, () => {
-                  this.themeDark = false;
-                  PreviewLocalPreferences.themeDark = false;
-                })
-                this.themeChip('深色', this.themeDark, () => {
-                  this.themeDark = true;
-                  PreviewLocalPreferences.themeDark = true;
-                })
-              }
-              HarnessDivider({ useDark: this.themeDark })
+        Column() {
+          Scroll() {
+            Column({ space: 20 }) {
+            SettingsSection({ sectionLabel: '通用', useDark: this.themeDark }) {
+              SettingsNavRow({
+                title: '外观',
+                trailingValue: this.themeLabel(),
+                useDark: this.themeDark,
+                showDivider: true,
+                onClick: () => this.cycleTheme(),
+              })
               Row() {
-                Text('正文字号').fontSize(15).layoutWeight(1).fontColor(HarnessColors.primaryText(this.themeDark))
-                this.stepperButton('−', () => {
-                  this.contentFontSize = Math.max(13, this.contentFontSize - 1);
-                  PreviewLocalPreferences.contentFontSize = this.contentFontSize;
-                })
-                Text(`${this.contentFontSize}px`).fontSize(14).padding({ left: 12, right: 12 })
-                this.stepperButton('+', () => {
-                  this.contentFontSize = Math.min(20, this.contentFontSize + 1);
-                  PreviewLocalPreferences.contentFontSize = this.contentFontSize;
-                })
+                Text('正文字号')
+                  .fontSize(16)
+                  .layoutWeight(1)
+                  .fontColor(HarnessColors.secondaryText(this.themeDark))
+                this.fontSizeStepper(
+                  () => {
+                    this.contentFontSize = Math.max(13, this.contentFontSize - 1);
+                    PreviewLocalPreferences.contentFontSize = this.contentFontSize;
+                  },
+                  () => {
+                    this.contentFontSize = Math.min(20, this.contentFontSize + 1);
+                    PreviewLocalPreferences.contentFontSize = this.contentFontSize;
+                  }
+                )
               }
               .width('100%')
-              HarnessDivider({ useDark: this.themeDark })
+              .height(48)
+              .padding({ left: 16, right: 16 })
+              SettingsSoftDivider({ useDark: this.themeDark })
               Row() {
-                Column({ space: 4 }) {
-                  Text('Reduce Motion').fontSize(15).fontColor(HarnessColors.primaryText(this.themeDark))
-                  Text('Drawer / Workbench 减少滑动动画（Preview 假保存）')
-                    .fontSize(12)
-                    .fontColor(HarnessColors.mutedText(this.themeDark))
-                }
-                .layoutWeight(1)
-                .alignItems(HorizontalAlign.Start)
+                Text('Reduce Motion')
+                  .fontSize(16)
+                  .layoutWeight(1)
+                  .fontColor(HarnessColors.secondaryText(this.themeDark))
                 Toggle({ type: ToggleType.Switch, isOn: this.reduceMotion })
+                  .selectedColor(HarnessColors.primary)
                   .onChange((on: boolean) => {
                     this.reduceMotion = on;
                     PreviewLocalPreferences.reduceMotion = on;
                   })
               }
               .width('100%')
+              .height(48)
+              .padding({ left: 16, right: 16 })
+              SettingsSoftDivider({ useDark: this.themeDark })
+              if (PreviewLocalPreferences.isLoggedIn && PreviewLocalPreferences.authProfile !== null) {
+                SettingsNavRow({
+                  title: PreviewLocalPreferences.authProfile.displayName,
+                  trailingValue: PreviewLocalPreferences.authProfile.phone,
+                  useDark: this.themeDark,
+                  showChevron: false,
+                  showDivider: false,
+                  onClick: () => {
+                  },
+                })
+              } else {
+                SettingsNavRow({
+                  title: '登录',
+                  useDark: this.themeDark,
+                  showDivider: false,
+                  onClick: () => router.pushUrl({ url: 'pages/PreviewLoginPage' }),
+                })
+              }
             }
 
-            SettingsSection({ title: 'Agent', useDark: this.themeDark }) {
+            SettingsSection({ sectionLabel: '开发', useDark: this.themeDark }) {
+              Row() {
+                Text('Composer 阻断')
+                  .fontSize(16)
+                  .layoutWeight(1)
+                  .fontColor(HarnessColors.secondaryText(this.themeDark))
+                Toggle({ type: ToggleType.Switch, isOn: this.transcriptBlockDemo })
+                  .selectedColor(HarnessColors.primary)
+                  .onChange((on: boolean) => {
+                    this.transcriptBlockDemo = on;
+                    PreviewLocalPreferences.composerBlockDemo =
+                      on ? PreviewComposerBlockKind.TRANSCRIPT_INCOMPATIBLE : PreviewComposerBlockKind.NONE;
+                  })
+              }
+              .width('100%')
+              .height(48)
+              .padding({ left: 16, right: 16 })
+            }
+
+            SettingsSection({ sectionLabel: 'Agent', useDark: this.themeDark }) {
               SettingsNavRow({
                 title: '记忆',
-                subtitle: '本地假数据 · UI+Local',
                 useDark: this.themeDark,
+                showDivider: true,
                 onClick: () => router.pushUrl({ url: 'pages/PreviewMemoryPage' }),
               })
               SettingsNavRow({
                 title: 'MCP 服务器',
-                subtitle: 'CRUD + Test 模拟',
                 useDark: this.themeDark,
+                showDivider: true,
                 onClick: () => router.pushUrl({ url: 'pages/PreviewMcpPage' }),
               })
               SettingsNavRow({
                 title: '演示场景',
-                subtitle: '切换 Gate A fixture（开发用）',
                 useDark: this.themeDark,
                 showDivider: false,
                 onClick: () => router.pushUrl({ url: 'pages/PreviewMenuPage' }),
               })
             }
 
-            SettingsSection({ title: '连接', useDark: this.themeDark }) {
-              Text('API Base URL（仅编辑器 UI）').fontSize(12).fontColor(HarnessColors.mutedText(this.themeDark))
-              Column() {
-                AppTextField({
-                  label: 'http://192.168.x.x:4318',
-                  placeholder: 'http://192.168.x.x:4318',
-                  text: this.apiUrl,
-                  useDark: this.themeDark,
-                  onChange: (v: string) => {
-                    this.apiUrl = v;
-                    PreviewLocalPreferences.apiUrl = v;
-                  },
-                })
-              }
-              .width('100%')
-              .padding({ left: 12, right: 12, top: 4, bottom: 4 })
-              .borderRadius(CONTROL_RADIUS)
-              .backgroundColor(HarnessColors.canvas(this.themeDark))
-              .border({ width: 1, color: HarnessColors.composerBorderColor(this.themeDark) })
-              Text(`当前生效：${this.apiUrl.trim().length > 0 ? this.apiUrl : '（未填 — Phase B 联调后生效）'}`)
-                .fontSize(12)
-                .fontColor(HarnessColors.mutedText(this.themeDark))
+            SettingsSection({ sectionLabel: '连接', useDark: this.themeDark }) {
+              SettingsNavRow({
+                title: 'API Base URL',
+                trailingValue: this.apiSummary(),
+                useDark: this.themeDark,
+                showDivider: false,
+                onClick: () => router.pushUrl({ url: 'pages/PreviewConnectionPage' }),
+              })
             }
 
-            Text('Phase A：所有保存均为本地 KV，不发起 Harness HTTP。')
-              .fontSize(12)
-              .fontColor(HarnessColors.mutedText(this.themeDark))
-              .padding(12)
-              .width('100%')
-              .backgroundColor(HarnessColors.subtleBg(this.themeDark))
-              .borderRadius(PANEL_RADIUS)
-              .border({ width: 1, color: HarnessColors.composerBorderColor(this.themeDark) })
+            }
+            .padding({ left: 16, right: 16, top: 8, bottom: 16 })
           }
-          .padding({ left: 16, right: 16, top: 4, bottom: 24 })
+          .layoutWeight(1)
+          .width('100%')
+          .scrollBar(BarState.Off)
+
+          Column({ space: 10 }) {
+            if (PreviewLocalPreferences.isLoggedIn) {
+              SettingsPillButton({
+                label: '退出登录',
+                useDark: this.themeDark,
+                primary: false,
+                onClick: () => {
+                  PreviewLocalPreferences.updateAuth(null);
+                  AppToast.show('已退出登录');
+                },
+              })
+            }
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 12, bottom: 16 })
         }
         .width('100%')
         .height('100%')
-        .scrollBar(BarState.Off)
         .backgroundColor(HarnessColors.canvas(this.themeDark))
       },
     })

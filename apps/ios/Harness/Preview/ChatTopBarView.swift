@@ -9,14 +9,12 @@ struct ChatTopBarView: View {
     let onOpenWorkbench: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
+        HStack {
                 Button(action: onOpenDrawer) {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 20, weight: .medium))
+                    HarnessSymbol.image("line.3.horizontal", size: 22)
                         .foregroundStyle(HarnessColors.primary)
                 }
-                .frame(width: HarnessLayout.iconToolbarSize, height: HarnessLayout.iconToolbarSize)
+                .buttonStyle(HarnessTopBarIconButtonStyle())
                 .accessibilityLabel("打开会话列表")
 
                 Text(title)
@@ -35,20 +33,16 @@ struct ChatTopBarView: View {
                 }
 
                 Button(action: onOpenWorkbench) {
-                    Image(systemName: "rectangle.split.3x1")
-                        .font(.system(size: 20, weight: .medium))
+                    HarnessSymbol.image("sidebar.right", size: 20)
                         .foregroundStyle(HarnessColors.primary)
                 }
-                .frame(width: HarnessLayout.iconToolbarSize, height: HarnessLayout.iconToolbarSize)
+                .buttonStyle(HarnessTopBarIconButtonStyle())
                 .accessibilityLabel("打开工作台")
             }
             .frame(height: 40)
             .padding(.horizontal, 4)
             .padding(.bottom, 2)
             .background(HarnessColors.canvas)
-
-            Divider().overlay(HarnessColors.composerBorder.opacity(0.8))
-        }
     }
 
     private var connectionLabel: String {

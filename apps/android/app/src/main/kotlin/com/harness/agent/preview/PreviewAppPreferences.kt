@@ -53,6 +53,16 @@ class PreviewAppPreferences(
     var readerIsArtifact by mutableStateOf(false)
         private set
 
+    var authProfile by mutableStateOf(loadAuthProfile())
+        private set
+
+    /** Settings 演示：模拟 transcript 不兼容阻断。 */
+    var composerBlockDemo by mutableStateOf(loadComposerBlockDemo())
+        private set
+
+    val isLoggedIn: Boolean
+        get() = authProfile != null
+
     val mcpServers: SnapshotStateList<PreviewMcpServer> = mutableStateListOf<PreviewMcpServer>().apply {
         addAll(loadMcpServers())
     }
@@ -84,6 +94,34 @@ class PreviewAppPreferences(
     fun updateReduceMotion(value: Boolean) {
         reduceMotion = value
         prefs.edit().putBoolean(KEY_REDUCE_MOTION, value).apply()
+    }
+
+    fun updateAuthProfile(profile: PreviewAuthProfile?) {
+        authProfile = profile
+        if (profile == null) {
+            prefs.edit().remove(KEY_AUTH_PHONE).remove(KEY_AUTH_NAME).apply()
+        } else {
+            prefs
+                .edit()
+                .putString(KEY_AUTH_PHONE, profile.phone)
+                .putString(KEY_AUTH_NAME, profile.displayName)
+                .apply()
+        }
+    }
+
+    fun updateComposerBlockDemo(kind: PreviewComposerBlockKind) {
+        composerBlockDemo = kind
+        prefs.edit().putString(KEY_COMPOSER_BLOCK_DEMO, kind.name).apply()
+    }
+
+    fun resolveComposerBlock(): PreviewComposerBlockKind {
+        if (composerBlockDemo != PreviewComposerBlockKind.NONE) {
+            return composerBlockDemo
+        }
+        if (apiBaseUrl.trim().isNotEmpty() && !isLoggedIn) {
+            return PreviewComposerBlockKind.LOGIN_REQUIRED
+        }
+        return PreviewComposerBlockKind.NONE
     }
 
     fun openReader(
@@ -219,6 +257,20 @@ class PreviewAppPreferences(
             PreviewMemoryEntry(id = "mem-2", text = "常用项目：hello-harness-agent"),
         )
 
+    private fun loadAuthProfile(): PreviewAuthProfile? {
+        val phone = prefs.getString(KEY_AUTH_PHONE, null)?.trim().orEmpty()
+        if (phone.isEmpty()) return null
+        val name = prefs.getString(KEY_AUTH_NAME, null)?.trim().orEmpty().ifBlank { phone }
+        return PreviewAuthProfile(displayName = name, phone = phone)
+    }
+
+    private fun loadComposerBlockDemo(): PreviewComposerBlockKind =
+        runCatching {
+            PreviewComposerBlockKind.valueOf(
+                prefs.getString(KEY_COMPOSER_BLOCK_DEMO, PreviewComposerBlockKind.NONE.name)!!,
+            )
+        }.getOrDefault(PreviewComposerBlockKind.NONE)
+
     companion object {
         private const val PREFS_NAME = "preview_app_preferences"
         private const val KEY_THEME = "themeMode"
@@ -228,5 +280,8 @@ class PreviewAppPreferences(
         private const val KEY_REDUCE_MOTION = "reduceMotion"
         private const val KEY_MCP = "mcpServersJson"
         private const val KEY_MEMORY = "memoryEntriesJson"
+        private const val KEY_AUTH_PHONE = "authPhone"
+        private const val KEY_AUTH_NAME = "authDisplayName"
+        private const val KEY_COMPOSER_BLOCK_DEMO = "composerBlockDemo"
     }
 }

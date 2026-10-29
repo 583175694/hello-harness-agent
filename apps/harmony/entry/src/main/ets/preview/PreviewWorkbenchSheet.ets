@@ -11,6 +11,7 @@ import {
 import { PreviewLocalPreferences } from './PreviewLocalPreferences';
 // Gate A: activity 内 relatedSources / WorkbenchSourceCard；deliverableFiles / previewMarkdown 文件预览。
 import { WorkbenchSegmentedTabs } from './WorkbenchSegmentedTabs';
+import { WorkbenchTabEmptyState } from './WorkbenchTabEmptyState';
 
 const WB_DETENT_HEIGHTS: string[] = ['44%', '72%', '98%'];
 /** 对齐 Web `.workbench-tool-slider` / Android HarnessLayout。 */
@@ -122,11 +123,7 @@ export struct PreviewWorkbenchSheet {
   }
 
   visibleTabs(): string[] {
-    const all: string[] = ['activity', 'artifact'];
-    const showArtifact = this.state.workbenchCount > 0 || this.state.deliverableFiles.length > 0 ||
-      this.state.artifactVersions.length > 0 ||
-      this.state.artifactDiffPreview.length > 0;
-    return all.filter((t: string) => t !== 'artifact' || showArtifact);
+    return ['activity', 'artifact'];
   }
 
   @Builder
@@ -167,18 +164,11 @@ export struct PreviewWorkbenchSheet {
   activityTabContent() {
     const executions = this.state.toolExecutions;
     if (executions.length === 0) {
-      Column({ space: 8 }) {
-        Text('暂无过程记录')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(HarnessColors.primaryText(this.useDark))
-        Text('助手的检索、读取与命令执行会显示在这里。')
-          .fontSize(12)
-          .fontColor(HarnessColors.mutedText(this.useDark))
-          .textAlign(TextAlign.Center)
-      }
-      .width('100%')
-      .padding({ left: 16, right: 16, top: 48, bottom: 48 })
+      WorkbenchTabEmptyState({
+        title: '暂无过程记录',
+        message: '助手的检索、读取与命令执行会显示在这里。',
+        useDark: this.useDark,
+      })
     } else {
       const idx = Math.min(Math.max(this.stepIndex, 0), executions.length - 1);
       const tool = executions[idx];
@@ -297,9 +287,14 @@ export struct PreviewWorkbenchSheet {
   @Builder
   filesTabContent() {
     if (this.state.deliverableFiles.length === 0) {
-      Text('暂无文件').fontSize(14).fontColor(HarnessColors.mutedText(this.useDark)).padding(24)
+      WorkbenchTabEmptyState({
+        title: '暂无文件',
+        message: '运行完成后，报告与导出文件会显示在这里。',
+        useDark: this.useDark,
+      })
     } else {
-      ForEach(this.state.deliverableFiles, (file: WorkbenchDeliverableFileRow) => {
+      Column({ space: 8 }) {
+        ForEach(this.state.deliverableFiles, (file: WorkbenchDeliverableFileRow) => {
         Row() {
           Column({ space: 2 }) {
             Text(file.fileName).fontSize(14).fontColor(HarnessColors.primaryText(this.useDark))
@@ -323,6 +318,8 @@ export struct PreviewWorkbenchSheet {
         .border({ width: 1, color: HarnessColors.composerBorder(this.useDark) })
         .margin({ bottom: 10 })
       }, (file: WorkbenchDeliverableFileRow) => file.id)
+      }
+      .padding({ left: 16, right: 16, top: 8 })
     }
   }
 
@@ -398,6 +395,12 @@ export struct PreviewWorkbenchSheet {
           if (this.activeTab === 'activity') {
             Column() {
               this.activityTabContent()
+            }
+            .layoutWeight(1)
+            .width('100%')
+          } else if (this.state.deliverableFiles.length === 0) {
+            Column() {
+              this.filesTabContent()
             }
             .layoutWeight(1)
             .width('100%')

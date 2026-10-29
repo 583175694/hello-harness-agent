@@ -1185,16 +1185,7 @@ function ConversationBody({
     paddingEnd: 22,
     // JSDOM 没有真实布局尺寸；浏览器挂载后会由测量结果替换这个初始视口。
     initialRect: { width: 0, height: 800 },
-    onChange: (instance, sync) => {
-      if (sync || !shouldVirtualize || !stickToBottomRef.current) return;
-      if (performance.now() < suppressStickToBottomUntilRef.current) return;
-      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
-      scrollFrameRef.current = requestAnimationFrame(() => {
-        scrollFrameRef.current = null;
-        if (stickToBottomRef.current && renderedConversation.length)
-          instance.scrollToIndex(renderedConversation.length - 1, { align: 'end' });
-      });
-    },
+    onChange: () => undefined,
   });
   const pauseAutoScroll = useCallback(() => {
     stickToBottomRef.current = false;
@@ -1215,20 +1206,18 @@ function ConversationBody({
     },
     [onFocusWorkbench, pauseAutoScroll],
   );
-  const conversationStickSignature = useMemo(() => {
-    const last = renderedConversation.at(-1);
-    if (!last) return 'empty';
-    if (last.kind === 'user') return `user:${last.id}:${last.content.length}`;
-    const blockSig = last.blocks
-      .map((block) => {
-        if (block.type === 'text') return `t:${block.content.length}`;
-        if (block.type === 'reasoning') return `r:${block.content.length}`;
-        if (block.type === 'tool_activity') return `a:${block.toolCallId}:${block.status}`;
-        return block.type;
-      })
-      .join('|');
-    return `assistant:${last.id}:${last.pending ? 'pending' : 'done'}:${blockSig}`;
-  }, [renderedConversation]);
+  const userMessageCount = useMemo(
+    () => renderedConversation.filter((item) => item.kind === 'user').length,
+    [renderedConversation],
+  );
+  const prevUserMessageCountRef = useRef(0);
+  const scrollConversationToBottom = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node || renderedConversation.length === 0) return;
+    if (shouldVirtualize)
+      virtualizer.scrollToIndex(renderedConversation.length - 1, { align: 'end' });
+    else node.scrollTop = node.scrollHeight;
+  }, [renderedConversation.length, shouldVirtualize, virtualizer]);
   function handleComposerSubmit(
     event: FormEvent<HTMLFormElement>,
     promptOverride?: string,
@@ -1239,7 +1228,6 @@ function ConversationBody({
         landingComposerTopRef.current = composerMeasureRef.current.getBoundingClientRect().top;
       }
     }
-    stickToBottomRef.current = true;
     onSubmit(event, promptOverride);
   }
   const remeasureNavAnchorRatios = useCallback(() => {
@@ -1333,11 +1321,6 @@ function ConversationBody({
     [renderedConversation, shouldVirtualize, syncActiveUserMessage, virtualizer],
   );
   function handleConversationScroll(): void {
-    const node = scrollRef.current;
-    if (!node) return;
-    stickToBottomRef.current =
-      node.scrollHeight - node.scrollTop - node.clientHeight <
-      AGENT_UI_BEHAVIOR.stickToBottomThresholdPx;
     syncActiveUserMessage();
     scheduleNavAnchorRatioMeasure();
   }
@@ -1365,41 +1348,13 @@ function ConversationBody({
     },
     [],
   );
-  // 在浏览器绘制前同步到底部，避免新 token 先以旧 scrollTop 绘制一帧后再跳动。
   useLayoutEffect(() => {
-    if (performance.now() < suppressStickToBottomUntilRef.current) {
-      restorePreservedScroll();
-      return undefined;
-    }
-    if (!stickToBottomRef.current || !scrollRef.current) return undefined;
-    const node = scrollRef.current;
-    const scrollToBottom = () => {
-      if (shouldVirtualize && renderedConversation.length)
-        virtualizer.scrollToIndex(renderedConversation.length - 1, { align: 'end' });
-      else node.scrollTop = node.scrollHeight;
-    };
-    scrollToBottom();
-    // 虚拟行的 ResizeObserver 会在布局后更新总高度；下一帧再对齐一次新底部。
-    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      scrollFrameRef.current = null;
-      if (performance.now() < suppressStickToBottomUntilRef.current) {
-        restorePreservedScroll();
-        return;
-      }
-      if (stickToBottomRef.current) scrollToBottom();
-    });
-    return () => {
-      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
-      scrollFrameRef.current = null;
-    };
-  }, [
-    conversationStickSignature,
-    renderedConversation.length,
-    restorePreservedScroll,
-    shouldVirtualize,
-    virtualizer,
-  ]);
+    if (userMessageCount <= prevUserMessageCountRef.current) return;
+    prevUserMessageCountRef.current = userMessageCount;
+    if (renderedConversation.at(-1)?.kind !== 'user') return;
+    if (performance.now() < suppressStickToBottomUntilRef.current) return;
+    scrollConversationToBottom();
+  }, [renderedConversation, scrollConversationToBottom, userMessageCount]);
 
   useLayoutEffect(() => {
     if (prevWorkbenchOpenRef.current === workbenchOpen) return;
@@ -1447,6 +1402,7 @@ function ConversationBody({
   useLayoutEffect(() => {
     pendingLandingComposerAnimRef.current = false;
     prevConversationLengthRef.current = renderedConversation.length;
+    prevUserMessageCountRef.current = userMessageCount;
     setHeroExiting(false);
     stickToBottomRef.current = true;
     preservedScrollTopRef.current = null;
@@ -1458,7 +1414,8 @@ function ConversationBody({
       measure.style.transition = '';
       measure.style.transform = '';
     }
-  }, [scopeKey]);
+    scrollConversationToBottom();
+  }, [scopeKey, scrollConversationToBottom, userMessageCount, renderedConversation.length]);
 
   useLayoutEffect(() => {
     if (!isLandingSession) return;

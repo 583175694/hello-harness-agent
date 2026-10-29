@@ -22,59 +22,67 @@ struct ComposerSkillChipsView: View {
     }
 }
 
-/// 简易横向附件条（对齐 RN ComposerAttachments 文件卡片形态）
+/// 横向附件条：图片 / 文件统一高度。
 struct ComposerAttachmentStripView: View {
     let fileNames: [String]
+
+    private let stripHeight: CGFloat = 52
+    private let fileMaxWidth: CGFloat = 216
 
     var body: some View {
         if fileNames.isEmpty { EmptyView() } else {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ForEach(fileNames, id: \.self) { name in
-                        ComposerAttachmentCardView(fileName: name)
+                        ComposerAttachmentCardView(
+                            fileName: name,
+                            stripHeight: stripHeight,
+                            fileMaxWidth: fileMaxWidth
+                        )
                     }
                 }
-                .padding(.vertical, 2)
             }
+            .frame(height: stripHeight)
         }
     }
 }
 
 private struct ComposerAttachmentCardView: View {
     let fileName: String
+    let stripHeight: CGFloat
+    let fileMaxWidth: CGFloat
 
     var body: some View {
-        let lower = fileName.lowercased()
-        let isImage = lower.hasSuffix(".png") || lower.hasSuffix(".jpg") || lower.hasSuffix(".jpeg") || lower.hasSuffix(".webp")
+        let isImage = isImageAttachment(fileName)
         if isImage {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(HarnessColors.subtle)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(HarnessColors.composerBorder, lineWidth: 1)
-                    .background(HarnessColors.subtle)
-                Text("IMG").font(.caption).foregroundStyle(HarnessColors.muted)
+                Text("IMG").font(.caption2).foregroundStyle(HarnessColors.muted)
             }
-            .frame(width: 64, height: 64)
+            .frame(width: stripHeight, height: stripHeight)
         } else {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Text(fileExtensionLabel(fileName))
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(HarnessColors.link)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 32, height: 32)
                     .background(HarnessColors.canvas)
                     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(fileName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(HarnessColors.primary)
-                        .lineLimit(1)
-                    Text("Preview")
-                        .font(.caption)
-                        .foregroundStyle(HarnessColors.muted)
-                }
-                .frame(maxWidth: 180, alignment: .leading)
+                Text(fileName)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(HarnessColors.primary)
+                    .lineLimit(1)
+                    .frame(maxWidth: fileMaxWidth - 72, alignment: .leading)
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(HarnessColors.muted)
             }
-            .padding(.horizontal, 12)
-            .frame(height: 72)
+            .padding(.horizontal, 8)
+            .frame(height: stripHeight)
+            .frame(maxWidth: fileMaxWidth)
             .background(HarnessColors.subtle)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
@@ -82,6 +90,11 @@ private struct ComposerAttachmentCardView: View {
                     .stroke(HarnessColors.composerBorder, lineWidth: 1)
             )
         }
+    }
+
+    private func isImageAttachment(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        return lower.hasSuffix(".png") || lower.hasSuffix(".jpg") || lower.hasSuffix(".jpeg") || lower.hasSuffix(".webp")
     }
 
     private func fileExtensionLabel(_ name: String) -> String {

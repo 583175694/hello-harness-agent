@@ -11,6 +11,6 @@
   },
   "problemDetails": {
     "title": "无法连接服务",
-    "detail": "Preview 假状态：展示 offline / ProblemDetails UI（Phase A 无真 HTTP）。"
+    "detail": "请检查网络连接与 API 地址。"
   }
 }

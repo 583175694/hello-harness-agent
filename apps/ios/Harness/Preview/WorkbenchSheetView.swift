@@ -18,7 +18,7 @@ struct WorkbenchSheetView: View {
     @State private var detentIndex: Int
     @State private var activeTab: String
     @State private var passageCard: WorkbenchSourceCard?
-    @State private var showRestoreConfirm = false
+    @State private var restoreConfirm: AppConfirmRequest?
 
     init(
         previewReduceMotion: Bool = false,
@@ -115,12 +115,7 @@ struct WorkbenchSheetView: View {
             }
             .presentationDetents([.medium])
         }
-        .alert("恢复版本", isPresented: $showRestoreConfirm) {
-            Button("确认恢复", role: .destructive) {}
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text(state.artifactRestorePrompt ?? "Preview 静态确认。")
-        }
+        .appConfirmDialog($restoreConfirm)
     }
 
     private func animatePresent(to open: Bool) {
@@ -143,35 +138,14 @@ struct WorkbenchSheetView: View {
     }
 
     private var tabBar: some View {
-        let showArtifact =
-            state.hasDeliverables
-            ?? (state.workbenchCount > 0 || !state.deliverableFiles.isEmpty || !state.artifactVersions.isEmpty)
-        let tabs = ["activity", "artifact"].filter { $0 != "artifact" || showArtifact }
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(tabs, id: \.self) { tab in
-                    let selected = activeTab == tab
-                    Button {
-                        activeTab = tab
-                    } label: {
-                        Text(workbenchTabLabel(tab))
-                            .font(.caption.weight(selected ? .semibold : .regular))
-                            .foregroundStyle(selected ? Color.white : HarnessColors.secondary)
-                            .frame(minWidth: 56)
-                            .padding(.vertical, 6)
-                            .padding(.horizontal, 6)
-                            .background(selected ? HarnessColors.primary : Color.clear)
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(2)
-            .background(HarnessColors.subtle)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-        }
+        let tabs = ["activity", "artifact"]
+        return HarnessSlidingSegmentedControl(
+            options: tabs,
+            selection: $activeTab,
+            label: workbenchTabLabel
+        )
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -207,15 +181,10 @@ struct WorkbenchActivityFollowView: View {
     var body: some View {
         let executions = state.toolExecutions
         if executions.isEmpty {
-            VStack(spacing: 8) {
-                Text("暂无过程记录").font(.body.weight(.medium))
-                Text("助手的检索、读取与命令执行会显示在这里。")
-                    .font(.caption)
-                    .foregroundStyle(HarnessColors.muted)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(32)
+            WorkbenchTabEmptyStateView(
+                title: "暂无过程记录",
+                message: "助手的检索、读取与命令执行会显示在这里。"
+            )
         } else {
             let idx = min(max(stepIndex, 0), executions.count - 1)
             let tool = executions[idx]
@@ -446,35 +415,56 @@ struct WorkbenchFilesView: View {
 
     var body: some View {
         if files.isEmpty {
-            Text("暂无文件").foregroundStyle(HarnessColors.muted).padding(24)
+            WorkbenchTabEmptyStateView(
+                title: "暂无文件",
+                message: "运行完成后，报告与导出文件会显示在这里。"
+            )
         } else {
-            VStack(spacing: 10) {
-                ForEach(files) { file in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(file.fileName).font(.body)
-                            if !file.subtitle.isEmpty {
-                                Text(file.subtitle).font(.caption).foregroundStyle(HarnessColors.muted)
-                            }
+        VStack(spacing: 10) {
+            ForEach(files) { file in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(file.fileName).font(.body)
+                        if !file.subtitle.isEmpty {
+                            Text(file.subtitle).font(.caption).foregroundStyle(HarnessColors.muted)
                         }
-                        Spacer()
-                        Button {
-                            onPreview(file)
-                        } label: {
-                            Image(systemName: "eye")
-                        }
-                        .accessibilityLabel("预览 \(file.fileName)")
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous)
-                            .stroke(HarnessColors.composerBorder, lineWidth: 1)
-                    )
+                    Spacer()
+                    Button {
+                        onPreview(file)
+                    } label: {
+                        Image(systemName: "eye")
+                    }
+                    .accessibilityLabel("预览 \(file.fileName)")
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous)
+                        .stroke(HarnessColors.composerBorder, lineWidth: 1)
+                )
             }
-            .padding(.horizontal, 16)
         }
+        .padding(.horizontal, 16)
+        }
+    }
+}
+
+struct WorkbenchTabEmptyStateView: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text(title).font(.body.weight(.medium))
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(HarnessColors.muted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 48)
     }
 }
 
@@ -521,5 +511,53 @@ struct WorkbenchRestoreConfirmSnapshotView: View {
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(HarnessColors.surface)
+    }
+}
+
+/// 对齐 RN `SlidingSegmentTrack` / Android `HarnessSegmentedControl`（240ms ease-out 滑动高亮）。
+struct HarnessSlidingSegmentedControl<Option: Hashable>: View {
+    let options: [Option]
+    @Binding var selection: Option
+    let label: (Option) -> String
+    var previewReduceMotion: Bool = false
+
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    private var reduceMotion: Bool { previewReduceMotion || accessibilityReduceMotion }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let count = max(options.count, 1)
+            let segmentWidth = proxy.size.width / CGFloat(count)
+            let index = CGFloat(options.firstIndex(of: selection) ?? 0)
+
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(HarnessColors.primary)
+                    .frame(width: segmentWidth, height: proxy.size.height)
+                    .offset(x: segmentWidth * index)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: selection)
+
+                HStack(spacing: 0) {
+                    ForEach(options, id: \.self) { option in
+                        let selected = option == selection
+                        Button {
+                            selection = option
+                        } label: {
+                            Text(label(option))
+                                .font(.caption.weight(selected ? .semibold : .regular))
+                                .foregroundStyle(selected ? HarnessColors.primaryForeground : HarnessColors.secondary)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: segmentWidth)
+                    }
+                }
+            }
+        }
+        .frame(height: 34)
+        .padding(4)
+        .background(HarnessColors.subtle)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }

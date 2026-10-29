@@ -95,4 +95,12 @@ export class HarnessColors {
   static borderColor(useDark: boolean): string {
     return useDark ? HarnessColors.borderDark : HarnessColors.border;
   }
+
+  static settingsDividerColor(useDark: boolean): string {
+    return useDark ? '#2A2A2A' : '#EEEEE9';
+  }
+
+  static placeholderText(useDark: boolean): string {
+    return useDark ? '#8A8A8A' : '#A0A09C';
+  }
 }

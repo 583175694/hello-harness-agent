@@ -25,10 +25,16 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.TextStyle
+import com.harness.agent.coreui.motion.rememberHarnessReduceMotion
+import com.harness.agent.coreui.tokens.HarnessLayout
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.material3.Text
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -198,6 +204,64 @@ fun AppTextField(
     )
 }
 
+/** 设置页输入：外置 caption 标签 + 浅底描边（`controlRadius`），对齐 better-ui 表单边界对比。 */
+@Composable
+fun SettingsTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    placeholder: String = "",
+) {
+    val colors = LocalHarnessColors.current
+    val shape = RoundedCornerShape(HarnessLayout.controlRadius)
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = colors.muted,
+            modifier = Modifier.padding(bottom = 6.dp),
+        )
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle =
+                TextStyle(
+                    fontSize = 16.sp,
+                    color = colors.secondary,
+                ),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 44.dp)
+                    .background(colors.subtle, shape)
+                    .border(1.dp, colors.composerBorder, shape)
+                    .padding(horizontal = 12.dp, vertical = 11.dp),
+            decorationBox = { inner ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (value.isEmpty() && placeholder.isNotEmpty()) {
+                        Text(text = placeholder, fontSize = 16.sp, color = colors.composerPlaceholder)
+                    }
+                    inner()
+                }
+            },
+        )
+    }
+}
+
+@Composable
+fun harnessSwitchColors(): SwitchColors {
+    val colors = LocalHarnessColors.current
+    return SwitchDefaults.colors(
+        checkedThumbColor = colors.primaryForeground,
+        checkedTrackColor = colors.primary,
+        uncheckedThumbColor = Color.White,
+        uncheckedTrackColor = if (colors.canvas.luminance() < 0.5f) colors.subtlePressed else Color(0xFFE6E6E3),
+        uncheckedBorderColor = colors.composerBorder,
+    )
+}
+
 @Composable
 fun SettingsSwitch(
     label: String,
@@ -220,11 +284,7 @@ fun SettingsSwitch(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            colors =
-                SwitchDefaults.colors(
-                    checkedThumbColor = colors.primaryForeground,
-                    checkedTrackColor = colors.primary,
-                ),
+            colors = harnessSwitchColors(),
         )
     }
 }
@@ -243,10 +303,11 @@ fun AppSheet(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = LocalHarnessColors.current
+    val reduceMotion = rememberHarnessReduceMotion(previewReduceMotion)
     val sheetProgress by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
         animationSpec =
-            if (previewReduceMotion) {
+            if (reduceMotion) {
                 tween(durationMillis = 0)
             } else {
                 tween(durationMillis = APP_SHEET_MOTION_MS, easing = FastOutSlowInEasing)

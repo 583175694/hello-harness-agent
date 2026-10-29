@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -15,7 +14,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,78 +58,86 @@ fun ComposerAttachmentStrip(
     modifier: Modifier = Modifier,
 ) {
     if (fileNames.isEmpty()) return
-    val colors = LocalHarnessColors.current
+    val stripHeight = HarnessLayout.composerAttachmentStripHeight
     Row(
         modifier =
             modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .height(stripHeight)
+                .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         fileNames.forEach { fileName ->
-            ComposerAttachmentCard(fileName = fileName)
+            ComposerAttachmentCard(fileName = fileName, stripHeight = stripHeight)
         }
     }
 }
 
 @Composable
-private fun ComposerAttachmentCard(fileName: String) {
+private fun ComposerAttachmentCard(
+    fileName: String,
+    stripHeight: androidx.compose.ui.unit.Dp,
+) {
     val colors = LocalHarnessColors.current
-    val isImage = fileName.lowercase().let { n ->
-        n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".webp")
-    }
-    if (isImage) {
+    val shape = RoundedCornerShape(HarnessLayout.controlRadius)
+    val cardModifier =
+        Modifier
+            .height(stripHeight)
+            .background(colors.subtle, shape)
+            .border(1.dp, colors.composerBorder, shape)
+
+    if (isImageAttachment(fileName)) {
         Box(
-            modifier =
-                Modifier
-                    .size(64.dp)
-                    .background(colors.subtle, RoundedCornerShape(HarnessLayout.controlRadius))
-                    .border(1.dp, colors.composerBorder, RoundedCornerShape(HarnessLayout.controlRadius)),
+            modifier = cardModifier.width(stripHeight),
             contentAlignment = Alignment.Center,
         ) {
-            Text("IMG", fontSize = 11.sp, color = colors.muted)
+            Text("IMG", fontSize = 10.sp, color = colors.muted)
         }
     } else {
-        val ext = fileExtensionLabel(fileName)
         Row(
             modifier =
-                Modifier
-                    .height(72.dp)
-                    .widthIn(max = 268.dp)
-                    .background(colors.subtle, RoundedCornerShape(HarnessLayout.controlRadius))
-                    .border(1.dp, colors.composerBorder, RoundedCornerShape(HarnessLayout.controlRadius))
-                    .padding(horizontal = 12.dp),
+                cardModifier
+                    .widthIn(min = 128.dp, max = HarnessLayout.composerAttachmentFileMaxWidth)
+                    .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Box(
                 modifier =
                     Modifier
-                        .size(40.dp)
+                        .size(32.dp)
                         .background(colors.canvas, RoundedCornerShape(4.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(ext, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colors.link)
-            }
-            Column(modifier = Modifier.weight(1f, fill = false)) {
                 Text(
-                    text = fileName,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    text = fileExtensionLabel(fileName),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.link,
                 )
-                Text(text = "Preview", fontSize = 12.sp, color = colors.muted)
             }
+            Text(
+                text = fileName,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = colors.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
             Icon(
-                imageVector = Icons.Outlined.Close,
+                imageVector = Icons.Rounded.Close,
                 contentDescription = null,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(14.dp),
                 tint = colors.muted,
             )
         }
     }
+}
+
+private fun isImageAttachment(fileName: String): Boolean {
+    val n = fileName.lowercase()
+    return n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".webp")
 }
 
 private fun fileExtensionLabel(fileName: String): String {

@@ -1,40 +1,64 @@
 import { HarnessColors } from './HarnessColors';
-import { HarnessDivider } from './HarnessDivider';
+import { SettingsSoftDivider } from './SettingsSoftDivider';
+import { harnessPressOpacity } from './HarnessPressScale';
+
+const SETTINGS_ROW_MIN_HEIGHT: number = 48;
 
 @Component
 export struct SettingsNavRow {
   @Prop title: string = '';
   @Prop subtitle: string = '';
+  @Prop trailingValue: string = '';
   @Prop useDark: boolean = false;
-  @Prop showDivider: boolean = true;
+  @Prop showDivider: boolean = false;
+  @Prop showChevron: boolean = true;
   onClick: () => void = () => {
   };
+
+  @State private pressed: boolean = false;
 
   build() {
     Column() {
       Row() {
-        Column({ space: 4 }) {
-          Text(this.title)
-            .fontSize(15)
-            .fontColor(HarnessColors.primaryText(this.useDark))
-          if (this.subtitle.length > 0) {
-            Text(this.subtitle)
-              .fontSize(12)
-              .fontColor(HarnessColors.mutedText(this.useDark))
-          }
+        Text(this.title)
+          .fontSize(16)
+          .fontColor(HarnessColors.secondaryText(this.useDark))
+          .layoutWeight(1)
+        if (this.trailingValue.length > 0) {
+          Text(this.trailingValue)
+            .fontSize(14)
+            .fontColor(HarnessColors.mutedText(this.useDark))
+            .margin({ right: 4 })
         }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-        Text('›')
-          .fontSize(18)
-          .fontColor(HarnessColors.mutedText(this.useDark))
-          .padding({ left: 8 })
+        if (this.showChevron) {
+          Text('›')
+            .fontSize(16)
+            .fontColor(HarnessColors.mutedText(this.useDark))
+        }
       }
       .width('100%')
-      .padding({ top: 12, bottom: 12 })
+      .height(SETTINGS_ROW_MIN_HEIGHT)
+      .padding({ left: 16, right: 16 })
+      .opacity(harnessPressOpacity(this.pressed, true))
+      .onTouch((event: TouchEvent) => {
+        if (event.type === TouchType.Down) {
+          this.pressed = true;
+        }
+        if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+          this.pressed = false;
+        }
+      })
       .onClick(() => this.onClick())
+      if (this.subtitle.length > 0) {
+        Text(this.subtitle)
+          .fontSize(12)
+          .fontColor(HarnessColors.mutedText(this.useDark))
+          .width('100%')
+          .padding({ left: 16, right: 16, bottom: 8 })
+          .margin({ top: -8 })
+      }
       if (this.showDivider) {
-        HarnessDivider({ useDark: this.useDark })
+        SettingsSoftDivider({ useDark: this.useDark })
       }
     }
     .width('100%')

@@ -19,7 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,7 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import android.provider.Settings
+import com.harness.agent.coreui.motion.rememberHarnessReduceMotion
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,7 +48,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -78,16 +77,7 @@ fun WorkbenchSheetOverlay(
     previewReduceMotion: Boolean = false,
 ) {
     val colors = LocalHarnessColors.current
-    val context = LocalContext.current
-    val systemReduceMotion =
-        remember {
-            try {
-                Settings.Global.getFloat(context.contentResolver, Settings.Global.TRANSITION_ANIMATION_SCALE) == 0f
-            } catch (_: Exception) {
-                false
-            }
-        }
-    val reduceMotion = previewReduceMotion || systemReduceMotion
+    val reduceMotion = rememberHarnessReduceMotion(previewReduceMotion)
     var detentIndex by rememberSaveable(state.initialSheetIndex, state.workbenchCount) {
         mutableIntStateOf(state.resolvedInitialDetent())
     }
@@ -206,7 +196,7 @@ fun WorkbenchSheetOverlay(
                         modifier = Modifier.weight(1f),
                     )
                     HarnessIconButton(
-                        icon = Icons.Filled.Close,
+                        icon = Icons.Rounded.Close,
                         contentDescription = "关闭工作台",
                         onClick = onDismiss,
                         shape = HarnessIconButtonShape.Circle,
@@ -216,13 +206,6 @@ fun WorkbenchSheetOverlay(
                 WorkbenchSegmentedTabs(
                     activeTab = activeTab,
                     onTabSelected = { activeTab = it },
-                    showArtifact =
-                        state.hasDeliverables
-                            ?: (
-                                state.workbenchCount > 0 ||
-                                    state.deliverableFiles.isNotEmpty() ||
-                                    state.artifactVersions.isNotEmpty()
-                            ),
                 )
                 WorkbenchTabContent(
                     activeTab = activeTab,
@@ -287,11 +270,9 @@ private fun WorkbenchState.resolvedInitialDetent(): Int {
 private fun WorkbenchSegmentedTabs(
     activeTab: String,
     onTabSelected: (String) -> Unit,
-    showArtifact: Boolean,
 ) {
-    val tabs = TABS.filter { if (it == "artifact") showArtifact else true }
     HarnessSegmentedControl(
-        segments = tabs.map { it to WorkbenchTabLabels.label(it) },
+        segments = TABS.map { it to WorkbenchTabLabels.label(it) },
         selectedId = activeTab,
         onSelected = onTabSelected,
         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -317,6 +298,7 @@ private fun WorkbenchTabContent(
             WorkbenchFilesPane(
                 files = state.deliverableFiles,
                 onPreview = onOpenFilePreview,
+                modifier = modifier,
             )
         else ->
             WorkbenchActivityFollowPane(

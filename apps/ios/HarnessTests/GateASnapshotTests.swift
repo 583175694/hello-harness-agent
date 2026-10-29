@@ -23,18 +23,7 @@ final class GateASnapshotTests: XCTestCase {
         let view =
             ProblemDetailsCardView(
                 title: "无法连接服务",
-                detail: "Preview 假状态：offline / ProblemDetails（Phase A）。"
-            )
-            .frame(width: 390)
-        assertSnapshot(of: view, as: .image(layout: .sizeThatFits))
-    }
-
-    func testProcessTimelineComposerPeekBar() {
-        let view =
-            ComposerPeekBarView(
-                title: "正在搜索公开来源",
-                subtitle: "步骤 2 / 5",
-                onPress: {}
+                detail: "请检查网络连接与 API 地址。"
             )
             .frame(width: 390)
         assertSnapshot(of: view, as: .image(layout: .sizeThatFits))
@@ -64,7 +53,9 @@ final class GateASnapshotTests: XCTestCase {
     func testSettingsRootDefault() {
         let preferences = PreviewAppPreferences()
         let view =
-            PreviewSettingsRootView(preferences: preferences)
+            AppToastHost {
+                PreviewSettingsRootView(preferences: preferences)
+            }
                 .frame(width: 390, height: 844)
                 .background(HarnessColors.canvas)
         assertSnapshot(of: view, as: .image(layout: .fixed(width: 390, height: 844)))

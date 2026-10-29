@@ -1,5 +1,6 @@
 export * from './conversation-blocks.js';
 export * from './tool-copy.js';
+export * from './process-timeline-tool-icon.js';
 export * from './bash-transparent.js';
 export * from './source-identifiers.js';
 export * from './assistant-message-adapter.js';

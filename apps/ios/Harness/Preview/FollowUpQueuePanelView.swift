@@ -16,8 +16,7 @@ struct FollowUpQueuePanelView: View {
                     Divider().overlay(HarnessColors.composerBorder)
                 }
                 HStack(alignment: .center, spacing: 8) {
-                    Image(systemName: "arrow.turn.down.left")
-                        .font(.system(size: 14, weight: .medium))
+                    HarnessSymbol.image("arrow.turn.down.left", size: 14)
                         .foregroundStyle(HarnessColors.muted)
                     Text(item.content)
                         .font(.system(size: 13))
@@ -54,8 +53,7 @@ struct FollowUpQueuePanelView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 13, weight: .semibold))
+            HarnessSymbol.image(systemName, size: 13)
                 .foregroundStyle(tint)
                 .frame(width: actionSize, height: actionSize)
         }

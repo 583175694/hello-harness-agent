@@ -9,6 +9,7 @@ struct PreviewChatShellView: View {
     let fixtureFileName: String
     @Bindable var preferences: PreviewAppPreferences
     var onOpenSettings: () -> Void
+    var onOpenLogin: () -> Void = {}
     var onOpenReportReader: (String, String) -> Void
     var onOpenArtifactReader: (String, String) -> Void = { _, _ in }
     var onLoadDemoFixture: () -> Void = {}
@@ -26,6 +27,7 @@ struct PreviewChatShellView: View {
         fixtureFileName: String,
         preferences: PreviewAppPreferences,
         onOpenSettings: @escaping () -> Void,
+        onOpenLogin: @escaping () -> Void = {},
         onOpenReportReader: @escaping (String, String) -> Void,
         onOpenArtifactReader: @escaping (String, String) -> Void = { _, _ in },
         onLoadDemoFixture: @escaping () -> Void = {},
@@ -36,6 +38,7 @@ struct PreviewChatShellView: View {
         self.fixtureFileName = fixtureFileName
         self.preferences = preferences
         self.onOpenSettings = onOpenSettings
+        self.onOpenLogin = onOpenLogin
         self.onOpenReportReader = onOpenReportReader
         self.onOpenArtifactReader = onOpenArtifactReader
         self.onLoadDemoFixture = onLoadDemoFixture
@@ -71,10 +74,12 @@ struct PreviewChatShellView: View {
                                 onDismiss: { serviceBannerDismissed = true }
                             )
                         }
-                        ProblemDetailsCardView(
-                            title: store.session.problemTitle,
-                            detail: store.session.problemDetail
-                        )
+                        if store.session.chrome.serviceState == "ready" {
+                            ProblemDetailsCardView(
+                                title: store.session.problemTitle,
+                                detail: store.session.problemDetail
+                            )
+                        }
 
                         Group {
                             if store.session.conversation.isEmpty {
@@ -101,13 +106,12 @@ struct PreviewChatShellView: View {
                             } else {
                                 ScrollViewReader { proxy in
                                     ScrollView {
-                                        LazyVStack(spacing: 6) {
-                                            Text("共 \(store.session.conversation.count) 条对话 · 向下滚动验证长列表")
-                                                .font(.caption)
-                                                .foregroundStyle(HarnessColors.muted)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        LazyVStack(spacing: HarnessLayout.chatListTurnSpacing) {
                                             ForEach(Array(store.session.conversation.enumerated()), id: \.offset) { idx, item in
-                                                ConversationTurnRowView(item: item) { toolId in
+                                                ConversationTurnRowView(
+                                                    item: item,
+                                                    previewReduceMotion: preferences.reduceMotion
+                                                ) { toolId in
                                                     focusedToolStepId = toolId
                                                     workbenchOpen = true
                                                 }
@@ -117,10 +121,23 @@ struct PreviewChatShellView: View {
                                         }
                                         .padding(.horizontal, 12)
                                         .padding(.top, 4)
-                                        .padding(.bottom, 8)
                                     }
                                     .accessibilityIdentifier("conversation-scroll")
+                                    .onChange(of: fixtureFileName) { _, _ in
+                                        if !store.session.conversation.isEmpty {
+                                            proxy.scrollTo("gate-a-scroll-bottom", anchor: .bottom)
+                                        }
+                                    }
+                                    .onChange(of: userTurnCount(in: store.session.conversation)) { oldCount, newCount in
+                                        guard newCount > oldCount else { return }
+                                        if case .user = store.session.conversation.last {
+                                            proxy.scrollTo("gate-a-scroll-bottom", anchor: .bottom)
+                                        }
+                                    }
                                     .onAppear {
+                                        if !store.session.conversation.isEmpty {
+                                            proxy.scrollTo("gate-a-scroll-bottom", anchor: .bottom)
+                                        }
                                         guard fixtureFileName.contains("long-thread-scroll") else { return }
                                         var step = 0
                                         GateAScrollPerformanceMonitor.startIfNeeded {
@@ -138,19 +155,11 @@ struct PreviewChatShellView: View {
                     .background(HarnessColors.canvas)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         VStack(spacing: 0) {
-                            if store.session.composer.submitting,
-                               !store.session.composer.showPlan,
-                               let peek = store.session.chrome.peekBarTitle,
-                               !peek.isEmpty {
-                                ComposerPeekBarView(
-                                    title: peek,
-                                    subtitle: store.session.chrome.peekBarSubtitle,
-                                    onPress: { workbenchOpen = true }
-                                )
-                            }
                             ComposerStackView(
                                 state: store.session.composer,
                                 workbenchOpen: workbenchOpen,
+                                composerBlock: preferences.resolveComposerBlock(),
+                                onLoginClick: onOpenLogin,
                                 onPreviewAction: store.applyPreviewAction
                             )
                         }
@@ -225,5 +234,11 @@ struct PreviewChatShellView: View {
         .onChange(of: workbenchOpen) { _, open in
             if open { PreviewKeyboardDismiss.run() }
         }
+    }
+}
+
+private func userTurnCount(in conversation: [ConversationItem]) -> Int {
+    conversation.reduce(into: 0) { count, item in
+        if case .user = item { count += 1 }
     }
 }

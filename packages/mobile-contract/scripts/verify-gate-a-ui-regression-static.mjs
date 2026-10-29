@@ -116,24 +116,20 @@ if (!streamFixture.replay?.assistantTail) {
 }
 ok('UI regression static: ReplayController + streaming fixture (#12)');
 
-// #13 Peek → Workbench (process-timeline fixture)
+// #13 Process timeline → Workbench（点工具行打开，无 Composer Peek 条）
 const processFixture = JSON.parse(read('fixtures/preview/process-timeline-tools.json'));
-if (!processFixture.chrome?.peekBarTitle) {
-  fail('process-timeline-tools.json missing chrome.peekBarTitle (#13)');
+const processTurn = processFixture.conversation?.find((t) => t.kind === 'assistant');
+if (!processTurn?.process?.some((b) => b.type === 'tool_activity')) {
+  fail('process-timeline-tools.json must include assistant tool_activity process (#13)');
 }
-const peekChecks = [
-  ['apps/android/app/src/main/kotlin/com/harness/agent/ui/chat/ComposerChrome.kt', /fun ComposerPeekBar/],
-  ['apps/ios/Harness/Preview/ComposerChromeViews.swift', /ComposerPeekBarView/],
-  ['apps/harmony/entry/src/main/ets/preview/PreviewComposerPeekBar.ets', /PreviewComposerPeekBar/],
-];
-for (const [rel, re] of peekChecks) {
-  if (mustExist(rel, 'ComposerPeekBar')) {
-    if (!re.test(read(rel))) {
-      fail(`${rel} missing Peek bar pattern (#13)`);
-    }
-  }
+for (const rel of [
+  'apps/android/app/src/main/kotlin/com/harness/agent/ui/chat/ProcessTimeline.kt',
+  'apps/ios/Harness/Preview/ProcessTimelineView.swift',
+  'apps/harmony/entry/src/main/ets/preview/ProcessTimeline.ets',
+]) {
+  mustExist(rel, 'Process timeline');
 }
-ok('UI regression static: Peek bar + fixture (#13)');
+ok('UI regression static: Process timeline + fixture (#13)');
 
 // #4 Tab 切换不改变 detent（鸿蒙：Replay 父刷新不得 reset detent/tab）
 const harmonyWb = read('apps/harmony/entry/src/main/ets/preview/PreviewWorkbenchSheet.ets');
@@ -153,18 +149,7 @@ const longThread = JSON.parse(read('fixtures/preview/long-thread-scroll.json'));
 if (!Array.isArray(longThread.conversation) || longThread.conversation.length < 40) {
   fail('long-thread-scroll.json conversation < 40 (#18)');
 }
-for (const [rel, re] of [
-  ['apps/android/app/src/main/kotlin/com/harness/agent/ui/PreviewScreens.kt', /共 \$\{state\.conversation\.size\} 条对话/],
-  ['apps/ios/Harness/Preview/PreviewChatShellView.swift', /共 .* 条对话/],
-  ['apps/harmony/entry/src/main/ets/pages/PreviewChatPage.ets', /共 \$\{this\.lines\.length\} 条对话/],
-]) {
-  if (mustExist(rel, 'Chat shell')) {
-    if (!re.test(read(rel))) {
-      fail(`${rel} missing long-thread count header (#18)`);
-    }
-  }
-}
-ok('UI regression static: long-thread header + fixture (#18)');
+ok('UI regression static: long-thread fixture (#18)');
 
 // #19 connection offline
 const offline = JSON.parse(read('fixtures/preview/connection-offline-error.json'));

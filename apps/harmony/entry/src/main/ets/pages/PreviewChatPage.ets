@@ -1,4 +1,4 @@
-import { KeyboardAvoidMode, router } from '@kit.ArkUI';
+import { KeyboardAvoidMode, ListScroller, router, ScrollAlign } from '@kit.ArkUI';
 import { HarnessColors } from '../coreui/HarnessColors';
 import { ChatTopBar } from '../preview/ChatTopBar';
 import { PreviewSessionState } from '../preview/PreviewFixtureLoader';
@@ -9,7 +9,7 @@ import { PreviewComposerStack } from '../preview/PreviewComposerStack';
 import { PreviewChromeFlags } from '../preview/PreviewChromeFlags';
 import { PlanFloatingCard } from '../preview/PlanFloatingCard';
 import { AppSheet } from '../coreui/AppSheet';
-import { PreviewComposerPeekBar } from '../preview/PreviewComposerPeekBar';
+import { AppToast } from '../coreui/AppFeedback';
 import { PreviewLocalPreferences } from '../preview/PreviewLocalPreferences';
 import { PreviewDrawerOverlay } from '../preview/PreviewDrawerOverlay';
 import { ProblemDetailsCard, ServiceBanner } from '../preview/ConnectionChrome';
@@ -23,6 +23,8 @@ import {
   resolveModelIdFromLabel,
   resolveReasoningFromLabel,
 } from '../preview/PreviewComposerModelSheet';
+import { harnessPageTransition } from '../coreui/HarnessPageTransition';
+import { previewUiActionScrollsConversationToBottom } from '../preview/ConversationListScroll';
 
 @Entry
 @Component
@@ -43,8 +45,23 @@ struct PreviewChatPage {
   @State contentFontSize: number = PreviewLocalPreferences.contentFontSize;
   @State drawerRefreshing: boolean = false;
   @State composerChromeHeight: number = 0;
+  private conversationScroller: ListScroller = new ListScroller();
   private replayController: PreviewReplayController = new PreviewReplayController();
   private static readonly DEMO_FIXTURE: string = 'rich-session-showcase.json';
+
+  private scrollConversationToBottom(): void {
+    if (this.lines.length === 0) {
+      return;
+    }
+    const last = this.lines.length - 1;
+    setTimeout(() => {
+      try {
+        this.conversationScroller.scrollToIndex(last, false, ScrollAlign.END);
+      } catch (_e) {
+        // Preview：列表尚未布局完成时忽略
+      }
+    }, 0);
+  }
 
   @Watch('workbenchOpen')
   onWorkbenchOpenChange(): void {
@@ -106,6 +123,9 @@ struct PreviewChatPage {
         },
       );
     }
+    if (!loaded.isLanding) {
+      this.scrollConversationToBottom();
+    }
   }
 
   loadDemoFixture(): void {
@@ -119,6 +139,9 @@ struct PreviewChatPage {
     const result = PreviewSessionReducer.reduce(this.session, this.lines, action);
     this.session = result.session;
     this.lines = result.lines;
+    if (previewUiActionScrollsConversationToBottom(action.kind)) {
+      this.scrollConversationToBottom();
+    }
   }
 
   aboutToDisappear(): void {
@@ -143,6 +166,10 @@ struct PreviewChatPage {
       url: 'pages/PreviewReaderPage',
       params: { title, body, isArtifact },
     });
+  }
+
+  pageTransition() {
+    harnessPageTransition()
   }
 
   build() {
@@ -179,16 +206,21 @@ struct PreviewChatPage {
             serviceState: s.chrome.serviceState,
             dismissed: this.serviceBannerDismissed,
             useDark: this.themeDark,
+            onRetry: () => {
+              this.serviceBannerDismissed = false;
+            },
             onDismiss: () => {
               this.serviceBannerDismissed = true;
             },
           })
 
-        ProblemDetailsCard({
-          title: s.problemTitle,
-          detail: s.problemDetail,
-          useDark: this.themeDark,
-        })
+        if (s.chrome.serviceState === 'ready') {
+          ProblemDetailsCard({
+            title: s.problemTitle,
+            detail: s.problemDetail,
+            useDark: this.themeDark,
+          })
+        }
 
         if (s.isLanding) {
           Column() {
@@ -205,16 +237,7 @@ struct PreviewChatPage {
           .justifyContent(FlexAlign.Center)
           .width('100%')
         } else {
-          List() {
-            if (this.lines.length > 0) {
-              ListItem() {
-                Text(`共 ${this.lines.length} 条对话 · 向下滚动验证长列表`)
-                  .fontSize(12)
-                  .fontColor(HarnessColors.mutedText(this.themeDark))
-                  .width('100%')
-                  .padding({ top: 4, bottom: 8 })
-              }
-            }
+          List({ scroller: this.conversationScroller }) {
             ForEach(this.lines, (line: ChatLine, index: number) => {
               ListItem() {
                 ConversationTurnRow({
@@ -223,6 +246,7 @@ struct PreviewChatPage {
                     index === this.lines.length - 1 && line.text.length < 8,
                   fontSize: this.contentFontSize,
                   useDark: this.themeDark,
+                  reduceMotion: this.reduceMotion,
                   onOpenWorkbenchStep: (toolId: string) => {
                     this.focusedToolStepId = toolId;
                     this.workbenchOpen = true;
@@ -230,9 +254,13 @@ struct PreviewChatPage {
                 })
               }
             }, (line: ChatLine, index: number) => `${index}-${line.role}`)
+            ListItem() {
+              Row().width('100%').height(1)
+            }
           }
           .layoutWeight(1)
           .padding({ left: 12, right: 12, top: 4 })
+          .scrollBar(BarState.Off)
         }
           }
           .width('100%')
@@ -242,24 +270,15 @@ struct PreviewChatPage {
         .layoutWeight(1)
         .width('100%')
 
-        if (s.composer.submitting && !s.composer.showPlan && s.chrome.peekBarTitle.length > 0) {
-          PreviewComposerPeekBar({
-            title: s.chrome.peekBarTitle,
-            subtitle: s.chrome.peekBarSubtitle,
-            useDark: this.themeDark,
-            onPress: () => {
-              this.blurComposer();
-              this.focusedToolStepId = '';
-              this.workbenchOpen = true;
-            },
-          })
-        }
-
         PreviewComposerStack({
           composer: s.composer,
           modelLabelOverride: formatComposerModelChip(this.selectedModelId, this.reasoningEffort),
           useDark: this.themeDark,
           workbenchOpen: this.workbenchOpen,
+          composerBlock: PreviewLocalPreferences.resolveComposerBlock(),
+          onLoginClick: () => {
+            router.pushUrl({ url: 'pages/PreviewLoginPage' });
+          },
           onModelClick: () => {
             this.blurComposer();
             this.modelSheetOpen = true;
@@ -316,9 +335,7 @@ struct PreviewChatPage {
           router.pushUrl({ url: 'pages/PreviewSettingsPage' });
         },
         onSelectSession: (sessionId: string) => {
-          AlertDialog.show({
-            message: `已选择会话 ${sessionId}（Preview 假切换）`,
-          });
+          AppToast.show(`已选择会话 ${sessionId}（Preview 假切换）`);
         },
       })
 

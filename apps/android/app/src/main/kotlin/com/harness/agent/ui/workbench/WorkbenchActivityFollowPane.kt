@@ -15,8 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import com.harness.agent.coreui.primitives.WorkbenchStepSlider
@@ -48,7 +48,11 @@ internal fun WorkbenchActivityFollowPane(
 ) {
     val executions = state.toolExecutions
     if (executions.isEmpty()) {
-        WorkbenchActivityEmptyState()
+        WorkbenchTabEmptyState(
+            title = "暂无过程记录",
+            message = "助手的检索、读取与命令执行会显示在这里。",
+            modifier = modifier,
+        )
         return
     }
     val initialIndex =
@@ -87,24 +91,6 @@ internal fun WorkbenchActivityFollowPane(
             stepIndex = stepIndex,
             stepCount = executions.size,
             onStepIndexChange = { stepIndex = it.coerceIn(0, executions.lastIndex) },
-        )
-    }
-}
-
-@Composable
-private fun WorkbenchActivityEmptyState() {
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        AppText(text = "暂无过程记录", style = AppTextStyle.Body)
-        AppText(
-            text = "助手的检索、读取与命令执行会显示在这里。",
-            style = AppTextStyle.Muted,
         )
     }
 }
@@ -242,7 +228,7 @@ private fun WorkbenchStepFooter(
             horizontalArrangement = Arrangement.spacedBy(HarnessLayout.workbenchStepFooterContentGap),
         ) {
             HarnessIconButton(
-                icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                icon = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
                 contentDescription = "上一步",
                 onClick = { onStepIndexChange((stepIndex - 1).coerceAtLeast(0)) },
                 enabled = stepIndex > 0,
@@ -254,7 +240,7 @@ private fun WorkbenchStepFooter(
                 modifier = Modifier.weight(1f),
             )
             HarnessIconButton(
-                icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                 contentDescription = "下一步",
                 onClick = { onStepIndexChange((stepIndex + 1).coerceAtMost(maxIndex)) },
                 enabled = stepIndex < maxIndex,

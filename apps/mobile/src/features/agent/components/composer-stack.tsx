@@ -263,7 +263,7 @@ export function ComposerStack({
     const clarificationInterrupt =
       activeInterrupt?.kind === 'clarification' ? activeInterrupt : undefined;
     return (
-      <View className="bg-canvas px-3 pt-1" style={{ paddingBottom: safeBottom }}>
+      <View className="bg-canvas px-3" style={{ paddingBottom: safeBottom }}>
         <ComposerClarificationPanel
           interrupt={clarificationInterrupt}
           submitting={hitlSubmitting}
@@ -302,8 +302,8 @@ export function ComposerStack({
   return (
     <>
       <View
-        className="bg-canvas px-3 pt-1"
-        style={{ paddingBottom: safeBottom, paddingTop: 4 }}
+        className="bg-canvas px-3"
+        style={{ paddingBottom: safeBottom }}
         onLayout={
           onChromeLayout
             ? (e) => onChromeLayout(e.nativeEvent.layout.height)

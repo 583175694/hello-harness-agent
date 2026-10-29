@@ -9,33 +9,27 @@ type ServiceBannerProps = {
   onDismiss?: () => void;
 };
 
-export function ServiceBanner({ state, onRetry, onDismiss }: ServiceBannerProps) {
+export function ServiceBanner({ state, onRetry }: ServiceBannerProps) {
   if (state === 'ready') return null;
 
   const message =
-    state === 'checking' ? '正在检查服务状态…' : '无法连接 Agent 服务，请检查 API 地址或网络。';
+    state === 'checking' ? '正在检查服务状态…' : '当前无法连接服务，请检查网络与 API 地址。';
 
   return (
-    <View className="border-b border-composer-border bg-rejection px-3 py-2">
-      <Text variant="body-sm" className="text-rejection-text">
+    <View className="flex-row items-center bg-[#FCECEA] px-3 py-2.5 dark:bg-[#2A2221]">
+      <View className="mr-2 h-[18px] w-[18px] items-center justify-center rounded-full bg-rejection-text">
+        <Text className="text-[11px] font-bold leading-none text-white">!</Text>
+      </View>
+      <Text variant="body-sm" className="min-w-0 flex-1 text-[#6B5B58] dark:text-[#C4B8B5]" numberOfLines={2}>
         {message}
       </Text>
-      <View className="mt-2 flex-row gap-3">
-        {state === 'unavailable' && onRetry ? (
-          <Pressable onPress={onRetry} className="active:opacity-70">
-            <Text variant="caption" className="font-semibold text-link">
-              重新连接
-            </Text>
-          </Pressable>
-        ) : null}
-        {onDismiss ? (
-          <Pressable onPress={onDismiss} className="active:opacity-70">
-            <Text variant="caption" className="text-secondary">
-              关闭
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
+      {state === 'unavailable' && onRetry ? (
+        <Pressable onPress={onRetry} className="ml-2 shrink-0 active:opacity-70">
+          <Text variant="body-sm" className="font-normal text-link">
+            重新连接
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

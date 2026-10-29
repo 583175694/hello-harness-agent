@@ -1,3 +1,5 @@
+import { PreviewAuthProfile, PreviewComposerBlockKind } from './PreviewAuth';
+
 export interface PreviewMcpServer {
   id: string;
   name: string;
@@ -25,6 +27,26 @@ export class PreviewLocalPreferences {
   static reduceMotion: boolean = false;
   static contentFontSize: number = 15;
   static memoryAllowWrite: boolean = true;
+  static authProfile: PreviewAuthProfile | null = null;
+  static composerBlockDemo: PreviewComposerBlockKind = PreviewComposerBlockKind.NONE;
+
+  static get isLoggedIn(): boolean {
+    return PreviewLocalPreferences.authProfile !== null;
+  }
+
+  static resolveComposerBlock(): PreviewComposerBlockKind {
+    if (PreviewLocalPreferences.composerBlockDemo !== PreviewComposerBlockKind.NONE) {
+      return PreviewLocalPreferences.composerBlockDemo;
+    }
+    if (PreviewLocalPreferences.apiUrl.trim().length > 0 && !PreviewLocalPreferences.isLoggedIn) {
+      return PreviewComposerBlockKind.LOGIN_REQUIRED;
+    }
+    return PreviewComposerBlockKind.NONE;
+  }
+
+  static updateAuth(profile: PreviewAuthProfile | null): void {
+    PreviewLocalPreferences.authProfile = profile;
+  }
 
   static listMcp(): PreviewMcpServer[] {
     return PreviewLocalPreferences.mcp;

@@ -3,6 +3,7 @@ package com.harness.agent.ui.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,8 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -25,6 +26,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import com.harness.agent.coreui.motion.harnessPressOpacity
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +52,7 @@ import com.harness.agent.coreui.tokens.LocalHarnessColors
 import com.harness.agent.model.ClarificationFixture
 import com.harness.agent.model.ComposerState
 import com.harness.agent.model.ToolApprovalFixture
+import com.harness.agent.preview.PreviewComposerBlockKind
 import com.harness.agent.preview.PreviewUiAction
 
 @Composable
@@ -57,6 +61,8 @@ fun ComposerStack(
     modifier: Modifier = Modifier,
     workbenchOpen: Boolean = false,
     previewReduceMotion: Boolean = false,
+    composerBlock: PreviewComposerBlockKind = PreviewComposerBlockKind.NONE,
+    onLoginClick: () -> Unit = {},
     onPreviewAction: (PreviewUiAction) -> Unit = {},
 ) {
     val colors = LocalHarnessColors.current
@@ -83,9 +89,13 @@ fun ComposerStack(
             modifier
                 .fillMaxWidth()
                 .background(colors.canvas)
-                .padding(horizontal = 12.dp, vertical = 4.dp),
+                .padding(horizontal = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        ComposerBlockBanner(
+            kind = composerBlock,
+            onLoginClick = onLoginClick,
+        )
         Box(Modifier.fillMaxWidth()) {
             Column(
                 modifier =
@@ -138,6 +148,7 @@ fun ComposerStack(
                             onOpenAttachments = { attachmentOpen = true },
                             onOpenModelMenu = { modelOpen = true },
                             modelLabel = modelLabel,
+                            inputBlocked = composerBlock != PreviewComposerBlockKind.NONE,
                             onPreviewAction = onPreviewAction,
                         )
                     }
@@ -175,50 +186,75 @@ private fun ClarificationPanel(
     onSubmit: (String) -> Unit,
 ) {
     var answer by rememberSaveable(fixture.question) { mutableStateOf("") }
+    val colors = LocalHarnessColors.current
     Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .border(1.dp, LocalHarnessColors.current.composerBorder, RoundedCornerShape(HarnessLayout.bubbleRadius))
-                .padding(14.dp),
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            AppText(text = "需要补充信息", style = AppTextStyle.Title)
-            AppText(
-                text = "取消运行",
-                style = AppTextStyle.Caption,
-                modifier = Modifier.clickable(enabled = !submitting, onClick = onCancelRun),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Text(
+                text = fixture.question,
+                color = colors.secondary,
+                fontSize = 15.sp,
+                lineHeight = 21.sp,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "取消",
+                color = colors.muted,
+                fontSize = 13.sp,
+                modifier =
+                    Modifier
+                        .clickable(enabled = !submitting, onClick = onCancelRun)
+                        .padding(top = 1.dp),
             )
         }
-        AppText(text = fixture.question, style = AppTextStyle.Body, modifier = Modifier.padding(vertical = 8.dp))
         if (fixture.options.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 fixture.options.forEach { opt ->
                     Badge(
                         text = opt,
                         modifier =
                             Modifier.clickable(enabled = !submitting) {
-                                answer = opt
+                                onSubmit(opt)
                             },
                     )
                 }
             }
         }
         if (fixture.allowFreeText) {
-            OutlinedTextField(
-                value = answer,
-                onValueChange = { answer = it },
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                enabled = !submitting,
-                label = { Text("输入回答") },
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = answer,
+                    onValueChange = { answer = it },
+                    modifier = Modifier.weight(1f),
+                    enabled = !submitting,
+                    placeholder = { Text("其他…", color = colors.muted, fontSize = 14.sp) },
+                    maxLines = 1,
+                    textStyle = TextStyle(fontSize = 14.sp),
+                )
+                Text(
+                    text = "提交",
+                    color = if (!submitting && answer.isNotBlank()) colors.link else colors.muted,
+                    fontSize = 14.sp,
+                    modifier =
+                        Modifier.clickable(enabled = !submitting && answer.isNotBlank()) {
+                            onSubmit(answer.trim())
+                        },
+                )
+            }
         }
-        AppButton(
-            text = "提交回答",
-            onClick = { onSubmit(answer) },
-            enabled = !submitting && answer.isNotBlank(),
-            modifier = Modifier.padding(top = 8.dp),
-        )
     }
 }
 
@@ -351,10 +387,11 @@ private fun ComposerInputRow(
     modelLabel: String,
     onOpenAttachments: () -> Unit,
     onOpenModelMenu: () -> Unit,
+    inputBlocked: Boolean = false,
     onPreviewAction: (PreviewUiAction) -> Unit,
 ) {
     val colors = LocalHarnessColors.current
-    val enabled = state.composerTextMode != "disabled" && state.mode != "hitl"
+    val enabled = state.composerTextMode != "disabled" && state.mode != "hitl" && !inputBlocked
     val placeholder =
         when (state.composerTextMode) {
             "steer" -> "补充方向，将从下一步骤应用……"
@@ -400,7 +437,7 @@ private fun ComposerInputRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             HarnessIconButton(
-                icon = Icons.Filled.Add,
+                icon = Icons.Rounded.Add,
                 contentDescription = "添加附件与 Skill",
                 onClick = onOpenAttachments,
                 touchSize = HarnessLayout.composerPlusSize,
@@ -417,11 +454,16 @@ private fun ComposerInputRow(
                     enabled = enabled,
                     modifier = Modifier.defaultMinSize(minHeight = HarnessLayout.composerPlusSize),
                 )
+                val sendInteractionSource = remember { MutableInteractionSource() }
                 Box(
                     modifier =
                         Modifier
                             .padding(start = 4.dp)
                             .size(HarnessLayout.composerSendSize)
+                            .harnessPressOpacity(
+                                enabled = canPressSend,
+                                interactionSource = sendInteractionSource,
+                            )
                             .clip(CircleShape)
                             .background(
                                 when {
@@ -432,7 +474,11 @@ private fun ComposerInputRow(
                                     else -> colors.primary
                                 },
                             )
-                            .clickable(enabled = canPressSend) {
+                            .clickable(
+                                enabled = canPressSend,
+                                interactionSource = sendInteractionSource,
+                                indication = null,
+                            ) {
                                 when {
                                     state.submitting && draft.isBlank() ->
                                         onPreviewAction(PreviewUiAction.StopRun)
@@ -445,7 +491,7 @@ private fun ComposerInputRow(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.ArrowUpward,
+                        imageVector = Icons.Rounded.ArrowUpward,
                         contentDescription = if (state.submitting) "停止运行" else "发送任务",
                         modifier = Modifier.size(18.dp),
                         tint = colors.primaryForeground,

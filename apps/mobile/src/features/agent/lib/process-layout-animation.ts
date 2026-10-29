@@ -8,11 +8,6 @@ export function configureProcessExpandLayoutAnimation() {
     UIManager.setLayoutAnimationEnabledExperimental?.(true);
     androidLayoutAnimationEnabled = true;
   }
-  LayoutAnimation.configureNext(
-    LayoutAnimation.create(
-      220,
-      LayoutAnimation.Types.easeInEaseOut,
-      LayoutAnimation.Properties.opacity,
-    ),
-  );
+  /** 仅 opacity 会在收起时先隐内容再缩高度；用 preset 同步布局高度。 */
+  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 }

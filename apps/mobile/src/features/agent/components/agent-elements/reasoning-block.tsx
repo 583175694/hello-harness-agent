@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
-import { ChevronDown, Dot } from 'lucide-react-native';
+import { ChevronDown } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { ICON_CHEVRON_TONE } from '@/lib/theme';
 import { Text } from '@/components/ui/text';
@@ -55,10 +55,10 @@ export function ReasoningBlock({
       accessibilityState={{ expanded: open }}
     >
       <View
-        className="flex-row items-center gap-2"
+        className="flex-row items-center gap-1.5"
         style={{ height: PROCESS_TIMELINE_FIRST_LINE_HEIGHT }}
       >
-        <Text variant="body-sm" className="min-w-0 flex-1 text-muted" numberOfLines={1}>
+        <Text variant="body-sm" className="shrink text-muted" numberOfLines={1}>
           {label}
         </Text>
         <Icon
@@ -73,11 +73,11 @@ export function ReasoningBlock({
 
   const expanded = open ? (
     <ScrollView
-      className="max-h-[320px] pb-1 pt-1"
+      className="max-h-[320px] px-3 pb-2 pt-1.5"
       showsVerticalScrollIndicator={false}
       nestedScrollEnabled
     >
-      <Text variant="body-sm" className="leading-relaxed text-secondary">
+      <Text variant="body-sm" className="leading-[22px] text-muted">
         {content}
       </Text>
     </ScrollView>
@@ -87,7 +87,7 @@ export function ReasoningBlock({
     return (
       <ProcessTimelineStep
         isLast={isLast}
-        icon={<Icon icon={Dot} tone="muted" size={15} strokeWidth={2.5} />}
+        icon={<View className="h-1.5 w-1.5 rounded-full bg-border" />}
         footer={expanded}
       >
         {trigger}

@@ -56,9 +56,7 @@
   "chrome": {
     "connectionState": "live",
     "serviceState": "ready",
-    "runSummary": "正在执行",
-    "peekBarTitle": "正在执行",
-    "peekBarSubtitle": "工具循环进行中"
+    "runSummary": "正在执行"
   },
   "sessionDrawer": {
     "draftTitle": "新对话",

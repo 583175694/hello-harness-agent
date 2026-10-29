@@ -3,6 +3,8 @@ import SwiftUI
 struct ComposerStackView: View {
     let state: ComposerState
     var workbenchOpen: Bool = false
+    var composerBlock: PreviewComposerBlockKind = .none
+    var onLoginClick: () -> Void = {}
     var onPreviewAction: (PreviewUiAction) -> Void = { _ in }
     @State private var draft: String = ""
     @State private var clarificationAnswer: String = ""
@@ -23,10 +25,14 @@ struct ComposerStackView: View {
     init(
         state: ComposerState,
         workbenchOpen: Bool = false,
+        composerBlock: PreviewComposerBlockKind = .none,
+        onLoginClick: @escaping () -> Void = {},
         onPreviewAction: @escaping (PreviewUiAction) -> Void = { _ in }
     ) {
         self.state = state
         self.workbenchOpen = workbenchOpen
+        self.composerBlock = composerBlock
+        self.onLoginClick = onLoginClick
         self.onPreviewAction = onPreviewAction
         _selectedModelId = State(initialValue: ComposerModelMenuLabels.resolveModelId(from: state.selectedModelLabel))
         _reasoningEffort = State(initialValue: ComposerModelMenuLabels.resolveReasoning(from: state.selectedModelLabel))
@@ -34,10 +40,10 @@ struct ComposerStackView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            ComposerBlockBannerView(kind: composerBlock, onLoginClick: onLoginClick)
             composerBubbleShell
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 4)
         .sheet(isPresented: $attachOpen) {
             attachmentSheet
         }
@@ -126,28 +132,38 @@ struct ComposerStackView: View {
 
     @ViewBuilder
     private func clarificationPanel(_ clar: ClarificationFixture) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("需要补充信息").font(.headline)
-                Spacer()
-                Button("取消运行") { onPreviewAction(.cancelRun) }
-                    .font(.caption)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                Text(clar.question)
+                    .font(.system(size: 15))
                     .foregroundStyle(HarnessColors.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button("取消") { onPreviewAction(.cancelRun) }
+                    .font(.system(size: 13))
+                    .foregroundStyle(HarnessColors.muted)
             }
-            Text(clar.question).font(.subheadline)
             if !clar.options.isEmpty {
-                FlowLayoutTags(options: clar.options, selection: $clarificationAnswer)
+                HStack(spacing: 8) {
+                    ForEach(clar.options, id: \.self) { opt in
+                        Button(opt) { onPreviewAction(.submitClarification(opt)) }
+                            .font(.system(size: 13))
+                            .buttonStyle(.bordered)
+                            .disabled(state.submitting)
+                    }
+                }
             }
             if clar.allowFreeText {
-                TextField("输入回答", text: $clarificationAnswer, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 8) {
+                    TextField("其他…", text: $clarificationAnswer)
+                        .font(.system(size: 14))
+                        .textFieldStyle(.roundedBorder)
+                    Button("提交") { onPreviewAction(.submitClarification(clarificationAnswer)) }
+                        .font(.system(size: 14))
+                        .foregroundStyle(HarnessColors.link)
+                        .disabled(clarificationAnswer.trimmingCharacters(in: .whitespaces).isEmpty || state.submitting)
+                }
             }
-            Button("提交回答") { onPreviewAction(.submitClarification(clarificationAnswer)) }
-                .buttonStyle(.borderedProminent)
-                .disabled(clarificationAnswer.isEmpty || state.submitting)
         }
-        .padding(12)
-        .overlay(RoundedRectangle(cornerRadius: HarnessLayout.bubbleRadius).stroke(HarnessColors.composerBorder))
     }
 
     @ViewBuilder
@@ -186,7 +202,7 @@ struct ComposerStackView: View {
     }
 
     private var composerInputRow: some View {
-        let enabled = state.composerTextMode != "disabled" && state.mode != "hitl"
+        let enabled = state.composerTextMode != "disabled" && state.mode != "hitl" && composerBlock == .none
         let showModel = state.composerTextMode != "clarification"
         let canSend = enabled && !draft.isEmpty
         let canPressSend = enabled && (canSend || state.submitting)
@@ -212,11 +228,10 @@ struct ComposerStackView: View {
                 Button {
                     attachOpen = true
                 } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 20, weight: .medium))
+                    HarnessSymbol.image("plus", size: 20)
                         .frame(width: HarnessLayout.composerPlusSize, height: HarnessLayout.composerPlusSize)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(HarnessPressScaleButtonStyle())
                 .disabled(!enabled)
 
                 Spacer(minLength: 0)
@@ -230,14 +245,13 @@ struct ComposerStackView: View {
                                 .font(.caption)
                                 .foregroundStyle(HarnessColors.secondary)
                                 .lineLimit(1)
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 12, weight: .medium))
+                            HarnessSymbol.image("chevron.down", size: 12)
                                 .foregroundStyle(HarnessColors.muted)
                         }
                         .frame(minHeight: HarnessLayout.composerPlusSize)
                         .padding(.horizontal, 8)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(HarnessPressScaleButtonStyle())
                     .disabled(!enabled)
                 }
 
@@ -249,13 +263,13 @@ struct ComposerStackView: View {
                         draft = ""
                     }
                 } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 16, weight: .semibold))
+                    HarnessSymbol.image("arrow.up", size: 16)
                         .foregroundStyle(HarnessColors.primaryForeground)
                         .frame(width: HarnessLayout.composerSendSize, height: HarnessLayout.composerSendSize)
                         .background(canPressSend ? HarnessColors.primary : HarnessColors.subtle)
                         .clipShape(Circle())
                 }
+                .buttonStyle(HarnessPressScaleButtonStyle())
                 .disabled(!canPressSend)
             }
         }
@@ -312,22 +326,38 @@ private struct ToolApprovalPanelContent: View {
     }
 }
 
-private struct FlowLayoutTags: View {
-    let options: [String]
-    @Binding var selection: String
+struct ComposerBlockBannerView: View {
+    let kind: PreviewComposerBlockKind
+    var onLoginClick: () -> Void = {}
 
     var body: some View {
-        WrapHStack {
-            ForEach(options, id: \.self) { opt in
-                Button(opt) { selection = opt }
-                    .buttonStyle(.bordered)
-                    .tint(selection == opt ? .primary : .gray)
+        if kind == .none { EmptyView() }
+        else {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "info.circle")
+                    .foregroundStyle(HarnessColors.secondary)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(HarnessColors.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if kind == .loginRequired {
+                    Button("去登录", action: onLoginClick)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(HarnessColors.link)
+                }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(HarnessColors.subtle)
+            .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous))
         }
     }
-}
 
-private struct WrapHStack<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-    var body: some View { content() }
+    private var message: String {
+        switch kind {
+        case .none: return ""
+        case .loginRequired: return "已配置 API，请先登录后再发送消息。"
+        case .transcriptIncompatible: return "当前会话与所选模型不兼容，请新建会话或更换模型。"
+        }
+    }
 }

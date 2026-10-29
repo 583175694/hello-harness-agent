@@ -93,10 +93,6 @@ final class GateAFixtureSnapshotTests: XCTestCase {
                     onRetry: {},
                     onDismiss: {}
                 )
-                ProblemDetailsCardView(
-                    title: session.problemTitle,
-                    detail: session.problemDetail
-                )
             }
             .frame(width: 390)
             .background(HarnessColors.canvas)

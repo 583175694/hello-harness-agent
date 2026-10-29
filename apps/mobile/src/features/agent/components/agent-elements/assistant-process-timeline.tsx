@@ -4,24 +4,29 @@ import {
   processTimelineElapsedMs,
 } from '../../lib/process-elapsed';
 import { Pressable, View } from 'react-native';
+import { processTimelineToolIconKind } from '@harness/agent-conversation';
 import {
   ChevronDown,
   Clock3,
   FileSearch,
   FileText,
+  Plug,
   Search,
   Terminal,
   type LucideIcon,
 } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
-import { SpinnerIcon } from '@/components/ui/spinner-icon';
 import { Text } from '@/components/ui/text';
 import { ICON_CHEVRON_TONE } from '@/lib/theme';
 import type { MobileAssistantBlock } from '../../fixtures/mobile-preview.types';
 import type { WorkbenchOpenRequest } from '../workbench-activity-view';
 import { AssistantTextBlock } from '../assistant-text-block';
+import {
+  toolActivityAccessibilityLabel,
+  toolActivityInlineSummary,
+  toolActivityPrimaryLine,
+} from '../../lib/tool-activity-inline-label';
 import { ReasoningBlock } from './reasoning-block';
-import { configureProcessExpandLayoutAnimation } from '../../lib/process-layout-animation';
 import {
   PROCESS_TIMELINE_FIRST_LINE_HEIGHT,
   PROCESS_TIMELINE_RAIL_GAP,
@@ -29,13 +34,20 @@ import {
   ProcessTimelineStep,
 } from './process-timeline-step';
 
+const PROCESS_TIMELINE_TOOL_ICONS = {
+  search: Search,
+  fileSearch: FileSearch,
+  fileText: FileText,
+  terminal: Terminal,
+  clock: Clock3,
+  plug: Plug,
+} as const satisfies Record<
+  ReturnType<typeof processTimelineToolIconKind>,
+  LucideIcon
+>;
+
 function toolIcon(toolName: string): LucideIcon {
-  const n = toolName.toLowerCase();
-  if (n.includes('search') || n.includes('fetch') || n.includes('web')) return Search;
-  if (n.includes('file') || n.includes('read')) return FileSearch;
-  if (n.includes('bash') || n.includes('command') || n.includes('terminal')) return Terminal;
-  if (n.includes('report') || n.includes('create')) return FileText;
-  return Clock3;
+  return PROCESS_TIMELINE_TOOL_ICONS[processTimelineToolIconKind(toolName)];
 }
 
 function ProcessToolStep({
@@ -59,27 +71,53 @@ function ProcessToolStep({
   const failed = status === 'failed';
   const StepIcon = toolIcon(toolName);
 
-  const icon = running ? (
-    <SpinnerIcon tone="muted" size={15} />
-  ) : (
-    <Icon icon={StepIcon} tone={failed ? 'destructive' : 'muted'} size={15} textWeight="medium" />
+  const icon = (
+    <Icon
+      icon={StepIcon}
+      tone={failed ? 'destructive' : running ? 'link' : 'muted'}
+      size={15}
+      textWeight="medium"
+    />
   );
+
+  const inlineSummary = toolActivityInlineSummary(toolName, title, summary ?? '');
+  const primaryLine = toolActivityPrimaryLine(toolName, title, summary ?? '');
+  const a11yLabel = toolActivityAccessibilityLabel(toolName, title, summary ?? '');
 
   const body = (
     <View className="min-w-0">
       <View
-        className="justify-center"
+        className="min-w-0 flex-row items-center"
         style={{ height: PROCESS_TIMELINE_FIRST_LINE_HEIGHT }}
       >
-        <Text variant="body-sm" className="text-secondary" numberOfLines={1} ellipsizeMode="tail">
-          {title}
-        </Text>
+        {inlineSummary ? (
+          <>
+            <Text
+              variant="body-sm"
+              className="text-muted"
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {title}
+            </Text>
+            <Text variant="body-sm" className="px-1.5 text-muted opacity-45">
+              |
+            </Text>
+            <Text
+              variant="body-sm"
+              className="min-w-0 flex-1 text-muted"
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {inlineSummary}
+            </Text>
+          </>
+        ) : (
+          <Text variant="body-sm" className="min-w-0 flex-1 text-muted" numberOfLines={1}>
+            {primaryLine}
+          </Text>
+        )}
       </View>
-      {summary && summary !== title ? (
-        <Text variant="caption" className="mt-0.5 text-muted" numberOfLines={1} ellipsizeMode="tail">
-          {summary}
-        </Text>
-      ) : null}
     </View>
   );
 
@@ -98,7 +136,7 @@ function ProcessToolStep({
         disabled={!toolCallId}
         className="min-h-[36px] active:opacity-80"
         accessibilityRole="button"
-        accessibilityLabel={`打开工作台：${title}`}
+        accessibilityLabel={`打开工作台：${a11yLabel}`}
       >
         {body}
       </Pressable>
@@ -177,23 +215,24 @@ export function AssistantProcessTimeline({
     <View className="w-full max-w-[620px]">
       <Pressable
         onPress={() => {
-          configureProcessExpandLayoutAnimation();
           setUserExpanded(true);
           setOpen((v) => !v);
         }}
-        className="min-h-8 flex-row items-center gap-2 px-0.5 py-1 active:opacity-80"
+        className="min-h-8 w-full flex-row items-center px-0.5 py-1 active:opacity-80"
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
       >
-        <Text variant="body-sm" className="flex-1 text-muted">
-          {headerLabel}
-        </Text>
-        <Icon
-          icon={ChevronDown}
-          tone={ICON_CHEVRON_TONE.disclosure}
-          size={15}
-          style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}
-        />
+        <View className="flex-row items-center gap-1.5">
+          <Text variant="body-sm" className="shrink text-muted" numberOfLines={1}>
+            {headerLabel}
+          </Text>
+          <Icon
+            icon={ChevronDown}
+            tone={ICON_CHEVRON_TONE.disclosure}
+            size={15}
+            style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}
+          />
+        </View>
       </Pressable>
 
       {open ? (

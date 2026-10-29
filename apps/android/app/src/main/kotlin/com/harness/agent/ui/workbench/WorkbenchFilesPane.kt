@@ -1,6 +1,5 @@
 package com.harness.agent.ui.workbench
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -10,14 +9,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.harness.agent.coreui.feedback.LocalAppToast
 import com.harness.agent.coreui.primitives.AppText
 import com.harness.agent.coreui.primitives.AppTextStyle
 import com.harness.agent.coreui.primitives.HarnessIconButton
@@ -32,12 +31,12 @@ internal fun WorkbenchFilesPane(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalHarnessColors.current
-    val context = LocalContext.current
+    val toast = LocalAppToast.current
     if (files.isEmpty()) {
-        AppText(
-            text = "暂无文件",
-            style = AppTextStyle.Muted,
-            modifier = Modifier.padding(24.dp),
+        WorkbenchTabEmptyState(
+            title = "暂无文件",
+            message = "运行完成后，报告与导出文件会显示在这里。",
+            modifier = modifier,
         )
         return
     }
@@ -63,15 +62,15 @@ internal fun WorkbenchFilesPane(
                     }
                 }
                 HarnessIconButton(
-                    icon = Icons.Outlined.Visibility,
+                    icon = Icons.Rounded.Visibility,
                     contentDescription = "预览 ${file.fileName}",
                     onClick = { onPreview(file) },
                 )
                 HarnessIconButton(
-                    icon = Icons.Outlined.Download,
+                    icon = Icons.Rounded.Download,
                     contentDescription = "下载 ${file.fileName}",
                     onClick = {
-                        Toast.makeText(context, "Preview：已模拟下载 ${file.fileName}", Toast.LENGTH_SHORT).show()
+                        toast.show("Preview：已模拟下载 ${file.fileName}")
                     },
                 )
             }

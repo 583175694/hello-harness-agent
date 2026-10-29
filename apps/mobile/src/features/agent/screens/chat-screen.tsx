@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChatTopBar } from '../components/chat-top-bar';
-import { ComposerPeekBar } from '../components/composer-peek-bar';
 import { ComposerStack } from '../components/composer-stack';
 import { PlanFloatingCard } from '../components/agent-elements/plan-floating-card';
 import { AGENT_UI_LAYOUT } from '../config/ui.constants';
@@ -35,11 +34,7 @@ import {
   useComposerAttachments,
 } from '../hooks/use-composer-attachments';
 import { useSessionDeepLink } from '../hooks/use-session-deep-link';
-import {
-  mobileRunPeekSubtitle,
-  mobileRunPeekVisible,
-  mobileRunSummaryLine,
-} from '../model/mobile-run-summary';
+import { mobileRunSummaryLine } from '../model/mobile-run-summary';
 import { useComposerOverlayState } from '../hooks/use-composer-overlay-state';
 import { useChatWorkbenchChrome } from '../hooks/use-chat-workbench-chrome';
 import { useSkillCatalogWarmup } from '../hooks/use-skill-catalog';
@@ -56,20 +51,14 @@ type ChatScreenProps = {
 function ProductionChatConversationStack({
   bottomInset,
   onOpenWorkbench,
-  showRunPeek,
-  runSummary,
-  workbench,
   drawerOpen,
 }: {
   bottomInset: number;
   onOpenWorkbench: (request?: WorkbenchOpenRequest) => void;
-  showRunPeek: boolean;
-  runSummary: string | null;
-  workbench?: WorkbenchState;
   drawerOpen?: boolean;
 }) {
   const conversation = useAgentHostConversation();
-  const { apiBaseUrl, sessionDetailLoading } = useAgentHostSession();
+  const { apiBaseUrl, sessionDetailLoading, selectedSessionId } = useAgentHostSession();
   const composer = useAgentHostComposerSnapshot();
   const isLandingSession =
     !sessionDetailLoading && conversation.length === 0 && composer.activeInterrupt == null;
@@ -78,19 +67,13 @@ function ProductionChatConversationStack({
     <>
       <ConversationPanel
         conversation={conversation}
+        sessionScrollKey={selectedSessionId ?? 'none'}
         apiBaseUrl={apiBaseUrl}
         bottomInset={bottomInset}
         scrollEnabled={!drawerOpen}
         landingLayout={isLandingSession}
         onOpenWorkbench={(request) => onOpenWorkbench(request ?? { view: 'activity' })}
       />
-      {showRunPeek ? (
-        <ComposerPeekBar
-          title={runSummary ?? '正在执行任务'}
-          subtitle={mobileRunPeekSubtitle(workbench)}
-          onPress={() => onOpenWorkbench({ view: 'activity' })}
-        />
-      ) : null}
     </>
   );
 }
@@ -261,7 +244,6 @@ function ProductionChatScreenInner({
   const activeRunSessionId =
     activeRunId && session.selectedSessionId ? session.selectedSessionId : null;
   const runSummary = mobileRunSummaryLine(workbench);
-  const showRunPeek = mobileRunPeekVisible(workbench, activeRunId);
   const [composerChromeHeight, setComposerChromeHeight] = useState(0);
   const planHostVisible =
     Boolean(composerSnap.composerPlan?.length) &&
@@ -309,11 +291,8 @@ function ProductionChatScreenInner({
           <ChatKeyboardShell>
             <View className="relative flex-1">
               <ProductionChatConversationStack
-                bottomInset={insets.bottom + (showRunPeek ? 200 : 160)}
+                bottomInset={0}
                 onOpenWorkbench={openWorkbench}
-                showRunPeek={showRunPeek}
-                runSummary={runSummary ?? null}
-                workbench={workbench}
                 drawerOpen={drawerOpen}
               />
               <ProductionChatComposer
@@ -479,21 +458,11 @@ function PreviewChatScreenInner({
   const chrome = fixture.chrome;
   const connectionState = chrome?.connectionState ?? 'live';
   const runSummary = chrome?.runSummary;
-  const showPeek =
-    composer.submitting &&
-    !composer.showPlan &&
-    !isSplitLayout &&
-    Boolean(chrome?.peekBarTitle);
   const planHostVisible =
     composer.showPlan &&
     composer.submitting &&
     composer.mode !== 'clarification' &&
     composer.mode !== 'hitl';
-  const peekTitle =
-    chrome?.peekBarTitle ??
-    catalogPlanFixture.plan.find((s) => s.status === 'in_progress')?.step ??
-    '正在执行任务';
-
   const showServiceBanner = !serviceDismissed && serviceState !== 'ready';
 
   return (
@@ -523,18 +492,11 @@ function PreviewChatScreenInner({
             <View className="relative flex-1">
               <ConversationPanel
                 conversation={fixture.conversation}
-                bottomInset={insets.bottom + (showPeek ? 200 : 160)}
+                bottomInset={0}
                 scrollEnabled
                 previewLegacyBlocks
                 onOpenWorkbench={handleOpenWorkbenchFromConversation}
               />
-              {showPeek ? (
-                <ComposerPeekBar
-                  title={peekTitle}
-                  subtitle={chrome?.peekBarSubtitle}
-                  onPress={() => openWorkbench('activity')}
-                />
-              ) : null}
               <ComposerStack
                 {...composer}
                 bottomInset={insets.bottom}

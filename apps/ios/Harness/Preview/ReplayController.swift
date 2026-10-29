@@ -5,11 +5,6 @@ struct ReplayConfig: Equatable {
     var codepointsPerTick: Int = 6
 }
 
-private func markdownIfNeeded(_ text: String) -> String? {
-    if text.contains("```") || text.contains("\n#") || text.contains("\n- ") { return text }
-    return nil
-}
-
 final class ReplayController {
     private var task: Task<Void, Never>?
 
@@ -56,13 +51,12 @@ final class ReplayController {
                 await MainActor.run { onUpdate(current) }
             }
             guard !Task.isCancelled else { return }
-            let md = markdownIfNeeded(target)
             current[index] = .assistant(
                 status: "completed",
                 pendingText: nil,
-                summary: md == nil ? target : nil,
+                summary: nil,
                 tailTarget: nil,
-                markdownContent: md,
+                markdownContent: target,
                 process: []
             )
             await MainActor.run { onUpdate(current) }

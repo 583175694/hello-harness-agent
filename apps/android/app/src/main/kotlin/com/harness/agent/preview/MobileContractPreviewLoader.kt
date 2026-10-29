@@ -274,25 +274,21 @@ class MobileContractPreviewLoader(
                     val pendingRaw = obj.optString("pendingText")
                     val deliveryStatus = obj.optString("deliveryStatus", "completed")
                     val streaming = deliveryStatus == "streaming"
-                    val joinedBlocks = blocks?.joinTextBlockContent()
-                    val markdownCandidate = if (!streaming) joinedBlocks else null
-                    val isMarkdown =
-                        markdownCandidate != null &&
-                            (markdownCandidate.contains("```") || markdownCandidate.contains("\n#") || markdownCandidate.contains("\n- "))
-                    val summary =
+                    val joinedBlocks = blocks?.joinTextBlockContent()?.trim().orEmpty()
+                    val finalizedBody =
                         when {
                             streaming -> null
-                            isMarkdown -> null
-                            !pendingRaw.isNullOrBlank() -> pendingRaw
-                            else -> markdownCandidate
+                            joinedBlocks.isNotEmpty() -> joinedBlocks
+                            pendingRaw.isNotBlank() -> pendingRaw
+                            else -> null
                         }
                     items +=
                         ConversationItem.Assistant(
                             deliveryStatus = deliveryStatus,
                             pendingText = if (streaming) null else pendingRaw.ifBlank { null },
-                            summary = summary,
+                            summary = null,
                             tailTarget = if (streaming) pendingRaw.ifBlank { null } else null,
-                            markdownContent = if (isMarkdown) markdownCandidate else null,
+                            markdownContent = finalizedBody,
                             process = obj.optJSONArray("process")?.toProcessBlocks().orEmpty(),
                         )
                 }

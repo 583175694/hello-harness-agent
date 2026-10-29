@@ -4,7 +4,6 @@ import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import com.harness.agent.coreui.tokens.HarnessTheme
 import com.harness.agent.ui.chat.ChatTopBar
-import com.harness.agent.ui.chat.ComposerPeekBar
 import com.harness.agent.ui.chat.ProblemDetailsCard
 import com.harness.agent.ui.chat.ServiceBanner
 import com.harness.agent.ui.chat.SessionDrawerOverlay
@@ -46,7 +45,7 @@ class GateAChromeSnapshotTest {
             HarnessTheme(darkTheme = false) {
                 ProblemDetailsCard(
                     title = "无法连接服务",
-                    detail = "Preview 假状态：offline / ProblemDetails（Phase A）。",
+                    detail = "请检查网络连接与 API 地址。",
                 )
             }
         }
@@ -63,19 +62,6 @@ class GateAChromeSnapshotTest {
                     workbenchBadge = 0,
                     onOpenDrawer = {},
                     onOpenWorkbench = {},
-                )
-            }
-        }
-    }
-
-    @Test
-    fun processTimeline_composerPeekBar() {
-        paparazzi.snapshot {
-            HarnessTheme(darkTheme = false) {
-                ComposerPeekBar(
-                    title = "正在搜索公开来源",
-                    subtitle = "步骤 2 / 5",
-                    onPress = {},
                 )
             }
         }

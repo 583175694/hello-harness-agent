@@ -66,7 +66,7 @@ fun PreviewReportReaderScreen(
                 if (preferences.readerIsArtifact) {
                     AppText(text = body, style = AppTextStyle.Caption)
                 } else {
-                    MarkdownBody(markdown = body)
+                    MarkdownBody(markdown = body, modifier = Modifier.fillMaxWidth())
                 }
             }
         }

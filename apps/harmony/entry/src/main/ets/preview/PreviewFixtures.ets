@@ -18,6 +18,7 @@ export const PREVIEW_FIXTURE_FILES: string[] = [
   'workbench-sources-retrieval-only.json',
   'rich-session-showcase.json',
   'stock-market-review.json',
+  'chat-markdown-gallery.json',
 ];
 
 export function fixtureTitleFromJson(raw: string, fileName: string): PreviewFixtureDescriptor {

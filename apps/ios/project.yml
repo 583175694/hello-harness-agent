@@ -21,6 +21,8 @@ targets:
       - path: CoreUI
       - path: Harness/Resources/brand-icon-app.png
         buildPhase: resources
+      - path: Harness/Resources/login-hero-illustration.png
+        buildPhase: resources
       - path: ../../packages/mobile-contract/fixtures/preview
         name: preview
         type: folder

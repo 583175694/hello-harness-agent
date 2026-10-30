@@ -314,61 +314,180 @@ struct PreviewMcpFormView: View {
     }
 }
 
+private enum PreviewLoginFocusField: Hashable {
+    case phone
+    case code
+}
+
 struct PreviewLoginView: View {
     @Bindable var preferences: PreviewAppPreferences
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appToast) private var appToast
-    @Environment(\.colorScheme) private var colorScheme
     @State private var phone = ""
     @State private var code = ""
     @State private var codeSent = false
+    @State private var keyboardOverlap: CGFloat = 0
+    @State private var keyboardAnimation: Animation = .easeOut(duration: 0.25)
+    @FocusState private var focusedField: PreviewLoginFocusField?
+
+    private let fieldCornerRadius: CGFloat = 14
+    private let referenceKeyboardHeight: CGFloat = 320
+    private let heroCompactRatio: CGFloat = 0.62
 
     var body: some View {
-        AppScaffold(title: "登录") {
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        settingsTextField(label: "手机号", text: $phone, placeholder: "11 位手机号", keyboard: .phonePad)
-                        if codeSent {
-                            settingsTextField(label: "验证码", text: $code, placeholder: "6 位验证码", keyboard: .numberPad)
-                        }
+        GeometryReader { geometry in
+            let verticalInset = min(max(geometry.size.height * 0.06, 24), 40)
+            let expandedHeroHeight = min(max(geometry.size.height * 0.34, 220), 252)
+            let compactHeroHeight = max(expandedHeroHeight * heroCompactRatio, 140)
+            let keyboardProgress = min(max(keyboardOverlap / referenceKeyboardHeight, 0), 1)
+            let heroHeight = expandedHeroHeight + (compactHeroHeight - expandedHeroHeight) * keyboardProgress
+            let heroToTitleGap = 24 + (12 - 24) * keyboardProgress
+            let formTopGap = 32 + (20 - 32) * keyboardProgress
+            let contentTopInset = verticalInset + (12 - verticalInset) * keyboardProgress
+            let availableHeight = max(geometry.size.height - keyboardOverlap, 0)
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    loginHeroIllustration(height: heroHeight)
+                    Text("Your AI Assistant\nIs Here")
+                        .font(.system(size: 28, weight: .bold))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(Color.black)
+                        .padding(.top, heroToTitleGap)
+                    Text("Always ready to help")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Color(red: 0.60, green: 0.60, blue: 0.60))
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 8)
+                    loginPhoneField
+                        .padding(.top, formTopGap)
+                    if codeSent {
+                        loginCodeField
+                            .padding(.top, 12)
                     }
-                    .padding(.vertical, 8)
+                    loginPrimaryButton
+                        .padding(.top, 16)
                 }
-                Button(action: submit) {
-                    settingsPillLabel(primaryLabel, style: .primary)
-                }
-                .buttonStyle(HarnessPressScaleButtonStyle())
-                .disabled(phone.trimmingCharacters(in: .whitespaces).count < 6)
-                .opacity(phone.trimmingCharacters(in: .whitespaces).count < 6 ? 0.45 : 1)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 24)
+                .padding(.top, contentTopInset)
+                .padding(.bottom, verticalInset)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: availableHeight, alignment: .center)
+                .animation(keyboardAnimation, value: keyboardOverlap)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .background(Color.white.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+            keyboardAnimation = .easeOut(duration: duration)
+            let screenHeight = UIScreen.main.bounds.height
+            let overlap = max(0, screenHeight - frame.origin.y)
+            withAnimation(keyboardAnimation) {
+                keyboardOverlap = overlap
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+            let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+            keyboardAnimation = .easeOut(duration: duration)
+            withAnimation(keyboardAnimation) {
+                keyboardOverlap = 0
             }
         }
     }
 
-    private var primaryLabel: String {
-        if !codeSent { return "发送验证码" }
-        return code.trimmingCharacters(in: .whitespaces).count >= 4 ? "登录" : "请输入验证码"
+    private var canSubmit: Bool {
+        let phoneReady = phone.trimmingCharacters(in: .whitespaces).count >= 6
+        let codeReady = !codeSent || code.trimmingCharacters(in: .whitespaces).count >= 4
+        return phoneReady && codeReady
+    }
+
+    private var buttonLabel: String {
+        codeSent ? "Log in" : "Get Verification Code"
+    }
+
+    private func loginHeroIllustration(height: CGFloat) -> some View {
+        Group {
+            if let uiImage = UIImage(named: "login-hero-illustration", in: .main, compatibleWith: nil) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: height)
+            }
+        }
+    }
+
+    private var loginPhoneField: some View {
+        HStack(spacing: 10) {
+            HarnessSymbol.image("iphone", size: 20)
+                .foregroundStyle(Color(red: 0.67, green: 0.67, blue: 0.67))
+                .padding(.trailing, 2)
+            TextField("Enter your phone number", text: $phone)
+                .keyboardType(.phonePad)
+                .font(.system(size: 16))
+                .foregroundStyle(Color(red: 0.20, green: 0.20, blue: 0.20))
+                .focused($focusedField, equals: .phone)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 52)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: fieldCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: fieldCornerRadius, style: .continuous)
+                .stroke(Color(red: 0.90, green: 0.90, blue: 0.90), lineWidth: 1)
+        )
+    }
+
+    private var loginCodeField: some View {
+        TextField("Enter verification code", text: $code)
+            .keyboardType(.numberPad)
+            .font(.system(size: 16))
+            .foregroundStyle(Color(red: 0.20, green: 0.20, blue: 0.20))
+            .focused($focusedField, equals: .code)
+            .padding(.horizontal, 16)
+            .frame(height: 52)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: fieldCornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: fieldCornerRadius, style: .continuous)
+                    .stroke(Color(red: 0.90, green: 0.90, blue: 0.90), lineWidth: 1)
+            )
+    }
+
+    private var loginPrimaryButton: some View {
+        Button(action: submit) {
+            Text(buttonLabel)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(Color.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(Color(red: 0.10, green: 0.10, blue: 0.10).opacity(canSubmit ? 1 : 0.35))
+                .clipShape(RoundedRectangle(cornerRadius: fieldCornerRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(!canSubmit)
     }
 
     private func submit() {
         let trimmedPhone = phone.trimmingCharacters(in: .whitespaces)
         guard trimmedPhone.count >= 6 else {
-            appToast.show("请输入有效手机号")
+            appToast.show("Please enter a valid phone number")
             return
         }
         if !codeSent {
             codeSent = true
-            appToast.show("验证码已发送")
+            appToast.show("Verification code sent")
             return
         }
         guard code.trimmingCharacters(in: .whitespaces).count >= 4 else {
-            appToast.show("请输入验证码")
+            appToast.show("Please enter the verification code")
             return
         }
         preferences.updateAuthProfile(PreviewAuthProfile(displayName: maskPhone(trimmedPhone), phone: trimmedPhone))
-        appToast.show("登录成功")
+        appToast.show("Logged in")
         dismiss()
     }
 

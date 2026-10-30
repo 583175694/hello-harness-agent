@@ -44,6 +44,7 @@
 		5AECBDBB59EB6CADC945A381 /* testConnectionReconnectingPill.1.png in Resources */ = {isa = PBXBuildFile; fileRef = 594F66E620E7A4CBEB5A11B9 /* testConnectionReconnectingPill.1.png */; };
 		5FD1972CA1AEB252365C78C9 /* testFullShellFixtures.workbench-report-markdown.png in Resources */ = {isa = PBXBuildFile; fileRef = BB1129A5FF88E46F82335099 /* testFullShellFixtures.workbench-report-markdown.png */; };
 		6019DF5ECADFE0BCC31DE80A /* brand-icon-app.png in Resources */ = {isa = PBXBuildFile; fileRef = 809170C0976A6FAD35A8013E /* brand-icon-app.png */; };
+		7A2B4C8D1E9F003344556677 /* login-hero-illustration.png in Resources */ = {isa = PBXBuildFile; fileRef = 8B3C5D9E2F0A112233445566 /* login-hero-illustration.png */; };
 		645CC5C433BAAB5A2E0C862B /* testMcpListWithSeedServer.1.png in Resources */ = {isa = PBXBuildFile; fileRef = F826A422C91513662FC480B0 /* testMcpListWithSeedServer.1.png */; };
 		6554DBD6147718898BBBC9F9 /* HarnessApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B24CE3F4DE2EA196084CA586 /* HarnessApp.swift */; };
 		65E72F27682811841844654A /* GateAThemeSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32188960C50C564C5CF45B36 /* GateAThemeSnapshotTests.swift */; };
@@ -149,6 +150,7 @@
 		73BE8C5BE0D44DCD83F61B44 /* ConversationPatternsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationPatternsView.swift; sourceTree = "<group>"; };
 		7DAB50EBCA25CD19F196D052 /* testFullShellFixtures.hitl-clarification.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "testFullShellFixtures.hitl-clarification.png"; sourceTree = "<group>"; };
 		809170C0976A6FAD35A8013E /* brand-icon-app.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "brand-icon-app.png"; sourceTree = "<group>"; };
+		8B3C5D9E2F0A112233445566 /* login-hero-illustration.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "login-hero-illustration.png"; sourceTree = "<group>"; };
 		80D1C5A70C59BD29BC73A88D /* WorkbenchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkbenchModels.swift; sourceTree = "<group>"; };
 		82F3AFED2E8D942DD0713F0C /* testEmptyLanding.1.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = testEmptyLanding.1.png; sourceTree = "<group>"; };
 		8466A20DEC0BB4C1210F292E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -313,6 +315,7 @@
 			isa = PBXGroup;
 			children = (
 				809170C0976A6FAD35A8013E /* brand-icon-app.png */,
+				8B3C5D9E2F0A112233445566 /* login-hero-illustration.png */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -522,6 +525,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6019DF5ECADFE0BCC31DE80A /* brand-icon-app.png in Resources */,
+				7A2B4C8D1E9F003344556677 /* login-hero-illustration.png in Resources */,
 				DC1412B0183CC4B01A882B10 /* design-tokens.json in Resources */,
 				09DAA27CA40EEFCE397961E1 /* preview in Resources */,
 			);

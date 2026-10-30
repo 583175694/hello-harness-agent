@@ -34,6 +34,10 @@ object HarnessLayout {
     val chatTopBarHeight = 48.dp
     val chatTopBarInnerRowHeight = 40.dp
     val iconToolbarSize = 40.dp
+    /** 顶栏左侧圆钮 / 右侧胶囊：无边框，极淡阴影（同一 elevation）。 */
+    val chatTopBarChromeShadowElevation = 1.dp
+    val chatTopBarActionCapsulePaddingHorizontal = 4.dp
+    val chatTopBarActionCapsuleIconGap = 2.dp
     /** Composer 附件条：图片 / 文件卡片统一高度（横向滚动）。 */
     val composerAttachmentStripHeight = 52.dp
     val composerAttachmentFileMaxWidth = 216.dp
@@ -43,6 +47,8 @@ object HarnessLayout {
     val composerPlanPillBottomInset = 52.dp
     /** Plan 浮层相对屏幕左右 inset，对齐 Web `calc(100vw - 24px)`。 */
     val planOverlayHorizontalInset = 12.dp
+    /** 输入区与安全区/屏幕底之间的额外呼吸间距（系统 inset 之外）。 */
+    val composerChromeBottomExtra = 10.dp
     val composerMinInputHeight = 44.dp
     /** 约 5 行（14sp / 22sp 行高），对齐 RN `max-h-24` / 微信多行输入上限。 */
     val composerMaxInputHeight = 120.dp

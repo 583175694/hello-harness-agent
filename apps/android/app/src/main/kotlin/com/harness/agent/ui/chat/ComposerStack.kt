@@ -89,7 +89,8 @@ fun ComposerStack(
             modifier
                 .fillMaxWidth()
                 .background(colors.canvas)
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 12.dp)
+                .padding(bottom = HarnessLayout.composerChromeBottomExtra),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ComposerBlockBanner(

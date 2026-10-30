@@ -45,6 +45,7 @@ enum HarnessColors {
 
 enum HarnessCopy {
     static let newSessionWelcome = "欢迎回来，想从哪里开始？"
+    static let alreadyInNewSession = "已在新对话中"
 }
 
 enum GateAPreviewFixtures {
@@ -87,6 +88,8 @@ enum HarnessLayout {
     static let settingsCardRadius: CGFloat = 16
     static let settingsGroupGap: CGFloat = 20
     static let composerAttachmentStripHeight: CGFloat = 52
+    /// 输入区与安全区底之间的额外间距（`safeAreaInset` 之上）。
+    static let composerChromeBottomExtra: CGFloat = 10
     static let composerPlusSize: CGFloat = 44
     static let composerSendSize: CGFloat = 32
     static let composerMinInputHeight: CGFloat = 44

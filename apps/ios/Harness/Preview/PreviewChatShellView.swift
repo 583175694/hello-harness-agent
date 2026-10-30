@@ -21,6 +21,7 @@ struct PreviewChatShellView: View {
     @State private var focusedToolStepId: String?
     @State private var serviceBannerDismissed = false
     @State private var composerChromeHeight: CGFloat = 0
+    @Environment(\.appToast) private var appToast
 
     init(
         store: PreviewSessionStore,
@@ -58,6 +59,13 @@ struct PreviewChatShellView: View {
                     onOpenDrawer: {
                         PreviewKeyboardDismiss.run()
                         store.drawerOpen = true
+                    },
+                    onNewConversation: {
+                        PreviewKeyboardDismiss.run()
+                        let started = store.startNewConversation(draftTitle: store.session.sessionDrawer.draftTitle)
+                        if !started {
+                            appToast.show(HarnessCopy.alreadyInNewSession)
+                        }
                     },
                     onOpenWorkbench: {
                         PreviewKeyboardDismiss.run()

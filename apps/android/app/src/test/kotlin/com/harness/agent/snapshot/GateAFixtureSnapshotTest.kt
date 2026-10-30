@@ -106,6 +106,7 @@ class GateAFixtureSnapshotTest {
                     runSummary = state.chrome.runSummary,
                     workbenchBadge = 0,
                     onOpenDrawer = {},
+                    onNewConversation = {},
                     onOpenWorkbench = {},
                 )
                 ServiceBanner(serviceState = state.chrome.serviceState, onRetry = {}, onDismiss = {})

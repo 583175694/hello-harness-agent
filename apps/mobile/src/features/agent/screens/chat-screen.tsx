@@ -20,6 +20,7 @@ import type { MobilePreviewState } from '../fixtures/mobile-preview.types';
 import type { WorkbenchOpenRequest } from '../components/workbench-activity-view';
 import { ChatWorkbenchSurfaces } from '../components/chat-workbench-surfaces';
 import { ChatKeyboardShell } from '../components/chat-keyboard-shell';
+import { showAppToast } from '@/lib/app-toast';
 import { AGENT_UI_COPY } from '../config/ui.constants';
 import { catalogPlanFixture } from '../fixtures/ui-catalog-fixtures';
 import {
@@ -221,6 +222,13 @@ function ProductionChatScreenInner({
     }
   }, [session]);
 
+  const handleBeginNewSession = useCallback(async () => {
+    const started = await session.beginNewSession();
+    if (!started) {
+      showAppToast(AGENT_UI_COPY.alreadyInNewSession);
+    }
+  }, [session]);
+
   const title =
     session.sessionDetail?.title ??
     (session.selectedSessionId ? '会话' : AGENT_UI_COPY.defaultSessionTitle);
@@ -264,6 +272,7 @@ function ProductionChatScreenInner({
           workbenchBadge={workbenchCount}
           connectionState={connectionState}
           onOpenDrawer={openDrawer}
+          onNewConversation={() => void handleBeginNewSession()}
           onOpenWorkbench={() => openWorkbench('activity')}
         />
         {showServiceBanner ? (
@@ -282,7 +291,7 @@ function ProductionChatScreenInner({
         {composerSnap.composerBlock ? (
           <ComposerBlockBanner
             block={composerSnap.composerBlock}
-            onCreateSession={() => void session.beginNewSession()}
+            onCreateSession={() => void handleBeginNewSession()}
             onDismiss={session.dismissComposerBlock}
           />
         ) : null}
@@ -332,7 +341,7 @@ function ProductionChatScreenInner({
           selectedSessionId={session.selectedSessionId}
           activeRunSessionId={activeRunSessionId}
           onSelectSession={(sessionId) => void session.selectSession(sessionId)}
-          onCreateSession={() => void session.beginNewSession()}
+          onCreateSession={() => void handleBeginNewSession()}
           onRenameSession={(sessionId, title) => void session.updateSession(sessionId, { title })}
           onTogglePinSession={(sessionId, isPinned) =>
             void session.updateSession(sessionId, { isPinned })

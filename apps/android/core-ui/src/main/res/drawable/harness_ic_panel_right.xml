@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Lucide panel-right：圆角线框 + 右侧竖分割 -->
+<!-- 工作台：圆角方框 + 斜向笔（对齐参考图 compose 图标） -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -7,9 +7,27 @@
     android:viewportHeight="24">
     <path
         android:fillColor="#00000000"
-        android:pathData="M15,3v18M7,5h10a2,2 0,0 1,2,2v10a2,2 0,0 1,-2,2H7a2,2 0,0 1,-2,-2V7a2,2 0,0 1,2,-2z"
+        android:pathData="M7,5h10a2,2 0,0 1,2,2v10a2,2 0,0 1,-2,2H7a2,2 0,0 1,-2,-2V7a2,2 0,0 1,2,-2z"
         android:strokeWidth="2"
         android:strokeColor="#FF000000"
         android:strokeLineCap="round"
         android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M14.5,8.5l3,3"
+        android:strokeWidth="2"
+        android:strokeColor="#FF000000"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M11,12l3.5,3.5"
+        android:strokeWidth="2"
+        android:strokeColor="#FF000000"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M16.5,6.5l1,1"
+        android:strokeWidth="2"
+        android:strokeColor="#FF000000"
+        android:strokeLineCap="round" />
 </vector>

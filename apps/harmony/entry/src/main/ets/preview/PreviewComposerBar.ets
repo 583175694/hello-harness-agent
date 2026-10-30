@@ -13,6 +13,8 @@ import {
 
 /** RN `rounded-bubble` = 22vp；control = 8vp。 */
 const BUBBLE_RADIUS: number = 22;
+/** 对齐 mobile-contract `composerChromeBottomExtra`（系统安全区之外的间距）。 */
+const COMPOSER_CHROME_BOTTOM_EXTRA: number = 10;
 const SEND_SIZE: number = 32;
 const PLUS_SIZE: number = 44;
 /** 约 5 行正文，对齐 Android HarnessLayout / RN max-h-24。 */
@@ -179,7 +181,7 @@ export struct PreviewComposerBar {
       .width('100%')
     }
     .width('100%')
-    .padding({ left: 12, right: 12, top: 4, bottom: 8 })
+    .padding({ left: 12, right: 12, top: 4, bottom: 8 + COMPOSER_CHROME_BOTTOM_EXTRA })
     .backgroundColor(HarnessColors.canvas(this.useDark))
   }
 

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.harness.agent.model.ActiveSessionState
 import com.harness.agent.model.SessionDrawerItem
+import java.util.UUID
 import com.harness.agent.port.AgentSessionPort
 import com.harness.agent.port.PreviewFixtureDescriptor
 import kotlinx.coroutines.delay
@@ -63,9 +64,33 @@ class PreviewSessionViewModel(
     fun selectSession(id: String) {
         _selectedSessionId.value = id
         _drawerSessions.update { list ->
-            list.map { it.copy(active = it.id == id) }
+            list.map { item -> item.copy(active = item.id == id) }
         }
         _drawerOpen.value = false
+    }
+
+    fun isInDraftMode(): Boolean = _selectedSessionId.value?.startsWith("draft-") == true
+
+    fun startNewConversation(draftTitle: String): Boolean {
+        if (isInDraftMode()) {
+            _drawerOpen.value = false
+            return false
+        }
+        val item =
+            SessionDrawerItem(
+                id = "draft-${UUID.randomUUID()}",
+                title = draftTitle,
+                time = "刚刚",
+                active = true,
+            )
+        _drawerSessions.update { list ->
+            val inactive = list.map { it.copy(active = false) }
+            val (pinned, recent) = inactive.partition { it.pinned }
+            pinned + item + recent
+        }
+        _selectedSessionId.value = item.id
+        _drawerOpen.value = false
+        return true
     }
 
     fun openSessionMenu(item: SessionDrawerItem) {

@@ -1,30 +1,22 @@
 package com.harness.agent.ui.chat
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import com.harness.agent.coreui.R
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.harness.agent.coreui.R
 import com.harness.agent.coreui.primitives.Badge
-import com.harness.agent.coreui.primitives.HarnessIconButton
-import com.harness.agent.coreui.primitives.HarnessIconButtonShape
 import com.harness.agent.coreui.tokens.HarnessLayout
 import com.harness.agent.coreui.tokens.LocalContentFontSizeSp
 import com.harness.agent.coreui.tokens.LocalHarnessColors
@@ -36,6 +28,7 @@ fun ChatTopBar(
     @Suppress("UNUSED_PARAMETER") runSummary: String?,
     @Suppress("UNUSED_PARAMETER") workbenchBadge: Int,
     onOpenDrawer: () -> Unit,
+    onNewConversation: () -> Unit,
     onOpenWorkbench: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -47,46 +40,49 @@ fun ChatTopBar(
             modifier
                 .fillMaxWidth()
                 .background(colors.canvas)
-                .padding(bottom = 2.dp),
+                .padding(bottom = 6.dp),
     ) {
         Row(
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .height(HarnessLayout.chatTopBarInnerRowHeight)
-                    .padding(horizontal = 4.dp),
+                    .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            HarnessIconButton(
-                icon = Icons.Rounded.Menu,
+            ChatTopBarCircleChrome(
+                iconDrawable = R.drawable.harness_chat_top_sessions,
                 contentDescription = "打开会话列表",
                 onClick = onOpenDrawer,
-                iconSizeDp = 22,
-                showSubtlePressBackground = true,
             )
             Text(
                 text = title,
                 color = colors.primary,
-                fontSize = (contentFont - 1).sp,
+                fontSize = (contentFont + 1).sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Start,
                 modifier =
                     Modifier
                         .weight(1f)
-                        .padding(horizontal = 8.dp),
+                        .padding(start = 12.dp, end = 8.dp),
             )
             if (showConnection) {
                 ConnectionPill(connectionState = connectionState)
             }
-            HarnessIconButton(
-                iconDrawable = R.drawable.harness_ic_panel_right,
-                contentDescription = "打开工作台",
-                onClick = onOpenWorkbench,
-                modifier = Modifier.padding(start = 2.dp),
-                iconSizeDp = 20,
-                showSubtlePressBackground = true,
-            )
+            ChatTopBarActionCapsule {
+                ChatTopBarCapsuleIcon(
+                    iconDrawable = R.drawable.harness_chat_top_new_chat,
+                    contentDescription = "新建会话",
+                    onClick = onNewConversation,
+                )
+                ChatTopBarCapsuleIcon(
+                    iconDrawable = R.drawable.harness_chat_top_more,
+                    contentDescription = "打开工作台",
+                    onClick = onOpenWorkbench,
+                )
+            }
         }
     }
 }

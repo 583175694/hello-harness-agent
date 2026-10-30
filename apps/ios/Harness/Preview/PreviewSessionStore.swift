@@ -56,6 +56,37 @@ final class PreviewSessionStore {
         drawerOpen = false
     }
 
+    var isInDraftMode: Bool {
+        guard let active = drawerSessions.first(where: { $0.active }) else { return false }
+        return active.id.hasPrefix("draft-")
+    }
+
+    @discardableResult
+    func startNewConversation(draftTitle: String) -> Bool {
+        if isInDraftMode {
+            drawerOpen = false
+            return false
+        }
+        let item = SessionDrawerItem(
+            id: "draft-\(UUID().uuidString)",
+            title: draftTitle,
+            time: "刚刚",
+            active: true,
+            pinned: false,
+            running: false
+        )
+        let inactive = drawerSessions.map { row in
+            var copy = row
+            copy.active = false
+            return copy
+        }
+        let pinned = inactive.filter(\.pinned)
+        let recent = inactive.filter { !$0.pinned }
+        drawerSessions = pinned + [item] + recent
+        drawerOpen = false
+        return true
+    }
+
     func renameSession(id: String, title: String) {
         drawerSessions = drawerSessions.map { $0.id == id ? SessionDrawerItem(
             id: $0.id, title: title, time: $0.time, active: $0.active, pinned: $0.pinned, running: $0.running

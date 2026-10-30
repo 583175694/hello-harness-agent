@@ -1,62 +1,80 @@
 import { HarnessColors } from '../coreui/HarnessColors';
-import { HarnessTopBarIconButton } from '../coreui/HarnessTopBarIconButton';
-import { HarnessMenuIcon, HarnessWorkbenchIcon } from '../coreui/HarnessVectorIcons';
 import { ConnectionPill } from './ConnectionChrome';
+import {
+  ChatTopBarActionCapsule,
+  ChatTopBarCapsuleIcon,
+  ChatTopBarCircleChrome,
+} from './ChatTopBarChrome';
 
-/** Pattern：Chat 顶栏（对齐 RN chat-top-bar：Drawer / 标题 / 连接 / 工作台）。 */
+/** Pattern：Chat 顶栏（白底圆/胶囊 + Download PNG 图标 + 裸标题）。 */
 @Component
 export struct ChatTopBar {
   @Prop title: string = '';
   @Prop connectionState: string = 'idle';
   @Prop runSummary: string = '';
-  /** Gate A：与 Android/iOS 一致，顶栏不展示 Workbench 角标（计数在工作台内体现）。 */
   @Prop workbenchBadge: number = 0;
   @Prop useDark: boolean = false;
   onOpenDrawer: () => void = () => {
   };
+  onNewConversation: () => void = () => {
+  };
   onOpenWorkbench: () => void = () => {
   };
 
+  @Builder
+  topBarPngIcon(resource: Resource) {
+    Image(resource)
+      .width(22)
+      .height(22)
+      .objectFit(ImageFit.Contain)
+  }
+
   build() {
     Row() {
-      HarnessTopBarIconButton({
+      ChatTopBarCircleChrome({
         useDark: this.useDark,
-        accessibilityLabel: '打开会话列表',
         onClick: () => this.onOpenDrawer(),
         icon: () => {
-          HarnessMenuIcon({
-            color: HarnessColors.primaryText(this.useDark),
-            barWidth: 20,
-            barHeight: 2.75,
-            gap: 5,
-          });
+          this.topBarPngIcon($r('app.media.harness_chat_top_sessions'));
         },
       })
+
       Text(this.title)
-        .fontSize(13)
-        .fontWeight(FontWeight.Bold)
+        .fontSize(17)
+        .fontWeight(FontWeight.Medium)
         .fontColor(HarnessColors.primaryText(this.useDark))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
-        .textAlign(TextAlign.Center)
-        .padding({ left: 8, right: 8 })
+        .textAlign(TextAlign.Start)
+        .padding({ left: 12, right: 8 })
 
       if (this.connectionState !== 'live' && this.connectionState !== 'idle') {
         ConnectionPill({ connectionState: this.connectionState, useDark: this.useDark })
       }
 
-      HarnessTopBarIconButton({
+      ChatTopBarActionCapsule({
         useDark: this.useDark,
-        accessibilityLabel: '打开工作台',
-        onClick: () => this.onOpenWorkbench(),
-        icon: () => {
-          HarnessWorkbenchIcon({ color: HarnessColors.primaryText(this.useDark) });
+        content: () => {
+          ChatTopBarCapsuleIcon({
+            useDark: this.useDark,
+            onClick: () => this.onNewConversation(),
+            icon: () => {
+              this.topBarPngIcon($r('app.media.harness_chat_top_new_chat'));
+            },
+          })
+          ChatTopBarCapsuleIcon({
+            useDark: this.useDark,
+            onClick: () => this.onOpenWorkbench(),
+            icon: () => {
+              this.topBarPngIcon($r('app.media.harness_chat_top_more'));
+            },
+          })
         },
       })
     }
     .width('100%')
-    .padding({ left: 4, right: 4, top: 2, bottom: 2 })
+    .padding({ left: 12, right: 12, top: 2, bottom: 6 })
     .backgroundColor(HarnessColors.canvas(this.useDark))
     .safeAreaPadding([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
   }

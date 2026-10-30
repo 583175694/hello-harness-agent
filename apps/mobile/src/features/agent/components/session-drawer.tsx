@@ -28,7 +28,7 @@ import { useThemeColors } from '@/lib/use-theme-colors';
 import { AGENT_UI_COPY } from '../config/ui.constants';
 import { sessionSummaryToDrawerItem } from '../lib/session-utils';
 import { sessionDrawerFixture, type SessionDrawerItemFixture } from '../fixtures/ui-fixtures';
-import { SessionDrawerMenu } from './session-drawer-menu';
+import { SessionDrawerMenu, type SessionMenuAnchor } from './session-drawer-menu';
 
 const PANEL_WIDTH_RATIO = 0.78;
 const MOTION_EASING = Easing.out(Easing.quad);
@@ -62,21 +62,34 @@ type DrawerFlashItem =
 
 const SessionDrawerRow = memo(function SessionDrawerRow({
   item,
+  menuHighlighted = false,
   onPress,
   onLongPress,
 }: {
   item: SessionDrawerItemFixture;
+  menuHighlighted?: boolean;
   onPress?: () => void;
-  onLongPress?: () => void;
+  onLongPress?: (anchor: SessionMenuAnchor) => void;
 }) {
+  const rowRef = useRef<View>(null);
+
+  const handleLongPress = useCallback(() => {
+    rowRef.current?.measureInWindow((x, y, width, height) => {
+      onLongPress?.({ x, y, width, height });
+    });
+  }, [onLongPress]);
+
   return (
     <Pressable
+      ref={rowRef}
       onPress={onPress}
-      onLongPress={onLongPress}
+      onLongPress={handleLongPress}
       hitSlop={UI_HIT_SLOP}
       className={cn(
         'relative min-h-12 justify-center rounded-xl px-3 py-2.5',
-        item.active ? 'bg-surface-hover' : 'active:bg-subtle-pressed',
+        menuHighlighted && 'bg-surface shadow-sm',
+        !menuHighlighted && item.active && 'bg-surface-hover',
+        !menuHighlighted && !item.active && 'active:bg-subtle-pressed',
       )}
     >
       <View className="flex-row items-center gap-2">
@@ -128,6 +141,12 @@ function SessionDrawerInner({
   const scrimOpacity = useSharedValue(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [menuSession, setMenuSession] = useState<SessionSummary | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<SessionMenuAnchor | null>(null);
+
+  const closeRowMenu = useCallback(() => {
+    setMenuSession(null);
+    setMenuAnchor(null);
+  }, []);
   const hideModal = useCallback(() => {
     modalMountedRef.current = false;
     setModalShown(false);
@@ -287,9 +306,12 @@ function SessionDrawerInner({
   );
 
   const openRowMenu = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, anchor: SessionMenuAnchor) => {
       const session = sessionById.get(sessionId);
-      if (session) setMenuSession(session);
+      if (session) {
+        setMenuSession(session);
+        setMenuAnchor(anchor);
+      }
     },
     [sessionById],
   );
@@ -322,12 +344,17 @@ function SessionDrawerInner({
       return (
         <SessionDrawerRow
           item={item.item}
+          menuHighlighted={menuSession?.id === item.item.id}
           onPress={dataSource === 'api' ? () => handleSelect(item.item.id) : undefined}
-          onLongPress={dataSource === 'api' ? () => openRowMenu(item.item.id) : undefined}
+          onLongPress={
+            dataSource === 'api'
+              ? (anchor) => openRowMenu(item.item.id, anchor)
+              : undefined
+          }
         />
       );
     },
-    [dataSource, handleSelect, openRowMenu],
+    [dataSource, handleSelect, menuSession?.id, openRowMenu],
   );
 
   const flashKeyExtractor = useCallback((item: DrawerFlashItem) => item.id, []);
@@ -348,8 +375,9 @@ function SessionDrawerInner({
     return dataSource === 'api' ? (
       <SessionDrawerMenu
         session={menuSession}
+        anchor={menuAnchor}
         visible={menuSession !== null}
-        onClose={() => setMenuSession(null)}
+        onClose={closeRowMenu}
         onRename={(sessionId, title) => onRenameSession?.(sessionId, title)}
         onTogglePin={(sessionId, isPinned) => onTogglePinSession?.(sessionId, isPinned)}
         onDelete={(sessionId) => onDeleteSession?.(sessionId)}
@@ -479,8 +507,9 @@ function SessionDrawerInner({
       {dataSource === 'api' ? (
         <SessionDrawerMenu
           session={menuSession}
+          anchor={menuAnchor}
           visible={menuSession !== null}
-          onClose={() => setMenuSession(null)}
+          onClose={closeRowMenu}
           onRename={(sessionId, title) => onRenameSession?.(sessionId, title)}
           onTogglePin={(sessionId, isPinned) => onTogglePinSession?.(sessionId, isPinned)}
           onDelete={(sessionId) => onDeleteSession?.(sessionId)}

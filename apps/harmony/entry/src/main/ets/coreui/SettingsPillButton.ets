@@ -7,6 +7,7 @@ export struct SettingsPillButton {
   @Prop label: string = '';
   @Prop useDark: boolean = false;
   @Prop primary: boolean = true;
+  @Prop destructive: boolean = false;
   @Prop enabled: boolean = true;
   onClick: () => void = () => {
   };
@@ -17,18 +18,22 @@ export struct SettingsPillButton {
     Text(this.label)
       .fontSize(16)
       .fontColor(
-        this.primary
-          ? HarnessColors.primaryForeground(this.useDark)
-          : HarnessColors.secondaryText(this.useDark)
+        this.destructive
+          ? '#FFFFFF'
+          : (this.primary
+            ? HarnessColors.primaryForeground(this.useDark)
+            : HarnessColors.secondaryText(this.useDark))
       )
       .width('100%')
       .textAlign(TextAlign.Center)
       .padding({ top: 14, bottom: 14 })
       .borderRadius(999)
       .backgroundColor(
-        this.primary
-          ? (this.useDark ? HarnessColors.primaryDark : HarnessColors.primary)
-          : HarnessColors.subtleBg(this.useDark)
+        this.destructive
+          ? '#B42318'
+          : (this.primary
+            ? (this.useDark ? HarnessColors.primaryDark : HarnessColors.primary)
+            : HarnessColors.subtleBg(this.useDark))
       )
       .opacity(harnessPressOpacity(this.pressed, this.enabled, this.enabled ? 1 : 0.45))
       .onTouch((event: TouchEvent) => {

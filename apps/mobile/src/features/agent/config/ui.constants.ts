@@ -4,8 +4,25 @@ import { ICON_CHEVRON_TONE } from '@/lib/theme';
 export { APP_BRAND, ICON_CHEVRON_TONE };
 
 /** Chat 壳层尺寸 — Workbench `topInset`、顶栏对齐用。 */
+/** Gate A 顶栏圆钮 / 右侧胶囊：无边框，极淡阴影（与 mobile-contract layout 对齐）。 */
+export const CHAT_TOP_BAR_CHROME_SHADOW = {
+  shadowOffsetY: 1,
+  shadowRadius: 3,
+  shadowOpacity: 0.03,
+  androidElevation: 1,
+} as const;
+
+export const CHAT_TOP_BAR_ACTION_CAPSULE = {
+  paddingHorizontalPx: 4,
+  iconGapPx: 2,
+  ...CHAT_TOP_BAR_CHROME_SHADOW,
+} as const;
+
+/** Composer 底边：安全区高度 + 固定额外间距（对齐三端 HarnessLayout）。 */
 export const AGENT_UI_LAYOUT = {
   chatTopBarHeight: 48,
+  /** 与 mobile-contract `composerChromeBottomExtra` 对齐。 */
+  composerChromeBottomExtra: 10,
   workbenchTopInset: (safeAreaTop: number) => safeAreaTop + 48,
   /** Composer Plan 浮卡 — 仅在对话/composer  subtree 内叠放 */
   composerPlanZIndex: 1,
@@ -23,6 +40,11 @@ export const AGENT_UI_LAYOUT = {
   composerInputMaxLines: 5,
 } as const;
 
+/** Composer 底边：安全区高度 + 固定额外间距（对齐三端 HarnessLayout）。 */
+export function composerChromeBottomPadding(safeAreaBottom: number): number {
+  return safeAreaBottom + AGENT_UI_LAYOUT.composerChromeBottomExtra;
+}
+
 /** 与 Web `AGENT_UI_BEHAVIOR` 对齐的交互阈值。 */
 export const AGENT_UI_BEHAVIOR = {
   copyFeedbackDurationMs: 1_400,
@@ -33,6 +55,8 @@ export const AGENT_UI_BEHAVIOR = {
 export const AGENT_UI_COPY = {
   /** 与 Web `defaultSessionTitle` 对齐：未持久化前的本地草稿会话。 */
   defaultSessionTitle: '新对话',
+  /** 已在本地草稿态时再次点「新对话」的轻提示（对齐 mobile-contract copy）。 */
+  alreadyInNewSession: '已在新对话中',
   /** 与 Web `newSessionWelcome` 对齐：无消息时的 landing 文案。 */
   newSessionWelcome: '欢迎回来，想从哪里开始？',
   composerPlaceholders: {

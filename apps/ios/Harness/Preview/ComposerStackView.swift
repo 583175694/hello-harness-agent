@@ -44,6 +44,7 @@ struct ComposerStackView: View {
             composerBubbleShell
         }
         .padding(.horizontal, 12)
+        .padding(.bottom, HarnessLayout.composerChromeBottomExtra)
         .sheet(isPresented: $attachOpen) {
             attachmentSheet
         }

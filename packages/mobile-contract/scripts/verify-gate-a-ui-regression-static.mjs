@@ -47,46 +47,46 @@ for (const rel of [
 for (const [rel, re, label] of [
   [
     'apps/android/app/src/main/kotlin/com/harness/agent/ui/chat/SessionDrawerOverlay.kt',
-    /AppTextField[\s\S]*query|query[\s\S]*filter.*title/i,
+    /PullToRefreshBox/,
     'Android',
   ],
   [
     'apps/ios/Harness/Preview/SessionDrawerOverlayView.swift',
-    /TextField[\s\S]*searchQuery|searchQuery[\s\S]*TextField/,
+    /\.refreshable/,
     'iOS',
   ],
-  ['apps/harmony/entry/src/main/ets/preview/PreviewDrawerOverlay.ets', /AppTextField|searchQuery/, 'Harmony'],
+  ['apps/harmony/entry/src/main/ets/preview/PreviewDrawerOverlay.ets', /Refresh\s*\(/, 'Harmony'],
 ]) {
-  if (mustExist(rel, 'Drawer search')) {
+  if (mustExist(rel, 'Drawer pull-to-refresh')) {
     if (!re.test(read(rel))) {
-      fail(`${label} Session Drawer missing search UI (#3)`);
+      fail(`${label} Session Drawer missing pull-to-refresh (#3)`);
     }
   }
 }
 for (const [rel, re, label] of [
   [
     'apps/android/app/src/main/kotlin/com/harness/agent/ui/chat/SessionDrawerOverlay.kt',
-    /LaunchedEffect\(drawerVisible\)[\s\S]*query\s*=\s*""/,
+    /新对话[\s\S]*onNewConversation|onNewConversation[\s\S]*新对话/,
     'Android',
   ],
   [
     'apps/ios/Harness/Preview/SessionDrawerOverlayView.swift',
-    /onChange\(of: store\.drawerOpen\)[\s\S]*searchQuery\s*=\s*""/,
+    /Text\("新对话"\)[\s\S]*startNewConversation|startNewConversation[\s\S]*Text\("新对话"\)/,
     'iOS',
   ],
   [
     'apps/harmony/entry/src/main/ets/preview/PreviewDrawerOverlay.ets',
-    /@Watch\('visible'\)[\s\S]*searchQuery\s*=\s*''/,
+    /Text\('新对话'\)[\s\S]*onNewConversation|onNewConversation[\s\S]*Text\('新对话'\)/,
     'Harmony',
   ],
 ]) {
-  if (mustExist(rel, 'Drawer search reset')) {
+  if (mustExist(rel, 'Drawer new chat button')) {
     if (!re.test(read(rel))) {
-      fail(`${label} Session Drawer must clear search when closed (#3)`);
+      fail(`${label} Session Drawer must keep top 新对话 action (#3)`);
     }
   }
 }
-ok('UI regression static: Drawer pattern + search UI + close-reset on three platforms (#3)');
+ok('UI regression static: Drawer pattern + pull-to-refresh + 新对话 on three platforms (#3)');
 
 // #8 Reduce Motion
 for (const [rel, re] of [

@@ -44,6 +44,7 @@ import com.harness.agent.ui.settings.SettingsTopBar
 import com.harness.agent.coreui.tokens.HarnessLayout
 import com.harness.agent.coreui.tokens.LocalHarnessColors
 import com.harness.agent.preview.PreviewAppPreferences
+import com.harness.agent.coreui.feedback.LocalAppToast
 import com.harness.agent.preview.PreviewSessionViewModel
 import com.harness.agent.ui.chat.ConversationScrollOnEnterAndUserSendEffect
 import com.harness.agent.ui.chat.ProblemDetailsCard
@@ -128,6 +129,9 @@ fun PreviewChatShellScreen(
     val drawerSessions by viewModel.drawerSessions.collectAsState()
     val drawerRefreshing by viewModel.drawerRefreshing.collectAsState()
     val menuTarget by viewModel.sessionMenuTarget.collectAsState()
+    val selectedSessionId by viewModel.selectedSessionId.collectAsState()
+    val inDraftMode = selectedSessionId?.startsWith("draft-") == true
+    val toast = LocalAppToast.current
     var workbenchOpen by rememberSaveable(state.scenarioId) {
         mutableStateOf(state.workbench.initialSheetIndex >= 0 && state.workbench.workbenchCount > 0 || state.workbench.sources.isNotEmpty())
     }
@@ -154,6 +158,12 @@ fun PreviewChatShellScreen(
         onOpenDrawer = { viewModel.setDrawerOpen(true) },
         onCloseDrawer = { viewModel.setDrawerOpen(false) },
         onRefreshDrawer = { viewModel.refreshDrawerSessions() },
+        onNewConversation = {
+            if (!viewModel.startNewConversation(state.sessionDrawer.draftTitle)) {
+                toast.show("已在新对话中")
+            }
+        },
+        newConversationEnabled = !inDraftMode,
         onSelectSession = { viewModel.selectSession(it) },
         onLongPressSession = { viewModel.openSessionMenu(it) },
         onDismissMenu = { viewModel.dismissSessionMenu() },
@@ -199,6 +209,7 @@ fun PreviewChatShellSnapshot(
         onOpenDrawer = {},
         onCloseDrawer = {},
         onRefreshDrawer = {},
+        onNewConversation = {},
         onSelectSession = {},
         onLongPressSession = {},
         onDismissMenu = {},
@@ -228,6 +239,8 @@ private fun PreviewChatShellLayout(
     onOpenDrawer: () -> Unit,
     onCloseDrawer: () -> Unit,
     onRefreshDrawer: () -> Unit,
+    onNewConversation: () -> Unit = {},
+    newConversationEnabled: Boolean = true,
     onSelectSession: (String) -> Unit,
     onLongPressSession: (com.harness.agent.model.SessionDrawerItem) -> Unit,
     onDismissMenu: () -> Unit,
@@ -283,6 +296,10 @@ private fun PreviewChatShellLayout(
                 onOpenDrawer = {
                     dismissKeyboard()
                     onOpenDrawer()
+                },
+                onNewConversation = {
+                    dismissKeyboard()
+                    onNewConversation()
                 },
                 onOpenWorkbench = {
                     dismissKeyboard()
@@ -412,13 +429,13 @@ private fun PreviewChatShellLayout(
 
         SessionDrawerOverlay(
             visible = drawerOpen,
-            draftTitle = state.sessionDrawer.draftTitle,
-            searchPlaceholder = state.sessionDrawer.searchPlaceholder,
             sessions = drawerSessions,
             refreshing = drawerRefreshing,
             menuTarget = menuTarget,
             previewReduceMotion = previewReduceMotion,
             onClose = onCloseDrawer,
+            onNewConversation = onNewConversation,
+            newConversationEnabled = newConversationEnabled,
             onRefresh = onRefreshDrawer,
             onSelectSession = onSelectSession,
             onLongPressSession = onLongPressSession,

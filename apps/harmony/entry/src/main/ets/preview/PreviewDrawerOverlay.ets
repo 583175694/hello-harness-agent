@@ -1,29 +1,42 @@
 import { AppTextField } from '../coreui/AppTextField';
 import { HarnessColors } from '../coreui/HarnessColors';
-import { HarnessDivider } from '../coreui/HarnessDivider';
-import { Spinner } from '../coreui/Spinner';
+import { SettingsPillButton } from '../coreui/SettingsPillButton';
+import { SettingsSection } from '../coreui/SettingsSection';
+import { AppConfirmPanel } from '../coreui/AppConfirmPanel';
 import { AppAlert, AppToast } from '../coreui/AppFeedback';
 import { PreviewLocalPreferences } from './PreviewLocalPreferences';
 import { SessionDrawerRow } from './PreviewModels';
+import { harnessPressOpacity } from '../coreui/HarnessPressScale';
 
 @Component
 export struct PreviewDrawerOverlay {
   @Link visible: boolean;
   @Prop sessions: SessionDrawerRow[] = [];
-  @Prop draftTitle: string = '新对话';
-  @Prop searchPlaceholder: string = '搜索会话';
   @Prop refreshing: boolean = false;
+  @Prop newConversationEnabled: boolean = true;
   @Prop reduceMotion: boolean = PreviewLocalPreferences.reduceMotion;
   @Prop useDark: boolean = PreviewLocalPreferences.themeDark;
   onRefresh: () => void = () => {
+  };
+  onNewConversation: () => void = () => {
   };
   onOpenSettings: () => void = () => {
   };
   onSelectSession: (sessionId: string) => void = () => {
   };
-  @State searchQuery: string = '';
   @State menuTarget: SessionDrawerRow | null = null;
+  @State renameOpen: boolean = false;
   @State renameDraft: string = '';
+  @State renamePresentScale: number = 0.96;
+  @State renamePresentOpacity: number = 0;
+  @State deleteConfirmOpen: boolean = false;
+  @State deleteConfirmTitle: string = '';
+  @State deletePresentScale: number = 0.96;
+  @State deletePresentOpacity: number = 0;
+  @State newChatPressed: boolean = false;
+  @State menuPresentScale: number = 0.82;
+  @State menuPresentOpacity: number = 0;
+  @State menuPresentOffsetY: number = -12;
   /** 侧栏滑入 + 蒙层淡入（280ms，与 Workbench 一致） */
   @State presentProgress: number = 0;
 
@@ -31,7 +44,6 @@ export struct PreviewDrawerOverlay {
   onVisibleChange(): void {
     this.presentProgress = this.visible ? 1 : 0;
     if (!this.visible) {
-      this.searchQuery = '';
       this.menuTarget = null;
     }
   }
@@ -42,7 +54,68 @@ export struct PreviewDrawerOverlay {
 
   private closeSessionMenu(): void {
     this.menuTarget = null;
+    this.renameOpen = false;
     this.renameDraft = '';
+    this.menuPresentScale = 0.82;
+    this.menuPresentOpacity = 0;
+    this.menuPresentOffsetY = -12;
+    this.renamePresentScale = 0.96;
+    this.renamePresentOpacity = 0;
+    this.deleteConfirmOpen = false;
+    this.deleteConfirmTitle = '';
+    this.deletePresentScale = 0.96;
+    this.deletePresentOpacity = 0;
+  }
+
+  private openRenameSheet(): void {
+    if (this.menuTarget === null) {
+      return;
+    }
+    this.renameDraft = this.menuTarget.title;
+    this.renameOpen = true;
+    this.renamePresentScale = 0.96;
+    this.renamePresentOpacity = 0;
+    animateTo({
+      duration: this.reduceMotion ? 0 : 240,
+      curve: Curve.EaseOut,
+    }, () => {
+      this.renamePresentScale = 1;
+      this.renamePresentOpacity = 1;
+    });
+  }
+
+  private closeRenameSheet(): void {
+    this.renameOpen = false;
+    this.renamePresentScale = 0.96;
+    this.renamePresentOpacity = 0;
+    this.menuTarget = null;
+  }
+
+  private saveRenamePreview(): void {
+    const title = this.renameDraft.trim();
+    if (title.length === 0) {
+      return;
+    }
+    AppToast.show('已重命名（Preview 模拟）');
+    this.closeRenameSheet();
+  }
+
+  private openSessionMenu(row: SessionDrawerRow): void {
+    this.menuTarget = row;
+    this.renameDraft = row.title;
+    this.menuPresentScale = 0.82;
+    this.menuPresentOpacity = 0;
+    this.menuPresentOffsetY = -12;
+    setTimeout(() => {
+      animateTo({
+        duration: this.reduceMotion ? 0 : 280,
+        curve: Curve.FastOutSlowIn,
+      }, () => {
+        this.menuPresentScale = 1;
+        this.menuPresentOpacity = 1;
+        this.menuPresentOffsetY = 0;
+      });
+    }, 16);
   }
 
   private previewSessionAction(label: string): void {
@@ -51,25 +124,32 @@ export struct PreviewDrawerOverlay {
     });
   }
 
-  private confirmDeleteSession(title: string): void {
-    AppAlert.confirm({
-      title: '删除会话',
-      message: `确定删除「${title}」？Preview 中仅为静态确认。`,
-      confirmLabel: '删除',
-      cancelLabel: '取消',
-      onConfirm: () => {
-        AppToast.show('已删除（Preview 模拟）');
-        this.closeSessionMenu();
-      },
-    });
+  private openDeleteConfirm(title: string): void {
+    this.deleteConfirmTitle = title;
+    this.deleteConfirmOpen = true;
+    this.deletePresentScale = 0.96;
+    this.deletePresentOpacity = 0;
+    setTimeout(() => {
+      animateTo({
+        duration: this.reduceMotion ? 0 : 240,
+        curve: Curve.EaseOut,
+      }, () => {
+        this.deletePresentScale = 1;
+        this.deletePresentOpacity = 1;
+      });
+    }, 16);
   }
 
-  private filteredSessions(): SessionDrawerRow[] {
-    const q = this.searchQuery.trim().toLowerCase();
-    if (q.length === 0) {
-      return this.sessions;
-    }
-    return this.sessions.filter((row) => row.title.toLowerCase().includes(q));
+  private closeDeleteConfirm(): void {
+    this.deleteConfirmOpen = false;
+    this.deletePresentScale = 0.96;
+    this.deletePresentOpacity = 0;
+    this.menuTarget = null;
+  }
+
+  private confirmDeleteSession(): void {
+    AppToast.show('已删除（Preview 模拟）');
+    this.closeDeleteConfirm();
   }
 
   @Builder
@@ -83,17 +163,24 @@ export struct PreviewDrawerOverlay {
           .backgroundColor('#2F5D3A')
           .margin({ right: 6 })
       }
-      Text(`${row.pinned ? '📌 ' : ''}${row.title}`)
-        .fontSize(15)
+      Text(row.title)
+        .fontSize(14)
+        .fontWeight(row.active ? FontWeight.Medium : FontWeight.Normal)
+        .fontColor(HarnessColors.primaryText(this.useDark))
         .layoutWeight(1)
       if (row.time.length > 0) {
         Text(row.time).fontSize(11).fontColor(HarnessColors.mutedText(this.useDark))
       }
     }
     .width('100%')
-    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+    .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+    .margin({ left: 16, right: 16, bottom: 2 })
     .borderRadius(8)
-    .backgroundColor(row.active ? HarnessColors.userBubbleBg(this.useDark) : HarnessColors.surface(this.useDark))
+    .backgroundColor(
+      this.menuTarget !== null && this.menuTarget.id === row.id
+        ? HarnessColors.surface(this.useDark)
+        : (row.active ? HarnessColors.subtleBg(this.useDark) : Color.Transparent),
+    )
     .onClick(() => {
       this.onSelectSession(row.id);
       this.visible = false;
@@ -101,74 +188,139 @@ export struct PreviewDrawerOverlay {
     .gesture(
       LongPressGesture({ repeat: false })
         .onAction(() => {
-          this.menuTarget = row;
-          this.renameDraft = row.title;
+          this.openSessionMenu(row);
         }),
     )
   }
 
   @Builder
-  sessionContextMenu() {
-    if (this.menuTarget === null) {
+  contextMenuRow(label: string, destructive: boolean, onTap: () => void) {
+    Text(label)
+      .fontSize(14)
+      .fontWeight(FontWeight.Medium)
+      .fontColor(destructive ? '#B42318' : HarnessColors.primaryText(this.useDark))
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+      .onClick(() => onTap())
+  }
+
+  @Builder
+  sessionDeleteConfirm() {
+    if (!this.deleteConfirmOpen || this.menuTarget === null) {
       Blank();
       return;
     }
-    Stack({ alignContent: Alignment.Bottom }) {
+    AppConfirmPanel({
+      title: '删除会话',
+      message: `确定删除「${this.deleteConfirmTitle}」？Preview 中仅为静态确认。`,
+      confirmLabel: '删除',
+      cancelLabel: '取消',
+      destructive: true,
+      useDark: this.useDark,
+      presentScale: this.deletePresentScale,
+      presentOpacity: this.deletePresentOpacity,
+      onCancel: () => this.closeDeleteConfirm(),
+      onConfirm: () => this.confirmDeleteSession(),
+    })
+  }
+
+  @Builder
+  sessionRenameSheet() {
+    if (!this.renameOpen || this.menuTarget === null) {
+      Blank();
+      return;
+    }
+    Stack({ alignContent: Alignment.Center }) {
       Column()
         .width('100%')
         .height('100%')
-        .backgroundColor('#00000055')
-        .onClick(() => this.closeSessionMenu())
-      Column({ space: 10 }) {
-        Text(this.menuTarget.title)
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(HarnessColors.primaryText(this.useDark))
-          .width('100%')
-        AppTextField({
-          label: '重命名',
-          placeholder: '会话标题',
-          text: this.renameDraft,
+        .backgroundColor('#00000040')
+        .opacity(this.renamePresentOpacity)
+        .onClick(() => this.closeRenameSheet())
+      Column({ space: 0 }) {
+        SettingsSection({
+          title: '重命名会话',
           useDark: this.useDark,
-          onChange: (v: string) => {
-            this.renameDraft = v;
-          },
-        })
-        Text('重命名')
-          .fontSize(15)
-          .fontColor(HarnessColors.linkText(this.useDark))
-          .padding(12)
+        }) {
+          Column({ space: 16 }) {
+            AppTextField({
+              label: '会话标题',
+              placeholder: '输入标题',
+              text: this.renameDraft,
+              useDark: this.useDark,
+              onChange: (v: string) => {
+                this.renameDraft = v;
+              },
+            })
+            Row({ space: 12 }) {
+              Column() {
+                SettingsPillButton({
+                  label: '取消',
+                  useDark: this.useDark,
+                  primary: false,
+                  onClick: () => this.closeRenameSheet(),
+                })
+              }
+              .layoutWeight(1)
+              Column() {
+                SettingsPillButton({
+                  label: '保存',
+                  useDark: this.useDark,
+                  primary: true,
+                  enabled: this.renameDraft.trim().length > 0,
+                  onClick: () => this.saveRenamePreview(),
+                })
+              }
+              .layoutWeight(1)
+            }
+            .width('100%')
+          }
           .width('100%')
-          .backgroundColor(HarnessColors.subtleBg(this.useDark))
-          .borderRadius(8)
-          .onClick(() => this.previewSessionAction('已重命名'))
-        Text(this.menuTarget.pinned ? '取消置顶' : '置顶')
-          .fontSize(15)
-          .fontColor(HarnessColors.primaryText(this.useDark))
-          .padding(12)
-          .width('100%')
-          .backgroundColor(HarnessColors.subtleBg(this.useDark))
-          .borderRadius(8)
-          .onClick(() => this.previewSessionAction(this.menuTarget!.pinned ? '已取消置顶' : '已置顶'))
-        Text('删除会话')
-          .fontSize(15)
-          .fontColor('#B42318')
-          .padding(12)
-          .width('100%')
-          .backgroundColor(HarnessColors.subtleBg(this.useDark))
-          .borderRadius(8)
-          .onClick(() => this.confirmDeleteSession(this.menuTarget!.title))
-        Text('完成')
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(HarnessColors.linkText(this.useDark))
-          .padding(8)
-          .onClick(() => this.closeSessionMenu())
+        }
       }
       .width('100%')
-      .padding(16)
+      .padding({ left: 16, right: 16 })
+      .scale({ x: this.renamePresentScale, y: this.renamePresentScale })
+      .opacity(this.renamePresentOpacity)
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  @Builder
+  sessionContextMenu() {
+    if (this.menuTarget === null || this.renameOpen || this.deleteConfirmOpen) {
+      Blank();
+      return;
+    }
+    Stack({ alignContent: Alignment.TopStart }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor(Color.Transparent)
+        .onClick(() => this.closeSessionMenu())
+      Column({ space: 0 }) {
+        this.contextMenuRow('重命名', false, () => {
+          this.openRenameSheet();
+        })
+        this.contextMenuRow(this.menuTarget!.pinned ? '取消置顶' : '置顶', false, () => {
+          this.previewSessionAction(this.menuTarget!.pinned ? '已取消置顶' : '已置顶');
+          this.closeSessionMenu();
+        })
+        Divider().strokeWidth(1).color(HarnessColors.composerBorderColor(this.useDark)).margin({ left: 12, right: 12 })
+        this.contextMenuRow('删除', true, () => {
+          this.openDeleteConfirm(this.menuTarget!.title);
+        })
+      }
+      .width(200)
+      .padding({ top: 4, bottom: 4 })
+      .margin({ left: 16, top: 120 })
       .backgroundColor(HarnessColors.surface(this.useDark))
-      .borderRadius({ topLeft: 20, topRight: 20 })
+      .borderRadius(16)
+      .border({ width: 1, color: HarnessColors.composerBorderColor(this.useDark) })
+      .scale({ x: this.menuPresentScale, y: this.menuPresentScale })
+      .opacity(this.menuPresentOpacity)
+      .translate({ y: this.menuPresentOffsetY })
     }
     .width('100%')
     .height('100%')
@@ -194,61 +346,49 @@ export struct PreviewDrawerOverlay {
         })
 
       Column({ space: 0 }) {
-        Text('会话')
-          .fontSize(18)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(HarnessColors.primaryText(this.useDark))
-          .padding({ top: 8, left: 16, bottom: 8 })
-        AppTextField({
-          label: this.searchPlaceholder,
-          placeholder: this.searchPlaceholder,
-          text: this.searchQuery,
-          useDark: this.useDark,
-          onChange: (v: string) => {
-            this.searchQuery = v;
-          },
-        })
-          .padding({ left: 16, right: 16, top: 4, bottom: 4 })
         Row() {
-          Text('刷新列表')
-            .fontSize(13)
-            .fontColor(HarnessColors.mutedText(this.useDark))
+          Text('+')
+            .fontSize(20)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(HarnessColors.primaryText(this.useDark))
+            .width(20)
+            .textAlign(TextAlign.Center)
+          Text('新对话')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(HarnessColors.primaryText(this.useDark))
             .layoutWeight(1)
-          if (this.refreshing) {
-            Spinner({ label: '刷新中…', useDark: this.useDark })
-          } else {
-            Text('↻')
-              .fontSize(16)
-              .fontColor(HarnessColors.linkText(this.useDark))
-              .onClick(() => {
-                this.onRefresh();
-              })
-          }
+            .margin({ left: 10 })
         }
         .width('100%')
-        .padding({ left: 16, right: 16, bottom: 8 })
+        .height(48)
+        .padding({ left: 10, right: 12 })
+        .margin({ left: 16, right: 16, top: 12 })
+        .backgroundColor(HarnessColors.subtleBg(this.useDark))
+        .borderRadius(8)
+        .border({ width: 1, color: HarnessColors.composerBorderColor(this.useDark) })
+        .opacity(this.newConversationEnabled ? harnessPressOpacity(this.newChatPressed) : 0.45)
+        .onTouch((event: TouchEvent) => {
+          if (event.type === TouchType.Down) {
+            this.newChatPressed = true;
+          } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+            this.newChatPressed = false;
+          }
+        })
+        .onClick(() => {
+          this.onNewConversation();
+        })
+        .accessibilityText('新建对话')
 
-        HarnessDivider()
-
-        Scroll() {
-          Column({ space: 0 }) {
-            Text(this.draftTitle)
-              .fontSize(15)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(HarnessColors.primaryText(this.useDark))
-              .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-              .width('100%')
-              .backgroundColor(HarnessColors.subtleBg(this.useDark))
-              .borderRadius(12)
-              .margin({ left: 16, right: 16, top: 8, bottom: 8 })
-
-            if (this.sessions.length > 0) {
-              if (this.filteredSessions().filter((r) => r.pinned).length > 0) {
+        Refresh({ refreshing: this.refreshing, offset: 64, friction: 100 }) {
+          Scroll() {
+            Column({ space: 0 }) {
+              if (this.sessions.filter((r) => r.pinned).length > 0) {
                 Text('置顶')
                   .fontSize(12)
                   .fontColor(HarnessColors.mutedText(this.useDark))
-                  .padding({ left: 16, top: 4, bottom: 4 })
-                ForEach(this.filteredSessions().filter((r) => r.pinned), (row: SessionDrawerRow) => {
+                  .padding({ left: 16, top: 12, bottom: 4 })
+                ForEach(this.sessions.filter((r) => r.pinned), (row: SessionDrawerRow) => {
                   this.sessionRow(row)
                 }, (row: SessionDrawerRow) => `p-${row.id}`)
               }
@@ -256,43 +396,41 @@ export struct PreviewDrawerOverlay {
                 .fontSize(12)
                 .fontColor(HarnessColors.mutedText(this.useDark))
                 .padding({ left: 16, top: 8, bottom: 4 })
-              if (this.filteredSessions().filter((r) => !r.pinned).length > 0) {
-                ForEach(this.filteredSessions().filter((r) => !r.pinned), (row: SessionDrawerRow) => {
+              if (this.sessions.filter((r) => !r.pinned).length > 0) {
+                ForEach(this.sessions.filter((r) => !r.pinned), (row: SessionDrawerRow) => {
                   this.sessionRow(row)
                 }, (row: SessionDrawerRow) => `r-${row.id}`)
-              } else if (this.searchQuery.trim().length > 0) {
-                Text('无匹配会话')
-                  .fontSize(14)
-                  .fontColor(HarnessColors.mutedText(this.useDark))
-                  .padding(16)
               }
-            } else {
-              Text('Preview 会话 A')
-                .fontSize(15)
-                .fontColor(HarnessColors.primaryText(this.useDark))
-                .padding(16)
-                .width('100%')
-                .backgroundColor(HarnessColors.userBubbleBg(this.useDark))
             }
+            .width('100%')
           }
+          .layoutWeight(1)
           .width('100%')
+          .scrollBar(BarState.Off)
         }
+        .onRefreshing(() => {
+          this.onRefresh();
+        })
+        .width('100%')
         .layoutWeight(1)
-        .scrollBar(BarState.Off)
-        HarnessDivider()
-        Text('设置')
-          .fontSize(16)
-          .fontColor(HarnessColors.primaryText(this.useDark))
-          .padding(16)
-          .width('100%')
-          .onClick(() => {
-            this.visible = false;
-            this.onOpenSettings();
-          })
+
+        Row() {
+          Text('设置')
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(HarnessColors.primaryText(this.useDark))
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 20, right: 16, bottom: 12 })
+        .onClick(() => {
+          this.visible = false;
+          this.onOpenSettings();
+        })
       }
       .width('78%')
       .height('100%')
-      .backgroundColor(HarnessColors.surface(this.useDark))
+      .backgroundColor(HarnessColors.canvas(this.useDark))
       .safeAreaPadding([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
       .translate({ x: this.panelSlideX() })
       .animation({
@@ -301,6 +439,8 @@ export struct PreviewDrawerOverlay {
       })
 
       this.sessionContextMenu()
+      this.sessionRenameSheet()
+      this.sessionDeleteConfirm()
     }
     .width('100%')
     .height('100%')

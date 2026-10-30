@@ -17,6 +17,7 @@ import { PreviewReplayController } from '../preview/PreviewReplayController';
 import { PreviewWorkbenchSheet } from '../preview/PreviewWorkbenchSheet';
 import { ChatLandingHero } from '../preview/ChatLandingHero';
 import { PreviewSessionReducer, PreviewUiAction } from '../preview/PreviewSessionReducer';
+import { SessionDrawerRow } from '../preview/PreviewModels';
 import {
   PreviewComposerModelSheet,
   formatComposerModelChip,
@@ -44,6 +45,7 @@ struct PreviewChatPage {
   @State reduceMotion: boolean = PreviewLocalPreferences.reduceMotion;
   @State contentFontSize: number = PreviewLocalPreferences.contentFontSize;
   @State drawerRefreshing: boolean = false;
+  @State drawerSessions: SessionDrawerRow[] = [];
   @State composerChromeHeight: number = 0;
   private conversationScroller: ListScroller = new ListScroller();
   private replayController: PreviewReplayController = new PreviewReplayController();
@@ -102,6 +104,7 @@ struct PreviewChatPage {
       loaded.title = titleOverride;
     }
     this.session = loaded;
+    this.drawerSessions = loaded.sessionDrawer.sessions.slice();
     this.drawerOpen = loaded.uiHints.initialDrawerOpen;
     this.selectedModelId = resolveModelIdFromLabel(loaded.composer.modelLabel);
     this.reasoningEffort = resolveReasoningFromLabel(loaded.composer.modelLabel);
@@ -157,8 +160,67 @@ struct PreviewChatPage {
   refreshDrawerSessions(): void {
     this.drawerRefreshing = true;
     setTimeout(() => {
+      if (this.session !== null) {
+        this.drawerSessions = this.session.sessionDrawer.sessions.slice();
+      }
       this.drawerRefreshing = false;
     }, 700);
+  }
+
+  private isInDraftMode(): boolean {
+    const active = this.drawerSessions.find((row) => row.active);
+    return active !== undefined && active.id.startsWith('draft-');
+  }
+
+  startNewConversation(): boolean {
+    if (this.session === null) {
+      return false;
+    }
+    if (this.isInDraftMode()) {
+      this.drawerOpen = false;
+      AppToast.show('已在新对话中');
+      return false;
+    }
+    const title = this.session.sessionDrawer.draftTitle;
+    const newRow: SessionDrawerRow = {
+      id: `draft-${Date.now()}`,
+      title,
+      time: '刚刚',
+      active: true,
+      pinned: false,
+      running: false,
+    };
+    const inactive = this.drawerSessions.map((row) => {
+      const copy: SessionDrawerRow = {
+        id: row.id,
+        title: row.title,
+        time: row.time,
+        active: false,
+        pinned: row.pinned,
+        running: row.running,
+      };
+      return copy;
+    });
+    const pinned = inactive.filter((row) => row.pinned);
+    const recent = inactive.filter((row) => !row.pinned);
+    this.drawerSessions = [...pinned, newRow, ...recent];
+    this.drawerOpen = false;
+    return true;
+  }
+
+  selectDrawerSession(sessionId: string): void {
+    this.drawerSessions = this.drawerSessions.map((row) => {
+      const copy: SessionDrawerRow = {
+        id: row.id,
+        title: row.title,
+        time: row.time,
+        active: row.id === sessionId,
+        pinned: row.pinned,
+        running: row.running,
+      };
+      return copy;
+    });
+    AppToast.show(`已选择会话 ${sessionId}（Preview 假切换）`);
   }
 
   openReader(title: string, body: string, isArtifact: boolean): void {
@@ -192,6 +254,10 @@ struct PreviewChatPage {
           onOpenDrawer: () => {
             this.blurComposer();
             this.drawerOpen = true;
+          },
+          onNewConversation: () => {
+            this.blurComposer();
+            this.startNewConversation();
           },
           onOpenWorkbench: () => {
             this.blurComposer();
@@ -322,20 +388,22 @@ struct PreviewChatPage {
 
       PreviewDrawerOverlay({
         visible: $drawerOpen,
-        sessions: s.sessionDrawer.sessions,
-        draftTitle: s.sessionDrawer.draftTitle,
-        searchPlaceholder: s.sessionDrawer.searchPlaceholder,
+        sessions: this.drawerSessions,
         refreshing: this.drawerRefreshing,
+        newConversationEnabled: !this.isInDraftMode(),
         reduceMotion: this.reduceMotion,
         useDark: this.themeDark,
         onRefresh: () => {
           this.refreshDrawerSessions();
         },
+        onNewConversation: () => {
+          this.startNewConversation();
+        },
         onOpenSettings: () => {
           router.pushUrl({ url: 'pages/PreviewSettingsPage' });
         },
         onSelectSession: (sessionId: string) => {
-          AppToast.show(`已选择会话 ${sessionId}（Preview 假切换）`);
+          this.selectDrawerSession(sessionId);
         },
       })
 

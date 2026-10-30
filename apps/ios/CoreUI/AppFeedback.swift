@@ -59,29 +59,150 @@ struct AppConfirmRequest: Identifiable {
     let onConfirm: () -> Void
 }
 
+private struct HarnessModalCard<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .padding(16)
+            .frame(maxWidth: 400)
+            .background(HarnessColors.surface(colorScheme))
+            .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.settingsCardRadius, style: .continuous))
+            .padding(.horizontal, 16)
+    }
+}
+
+private struct HarnessModalActionRow: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let dismissLabel: String
+    let onDismiss: () -> Void
+    let confirmLabel: String
+    let onConfirm: () -> Void
+    var destructive: Bool = false
+    var confirmDisabled: Bool = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: onDismiss) {
+                Text(dismissLabel)
+                    .font(.body)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .foregroundStyle(HarnessColors.secondary(colorScheme))
+                    .background(HarnessColors.subtle(colorScheme))
+                    .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous))
+            }
+            .buttonStyle(HarnessPressScaleButtonStyle())
+
+            Button(action: onConfirm) {
+                Text(confirmLabel)
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .foregroundStyle(
+                        destructive
+                            ? Color.white
+                            : HarnessColors.primaryForeground(colorScheme)
+                    )
+                    .background(
+                        destructive
+                            ? HarnessColors.danger
+                            : HarnessColors.primary(colorScheme)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous))
+            }
+            .buttonStyle(HarnessPressScaleButtonStyle())
+            .disabled(confirmDisabled)
+            .opacity(confirmDisabled ? 0.45 : 1)
+        }
+        .padding(.top, 4)
+    }
+}
+
+private struct HarnessConfirmDialogOverlay: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let request: AppConfirmRequest
+    let onDismiss: () -> Void
+    @State private var presented = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.25)
+                .ignoresSafeArea()
+                .opacity(presented ? 1 : 0)
+                .onTapGesture(perform: onDismiss)
+
+            HarnessModalCard {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(request.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(HarnessColors.secondary(colorScheme))
+                    Text(request.message)
+                        .font(.subheadline)
+                        .foregroundStyle(HarnessColors.secondary(colorScheme))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if request.dismissLabel.isEmpty {
+                        Button(action: {
+                            request.onConfirm()
+                            onDismiss()
+                        }) {
+                            Text(request.confirmLabel)
+                                .font(.body.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .foregroundStyle(
+                                    request.destructive
+                                        ? Color.white
+                                        : HarnessColors.primaryForeground(colorScheme)
+                                )
+                                .background(
+                                    request.destructive
+                                        ? HarnessColors.danger
+                                        : HarnessColors.primary(colorScheme)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.controlRadius, style: .continuous))
+                        }
+                        .buttonStyle(HarnessPressScaleButtonStyle())
+                        .padding(.top, 8)
+                    } else {
+                        HarnessModalActionRow(
+                            dismissLabel: request.dismissLabel,
+                            onDismiss: onDismiss,
+                            confirmLabel: request.confirmLabel,
+                            onConfirm: {
+                                request.onConfirm()
+                                onDismiss()
+                            },
+                            destructive: request.destructive
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .offset(y: presented ? 0 : 16)
+            .opacity(presented ? 1 : 0)
+            .scaleEffect(presented ? 1 : 0.96)
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.24)) {
+                presented = true
+            }
+        }
+    }
+}
+
 struct AppConfirmDialogModifier: ViewModifier {
     @Binding var request: AppConfirmRequest?
 
     func body(content: Content) -> some View {
-        content.alert(
-            request?.title ?? "",
-            isPresented: Binding(
-                get: { request != nil },
-                set: { if !$0 { request = nil } }
-            ),
-            presenting: request
-        ) { req in
-            Button(req.confirmLabel, role: req.destructive ? .destructive : nil) {
-                req.onConfirm()
-                request = nil
+        content.overlay {
+            if let request {
+                HarnessConfirmDialogOverlay(
+                    request: request,
+                    onDismiss: { self.request = nil }
+                )
             }
-            if !req.dismissLabel.isEmpty {
-                Button(req.dismissLabel, role: .cancel) {
-                    request = nil
-                }
-            }
-        } message: { req in
-            Text(req.message)
         }
     }
 }

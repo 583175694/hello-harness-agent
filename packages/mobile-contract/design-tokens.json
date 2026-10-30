@@ -77,6 +77,13 @@
   },
   "layout": {
     "chatTopBarHeight": 48,
+    "chatTopBarActionCapsulePaddingX": 4,
+    "chatTopBarActionCapsuleIconGap": 2,
+    "chatTopBarChromeShadowY": 1,
+    "chatTopBarChromeShadowBlur": 3,
+    "chatTopBarChromeShadowOpacity": 0.03,
+    "chatTopBarChromeAndroidElevation": 1,
+    "composerChromeBottomExtra": 10,
     "workbenchSheetSnapPoints": ["44%", "72%", "98%"],
     "workbenchSheetDefaultSnapIndex": 2,
     "buttonMinHeightCta": 40,
@@ -94,6 +101,7 @@
       "context": "Context"
     },
     "defaultSessionTitle": "新对话",
+    "alreadyInNewSession": "已在新对话中",
     "newSessionWelcome": "欢迎回来，想从哪里开始？",
     "composerPlaceholders": {
       "newRun": "描述你想完成的任务……",

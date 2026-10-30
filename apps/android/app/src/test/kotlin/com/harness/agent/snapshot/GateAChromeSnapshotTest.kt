@@ -61,6 +61,7 @@ class GateAChromeSnapshotTest {
                     runSummary = "正在重连…",
                     workbenchBadge = 0,
                     onOpenDrawer = {},
+                    onNewConversation = {},
                     onOpenWorkbench = {},
                 )
             }
@@ -103,12 +104,11 @@ class GateAChromeSnapshotTest {
                 Box(Modifier.height(640.dp)) {
                     SessionDrawerOverlay(
                         visible = true,
-                        draftTitle = state.sessionDrawer.draftTitle,
-                        searchPlaceholder = state.sessionDrawer.searchPlaceholder,
                         sessions = state.sessionDrawer.sessions,
                         refreshing = false,
                         menuTarget = null,
                         onClose = {},
+                        onNewConversation = {},
                         onRefresh = {},
                         onSelectSession = {},
                         onLongPressSession = {},

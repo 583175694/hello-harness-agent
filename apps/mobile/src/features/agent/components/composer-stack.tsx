@@ -5,7 +5,11 @@ import { ArrowUp, Plus, Square } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { useComposerPlaceholderColor } from '@/lib/use-composer-placeholder';
-import { AGENT_UI_COPY, AGENT_UI_LAYOUT } from '../config/ui.constants';
+import {
+  AGENT_UI_COPY,
+  AGENT_UI_LAYOUT,
+  composerChromeBottomPadding,
+} from '../config/ui.constants';
 import type { MobileComposerFixture } from '../fixtures/mobile-preview.types';
 import type { ComposerAttachmentFixture } from '../fixtures/ui-fixtures';
 import { catalogPlanFixture } from '../fixtures/ui-catalog-fixtures';
@@ -107,7 +111,7 @@ export function ComposerStack({
   onRetryAttachment,
   onReconcileDraftChange,
 }: ComposerStackProps) {
-  const safeBottom = Math.max(bottomInset, 8);
+  const safeBottom = composerChromeBottomPadding(bottomInset);
   const composerPlaceholderColor = useComposerPlaceholderColor();
   const [attachmentSheetOpenLocal, setAttachmentSheetOpenLocal] = useState(false);
   const [skillPickerOpenLocal, setSkillPickerOpenLocal] = useState(false);

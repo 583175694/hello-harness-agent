@@ -497,10 +497,10 @@ if (fs.existsSync(harmonyDrawer)) {
   } else {
     ok('Harmony PreviewDrawerOverlay supports dark theme');
   }
-  if (!/AppTextField/.test(drawerText) || !/searchQuery/.test(drawerText)) {
-    fail('Harmony PreviewDrawerOverlay must include session search field (S-DRAWER)');
+  if (!/Refresh\s*\(/.test(drawerText) || !/Text\('新对话'\)/.test(drawerText)) {
+    fail('Harmony PreviewDrawerOverlay must use pull-to-refresh and top 新对话 action (S-DRAWER)');
   } else {
-    ok('Harmony PreviewDrawerOverlay includes search UI (S-DRAWER)');
+    ok('Harmony PreviewDrawerOverlay includes pull-to-refresh + 新对话 (S-DRAWER)');
   }
   if (!/重命名/.test(drawerText) || !/删除会话/.test(drawerText) || !/menuTarget/.test(drawerText)) {
     fail('Harmony PreviewDrawerOverlay must include long-press session menu rename/delete (S-DRAWER)');

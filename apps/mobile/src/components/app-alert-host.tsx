@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Modal, Pressable, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Pressable, View } from 'react-native';
 
+import { AppModalActionRow } from '@/components/ui/app-modal-action-row';
+import { AppModalShell } from '@/components/ui/app-modal-shell';
+import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/cn';
 import {
@@ -9,11 +11,8 @@ import {
   type AppAlertButton,
   type AppAlertOptions,
 } from '@/lib/app-alert';
-import { useThemeColors } from '@/lib/use-theme-colors';
 
 export function AppAlertHost() {
-  const insets = useSafeAreaInsets();
-  const themeColors = useThemeColors();
   const [visible, setVisible] = useState(false);
   const [payload, setPayload] = useState<AppAlertOptions | null>(null);
 
@@ -32,8 +31,25 @@ export function AppAlertHost() {
     return () => registerAppAlertPresenter(null);
   }, [present]);
 
-  const buttons: AppAlertButton[] =
-    payload?.buttons?.length ? payload.buttons : [{ text: '好的', style: 'default' }];
+  const buttons: AppAlertButton[] = useMemo(
+    () => (payload?.buttons?.length ? payload.buttons : [{ text: '好的', style: 'default' }]),
+    [payload?.buttons],
+  );
+
+  const pairedActions = useMemo(() => {
+    if (buttons.length !== 2) return null;
+    const cancelIndex = buttons.findIndex((b) => b.style === 'cancel');
+    if (cancelIndex < 0) return null;
+    const confirmIndex = cancelIndex === 0 ? 1 : 0;
+    const cancel = buttons[cancelIndex];
+    const confirm = buttons[confirmIndex];
+    if (!cancel || !confirm) return null;
+    return {
+      cancel,
+      confirm,
+      destructive: confirm.style === 'destructive',
+    };
+  }, [buttons]);
 
   const runButton = (button: AppAlertButton) => {
     dismiss();
@@ -41,61 +57,63 @@ export function AppAlertHost() {
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={dismiss}>
-      <Pressable
-        className="flex-1 justify-center px-6"
-        style={{
-          paddingTop: insets.top,
-          paddingBottom: insets.bottom,
-          backgroundColor: themeColors.overlayScrim,
-        }}
-        onPress={dismiss}
-      >
-        <Pressable
-          className="overflow-hidden rounded-sheet border border-composer-border bg-surface"
-          onPress={(event) => event.stopPropagation()}
-        >
-          {payload ? (
-            <View className="gap-3 px-4 py-4">
-              <Text variant="body" className="font-semibold text-primary">
-                {payload.title}
-              </Text>
-              {payload.message ? (
-                <Text variant="body-sm" className="leading-relaxed text-secondary">
-                  {payload.message}
-                </Text>
-              ) : null}
-              <View className="mt-1 gap-2">
-                {buttons.map((button, index) => (
-                  <Pressable
-                    key={`${button.text}-${index}`}
-                    onPress={() => runButton(button)}
-                    className={cn(
-                      'min-h-11 items-center justify-center rounded-control active:bg-subtle',
-                      button.style === 'destructive' && 'bg-destructive/10',
-                    )}
-                    accessibilityRole="button"
-                  >
-                    <Text
-                      variant="body-sm"
-                      className={cn(
-                        'font-semibold',
-                        button.style === 'destructive'
-                          ? 'text-destructive'
-                          : button.style === 'cancel'
-                            ? 'text-muted'
-                            : 'text-primary',
-                      )}
-                    >
-                      {button.text}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
+    <AppModalShell visible={visible} onDismiss={dismiss}>
+      {payload ? (
+        <>
+          <Text variant="headline" className="mb-2 text-[15px]" fixedSize>
+            {payload.title}
+          </Text>
+          {payload.message ? (
+            <Text variant="body-sm" className="leading-relaxed text-secondary" fixedSize>
+              {payload.message}
+            </Text>
           ) : null}
-        </Pressable>
-      </Pressable>
-    </Modal>
+          {pairedActions ? (
+            <AppModalActionRow
+              cancelLabel={pairedActions.cancel.text}
+              onCancel={() => runButton(pairedActions.cancel)}
+              confirmLabel={pairedActions.confirm.text}
+              confirmVariant={pairedActions.destructive ? 'destructive' : 'primary'}
+              onConfirm={() => runButton(pairedActions.confirm)}
+            />
+          ) : buttons.length === 1 ? (
+            <Button
+              label={buttons[0]?.text ?? '好的'}
+              onPress={() => runButton(buttons[0]!)}
+              className="mt-4 h-10 min-h-10 w-full rounded-control"
+              textClassName="font-semibold"
+            />
+          ) : (
+            <View className="mt-4 gap-2">
+              {buttons.map((button, index) => (
+                <Pressable
+                  key={`${button.text}-${index}`}
+                  onPress={() => runButton(button)}
+                  className={cn(
+                    'min-h-10 items-center justify-center rounded-control active:bg-subtle',
+                    button.style === 'destructive' && 'bg-destructive/10',
+                  )}
+                  accessibilityRole="button"
+                >
+                  <Text
+                    variant="body-sm"
+                    className={cn(
+                      'font-semibold',
+                      button.style === 'destructive'
+                        ? 'text-destructive'
+                        : button.style === 'cancel'
+                          ? 'text-muted'
+                          : 'text-primary',
+                    )}
+                  >
+                    {button.text}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </>
+      ) : null}
+    </AppModalShell>
   );
 }

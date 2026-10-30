@@ -86,6 +86,7 @@ final class GateAFixtureSnapshotTests: XCTestCase {
                     connectionState: session.chrome.connectionState,
                     runSummary: session.chrome.runSummary,
                     onOpenDrawer: {},
+                    onNewConversation: {},
                     onOpenWorkbench: {}
                 )
                 ServiceBannerView(
@@ -106,6 +107,7 @@ final class GateAFixtureSnapshotTests: XCTestCase {
                 connectionState: "reconnecting",
                 runSummary: "正在重连…",
                 onOpenDrawer: {},
+                onNewConversation: {},
                 onOpenWorkbench: {}
             )
             .frame(width: 390)

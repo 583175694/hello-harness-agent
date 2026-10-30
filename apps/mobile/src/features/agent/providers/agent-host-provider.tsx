@@ -87,8 +87,8 @@ export type AgentHostContextValue = {
   refreshReadiness: () => Promise<boolean>;
   refreshSessions: () => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
-  /** 对齐 Web `startDraft`：本地空白草稿，不调用 createSession API。 */
-  beginNewSession: () => Promise<void>;
+  /** 对齐 Web `startDraft`：本地空白草稿，不调用 createSession API。已在草稿态时返回 false。 */
+  beginNewSession: () => Promise<boolean>;
   createSession: (title?: string) => Promise<SessionSummary | null>;
   updateSession: (sessionId: string, input: UpdateSessionRequest) => Promise<SessionSummary | null>;
   deleteSession: (sessionId: string) => Promise<boolean>;
@@ -229,8 +229,9 @@ export function AgentHostProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const beginNewSession = useCallback(async () => {
-    if (selectedSessionId === null) return;
+    if (selectedSessionId === null) return false;
     await startDraft();
+    return true;
   }, [selectedSessionId, startDraft]);
 
   useEffect(() => bindRunNotificationDeepLink((sessionId) => void selectSession(sessionId)), [

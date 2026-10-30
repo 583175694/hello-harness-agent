@@ -33,6 +33,7 @@ struct PreviewReaderPage {
             title: this.title,
             useDark: this.themeDark,
             leadingGlyph: '‹',
+            showBottomBorder: false,
             onLeadingClick: () => router.back(),
           })
         },
@@ -55,14 +56,11 @@ struct PreviewReaderPage {
               }
             }
             .width('100%')
-            .padding(16)
-            .backgroundColor(HarnessColors.surface(this.themeDark))
-            .borderRadius(12)
-            .border({ width: 1, color: HarnessColors.composerBorder(this.themeDark) })
-            .margin(16)
+            .padding({ left: 16, right: 16, top: 8, bottom: 16 })
           }
           .layoutWeight(1)
           .width('100%')
+          .backgroundColor(HarnessColors.canvas(this.themeDark))
         },
       })
     }

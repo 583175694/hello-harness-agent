@@ -766,32 +766,46 @@ struct PreviewReportReaderView: View {
     let title: String
     let markdown: String
     var isArtifact: Bool = false
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ScrollView {
-            Group {
-                if isArtifact {
-                    Text(markdown.isEmpty ? "diff preview" : markdown)
-                        .font(.caption.monospaced())
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    MarkdownBodyView(markdown: markdown.isEmpty ? "# 空报告" : markdown)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Button(action: { dismiss() }) {
+                    Text("‹")
+                        .font(.system(size: 28, weight: .medium))
+                        .foregroundStyle(HarnessColors.primary(colorScheme))
+                        .frame(width: 40, height: 48)
                 }
+                .buttonStyle(.plain)
+                Text(title)
+                    .font(.system(size: 17))
+                    .foregroundStyle(HarnessColors.secondary(colorScheme))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Color.clear.frame(width: 40, height: 48)
             }
-            .padding(16)
-            .background(HarnessColors.surface)
-            .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous)
-                    .stroke(HarnessColors.composerBorder, lineWidth: 1)
-            )
-            .padding(16)
+            .padding(.horizontal, 4)
+            .background(HarnessColors.canvas(colorScheme))
+
+            ScrollView {
+                Group {
+                    if isArtifact {
+                        Text(markdown.isEmpty ? "diff preview" : markdown)
+                            .font(.caption.monospaced())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        MarkdownBodyView(markdown: markdown.isEmpty ? "# 空报告" : markdown)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
+            }
         }
-        .background(HarnessColors.canvas)
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(HarnessColors.canvas, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .background(HarnessColors.canvas(colorScheme))
+        .toolbar(.hidden, for: .navigationBar)
     }
 }

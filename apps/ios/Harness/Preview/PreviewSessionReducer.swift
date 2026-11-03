@@ -2,11 +2,11 @@ import Foundation
 
 enum PreviewSessionReducer {
     private static let maxSkills = 6
-    private static let maxAttachments = 6
+    private static let maxAttachments = 4
 
     static func reduce(state: ActiveSessionState, action: PreviewUiAction) -> ActiveSessionState {
         switch action {
-        case .sendComposerText(let text):
+        case .sendComposerText(let text, _, _, _):
             return sendText(state: state, text: text)
         case .stopRun:
             return stopRun(state: state)
@@ -26,6 +26,8 @@ enum PreviewSessionReducer {
             return addSkill(state: state, skill: skill)
         case .addAttachment(let fileName):
             return addAttachment(state: state, fileName: fileName)
+        case .removeAttachment(let fileId):
+            return removeAttachment(state: state, fileId: fileId)
         }
     }
 
@@ -33,6 +35,8 @@ enum PreviewSessionReducer {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return state }
         var next = state.appendingUser(trimmed)
+        next.composer.attachmentNames = []
+        next.composer.attachmentItems = []
         if next.composer.submitting {
             next = next.advancePlanIfNeeded()
         } else {
@@ -119,6 +123,16 @@ enum PreviewSessionReducer {
         guard !next.composer.attachmentNames.contains(name),
               next.composer.attachmentNames.count < maxAttachments else { return state }
         next.composer.attachmentNames.append(name)
+        next.composer.attachmentItems.append(ComposerAttachmentItem(id: name, fileName: name))
+        return next
+    }
+
+    private static func removeAttachment(state: ActiveSessionState, fileId: String) -> ActiveSessionState {
+        let key = fileId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return state }
+        var next = state
+        next.composer.attachmentNames.removeAll { $0 == key }
+        next.composer.attachmentItems.removeAll { $0.id == key || $0.fileName == key }
         return next
     }
 
@@ -138,7 +152,7 @@ enum PreviewSessionReducer {
 private extension ActiveSessionState {
     func appendingUser(_ content: String) -> ActiveSessionState {
         var copy = self
-        copy.conversation.append(.user(content))
+        copy.conversation.append(.user(content: content, attachments: []))
         return copy
     }
 

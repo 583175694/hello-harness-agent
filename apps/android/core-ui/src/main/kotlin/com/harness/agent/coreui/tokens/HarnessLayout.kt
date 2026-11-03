@@ -21,7 +21,12 @@ object HarnessLayout {
     val chatBubblePaddingVertical = 12.dp
     /** LazyColumn 相邻两轮间距。 */
     val chatListTurnSpacing = 10.dp
+    /** 对齐 Web `.assistant-blocks` 子块间距。 */
+    val chatAssistantSectionGap = 10.dp
+    /** Process 与交付正文之间的总目标间距（section gap + delivery 顶 inset）。 */
     val chatAssistantBodyPadding = 14.dp
+    val chatAssistantDeliveryExtraTop =
+        (chatAssistantBodyPadding - chatAssistantSectionGap).coerceAtLeast(0.dp)
     /** Kimi 式设置：卡片圆角、分组间距、行高。 */
     val settingsCardRadius = 16.dp
     val settingsGroupGap = 20.dp

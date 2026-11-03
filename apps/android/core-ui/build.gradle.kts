@@ -12,6 +12,17 @@ android {
         minSdk = 26
     }
 
+    flavorDimensions += "mode"
+    productFlavors {
+        create("preview") {
+            dimension = "mode"
+            isDefault = true
+        }
+        create("production") {
+            dimension = "mode"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -34,7 +45,14 @@ android {
 }
 
 dependencies {
-    implementation("org.commonmark:commonmark:0.22.0")
+    "productionImplementation"("com.harness.mobile.core:core-api")
+    val markwonVersion = "4.6.2"
+    implementation("io.noties.markwon:core:$markwonVersion")
+    implementation("io.noties.markwon:ext-strikethrough:$markwonVersion")
+    implementation("io.noties.markwon:ext-tables:$markwonVersion")
+    implementation("io.noties.markwon:linkify:$markwonVersion")
+    // Markwon 传递 commonmark 0.13（勿再单独引入 org.commonmark:0.22，会 Duplicate class）
+    implementation("io.coil-kt:coil-compose:2.7.0")
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)

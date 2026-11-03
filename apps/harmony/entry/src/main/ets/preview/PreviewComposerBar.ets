@@ -42,13 +42,15 @@ export struct PreviewComposerBar {
   @Prop composerBlock: PreviewComposerBlockKind = PreviewComposerBlockKind.NONE;
   onLoginClick: () => void = () => {
   };
+  onClearComposerRevisionSeed: () => void = () => {
+  };
   @State expandedApprovalId: string = '';
   @State draft: string = '';
   @State clarificationAnswer: string = '';
   @State attachPressed: boolean = false;
   @State modelPressed: boolean = false;
   @State sendPressed: boolean = false;
-  @Prop composer: ComposerPreviewState = {
+  @Prop @Watch('onRevisionSeedChange') composer: ComposerPreviewState = {
     composerMode: 'default',
     composerTextMode: 'new-run',
     submitting: false,
@@ -66,6 +68,14 @@ export struct PreviewComposerBar {
     attachmentNames: [],
     selectedSkills: [],
   };
+
+  onRevisionSeedChange(): void {
+    const seed = this.composer.revisionDraftSeed?.trim() ?? '';
+    if (seed.length > 0) {
+      this.draft = seed;
+      this.onClearComposerRevisionSeed();
+    }
+  }
 
   @Builder
   followUpQueueBlock() {

@@ -21,7 +21,7 @@ final class ReplayController {
         cancel()
         guard let config else { return }
         guard let index = conversation.lastIndex(where: {
-            if case .assistant(status: let status, pendingText: _, summary: _, tailTarget: let tail, markdownContent: _, process: _) = $0 {
+            if case .assistant(status: let status, pending: _, pendingText: _, finalText: _, summary: _, tailTarget: let tail, markdownContent: _, process: _) = $0 {
                 return status == "streaming" && tail != nil
             }
             return false
@@ -29,7 +29,9 @@ final class ReplayController {
 
         guard case .assistant(
             status: let status,
+            pending: _,
             pendingText: _,
+            finalText: _,
             summary: _,
             tailTarget: let tailTarget,
             markdownContent: _,
@@ -47,13 +49,24 @@ final class ReplayController {
                 try? await Task.sleep(nanoseconds: config.tickMs * 1_000_000)
                 end = min(end + config.codepointsPerTick, target.count)
                 let slice = String(target.prefix(end))
-                current[index] = .assistant(status: "streaming", pendingText: slice, summary: nil, tailTarget: target, markdownContent: nil, process: [])
+                current[index] = .assistant(
+                    status: "streaming",
+                    pending: true,
+                    pendingText: slice,
+                    finalText: nil,
+                    summary: nil,
+                    tailTarget: target,
+                    markdownContent: nil,
+                    process: []
+                )
                 await MainActor.run { onUpdate(current) }
             }
             guard !Task.isCancelled else { return }
             current[index] = .assistant(
                 status: "completed",
+                pending: false,
                 pendingText: nil,
+                finalText: nil,
                 summary: nil,
                 tailTarget: nil,
                 markdownContent: target,

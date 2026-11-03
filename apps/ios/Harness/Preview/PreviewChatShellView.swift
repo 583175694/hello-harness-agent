@@ -69,7 +69,13 @@ struct PreviewChatShellView: View {
                     },
                     onOpenWorkbench: {
                         PreviewKeyboardDismiss.run()
+                        if store.coreEngineActive {
+                            store.openWorkbenchPanel()
+                        } else {
+                            store.refreshWorkbench()
+                        }
                         workbenchOpen = true
+                        store.syncWorkbenchOpenFromUi(true)
                     }
                 )
 
@@ -115,6 +121,22 @@ struct PreviewChatShellView: View {
                                 ScrollViewReader { proxy in
                                     ScrollView {
                                         LazyVStack(spacing: HarnessLayout.chatListTurnSpacing) {
+                                            if store.session.canLoadOlderMessages {
+                                                Button {
+                                                    store.loadOlderMessages()
+                                                } label: {
+                                                    Text(
+                                                        store.session.loadingOlderMessages
+                                                            ? "正在加载更早消息…"
+                                                            : "加载更早消息"
+                                                    )
+                                                    .font(.footnote)
+                                                    .foregroundStyle(HarnessColors.secondary)
+                                                    .frame(maxWidth: .infinity)
+                                                    .padding(.vertical, 12)
+                                                }
+                                                .disabled(store.session.loadingOlderMessages)
+                                            }
                                             ForEach(Array(store.session.conversation.enumerated()), id: \.offset) { idx, item in
                                                 ConversationTurnRowView(
                                                     item: item,
@@ -122,6 +144,16 @@ struct PreviewChatShellView: View {
                                                 ) { toolId in
                                                     focusedToolStepId = toolId
                                                     workbenchOpen = true
+                                                    if store.coreEngineActive {
+                                                        let runId =
+                                                            store.session.workbench.runId
+                                                            ?? store.session.scenarioId
+                                                        store.focusWorkbenchToolCall(
+                                                            runId: runId,
+                                                            toolCallId: toolId
+                                                        )
+                                                        store.syncWorkbenchOpenFromUi(true)
+                                                    }
                                                 }
                                                 .id(idx)
                                             }
@@ -168,7 +200,15 @@ struct PreviewChatShellView: View {
                                 workbenchOpen: workbenchOpen,
                                 composerBlock: preferences.resolveComposerBlock(),
                                 onLoginClick: onOpenLogin,
-                                onPreviewAction: store.applyPreviewAction
+                                onPreviewAction: store.applyPreviewAction,
+                                useCoreAttachments: store.coreEngineActive,
+                                onUploadAttachmentData: { name, data, mime in
+                                    store.uploadComposerAttachment(fileName: name, data: data, mediaType: mime)
+                                },
+                                modelCatalog: store.composerModelCatalog,
+                                skillPickerNames: store.skillPickerNames,
+                                onSkillSheetOpen: store.onComposerSkillSheetOpen,
+                                onClearComposerRevisionSeed: store.clearComposerRevisionSeed
                             )
                         }
                         .background {
@@ -207,6 +247,7 @@ struct PreviewChatShellView: View {
                 onDismiss: {
                     workbenchOpen = false
                     focusedToolStepId = nil
+                    store.syncWorkbenchOpenFromUi(false)
                 },
                 onOpenReportReader: {
                     let md = store.session.workbench.reportMarkdown ?? "# Preview Report"
@@ -218,6 +259,23 @@ struct PreviewChatShellView: View {
                 },
                 onOpenFilePreview: { fileName, markdown in
                     onOpenReportReader(fileName, markdown)
+                },
+                onRestoreArtifactVersion: { restoreId, expectedId in
+                    if store.coreEngineActive {
+                        store.restoreArtifactVersion(
+                            restoreId: restoreId,
+                            expectedCurrentArtifactId: expectedId
+                        )
+                    } else {
+                        appToast.show("Preview：已确认恢复（未写服务器）")
+                    }
+                },
+                onBeginArtifactRevision: { artifactId in
+                    if store.coreEngineActive {
+                        store.beginArtifactRevision(artifactId: artifactId)
+                    } else {
+                        appToast.show("Preview：已预填修改草稿（未写服务器）")
+                    }
                 },
                 initialFocusedToolId: focusedToolStepId
             )
@@ -231,16 +289,25 @@ struct PreviewChatShellView: View {
                 })
         }
         .environment(\.previewContentFontSize, CGFloat(preferences.contentFontSize))
-        .onAppear {
-            guard !suppressAutoWorkbench else { return }
-            let wb = store.session.workbench
-            workbenchOpen = wb.workbenchCount > 0 || !wb.sources.isEmpty
+        .onChange(of: store.session.scenarioId) { _, _ in
+            workbenchOpen = false
+            focusedToolStepId = nil
+            store.syncWorkbenchOpenFromUi(false)
         }
         .onChange(of: store.drawerOpen) { _, open in
             if open { PreviewKeyboardDismiss.run() }
         }
         .onChange(of: workbenchOpen) { _, open in
             if open { PreviewKeyboardDismiss.run() }
+        }
+        .onChange(of: store.session.uiHints.workbenchFocusedToolCallId) { _, toolId in
+            guard store.coreEngineActive, let toolId, !toolId.isEmpty else { return }
+            focusedToolStepId = toolId
+        }
+        .onChange(of: store.session.uiHints.workbenchFocusHint) { _, hint in
+            guard store.coreEngineActive, let hint, !hint.isEmpty else { return }
+            appToast.show(hint)
+            store.clearWorkbenchFocusHint()
         }
     }
 }

@@ -11,6 +11,7 @@ export class PreviewReplayController {
   private onUpdate: (lines: ChatLine[]) => void = () => {
   };
   private workingLines: ChatLine[] = [];
+  private streamField: 'pendingText' | 'finalText' = 'pendingText';
 
   start(
     lines: ChatLine[],
@@ -40,10 +41,14 @@ export class PreviewReplayController {
     this.step = codepointsPerTick > 0 ? codepointsPerTick : 6;
     this.onUpdate = onUpdate;
     const prior = this.workingLines[this.lineIndex];
+    this.streamField =
+      prior.finalText !== undefined && `${prior.finalText}`.length > 0 ? 'finalText' : 'pendingText';
     this.workingLines[this.lineIndex] = {
       role: 'assistant',
       text: '',
       process: prior.process.slice(),
+      pendingText: this.streamField === 'pendingText' ? '' : prior.pendingText,
+      finalText: this.streamField === 'finalText' ? '' : prior.finalText,
     };
     this.onUpdate(this.workingLines.slice());
     this.timerId = setInterval(() => {
@@ -55,11 +60,19 @@ export class PreviewReplayController {
     this.endIndex = Math.min(this.endIndex + this.step, this.tailTarget.length);
     const slice = this.tailTarget.substring(0, this.endIndex);
     const prior = this.workingLines[this.lineIndex];
-    this.workingLines[this.lineIndex] = {
+    const next: ChatLine = {
       role: 'assistant',
-      text: slice,
+      text: '',
       process: prior.process.slice(),
+      pendingText: prior.pendingText,
+      finalText: prior.finalText,
     };
+    if (this.streamField === 'pendingText') {
+      next.pendingText = slice;
+    } else {
+      next.finalText = slice;
+    }
+    this.workingLines[this.lineIndex] = next;
     this.onUpdate(this.workingLines.slice());
     if (this.endIndex >= this.tailTarget.length) {
       this.stop();

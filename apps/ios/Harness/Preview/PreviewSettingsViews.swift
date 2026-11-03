@@ -3,6 +3,7 @@ import UIKit
 
 struct PreviewSettingsRootView: View {
     @Bindable var preferences: PreviewAppPreferences
+    var store: PreviewSessionStore?
     var onOpenPreviewScenarios: () -> Void = {}
     var onOpenLogin: () -> Void = {}
     var onOpenMemory: () -> Void = {}
@@ -96,8 +97,16 @@ struct PreviewSettingsRootView: View {
             }
             if preferences.isLoggedIn {
                 settingsPillButton("退出登录", style: .subtle) {
-                    preferences.updateAuthProfile(nil)
-                    appToast.show("已退出登录")
+                    Task {
+                        #if CORE_PORT
+                        if CoreAuthApi.isEnabled(preferences: preferences) {
+                            await CoreAuthApi.logout(preferences: preferences)
+                        }
+                        #endif
+                        preferences.updateAuthProfile(nil)
+                        await store?.resetForAuthChange()
+                        appToast.show("已退出登录")
+                    }
                 }
                 .padding(.top, 12)
                 .padding(.bottom, 8)
@@ -154,6 +163,7 @@ struct PreviewSettingsRootView: View {
 
 struct PreviewConnectionSettingsView: View {
     @Bindable var preferences: PreviewAppPreferences
+    var store: PreviewSessionStore
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -177,6 +187,9 @@ struct PreviewConnectionSettingsView: View {
         .background(HarnessColors.canvas(colorScheme))
         .navigationTitle("连接")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: preferences.apiBaseUrl) { _, _ in
+            store.scheduleCoreConnectionRefresh()
+        }
     }
 }
 
@@ -184,6 +197,7 @@ struct PreviewMcpListView: View {
     @Bindable var preferences: PreviewAppPreferences
     var onAddServer: () -> Void = {}
     var onEditServer: (String) -> Void = { _ in }
+    @State private var servers: [PreviewMcpServer] = []
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -191,14 +205,14 @@ struct PreviewMcpListView: View {
             ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 settingsGroup(sectionLabel: "已配置") {
-                    if preferences.mcpServers.isEmpty {
+                    if servers.isEmpty {
                         Text("暂无服务器")
                             .font(.caption)
                             .foregroundStyle(HarnessColors.muted(colorScheme))
                             .padding(.horizontal, 16)
                             .frame(minHeight: settingsRowMinHeight, alignment: .leading)
                     } else {
-                        ForEach(Array(preferences.mcpServers.enumerated()), id: \.element.id) { index, server in
+                        ForEach(Array(servers.enumerated()), id: \.element.id) { index, server in
                             VStack(spacing: 0) {
                                 Button {
                                     onEditServer(server.id)
@@ -211,7 +225,7 @@ struct PreviewMcpListView: View {
                                     .frame(minHeight: settingsRowMinHeight, alignment: .leading)
                                 }
                                 .buttonStyle(HarnessPressScaleButtonStyle())
-                                if index < preferences.mcpServers.count - 1 {
+                                if index < servers.count - 1 {
                                     SettingsSoftDividerView()
                                 }
                             }
@@ -230,6 +244,27 @@ struct PreviewMcpListView: View {
         }
         .background(HarnessColors.canvas(colorScheme))
         .navigationTitle("MCP 服务器")
+        .task(id: preferences.apiBaseUrl) {
+            await reloadMcpList()
+        }
+        .onAppear {
+            Task { await reloadMcpList() }
+        }
+    }
+
+    private func reloadMcpList() async {
+        #if CORE_PORT
+        if CoreSettingsApi.isEnabled(preferences: preferences) {
+            do {
+                servers = try await CoreSettingsApi.listMcpServers(preferences: preferences)
+                return
+            } catch {
+                servers = preferences.mcpServers
+                return
+            }
+        }
+        #endif
+        servers = preferences.mcpServers
     }
 }
 
@@ -266,21 +301,15 @@ struct PreviewMcpFormView: View {
             VStack(spacing: 10) {
                 HStack(spacing: 8) {
                     Button {
-                        appToast.show("连接成功")
-                        testConfirm = AppConfirmRequest(
-                            title: "MCP Test",
-                            message: "连接成功。",
-                            confirmLabel: "确定",
-                            dismissLabel: ""
-                        ) {}
+                        Task { await runMcpTest() }
                     } label: {
                         settingsPillLabel("Test", style: .subtle)
                     }
                     .buttonStyle(HarnessPressScaleButtonStyle())
+                    .disabled(serverId == "new")
                     if serverId != "new" {
                         Button {
-                            preferences.deleteMcp(id: serverId)
-                            dismiss()
+                            Task { await deleteMcpServer() }
                         } label: {
                             settingsPillLabel("删除", style: .subtle)
                         }
@@ -288,9 +317,7 @@ struct PreviewMcpFormView: View {
                     }
                 }
                 Button {
-                    let id = serverId == "new" ? UUID().uuidString : serverId
-                    preferences.upsertMcp(PreviewMcpServer(id: id, serverName: name, url: url, enabled: enabled))
-                    dismiss()
+                    Task { await saveMcpServer() }
                 } label: {
                     settingsPillLabel("保存", style: .primary)
                 }
@@ -303,14 +330,101 @@ struct PreviewMcpFormView: View {
         }
         .background(HarnessColors.canvas(colorScheme))
         .navigationTitle(serverId == "new" ? "新建 MCP" : "编辑 MCP")
-        .onAppear {
-            if let existing = preferences.mcpServers.first(where: { $0.id == serverId }) {
-                name = existing.serverName
-                url = existing.url
-                enabled = existing.enabled
-            }
+        .task(id: serverId) {
+            await loadMcpForm()
         }
         .appConfirmDialog($testConfirm)
+    }
+
+    private func loadMcpForm() async {
+        #if CORE_PORT
+        if CoreSettingsApi.isEnabled(preferences: preferences), serverId != "new" {
+            do {
+                let list = try await CoreSettingsApi.listMcpServers(preferences: preferences)
+                if let existing = list.first(where: { $0.id == serverId }) {
+                    name = existing.serverName
+                    url = existing.url
+                    enabled = existing.enabled
+                    return
+                }
+            } catch {
+                appToast.show("加载 MCP 失败")
+            }
+        }
+        #endif
+        if let existing = preferences.mcpServers.first(where: { $0.id == serverId }) {
+            name = existing.serverName
+            url = existing.url
+            enabled = existing.enabled
+        }
+    }
+
+    private func saveMcpServer() async {
+        #if CORE_PORT
+        if CoreSettingsApi.isEnabled(preferences: preferences) {
+            do {
+                try await CoreSettingsApi.saveMcpServer(
+                    preferences: preferences,
+                    id: serverId == "new" ? nil : serverId,
+                    serverName: name,
+                    url: url,
+                    enabled: enabled
+                )
+                dismiss()
+                return
+            } catch {
+                appToast.show("保存失败")
+                return
+            }
+        }
+        #endif
+        let id = serverId == "new" ? UUID().uuidString : serverId
+        preferences.upsertMcp(PreviewMcpServer(id: id, serverName: name, url: url, enabled: enabled))
+        dismiss()
+    }
+
+    private func deleteMcpServer() async {
+        #if CORE_PORT
+        if CoreSettingsApi.isEnabled(preferences: preferences) {
+            do {
+                try await CoreSettingsApi.deleteMcpServer(preferences: preferences, id: serverId)
+                dismiss()
+                return
+            } catch {
+                appToast.show("删除失败")
+                return
+            }
+        }
+        #endif
+        preferences.deleteMcp(id: serverId)
+        dismiss()
+    }
+
+    private func runMcpTest() async {
+        #if CORE_PORT
+        if CoreSettingsApi.isEnabled(preferences: preferences) {
+            do {
+                let result = try await CoreSettingsApi.testMcpServer(preferences: preferences, id: serverId)
+                testConfirm = AppConfirmRequest(
+                    title: "MCP Test",
+                    message: result.message,
+                    confirmLabel: "确定",
+                    dismissLabel: ""
+                ) {}
+                return
+            } catch {
+                appToast.show("Test 失败")
+                return
+            }
+        }
+        #endif
+        appToast.show("连接成功")
+        testConfirm = AppConfirmRequest(
+            title: "MCP Test",
+            message: "连接成功。",
+            confirmLabel: "确定",
+            dismissLabel: ""
+        ) {}
     }
 }
 
@@ -321,6 +435,7 @@ private enum PreviewLoginFocusField: Hashable {
 
 struct PreviewLoginView: View {
     @Bindable var preferences: PreviewAppPreferences
+    var store: PreviewSessionStore?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appToast) private var appToast
     @State private var phone = ""
@@ -478,6 +593,20 @@ struct PreviewLoginView: View {
             return
         }
         if !codeSent {
+            #if CORE_PORT
+            if CoreAuthApi.isEnabled(preferences: preferences) {
+                Task {
+                    do {
+                        try await CoreAuthApi.sendPhoneCode(preferences: preferences, phone: trimmedPhone)
+                        codeSent = true
+                        appToast.show("Verification code sent")
+                    } catch {
+                        appToast.show("发送验证码失败")
+                    }
+                }
+                return
+            }
+            #endif
             codeSent = true
             appToast.show("Verification code sent")
             return
@@ -486,6 +615,28 @@ struct PreviewLoginView: View {
             appToast.show("Please enter the verification code")
             return
         }
+        #if CORE_PORT
+        if CoreAuthApi.isEnabled(preferences: preferences) {
+            Task {
+                do {
+                    let result = try await CoreAuthApi.verifyPhone(
+                        preferences: preferences,
+                        phone: trimmedPhone,
+                        code: code.trimmingCharacters(in: .whitespaces)
+                    )
+                    preferences.updateAuthProfile(
+                        PreviewAuthProfile(displayName: result.displayName, phone: result.phone)
+                    )
+                    await store?.resetForAuthChange()
+                    appToast.show("Logged in")
+                    dismiss()
+                } catch {
+                    appToast.show("登录失败")
+                }
+            }
+            return
+        }
+        #endif
         preferences.updateAuthProfile(PreviewAuthProfile(displayName: maskPhone(trimmedPhone), phone: trimmedPhone))
         appToast.show("Logged in")
         dismiss()
@@ -500,29 +651,36 @@ struct PreviewLoginView: View {
 
 struct PreviewMemoryHubView: View {
     @Bindable var preferences: PreviewAppPreferences
+    @State private var allowWrite: Bool = true
+    @State private var entries: [PreviewMemoryEntry] = []
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appToast) private var appToast
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 settingsGroup(sectionLabel: "写入") {
-                    Toggle(isOn: $preferences.allowAgentMemoryWrite) {
+                    Toggle(isOn: $allowWrite) {
                         Text("允许 Agent 写入记忆")
                             .foregroundStyle(HarnessColors.secondary(colorScheme))
                     }
                     .tint(HarnessColors.primary(colorScheme))
                     .padding(.horizontal, 16)
                     .frame(minHeight: settingsRowMinHeight)
+                    .onChange(of: allowWrite) { _, enabled in
+                        preferences.allowAgentMemoryWrite = enabled
+                        Task { await patchMemoryWrite(enabled) }
+                    }
                 }
                 settingsGroup(sectionLabel: "条目") {
-                    if preferences.memoryEntries.isEmpty {
+                    if entries.isEmpty {
                         Text("暂无记忆")
                             .font(.caption)
                             .foregroundStyle(HarnessColors.muted(colorScheme))
                             .padding(.horizontal, 16)
                             .frame(minHeight: settingsRowMinHeight, alignment: .leading)
                     } else {
-                        ForEach(Array(preferences.memoryEntries.enumerated()), id: \.element.id) { index, entry in
+                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                             VStack(spacing: 0) {
                                 HStack {
                                     Text(entry.text)
@@ -530,14 +688,14 @@ struct PreviewMemoryHubView: View {
                                         .foregroundStyle(HarnessColors.secondary(colorScheme))
                                     Spacer()
                                     Button("删除") {
-                                        preferences.deleteMemory(id: entry.id)
+                                        Task { await deleteMemory(entry.id) }
                                     }
                                     .font(.subheadline)
                                     .foregroundStyle(HarnessColors.link(colorScheme))
                                 }
                                 .padding(.horizontal, 16)
                                 .frame(minHeight: settingsRowMinHeight)
-                                if index < preferences.memoryEntries.count - 1 {
+                                if index < entries.count - 1 {
                                     SettingsSoftDividerView()
                                 }
                             }
@@ -549,6 +707,56 @@ struct PreviewMemoryHubView: View {
         }
         .background(HarnessColors.canvas(colorScheme))
         .navigationTitle("记忆")
+        .task(id: preferences.apiBaseUrl) {
+            await reloadMemoryHub()
+        }
+    }
+
+    private func reloadMemoryHub() async {
+        #if CORE_PORT
+        if CoreSettingsApi.isEnabled(preferences: preferences) {
+            do {
+                let hub = try await CoreSettingsApi.loadMemoryHub(preferences: preferences)
+                allowWrite = hub.allowWrite
+                entries = hub.entries
+                preferences.allowAgentMemoryWrite = hub.allowWrite
+                return
+            } catch {
+                appToast.show("加载记忆失败")
+            }
+        }
+        #endif
+        allowWrite = preferences.allowAgentMemoryWrite
+        entries = preferences.memoryEntries
+    }
+
+    private func patchMemoryWrite(_ enabled: Bool) async {
+        #if CORE_PORT
+        if CoreSettingsApi.isEnabled(preferences: preferences) {
+            do {
+                try await CoreSettingsApi.patchMemorySettings(preferences: preferences, allowAgentWrite: enabled)
+            } catch {
+                appToast.show("更新失败")
+            }
+        }
+        #endif
+    }
+
+    private func deleteMemory(_ id: String) async {
+        #if CORE_PORT
+        if CoreSettingsApi.isEnabled(preferences: preferences) {
+            do {
+                try await CoreSettingsApi.deleteMemory(preferences: preferences, memoryId: id)
+                await reloadMemoryHub()
+                return
+            } catch {
+                appToast.show("删除失败")
+                return
+            }
+        }
+        #endif
+        preferences.deleteMemory(id: id)
+        entries = preferences.memoryEntries
     }
 }
 

@@ -19,19 +19,8 @@ import com.harness.agent.coreui.primitives.AppText
 import com.harness.agent.coreui.primitives.AppTextStyle
 import com.harness.agent.coreui.primitives.HarnessSegmentedControl
 import com.harness.agent.coreui.tokens.LocalHarnessColors
-
-internal data class PreviewModelDef(
-    val id: String,
-    val label: String,
-    val reasoningOptions: List<String>,
-)
-
-internal val PREVIEW_MODELS =
-    listOf(
-        PreviewModelDef("deepseek-chat", "DeepSeek Chat", listOf("off", "low", "high")),
-        PreviewModelDef("deepseek-reasoner", "DeepSeek Reasoner", listOf("low", "high", "max")),
-        PreviewModelDef("fast", "快速", listOf("off")),
-    )
+import com.harness.agent.model.ComposerModelOption
+import com.harness.agent.model.PREVIEW_COMPOSER_MODELS
 
 internal fun reasoningShortLabel(effort: String): String =
     when (effort) {
@@ -41,14 +30,6 @@ internal fun reasoningShortLabel(effort: String): String =
         "max" -> "高"
         else -> "中"
     }
-
-internal fun formatComposerModelChip(
-    modelId: String,
-    reasoningEffort: String,
-): String {
-    val label = PREVIEW_MODELS.find { it.id == modelId }?.label ?: modelId
-    return "$label · ${reasoningShortLabel(reasoningEffort)}"
-}
 
 internal fun resolveModelIdFromFixtureLabel(label: String): String {
     val normalized = label.lowercase()
@@ -72,9 +53,19 @@ internal fun resolveReasoningFromFixtureLabel(label: String): String {
 internal fun coerceReasoningForModel(
     modelId: String,
     reasoningEffort: String,
+    catalog: List<ComposerModelOption> = PREVIEW_COMPOSER_MODELS,
 ): String {
-    val allowed = PREVIEW_MODELS.find { it.id == modelId }?.reasoningOptions ?: listOf("high")
+    val allowed = catalog.find { it.id == modelId }?.reasoningOptions ?: listOf("high")
     return if (reasoningEffort in allowed) reasoningEffort else allowed.last()
+}
+
+internal fun formatComposerModelChip(
+    modelId: String,
+    reasoningEffort: String,
+    catalog: List<ComposerModelOption> = PREVIEW_COMPOSER_MODELS,
+): String {
+    val label = catalog.find { it.id == modelId }?.label ?: modelId
+    return "$label · ${reasoningShortLabel(reasoningEffort)}"
 }
 
 @Composable
@@ -83,13 +74,15 @@ internal fun ComposerModelMenuSheetContent(
     reasoningEffort: String,
     onModelIdChange: (String) -> Unit,
     onReasoningChange: (String) -> Unit,
+    catalog: List<ComposerModelOption> = PREVIEW_COMPOSER_MODELS,
 ) {
     val colors = LocalHarnessColors.current
-    val activeModel = PREVIEW_MODELS.find { it.id == selectedModelId } ?: PREVIEW_MODELS.first()
-    val effort = coerceReasoningForModel(activeModel.id, reasoningEffort)
+    val models = catalog.ifEmpty { PREVIEW_COMPOSER_MODELS }
+    val activeModel = models.find { it.id == selectedModelId } ?: models.first()
+    val effort = coerceReasoningForModel(activeModel.id, reasoningEffort, models)
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        PREVIEW_MODELS.forEach { model ->
+        models.forEach { model ->
             val selected = model.id == activeModel.id
             Row(
                 modifier =
@@ -98,7 +91,7 @@ internal fun ComposerModelMenuSheetContent(
                         .defaultMinSize(minHeight = 48.dp)
                         .clickable {
                             onModelIdChange(model.id)
-                            onReasoningChange(coerceReasoningForModel(model.id, effort))
+                            onReasoningChange(coerceReasoningForModel(model.id, effort, models))
                         }
                         .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,

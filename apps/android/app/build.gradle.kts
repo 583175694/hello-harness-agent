@@ -84,6 +84,9 @@ tasks.named("preBuild") {
 }
 
 dependencies {
+    "productionImplementation"("com.harness.mobile.core:core-engine")
+    "productionImplementation"("com.harness.mobile.core:core-auth")
+    "productionImplementation"("com.harness.mobile.core:core-data")
     implementation(project(":core-ui"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.core.ktx)
@@ -95,5 +98,6 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("io.coil-kt:coil-compose:2.7.0")
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

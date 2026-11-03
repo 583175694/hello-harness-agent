@@ -1,0 +1,22 @@
+{
+  "pending": false,
+  "deliveryStatus": "completed",
+  "pendingText": "",
+  "finalText": "第一轮草稿第一轮结论第二轮结论",
+  "process": [
+    {
+      "kind": "tool",
+      "id": "call-1",
+      "name": "搜索网页",
+      "status": "completed",
+      "summary": "a"
+    },
+    {
+      "kind": "tool",
+      "id": "call-2",
+      "name": "搜索网页",
+      "status": "completed",
+      "summary": "b"
+    }
+  ]
+}

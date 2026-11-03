@@ -10,6 +10,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.Alignment as UiAlignment
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -38,7 +40,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import com.harness.agent.coreui.motion.rememberHarnessReduceMotion
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -64,6 +71,12 @@ private const val REASONING_STEP_EXTRA_BOTTOM_DP = 2
 private const val REASONING_CONTENT_ANIM_MS = 220
 private const val REASONING_FADE_IN_MS = 160
 private const val REASONING_CHEVRON_ANIM_MS = 140
+/** 对齐 Web `.ai-reasoning__content`（略低于 Web 420px，移动端更紧凑）。 */
+private const val REASONING_CONTENT_MAX_HEIGHT_DP = 240
+/** 对齐 Web `.ai-reasoning__content::before/::after`。 */
+private const val REASONING_EDGE_FADE_HEIGHT_DP = 18
+/** 对齐 Web `ai-elements/reasoning.tsx` `AUTO_CLOSE_DELAY`。 */
+private const val REASONING_AUTO_CLOSE_MS = 1000L
 /** 对齐 Web `.ai-reasoning__trigger` gap，Chevron 紧贴文案而非行尾。 */
 private const val DISCLOSURE_GAP_DP = 6
 private const val RAIL_ICON_SIZE_DP = 15
@@ -86,9 +99,39 @@ fun AssistantProcessTimeline(
     previewReduceMotion: Boolean = false,
 ) {
     val reduceMotion = rememberHarnessReduceMotion(previewReduceMotion)
-    if (blocks.isEmpty()) return
+    if (blocks.isEmpty()) {
+        if (!running) return
+        Column(
+            modifier =
+                modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+        ) {
+            AppText(
+                text = "正在思考",
+                style = AppTextStyle.Muted,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        }
+        return
+    }
     val renderable = blocks.filterIsRenderable()
-    if (renderable.isEmpty()) return
+    if (renderable.isEmpty()) {
+        if (!running) return
+        Column(
+            modifier =
+                modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+        ) {
+            AppText(
+                text = "正在思考",
+                style = AppTextStyle.Muted,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        }
+        return
+    }
     var open by rememberSaveable { mutableStateOf(!(finalOutputVisible && !running)) }
     var userExpanded by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(finalOutputVisible, running, userExpanded) {
@@ -242,7 +285,18 @@ private fun ReasoningStep(
     isLast: Boolean,
     reduceMotion: Boolean,
 ) {
-    var expanded by rememberSaveable(block.content) { mutableStateOf(block.streaming) }
+    var expanded by rememberSaveable { mutableStateOf(block.streaming) }
+    var sawStreaming by remember { mutableStateOf(block.streaming) }
+    LaunchedEffect(block.streaming) {
+        if (block.streaming) {
+            sawStreaming = true
+            expanded = true
+        } else if (sawStreaming) {
+            delay(REASONING_AUTO_CLOSE_MS)
+            expanded = false
+            sawStreaming = false
+        }
+    }
     val label = reasoningTriggerLabel(block.streaming, block.durationMs)
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
@@ -291,8 +345,9 @@ private fun ReasoningStep(
                 enter = processTimelineBodyEnter(reduceMotion),
                 exit = processTimelineBodyExit(reduceMotion),
             ) {
-                ProcessTimelineReasoningText(
+                ProcessTimelineReasoningScrollBody(
                     text = block.content,
+                    streaming = block.streaming,
                     modifier =
                         Modifier
                             .fillMaxWidth()
@@ -418,6 +473,59 @@ private fun ProcessTimelineSubtleText(
         overflow = overflow,
         modifier = modifier,
     )
+}
+
+@Composable
+private fun ProcessTimelineReasoningScrollBody(
+    text: String,
+    streaming: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalHarnessColors.current
+    val scrollState = rememberScrollState()
+    LaunchedEffect(text, streaming) {
+        if (streaming) {
+            scrollState.scrollTo(scrollState.maxValue)
+        }
+    }
+    val fadeHeight = REASONING_EDGE_FADE_HEIGHT_DP.dp
+    Box(
+        modifier =
+            modifier
+                .heightIn(max = REASONING_CONTENT_MAX_HEIGHT_DP.dp)
+                .drawWithContent {
+                    drawContent()
+                    val fadeHeightPx = fadeHeight.toPx()
+                    drawRect(
+                        brush =
+                            Brush.verticalGradient(
+                                colors = listOf(colors.canvas, Color.Transparent),
+                                startY = 0f,
+                                endY = fadeHeightPx,
+                            ),
+                        size = Size(size.width, fadeHeightPx),
+                    )
+                    drawRect(
+                        brush =
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, colors.canvas),
+                                startY = size.height - fadeHeightPx,
+                                endY = size.height,
+                            ),
+                        topLeft = Offset(0f, size.height - fadeHeightPx),
+                        size = Size(size.width, fadeHeightPx),
+                    )
+                },
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(scrollState),
+        ) {
+            ProcessTimelineReasoningText(text = text)
+        }
+    }
 }
 
 /** 对齐 Web `.ai-reasoning`（`--h-label-tertiary` / `--theme-text-muted`）。 */

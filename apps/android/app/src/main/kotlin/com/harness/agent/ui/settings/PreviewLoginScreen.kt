@@ -52,8 +52,10 @@ import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import com.harness.agent.R
 import com.harness.agent.coreui.feedback.LocalAppToast
+import androidx.compose.runtime.rememberCoroutineScope
 import com.harness.agent.preview.PreviewAppPreferences
 import com.harness.agent.preview.PreviewAuthProfile
+import kotlinx.coroutines.launch
 
 private const val RESEND_SECONDS = 60
 private const val HERO_COMPACT_RATIO = 0.62f
@@ -77,8 +79,10 @@ fun PreviewLoginScreen(
     preferences: PreviewAppPreferences,
     onBack: () -> Unit,
     onLoggedIn: () -> Unit,
+    loginCoordinator: LoginCoordinator,
 ) {
     val toast = LocalAppToast.current
+    val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val scrollState = rememberScrollState()
 
@@ -189,21 +193,33 @@ fun PreviewLoginScreen(
                         when {
                             phone.trim().length < 6 -> toast.show("Please enter a valid phone number")
                             !codeSent -> {
-                                codeSent = true
-                                resendIn = RESEND_SECONDS
-                                toast.show("Verification code sent")
+                                scope.launch {
+                                    loginCoordinator.sendVerificationCode(phone.trim()).fold(
+                                        onSuccess = {
+                                            codeSent = true
+                                            resendIn = RESEND_SECONDS
+                                            toast.show("Verification code sent")
+                                        },
+                                        onFailure = {
+                                            toast.show(it.message ?: "Failed to send code")
+                                        },
+                                    )
+                                }
                             }
                             code.trim().length < 4 -> toast.show("Please enter the verification code")
                             else -> {
-                                val trimmed = phone.trim()
-                                preferences.updateAuthProfile(
-                                    PreviewAuthProfile(
-                                        displayName = maskPhone(trimmed),
-                                        phone = trimmed,
-                                    ),
-                                )
-                                toast.show("Logged in")
-                                onLoggedIn()
+                                scope.launch {
+                                    loginCoordinator.verifyAndLogin(phone.trim(), code.trim()).fold(
+                                        onSuccess = { profile ->
+                                            preferences.updateAuthProfile(profile)
+                                            toast.show("Logged in")
+                                            onLoggedIn()
+                                        },
+                                        onFailure = {
+                                            toast.show(it.message ?: "Login failed")
+                                        },
+                                    )
+                                }
                             }
                         }
                     },

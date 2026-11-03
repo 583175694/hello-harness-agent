@@ -1,7 +1,7 @@
 import Foundation
 
 enum PreviewUiAction: Equatable {
-    case sendComposerText(String)
+    case sendComposerText(text: String, modelId: String?, reasoningEffort: String?, skillNames: [String])
     case stopRun
     case sendFollowUp(id: String)
     case dismissFollowUp(id: String)
@@ -11,4 +11,5 @@ enum PreviewUiAction: Equatable {
     case rejectTools
     case addSkill(String)
     case addAttachment(String)
+    case removeAttachment(String)
 }

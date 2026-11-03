@@ -1,6 +1,7 @@
 import { router } from '@kit.ArkUI';
 import { AppToast } from '../coreui/AppFeedback';
 import { PreviewLocalPreferences } from '../preview/PreviewLocalPreferences';
+import { HarmonyCoreAuth } from '../core/HarmonyCoreAuth';
 import { harnessPageTransition } from '../coreui/HarnessPageTransition';
 
 const LOGIN_BG: string = '#FFFFFF';
@@ -214,12 +215,28 @@ struct PreviewLoginPage {
       return;
     }
     if (!this.codeSent) {
+      const useApi = PreviewLocalPreferences.useCorePort;
+      if (useApi) {
+        HarmonyCoreAuth.sendPhoneCode(trimmed).then(() => {
+          this.codeSent = true;
+          AppToast.show('Verification code sent');
+        }).catch(() => AppToast.show('发送验证码失败'));
+        return;
+      }
       this.codeSent = true;
       AppToast.show('Verification code sent');
       return;
     }
     if (this.code.trim().length < 4) {
       AppToast.show('Please enter the verification code');
+      return;
+    }
+    const useApi = PreviewLocalPreferences.useCorePort;
+    if (useApi) {
+      HarmonyCoreAuth.verifyPhone(trimmed, this.code.trim()).then((profile) => {
+        AppToast.show(`Logged in as ${profile.displayName}`);
+        router.back();
+      }).catch(() => AppToast.show('登录失败'));
       return;
     }
     PreviewLocalPreferences.updateAuth({

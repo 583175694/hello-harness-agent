@@ -7,7 +7,7 @@ import com.harness.agent.model.applyPreviewPatch
 
 object PreviewSessionReducer {
     private const val MAX_SKILLS = 6
-    private const val MAX_ATTACHMENTS = 6
+    private const val MAX_ATTACHMENTS = 4
 
     fun reduce(
         state: ActiveSessionState,
@@ -24,6 +24,7 @@ object PreviewSessionReducer {
             PreviewUiAction.RejectTools -> resolveHitl(state, approved = false)
             is PreviewUiAction.AddSkill -> addSkill(state, action.skill)
             is PreviewUiAction.AddAttachment -> addAttachment(state, action.fileName)
+            is PreviewUiAction.RemoveAttachment -> removeAttachment(state, action.fileId)
         }
 
     private fun sendText(
@@ -171,6 +172,26 @@ object PreviewSessionReducer {
         if (current.contains(name) || current.size >= MAX_ATTACHMENTS) return state
         return state.copy(
             composer = state.composer.copy(attachmentNames = current + name),
+        )
+    }
+
+    private fun removeAttachment(
+        state: ActiveSessionState,
+        fileId: String,
+    ): ActiveSessionState {
+        val key = fileId.trim()
+        if (key.isEmpty()) return state
+        val names = state.composer.attachmentNames.filterNot { it == key }
+        val items = state.composer.attachmentItems.filterNot { it.id == key || it.fileName == key }
+        if (names.size == state.composer.attachmentNames.size && items.size == state.composer.attachmentItems.size) {
+            return state
+        }
+        return state.copy(
+            composer =
+                state.composer.copy(
+                    attachmentNames = names,
+                    attachmentItems = items,
+                ),
         )
     }
 

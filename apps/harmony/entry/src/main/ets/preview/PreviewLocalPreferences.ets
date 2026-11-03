@@ -23,6 +23,10 @@ export class PreviewLocalPreferences {
     { id: 'mem-2', text: '常用项目：hello-harness-agent' },
   ];
   static apiUrl: string = 'https://api.example.com';
+  /** Phase B：`harness_session` Cookie value（verify 后写入）。 */
+  static sessionToken: string = '';
+  /** Dev Menu / Settings 开启后 Chat 走 CoreAgentSessionPort（Preview fixture 仍可用）。 */
+  static useCorePort: boolean = false;
   static themeDark: boolean = false;
   static reduceMotion: boolean = false;
   static contentFontSize: number = 15;
@@ -31,7 +35,8 @@ export class PreviewLocalPreferences {
   static composerBlockDemo: PreviewComposerBlockKind = PreviewComposerBlockKind.NONE;
 
   static get isLoggedIn(): boolean {
-    return PreviewLocalPreferences.authProfile !== null;
+    return PreviewLocalPreferences.authProfile !== null ||
+      PreviewLocalPreferences.sessionToken.trim().length > 0;
   }
 
   static resolveComposerBlock(): PreviewComposerBlockKind {

@@ -64,7 +64,12 @@ export function useChatWorkbenchChrome({
     setOpenRequest({});
     setRuntimeToolCallId(null);
     setRuntimeArtifactId(null);
-  }, [sessionKey]);
+    if (isSplitLayout) {
+      setSplitPaneOpen(false);
+    } else {
+      sheetRef.current?.dismiss();
+    }
+  }, [sessionKey, isSplitLayout]);
 
   useEffect(() => {
     if (suppressFocusTarget) return;

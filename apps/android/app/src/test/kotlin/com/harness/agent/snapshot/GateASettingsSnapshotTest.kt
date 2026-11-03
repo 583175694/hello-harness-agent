@@ -5,6 +5,8 @@ import app.cash.paparazzi.Paparazzi
 import com.harness.agent.coreui.feedback.AppToastHost
 import com.harness.agent.coreui.tokens.HarnessTheme
 import com.harness.agent.preview.PreviewAppPreferences
+import com.harness.agent.settings.PreviewMemorySettingsBackend
+import com.harness.agent.settings.PreviewMcpSettingsBackend
 import com.harness.agent.ui.settings.PreviewMemoryHubScreen
 import com.harness.agent.ui.settings.PreviewMcpListScreen
 import com.harness.agent.ui.settings.PreviewSettingsRootScreen
@@ -44,7 +46,7 @@ class GateASettingsSnapshotTest {
         paparazzi.snapshot {
             HarnessTheme(darkTheme = false) {
                 PreviewMcpListScreen(
-                    preferences = prefs,
+                    backend = PreviewMcpSettingsBackend(prefs),
                     onBack = {},
                     onEditServer = {},
                 )
@@ -57,7 +59,12 @@ class GateASettingsSnapshotTest {
         val prefs = PreviewAppPreferences(paparazzi.context)
         paparazzi.snapshot {
             HarnessTheme(darkTheme = false) {
-                PreviewMemoryHubScreen(preferences = prefs, onBack = {})
+                AppToastHost {
+                    PreviewMemoryHubScreen(
+                        backend = PreviewMemorySettingsBackend(prefs),
+                        onBack = {},
+                    )
+                }
             }
         }
     }

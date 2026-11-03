@@ -1,5 +1,7 @@
-import Markdown from 'react-native-markdown-display';
+import Markdown, { MarkdownIt } from 'react-native-markdown-display';
 import { useMemo, type ComponentProps } from 'react';
+
+const markdownIt = MarkdownIt({ typographer: true, linkify: true });
 import { Linking, View, type ViewStyle } from 'react-native';
 import { useThemeColors } from '@/lib/use-theme-colors';
 
@@ -111,7 +113,9 @@ export function MarkdownView({
             borderLeftColor: theme.border,
             backgroundColor: 'transparent',
           },
-          strong: { color: theme.primary, fontWeight: '600' },
+          strong: { color: theme.primary, fontWeight: '700' },
+          em: { color: theme.primary, fontStyle: 'italic' },
+          s: { color: theme.muted, textDecorationLine: 'line-through' },
           code_inline: {
             backgroundColor: theme.subtle,
             borderRadius: 4,
@@ -167,6 +171,7 @@ export function MarkdownView({
   return (
     <View style={style}>
       <Markdown
+        markdownit={markdownIt}
         onLinkPress={(url) => {
           if (url.startsWith('source:')) {
             onSourcePress?.(url.replace('source:', ''));

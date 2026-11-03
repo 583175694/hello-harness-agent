@@ -19,7 +19,10 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -47,8 +50,9 @@ import com.harness.agent.preview.PreviewAppPreferences
 import com.harness.agent.coreui.feedback.LocalAppToast
 import com.harness.agent.preview.PreviewSessionViewModel
 import com.harness.agent.ui.chat.ConversationScrollOnEnterAndUserSendEffect
-import com.harness.agent.ui.chat.ProblemDetailsCard
+import com.harness.agent.ui.chat.LoadOlderMessagesBanner
 import com.harness.agent.ui.chat.ServiceBanner
+import com.harness.agent.ui.chat.formatApiProblemToast
 import com.harness.agent.ui.chat.ChatLandingHero
 import com.harness.agent.ui.chat.ChatTopBar
 import com.harness.agent.preview.PreviewUiAction
@@ -124,6 +128,17 @@ fun PreviewChatShellScreen(
     onOpenReportReader: (title: String, markdown: String) -> Unit,
     onOpenArtifactReader: (title: String, diff: String) -> Unit,
 ) {
+    val context = LocalContext.current
+    val imagePicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            uri?.let { viewModel.uploadComposerAttachment(context.contentResolver, it) }
+        }
+    val documentPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri?.let { viewModel.uploadComposerAttachment(context.contentResolver, it) }
+        }
+    val modelCatalog by viewModel.composerModelCatalog.collectAsState()
+    val skillPickerNames by viewModel.skillPickerNames.collectAsState()
     val state by viewModel.sessionState.collectAsState()
     val drawerOpen by viewModel.drawerOpen.collectAsState()
     val drawerSessions by viewModel.drawerSessions.collectAsState()
@@ -132,10 +147,41 @@ fun PreviewChatShellScreen(
     val selectedSessionId by viewModel.selectedSessionId.collectAsState()
     val inDraftMode = selectedSessionId?.startsWith("draft-") == true
     val toast = LocalAppToast.current
-    var workbenchOpen by rememberSaveable(state.scenarioId) {
-        mutableStateOf(state.workbench.initialSheetIndex >= 0 && state.workbench.workbenchCount > 0 || state.workbench.sources.isNotEmpty())
+    var workbenchOpen by remember { mutableStateOf(false) }
+    var focusedToolStepId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(state.scenarioId) {
+        workbenchOpen = false
+        focusedToolStepId = null
+        if (viewModel.coreEngineActive) {
+            viewModel.syncWorkbenchOpenFromUi(false)
+        }
     }
-    var focusedToolStepId by rememberSaveable(state.scenarioId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(state.uiHints.workbenchFocusedToolCallId) {
+        val toolId = state.uiHints.workbenchFocusedToolCallId
+        if (viewModel.coreEngineActive && !toolId.isNullOrBlank()) {
+            focusedToolStepId = toolId
+        }
+    }
+    LaunchedEffect(state.uiHints.workbenchFocusHint) {
+        val hint = state.uiHints.workbenchFocusHint
+        if (viewModel.coreEngineActive && !hint.isNullOrBlank()) {
+            toast.show(hint)
+            viewModel.clearWorkbenchFocusHint()
+        }
+    }
+    LaunchedEffect(viewModel.coreEngineActive) {
+        if (!viewModel.coreEngineActive) return@LaunchedEffect
+        viewModel.apiErrorToasts.collect { message ->
+            toast.show(message)
+        }
+    }
+    LaunchedEffect(state.scenarioId, state.problemTitle, state.problemDetail) {
+        if (viewModel.coreEngineActive) return@LaunchedEffect
+        formatApiProblemToast(state.problemTitle, state.problemDetail)?.let { message ->
+            toast.show(message)
+        }
+    }
 
     PreviewChatShellLayout(
         state = state,
@@ -146,10 +192,18 @@ fun PreviewChatShellScreen(
         onWorkbenchOpenChange = { open ->
             workbenchOpen = open
             if (!open) focusedToolStepId = null
+            if (viewModel.coreEngineActive) {
+                viewModel.syncWorkbenchOpenFromUi(open)
+            }
         },
         onOpenWorkbenchFromProcess = { toolId ->
             focusedToolStepId = toolId
             workbenchOpen = true
+            if (viewModel.coreEngineActive) {
+                val runId = state.workbench.runId ?: state.scenarioId
+                viewModel.focusWorkbenchToolCall(runId, toolId)
+                viewModel.syncWorkbenchOpenFromUi(true)
+            }
         },
         drawerOpen = drawerOpen,
         drawerSessions = drawerSessions,
@@ -183,6 +237,35 @@ fun PreviewChatShellScreen(
         onOpenReportReader = onOpenReportReader,
         onOpenArtifactReader = onOpenArtifactReader,
         onPreviewAction = viewModel::applyPreviewAction,
+        onRefreshWorkbench =
+            if (viewModel.coreEngineActive) {
+                viewModel::openWorkbenchPanel
+            } else {
+                viewModel::refreshWorkbench
+            },
+        onLoadOlderMessages = viewModel::loadOlderMessages,
+        onRestoreArtifactVersion = { restoreId, expectedId ->
+            if (viewModel.coreEngineActive) {
+                viewModel.restoreArtifactVersion(restoreId, expectedId)
+            } else {
+                toast.show("Preview：已确认恢复（未写服务器）")
+            }
+        },
+        onBeginArtifactRevision = { artifactId ->
+            if (viewModel.coreEngineActive) {
+                viewModel.beginArtifactRevision(artifactId)
+            } else {
+                toast.show("Preview：已预填修改草稿（未写服务器）")
+            }
+        },
+        onClearComposerRevisionSeed = viewModel::clearComposerRevisionSeed,
+        useCoreAttachments = viewModel.coreEngineActive,
+        onPickImageAttachment = { imagePicker.launch("image/*") },
+        onPickDocumentAttachment = { documentPicker.launch(arrayOf("*/*")) },
+        modelCatalog = modelCatalog,
+        skillPickerNames = skillPickerNames,
+        onSkillSheetOpen = viewModel::onComposerSkillSheetOpen,
+        coreEngineWorkbench = viewModel.coreEngineActive,
     )
 }
 
@@ -219,6 +302,7 @@ fun PreviewChatShellSnapshot(
         onOpenSettings = {},
         onOpenReportReader = { _, _ -> },
         onOpenArtifactReader = { _, _ -> },
+        onRefreshWorkbench = {},
     )
 }
 
@@ -254,6 +338,19 @@ private fun PreviewChatShellLayout(
     onOpenReportReader: (title: String, markdown: String) -> Unit,
     onOpenArtifactReader: (title: String, diff: String) -> Unit,
     onPreviewAction: (PreviewUiAction) -> Unit = {},
+    onRefreshWorkbench: () -> Unit = {},
+    onLoadOlderMessages: () -> Unit = {},
+    onRestoreArtifactVersion: (restoreArtifactId: String, expectedCurrentArtifactId: String) -> Unit = { _, _ -> },
+    onBeginArtifactRevision: (artifactId: String) -> Unit = {},
+    onClearComposerRevisionSeed: () -> Unit = {},
+    useCoreAttachments: Boolean = false,
+    onPickImageAttachment: () -> Unit = {},
+    onPickDocumentAttachment: () -> Unit = {},
+    modelCatalog: List<com.harness.agent.model.ComposerModelOption> =
+        com.harness.agent.model.PREVIEW_COMPOSER_MODELS,
+    skillPickerNames: List<String> = emptyList(),
+    onSkillSheetOpen: () -> Unit = {},
+    coreEngineWorkbench: Boolean = false,
 ) {
     val colors = LocalHarnessColors.current
     val dismissKeyboard = rememberDismissKeyboard()
@@ -267,6 +364,7 @@ private fun PreviewChatShellLayout(
         listState = conversationListState,
         conversation = conversation,
         sessionKey = state.scenarioId,
+        hasLoadOlderHeader = state.canLoadOlderMessages,
     )
 
     LaunchedEffect(drawerOpen, workbenchOpen) {
@@ -303,6 +401,7 @@ private fun PreviewChatShellLayout(
                 },
                 onOpenWorkbench = {
                     dismissKeyboard()
+                    onRefreshWorkbench()
                     onWorkbenchOpenChange(true)
                 },
             )
@@ -314,12 +413,6 @@ private fun PreviewChatShellLayout(
                             onRetry = { serviceBannerDismissed = false },
                             onDismiss = { serviceBannerDismissed = true },
                         )
-                    }
-                    if (
-                        state.chrome.serviceState == "ready" &&
-                        (state.problemTitle != null || state.problemDetail != null)
-                    ) {
-                        ProblemDetailsCard(title = state.problemTitle, detail = state.problemDetail)
                     }
                     Box(
                         modifier =
@@ -344,6 +437,14 @@ private fun PreviewChatShellLayout(
                                             .padding(start = 12.dp, end = 12.dp, top = 4.dp),
                                     verticalArrangement = Arrangement.spacedBy(HarnessLayout.chatListTurnSpacing),
                                 ) {
+                                    if (state.canLoadOlderMessages) {
+                                        item(key = "load-older") {
+                                            LoadOlderMessagesBanner(
+                                                loading = state.loadingOlderMessages,
+                                                onClick = onLoadOlderMessages,
+                                            )
+                                        }
+                                    }
                                     itemsIndexed(
                                         items = conversation,
                                         key = { index, item ->
@@ -373,6 +474,13 @@ private fun PreviewChatShellLayout(
                 composerBlock = composerBlock,
                 onLoginClick = onOpenLogin,
                 onPreviewAction = onPreviewAction,
+                useCoreAttachments = useCoreAttachments,
+                onPickImageAttachment = onPickImageAttachment,
+                onPickDocumentAttachment = onPickDocumentAttachment,
+                modelCatalog = modelCatalog,
+                skillPickerNames = skillPickerNames,
+                onSkillSheetOpen = onSkillSheetOpen,
+                onClearComposerRevisionSeed = onClearComposerRevisionSeed,
                 modifier =
                     Modifier.onSizeChanged { size ->
                         composerChromeHeightPx = size.height
@@ -424,6 +532,8 @@ private fun PreviewChatShellLayout(
             onOpenFilePreview = { fileName, markdown ->
                 onOpenReportReader(fileName, markdown)
             },
+            onRestoreArtifactVersion = onRestoreArtifactVersion,
+            onBeginArtifactRevision = onBeginArtifactRevision,
             initialFocusedToolId = focusedToolStepId,
         )
 

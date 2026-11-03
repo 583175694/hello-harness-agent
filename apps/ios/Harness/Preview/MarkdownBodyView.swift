@@ -1,16 +1,16 @@
+import MarkdownUI
 import SwiftUI
 
 struct MarkdownBodyView: View {
     let markdown: String
+    var contentFontSize: CGFloat = 14
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        if let attributed = try? AttributedString(markdown: markdown) {
-            Text(attributed)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            Text(markdown)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        Markdown(markdown)
+            .markdownTheme(.harnessChat(colorScheme: colorScheme, contentFontSize: contentFontSize))
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -18,12 +18,16 @@ struct MarkdownBodyView: View {
 struct ChatMarkdownView: View {
     let markdown: String
     var compact: Bool = false
+    /// 紧接 Process 时间线后的交付正文：首段略增顶距（对齐 Android `followsProcessTimeline`）。
+    var followsProcessTimeline: Bool = false
     @Environment(\.previewContentFontSize) private var contentFontSize
 
     var body: some View {
-        MarkdownBodyView(markdown: markdown)
-            .font(.system(size: max(13, contentFontSize)))
-            .lineSpacing(HarnessLayout.chatMarkdownLineSpacing(for: max(13, contentFontSize), compact: compact))
+        MarkdownBodyView(
+            markdown: markdown,
+            contentFontSize: max(13, contentFontSize),
+        )
+            .padding(.top, followsProcessTimeline ? 4 : 0)
             .frame(
                 maxWidth: compact ? nil : .infinity,
                 alignment: .leading

@@ -63,6 +63,11 @@ class GateAFullScreenSnapshotTest(
                 "connection-offline-error.json",
                 "rich-session-showcase.json",
                 "stock-market-review.json",
+                "chat-markdown-gallery.json",
+                "markdown-golden-wide-table.json",
+                "markdown-golden-research-report.json",
+                "markdown-golden-code-review.json",
+                "markdown-golden-incident-summary.json",
             )
     }
 }

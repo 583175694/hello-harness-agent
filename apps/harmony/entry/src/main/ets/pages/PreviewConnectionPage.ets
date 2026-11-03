@@ -6,6 +6,8 @@ import { HarnessColors } from '../coreui/HarnessColors';
 import { SettingsSection } from '../coreui/SettingsSection';
 import { PreviewLocalPreferences } from '../preview/PreviewLocalPreferences';
 import { harnessPageTransition } from '../coreui/HarnessPageTransition';
+import { AppToast } from '../coreui/AppFeedback';
+import { getSharedHarmonyMobileEngine } from '../core/CoreAgentSessionPort';
 
 @Entry
 @Component
@@ -43,6 +45,26 @@ struct PreviewConnectionPage {
                       PreviewLocalPreferences.apiUrl = v;
                     },
                   })
+                }
+                .width('100%')
+                .padding(16)
+              }
+              SettingsSection({ useDark: this.themeDark, sectionLabel: 'Phase B Core' }) {
+                Column({ space: 12 }) {
+                  Button('检测 /readyz')
+                    .width('100%')
+                    .onClick(async () => {
+                      const core = getSharedHarmonyMobileEngine();
+                      await core.refreshReadiness();
+                      AppToast.show(core.snapshot.chrome.serviceState === 'ready' ?
+                        'API 就绪' : '无法连接');
+                    })
+                  Button('打开 Core 联调会话')
+                    .width('100%')
+                    .onClick(() => {
+                      PreviewLocalPreferences.useCorePort = true;
+                      router.pushUrl({ url: 'pages/PreviewChatPage', params: { core: '1', title: 'Core 联调' } });
+                    })
                 }
                 .width('100%')
                 .padding(16)

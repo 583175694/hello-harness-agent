@@ -346,7 +346,7 @@ ok('UI regression static: Report Reader navigation + dual-end reader snapshots (
 for (const [rel, re] of [
   ['apps/android/app/src/main/kotlin/com/harness/agent/ui/settings/PreviewSettingsScreens.kt', /API|apiBaseUrl|api/i],
   ['apps/ios/Harness/Preview/PreviewSettingsViews.swift', /API|apiBaseUrl/i],
-  ['apps/harmony/entry/src/main/ets/pages/PreviewSettingsPage.ets', /API URL/],
+  ['apps/harmony/entry/src/main/ets/pages/PreviewSettingsPage.ets', /API|apiBaseUrl|api/i],
 ]) {
   if (mustExist(rel, 'Settings')) {
     if (!re.test(read(rel))) {

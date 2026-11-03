@@ -6,6 +6,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -15,17 +16,22 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.harness.agent.coreui.tokens.HarnessLayout
+import com.harness.agent.media.HarnessAuthedAsyncImage
+import com.harness.agent.media.isLocalPreviewUri
 import com.harness.agent.coreui.tokens.LocalHarnessColors
+import com.harness.agent.model.ComposerAttachmentItem
 
 @Composable
 fun ComposerSkillChips(
@@ -55,9 +61,11 @@ fun ComposerSkillChips(
 @Composable
 fun ComposerAttachmentStrip(
     fileNames: List<String>,
+    items: List<ComposerAttachmentItem> = emptyList(),
     modifier: Modifier = Modifier,
+    onRemoveAttachment: ((String) -> Unit)? = null,
 ) {
-    if (fileNames.isEmpty()) return
+    if (items.isEmpty() && fileNames.isEmpty()) return
     val stripHeight = HarnessLayout.composerAttachmentStripHeight
     Row(
         modifier =
@@ -67,9 +75,82 @@ fun ComposerAttachmentStrip(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        fileNames.forEach { fileName ->
-            ComposerAttachmentCard(fileName = fileName, stripHeight = stripHeight)
+        if (items.isNotEmpty()) {
+            items.forEach { item ->
+                ComposerAttachmentItemCard(
+                    item = item,
+                    stripHeight = stripHeight,
+                    onRemove = onRemoveAttachment?.let { remove -> { remove(item.id) } },
+                )
+            }
+        } else {
+            fileNames.forEach { fileName ->
+                ComposerAttachmentCard(
+                    fileName = fileName,
+                    stripHeight = stripHeight,
+                    onRemove = onRemoveAttachment?.let { remove -> { remove(fileName) } },
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun ComposerAttachmentItemCard(
+    item: ComposerAttachmentItem,
+    stripHeight: androidx.compose.ui.unit.Dp,
+    onRemove: (() -> Unit)? = null,
+) {
+    val colors = LocalHarnessColors.current
+    val shape = RoundedCornerShape(HarnessLayout.controlRadius)
+    val cardModifier =
+        Modifier
+            .height(stripHeight)
+            .background(colors.subtle, shape)
+            .border(1.dp, colors.composerBorder, shape)
+    if (isImageAttachment(item.fileName) || item.mediaType.startsWith("image/")) {
+        Box(modifier = cardModifier.width(stripHeight)) {
+            if (onRemove != null) {
+                androidx.compose.material3.IconButton(
+                    onClick = onRemove,
+                    modifier = Modifier.align(Alignment.TopEnd).size(24.dp),
+                ) {
+                    Icon(Icons.Rounded.Close, contentDescription = "移除附件", modifier = Modifier.size(14.dp))
+                }
+            }
+            if (!item.previewUri.isNullOrBlank()) {
+                HarnessAuthedAsyncImage(
+                    fileId = item.id,
+                    serverPreviewUrl = item.previewUri.takeUnless { isLocalPreviewUri(it) },
+                    localPreviewUri = item.previewUri.takeIf { isLocalPreviewUri(it) },
+                    contentDescription = item.fileName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("IMG", fontSize = 10.sp, color = colors.muted)
+                }
+            }
+            if (item.status == "processing") {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .background(colors.surface.copy(alpha = 0.55f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                }
+            }
+        }
+    } else {
+        ComposerAttachmentCard(
+            fileName = item.fileName,
+            stripHeight = stripHeight,
+            processing = item.status == "processing",
+            onRemove = onRemove,
+        )
     }
 }
 
@@ -77,6 +158,8 @@ fun ComposerAttachmentStrip(
 private fun ComposerAttachmentCard(
     fileName: String,
     stripHeight: androidx.compose.ui.unit.Dp,
+    processing: Boolean = false,
+    onRemove: (() -> Unit)? = null,
 ) {
     val colors = LocalHarnessColors.current
     val shape = RoundedCornerShape(HarnessLayout.controlRadius)
@@ -92,6 +175,14 @@ private fun ComposerAttachmentCard(
             contentAlignment = Alignment.Center,
         ) {
             Text("IMG", fontSize = 10.sp, color = colors.muted)
+            if (onRemove != null) {
+                androidx.compose.material3.IconButton(
+                    onClick = onRemove,
+                    modifier = Modifier.align(Alignment.TopEnd).size(24.dp),
+                ) {
+                    Icon(Icons.Rounded.Close, contentDescription = "移除附件", modifier = Modifier.size(14.dp))
+                }
+            }
         }
     } else {
         Row(
@@ -109,12 +200,16 @@ private fun ComposerAttachmentCard(
                         .background(colors.canvas, RoundedCornerShape(4.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = fileExtensionLabel(fileName),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.link,
-                )
+                if (processing) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Text(
+                        text = fileExtensionLabel(fileName),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.link,
+                    )
+                }
             }
             Text(
                 text = fileName,
@@ -125,12 +220,16 @@ private fun ComposerAttachmentCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
-            Icon(
-                imageVector = Icons.Rounded.Close,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = colors.muted,
-            )
+            if (onRemove != null) {
+                androidx.compose.material3.IconButton(onClick = onRemove, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "移除附件",
+                        modifier = Modifier.size(14.dp),
+                        tint = colors.muted,
+                    )
+                }
+            }
         }
     }
 }

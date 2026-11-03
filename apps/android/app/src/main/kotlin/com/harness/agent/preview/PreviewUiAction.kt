@@ -2,7 +2,12 @@ package com.harness.agent.preview
 
 /** Gate A 本地交互（无后端）；由 [PreviewSessionReducer] 归约到 [ActiveSessionState]。 */
 sealed interface PreviewUiAction {
-    data class SendComposerText(val text: String) : PreviewUiAction
+    data class SendComposerText(
+        val text: String,
+        val modelId: String? = null,
+        val reasoningEffort: String? = null,
+        val skillNames: List<String> = emptyList(),
+    ) : PreviewUiAction
 
     data object StopRun : PreviewUiAction
 
@@ -21,4 +26,6 @@ sealed interface PreviewUiAction {
     data class AddSkill(val skill: String) : PreviewUiAction
 
     data class AddAttachment(val fileName: String) : PreviewUiAction
+
+    data class RemoveAttachment(val fileId: String) : PreviewUiAction
 }

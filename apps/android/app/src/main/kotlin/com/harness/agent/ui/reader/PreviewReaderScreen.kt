@@ -9,7 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.harness.agent.coreui.markdown.MarkdownBody
+import com.harness.agent.coreui.markdown.ChatMarkdown
 import com.harness.agent.coreui.primitives.AppScaffold
 import com.harness.agent.coreui.primitives.AppText
 import com.harness.agent.coreui.primitives.AppTextStyle
@@ -38,7 +38,7 @@ fun PreviewReportReaderScreen(
             if (preferences.readerIsArtifact) {
                 AppText(text = body, style = AppTextStyle.Caption)
             } else {
-                MarkdownBody(markdown = body, modifier = Modifier.fillMaxWidth())
+                ChatMarkdown(markdown = body, modifier = Modifier.fillMaxWidth())
             }
         }
     }

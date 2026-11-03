@@ -1,0 +1,21 @@
+{
+  "pending": false,
+  "deliveryStatus": "completed",
+  "pendingText": "",
+  "finalText": "最终答案",
+  "process": [
+    {
+      "kind": "reasoning",
+      "content": "先检索",
+      "streaming": false,
+      "durationMs": 320
+    },
+    {
+      "kind": "tool",
+      "id": "call-1",
+      "name": "搜索网页",
+      "status": "completed",
+      "summary": "市场"
+    }
+  ]
+}

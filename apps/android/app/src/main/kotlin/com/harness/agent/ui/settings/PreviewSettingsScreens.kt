@@ -52,9 +52,15 @@ import com.harness.agent.coreui.tokens.HarnessLayout
 import com.harness.agent.coreui.tokens.LocalHarnessColors
 import com.harness.agent.preview.PreviewAppPreferences
 import com.harness.agent.preview.PreviewComposerBlockKind
-import com.harness.agent.preview.PreviewMcpServer
+import com.harness.agent.settings.MemoryHubState
+import com.harness.agent.settings.MemorySettingsBackend
+import com.harness.agent.settings.McpServerUiModel
+import com.harness.agent.settings.McpSettingsBackend
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import kotlinx.coroutines.launch
 import com.harness.agent.preview.PreviewThemeMode
-import java.util.UUID
 
 @Composable
 fun PreviewSettingsRootScreen(
@@ -65,6 +71,9 @@ fun PreviewSettingsRootScreen(
     onOpenMcp: () -> Unit,
     onOpenConnection: () -> Unit,
     onOpenPreviewScenarios: () -> Unit = {},
+    onSignOut: () -> Unit = {
+        preferences.updateAuthProfile(null)
+    },
 ) {
     val toast = LocalAppToast.current
 
@@ -158,7 +167,7 @@ fun PreviewSettingsRootScreen(
                         text = "退出登录",
                         style = SettingsPillStyle.Subtle,
                         onClick = {
-                            preferences.updateAuthProfile(null)
+                            onSignOut()
                             toast.show("已退出登录")
                         },
                     )
@@ -172,6 +181,7 @@ fun PreviewSettingsRootScreen(
 fun PreviewConnectionScreen(
     preferences: PreviewAppPreferences,
     onBack: () -> Unit,
+    onApiUrlChanged: () -> Unit = {},
 ) {
     AppScaffold(topBar = { SettingsTopBar(title = "连接", onBack = onBack) }) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -192,7 +202,10 @@ fun PreviewConnectionScreen(
                     ) {
                         SettingsTextField(
                             value = preferences.apiBaseUrl,
-                            onValueChange = preferences::updateApiBaseUrl,
+                            onValueChange = { url ->
+                                preferences.updateApiBaseUrl(url)
+                                onApiUrlChanged()
+                            },
                             label = "API Base URL",
                             placeholder = "http://192.168.x.x:4318",
                         )
@@ -205,10 +218,19 @@ fun PreviewConnectionScreen(
 
 @Composable
 fun PreviewMcpListScreen(
-    preferences: PreviewAppPreferences,
+    backend: McpSettingsBackend,
     onBack: () -> Unit,
     onEditServer: (String) -> Unit,
 ) {
+    var servers by remember { mutableStateOf<List<McpServerUiModel>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(backend) {
+        servers = backend.listServers()
+    }
+    LifecycleResumeEffect(backend) {
+        scope.launch { servers = backend.listServers() }
+        onPauseOrDispose { }
+    }
     AppScaffold(topBar = { SettingsTopBar(title = "MCP 服务器", onBack = onBack) }) {
         Column(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -220,18 +242,18 @@ fun PreviewMcpListScreen(
                 verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
             ) {
                 SettingsGroup(sectionLabel = "已配置") {
-                    if (preferences.mcpServers.isEmpty()) {
+                    if (servers.isEmpty()) {
                         AppText(
                             text = "暂无服务器",
                             style = AppTextStyle.Muted,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                         )
                     } else {
-                        preferences.mcpServers.forEachIndexed { index, server ->
+                        servers.forEachIndexed { index, server ->
                             McpServerRow(
                                 server = server,
                                 onClick = { onEditServer(server.id) },
-                                showDivider = index < preferences.mcpServers.lastIndex,
+                                showDivider = index < servers.lastIndex,
                             )
                         }
                     }
@@ -246,16 +268,31 @@ fun PreviewMcpListScreen(
 
 @Composable
 fun PreviewMcpFormScreen(
-    preferences: PreviewAppPreferences,
+    backend: McpSettingsBackend,
     serverId: String,
     onBack: () -> Unit,
 ) {
-    val existing = preferences.mcpServers.find { it.id == serverId }
-    var name by remember(serverId) { mutableStateOf(existing?.serverName ?: "") }
-    var url by remember(serverId) { mutableStateOf(existing?.url ?: "") }
-    var enabled by remember(serverId) { mutableStateOf(existing?.enabled ?: true) }
+    var existing by remember(serverId) { mutableStateOf<McpServerUiModel?>(null) }
+    var name by remember(serverId) { mutableStateOf("") }
+    var url by remember(serverId) { mutableStateOf("") }
+    var enabled by remember(serverId) { mutableStateOf(true) }
     var testConfirm by remember { mutableStateOf<AppConfirmRequest?>(null) }
     val toast = LocalAppToast.current
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(backend, serverId) {
+        if (serverId == "new") {
+            existing = null
+            name = ""
+            url = ""
+            enabled = true
+        } else {
+            val row = backend.listServers().find { it.id == serverId }
+            existing = row
+            name = row?.serverName ?: ""
+            url = row?.url ?: ""
+            enabled = row?.enabled ?: true
+        }
+    }
 
     AppScaffold(topBar = { SettingsTopBar(title = if (existing == null) "新建 MCP" else "编辑 MCP", onBack = onBack) }) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -298,15 +335,26 @@ fun PreviewMcpFormScreen(
                         style = SettingsPillStyle.Subtle,
                         modifier = Modifier.weight(1f),
                         onClick = {
-                            toast.show("连接成功")
-                            testConfirm =
-                                AppConfirmRequest(
-                                    title = "MCP Test",
-                                    message = "连接成功。",
-                                    confirmLabel = "确定",
-                                    dismissLabel = "",
-                                    onConfirm = {},
+                            val id = existing?.id
+                            if (id == null) {
+                                toast.show("请先保存服务器")
+                                return@SettingsPillButton
+                            }
+                            scope.launch {
+                                backend.testServer(id).fold(
+                                    onSuccess = { result ->
+                                        testConfirm =
+                                            AppConfirmRequest(
+                                                title = "MCP Test",
+                                                message = result.message,
+                                                confirmLabel = "确定",
+                                                dismissLabel = "",
+                                                onConfirm = {},
+                                            )
+                                    },
+                                    onFailure = { toast.show(it.message ?: "测试失败") },
                                 )
+                            }
                         },
                     )
                     if (existing != null) {
@@ -315,8 +363,12 @@ fun PreviewMcpFormScreen(
                             style = SettingsPillStyle.Subtle,
                             modifier = Modifier.weight(1f),
                             onClick = {
-                                preferences.deleteMcpServer(existing.id)
-                                onBack()
+                                scope.launch {
+                                    backend.deleteServer(existing!!.id).fold(
+                                        onSuccess = { onBack() },
+                                        onFailure = { toast.show(it.message ?: "删除失败") },
+                                    )
+                                }
                             },
                         )
                     }
@@ -325,11 +377,17 @@ fun PreviewMcpFormScreen(
                     text = "保存",
                     enabled = name.isNotBlank() && url.isNotBlank(),
                     onClick = {
-                        val id = existing?.id ?: UUID.randomUUID().toString()
-                        preferences.upsertMcpServer(
-                            PreviewMcpServer(id = id, serverName = name.trim(), url = url.trim(), enabled = enabled),
-                        )
-                        onBack()
+                        scope.launch {
+                            backend.saveServer(
+                                id = existing?.id,
+                                serverName = name,
+                                url = url,
+                                enabled = enabled,
+                            ).fold(
+                                onSuccess = { onBack() },
+                                onFailure = { toast.show(it.message ?: "保存失败") },
+                            )
+                        }
                     },
                 )
             }
@@ -341,9 +399,15 @@ fun PreviewMcpFormScreen(
 
 @Composable
 fun PreviewMemoryHubScreen(
-    preferences: PreviewAppPreferences,
+    backend: MemorySettingsBackend,
     onBack: () -> Unit,
 ) {
+    var state by remember { mutableStateOf(MemoryHubState(allowAgentWrite = true, entries = emptyList())) }
+    val scope = rememberCoroutineScope()
+    val toast = LocalAppToast.current
+    LaunchedEffect(backend) {
+        state = backend.load()
+    }
     AppScaffold(topBar = { SettingsTopBar(title = "记忆", onBack = onBack) }) {
         Column(
             modifier =
@@ -356,24 +420,43 @@ fun PreviewMemoryHubScreen(
             SettingsGroup(sectionLabel = "写入") {
                 SettingsToggleRow(
                     title = "允许 Agent 写入记忆",
-                    checked = preferences.allowAgentMemoryWrite,
-                    onCheckedChange = preferences::updateAllowAgentMemoryWrite,
+                    checked = state.allowAgentWrite,
+                    onCheckedChange = { enabled ->
+                        scope.launch {
+                            backend.setAllowAgentWrite(enabled).fold(
+                                onSuccess = { state = state.copy(allowAgentWrite = enabled) },
+                                onFailure = { toast.show(it.message ?: "更新失败") },
+                            )
+                        }
+                    },
                     showDivider = false,
                 )
             }
             SettingsGroup(sectionLabel = "条目") {
-                if (preferences.memoryEntries.isEmpty()) {
+                if (state.entries.isEmpty()) {
                     AppText(
                         text = "暂无记忆",
                         style = AppTextStyle.Muted,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                     )
                 } else {
-                    preferences.memoryEntries.forEachIndexed { index, entry ->
+                    state.entries.forEachIndexed { index, entry ->
                         SettingsMemoryEntryRow(
                             text = entry.text,
-                            onDelete = { preferences.deleteMemoryEntry(entry.id) },
-                            showDivider = index < preferences.memoryEntries.lastIndex,
+                            onDelete = {
+                                scope.launch {
+                                    backend.deleteEntry(entry.id).fold(
+                                        onSuccess = {
+                                            state =
+                                                state.copy(
+                                                    entries = state.entries.filterNot { it.id == entry.id },
+                                                )
+                                        },
+                                        onFailure = { toast.show(it.message ?: "删除失败") },
+                                    )
+                                }
+                            },
+                            showDivider = index < state.entries.lastIndex,
                         )
                     }
                 }
@@ -637,7 +720,7 @@ private fun nextThemeMode(mode: PreviewThemeMode): PreviewThemeMode =
 
 @Composable
 private fun McpServerRow(
-    server: PreviewMcpServer,
+    server: McpServerUiModel,
     onClick: () -> Unit,
     showDivider: Boolean = false,
 ) {
@@ -659,7 +742,9 @@ private fun McpServerRow(
             )
             val colors = LocalHarnessColors.current
             Text(
-                text = if (server.enabled) "已启用" else "未启用",
+                text =
+                    server.statusLabel?.takeIf { it.isNotBlank() }
+                        ?: if (server.enabled) "已启用" else "未启用",
                 color = colors.muted,
                 fontSize = 14.sp,
                 modifier = Modifier.padding(end = 2.dp),

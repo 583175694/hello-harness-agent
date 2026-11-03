@@ -10,8 +10,18 @@ struct ComposerState: Equatable {
     var showPlan: Bool = false
     var plan: PlanFixture?
     var attachmentNames: [String] = []
+    var attachmentItems: [ComposerAttachmentItem] = []
     var selectedModelLabel: String = "默认模型"
     var followUps: [FollowUpFixture] = []
+    var revisionDraftSeed: String?
+}
+
+struct ComposerAttachmentItem: Equatable, Identifiable {
+    var id: String
+    var fileName: String
+    var mediaType: String = ""
+    var previewUri: String?
+    var status: String = "ready"
 }
 
 struct FollowUpFixture: Equatable, Identifiable {

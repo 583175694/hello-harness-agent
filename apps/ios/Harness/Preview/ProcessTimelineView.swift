@@ -89,8 +89,11 @@ private struct ProcessTimelineRow: View {
     var onOpenWorkbench: ((String) -> Void)? = nil
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var reasoningOpen = false
+    @State private var reasoningAutoCloseTask: Task<Void, Never>?
 
     private var prefersReducedMotion: Bool { reduceMotion || accessibilityReduceMotion }
+
+    private static let reasoningAutoCloseNanos: UInt64 = 1_000_000_000
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -119,7 +122,6 @@ private struct ProcessTimelineRow: View {
                         onOpenWorkbench(id)
                     }
                 case .reasoning(let content, let durationMs, let streaming):
-                    let showReasoningBody = reasoningOpen || streaming
                     VStack(alignment: .leading, spacing: 0) {
                         Button {
                             toggleReasoningOpen()
@@ -131,26 +133,60 @@ private struct ProcessTimelineRow: View {
                                     .lineLimit(1)
                                 HarnessSymbol.image("chevron.down", size: 14)
                                     .foregroundStyle(HarnessColors.muted)
-                                    .rotationEffect(.degrees(showReasoningBody ? 180 : 0))
+                                    .rotationEffect(.degrees(reasoningOpen ? 180 : 0))
                                     .animation(prefersReducedMotion ? nil : .easeOut(duration: 0.14), value: reasoningOpen)
                                     .accessibilityHidden(true)
                             }
                             .frame(height: 20, alignment: .leading)
                         }
                         .buttonStyle(ProcessTimelineTextButtonStyle())
-                        Text(content)
-                            .font(.subheadline)
-                            .foregroundStyle(HarnessColors.muted)
-                            .lineSpacing(6)
-                            .padding(.top, 6)
-                            .padding(.horizontal, 12)
-                            .padding(.bottom, 8)
-                            .scaleEffect(x: 1, y: showReasoningBody ? 1 : 0, anchor: .top)
-                            .opacity(showReasoningBody ? 1 : 0)
-                            .animation(prefersReducedMotion ? nil : .easeOut(duration: 0.22), value: showReasoningBody)
-                            .accessibilityHidden(!showReasoningBody)
+                        ProcessTimelineReasoningScrollBody(
+                            content: content,
+                            streaming: streaming,
+                            reduceMotion: prefersReducedMotion
+                        )
+                        .scaleEffect(x: 1, y: reasoningOpen ? 1 : 0, anchor: .top)
+                        .opacity(reasoningOpen ? 1 : 0)
+                        .animation(prefersReducedMotion ? nil : .easeOut(duration: 0.22), value: reasoningOpen)
+                        .accessibilityHidden(!reasoningOpen)
                     }
                     .clipped()
+                    .onAppear {
+                        if streaming {
+                            reasoningOpen = true
+                        }
+                    }
+                    .onChange(of: streaming) { wasStreaming, isStreaming in
+                        reasoningAutoCloseTask?.cancel()
+                        reasoningAutoCloseTask = nil
+                        if isStreaming {
+                            if prefersReducedMotion {
+                                reasoningOpen = true
+                            } else {
+                                withAnimation(.easeOut(duration: 0.22)) {
+                                    reasoningOpen = true
+                                }
+                            }
+                        } else if wasStreaming {
+                            reasoningAutoCloseTask = Task {
+                                try? await Task.sleep(nanoseconds: Self.reasoningAutoCloseNanos)
+                                guard !Task.isCancelled else { return }
+                                await MainActor.run {
+                                    if prefersReducedMotion {
+                                        reasoningOpen = false
+                                    } else {
+                                        withAnimation(.easeOut(duration: 0.22)) {
+                                            reasoningOpen = false
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .onDisappear {
+                        reasoningAutoCloseTask?.cancel()
+                        reasoningAutoCloseTask = nil
+                    }
                 case .text(let content):
                     Text(content)
                         .font(.subheadline)
@@ -190,6 +226,65 @@ private struct ProcessTimelineRow: View {
 private struct ProcessTimelineNodeDot: View {
     var body: some View {
         Circle().fill(HarnessColors.border).frame(width: 6, height: 6)
+    }
+}
+
+/// 对齐 Web `.ai-reasoning__content`：限高、内部滚动、上下渐变遮罩。
+private struct ProcessTimelineReasoningScrollBody: View {
+    let content: String
+    let streaming: Bool
+    var reduceMotion: Bool = false
+
+    private let maxHeight: CGFloat = 240
+    private let fadeHeight: CGFloat = 18
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let fadeBase = HarnessColors.canvas(colorScheme)
+        ScrollViewReader { proxy in
+            ScrollView {
+                Text(content)
+                    .font(.subheadline)
+                    .foregroundStyle(HarnessColors.muted)
+                    .lineSpacing(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .id("reasoningScrollEnd")
+            }
+            .frame(maxHeight: maxHeight)
+            .padding(.top, 6)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+            .scrollIndicators(.hidden)
+            .overlay(alignment: .top) {
+                LinearGradient(
+                    colors: [fadeBase, fadeBase.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: fadeHeight)
+                .allowsHitTesting(false)
+            }
+            .overlay(alignment: .bottom) {
+                LinearGradient(
+                    colors: [fadeBase.opacity(0), fadeBase],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: fadeHeight)
+                .allowsHitTesting(false)
+            }
+            .onChange(of: content) { _, _ in
+                guard streaming else { return }
+                if reduceMotion {
+                    proxy.scrollTo("reasoningScrollEnd", anchor: .bottom)
+                } else {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        proxy.scrollTo("reasoningScrollEnd", anchor: .bottom)
+                    }
+                }
+            }
+        }
     }
 }
 

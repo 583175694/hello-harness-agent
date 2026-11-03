@@ -14,6 +14,8 @@ struct WorkbenchSheetView: View {
     var onOpenReportReader: (() -> Void)? = nil
     var onOpenArtifactReader: (() -> Void)? = nil
     var onOpenFilePreview: ((String, String) -> Void)? = nil
+    var onRestoreArtifactVersion: ((String, String) -> Void)? = nil
+    var onBeginArtifactRevision: ((String) -> Void)? = nil
     var initialFocusedToolId: String? = nil
     @State private var detentIndex: Int
     @State private var activeTab: String
@@ -28,6 +30,8 @@ struct WorkbenchSheetView: View {
         onOpenReportReader: (() -> Void)? = nil,
         onOpenArtifactReader: (() -> Void)? = nil,
         onOpenFilePreview: ((String, String) -> Void)? = nil,
+        onRestoreArtifactVersion: ((String, String) -> Void)? = nil,
+        onBeginArtifactRevision: ((String) -> Void)? = nil,
         initialFocusedToolId: String? = nil
     ) {
         self.previewReduceMotion = previewReduceMotion
@@ -38,6 +42,8 @@ struct WorkbenchSheetView: View {
         self.onOpenReportReader = onOpenReportReader
         self.onOpenArtifactReader = onOpenArtifactReader
         self.onOpenFilePreview = onOpenFilePreview
+        self.onRestoreArtifactVersion = onRestoreArtifactVersion
+        self.onBeginArtifactRevision = onBeginArtifactRevision
         _detentIndex = State(initialValue: state.resolvedInitialDetent)
         _activeTab = State(initialValue: state.initialView)
         _presentProgress = State(initialValue: visible ? 1 : 0)
@@ -93,6 +99,9 @@ struct WorkbenchSheetView: View {
         }
         .onChange(of: initialFocusedToolId) { _, newId in
             if newId != nil { activeTab = "activity" }
+        }
+        .onChange(of: state.initialView) { _, view in
+            activeTab = view.isEmpty ? "activity" : view
         }
         .ignoresSafeArea()
         .sheet(item: $passageCard) { card in
@@ -152,18 +161,37 @@ struct WorkbenchSheetView: View {
     private var tabBody: some View {
         if activeTab == "artifact" {
             ScrollView {
-                WorkbenchFilesView(
-                    files: state.deliverableFiles,
-                    onPreview: { file in
-                        let md = file.previewMarkdown ?? "# \(file.fileName)\n\n（Preview 文件预览）"
-                        if let onOpenFilePreview {
-                            onOpenFilePreview(file.fileName, md)
-                        } else {
-                            onOpenReportReader?()
+                if !state.artifactVersions.isEmpty {
+                    WorkbenchArtifactVersionsSection(
+                        state: state,
+                        onRequestRestore: { restoreId, expectedId in
+                            guard onRestoreArtifactVersion != nil else { return }
+                            restoreConfirm = AppConfirmRequest(
+                                title: "恢复版本",
+                                message: state.artifactRestorePrompt ?? "将恢复所选版本。",
+                                confirmLabel: "确认恢复",
+                                onConfirm: { onRestoreArtifactVersion?(restoreId, expectedId) }
+                            )
+                        },
+                        onBeginRevision: { artifactId in
+                            onBeginArtifactRevision?(artifactId)
                         }
-                    }
-                )
-                .padding(.vertical, 8)
+                    )
+                    .padding(.vertical, 8)
+                } else {
+                    WorkbenchFilesView(
+                        files: state.deliverableFiles,
+                        onPreview: { file in
+                            let md = file.previewMarkdown ?? "# \(file.fileName)\n\n（Preview 文件预览）"
+                            if let onOpenFilePreview {
+                                onOpenFilePreview(file.fileName, md)
+                            } else {
+                                onOpenReportReader?()
+                            }
+                        }
+                    )
+                    .padding(.vertical, 8)
+                }
             }
         } else {
             WorkbenchActivityFollowView(state: state, initialStepId: initialFocusedToolId)
@@ -495,6 +523,48 @@ struct WorkbenchPassageSheetSnapshotView: View {
 }
 
 /// Gate A Snapshot：Artifact 恢复确认（S-WB-ART 静态确认）。
+private struct WorkbenchArtifactVersionsSection: View {
+    let state: WorkbenchState
+    let onRequestRestore: (String, String) -> Void
+    let onBeginRevision: (String) -> Void
+
+    var body: some View {
+        let current = state.artifactVersions.first(where: { $0.selected }) ?? state.artifactVersions.first
+        VStack(alignment: .leading, spacing: 10) {
+            if let prompt = state.artifactRestorePrompt, !prompt.isEmpty {
+                Text(prompt).font(.caption).foregroundStyle(HarnessColors.muted)
+            }
+            ForEach(state.artifactVersions) { version in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(version.label).font(.body)
+                        if version.selected {
+                            Text("当前版本").font(.caption).foregroundStyle(HarnessColors.muted)
+                        }
+                    }
+                    Spacer()
+                    HStack(spacing: 12) {
+                        Button("修改") {
+                            onBeginRevision(version.id)
+                        }
+                        .font(.subheadline)
+                        if !version.selected, let current {
+                            Button("恢复") {
+                                onRequestRestore(version.id, current.id)
+                            }
+                            .font(.subheadline)
+                        }
+                    }
+                }
+                .padding(12)
+                .background(HarnessColors.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+}
+
 struct WorkbenchRestoreConfirmSnapshotView: View {
     let message: String
 

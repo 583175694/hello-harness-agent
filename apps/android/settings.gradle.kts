@@ -15,6 +15,9 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "HarnessAndroid"
+
+includeBuild("../../packages/mobile-core")
+
 include(":app")
 include(":core-ui")
 include(":macrobenchmark")

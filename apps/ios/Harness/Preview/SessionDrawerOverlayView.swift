@@ -111,7 +111,7 @@ struct SessionDrawerOverlayView: View {
             .padding(.bottom, 12)
         }
         .frame(maxHeight: .infinity)
-        .background(HarnessColors.drawer(colorScheme))
+        .background(HarnessColors.drawer)
     }
 
     private func sectionLabel(_ text: String) -> some View {

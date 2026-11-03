@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "markdown-golden-incident-summary",
+  "title": "Markdown Golden · 事故复盘",
+  "conversation": [
+    {
+      "kind": "user",
+      "content": "写 createRun 事故复盘"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "# 事故复盘：createRun BAD_REQUEST 峰值\n\n## 时间线\n\n| 时间 (UTC+8) | 事件 |\n| --- | --- |\n| 14:02 | 监控：4xx 比例 > 15% |\n| 14:18 | 定位：`encodeDefaults` 写入 null 数组字段 |\n| 14:35 | 热修：撤销全局 defaults + 单测 |\n| 15:00 | 错误率恢复基线 |\n\n## 根因\n\n客户端 JSON 出现 `\"skillNames\": null`，服务端 Zod **拒绝可选 null**。\n\n> **教训**：协议字段「省略」与「显式 null」在移动端序列化层必须单测覆盖。\n\n## 行动项\n\n- [x] 增加 `CreateRunBodyJsonTest`\n- [x] Toast 替代顶栏常驻 Problem\n- [ ] 服务端 OpenAPI 标注 optional vs nullable\n\n影响：**约 38 分钟** 发送不可用；无数据丢失。\n"
+        }
+      ]
+    }
+  ],
+  "composer": {
+    "composerMode": "default",
+    "composerTextMode": "new-run",
+    "submitting": false,
+    "placeholder": "继续对话…",
+    "modelLabel": "默认模型"
+  },
+  "workbench": {
+    "initialView": "activity",
+    "initialSheetIndex": -1,
+    "workbenchCount": 0
+  }
+}

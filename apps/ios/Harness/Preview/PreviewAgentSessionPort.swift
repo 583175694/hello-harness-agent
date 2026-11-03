@@ -1,10 +1,6 @@
 import Foundation
 
-protocol AgentSessionPort {
-    var sessionState: ActiveSessionState { get }
-    func loadPreviewFixture(fileName: String) -> ActiveSessionState
-    func listPreviewFixtures() -> [PreviewFixtureDescriptor]
-}
+#if PREVIEW_PORT
 
 final class PreviewAgentSessionPort: AgentSessionPort {
     private let loader: MobileContractPreviewLoader
@@ -25,3 +21,5 @@ final class PreviewAgentSessionPort: AgentSessionPort {
         loader.listPreviewFixtures()
     }
 }
+
+#endif

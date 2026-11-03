@@ -1,9 +1,9 @@
 # Native Mobile 客户端架构方案（Android + iOS + HarmonyOS）
 
 > 文档类型：**工程架构与交付方案**（Android / iOS / HarmonyOS 原生客户端）  
-> 文档状态：**定稿 v1.7 — 实施依据**  
-> 最后更新：2026-10-27  
-> 关联：[11-api-protocol.md](./11-api-protocol.md)、[26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)、[19-agent-frontend.md](./19-agent-frontend.md)（产品语义）、[18-project-structure.md](./18-project-structure.md)  
+> 文档状态：**定稿 v1.8 — 实施依据**  
+> 最后更新：2026-10-30  
+> 关联：[11-api-protocol.md](./11-api-protocol.md)、[26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)、[19-agent-frontend.md](./19-agent-frontend.md)（产品语义）、[18-project-structure.md](./18-project-structure.md)、**[45-native-mobile-phase-b-integration.md](./45-native-mobile-phase-b-integration.md)**（Phase B 功能联调专篇）  
 > 范围：**`apps/android`、`apps/ios`、`apps/harmony`、`packages/mobile-core`、`packages/mobile-contract`**；**`apps/mobile`（Expo/RN）冻结**，不再作为 Release 客户端演进。
 
 ---
@@ -70,12 +70,13 @@
 | 阶段 | 目标 | 后端 |
 | --- | --- | --- |
 | **Phase A — UI 先行** | 导航、会话、Composer、Workbench、Settings、Reader 等 **全屏可用**；动画、键盘、Sheet、Drawer、流式 **模拟**；Markdown 原生渲染；**性能优化到极致** | **无**（不调用 API；可选 Dev Menu 切换 fixture） |
-| **Phase B — 联调上线** | 接入 **`mobile-core`**；Settings 配置 **服务器 Base URL**；Session / Run / SSE / HITL / Workbench 等与 **线上或指定环境 Harness API** 打通 | **直连服务器**（与 RN 联调相同：用户/API 设置里的 URL，非 Mobile 本地起 API） |
+| **Phase B — 联调（功能）** | 接入 **`mobile-core`**；Settings 配置 **服务器 Base URL**；Session / Run / SSE / HITL / Workbench 等与 **指定环境 Harness API** 打通（**细则见 [45](./45-native-mobile-phase-b-integration.md)**） | **直连服务器**（与 RN 联调相同：用户/API 设置里的 URL，非 Mobile 本地起 API） |
 
 Phase A 的 **出口标准（Gate A，v1）**：**Android + iOS** UI 回归（Snapshot / 手动矩阵）与 **Macrobenchmark / Instruments** 达标；**不**以 `readyz` 为门禁；鸿蒙 Preview **不阻塞** v1。
 
-Phase B 的 **出口标准（Gate B，v1）**：§9.3 **B0～B7** + §11 联调门禁 + **Android / iOS 同时** 提审。  
-**HarmonyOS Gate B′（v1.1）**：同一 §9.3 能力 + 华为商店；**不阻塞** v1 双端首发。
+Phase B 的 **功能出口（Gate B — 功能，v1）**：§9.3 **B0～B7** 完成 + §11 联调门禁 + 真机矩阵（**B7 = 功能 Parity 扫尾**，定义见 [45 §7](./45-native-mobile-phase-b-integration.md)；**不含** Sentry / 商店 / Maestro）。  
+**发布出口（Release，v1）**：在功能 Gate B 满足后，按 **§16**（监控、E2E、TestFlight / Play、**Android / iOS 同时提审与上线**）。  
+**HarmonyOS Gate B′（v1.1）**：同一 §9.3 **B0～B7 功能能力** + **§16.5 发布**（华为商店）；**不阻塞** v1 双端首发。
 
 ### 2.3 行为事实源（Phase B 起生效）
 
@@ -611,6 +612,9 @@ Phase A（UI / UX / 性能）  ──►  Phase B（mobile-core + 直连 API） 
 
 **目标**：Settings 配置 **服务器 Base URL** 后，与 Web 共用同一 Harness API；Run / SSE / Snapshot / HITL 等 **语义由 mobile-core 归约**，UI **仅替换 Port 实现**。
 
+> **展开阅读**：[45-native-mobile-phase-b-integration.md](./45-native-mobile-phase-b-integration.md)（**v1.2+**）— 完整 API 面、Engine 不变量（§5）、Port 扩展、边界验收（§8）、M-* → B* 映射。  
+> 本文 §9.3 为 **架构级里程碑摘要**；**B7 仅指功能扫尾**，与 **§16 发布流水线** 分离。
+
 | 编号 | 交付 | 双端标准 |
 | --- | --- | --- |
 | **B0** | `mobile-core` 最小可用 + `mobile-contract` domain golden；`CoreAgentSessionPort` 接 UI | contract 单测绿；双端能 **配置 URL** 并通过 **`GET /readyz`（M-SVC-1）**；`/health` 仅作辅助 |
@@ -619,8 +623,8 @@ Phase A（UI / UX / 性能）  ──►  Phase B（mobile-core + 直连 API） 
 | **B3** | Composer 全量联调（模型、推理、附件上传、提交队列） | 与 Web 同 Session 对照 Snapshot |
 | **B4** | HITL：clarification、tool approval；`controlRun`（steer / follow-up 等按产品开） | contract + 手工矩阵 |
 | **B5** | Workbench 真数据：Sources、Report、Artifact 版本链、Activity 定位 | 内联 Tool 点击 **3s 内** 定位 `toolCallId`（常网） |
-| **B6** | Settings MCP 真 CRUD + Test；杀进程 / 切后台恢复 | 与 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 一致；**推送（FCM/APNs/Push Kit）v1 不做**，见 §16.1 |
-| **B7** | 监控（Sentry 等）、商店包、E2E 矩阵 | **Android + iOS 同时提审、同时上线**（**不含 HarmonyOS**） |
+| **B6** | Settings MCP / Memory（与 Web Settings 暴露一致）；杀进程 / 切后台恢复 | 与 [26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md) 一致；**推送（FCM/APNs/Push Kit）v1 不做**，见 §16.1 |
+| **B7** | **功能 Parity 扫尾**（M-CONV-4～8、M-PND-1 闭环、M-SES-6 深链等待定项等） | [36 §4](./36-mobile-agent-frontend.md) 功能 ID 清零；验收细则 **[45 §7、§8](./45-native-mobile-phase-b-integration.md)**。**不含** Sentry、商店包、Maestro（见 **§16**） |
 
 **Phase B 后端约定**
 
@@ -628,12 +632,16 @@ Phase A（UI / UX / 性能）  ──►  Phase B（mobile-core + 直连 API） 
 - 鉴权方式与当前 API 部署一致（local user / token 等）；细节在 Settings Phase B 实现，本文不锁。
 - 联调验收：同一 `sessionId` / `runId` 下，Mobile 与 Web 以 **服务端 Snapshot** 为准对照（与 RN [42-mobile-api-integration-plan.md](./42-mobile-api-integration-plan.md) 协作方式相同）。
 
-**Phase B 出口（Gate B / Release）**
+**Phase B 功能出口（Gate B — 功能）**
 
-1. §9.3 **B0～B7** 完成。  
+1. §9.3 **B0～B7** 完成（**B7** 含义以 [45 §7](./45-native-mobile-phase-b-integration.md) 为准，非发布项）。  
 2. `mobile-core` 全量 golden 绿；双端集成测抽样绿。  
-3. §11 联调门禁 + 真机矩阵（长 Run、大附件、弱网恢复）。  
-4. **Android / iOS 同一版本号** 上架。
+3. §11 联调门禁 + 真机矩阵（长 Run、大附件、弱网恢复）。
+
+**发布出口（Release — 功能 Gate B 之后，§16）**
+
+4. **Sentry**、**Maestro**（§16.4）、TestFlight / Google Play 内测 → 公开商店。  
+5. **Android / iOS 同一版本号** **同时提审、同时上线**（**不含 HarmonyOS v1**）。
 
 ### 9.3.1 HarmonyOS（v1.1 — Gate B′）
 
@@ -673,7 +681,7 @@ Phase A（UI / UX / 性能）  ──►  Phase B（mobile-core + 直连 API） 
 | P4 HITL | **B4** |
 | P5 Workbench | **B5** |
 | P7 MCP Settings | **B6** |
-| P8 推送（**v1.1**）、Maestro、硬化 | **B6～B7**（推送不进 v1 B6） |
+| P8 推送（**v1.1**）、Maestro、Sentry、商店 | **B6～B7** 功能硬化 + **§16 Release**（推送不进 v1 B6；**B7 ≠ Maestro/提审**） |
 
 **RN `apps/mobile`**：不参与 Gate；Preview fixture 可 **迁移** 至 `mobile-contract`。
 
@@ -791,13 +799,15 @@ API：直连 **Settings 配置的 Harness 服务器**（dev/staging/prod）；�
 
 > **规则**：功能与 [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md) **§4 Parity 矩阵** + [19-agent-frontend.md](./19-agent-frontend.md) 语义对齐；技术选型采用常见工程默认，实施中无特殊理由不得偏离。
 
-### 16.1 功能范围（Gate B / Release）
+### 16.1 功能范围（Gate B 功能 + Release 产品边界）
+
+> **Phase B 工程验收**以 **§9.3 B0～B7** + [45](./45-native-mobile-phase-b-integration.md) 为准；本节同时记录 **v1 产品边界** 与 **上架相关** 默认（监控、E2E、商店）。
 
 | 类别 | v1 结论 |
 | --- | --- |
-| **Parity 来源** | **36 §4** 全部 ID：**M-SVC、M-SES、M-RUN、M-CONV、M-CMP、M-FILE、M-ART、M-RPT、M-SET、M-PND** |
-| **Workbench Tab** | **Activity / Artifact / Sources / Report / Context**；**不实现 Debug Tab**（Web 生产无 Debug；Context 为正式入口） |
-| **Workbench 行为** | 与 Web WorkbenchShell 一致：auto-open、pinned/follow、`FOCUS_WORKBENCH_TARGET`、降级提示 |
+| **Parity 来源** | **36 §4** 全部 ID：**M-SVC、M-SES、M-RUN、M-CONV、M-CMP、M-FILE、M-ART、M-RPT、M-SET、M-PND**（落地顺序见 [45 §7.1](./45-native-mobile-phase-b-integration.md)） |
+| **Workbench Tab** | **Activity / Artifact / Sources / Report**；**Debug Tab 不做**。**Context Tab**：RN/ Web 矩阵含 Context；**Native v1 主 UI 不展示 Context Tab**（与 Gate A 一致，见 [45 §1.5](./45-native-mobile-phase-b-integration.md)）；可选 Settings/Debug 只读 JSON |
+| **Workbench 行为** | 保留 pinned/follow、`FOCUS_WORKBENCH_TARGET`、降级提示；Native App 输出过程中不自动弹出 Workbench，用户主动点击后再打开 |
 | **Bash 终端 UI** | 与 Web **只读展示 + 复制**（`BashTerminalPanel` 语义），**不提供交互式 shell 输入** |
 | **MCP Settings** | 全 CRUD + Test（M-SET-3～5） |
 | **OAuth / 多租户** | **不做**（Web R1 无账号体系） |
@@ -824,7 +834,7 @@ API：直连 **Settings 配置的 Harness 服务器**（dev/staging/prod）；�
 | **`AgentSessionPort`** | UI 唯一数据入口；Phase B 内接 `HarnessMobileEngine` |
 | **本地持久化** | **DataStore / UserDefaults + Keychain**（URL、偏好）；v1 **可不建 Room/SwiftData**，恢复以 Snapshot 为主 |
 | **构建变体** | Android **`preview` / `production` flavor**；iOS **Debug（Preview，不链 Core）/ Release（链 Core）** |
-| **Markdown** | 流式 **纯文本**；完成后渲染：Android **Markwon 或 Compose 自研层**；iOS **MarkdownUI 或 TextKit 自研**；Report **v1 不用 WebView** |
+| **Markdown** | 流式节流后渲染；Android **Markwon**、iOS **MarkdownUI**（见 [46-native-mobile-markdown-strategy.md](./46-native-mobile-markdown-strategy.md)）；**禁止** Production 扩展自研 block 解析；Report **v1 不用 WebView** |
 | **流式 UI 刷新** | tail 更新约 **100ms** 合并（与 RN 现网同量级） |
 | **Design Token** | **`packages/mobile-contract/design-tokens.json`** 为数值权威；**三端**各自读取；与 Web `check-design-tokens` **逐步对齐** |
 | **Primitive 首批（A0）** | AppScaffold、AppTopBar、AppText、AppButton、AppIcon、AppTextField、AppSheet、ListRow、Badge、Spinner、Divider |
@@ -861,7 +871,8 @@ RN `apps/mobile` preview 可向上述名称 **迁移或映射**（对照表可�
 | 阶段 | 必跑 |
 | --- | --- |
 | **Phase A（v1 Gate A）** | preview schema 校验；Paparazzi / snapshot；benchmark **抽样**（Gate A 场景）；**Android + iOS** |
-| **Phase B（v1 Gate B）** | `mobile-core` **全量 golden**（JVM commonTest + **ohosArm64 编译**）；`:app:check` + `xcodebuild test`；Release 前 **Maestro 3～5 条** |
+| **Phase B（v1 Gate B — 功能）** | `mobile-core` **全量 golden**（JVM commonTest + **ohosArm64 编译**）；`:app:check` + `xcodebuild test`；[45 §8](./45-native-mobile-phase-b-integration.md) 边界矩阵抽样 |
+| **Release（§16，Gate B 之后）** | **Maestro 3～5 条**真 API；Sentry 接入；商店内测 → 公开 |
 | **Gate B′（v1.1 鸿蒙）** | 同上 core golden；**Hypium 或手工**真 API 冒烟；**不用 Maestro** |
 
 Job 命名在 CI 落地时写入仓库 workflow，**不阻塞架构开工**。
@@ -900,10 +911,14 @@ Job 命名在 CI 落地时写入仓库 workflow，**不阻塞架构开工**。
 
 - **三端原生 UI + 一份 KMP `mobile-core` + `mobile-contract`**；Run 归约 **仅在 Phase B 由 core 承担**；UI 为 **Compose / SwiftUI / ArkUI** 上各自 `core-ui`，视觉对齐、**代码不共享**（§3.4）。  
 - **HarmonyOS**：**ArkTS 原生 + NAPI 接 core**（§3.5、§8）；**v1.1 Gate B′**，不推翻 Android/iOS 方案。  
-- **实施顺序与 RN 一致**：Phase A fixture UI → Phase B 直连服务器；**v1 Gate B = Android + iOS**；**Gate B′ = 鸿蒙**。  
+- **实施顺序与 RN 一致**：Phase A fixture UI → Phase B 直连服务器；**v1 Gate B（功能）= B0～B7**（详 **[45](./45-native-mobile-phase-b-integration.md)**）；**Release = §16**；**Gate B′ = 鸿蒙**。  
 - 目录：**`apps/android`、`apps/ios`、`apps/harmony`、`packages/mobile-core`、`packages/mobile-contract`**。  
 - **v1 范围与技术默认**：§16；**鸿蒙**：§16.5；运维：§17；Port：§5.4。
 
 ---
 
-*文档维护：Native Mobile 架构变更请更新 §2.2、§3.4（含 §3.4.5 RN/VIA）、§3.5、§8、§9、§16 与 Port 约定（§5.4、§6.3、§7.3、§8.3）。*
+*文档维护：Native Mobile 架构变更请更新 §2.2、§3.4（含 §3.4.5 RN/VIA）、§3.5、§8、§9、§16 与 Port 约定（§5.4、§6.3、§7.3、§8.3）；Phase B 功能细则同步 **[45-native-mobile-phase-b-integration.md](./45-native-mobile-phase-b-integration.md)**。*
+
+| 版本 | 日期 | 说明 |
+| --- | --- | --- |
+| v1.8 | 2026-10-30 | §9.3 **B7** 与 **§16 Release** 分离；Gate B 拆为功能出口 / 发布出口；交叉引用 45；Native Context Tab 与 45 §1.5 对齐 |

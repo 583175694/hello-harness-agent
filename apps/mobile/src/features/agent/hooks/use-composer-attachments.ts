@@ -14,6 +14,7 @@ import {
 import { uploadSessionFileFromUri, uploadSessionTextFile } from '@/lib/upload-session-file';
 import { ApiProblem } from '@harness/agent-client';
 
+import { rememberComposerAttachmentPreview } from '@/lib/composer-attachment-preview-cache';
 import { AGENT_UI_BEHAVIOR } from '../config/ui.constants';
 import { resolveLongTextPaste } from '../lib/composer-paste';
 import { useAgentHostSession } from './use-agent-host';
@@ -52,6 +53,10 @@ type LocalAttachmentSource = LocalUriSource | LocalTextSource;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+function rowLooksLikeImage(fileName: string): boolean {
+  return /\.(png|jpe?g|webp|gif|heic|heif)$/i.test(fileName);
+}
+
 function guessImageMimeType(fileName: string): string {
   const lower = fileName.toLowerCase();
   if (lower.endsWith('.png')) return 'image/png';
@@ -64,18 +69,21 @@ export function readyComposerAttachmentsAsFileRefs(
 ): FileRef[] {
   return items
     .filter((item) => item.status === 'ready')
-    .map((item) => ({
-      fileId: item.id,
-      fileName: item.fileName,
-      mediaType:
-        item.kind === 'image'
-          ? guessImageMimeType(item.fileName)
-          : guessUploadMimeType(item.fileName),
-      size: item.size,
-      status: 'ready' as const,
-      fileKind: item.kind === 'image' ? ('image' as const) : undefined,
-      previewUrl: item.previewUri,
-    }));
+    .map((item) => {
+      if (item.previewUri) rememberComposerAttachmentPreview(item.id, item.previewUri);
+      return {
+        fileId: item.id,
+        fileName: item.fileName,
+        mediaType:
+          item.kind === 'image'
+            ? guessImageMimeType(item.fileName)
+            : guessUploadMimeType(item.fileName),
+        size: item.size,
+        status: 'ready' as const,
+        fileKind: item.kind === 'image' ? ('image' as const) : undefined,
+        previewUrl: item.previewUri,
+      };
+    });
 }
 
 const UPLOAD_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
@@ -144,6 +152,7 @@ export function useComposerAttachments() {
         delete localSourcesRef.current[tempId];
       }
       delete controllersRef.current[tempId];
+      if (previewUri) rememberComposerAttachmentPreview(fileRef.fileId, previewUri);
     },
     [],
   );
@@ -294,12 +303,44 @@ export function useComposerAttachments() {
         }
         return;
       }
-      const sessionId = await ensureSessionId();
-      if (!sessionId) return;
-      for (const asset of result.assets) {
+      const staged = result.assets.map((asset) => {
         const { name, mimeType } = normalizePickedImageMeta(asset);
-        await uploadLocal(sessionId, { uri: asset.uri, name, mimeType, kind: 'image' });
+        const tempId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        return { tempId, asset, name, mimeType };
+      });
+      setItems((prev) => [
+        ...prev,
+        ...staged.map(({ tempId, asset, name, mimeType }) => ({
+          id: tempId,
+          fileName: name,
+          size: 0,
+          kind: 'image' as const,
+          status: 'processing' as const,
+          previewUri: asset.uri,
+        })),
+      ]);
+      const sessionId = await ensureSessionId();
+      if (!sessionId) {
+        setItems((prev) => prev.filter((item) => !staged.some((row) => row.tempId === item.id)));
+        return;
       }
+      await Promise.all(
+        staged.map(({ tempId, asset, name, mimeType }) =>
+          uploadWithTempId(
+            tempId,
+            sessionId,
+            {
+              kind: 'uri',
+              sessionId,
+              uri: asset.uri,
+              name,
+              mimeType,
+              attachmentKind: 'image',
+            },
+            asset.uri,
+          ),
+        ),
+      );
     } catch (error) {
       if (__DEV__) {
         console.warn('[pickImages]', error);
@@ -307,7 +348,7 @@ export function useComposerAttachments() {
     } finally {
       pickerBusyRef.current = false;
     }
-  }, [ensureSessionId, uploadLocal]);
+  }, [ensureSessionId, uploadWithTempId]);
 
   const pickFiles = useCallback(async () => {
     if (pickerBusyRef.current) return;
@@ -318,20 +359,61 @@ export function useComposerAttachments() {
         copyToCacheDirectory: true,
       });
       if (result.canceled || !result.assets?.length) return;
-      const sessionId = await ensureSessionId();
-      if (!sessionId) return;
-      for (const asset of result.assets) {
-        const name = inferUploadFileName(asset.name ?? 'upload.bin', asset.uri);
-        const mimeType = guessUploadMimeType(name, asset.mimeType);
-        if (!isSupportedUploadMime(mimeType)) {
+      const staged = result.assets
+        .map((asset) => {
+          const name = inferUploadFileName(asset.name ?? 'upload.bin', asset.uri);
+          const mimeType = guessUploadMimeType(name, asset.mimeType);
+          return { asset, name, mimeType };
+        })
+        .filter(({ mimeType }) => {
+          if (isSupportedUploadMime(mimeType)) return true;
           showAppAlert({
             title: '不支持的文件类型',
             message: '仅支持图片、TXT、Markdown、CSV、JSON、PDF、DOCX、XLSX、PPTX。',
           });
-          continue;
-        }
-        await uploadLocal(sessionId, { uri: asset.uri, name, mimeType, kind: 'file' });
+          return false;
+        });
+      if (staged.length === 0) return;
+      const stagedWithIds = staged.map((row) => ({
+        ...row,
+        tempId: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      }));
+      setItems((prev) => [
+        ...prev,
+        ...stagedWithIds.map(({ tempId, name, mimeType, asset }) => ({
+          id: tempId,
+          fileName: name,
+          size: 0,
+          kind: (mimeType.startsWith('image/') || rowLooksLikeImage(name) ? 'image' : 'file') as
+            | 'file'
+            | 'image',
+          status: 'processing' as const,
+          previewUri:
+            mimeType.startsWith('image/') || rowLooksLikeImage(name) ? asset.uri : undefined,
+        })),
+      ]);
+      const sessionId = await ensureSessionId();
+      if (!sessionId) {
+        setItems((prev) => prev.filter((item) => !stagedWithIds.some((row) => row.tempId === item.id)));
+        return;
       }
+      await Promise.all(
+        stagedWithIds.map(({ tempId, asset, name, mimeType }) =>
+          uploadWithTempId(
+            tempId,
+            sessionId,
+            {
+              kind: 'uri',
+              sessionId,
+              uri: asset.uri,
+              name,
+              mimeType,
+              attachmentKind: mimeType.startsWith('image/') || rowLooksLikeImage(name) ? 'image' : 'file',
+            },
+            mimeType.startsWith('image/') || rowLooksLikeImage(name) ? asset.uri : undefined,
+          ),
+        ),
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('PickingInProgress')) return;
@@ -342,7 +424,7 @@ export function useComposerAttachments() {
     } finally {
       pickerBusyRef.current = false;
     }
-  }, [ensureSessionId, uploadLocal]);
+  }, [ensureSessionId, uploadWithTempId]);
 
   const removeItem = useCallback(
     (id: string) => {

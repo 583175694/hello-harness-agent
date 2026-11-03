@@ -2,7 +2,7 @@ import { HarnessColors } from '../coreui/HarnessColors';
 import { PreviewLocalPreferences } from './PreviewLocalPreferences';
 import { SlidingSegmentTrack } from './SlidingSegmentTrack';
 
-interface PreviewModelDef {
+export interface PreviewModelDef {
   id: string;
   label: string;
   reasoningOptions: string[];
@@ -27,8 +27,13 @@ export function reasoningShortLabel(effort: string): string {
   return '中';
 }
 
-export function formatComposerModelChip(modelId: string, effort: string): string {
-  const model = PREVIEW_MODELS.find((m) => m.id === modelId);
+export function formatComposerModelChip(
+  modelId: string,
+  effort: string,
+  catalog?: PreviewModelDef[],
+): string {
+  const models = catalog !== undefined && catalog.length > 0 ? catalog : PREVIEW_MODELS;
+  const model = models.find((m) => m.id === modelId);
   const label = model !== undefined ? model.label : modelId;
   return `${label} · ${reasoningShortLabel(effort)}`;
 }
@@ -60,8 +65,8 @@ export function resolveReasoningFromLabel(label: string): string {
   return 'high';
 }
 
-function coerceReasoning(modelId: string, effort: string): string {
-  const model = PREVIEW_MODELS.find((m) => m.id === modelId);
+function coerceReasoning(modelId: string, effort: string, catalog: PreviewModelDef[]): string {
+  const model = catalog.find((m) => m.id === modelId);
   const allowed = model !== undefined ? model.reasoningOptions : ['high'];
   return allowed.indexOf(effort) >= 0 ? effort : allowed[allowed.length - 1];
 }
@@ -71,6 +76,7 @@ export struct PreviewComposerModelSheet {
   @Prop visible: boolean = false;
   @Prop useDark: boolean = false;
   @Prop reduceMotion: boolean = PreviewLocalPreferences.reduceMotion;
+  @Prop modelCatalog: PreviewModelDef[] = [];
   @Link selectedModelId: string;
   @Link reasoningEffort: string;
   onClose: () => void = () => {
@@ -87,9 +93,14 @@ export struct PreviewComposerModelSheet {
     return (1 - this.presentProgress) * 1000;
   }
 
+  private catalogModels(): PreviewModelDef[] {
+    return this.modelCatalog.length > 0 ? this.modelCatalog : PREVIEW_MODELS;
+  }
+
   private activeModel(): PreviewModelDef {
-    const found = PREVIEW_MODELS.find((m) => m.id === this.selectedModelId);
-    return found !== undefined ? found : PREVIEW_MODELS[0];
+    const models = this.catalogModels();
+    const found = models.find((m) => m.id === this.selectedModelId);
+    return found !== undefined ? found : models[0];
   }
 
   build() {
@@ -117,7 +128,7 @@ export struct PreviewComposerModelSheet {
         .justifyContent(FlexAlign.Center)
         .padding({ top: 10, bottom: 8 })
 
-        ForEach(PREVIEW_MODELS, (model: PreviewModelDef) => {
+        ForEach(this.catalogModels(), (model: PreviewModelDef) => {
           Row() {
             Text(model.label)
               .fontSize(15)
@@ -137,7 +148,7 @@ export struct PreviewComposerModelSheet {
           .padding({ left: 16, right: 16 })
           .onClick(() => {
             this.selectedModelId = model.id;
-            this.reasoningEffort = coerceReasoning(model.id, this.reasoningEffort);
+            this.reasoningEffort = coerceReasoning(model.id, this.reasoningEffort, this.catalogModels());
           })
         }, (model: PreviewModelDef) => model.id)
 

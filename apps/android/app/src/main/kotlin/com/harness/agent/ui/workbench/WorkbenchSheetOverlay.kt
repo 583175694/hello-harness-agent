@@ -51,7 +51,6 @@ import androidx.core.view.WindowCompat
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.harness.agent.coreui.markdown.MarkdownBody
 import com.harness.agent.coreui.primitives.AppText
 import com.harness.agent.coreui.primitives.AppTextStyle
 import com.harness.agent.coreui.primitives.HarnessSegmentedControl
@@ -73,6 +72,8 @@ fun WorkbenchSheetOverlay(
     onOpenReportReader: (() -> Unit)? = null,
     onOpenArtifactReader: (() -> Unit)? = null,
     onOpenFilePreview: ((fileName: String, markdown: String) -> Unit)? = null,
+    onRestoreArtifactVersion: ((restoreArtifactId: String, expectedCurrentArtifactId: String) -> Unit)? = null,
+    onBeginArtifactRevision: ((artifactId: String) -> Unit)? = null,
     initialFocusedToolId: String? = null,
     previewReduceMotion: Boolean = false,
 ) {
@@ -82,6 +83,9 @@ fun WorkbenchSheetOverlay(
         mutableIntStateOf(state.resolvedInitialDetent())
     }
     var activeTab by rememberSaveable(state.initialView) { mutableStateOf(state.initialView.ifBlank { "activity" }) }
+    LaunchedEffect(state.initialView) {
+        activeTab = state.initialView.ifBlank { "activity" }
+    }
     LaunchedEffect(initialFocusedToolId) {
         if (!initialFocusedToolId.isNullOrBlank()) {
             activeTab = "activity"
@@ -93,6 +97,7 @@ fun WorkbenchSheetOverlay(
         }
     }
     var passageCard by remember { mutableStateOf<WorkbenchSourceCard?>(null) }
+    var pendingRestore by remember { mutableStateOf<Pair<String, String>?>(null) }
     val heightFraction by animateFloatAsState(
         targetValue = DETENTS[detentIndex],
         animationSpec = if (reduceMotion) tween(0) else tween(SHEET_MOTION_MS),
@@ -221,6 +226,14 @@ fun WorkbenchSheetOverlay(
                         onOpenFilePreview?.invoke(file.fileName, md)
                             ?: onOpenArtifactReader?.invoke()
                     },
+                    onRequestRestore = { restoreId, expectedId ->
+                        if (onRestoreArtifactVersion != null) {
+                            pendingRestore = restoreId to expectedId
+                        }
+                    },
+                    onBeginRevision = { artifactId ->
+                        onBeginArtifactRevision?.invoke(artifactId)
+                    },
                 )
             }
         }
@@ -232,6 +245,18 @@ fun WorkbenchSheetOverlay(
         onDismiss = { passageCard = null },
     )
 
+    val restorePair = pendingRestore
+    if (restorePair != null && onRestoreArtifactVersion != null) {
+        WorkbenchRestoreConfirmSheet(
+            visible = true,
+            prompt = state.artifactRestorePrompt,
+            onDismiss = { pendingRestore = null },
+            onConfirm = {
+                onRestoreArtifactVersion(restorePair.first, restorePair.second)
+                pendingRestore = null
+            },
+        )
+    }
 }
 
 @Composable
@@ -286,6 +311,8 @@ private fun WorkbenchTabContent(
     initialFocusedToolId: String? = null,
     modifier: Modifier = Modifier,
     onOpenFilePreview: (com.harness.agent.model.WorkbenchDeliverableFile) -> Unit,
+    onRequestRestore: (restoreArtifactId: String, expectedCurrentArtifactId: String) -> Unit = { _, _ -> },
+    onBeginRevision: (artifactId: String) -> Unit = {},
 ) {
     when (activeTab) {
         "activity" ->
@@ -295,11 +322,21 @@ private fun WorkbenchTabContent(
                 initialStepId = initialFocusedToolId,
             )
         "artifact" ->
-            WorkbenchFilesPane(
-                files = state.deliverableFiles,
-                onPreview = onOpenFilePreview,
-                modifier = modifier,
-            )
+            if (state.artifactVersions.isNotEmpty()) {
+                WorkbenchArtifactVersionsPane(
+                    versions = state.artifactVersions,
+                    restorePrompt = state.artifactRestorePrompt,
+                    onRequestRestore = onRequestRestore,
+                    onBeginRevision = onBeginRevision,
+                    modifier = modifier,
+                )
+            } else {
+                WorkbenchFilesPane(
+                    files = state.deliverableFiles,
+                    onPreview = onOpenFilePreview,
+                    modifier = modifier,
+                )
+            }
         else ->
             WorkbenchActivityFollowPane(
                 state = state,

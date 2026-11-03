@@ -169,7 +169,7 @@ export class RunsController {
     if (!result.success)
       throw new BadRequestException({
         code: 'INVALID_RUN_COMMAND',
-        detail: '控制命令必须是 pause、resume 或 cancel。',
+        detail: '控制命令无效，需为 pause、resume、cancel、respond、approve 或 reject。',
       });
     return this.commands.control(runId, user.id, result.data);
   }

@@ -38,6 +38,13 @@ UI **禁止**直接读 JSON；经各端 `PreviewAgentSessionPort` + 与 schema �
 
 长列表：`pnpm generate:long-thread` 再生 `long-thread-scroll.json`（24 user+assistant 对）。
 
+Run 投影 golden（§5.11）：修改 `fixtures/run-events/s*.json` 后，先构建 TS 包再生成 expected：
+
+```bash
+pnpm --filter @harness/agent-conversation build && pnpm --filter @harness/agent-run-state build
+pnpm --filter @harness/mobile-contract generate:run-events-expected
+```
+
 ## 校验（Gate A）
 
 ```bash

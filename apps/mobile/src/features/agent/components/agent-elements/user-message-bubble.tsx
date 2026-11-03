@@ -1,5 +1,6 @@
 import { memo } from 'react';
-import { Image, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
+import { AgentAuthedImage } from '@/components/agent-authed-image';
 import type { FileRef } from '@harness/agent-protocol';
 import { Text } from '@/components/ui/text';
 import { resolveUserAttachmentImageUri } from '@/lib/resolve-file-preview-url';
@@ -59,7 +60,7 @@ export const UserMessageBubble = memo(function UserMessageBubble({
                       className="h-28 w-28 overflow-hidden rounded-xl border border-composer-border bg-subtle"
                     >
                       {uri ? (
-                        <Image source={{ uri }} className="h-full w-full" resizeMode="cover" />
+                        <AgentAuthedImage uri={uri} className="h-full w-full" resizeMode="cover" />
                       ) : (
                         <View className="flex-1 items-center justify-center">
                           <Text variant="caption" className="text-muted">

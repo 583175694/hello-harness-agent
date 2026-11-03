@@ -24,21 +24,37 @@ struct ComposerSkillChipsView: View {
 
 /// 横向附件条：图片 / 文件统一高度。
 struct ComposerAttachmentStripView: View {
-    let fileNames: [String]
+    let items: [ComposerAttachmentItem]
+    var onRemove: ((String) -> Void)? = nil
 
     private let stripHeight: CGFloat = 52
     private let fileMaxWidth: CGFloat = 216
 
     var body: some View {
-        if fileNames.isEmpty { EmptyView() } else {
+        if items.isEmpty { EmptyView() } else {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(fileNames, id: \.self) { name in
-                        ComposerAttachmentCardView(
-                            fileName: name,
-                            stripHeight: stripHeight,
-                            fileMaxWidth: fileMaxWidth
-                        )
+                    ForEach(items) { item in
+                        ZStack(alignment: .topTrailing) {
+                            ComposerAttachmentCardView(
+                                fileName: item.fileName,
+                                stripHeight: stripHeight,
+                                fileMaxWidth: fileMaxWidth
+                            )
+                            if let onRemove {
+                                Button {
+                                    onRemove(item.id)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 16))
+                                        .foregroundStyle(HarnessColors.muted)
+                                        .background(Circle().fill(HarnessColors.surface))
+                                }
+                                .buttonStyle(.plain)
+                                .padding(2)
+                                .accessibilityLabel("移除附件")
+                            }
+                        }
                     }
                 }
             }
@@ -76,9 +92,6 @@ private struct ComposerAttachmentCardView: View {
                     .foregroundStyle(HarnessColors.primary)
                     .lineLimit(1)
                     .frame(maxWidth: fileMaxWidth - 72, alignment: .leading)
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(HarnessColors.muted)
             }
             .padding(.horizontal, 8)
             .frame(height: stripHeight)

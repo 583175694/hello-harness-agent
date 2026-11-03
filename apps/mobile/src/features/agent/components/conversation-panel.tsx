@@ -47,29 +47,39 @@ export function ConversationPanel({
     [conversation],
   );
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToLatestUserTurn = useCallback(() => {
     if (conversation.length === 0) return;
+    const userIndex = conversation.findLastIndex((item) => item.kind === 'user');
+    const targetIndex = userIndex >= 0 ? userIndex : conversation.length - 1;
     requestAnimationFrame(() => {
-      listRef.current?.scrollToEnd({ animated: false });
+      try {
+        listRef.current?.scrollToIndex({
+          index: targetIndex,
+          animated: true,
+          viewPosition: 0.25,
+        });
+      } catch {
+        listRef.current?.scrollToEnd({ animated: true });
+      }
     });
-  }, [conversation.length]);
+  }, [conversation]);
 
   useEffect(() => {
     if (sessionScrollKey !== trackedSessionKeyRef.current) {
       trackedSessionKeyRef.current = sessionScrollKey;
       trackedUserTurnsRef.current = userTurnCount;
-      scrollToBottom();
+      scrollToLatestUserTurn();
       return;
     }
-  }, [sessionScrollKey, scrollToBottom, userTurnCount]);
+  }, [sessionScrollKey, scrollToLatestUserTurn, userTurnCount]);
 
   useEffect(() => {
     if (userTurnCount <= trackedUserTurnsRef.current) return;
     trackedUserTurnsRef.current = userTurnCount;
     if (conversation.at(-1)?.kind !== 'user') return;
     if (userScrollingRef.current) return;
-    scrollToBottom();
-  }, [conversation, scrollToBottom, userTurnCount]);
+    scrollToLatestUserTurn();
+  }, [conversation, scrollToLatestUserTurn, userTurnCount]);
 
   const keyExtractor = useCallback((item: MobileConversationItem, index: number) => {
     if (item.id) return item.id;

@@ -46,6 +46,7 @@ struct RootNavigationView: View {
                 case .settings:
                     PreviewSettingsRootView(
                         preferences: preferences,
+                        store: store,
                         onOpenPreviewScenarios: { path.append(PreviewRoute.devMenu) },
                         onOpenLogin: { path.append(PreviewRoute.login) },
                         onOpenMemory: { path.append(PreviewRoute.memory) },
@@ -63,9 +64,9 @@ struct RootNavigationView: View {
                 case .mcpForm(let serverId):
                     PreviewMcpFormView(preferences: preferences, serverId: serverId)
                 case .connection:
-                    PreviewConnectionSettingsView(preferences: preferences)
+                    PreviewConnectionSettingsView(preferences: preferences, store: store)
                 case .login:
-                    PreviewLoginView(preferences: preferences)
+                    PreviewLoginView(preferences: preferences, store: store)
                 case .reader:
                     PreviewReportReaderView(
                         title: preferences.readerTitle,
@@ -82,6 +83,7 @@ struct RootNavigationView: View {
         }
         .preferredColorScheme(preferences.preferredColorScheme(systemScheme))
         .onAppear {
+            #if PREVIEW_PORT
             if GateAScrollPerformanceMonitor.shouldAutoRun {
                 let fileName = "long-thread-scroll.json"
                 store.load(fileName: fileName)
@@ -89,6 +91,7 @@ struct RootNavigationView: View {
             } else {
                 store.load(fileName: activeFixture)
             }
+            #endif
         }
         }
     }

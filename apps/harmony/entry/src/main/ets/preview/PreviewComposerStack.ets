@@ -20,6 +20,8 @@ export struct PreviewComposerStack {
   };
   onPreviewAction: (action: import('./PreviewSessionReducer').PreviewUiAction) => void = () => {
   };
+  onClearComposerRevisionSeed: () => void = () => {
+  };
 
   build() {
     PreviewComposerBar({
@@ -33,6 +35,7 @@ export struct PreviewComposerStack {
       onAttachClick: () => this.onAttachClick(),
       onSkillClick: () => this.onSkillClick(),
       onPreviewAction: (action) => this.onPreviewAction(action),
+      onClearComposerRevisionSeed: () => this.onClearComposerRevisionSeed(),
     })
   }
 }

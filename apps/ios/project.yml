@@ -3,6 +3,9 @@ packages:
   SnapshotTesting:
     url: https://github.com/pointfreeco/swift-snapshot-testing
     from: 1.17.6
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: 2.4.0
 options:
   bundleIdPrefix: com.harness
   deploymentTarget:
@@ -35,7 +38,22 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Harness
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         TARGETED_DEVICE_FAMILY: "1"
-        SWIFT_ACTIVE_COMPILATION_CONDITIONS: PREVIEW_PORT
+      configs:
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: PREVIEW_PORT
+        Release:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: CORE_PORT
+          # XCFramework 仅含 ios-arm64(-simulator) slice；避免链接 x86_64 模拟器目标。
+          EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+          FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]: $(inherited) $(SRCROOT)/../../packages/mobile-core/core-engine/build/XCFrameworks/release/core_engine.xcframework/ios-arm64-simulator
+          FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]: $(inherited) $(SRCROOT)/../../packages/mobile-core/core-engine/build/XCFrameworks/release/core_engine.xcframework/ios-arm64
+          OTHER_LDFLAGS[sdk=iphonesimulator*]: $(inherited) -F$(SRCROOT)/../../packages/mobile-core/core-engine/build/XCFrameworks/release/core_engine.xcframework/ios-arm64-simulator -framework HarnessMobileCore
+          OTHER_LDFLAGS[sdk=iphoneos*]: $(inherited) -F$(SRCROOT)/../../packages/mobile-core/core-engine/build/XCFrameworks/release/core_engine.xcframework/ios-arm64 -framework HarnessMobileCore
+          OTHER_SWIFT_FLAGS[sdk=iphonesimulator*]: $(inherited) -F$(SRCROOT)/../../packages/mobile-core/core-engine/build/XCFrameworks/release/core_engine.xcframework/ios-arm64-simulator
+          OTHER_SWIFT_FLAGS[sdk=iphoneos*]: $(inherited) -F$(SRCROOT)/../../packages/mobile-core/core-engine/build/XCFrameworks/release/core_engine.xcframework/ios-arm64
+    dependencies:
+      - package: MarkdownUI
+        product: MarkdownUI
     info:
       path: Harness/Info.plist
       properties:

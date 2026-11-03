@@ -14,6 +14,8 @@ data class ActiveSessionState(
     val replay: ReplayConfig? = null,
     val workbench: WorkbenchState = WorkbenchState(),
     val previewTransitions: PreviewTransitionBundle? = null,
+    val canLoadOlderMessages: Boolean = false,
+    val loadingOlderMessages: Boolean = false,
 )
 
 data class ReplayConfig(
@@ -30,11 +32,18 @@ data class ChromeState(
 )
 
 sealed class ConversationItem {
-    data class User(val content: String) : ConversationItem()
+    data class User(
+        val content: String,
+        val attachments: List<UserAttachmentItem> = emptyList(),
+    ) : ConversationItem()
 
     data class Assistant(
         val deliveryStatus: String = "completed",
+        /** 对齐 Web `item.pending`（Run 进行中 assistant）。 */
+        val pending: Boolean = false,
         val pendingText: String? = null,
+        /** Run 进行中已产生的 final 段落（与 pending 可同时展示）。 */
+        val finalText: String? = null,
         val summary: String? = null,
         /** ReplayController 目标全文；展示从空 tail 开始增长。 */
         val tailTarget: String? = null,

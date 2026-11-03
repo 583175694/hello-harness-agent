@@ -1,10 +1,6 @@
 import { Text } from '@/components/ui/text';
 import { MarkdownView } from '@/components/markdown-view';
 
-function looksLikeMarkdown(content: string): boolean {
-  return /^#{1,3}\s/m.test(content) || /\*\*.+\*\*/m.test(content) || /\[.+\]\(.+\)/m.test(content);
-}
-
 /** 对齐 Web `.markdown-content > :first-child { margin-top: 0 }`。 */
 function leadingMarkdownHeadingLevel(content: string): number | undefined {
   const match = content.trimStart().match(/^(#{1,6})\s+/);
@@ -24,7 +20,7 @@ export function AssistantTextBlock({
   streaming = false,
   onSourcePress,
 }: AssistantTextBlockProps) {
-  if (!streaming && looksLikeMarkdown(content)) {
+  if (!streaming && content.trim()) {
     return (
       <MarkdownView
         variant="chat"

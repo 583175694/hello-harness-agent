@@ -17,4 +17,7 @@ data class SessionDrawerState(
 
 data class UiHints(
     val initialDrawerOpen: Boolean = false,
+    val workbenchOpen: Boolean = false,
+    val workbenchFocusedToolCallId: String? = null,
+    val workbenchFocusHint: String? = null,
 )

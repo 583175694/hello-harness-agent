@@ -11,3 +11,25 @@ playwright-report/
 test-results/
 *.log
 .DS_Store
+# 本地 Agent 对话导出（非交付物）
+docs/native-mobile-phase-b-chat-transcript*
+
+# Android Paparazzi baseline（本地录制，不进库；CI 不 verify）
+apps/android/app/src/test/snapshots/
+
+# Markdown golden：可选 Web 截图脚本产物
+packages/mobile-contract/fixtures/markdown-golden/web-baselines/*
+!packages/mobile-contract/fixtures/markdown-golden/web-baselines/.gitkeep
+
+# iOS Markdown golden 像素 baseline（L2 本地可选，不进库）
+apps/ios/HarnessTests/__Snapshots__/GateAMarkdownGoldenSnapshotTests/
+
+# Web Markdown DOM snapshot（L2 不进库；无默认 vitest 用例）
+apps/web/src/markdown-golden-parity.test.tsx
+apps/web/src/__snapshots__/
+
+packages/mobile-core/.gradle/
+packages/mobile-core/**/build/
+packages/mobile-core/core-engine/build/XCFrameworks/
+apps/android/.kotlin/
+apps/android/**/build/

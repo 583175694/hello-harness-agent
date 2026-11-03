@@ -19,6 +19,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -92,7 +94,9 @@ fun HarnessSegmentedControl(
                     ) {
                         Text(
                             text = label,
-                            color = if (selected) colors.primaryForeground else colors.secondary,
+                            color = if (selected) {
+                                if (colors.primary.luminance() < 0.5f) Color.White else Color(0xFF101010)
+                            } else colors.secondary,
                             fontSize = 12.sp,
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                             maxLines = 1,

@@ -18,10 +18,12 @@ export interface PreviewUiAction {
   kind: PreviewUiActionKind;
   text?: string;
   id?: string;
+  modelId?: string;
+  reasoningEffort?: string;
 }
 
 const MAX_SKILLS: number = 6;
-const MAX_ATTACHMENTS: number = 6;
+const MAX_ATTACHMENTS: number = 4;
 
 export class PreviewSessionReducer {
   static reduce(

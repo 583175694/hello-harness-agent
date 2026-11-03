@@ -47,8 +47,18 @@ ok(`${REQUIRED_FIXTURES.length} required preview fixtures present`);
 const androidGradle = path.join(repoRoot, 'apps/android/app/build.gradle.kts');
 if (fs.existsSync(androidGradle)) {
   const text = fs.readFileSync(androidGradle, 'utf8');
-  if (/mobile-core/i.test(text)) {
-    fail('apps/android/app/build.gradle.kts must not depend on mobile-core (Phase A)');
+  if (/com\.harness\.mobile\.core|mobile-core/i.test(text)) {
+    const productionOnly =
+      /["']productionImplementation["']\s*\(\s*["']com\.harness\.mobile\.core:/.test(text) &&
+      !/\bimplementation\s*\(\s*["']com\.harness\.mobile\.core:/.test(text) &&
+      !/["']previewImplementation["']\s*\([^)]*com\.harness\.mobile\.core/i.test(text);
+    if (!productionOnly) {
+      fail(
+        'apps/android/app/build.gradle.kts: mobile-core must use productionImplementation only (Preview Gate A)',
+      );
+    } else {
+      ok('Android production-only mobile-core dependency (Phase B B0)');
+    }
   } else {
     ok('Android app Gradle has no mobile-core dependency');
   }
@@ -58,7 +68,11 @@ const settingsGradle = path.join(repoRoot, 'apps/android/settings.gradle.kts');
 if (fs.existsSync(settingsGradle)) {
   const text = fs.readFileSync(settingsGradle, 'utf8');
   if (/packages[/\\]mobile-core|:mobile-core/i.test(text)) {
-    fail('Android settings.gradle.kts must not include mobile-core module (Phase A)');
+    if (!/includeBuild\s*\(\s*["'].*mobile-core["']\s*\)/.test(text)) {
+      fail('Android settings.gradle.kts: mobile-core must be wired via includeBuild composite');
+    } else {
+      ok('Android settings includes mobile-core composite build (Phase B)');
+    }
   } else {
     ok('Android settings has no mobile-core module');
   }
@@ -67,8 +81,13 @@ if (fs.existsSync(settingsGradle)) {
 const iosPbxproj = path.join(repoRoot, 'apps/ios/Harness.xcodeproj/project.pbxproj');
 if (fs.existsSync(iosPbxproj)) {
   const text = fs.readFileSync(iosPbxproj, 'utf8');
-  if (/mobile-core|MobileCore/i.test(text)) {
-    fail('iOS project must not link mobile-core (Phase A)');
+  if (/HarnessMobileCore|core_engine\.xcframework/.test(text)) {
+    if (!/PREVIEW_PORT/.test(text) || !/CORE_PORT/.test(text)) {
+      fail('iOS KMP link requires Debug PREVIEW_PORT and Release CORE_PORT (Gate A Preview must stay off Core)');
+    }
+    ok('iOS Phase B: Release HarnessMobileCore + Debug PREVIEW_PORT');
+  } else if (/mobile-core|MobileCore/i.test(text)) {
+    fail('iOS project must not link mobile-core (Preview Gate A)');
   } else {
     ok('iOS Xcode project has no mobile-core reference');
   }

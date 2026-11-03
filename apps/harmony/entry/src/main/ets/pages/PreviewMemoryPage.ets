@@ -5,6 +5,7 @@ import { HarnessColors } from '../coreui/HarnessColors';
 import { SettingsSection } from '../coreui/SettingsSection';
 import { SettingsSoftDivider } from '../coreui/SettingsSoftDivider';
 import { PreviewLocalPreferences, PreviewMemoryEntry } from '../preview/PreviewLocalPreferences';
+import { HarmonyAgentSettingsApi } from '../core/HarmonyAgentSettingsApi';
 import { harnessPageTransition } from '../coreui/HarnessPageTransition';
 
 const ROW_MIN_HEIGHT: number = 48;
@@ -17,14 +18,29 @@ struct PreviewMemoryPage {
   @State themeDark: boolean = PreviewLocalPreferences.themeDark;
 
   aboutToAppear(): void {
-    this.entries = PreviewLocalPreferences.listMemory();
-    this.allowWrite = PreviewLocalPreferences.memoryAllowWrite;
     this.themeDark = PreviewLocalPreferences.themeDark;
+    void this.reloadMemoryHub();
   }
 
   onPageShow(): void {
     this.themeDark = PreviewLocalPreferences.themeDark;
+    void this.reloadMemoryHub();
+  }
+
+  private async reloadMemoryHub(): Promise<void> {
+    if (HarmonyAgentSettingsApi.coreApiEnabled()) {
+      try {
+        const hub = await HarmonyAgentSettingsApi.loadMemoryHub();
+        this.allowWrite = hub.allowWrite;
+        this.entries = hub.entries;
+        PreviewLocalPreferences.memoryAllowWrite = hub.allowWrite;
+        return;
+      } catch (_e) {
+        // 回落 Preview 本地
+      }
+    }
     this.entries = PreviewLocalPreferences.listMemory();
+    this.allowWrite = PreviewLocalPreferences.memoryAllowWrite;
   }
 
   pageTransition() {
@@ -55,6 +71,9 @@ struct PreviewMemoryPage {
                   .onChange((on: boolean) => {
                     this.allowWrite = on;
                     PreviewLocalPreferences.memoryAllowWrite = on;
+                    if (HarmonyAgentSettingsApi.coreApiEnabled()) {
+                      void HarmonyAgentSettingsApi.patchMemorySettings(on);
+                    }
                   })
               }
               .width('100%')
@@ -81,8 +100,12 @@ struct PreviewMemoryPage {
                         .fontSize(14)
                         .fontColor(HarnessColors.linkText(this.themeDark))
                         .onClick(() => {
-                          PreviewLocalPreferences.deleteMemory(e.id);
-                          this.entries = PreviewLocalPreferences.listMemory();
+                          if (HarmonyAgentSettingsApi.coreApiEnabled()) {
+                            void HarmonyAgentSettingsApi.deleteMemory(e.id).then(() => this.reloadMemoryHub());
+                          } else {
+                            PreviewLocalPreferences.deleteMemory(e.id);
+                            this.entries = PreviewLocalPreferences.listMemory();
+                          }
                         })
                     }
                     .width('100%')

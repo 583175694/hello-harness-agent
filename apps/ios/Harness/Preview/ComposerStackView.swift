@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ComposerStackView: View {
     let state: ComposerState
@@ -6,7 +7,14 @@ struct ComposerStackView: View {
     var composerBlock: PreviewComposerBlockKind = .none
     var onLoginClick: () -> Void = {}
     var onPreviewAction: (PreviewUiAction) -> Void = { _ in }
+    var useCoreAttachments: Bool = false
+    var onUploadAttachmentData: ((String, Data, String) -> Void)? = nil
+    var modelCatalog: [ComposerModelOption] = ComposerCatalogDefaults.previewModels
+    var skillPickerNames: [String] = ComposerCatalogDefaults.previewSkills
+    var onSkillSheetOpen: () -> Void = {}
+    var onClearComposerRevisionSeed: () -> Void = {}
     @State private var draft: String = ""
+    @State private var fileImporterOpen = false
     @State private var clarificationAnswer: String = ""
     @State private var modelOpen = false
     @State private var attachOpen = false
@@ -27,13 +35,25 @@ struct ComposerStackView: View {
         workbenchOpen: Bool = false,
         composerBlock: PreviewComposerBlockKind = .none,
         onLoginClick: @escaping () -> Void = {},
-        onPreviewAction: @escaping (PreviewUiAction) -> Void = { _ in }
+        onPreviewAction: @escaping (PreviewUiAction) -> Void = { _ in },
+        useCoreAttachments: Bool = false,
+        onUploadAttachmentData: ((String, Data, String) -> Void)? = nil,
+        modelCatalog: [ComposerModelOption] = ComposerCatalogDefaults.previewModels,
+        skillPickerNames: [String] = ComposerCatalogDefaults.previewSkills,
+        onSkillSheetOpen: @escaping () -> Void = {},
+        onClearComposerRevisionSeed: @escaping () -> Void = {}
     ) {
         self.state = state
         self.workbenchOpen = workbenchOpen
         self.composerBlock = composerBlock
         self.onLoginClick = onLoginClick
         self.onPreviewAction = onPreviewAction
+        self.useCoreAttachments = useCoreAttachments
+        self.onUploadAttachmentData = onUploadAttachmentData
+        self.modelCatalog = modelCatalog
+        self.skillPickerNames = skillPickerNames
+        self.onSkillSheetOpen = onSkillSheetOpen
+        self.onClearComposerRevisionSeed = onClearComposerRevisionSeed
         _selectedModelId = State(initialValue: ComposerModelMenuLabels.resolveModelId(from: state.selectedModelLabel))
         _reasoningEffort = State(initialValue: ComposerModelMenuLabels.resolveReasoning(from: state.selectedModelLabel))
     }
@@ -54,8 +74,36 @@ struct ComposerStackView: View {
         .sheet(isPresented: $skillOpen) {
             skillSheet
         }
+        .onChange(of: state.revisionDraftSeed) { _, seed in
+            guard let seed, !seed.isEmpty else { return }
+            draft = seed
+            onClearComposerRevisionSeed()
+        }
         .onChange(of: overlayOpen) { _, open in
             if open { PreviewKeyboardDismiss.run() }
+        }
+        .onChange(of: skillOpen) { _, open in
+            if open { onSkillSheetOpen() }
+        }
+        .fileImporter(
+            isPresented: $fileImporterOpen,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: false
+        ) { result in
+            guard useCoreAttachments, let onUploadAttachmentData else { return }
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                guard url.startAccessingSecurityScopedResource() else { return }
+                defer { url.stopAccessingSecurityScopedResource() }
+                let name = url.lastPathComponent
+                let data = (try? Data(contentsOf: url)) ?? Data()
+                guard !data.isEmpty else { return }
+                let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+                onUploadAttachmentData(name, data, mime)
+            case .failure:
+                break
+            }
         }
     }
 
@@ -71,11 +119,19 @@ struct ComposerStackView: View {
         VStack(spacing: 0) {
             composerSheetHandle
             composerSheetAction("照片与图片") {
-                onPreviewAction(.addAttachment("preview-photo.jpg"))
+                if useCoreAttachments {
+                    fileImporterOpen = true
+                } else {
+                    onPreviewAction(.addAttachment("preview-photo.jpg"))
+                }
                 attachOpen = false
             }
             composerSheetAction("文件") {
-                onPreviewAction(.addAttachment("document-preview.pdf"))
+                if useCoreAttachments {
+                    fileImporterOpen = true
+                } else {
+                    onPreviewAction(.addAttachment("document-preview.pdf"))
+                }
                 attachOpen = false
             }
             composerSheetAction("Skill") {
@@ -94,7 +150,8 @@ struct ComposerStackView: View {
             composerSheetHandle
             ComposerModelMenuSheetView(
                 selectedModelId: $selectedModelId,
-                reasoningEffort: $reasoningEffort
+                reasoningEffort: $reasoningEffort,
+                catalog: modelCatalog
             )
         }
         .presentationDetents([.fraction(0.44)])
@@ -104,7 +161,7 @@ struct ComposerStackView: View {
     private var skillSheet: some View {
         VStack(spacing: 0) {
             composerSheetHandle
-            ForEach(["/research", "/code-review", "/summarize"], id: \.self) { skill in
+            ForEach(skillPickerNames.map { "/\($0)" }, id: \.self) { skill in
                 composerSheetAction(skill) {
                     onPreviewAction(.addSkill(String(skill.dropFirst())))
                     skillOpen = false
@@ -188,7 +245,10 @@ struct ComposerStackView: View {
                 toolApprovalPanel(approval)
             } else {
                 ComposerSkillChipsView(skills: state.selectedSkills)
-                ComposerAttachmentStripView(fileNames: state.attachmentNames)
+                ComposerAttachmentStripView(
+                    items: state.attachmentItems,
+                    onRemove: { fileId in onPreviewAction(.removeAttachment(fileId)) }
+                )
                 composerInputRow
             }
         }
@@ -260,7 +320,14 @@ struct ComposerStackView: View {
                     if state.submitting && draft.isEmpty {
                         onPreviewAction(.stopRun)
                     } else if canSend {
-                        onPreviewAction(.sendComposerText(draft))
+                        onPreviewAction(
+                            .sendComposerText(
+                                text: draft,
+                                modelId: selectedModelId,
+                                reasoningEffort: reasoningEffort,
+                                skillNames: state.selectedSkills
+                            )
+                        )
                         draft = ""
                     }
                 } label: {

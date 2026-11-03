@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, TextInput, View } from 'react-native';
+import { Keyboard, Pressable, TextInput, View } from 'react-native';
 import { showAppAlert } from '@/lib/app-alert';
 import { ArrowUp, Plus, Square } from 'lucide-react-native';
 import { Icon } from '@/components/ui/icon';
@@ -116,6 +116,7 @@ export function ComposerStack({
   const [attachmentSheetOpenLocal, setAttachmentSheetOpenLocal] = useState(false);
   const [skillPickerOpenLocal, setSkillPickerOpenLocal] = useState(false);
   const afterAttachmentSheetCloseRef = useRef<(() => void) | null>(null);
+  const inputRef = useRef<TextInput>(null);
   const [selectedSkillsLocal, setSelectedSkillsLocal] = useState<string[]>(
     selectedSkillsProp ?? [],
   );
@@ -253,6 +254,8 @@ export function ComposerStack({
     const attachmentIds = attachments
       .filter((item) => item.status === 'ready')
       .map((item) => item.id);
+    inputRef.current?.blur();
+    Keyboard.dismiss();
     onSubmit?.({
       content: text,
       modelId,
@@ -360,6 +363,7 @@ export function ComposerStack({
                 </View>
               ) : null}
               <TextInput
+                ref={inputRef}
                 multiline
                 scrollEnabled
                 editable={!inputDisabled}

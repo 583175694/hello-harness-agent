@@ -17,10 +17,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.harness.agent.coreui.feedback.AppToastHost
+import com.harness.agent.media.ProvideHarnessImageAuth
 import com.harness.agent.coreui.tokens.HarnessTheme
 import com.harness.agent.ui.settings.PreviewLoginScreen
-import com.harness.agent.preview.MobileContractPreviewLoader
-import com.harness.agent.preview.PreviewAgentSessionPort
+import com.harness.agent.di.AgentSessionPortModule
 import com.harness.agent.preview.PreviewAppPreferences
 import com.harness.agent.preview.PreviewSessionViewModel
 import com.harness.agent.ui.PreviewChatShellScreen
@@ -37,22 +37,32 @@ import com.harness.agent.ui.navigation.harnessNavPopExitTransition
 import com.harness.agent.ui.settings.PreviewSettingsRootScreen
 
 class MainActivity : ComponentActivity() {
+    private lateinit var sessionViewModel: PreviewSessionViewModel
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val loader = MobileContractPreviewLoader(applicationContext)
-        val port = PreviewAgentSessionPort(loader)
-        val viewModel = PreviewSessionViewModel(port)
+        val preferencesHolder = PreviewAppPreferences(applicationContext)
+        val port = AgentSessionPortModule.create(applicationContext, preferencesHolder)
+        sessionViewModel = PreviewSessionViewModel(port)
+        val viewModel = sessionViewModel
+        val mcpBackend = MainActivityFlavor.mcpSettingsBackend(preferencesHolder)
+        val memoryBackend = MainActivityFlavor.memorySettingsBackend(preferencesHolder)
         val initialFixture = intent?.getStringExtra(EXTRA_PREVIEW_FIXTURE) ?: DEFAULT_PREVIEW_FIXTURE
-        viewModel.selectFixture(initialFixture)
+        if (BuildConfig.USE_PREVIEW_PORT) {
+            viewModel.selectFixture(initialFixture)
+        } else {
+            viewModel.bootstrapCoreConnection()
+        }
 
         setContent {
-            val preferences = remember { PreviewAppPreferences(applicationContext) }
+            val preferences = remember { preferencesHolder }
             HarnessTheme(
                 darkTheme = preferences.resolveDarkTheme(),
                 contentFontSizeSp = preferences.contentFontSize,
             ) {
                 AppToastHost {
+                ProvideHarnessImageAuth(MainActivityFlavor.imageAuth(preferences)) {
                 val navController = rememberNavController()
                 var selectedFixture by remember { mutableStateOf(initialFixture) }
                 val reduceMotion = rememberHarnessReduceMotion(preferences.reduceMotion)
@@ -118,30 +128,38 @@ class MainActivity : ComponentActivity() {
                             onOpenMcp = { navController.navigate("settings/mcp") },
                             onOpenConnection = { navController.navigate("settings/connection") },
                             onOpenPreviewScenarios = { navController.navigate("dev-menu") },
+                            onSignOut = {
+                                MainActivityFlavor.signOut(this@MainActivity, preferences, port) {}
+                            },
                         )
                     }
                     composable("settings/connection") {
                         PreviewConnectionScreen(
                             preferences = preferences,
                             onBack = { navController.popBackStack() },
+                            onApiUrlChanged = { viewModel.scheduleCoreConnectionRefresh() },
                         )
                     }
                     composable("settings/login") {
                         PreviewLoginScreen(
                             preferences = preferences,
                             onBack = { navController.popBackStack() },
-                            onLoggedIn = { navController.popBackStack() },
+                            onLoggedIn = {
+                                viewModel.resetForAuthChange()
+                                navController.popBackStack()
+                            },
+                            loginCoordinator = MainActivityFlavor.loginCoordinator(),
                         )
                     }
                     composable("settings/memory") {
                         PreviewMemoryHubScreen(
-                            preferences = preferences,
+                            backend = memoryBackend,
                             onBack = { navController.popBackStack() },
                         )
                     }
                     composable("settings/mcp") {
                         PreviewMcpListScreen(
-                            preferences = preferences,
+                            backend = mcpBackend,
                             onBack = { navController.popBackStack() },
                             onEditServer = { id -> navController.navigate("settings/mcp/edit/$id") },
                         )
@@ -152,7 +170,7 @@ class MainActivity : ComponentActivity() {
                     ) { entry ->
                         val serverId = entry.arguments?.getString("serverId") ?: "new"
                         PreviewMcpFormScreen(
-                            preferences = preferences,
+                            backend = mcpBackend,
                             serverId = serverId,
                             onBack = { navController.popBackStack() },
                         )
@@ -165,8 +183,23 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 }
+                }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (!BuildConfig.USE_PREVIEW_PORT) {
+            sessionViewModel.onAppForeground()
+        }
+    }
+
+    override fun onStop() {
+        if (!BuildConfig.USE_PREVIEW_PORT) {
+            sessionViewModel.onAppBackground()
+        }
+        super.onStop()
     }
 
     companion object {

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "markdown-golden-research-report",
+  "title": "Markdown Golden · 调研报告",
+  "conversation": [
+    {
+      "kind": "user",
+      "content": "总结知识库检索调研"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "# 调研结论：企业知识库检索\n\n## 摘要\n\n在 **50 人内测** 中，混合检索（向量 + BM25）相对纯向量 **Top-3 命中率 +12%**，但 P95 延迟 +180ms。\n\n## 发现\n\n1. **查询改写** 对口语化问题帮助最大\n   1. 同义词扩展\n   2. 实体链接\n2. **分块策略** 影响引用可读性\n   - 512 token 块：引用过长\n   - 256 token 块：上下文断裂\n\n> 建议：默认 384 token，报告类文档启用段落边界感知。\n\n## 风险\n\n| 风险 | 等级 | 缓解 |\n| --- | --- | --- |\n| 索引漂移 | 中 | 每日 checksum |\n| 权限泄漏 | 高 | 检索前 ACL 过滤 |\n\n参考 [内部 RFC-042](https://example.com/rfc-042) 获取实现细节。\n"
+        }
+      ]
+    }
+  ],
+  "composer": {
+    "composerMode": "default",
+    "composerTextMode": "new-run",
+    "submitting": false,
+    "placeholder": "继续对话…",
+    "modelLabel": "默认模型"
+  },
+  "workbench": {
+    "initialView": "activity",
+    "initialSheetIndex": -1,
+    "workbenchCount": 0
+  }
+}

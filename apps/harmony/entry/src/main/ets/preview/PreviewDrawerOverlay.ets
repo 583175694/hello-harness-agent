@@ -24,6 +24,14 @@ export struct PreviewDrawerOverlay {
   };
   onSelectSession: (sessionId: string) => void = () => {
   };
+  /** Core 联调：重命名 / 置顶 / 删除走 REST，而非 Preview Toast。 */
+  @Prop liveSessionActions: boolean = false;
+  onRenameSession: (sessionId: string, title: string) => void = () => {
+  };
+  onTogglePinSession: (sessionId: string) => void = () => {
+  };
+  onDeleteSession: (sessionId: string) => void = () => {
+  };
   @State menuTarget: SessionDrawerRow | null = null;
   @State renameOpen: boolean = false;
   @State renameDraft: string = '';
@@ -93,10 +101,15 @@ export struct PreviewDrawerOverlay {
 
   private saveRenamePreview(): void {
     const title = this.renameDraft.trim();
-    if (title.length === 0) {
+    if (title.length === 0 || this.menuTarget === null) {
       return;
     }
-    AppToast.show('已重命名（Preview 模拟）');
+    if (this.liveSessionActions) {
+      this.onRenameSession(this.menuTarget.id, title);
+      AppToast.show('已重命名');
+    } else {
+      AppToast.show('已重命名（Preview 模拟）');
+    }
     this.closeRenameSheet();
   }
 
@@ -148,7 +161,12 @@ export struct PreviewDrawerOverlay {
   }
 
   private confirmDeleteSession(): void {
-    AppToast.show('已删除（Preview 模拟）');
+    if (this.liveSessionActions && this.menuTarget !== null) {
+      this.onDeleteSession(this.menuTarget.id);
+      AppToast.show('已删除');
+    } else {
+      AppToast.show('已删除（Preview 模拟）');
+    }
     this.closeDeleteConfirm();
   }
 
@@ -304,8 +322,14 @@ export struct PreviewDrawerOverlay {
           this.openRenameSheet();
         })
         this.contextMenuRow(this.menuTarget!.pinned ? '取消置顶' : '置顶', false, () => {
-          this.previewSessionAction(this.menuTarget!.pinned ? '已取消置顶' : '已置顶');
-          this.closeSessionMenu();
+          if (this.liveSessionActions && this.menuTarget !== null) {
+            this.onTogglePinSession(this.menuTarget.id);
+            AppToast.show(this.menuTarget.pinned ? '已取消置顶' : '已置顶');
+            this.closeSessionMenu();
+          } else {
+            this.previewSessionAction(this.menuTarget!.pinned ? '已取消置顶' : '已置顶');
+            this.closeSessionMenu();
+          }
         })
         Divider().strokeWidth(1).color(HarnessColors.composerBorderColor(this.useDark)).margin({ left: 12, right: 12 })
         this.contextMenuRow('删除', true, () => {

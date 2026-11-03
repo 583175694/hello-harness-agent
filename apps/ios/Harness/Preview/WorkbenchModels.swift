@@ -12,6 +12,10 @@ struct WorkbenchArtifactVersion: Equatable, Identifiable {
     let id: String
     let label: String
     var selected: Bool = false
+    var seriesId: String?
+    var logicalName: String?
+    var versionNumber: Int?
+    var expectedCurrentArtifactId: String?
 }
 
 struct WorkbenchToolExecution: Equatable, Identifiable {
@@ -35,6 +39,7 @@ struct WorkbenchDeliverableFile: Equatable, Identifiable {
 }
 
 struct WorkbenchState: Equatable {
+    var runId: String?
     var initialView: String = "activity"
     var initialSheetIndex: Int = 2
     var workbenchCount: Int = 0

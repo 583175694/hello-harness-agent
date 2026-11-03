@@ -437,7 +437,7 @@ function PreviewChatScreenInner({
     baselineActivityEmphasis: workbenchConfig?.activityEmphasis ?? 'default',
     initialView: workbenchConfig?.initialView,
     initialSheetIndex: workbenchConfig?.initialSheetIndex,
-    autoPresentOnMount: previewState !== 'default',
+    autoPresentOnMount: false,
   });
 
   const openDrawer = useCallback(() => {

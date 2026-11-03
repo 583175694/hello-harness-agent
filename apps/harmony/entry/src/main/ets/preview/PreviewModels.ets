@@ -14,7 +14,10 @@ export interface ProcessBlockRow {
 
 export interface ChatLine {
   role: string;
+  /** 完成态正文（markdownContent / blocks） */
   text: string;
+  pendingText?: string;
+  finalText?: string;
   process: ProcessBlockRow[];
 }
 
@@ -32,8 +35,13 @@ export interface WorkbenchSourceItem {
 }
 
 export interface ArtifactVersionRow {
+  id: string;
   label: string;
   selected: boolean;
+  seriesId?: string;
+  logicalName?: string;
+  versionNumber?: number;
+  expectedCurrentArtifactId?: string;
 }
 
 export interface WorkbenchActivityRow {
@@ -64,6 +72,7 @@ export interface WorkbenchDeliverableFileRow {
 }
 
 export interface WorkbenchPreviewState {
+  runId?: string;
   initialView: string;
   /** 0=低 1=中 2=高，对齐 Android/iOS Workbench detent */
   initialSheetIndex: number;
@@ -132,6 +141,7 @@ export interface ComposerPreviewState {
   modelLabel: string;
   attachmentNames: string[];
   selectedSkills: string[];
+  revisionDraftSeed?: string;
 }
 
 export function emptyWorkbench(): WorkbenchPreviewState {
@@ -220,8 +230,9 @@ export function parseWorkbench(raw: Record<string, Object> | undefined): Workben
   const versionsRaw = raw['artifactVersions'] as Array<Record<string, Object>> | undefined;
   const artifactVersions: ArtifactVersionRow[] = [];
   if (versionsRaw) {
-    versionsRaw.forEach((v) => {
+    versionsRaw.forEach((v, index) => {
       artifactVersions.push({
+        id: `${v['id'] ?? `ver-${index}`}`,
         label: `${v['label'] ?? 'version'}`,
         selected: v['selected'] === true,
       });
@@ -481,14 +492,29 @@ export function parseConversation(rows: Array<Record<string, Object>> | undefine
           }
         });
       }
-      const pending = row['pendingText'] as string;
-      if (pending && pending.length > 0) {
-        text = pending;
+      const pendingRaw = `${row['pendingText'] ?? ''}`.trim();
+      const finalRaw = `${row['finalText'] ?? ''}`.trim();
+      const markdownRaw = `${row['markdownContent'] ?? ''}`.trim();
+      if (markdownRaw.length > 0) {
+        text = markdownRaw;
+      } else if (finalRaw.length > 0) {
+        text = finalRaw;
       }
-      if (text.length === 0) {
+      if (text.length === 0 && pendingRaw.length === 0 && finalRaw.length === 0) {
         text = '（assistant turn）';
       }
-      out.push({ role: 'assistant', text: text, process: process });
+      const line: ChatLine = {
+        role: 'assistant',
+        text: text,
+        process: process,
+      };
+      if (pendingRaw.length > 0) {
+        line.pendingText = pendingRaw;
+      }
+      if (finalRaw.length > 0) {
+        line.finalText = finalRaw;
+      }
+      out.push(line);
     }
   });
   return out;

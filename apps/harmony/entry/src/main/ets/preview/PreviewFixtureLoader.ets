@@ -28,6 +28,9 @@ export interface PreviewReplayConfig {
 
 export interface PreviewUiHints {
   initialDrawerOpen: boolean;
+  workbenchOpen?: boolean;
+  workbenchFocusedToolCallId?: string;
+  workbenchFocusHint?: string;
 }
 
 export interface PreviewSessionState {
@@ -44,6 +47,8 @@ export interface PreviewSessionState {
   sessionDrawer: SessionDrawerPreviewState;
   uiHints: PreviewUiHints;
   previewTransitions?: PreviewTransitionBundle;
+  canLoadOlderMessages?: boolean;
+  loadingOlderMessages?: boolean;
 }
 
 export class PreviewFixtureLoader {

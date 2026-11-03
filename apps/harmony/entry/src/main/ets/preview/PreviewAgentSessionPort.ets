@@ -10,13 +10,17 @@ import {
 /** Phase A：经 Port 加载 mobile-contract fixture；UI 不直接读 rawfile JSON。 */
 export class PreviewAgentSessionPort implements AgentSessionPort {
   private resMgr: resourceManager.ResourceManager;
+  sessionState: PreviewSessionState;
 
   constructor(resMgr: resourceManager.ResourceManager) {
     this.resMgr = resMgr;
+    this.sessionState = PreviewFixtureLoader.load(resMgr, 'empty-landing.json');
   }
 
   loadPreviewFixture(fileName: string): PreviewSessionState {
-    return PreviewFixtureLoader.load(this.resMgr, fileName);
+    const loaded = PreviewFixtureLoader.load(this.resMgr, fileName);
+    this.sessionState = loaded;
+    return loaded;
   }
 
   listPreviewFixtures(): PreviewFixtureDescriptor[] {

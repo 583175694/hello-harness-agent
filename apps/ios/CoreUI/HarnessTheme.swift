@@ -84,7 +84,10 @@ enum HarnessLayout {
     static let chatBubblePaddingHorizontal: CGFloat = 16
     static let chatBubblePaddingVertical: CGFloat = 12
     static let chatListTurnSpacing: CGFloat = 10
+    /// 对齐 Web `.assistant-blocks` 子块间距。
+    static let chatAssistantSectionGap: CGFloat = 10
     static let chatAssistantBodyPadding: CGFloat = 14
+    static let chatAssistantDeliveryExtraTop: CGFloat = max(0, chatAssistantBodyPadding - chatAssistantSectionGap)
     static let settingsCardRadius: CGFloat = 16
     static let settingsGroupGap: CGFloat = 20
     static let composerAttachmentStripHeight: CGFloat = 52

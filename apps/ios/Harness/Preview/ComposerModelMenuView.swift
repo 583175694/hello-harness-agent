@@ -52,21 +52,22 @@ enum ComposerModelMenuLabels {
 struct ComposerModelMenuSheetView: View {
     @Binding var selectedModelId: String
     @Binding var reasoningEffort: String
+    var catalog: [ComposerModelOption] = ComposerCatalogDefaults.previewModels
 
-    private var activeModel: ComposerModelMenuLabels.ModelDef {
-        ComposerModelMenuLabels.models.first(where: { $0.id == selectedModelId })
-            ?? ComposerModelMenuLabels.models[0]
+    private var models: [ComposerModelOption] {
+        catalog.isEmpty ? ComposerCatalogDefaults.previewModels : catalog
+    }
+
+    private var activeModel: ComposerModelOption {
+        models.first(where: { $0.id == selectedModelId }) ?? models[0]
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(ComposerModelMenuLabels.models) { model in
+            ForEach(models) { model in
                 Button {
                     selectedModelId = model.id
-                    reasoningEffort = ComposerModelMenuLabels.coerceReasoning(
-                        modelId: model.id,
-                        effort: reasoningEffort
-                    )
+                    reasoningEffort = coerceReasoning(modelId: model.id, effort: reasoningEffort)
                 } label: {
                     HStack {
                         Text(model.label)
@@ -104,6 +105,11 @@ struct ComposerModelMenuSheetView: View {
             Spacer(minLength: 28)
         }
         .padding(.bottom, 24)
+    }
+
+    private func coerceReasoning(modelId: String, effort: String) -> String {
+        let allowed = models.first(where: { $0.id == modelId })?.reasoningOptions ?? ["high"]
+        return allowed.contains(effort) ? effort : (allowed.last ?? "high")
     }
 }
 

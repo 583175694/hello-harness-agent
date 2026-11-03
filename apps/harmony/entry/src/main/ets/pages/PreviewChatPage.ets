@@ -3,6 +3,8 @@ import { HarnessColors } from '../coreui/HarnessColors';
 import { ChatTopBar } from '../preview/ChatTopBar';
 import { PreviewSessionState } from '../preview/PreviewFixtureLoader';
 import { PreviewAgentSessionPort } from '../preview/PreviewAgentSessionPort';
+import { CoreAgentSessionPort } from '../core/CoreAgentSessionPort';
+import { HarmonyAttachmentPicker } from '../core/HarmonyAttachmentPicker';
 import { ChatLine } from '../preview/PreviewModels';
 import { ConversationTurnRow } from '../preview/ConversationPatterns';
 import { PreviewComposerStack } from '../preview/PreviewComposerStack';
@@ -20,6 +22,7 @@ import { PreviewSessionReducer, PreviewUiAction } from '../preview/PreviewSessio
 import { SessionDrawerRow } from '../preview/PreviewModels';
 import {
   PreviewComposerModelSheet,
+  PreviewModelDef,
   formatComposerModelChip,
   resolveModelIdFromLabel,
   resolveReasoningFromLabel,
@@ -40,6 +43,8 @@ struct PreviewChatPage {
   @State skillSheetOpen: boolean = false;
   @State selectedModelId: string = 'deepseek-reasoner';
   @State reasoningEffort: string = 'high';
+  @State coreModelCatalog: PreviewModelDef[] = [];
+  @State coreSkillRows: string[] = ['/research', '/code-review', '/summarize'];
   @State serviceBannerDismissed: boolean = false;
   @State themeDark: boolean = PreviewLocalPreferences.themeDark;
   @State reduceMotion: boolean = PreviewLocalPreferences.reduceMotion;
@@ -49,6 +54,8 @@ struct PreviewChatPage {
   @State composerChromeHeight: number = 0;
   private conversationScroller: ListScroller = new ListScroller();
   private replayController: PreviewReplayController = new PreviewReplayController();
+  private corePort: CoreAgentSessionPort | null = null;
+  private lastSessionKey: string = '';
   private static readonly DEMO_FIXTURE: string = 'rich-session-showcase.json';
 
   private scrollConversationToBottom(): void {
@@ -71,7 +78,26 @@ struct PreviewChatPage {
       this.blurComposer();
     } else {
       this.focusedToolStepId = '';
+      if (this.corePort !== null) {
+        this.corePort.setWorkbenchOpen?.(false);
+      }
     }
+  }
+
+  @Watch('skillSheetOpen')
+  onSkillSheetOpenChange(): void {
+    if (!this.skillSheetOpen || this.corePort === null) {
+      return;
+    }
+    void this.corePort.refreshSkillPicker().then(() => {
+      if (this.corePort === null) {
+        return;
+      }
+      const names = this.corePort.getSkillPickerNames();
+      if (names.length > 0) {
+        this.coreSkillRows = names.map((n) => (n.startsWith('/') ? n : `/${n}`));
+      }
+    });
   }
 
   @Watch('drawerOpen')
@@ -91,8 +117,89 @@ struct PreviewChatPage {
 
   aboutToAppear(): void {
     const params = router.getParams() as Record<string, string>;
+    if (`${params['core'] ?? ''}` === '1' || PreviewLocalPreferences.useCorePort) {
+      this.applyCorePort(`${params['title'] ?? 'Core 联调'}`);
+      return;
+    }
     const fileName = (params['fileName'] as string)?.length > 0 ? `${params['fileName']}` : 'empty-landing.json';
     this.applyFixture(fileName, params['title']);
+  }
+
+  private applyCorePort(title: string): void {
+    this.replayController.stop();
+    this.corePort = new CoreAgentSessionPort();
+    this.corePort.onSessionStateChange = (loaded) => {
+      const sessionKey = loaded.fileName;
+      if (sessionKey.length > 0 && sessionKey !== this.lastSessionKey) {
+        this.workbenchOpen = false;
+        this.focusedToolStepId = '';
+        this.lastSessionKey = sessionKey;
+        this.corePort?.setWorkbenchOpen?.(false);
+      }
+      this.session = loaded;
+      this.lines = loaded.lines.slice();
+      this.drawerSessions = loaded.sessionDrawer.sessions.slice();
+      if (loaded.uiHints.workbenchFocusedToolCallId !== undefined &&
+        loaded.uiHints.workbenchFocusedToolCallId.length > 0) {
+        this.focusedToolStepId = loaded.uiHints.workbenchFocusedToolCallId;
+      }
+      if (loaded.uiHints.workbenchFocusHint !== undefined &&
+        loaded.uiHints.workbenchFocusHint.length > 0) {
+        AppToast.show(loaded.uiHints.workbenchFocusHint);
+        this.corePort?.clearWorkbenchFocusHint();
+      }
+      if (previewUiActionScrollsConversationToBottom('sendText')) {
+        this.scrollConversationToBottom();
+      }
+    };
+    this.session = this.corePort.sessionState;
+    this.session.title = title;
+    this.lines = this.session.lines.slice();
+    this.drawerSessions = this.session.sessionDrawer.sessions.slice();
+    this.drawerOpen = false;
+    this.workbenchOpen = false;
+    void this.corePort.bootstrapIfConfigured().then(() => {
+      this.syncCoreComposerMenus();
+    });
+  }
+
+  private pickCoreAttachment(): void {
+    if (this.corePort === null) {
+      return;
+    }
+    void HarmonyAttachmentPicker.pickOne().then((picked) => {
+      if (picked === null || this.corePort === null) {
+        return;
+      }
+      void this.corePort.uploadComposerAttachment(picked.fileName, picked.data, picked.mediaType);
+    });
+  }
+
+  private syncCoreComposerMenus(): void {
+    if (this.corePort === null) {
+      return;
+    }
+    const models = this.corePort.getComposerModelOptions();
+    if (models.length > 0) {
+      this.coreModelCatalog = models.map((m) => ({
+        id: m.id,
+        label: m.label,
+        reasoningOptions: m.reasoningOptions.slice(),
+      }));
+      if (this.coreModelCatalog.find((m) => m.id === this.selectedModelId) === undefined) {
+        this.selectedModelId = this.coreModelCatalog[0].id;
+        this.reasoningEffort = this.coreModelCatalog[0].reasoningOptions[0] ?? 'high';
+      }
+    }
+    void this.corePort.refreshSkillPicker().then(() => {
+      if (this.corePort === null) {
+        return;
+      }
+      const names = this.corePort.getSkillPickerNames();
+      if (names.length > 0) {
+        this.coreSkillRows = names.map((n) => (n.startsWith('/') ? n : `/${n}`));
+      }
+    });
   }
 
   private applyFixture(fileName: string, titleOverride?: string): void {
@@ -109,10 +216,9 @@ struct PreviewChatPage {
     this.selectedModelId = resolveModelIdFromLabel(loaded.composer.modelLabel);
     this.reasoningEffort = resolveReasoningFromLabel(loaded.composer.modelLabel);
     this.serviceBannerDismissed = false;
-    const badge = loaded.workbench.workbenchCount > 0 ? loaded.workbench.workbenchCount :
-      (loaded.workbench.sources.length > 0 ? 1 : 0);
-    this.workbenchOpen = badge > 0 || loaded.workbench.reportMarkdown.length > 0;
+    this.workbenchOpen = false;
     this.focusedToolStepId = '';
+    this.lastSessionKey = loaded.fileName;
     this.lines = loaded.lines.slice();
     if (loaded.replay !== null) {
       const replay = loaded.replay;
@@ -139,6 +245,32 @@ struct PreviewChatPage {
     if (this.session === null) {
       return;
     }
+    if (this.corePort !== null) {
+      if (action.kind === 'addSkill' && action.text) {
+        this.corePort.addComposerSkill(action.text);
+      } else if (action.kind === 'sendText' && action.text) {
+        const skills = this.session?.composer.selectedSkills ?? [];
+        void this.corePort.submitComposerText(
+          action.text,
+          action.modelId ?? this.selectedModelId,
+          action.reasoningEffort ?? this.reasoningEffort,
+          skills,
+        );
+      } else if (action.kind === 'cancelRun' || action.kind === 'stopRun') {
+        void this.corePort.cancelActiveRun();
+      } else if (action.kind === 'sendFollowUp') {
+        void this.corePort.sendPendingInput(action.id);
+      } else if (action.kind === 'dismissFollowUp') {
+        void this.corePort.cancelPendingInput(action.id);
+      } else if (action.kind === 'submitClarification' && action.text) {
+        void this.corePort.respondClarification?.(action.text);
+      } else if (action.kind === 'approveTools') {
+        void this.corePort.approveToolCalls?.();
+      } else if (action.kind === 'rejectTools') {
+        void this.corePort.rejectToolCalls?.();
+      }
+      return;
+    }
     const result = PreviewSessionReducer.reduce(this.session, this.lines, action);
     this.session = result.session;
     this.lines = result.lines;
@@ -149,16 +281,29 @@ struct PreviewChatPage {
 
   aboutToDisappear(): void {
     this.replayController.stop();
+    this.corePort?.onAppBackground?.();
   }
 
   onPageShow(): void {
     this.themeDark = PreviewLocalPreferences.themeDark;
     this.reduceMotion = PreviewLocalPreferences.reduceMotion;
     this.contentFontSize = PreviewLocalPreferences.contentFontSize;
+    if (this.corePort !== null) {
+      void this.corePort.onAppForeground?.();
+    }
   }
 
   refreshDrawerSessions(): void {
     this.drawerRefreshing = true;
+    if (this.corePort !== null) {
+      void this.corePort.refreshSessionList?.().then(() => {
+        if (this.session !== null) {
+          this.drawerSessions = this.session.sessionDrawer.sessions.slice();
+        }
+        this.drawerRefreshing = false;
+      });
+      return;
+    }
     setTimeout(() => {
       if (this.session !== null) {
         this.drawerSessions = this.session.sessionDrawer.sessions.slice();
@@ -180,6 +325,11 @@ struct PreviewChatPage {
       this.drawerOpen = false;
       AppToast.show('已在新对话中');
       return false;
+    }
+    if (this.corePort !== null) {
+      void this.corePort.beginNewConversation?.();
+      this.drawerOpen = false;
+      return true;
     }
     const title = this.session.sessionDrawer.draftTitle;
     const newRow: SessionDrawerRow = {
@@ -209,6 +359,11 @@ struct PreviewChatPage {
   }
 
   selectDrawerSession(sessionId: string): void {
+    if (this.corePort !== null) {
+      void this.corePort.selectSession(sessionId);
+      this.drawerOpen = false;
+      return;
+    }
     this.drawerSessions = this.drawerSessions.map((row) => {
       const copy: SessionDrawerRow = {
         id: row.id,
@@ -262,7 +417,11 @@ struct PreviewChatPage {
           onOpenWorkbench: () => {
             this.blurComposer();
             this.focusedToolStepId = '';
-            this.workbenchOpen = true;
+            if (this.corePort !== null) {
+              void this.corePort.openWorkbenchPanel();
+            } else {
+              this.workbenchOpen = true;
+            }
           },
         })
 
@@ -304,18 +463,43 @@ struct PreviewChatPage {
           .width('100%')
         } else {
           List({ scroller: this.conversationScroller }) {
+            if (s.canLoadOlderMessages === true) {
+              ListItem() {
+                Text(s.loadingOlderMessages === true ? '正在加载更早消息…' : '加载更早消息')
+                  .fontSize(13)
+                  .fontColor(HarnessColors.mutedText(this.themeDark))
+                  .width('100%')
+                  .textAlign(TextAlign.Center)
+                  .padding({ top: 12, bottom: 12 })
+                  .onClick(() => {
+                    if (s.loadingOlderMessages === true || this.corePort === null) {
+                      return;
+                    }
+                    const sessionId = s.fileName;
+                    if (sessionId.length === 0 || sessionId === 'core-landing') {
+                      return;
+                    }
+                    void this.corePort.loadOlderMessages(sessionId);
+                  })
+              }
+            }
             ForEach(this.lines, (line: ChatLine, index: number) => {
               ListItem() {
                 ConversationTurnRow({
                   line: line,
                   streamingTail: s.replay !== null && line.role === 'assistant' &&
-                    index === this.lines.length - 1 && line.text.length < 8,
+                    index === this.lines.length - 1,
                   fontSize: this.contentFontSize,
                   useDark: this.themeDark,
                   reduceMotion: this.reduceMotion,
                   onOpenWorkbenchStep: (toolId: string) => {
                     this.focusedToolStepId = toolId;
                     this.workbenchOpen = true;
+                    if (this.corePort !== null) {
+                      const runId = s.workbench.runId ?? s.fileName;
+                      void this.corePort.focusWorkbenchToolCall(runId, toolId);
+                      void this.corePort.setWorkbenchOpen?.(true);
+                    }
                   },
                 })
               }
@@ -338,7 +522,11 @@ struct PreviewChatPage {
 
         PreviewComposerStack({
           composer: s.composer,
-          modelLabelOverride: formatComposerModelChip(this.selectedModelId, this.reasoningEffort),
+          modelLabelOverride: formatComposerModelChip(
+            this.selectedModelId,
+            this.reasoningEffort,
+            this.corePort !== null && this.coreModelCatalog.length > 0 ? this.coreModelCatalog : undefined,
+          ),
           useDark: this.themeDark,
           workbenchOpen: this.workbenchOpen,
           composerBlock: PreviewLocalPreferences.resolveComposerBlock(),
@@ -359,6 +547,9 @@ struct PreviewChatPage {
           },
           onPreviewAction: (action: PreviewUiAction) => {
             this.applyPreviewAction(action);
+          },
+          onClearComposerRevisionSeed: () => {
+            this.corePort?.clearComposerRevisionSeed?.();
           },
         })
           .onAreaChange((_old, area) => {
@@ -393,6 +584,7 @@ struct PreviewChatPage {
         newConversationEnabled: !this.isInDraftMode(),
         reduceMotion: this.reduceMotion,
         useDark: this.themeDark,
+        liveSessionActions: this.corePort !== null,
         onRefresh: () => {
           this.refreshDrawerSessions();
         },
@@ -405,6 +597,15 @@ struct PreviewChatPage {
         onSelectSession: (sessionId: string) => {
           this.selectDrawerSession(sessionId);
         },
+        onRenameSession: (sessionId: string, title: string) => {
+          void this.corePort?.renameSession(sessionId, title);
+        },
+        onTogglePinSession: (sessionId: string) => {
+          void this.corePort?.togglePinSession(sessionId);
+        },
+        onDeleteSession: (sessionId: string) => {
+          void this.corePort?.deleteSession(sessionId);
+        },
       })
 
       PreviewWorkbenchSheet({
@@ -414,8 +615,20 @@ struct PreviewChatPage {
         initialFocusedToolId: this.focusedToolStepId,
         reduceMotion: this.reduceMotion,
         useDark: this.themeDark,
+        coreRestoreEnabled: this.corePort !== null,
         onOpenReader: (title: string, body: string, isArtifact: boolean) => {
           this.openReader(title, body, isArtifact);
+        },
+        onRestoreArtifactVersion: (restoreId: string, expectedId: string) => {
+          void this.corePort?.restoreArtifactVersion?.(restoreId, expectedId);
+        },
+        onBeginArtifactRevision: (artifactId: string) => {
+          if (this.corePort !== null) {
+            this.corePort.beginArtifactRevision?.(artifactId);
+            this.workbenchOpen = false;
+          } else {
+            AppToast.show('Preview：已预填修改草稿（未写服务器）');
+          }
         },
       })
 
@@ -432,12 +645,17 @@ struct PreviewChatPage {
           if (row === 'Skill') {
             this.attachSheetOpen = false;
             this.skillSheetOpen = true;
-          } else if (row === '照片与图片') {
-            this.applyPreviewAction({ kind: 'addAttachment', text: 'preview-photo.jpg' });
-            this.attachSheetOpen = false;
-          } else if (row === '文件') {
-            this.applyPreviewAction({ kind: 'addAttachment', text: 'document-preview.pdf' });
-            this.attachSheetOpen = false;
+          } else if (row === '照片与图片' || row === '文件') {
+            if (this.corePort !== null) {
+              this.attachSheetOpen = false;
+              this.pickCoreAttachment();
+            } else if (row === '照片与图片') {
+              this.applyPreviewAction({ kind: 'addAttachment', text: 'preview-photo.jpg' });
+              this.attachSheetOpen = false;
+            } else {
+              this.applyPreviewAction({ kind: 'addAttachment', text: 'document-preview.pdf' });
+              this.attachSheetOpen = false;
+            }
           } else {
             this.attachSheetOpen = false;
           }
@@ -450,6 +668,7 @@ struct PreviewChatPage {
         visible: this.modelSheetOpen,
         useDark: this.themeDark,
         reduceMotion: this.reduceMotion,
+        modelCatalog: this.corePort !== null ? this.coreModelCatalog : [],
         selectedModelId: $selectedModelId,
         reasoningEffort: $reasoningEffort,
         onClose: () => {
@@ -464,7 +683,7 @@ struct PreviewChatPage {
         contentBottomPadding: 32,
         useDark: this.themeDark,
         reduceMotion: this.reduceMotion,
-        rows: ['/research', '/code-review', '/summarize'],
+        rows: this.corePort !== null ? this.coreSkillRows : ['/research', '/code-review', '/summarize'],
         onPick: (row: string) => {
           const skill = row.startsWith('/') ? row.substring(1) : row;
           this.applyPreviewAction({ kind: 'addSkill', text: skill });

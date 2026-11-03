@@ -46,6 +46,11 @@ export function ComposerAttachments({ items, onRemove, onRetry }: ComposerAttach
                   IMG
                 </Text>
               )}
+              {item.status === 'processing' ? (
+                <View className="absolute inset-0 items-center justify-center bg-surface/55">
+                  <SpinnerIcon tone="primary" size={18} />
+                </View>
+              ) : null}
             </View>
           ) : (
             <View className="h-[72px] w-[268px] max-w-[268px] flex-row items-center gap-2.5 bg-subtle px-3">

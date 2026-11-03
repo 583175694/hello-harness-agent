@@ -1,6 +1,7 @@
 package com.harness.agent.model
 
 data class WorkbenchState(
+    val runId: String? = null,
     val initialView: String = "activity",
     val initialSheetIndex: Int = 2,
     val workbenchCount: Int = 0,

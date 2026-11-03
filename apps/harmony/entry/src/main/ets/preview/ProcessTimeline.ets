@@ -41,6 +41,22 @@ function reasoningContentExitTransition(reduceMotion: boolean): TransitionEffect
   return TransitionEffect.IDENTITY;
 }
 
+/** 对齐 Web `.ai-reasoning__content`（略低于 Web 420px）。 */
+const REASONING_CONTENT_MAX_HEIGHT: number = 240;
+/** 对齐 Web `.ai-reasoning__content::before/::after`。 */
+const REASONING_EDGE_FADE_HEIGHT: number = 18;
+/** 对齐 Web `ai-elements/reasoning.tsx` `AUTO_CLOSE_DELAY`。 */
+const REASONING_AUTO_CLOSE_MS: number = 1000;
+
+function reasoningCanvasFadeStops(useDark: boolean, topSolid: boolean): Array<[string, number]> {
+  const solid = HarnessColors.canvas(useDark);
+  const clear = useDark ? '#00101010' : '#00F7F7F6';
+  if (topSolid) {
+    return [[solid, 0.0], [clear, 1.0]];
+  }
+  return [[clear, 0.0], [solid, 1.0]];
+}
+
 function reasoningTriggerLabel(streaming: boolean, durationMs: number): string {
   if (streaming) {
     return 'Thinking...';
@@ -175,6 +191,52 @@ struct ProcessTimelineRow {
   @State reasoningOpen: boolean = false;
   @State toolPressed: boolean = false;
   @State reasoningTriggerPressed: boolean = false;
+  private reasoningScroller: Scroller = new Scroller();
+  private lastReasoningStreaming: boolean = false;
+  private reasoningAutoCloseTimer: number = -1;
+
+  aboutToAppear(): void {
+    if (this.block.kind === 'reasoning') {
+      this.lastReasoningStreaming = this.block.streaming;
+      if (this.block.streaming) {
+        this.reasoningOpen = true;
+      }
+    }
+  }
+
+  aboutToDisappear(): void {
+    if (this.reasoningAutoCloseTimer >= 0) {
+      clearTimeout(this.reasoningAutoCloseTimer);
+      this.reasoningAutoCloseTimer = -1;
+    }
+  }
+
+  aboutToUpdate(): void {
+    if (this.block.kind !== 'reasoning') {
+      return;
+    }
+    const streaming = this.block.streaming;
+    if (streaming && !this.lastReasoningStreaming) {
+      this.reasoningOpen = true;
+    }
+    if (!streaming && this.lastReasoningStreaming) {
+      if (this.reasoningAutoCloseTimer >= 0) {
+        clearTimeout(this.reasoningAutoCloseTimer);
+      }
+      this.reasoningAutoCloseTimer = setTimeout((): void => {
+        this.reasoningOpen = false;
+        this.reasoningAutoCloseTimer = -1;
+      }, REASONING_AUTO_CLOSE_MS);
+    }
+    this.lastReasoningStreaming = streaming;
+
+    if (!streaming) {
+      return;
+    }
+    setTimeout((): void => {
+      this.reasoningScroller.scrollEdge(Edge.Bottom);
+    }, 0);
+  }
 
   private toggleReasoning(): void {
     if (this.reduceMotion) {
@@ -283,7 +345,7 @@ struct ProcessTimelineRow {
               })
                 .width(16)
                 .height(16)
-                .rotate({ angle: this.reasoningOpen || this.block.streaming ? -90 : 90 })
+                .rotate({ angle: this.reasoningOpen ? -90 : 90 })
                 .animation(this.reduceMotion ? { duration: 0 } : { duration: 140, curve: Curve.EaseOut })
                 .accessibilityText(this.reasoningOpen ? '收起思考过程' : '展开思考过程')
                 .opacity(harnessPressOpacity(this.reasoningTriggerPressed))
@@ -298,18 +360,46 @@ struct ProcessTimelineRow {
               }
             })
             .onClick(() => this.toggleReasoning())
-            if (this.reasoningOpen || this.block.streaming) {
-              Text(this.block.content)
-                .fontSize(14)
-                .lineHeight(22)
-                .fontColor(HarnessColors.mutedText(this.useDark))
+            if (this.reasoningOpen) {
+              Stack({ alignContent: Alignment.TopStart }) {
+                Scroll(this.reasoningScroller) {
+                  Text(this.block.content)
+                    .fontSize(14)
+                    .lineHeight(22)
+                    .fontColor(HarnessColors.mutedText(this.useDark))
+                    .width('100%')
+                }
+                .width('100%')
+                .constraintSize({ maxHeight: REASONING_CONTENT_MAX_HEIGHT })
+                .scrollBar(BarState.Off)
                 .padding({ left: 12, right: 12, top: 6, bottom: 8 })
-                .transition(
-                  TransitionEffect.asymmetric(
-                    reasoningContentEnterTransition(this.reduceMotion),
-                    reasoningContentExitTransition(this.reduceMotion),
-                  ),
-                )
+
+                Row()
+                  .width('100%')
+                  .height(REASONING_EDGE_FADE_HEIGHT)
+                  .linearGradient({
+                    angle: 180,
+                    colors: reasoningCanvasFadeStops(this.useDark, true),
+                  })
+                  .hitTestBehavior(HitTestMode.None)
+
+                Row()
+                  .width('100%')
+                  .height(REASONING_EDGE_FADE_HEIGHT)
+                  .align(Alignment.Bottom)
+                  .linearGradient({
+                    angle: 180,
+                    colors: reasoningCanvasFadeStops(this.useDark, false),
+                  })
+                  .hitTestBehavior(HitTestMode.None)
+              }
+              .width('100%')
+              .transition(
+                TransitionEffect.asymmetric(
+                  reasoningContentEnterTransition(this.reduceMotion),
+                  reasoningContentExitTransition(this.reduceMotion),
+                ),
+              )
             }
           }
           .width('100%')

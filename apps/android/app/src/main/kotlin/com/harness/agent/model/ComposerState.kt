@@ -10,8 +10,10 @@ data class ComposerState(
     val showPlan: Boolean = false,
     val plan: PlanFixture? = null,
     val attachmentNames: List<String> = emptyList(),
+    val attachmentItems: List<ComposerAttachmentItem> = emptyList(),
     val selectedModelLabel: String = "默认模型",
     val followUps: List<FollowUpFixture> = emptyList(),
+    val revisionDraftSeed: String? = null,
 )
 
 data class FollowUpFixture(

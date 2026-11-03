@@ -12,6 +12,8 @@ import { PreviewLocalPreferences } from './PreviewLocalPreferences';
 // Gate A: activity 内 relatedSources / WorkbenchSourceCard；deliverableFiles / previewMarkdown 文件预览。
 import { WorkbenchSegmentedTabs } from './WorkbenchSegmentedTabs';
 import { WorkbenchTabEmptyState } from './WorkbenchTabEmptyState';
+import { AppConfirmPanel } from '../coreui/AppConfirmPanel';
+import { AppFeedback } from '../coreui/AppFeedback';
 
 const WB_DETENT_HEIGHTS: string[] = ['44%', '72%', '98%'];
 /** 对齐 Web `.workbench-tool-slider` / Android HarnessLayout。 */
@@ -47,6 +49,12 @@ export struct PreviewWorkbenchSheet {
   @Prop useDark: boolean = PreviewLocalPreferences.themeDark;
   onOpenReader: (title: string, body: string, isArtifact: boolean) => void = () => {
   };
+  onRestoreArtifactVersion: (restoreArtifactId: string, expectedCurrentArtifactId: string) => void = () => {
+  };
+  onBeginArtifactRevision: (artifactId: string) => void = () => {
+  };
+  /** Core 联调：true 时恢复走 Port；false 时仅 Preview 确认 Toast。 */
+  @Prop coreRestoreEnabled: boolean = false;
 
   @State activeTab: string = 'activity';
   @State detentIndex: number = 2;
@@ -57,7 +65,13 @@ export struct PreviewWorkbenchSheet {
   /** 0=收起，1=完全展开；与 Android sheetProgress 对齐（280ms） */
   @State presentProgress: number = 0;
   @State stepIndex: number = 0;
+  @State restoreConfirmOpen: boolean = false;
+  @State restoreTargetId: string = '';
+  @State restoreExpectedId: string = '';
+  @State restorePresentScale: number = 1;
+  @State restorePresentOpacity: number = 1;
   private lastSessionKey: string = '';
+  private lastInitialView: string = '';
 
   @Watch('visible')
   onVisibleChange(): void {
@@ -112,6 +126,7 @@ export struct PreviewWorkbenchSheet {
 
   aboutToAppear(): void {
     this.lastSessionKey = this.sessionKey;
+    this.lastInitialView = this.state.initialView;
     this.syncFromState();
   }
 
@@ -119,6 +134,10 @@ export struct PreviewWorkbenchSheet {
     if (this.sessionKey.length > 0 && this.sessionKey !== this.lastSessionKey) {
       this.lastSessionKey = this.sessionKey;
       this.syncFromState();
+    }
+    if (this.state.initialView !== this.lastInitialView) {
+      this.lastInitialView = this.state.initialView;
+      this.activeTab = this.state.initialView.length > 0 ? this.state.initialView : 'activity';
     }
   }
 
@@ -284,9 +303,92 @@ export struct PreviewWorkbenchSheet {
     }
   }
 
+  private currentArtifactVersion(): ArtifactVersionRow | undefined {
+    const selected = this.state.artifactVersions.find((v) => v.selected);
+    if (selected !== undefined) {
+      return selected;
+    }
+    return this.state.artifactVersions.length > 0 ? this.state.artifactVersions[0] : undefined;
+  }
+
+  private openRestoreConfirm(restoreId: string, expectedId: string): void {
+    this.restoreTargetId = restoreId;
+    this.restoreExpectedId = expectedId;
+    this.restoreConfirmOpen = true;
+    this.restorePresentScale = 1;
+    this.restorePresentOpacity = 1;
+  }
+
+  private closeRestoreConfirm(): void {
+    this.restoreConfirmOpen = false;
+    this.restoreTargetId = '';
+    this.restoreExpectedId = '';
+  }
+
+  private confirmRestoreVersion(): void {
+    const restoreId = this.restoreTargetId;
+    const expectedId = this.restoreExpectedId;
+    this.closeRestoreConfirm();
+    if (restoreId.length === 0 || expectedId.length === 0) {
+      return;
+    }
+    if (this.coreRestoreEnabled) {
+      this.onRestoreArtifactVersion(restoreId, expectedId);
+    } else {
+      AppFeedback.toast('Preview：已确认恢复（未写服务器）');
+    }
+  }
+
+  @Builder
+  artifactVersionsTabContent() {
+    const current = this.currentArtifactVersion();
+    Column({ space: 8 }) {
+      if (this.state.artifactRestorePrompt.length > 0) {
+        Text(this.state.artifactRestorePrompt)
+          .fontSize(12)
+          .fontColor(HarnessColors.mutedText(this.useDark))
+          .width('100%')
+      }
+      ForEach(this.state.artifactVersions, (ver: ArtifactVersionRow) => {
+        Row() {
+          Column({ space: 2 }) {
+            Text(ver.label).fontSize(14).fontColor(HarnessColors.primaryText(this.useDark))
+            if (ver.selected) {
+              Text('当前版本').fontSize(11).fontColor(HarnessColors.mutedText(this.useDark))
+            }
+          }
+          .layoutWeight(1)
+          Row({ space: 12 }) {
+            Text('修改')
+              .fontSize(13)
+              .fontColor(HarnessColors.linkText(this.useDark))
+              .onClick(() => {
+                this.onBeginArtifactRevision(ver.id);
+              })
+            if (!ver.selected && current !== undefined) {
+              Text('恢复')
+                .fontSize(13)
+                .fontColor(HarnessColors.linkText(this.useDark))
+                .onClick(() => {
+                  this.openRestoreConfirm(ver.id, current.id);
+                })
+            }
+          }
+        }
+        .width('100%')
+        .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+        .borderRadius(12)
+        .border({ width: 1, color: HarnessColors.composerBorder(this.useDark) })
+      }, (ver: ArtifactVersionRow) => ver.id)
+    }
+    .padding({ left: 16, right: 16, top: 8 })
+  }
+
   @Builder
   filesTabContent() {
-    if (this.state.deliverableFiles.length === 0) {
+    if (this.state.artifactVersions.length > 0) {
+      this.artifactVersionsTabContent()
+    } else if (this.state.deliverableFiles.length === 0) {
       WorkbenchTabEmptyState({
         title: '暂无文件',
         message: '运行完成后，报告与导出文件会显示在这里。',
@@ -398,20 +500,15 @@ export struct PreviewWorkbenchSheet {
             }
             .layoutWeight(1)
             .width('100%')
-          } else if (this.state.deliverableFiles.length === 0) {
-            Column() {
-              this.filesTabContent()
-            }
-            .layoutWeight(1)
-            .width('100%')
           } else {
             Scroll() {
               Column({ space: 8 }) {
                 this.filesTabContent()
               }
-              .padding({ left: 16, right: 16, top: 8 })
+              .width('100%')
             }
             .layoutWeight(1)
+            .width('100%')
             .scrollBar(BarState.Auto)
             .edgeEffect(EdgeEffect.Spring)
           }
@@ -474,6 +571,23 @@ export struct PreviewWorkbenchSheet {
         }
         .width('100%')
         .height('100%')
+      }
+
+      if (this.restoreConfirmOpen) {
+        AppConfirmPanel({
+          title: '恢复版本',
+          message: this.state.artifactRestorePrompt.length > 0 ?
+            this.state.artifactRestorePrompt :
+            '将恢复所选版本。',
+          confirmLabel: '确认恢复',
+          cancelLabel: '取消',
+          destructive: false,
+          useDark: this.useDark,
+          presentScale: this.restorePresentScale,
+          presentOpacity: this.restorePresentOpacity,
+          onCancel: () => this.closeRestoreConfirm(),
+          onConfirm: () => this.confirmRestoreVersion(),
+        })
       }
     }
     .width('100%')

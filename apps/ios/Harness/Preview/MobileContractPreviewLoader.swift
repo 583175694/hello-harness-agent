@@ -21,13 +21,23 @@ struct ActiveSessionState: Equatable {
     var composer: ComposerState = .init()
     var workbench: WorkbenchState = .init()
     var previewTransitions: PreviewTransitionBundle?
+    var canLoadOlderMessages: Bool = false
+    var loadingOlderMessages: Bool = false
+}
+
+struct UserAttachmentItem: Equatable {
+    var fileId: String
+    var fileName: String
+    var previewUrl: String?
 }
 
 enum ConversationItem: Equatable {
-    case user(String)
+    case user(content: String, attachments: [UserAttachmentItem])
     case assistant(
         status: String,
+        pending: Bool,
         pendingText: String?,
+        finalText: String?,
         summary: String?,
         tailTarget: String?,
         markdownContent: String?,
@@ -80,7 +90,7 @@ final class MobileContractPreviewLoader {
             for row in rows {
                 let kind = row["kind"] as? String ?? ""
                 if kind == "user" {
-                    conversation.append(.user(row["content"] as? String ?? ""))
+                    conversation.append(.user(content: row["content"] as? String ?? "", attachments: []))
                 } else if kind == "assistant" {
                     let status = row["deliveryStatus"] as? String ?? "completed"
                     let pendingRaw = row["pendingText"] as? String
@@ -99,7 +109,9 @@ final class MobileContractPreviewLoader {
                     conversation.append(
                         .assistant(
                             status: status,
+                            pending: streaming,
                             pendingText: streaming ? nil : pendingRaw,
+                            finalText: nil,
                             summary: nil,
                             tailTarget: streaming ? pendingRaw : nil,
                             markdownContent: finalizedBody,
@@ -296,6 +308,9 @@ final class MobileContractPreviewLoader {
             showPlan: json["showPlan"] as? Bool ?? false,
             plan: plan,
             attachmentNames: json["attachmentNames"] as? [String] ?? [],
+            attachmentItems: (json["attachmentNames"] as? [String] ?? []).map {
+                ComposerAttachmentItem(id: $0, fileName: $0)
+            },
             selectedModelLabel: json["selectedModelLabel"] as? String ?? "默认模型",
             followUps: parseFollowUps(json["followUps"] as? [[String: Any]])
         )

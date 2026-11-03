@@ -12,6 +12,10 @@ data class WorkbenchArtifactVersion(
     val id: String,
     val label: String,
     val selected: Boolean = false,
+    val seriesId: String? = null,
+    val logicalName: String? = null,
+    val versionNumber: Int? = null,
+    val expectedCurrentArtifactId: String? = null,
 )
 
 /** 对齐 RN/Web `ToolCallView`（Gate A Preview 子集）。 */

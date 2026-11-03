@@ -235,6 +235,12 @@ fun ComposerAuxiliarySheets(
     onReasoningChange: (String) -> Unit,
     onSkillPicked: (String) -> Unit = {},
     onAttachmentPicked: (String) -> Unit = {},
+    useCoreAttachments: Boolean = false,
+    onPickImageAttachment: () -> Unit = {},
+    onPickDocumentAttachment: () -> Unit = {},
+    modelCatalog: List<com.harness.agent.model.ComposerModelOption> =
+        com.harness.agent.model.PREVIEW_COMPOSER_MODELS,
+    skillPickerNames: List<String> = emptyList(),
     previewReduceMotion: Boolean = false,
 ) {
     AppSheet(
@@ -250,7 +256,11 @@ fun ComposerAuxiliarySheets(
             label = "照片与图片",
             icon = Icons.Rounded.Image,
             onClick = {
-                onAttachmentPicked("preview-photo.jpg")
+                if (useCoreAttachments) {
+                    onPickImageAttachment()
+                } else {
+                    onAttachmentPicked("preview-photo.jpg")
+                }
                 onAttachmentOpenChange(false)
             },
         )
@@ -258,7 +268,11 @@ fun ComposerAuxiliarySheets(
             label = "文件",
             icon = Icons.Rounded.AttachFile,
             onClick = {
-                onAttachmentPicked("document-preview.pdf")
+                if (useCoreAttachments) {
+                    onPickDocumentAttachment()
+                } else {
+                    onAttachmentPicked("document-preview.pdf")
+                }
                 onAttachmentOpenChange(false)
             },
         )
@@ -286,6 +300,7 @@ fun ComposerAuxiliarySheets(
             reasoningEffort = reasoningEffort,
             onModelIdChange = onModelIdChange,
             onReasoningChange = onReasoningChange,
+            catalog = modelCatalog,
         )
     }
 
@@ -298,7 +313,11 @@ fun ComposerAuxiliarySheets(
         contentMinHeight = 240.dp,
         contentBottomPadding = 24.dp,
     ) {
-        listOf("research", "code-review", "summarize").forEach { skill ->
+        val skills =
+            skillPickerNames.ifEmpty {
+                listOf("research", "code-review", "summarize")
+            }
+        skills.forEach { skill ->
             ListRow(
                 title = "/$skill",
                 showDivider = false,

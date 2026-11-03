@@ -1,5 +1,10 @@
 import { HarnessColors } from './HarnessColors';
 
+/**
+ * FROZEN（M3）：禁止扩展手写 Markdown 解析。终态见 docs/47-harmony-markdown-m3-poc.md（cmark-gfm NAPI）。
+ * 仅允许 crash/空白类 bugfix；表格/GFM 须等新引擎落地后整组件替换。
+ */
+
 /** 对齐 Web `--markdown-flow-space`（11px）。 */
 const BLOCK_GAP: number = 11;
 /** 对齐 Web `.markdown-content li + li`（4px）。 */
@@ -18,6 +23,8 @@ export struct ChatMarkdown {
   @Prop useDark: boolean = false;
   /** 用户气泡内：首块不额外顶距 */
   @Prop compact: boolean = false;
+  /** 紧接 Process 时间线后的交付正文 */
+  @Prop followsProcessTimeline: boolean = false;
 
   private blockWidth(): string {
     return this.compact ? 'auto' : '100%';
@@ -123,6 +130,18 @@ export struct ChatMarkdown {
   }
 
   private headingTopMargin(index: number, level: number): number {
+    if (index === 0 && this.followsProcessTimeline && !this.compact) {
+      if (level === 1) {
+        return 12;
+      }
+      if (level === 2) {
+        return 10;
+      }
+      if (level === 3) {
+        return 8;
+      }
+      return 6;
+    }
     if (index === 0 || this.compact) {
       return 0;
     }

@@ -17,4 +17,7 @@ struct SessionDrawerState: Equatable {
 
 struct UiHints: Equatable {
     var initialDrawerOpen: Bool = false
+    var workbenchOpen: Bool = false
+    var workbenchFocusedToolCallId: String?
+    var workbenchFocusHint: String?
 }

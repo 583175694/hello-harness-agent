@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 echo "== validate:gate-a =="
-pnpm validate:gate-a
+pnpm --filter @harness/mobile-contract validate:gate-a
 
 echo ""
 echo "== snapshot baselines =="
@@ -52,7 +52,7 @@ cat <<'EOF'
 
 手验仍未替代：鸿蒙 scenario signoff、UI 回归 57 格（§8.2 runbook 已填见 open-items）。
 
-注意：Android assets/ 与鸿蒙 rawfile/mobile-contract/ 在 .gitignore 中（仅 contract 包入库）；CI 与本地 gate-a:verify 会先 sync。
+注意：Android assets/ 与鸿蒙 rawfile/mobile-contract/ 在 .gitignore 中（仅 contract 包入库）；CI 与各端验证前会先 sync。
 EOF
 
 if git status --porcelain -- apps/android packages/mobile-contract 2>/dev/null | head -1 | grep -q '^??'; then

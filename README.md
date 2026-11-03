@@ -128,17 +128,20 @@ docs                    产品、架构与实施文档
 
 Phase A 三端 Preview + contract 门禁（无 `mobile-core`、无 Harness SSE）。详见 [`docs/44-native-mobile-phase-a-static-ui.md`](./docs/44-native-mobile-phase-a-static-ui.md) 与 [`docs/native-mobile-gate-a-evidence.md`](./docs/native-mobile-gate-a-evidence.md)。
 
+根目录 **不挂** Native Mobile 的 `pnpm` 脚本；校验与 CI 对齐见 [`packages/mobile-contract/README.md`](./packages/mobile-contract/README.md)，自动化在 [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)。
+
 ```bash
-pnpm validate:gate-a
-pnpm gate-a:verify:all              # macOS：Paparazzi + 鸿蒙 assert + iOS Snapshot
-pnpm gate-a:list-snapshot-baselines   # 核对关键 Snapshot PNG 是否已生成/待提交
-pnpm gate-a:prep-commit               # 合并前：validate + 快照清单 + git 范围提示
-pnpm gate-a:audit                     # 本地审计：validate + 快照 + blockers 摘要
-pnpm gate-a:completion                # validate + 人工证据进度 + audit ❌ 摘要
-pnpm gate-a:human-evidence            # 57/32 签字格、runbook、git 状态（不跑 Paparazzi）
-pnpm gate-a:launch:android            # adb 装 Preview（debug）
-pnpm gate-a:launch:ios                # 模拟器装 Preview
-pnpm gate-a:launch:harmony            # sync rawfile（DevEco Run entry）
+# contract / Preview 静态校验
+pnpm --filter @harness/mobile-contract validate:gate-a
+
+# 本地装 Preview（可选）
+bash apps/android/scripts/launch-preview.sh
+bash apps/android/scripts/launch-preview-release.sh
+bash apps/ios/scripts/launch-preview.sh
+bash apps/harmony/scripts/sync-mobile-contract.sh   # DevEco Run entry 前
+
+# 合并前自检（validate + 快照清单 + git 范围提示）
+bash scripts/gate-a-prep-commit.sh
 ```
 
 手验与未证毕项：[`docs/native-mobile-gate-a-open-items.md`](./docs/native-mobile-gate-a-open-items.md) · Goal 阻塞：[`docs/native-mobile-gate-a-blockers.md`](./docs/native-mobile-gate-a-blockers.md) · **关 Goal 签字**：[`docs/native-mobile-gate-a-signoff-checklist.md`](./docs/native-mobile-gate-a-signoff-checklist.md)。三端 Preview 快速手验：[`android`](./apps/android/docs/gate-a-quick-smoke.md) · [`ios`](./apps/ios/docs/gate-a-quick-smoke.md) · [`harmony`](./apps/harmony/docs/gate-a-quick-smoke.md)。

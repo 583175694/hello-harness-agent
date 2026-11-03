@@ -45,22 +45,24 @@ pnpm --filter @harness/agent-conversation build && pnpm --filter @harness/agent-
 pnpm --filter @harness/mobile-contract generate:run-events-expected
 ```
 
-## 校验（Gate A）
+## 校验（Preview / contract）
+
+在仓库根目录通过 workspace filter 调用（根 `package.json` 无别名）：
 
 ```bash
-# 仓库根目录
-pnpm validate:gate-a              # contract + 不变量 + §4.1 + §4.3 + UI 回归 #1–#19 静态
-pnpm gate-a:verify:android        # + sync + Paparazzi
-pnpm gate-a:verify:ios            # + HarnessTests（iPhone 17）
-pnpm gate-a:verify:harmony        # + sync + rawfile 字段校验（与 contract 同规则）
-pnpm gate-a:verify:all            # macOS 合并（validate 只跑 1 次）
-pnpm gate-a:list-snapshot-baselines
-pnpm gate-a:prep-commit           # validate + 快照清单 + git 提示（不 commit）
-pnpm gate-a:audit                 # validate + 快照 + 人工证据 + blockers
-pnpm gate-a:human-evidence        # 仅签字/runbook/git/adb 进度
-pnpm gate-a:completion            # validate + human-evidence + audit ❌ 摘要
-
-pnpm --filter @harness/mobile-contract validate   # 仅 schema + fixture 文件名
+pnpm --filter @harness/mobile-contract validate:gate-a
+pnpm --filter @harness/mobile-contract validate              # 仅 schema + fixture 文件名
+pnpm --filter @harness/mobile-contract list:gate-a-snapshot-baselines
 ```
+
+三端编译 / Snapshot 与 CI job `native-mobile-gate-a-*` 一致，例如 Android：
+
+```bash
+pnpm --filter @harness/mobile-contract validate:gate-a
+bash apps/android/scripts/sync-mobile-contract.sh
+cd apps/android && ./gradlew :app:compilePreviewDebugKotlin --no-daemon
+```
+
+本地辅助脚本（非根 `pnpm`）：`bash scripts/gate-a-prep-commit.sh`、`bash scripts/gate-a-audit.sh`、`node packages/mobile-contract/scripts/report-gate-a-completion.mjs`。
 
 证据索引：[docs/native-mobile-gate-a-evidence.md](../../docs/native-mobile-gate-a-evidence.md)

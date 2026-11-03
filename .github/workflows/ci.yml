@@ -85,7 +85,7 @@ jobs:
         run: pnpm --filter @harness/mobile-contract validate:gate-a
 
       - name: Keyed snapshot PNG baselines (Gate A, iOS only)
-        run: pnpm gate-a:list-snapshot-baselines
+        run: pnpm --filter @harness/mobile-contract list:gate-a-snapshot-baselines
 
       - name: Generate Xcode project
         working-directory: apps/ios
@@ -158,10 +158,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: mobile-core JVM golden + ohos placeholder
-        run: pnpm mobile-core:test && pnpm mobile-core:verify:ohos
+        run: |
+          cd packages/mobile-core
+          ./gradlew :core-test:jvmTest :core-data:jvmTest --no-daemon
+          bash scripts/verify-ohos-toolchain.sh
 
       - name: Gate A invariants (Phase B 不回归 Preview)
-        run: pnpm validate:gate-a
+        run: pnpm --filter @harness/mobile-contract validate:gate-a
 
       - name: Android production Core compile (Phase B B0)
         working-directory: apps/android
@@ -190,7 +193,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build HarnessMobileCore XCFramework
-        run: pnpm mobile-core:xcframework
+        working-directory: packages/mobile-core
+        run: ./gradlew :core-engine:assembleXCFramework --no-daemon
 
       - name: Release Core compile (Harness + KMP)
         working-directory: apps/ios

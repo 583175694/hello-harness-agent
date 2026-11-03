@@ -18,9 +18,9 @@ cd apps/harmony
 Gate A 验收：[`docs/gate-a-runbook.md`](docs/gate-a-runbook.md)、[`docs/gate-a-manual-checklist.md`](docs/gate-a-manual-checklist.md)、[`docs/gate-a-scenario-signoff.md`](docs/gate-a-scenario-signoff.md)；仓库级 [`docs/native-mobile-gate-a-ui-regression.md`](../../docs/native-mobile-gate-a-ui-regression.md)。
 
 ```bash
-# 仓库根目录
-pnpm gate-a:verify:harmony
-pnpm gate-a:verify:all    # macOS：含 Android + iOS Snapshot
+pnpm --filter @harness/mobile-contract validate:gate-a
+bash apps/harmony/scripts/sync-mobile-contract.sh
+node apps/harmony/scripts/assert-preview-fixtures.mjs
 ```
 
 ## 目录

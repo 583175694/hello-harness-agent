@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 echo "== validate:gate-a =="
-pnpm validate:gate-a
+pnpm --filter @harness/mobile-contract validate:gate-a
 
 echo ""
 echo "== snapshot baselines =="
@@ -20,5 +20,5 @@ sed -n '1,14p' docs/native-mobile-gate-a-blockers.md
 
 echo ""
 echo "关 Goal（人工）：docs/native-mobile-gate-a-signoff-checklist.md"
-echo "全量三端（macOS）：pnpm gate-a:verify:all"
-echo "合并前：pnpm gate-a:prep-commit"
+echo "全量三端（macOS）：见 .github/workflows/ci.yml native-mobile-gate-a-* jobs"
+echo "合并前：bash scripts/gate-a-prep-commit.sh"

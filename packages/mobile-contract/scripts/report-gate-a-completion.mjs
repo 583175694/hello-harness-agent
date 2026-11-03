@@ -9,10 +9,16 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
 console.log('== validate:gate-a ==');
-execSync('pnpm validate:gate-a', { cwd: repoRoot, stdio: 'inherit' });
+execSync('pnpm --filter @harness/mobile-contract validate:gate-a', {
+  cwd: repoRoot,
+  stdio: 'inherit',
+});
 
 console.log('\n== human evidence ==');
-execSync('pnpm gate-a:human-evidence', { cwd: repoRoot, stdio: 'inherit' });
+execSync('node packages/mobile-contract/scripts/verify-gate-a-human-evidence.mjs', {
+  cwd: repoRoot,
+  stdio: 'inherit',
+});
 
 console.log('\n== completion-audit 仍含 ❌ 的行（需消除后才能关 Goal）==');
 const audit = execSync('grep "❌" docs/native-mobile-gate-a-completion-audit.md || true', {

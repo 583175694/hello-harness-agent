@@ -23,7 +23,7 @@ cd apps/android
 3. 仓库根目录一键安装并启动 Preview / Dev Menu：
 
 ```bash
-pnpm gate-a:launch:android
+bash apps/android/scripts/launch-preview.sh   # 仓库根目录
 ```
 
 包名 `com.harness.agent`；若 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`：`adb uninstall com.harness.agent` 后重装。手验：[`docs/gate-a-quick-smoke.md`](docs/gate-a-quick-smoke.md)。
@@ -31,19 +31,21 @@ pnpm gate-a:launch:android
 **更流畅的手感（非 debug 包）**：仍是 Preview/Dev Menu，但装 **previewRelease**（不可调试、无 Compose tooling）：
 
 ```bash
-pnpm gate-a:launch:android:release
+bash apps/android/scripts/launch-preview-release.sh
 ```
 
 Gate A 签字与 Paparazzi 仍以 **previewDebug** 为准；release 仅便于真机体验对比。
 
 Fixture 与 `design-tokens.json` 在 `preBuild` 时从 `packages/mobile-contract` 同步到 `assets/`。
 
-## Gate A 验证
+## 自动化验证
+
+与 CI job `native-mobile-gate-a-android` 一致：
 
 ```bash
-# 仓库根目录
-pnpm gate-a:verify:android
-pnpm gate-a:verify:all    # macOS：Android + 鸿蒙 assert + iOS Snapshot
+pnpm --filter @harness/mobile-contract validate:gate-a
+bash apps/android/scripts/sync-mobile-contract.sh
+cd apps/android && ./gradlew :app:compilePreviewDebugKotlin --no-daemon
 ```
 
 Runbook（Paparazzi / Macrobenchmark）：[`docs/gate-a-runbook.md`](docs/gate-a-runbook.md)。任务书：[`docs/44-native-mobile-phase-a-static-ui.md`](../../docs/44-native-mobile-phase-a-static-ui.md)。

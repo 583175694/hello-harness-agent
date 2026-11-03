@@ -15,12 +15,10 @@ open Harness.xcodeproj
 
 `PreviewFixtures` 与 `design-tokens.json` 通过 Xcode 资源引用 `packages/mobile-contract`（与 Android assets 同步策略等价）。
 
-## Gate A 验证
+## 自动化验证
 
-```bash
-# 仓库根目录（需 iPhone 17 Simulator）
-pnpm gate-a:verify:ios
-pnpm gate-a:verify:all
-```
+与 CI job `native-mobile-gate-a-ios` 一致（需 iPhone 17 Simulator）；步骤见 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)。
+
+本地装 Preview：`bash apps/ios/scripts/launch-preview.sh`（仓库根目录）。
 
 Runbook（Snapshot / Instruments）：[`docs/gate-a-runbook.md`](docs/gate-a-runbook.md)。任务书：[`docs/44-native-mobile-phase-a-static-ui.md`](../../docs/44-native-mobile-phase-a-static-ui.md)。

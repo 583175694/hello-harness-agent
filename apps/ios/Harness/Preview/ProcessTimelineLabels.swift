@@ -1,7 +1,7 @@
 import Foundation
 
 enum ProcessTimelineLabels {
-    /// 对齐 RN `formatProcessElapsedLabel`（折叠头，中文）
+    /// 对齐 design-tokens / Web `formatProcessElapsedLabel`（折叠头，中文）
     static func headerLabel(blocks: [ProcessBlock], running: Bool) -> String {
         var ms = 0
         for block in blocks {
@@ -22,7 +22,7 @@ enum ProcessTimelineLabels {
         return "已用时 \(totalSeconds / 60) 分 \(totalSeconds % 60)秒"
     }
 
-    /// 对齐 RN `reasoningTriggerLabel`（推理行，英文）
+    /// 对齐 design-tokens / Web `reasoningTriggerLabel`（推理行，英文）
     static func reasoningTriggerLabel(streaming: Bool, durationMs: Int?) -> String {
         if streaming { return "Thinking..." }
         if let durationMs {

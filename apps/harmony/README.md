@@ -15,8 +15,6 @@ cd apps/harmony
 3. DevEco：**Open** → 选择 **`apps/harmony`** 根目录 → Run **entry**。
 4. 首屏 **Preview / Dev Menu**，点十场景之一进入 Chat 预览壳。
 
-RN 对照：`apps/mobile/app/preview/index.tsx`。
-
 Gate A 验收：[`docs/gate-a-runbook.md`](docs/gate-a-runbook.md)、[`docs/gate-a-manual-checklist.md`](docs/gate-a-manual-checklist.md)、[`docs/gate-a-scenario-signoff.md`](docs/gate-a-scenario-signoff.md)；仓库级 [`docs/native-mobile-gate-a-ui-regression.md`](../../docs/native-mobile-gate-a-ui-regression.md)。
 
 ```bash

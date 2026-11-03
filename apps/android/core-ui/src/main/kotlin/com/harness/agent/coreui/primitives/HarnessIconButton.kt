@@ -32,7 +32,7 @@ enum class HarnessIconButtonShape {
     Circle,
 }
 
-/** RN `h-10 w-10 rounded-control active:bg-subtle` / `rounded-full` 顶栏与 ghost icon。 */
+/** design-tokens `h-10 w-10 rounded-control active:bg-subtle` / `rounded-full` 顶栏与 ghost icon。 */
 @Composable
 fun HarnessIconButton(
     contentDescription: String,
@@ -44,7 +44,7 @@ fun HarnessIconButton(
     shape: HarnessIconButtonShape = HarnessIconButtonShape.Control,
     iconSizeDp: Int = 20,
     touchSize: Dp = HarnessLayout.iconToolbarSize,
-    /** RN 顶栏 `rounded-control active:bg-subtle` */
+    /** Web 顶栏规格 `rounded-control active:bg-subtle` */
     showSubtlePressBackground: Boolean = false,
     iconModifier: Modifier = Modifier,
 ) {

@@ -32,7 +32,7 @@ import com.harness.agent.coreui.tokens.LocalHarnessColors
 private const val SEGMENT_SLIDE_MS = 240
 private val SegmentRowHeight = 34.dp
 
-/** 对齐 RN `SlidingSegmentTrack`：滑动高亮 pill，equal-width 分段。 */
+/** 对齐 design-tokens / Web `SlidingSegmentTrack`：滑动高亮 pill，equal-width 分段。 */
 @Composable
 fun HarnessSegmentedControl(
     segments: List<Pair<String, String>>,

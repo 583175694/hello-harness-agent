@@ -11,13 +11,13 @@ import {
   HarnessPlusIcon,
 } from '../coreui/HarnessVectorIcons';
 
-/** RN `rounded-bubble` = 22vp；control = 8vp。 */
+/** design-tokens `rounded-bubble` = 22vp；control = 8vp。 */
 const BUBBLE_RADIUS: number = 22;
 /** 对齐 mobile-contract `composerChromeBottomExtra`（系统安全区之外的间距）。 */
 const COMPOSER_CHROME_BOTTOM_EXTRA: number = 10;
 const SEND_SIZE: number = 32;
 const PLUS_SIZE: number = 44;
-/** 约 5 行正文，对齐 Android HarnessLayout / RN max-h-24。 */
+/** 约 5 行正文，对齐 Android HarnessLayout / design-tokens composerMaxLines。 */
 const COMPOSER_INPUT_MIN_HEIGHT: number = 44;
 const COMPOSER_INPUT_MAX_HEIGHT: number = 120;
 const COMPOSER_INPUT_MAX_LINES: number = 5;

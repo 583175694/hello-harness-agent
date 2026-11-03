@@ -1,5 +1,5 @@
 {
-  "$comment": "Authoritative design tokens for Android core-ui, iOS CoreUI, Harmony core-ui. Migrated from apps/mobile/src/lib/design-tokens.ts and ui.constants.ts.",
+  "$comment": "Authoritative design tokens for Android core-ui, iOS CoreUI, Harmony core-ui.",
   "version": 1,
   "colors": {
     "light": {

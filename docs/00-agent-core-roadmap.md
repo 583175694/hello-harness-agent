@@ -242,7 +242,7 @@ Host + Web 的产品范围与里程碑以 **本文** 为准。并列客户端 **
 
 | 客户端 | 总指挥文档 |
 | --- | --- |
-| Mobile | [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)（parity 与 Native IA；联调见 [42-mobile-api-integration-plan.md](./42-mobile-api-integration-plan.md)） |
+| Mobile | [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)（parity 与 Native IA；联调见 [45-native-mobile-phase-b-integration.md](./45-native-mobile-phase-b-integration.md)） |
 | Desktop | [00-desktop-client-roadmap.md](./00-desktop-client-roadmap.md)（标配 P1、差异化 P2–P4；本机工作区与跨端执行端） |
 
 ## 13. 变更规则

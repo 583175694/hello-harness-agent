@@ -24,7 +24,7 @@ internal fun formatProcessTimelineHeaderLabel(
     return "已用时 ${totalSeconds / 60} 分 ${totalSeconds % 60}秒"
 }
 
-/** 对齐 RN `reasoningTriggerLabel`（推理行，英文）。 */
+/** 对齐 design-tokens / Web `reasoningTriggerLabel`（推理行，英文）。 */
 internal fun reasoningTriggerLabel(
     streaming: Boolean,
     durationMs: Long?,

@@ -18,7 +18,7 @@ data class WorkbenchArtifactVersion(
     val expectedCurrentArtifactId: String? = null,
 )
 
-/** 对齐 RN/Web `ToolCallView`（Gate A Preview 子集）。 */
+/** 对齐 Web/Web `ToolCallView`（Gate A Preview 子集）。 */
 data class WorkbenchToolExecution(
     val id: String,
     val toolName: String,

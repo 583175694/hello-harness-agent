@@ -4,7 +4,7 @@ import { PlanStepRow } from './PreviewModels';
 /** 对齐 Web `calc(100vw - 24px)` / Android planOverlayHorizontalInset。 */
 const PLAN_OVERLAY_HORIZONTAL_INSET: number = 12;
 
-/** Plan 悬浮 pill + 上方展开详情（对齐 RN PlanFloatingCard / 产品参考）。 */
+/** Plan 悬浮 pill + 上方展开详情（对齐 design-tokens / Web PlanFloatingCard / 产品参考）。 */
 @Component
 export struct PlanFloatingCard {
   @Prop explanation: string = '';

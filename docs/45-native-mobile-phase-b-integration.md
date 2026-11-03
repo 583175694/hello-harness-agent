@@ -7,7 +7,7 @@
 > 上级：[43-native-mobile-clients-architecture.md](./43-native-mobile-clients-architecture.md) §9.3（**B7 = 本文功能扫尾**；提审/Sentry/Maestro 见 43 **§16 Release**）、[44-native-mobile-phase-a-static-ui.md](./44-native-mobile-phase-a-static-ui.md)  
 > **Parity 矩阵**：[36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md) §4（M-* ID 验收）  
 > **Web 行为对照**：`apps/web/src/app.tsx`、`packages/agent-client`（`createAgentClient`）、`agent-run-state`、`agent-conversation`  
-> **范围**：仅 **Android / iOS / 鸿蒙原生**；不含 `apps/mobile`（Expo）。**联调金标准 = Web + 共享 TS 包**，不对齐 Expo 实现。
+> **范围**：仅 **Android / iOS / 鸿蒙原生**。**联调金标准 = Web + 共享 TS 包**。
 
 ---
 
@@ -47,7 +47,7 @@
 | 项 | 决策 |
 | --- | --- |
 | **Workbench Context Tab** | Gate A Native Preview **未暴露** Context Tab（invariants）；Phase B v1 **继续不展示** Context Tab，与当前 Native UI 一致；Debug/Settings 可留 JSON 只读入口 **可选**。若产品要求与 Web 完全一致，单独立项 v1.1。 |
-| **联调对照** | 同一账号下 Native vs **Web**（非 Expo）Snapshot 对照。 |
+| **联调对照** | 同一账号下 Native vs **Web**（）Snapshot 对照。 |
 
 ### 1.6 本文不覆盖（见后续文档）
 
@@ -241,7 +241,7 @@ interface AgentSessionPort {
 | 项 | 做法 |
 | --- | --- |
 | 后端 | `AUTH_MODE=local` → 不发 Cookie，Guard 本地用户；`required` → 只认 Cookie **`harness_session`**（`AUTH_COOKIE_NAME`）。Guard **不读** 用户层 Bearer。 |
-| Native 带会话 | 与 RN 相同：verify 解析 **`Set-Cookie`** → 存 token 值 → 每条 **REST + SSE** 加 `Cookie: harness_session=<token>`。参考 `apps/mobile/src/lib/mobile-auth-api.ts`。 |
+| Native 带会话 | verify 解析 **`Set-Cookie`** → 存 token 值 → 每条 **REST + SSE** 加 `Cookie: harness_session=<token>`（与 Web `/agent` 会话 cookie 语义一致）。 |
 | 登录 UI | **原生**邮箱/手机 + 验证码；**不用** WebView 登录页。 |
 | token 存放 | 只存 Cookie **value**；与 `apiBaseUrl`/主题 **分库**：Android EncryptedSharedPreferences / DataStore+MasterKey；iOS **Keychain**；鸿蒙 HUKS / Asset Store（勿明文 preferences）。 |
 | `core-auth` | `getSessionCookieHeader()` / `setSessionToken` / `clearSessionToken`（KMP expect/actual）；`createClientContext` 用 `getAuthHeaders`（见 `agent-client` `http.ts`）。 |
@@ -768,7 +768,6 @@ pnpm --filter @harness/mobile-core test   # Phase B 起
 | UI schema | `packages/mobile-contract/schema/active-session-state.schema.json` |
 | Android Port | `apps/android/.../port/AgentSessionPort.kt` |
 | 鸿蒙 Port | `apps/harmony/entry/.../port/AgentSessionPort.ets` |
-| RN 鉴权参考 | `apps/mobile/src/lib/mobile-auth-api.ts` |
 | 后端 Guard | `apps/api/src/auth/auth.guard.ts` |
 
 ---

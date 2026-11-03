@@ -4,7 +4,7 @@ import { harnessPressOpacity } from './HarnessPressScale';
 const TOP_BAR_ICON_SIZE: number = 40;
 const TOP_BAR_ICON_RADIUS: number = 8;
 
-/** RN `h-10 w-10 rounded-control active:bg-subtle`。 */
+/** design-tokens `h-10 w-10 rounded-control active:bg-subtle`。 */
 @Component
 export struct HarnessTopBarIconButton {
   @Prop useDark: boolean = false;

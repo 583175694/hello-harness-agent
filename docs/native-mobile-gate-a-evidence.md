@@ -20,7 +20,7 @@
 
 **此前**：2026-10-28 13:16 — Android edge-to-edge + Composer `Dialog` Sheet；iOS 顶栏/Composer 对齐 RN；Paparazzi + iOS Snapshot 重录；`SnapshotTestConfig` 支持 `TEST_RUNNER_SNAPSHOT_RECORD`
 
-**此前**：2026-10-28 11:53 — `pnpm gate-a:verify:all` 绿（RN VIA：Workbench Tab、顶栏/Composer/用户气泡）
+**此前**：2026-10-28 11:53 — `pnpm gate-a:verify:all` 绿（三端对齐：Workbench Tab、顶栏/Composer/用户气泡）
 
 **此前**：2026-10-28 11:14 — `pnpm gate-a:verify:all` 绿（validate + Paparazzi + 鸿蒙 assert + iOS **33** TEST SUCCEEDED；§8.2 benchmark 脚本已接不变量）。§8.2 runbook 同日已填。合并前：`pnpm gate-a:prep-commit`。
 
@@ -53,7 +53,7 @@
 | Macrobenchmark ≥55fps | [apps/android/docs/gate-a-runbook.md](../apps/android/docs/gate-a-runbook.md) 表格 | **待真机** |
 | Instruments 长列表 | [apps/ios/docs/gate-a-runbook.md](../apps/ios/docs/gate-a-runbook.md) | **待真机** |
 | 鸿蒙十场景 | [apps/harmony/docs/gate-a-scenario-signoff.md](../apps/harmony/docs/gate-a-scenario-signoff.md) | **待 DevEco 签字** |
-| RN 对照交互规格 | [apps/mobile/docs/ui-regression-checklist.md](../apps/mobile/docs/ui-regression-checklist.md) 改编 | **未系统跑完** |
+| UI 回归交互规格 | [native-mobile-gate-a-ui-regression.md](./native-mobile-gate-a-ui-regression.md) | **未系统跑完** |
 
 ## 场景矩阵
 

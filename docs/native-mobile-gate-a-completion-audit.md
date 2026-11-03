@@ -1,7 +1,7 @@
 # Native Mobile Gate A — 完成度审计（§44 / Objective）
 
 > **最后自动化验证（2026-10-28 15:49）**：`pnpm gate-a:verify:all` 绿（validate + Paparazzi + 鸿蒙 assert + iOS HarnessTests）。空态 **「加载演示 Mock」** → `rich-session-showcase.json`；Workbench **四 Tab**（无 Context）；Context 快照改为 rich showcase。
-> **此前（2026-10-28 13:19）**：鸿蒙 Chat/Composer/Sheet/Workbench 与 Android RN 对齐；演示场景页顶栏返回。
+> **此前（2026-10-28 13:19）**：鸿蒙 Chat/Composer/Sheet/Workbench 与 Android 对齐；演示场景页顶栏返回。
 > **此前（2026-10-28 11:14）**：`pnpm gate-a:verify:all` 绿。  
 > **此前（2026-10-27 23:42）**：`pnpm gate-a:verify:all` 绿（Drawer 三端搜索 + 关闭清空后复验）。
 > **此前（2026-10-27 23:23）**：`pnpm gate-a:verify:all` 绿（validate + Android Paparazzi + 鸿蒙 assert + iOS HarnessTests **TEST SUCCEEDED**）。`pnpm-lock.yaml` 含 `mobile-contract` workspace。

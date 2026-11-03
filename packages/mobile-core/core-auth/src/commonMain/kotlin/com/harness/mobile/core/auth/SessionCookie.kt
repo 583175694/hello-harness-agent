@@ -1,6 +1,6 @@
 package com.harness.mobile.core.auth
 
-/** 对齐 Web / RN：`harness_session` Cookie（45 §4.3）。 */
+/** 对齐 Web：`harness_session` Cookie（45 §4.3）。 */
 object SessionCookie {
     const val NAME = "harness_session"
 

@@ -7,7 +7,7 @@
 
 Phase A 在 `core-ui` / SwiftUI / ArkTS 内实现了 **CommonMark 子集 + 手写 block UI**，用于 Gate A Snapshot 与 token 对齐。该方案 **不是** 行业终态，也不应继续叠功能（如自绘 Table）。
 
-Production Agent 正文会出现 **GFM 表格、删除线、链接、嵌套列表、代码块** 等，与 Web/RN 差距会持续扩大。
+Production Agent 正文会出现 **GFM 表格、删除线、链接、嵌套列表、代码块** 等，与 Web 渲染差距需持续收敛。
 
 ## 2. 决策
 

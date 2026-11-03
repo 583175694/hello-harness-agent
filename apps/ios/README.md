@@ -15,8 +15,6 @@ open Harness.xcodeproj
 
 `PreviewFixtures` 与 `design-tokens.json` 通过 Xcode 资源引用 `packages/mobile-contract`（与 Android assets 同步策略等价）。
 
-RN 对照：`apps/mobile/app/preview/index.tsx`。
-
 ## Gate A 验证
 
 ```bash

@@ -52,7 +52,7 @@ import com.harness.agent.coreui.tokens.LocalHarnessColors
 import com.harness.agent.model.PlanFixture
 import com.harness.agent.model.PlanStepFixture
 
-/** Plan 悬浮在锚点上方，不参与 Column 测量高度（对齐 RN `absolute bottom-full`）。 */
+/** Plan 悬浮在锚点上方，不参与 Column 测量高度（对齐 design-tokens / Web `absolute bottom-full`）。 */
 fun Modifier.floatAboveAnchor(
     gap: Dp = 10.dp,
     zIndex: Float = 1f,

@@ -22,7 +22,7 @@
 | iOS | [gate-a-quick-smoke.md](../apps/ios/docs/gate-a-quick-smoke.md) | **iOS 列** |
 | 鸿蒙 | [gate-a-quick-smoke.md](../apps/harmony/docs/gate-a-quick-smoke.md)（11×30s） | **鸿蒙列** + [十场景签字](../apps/harmony/docs/gate-a-scenario-signoff.md)（11 行 ☑） |
 
-手验顺序与 UI 回归 # 的对应见各端 quick-smoke 表格「UI 回归 / 备注」列。可选：同 fixture 与 RN `apps/mobile` Preview 并排对照（VIA：顶栏/Composer 圆角壳/Workbench 黑底 Tab/用户气泡边框；见 2026-10-28 三端对齐提交）。
+手验顺序与 UI 回归 # 的对应见各端 quick-smoke 表格「UI 回归 / 备注」列（顶栏/Composer 圆角壳/Workbench 黑底 Tab/用户气泡边框；见 2026-10-28 三端对齐提交）。
 
 ## 2. 验收标准
 

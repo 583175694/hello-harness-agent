@@ -10,7 +10,7 @@ struct HarnessPressButtonStyle: ButtonStyle {
 
 typealias HarnessPressScaleButtonStyle = HarnessPressButtonStyle
 
-/// RN 顶栏 `h-10 w-10 rounded-control active:bg-subtle`。
+/// Web 顶栏规格 `h-10 w-10 rounded-control active:bg-subtle`。
 struct HarnessTopBarIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

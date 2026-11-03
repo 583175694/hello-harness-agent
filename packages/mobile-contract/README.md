@@ -9,16 +9,16 @@ Native Mobile 三端共用契约：**design tokens**、**Preview fixture**、**J
 
 | 路径 | 用途 |
 | --- | --- |
-| `design-tokens.json` | 颜色 / 布局 / 文案 token 数值权威（自 RN `design-tokens.ts` + `ui.constants.ts` 迁移） |
+| `design-tokens.json` | 颜色 / 布局 / 文案 token 数值权威（自 design-tokens `design-tokens.ts` + `ui.constants.ts` 迁移） |
 | `schema/` | `ActiveSessionState` 等与 Preview JSON 同结构 |
 | `fixtures/preview/` | Gate A **十场景**（文件名固定，三端 Dev Menu 同名加载） |
 
 ## Preview 十场景（43 §16.3）
 
-| Fixture 文件 | RN 对照（VIA，非 1:1 文件名） |
+| Fixture 文件 | Web 对照（VIA，非 1:1 文件名） |
 | --- | --- |
 | `empty-landing.json` | `/preview/agent/empty` |
-| `streaming-assistant-tail.json` | 流式 tail（RN 多状态组合；A2 对齐） |
+| `streaming-assistant-tail.json` | 流式 tail（Web 多状态组合；A2 对齐） |
 | `long-thread-scroll.json` | `/preview/agent/scroll-stress` |
 | `process-timeline-tools.json` | `/preview/agent/tool-running`、`reasoning` |
 | `hitl-clarification.json` | `/preview/agent/clarification` |

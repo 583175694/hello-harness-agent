@@ -1,4 +1,4 @@
-# §14.7 工程门禁：shared packages + web + api + mobile（不含 Maestro E2E / 真机 §14.1–6）
+# §14.7 工程门禁：shared packages + web + api + native mobile（不含真机 E2E §14.1–6）
 name: CI
 
 on:
@@ -202,34 +202,3 @@ jobs:
             -destination 'platform=iOS Simulator,name=iPhone 17' \
             build \
             CODE_SIGNING_ALLOWED=NO
-
-  maestro-syntax:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.11.0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Maestro CLI
-        run: |
-          bash apps/mobile/scripts/install-maestro.sh
-          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
-
-      - name: Maestro flow syntax (§12.2 YAML, six flows, no simulator)
-        run: pnpm --filter @harness/mobile test:maestro:syntax

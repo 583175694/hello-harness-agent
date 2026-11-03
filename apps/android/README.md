@@ -38,8 +38,6 @@ Gate A 签字与 Paparazzi 仍以 **previewDebug** 为准；release 仅便于真
 
 Fixture 与 `design-tokens.json` 在 `preBuild` 时从 `packages/mobile-contract` 同步到 `assets/`。
 
-RN 对照入口：`apps/mobile/app/preview/index.tsx` → `/preview/agent`。
-
 ## Gate A 验证
 
 ```bash

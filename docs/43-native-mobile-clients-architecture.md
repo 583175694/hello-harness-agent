@@ -4,7 +4,7 @@
 > 文档状态：**定稿 v1.8 — 实施依据**  
 > 最后更新：2026-10-30  
 > 关联：[11-api-protocol.md](./11-api-protocol.md)、[26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)、[19-agent-frontend.md](./19-agent-frontend.md)（产品语义）、[18-project-structure.md](./18-project-structure.md)、**[45-native-mobile-phase-b-integration.md](./45-native-mobile-phase-b-integration.md)**（Phase B 功能联调专篇）  
-> 范围：**`apps/android`、`apps/ios`、`apps/harmony`、`packages/mobile-core`、`packages/mobile-contract`**；**`apps/mobile`（Expo/RN）冻结**，不再作为 Release 客户端演进。
+> 范围：**`apps/android`、`apps/ios`、`apps/harmony`、`packages/mobile-core`、`packages/mobile-contract`**。
 
 ---
 
@@ -12,8 +12,8 @@
 
 ### 1.1 背景
 
-- 既有 `apps/mobile`（React Native + Expo）在 **长会话流式、富文本、Process 时间线、Workbench** 等场景下性能与优化上限不足。
-- 行业头部 AI 客户端普遍采用 **各平台原生 UI**；跨端共享集中在 **网络 + Run 状态机 + 会话投影**（本方案为 **`mobile-core`**），而非 UI 框架。
+- 长会话流式、富文本、Process 时间线、Workbench 等场景需要 **各平台原生 UI** 与列表/渲染性能上限。
+- 跨端共享集中在 **网络 + Run 状态机 + 会话投影**（本方案为 **`mobile-core`**），而非跨端 UI 框架。
 
 ### 1.2 核心决策
 
@@ -24,8 +24,7 @@
 | 共享层 | **KMP `packages/mobile-core`**：domain + 网络解析 + Run/会话归约，**无 UI**；含 **android / ios / ohosArm64**（鸿蒙见 §3.5、§4.7） |
 | 契约层 | **`packages/mobile-contract`**：golden JSON + 期望状态，**三端共用** |
 | UI | **Compose / SwiftUI / ArkUI（ArkTS）** 各一套；各端 **自建 `core-ui`**（见 §3.4）；**鸿蒙不用 CMP 画整 App** |
-| 遗留 RN | **`apps/mobile` 冻结**；Native **仅 VIA 对照**（§3.4.5），不参与 Release 构建 |
-| **实施顺序** | 与 RN 阶段策略一致：**Phase A 先把 UI/UX、动画、交互与性能打磨到位（无真实后端）**；**Phase B 再接入 `mobile-core`，直连部署中的 Harness 服务器** |
+| **实施顺序** | **Phase A 先把 UI/UX、动画、交互与性能打磨到位（无真实后端）**；**Phase B 再接入 `mobile-core`，直连部署中的 Harness 服务器** |
 
 ### 1.3 目标与非目标
 
@@ -39,7 +38,7 @@
 **非目标（v1 架构文档不展开实现细节）**
 
 - 在移动端本地运行 NestJS / PostgreSQL。
-- 用 KMP/CMP 或 RN 做 **跨端共享 UI（整 App）**。
+- 用 KMP/CMP 等做 **跨端共享 UI（整 App）**。
 - 替代 Web 或 Desktop 客户端。
 
 ---
@@ -61,16 +60,16 @@
 
 **允许**
 
-- **Phase A** 不依赖 `mobile-core`，不接 HTTP/SSE；用 **Fixture 驱动 UI**（与 RN `/preview`、fixture 菜单同思路）。
+- **Phase A** 不依赖 `mobile-core`，不接 HTTP/SSE；用 **Fixture 驱动 UI**（Preview Dev Menu 切换场景）。
 - **Phase B** 再引入 `mobile-core`；UI 只换 **Port 实现**，不重写屏幕。
 - 平台特性（Widget、Live Activity 等）按端差异迭代，不阻塞另一端的 Phase A/B。
 
-### 2.2 实施分两阶段（与 RN 一致）
+### 2.2 实施分两阶段
 
 | 阶段 | 目标 | 后端 |
 | --- | --- | --- |
 | **Phase A — UI 先行** | 导航、会话、Composer、Workbench、Settings、Reader 等 **全屏可用**；动画、键盘、Sheet、Drawer、流式 **模拟**；Markdown 原生渲染；**性能优化到极致** | **无**（不调用 API；可选 Dev Menu 切换 fixture） |
-| **Phase B — 联调（功能）** | 接入 **`mobile-core`**；Settings 配置 **服务器 Base URL**；Session / Run / SSE / HITL / Workbench 等与 **指定环境 Harness API** 打通（**细则见 [45](./45-native-mobile-phase-b-integration.md)**） | **直连服务器**（与 RN 联调相同：用户/API 设置里的 URL，非 Mobile 本地起 API） |
+| **Phase B — 联调（功能）** | 接入 **`mobile-core`**；Settings 配置 **服务器 Base URL**；Session / Run / SSE / HITL / Workbench 等与 **指定环境 Harness API** 打通（**细则见 [45](./45-native-mobile-phase-b-integration.md)**） | **直连服务器**（Settings 配置 URL；非 Mobile 本地起 API） |
 
 Phase A 的 **出口标准（Gate A，v1）**：**Android + iOS** UI 回归（Snapshot / 手动矩阵）与 **Macrobenchmark / Instruments** 达标；**不**以 `readyz` 为门禁；鸿蒙 Preview **不阻塞** v1。
 
@@ -143,7 +142,6 @@ hello-harness-agent/
     android/                    # Gradle 根工程（Compose App）
     ios/                        # Xcode 工程 / workspace
     harmony/                    # DevEco 工程（HarmonyOS NEXT，ArkTS/ArkUI）
-    mobile/                     # RN 冻结（deprecated）
     web/
     api/
   packages/
@@ -164,7 +162,7 @@ hello-harness-agent/
 
 | 层级 | 做法 | 不做 |
 | --- | --- | --- |
-| **基础** | Android **Compose + Material 3**；iOS **SwiftUI**；HarmonyOS **ArkTS + ArkUI** | Flutter、RN、**整 App 用 CMP 画鸿蒙 UI** 等跨端 UI 运行时 |
+| **基础** | Android **Compose + Material 3**；iOS **SwiftUI**；HarmonyOS **ArkTS + ArkUI** | Flutter、**整 App 用 CMP 画鸿蒙 UI** 等跨端 UI 运行时 |
 | **其上的封装** | 各端在 app 内维护 **`core-ui` 模块**（源码归仓库所有，随产品迭代） | 第三方「全家桶」UI 库替代设计系统 |
 | **类比** | 与 Web **shadcn/ui** 同类意图：**Design Token + 可复用 Primitive**，组件代码 **自己拥有** | 不是再装一个与 Compose/SwiftUI 平行的 UI 框架 |
 
@@ -211,47 +209,19 @@ feature-*/
 - **Primitive**：不含 Session/Run 语义，只认 props（如 `variant`、`enabled`）。
 - **Pattern / Feature**：组合 primitive，可依赖 `AgentSessionPort` 提供的 UI 模型。
 
-#### 3.4.4 与 RN / Web 的关系
+#### 3.4.4 与 Web 的关系
 
-- **`apps/web`**：产品 **行为语义** 以 Web `/agent` 为权威（[19-agent-frontend.md](./19-agent-frontend.md)、[36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md) **§4**）；Native **不共用 React 组件**，通过 **token + parity 对照** 保持一致。
-- **`apps/mobile`（RN）**：**Deprecated**；Native **只参考「视觉 + 信息架构 + 交互规格」**，**不继承任何 RN 技术栈或实现**（细则见 **§3.4.5**）。
-
-#### 3.4.5 `apps/mobile`（RN）参考范围 — 仅 VIA（Visual / IA / Interaction）
-
-> **VIA** = Visual（视觉）、Information Architecture（信息架构）、Interaction spec（交互规格）。Phase A 各端 `core-ui` / feature 实现时，以 RN 为 **已验证的 Mobile 壳对照**，而非第二套 Release 运行时。
-
-**只参考（产品规格层 — 写入 contract / 各端 Runbook，不抄代码）**
-
-| 类别 | 参考内容 | RN 中的典型来源（只读对照） |
-| --- | --- | --- |
-| **视觉** | 色板与语义色（canvas / surface / primary / userBubble / HITL / terminal 等）、明暗模式气质、圆角与间距量级、Icon 线宽与 tone | `apps/mobile/src/lib/design-tokens.ts`、`global.css`（数值须收敛到 **`design-tokens.json`**） |
-| **信息架构** | Phone 主路径：会话 Drawer、顶栏（标题 + Run 摘要 + 工作台入口）、对话区 vs Workbench（分段 / Sheet）、Settings 入口、Composer 与 overlay 分层 | `chat-screen.tsx`、`session-drawer.tsx`、`chat-workbench-surfaces.tsx`、`workbench-sheet.tsx` |
-| **交互规格** | 布局常量（顶栏高度、Sheet detent、默认档位）、文案与 placeholder、滚动贴底阈值、按钮反馈类型（scale CTA vs 仅背景变化） | `ui.constants.ts` 中 `AGENT_UI_LAYOUT`、`AGENT_UI_COPY`、`AGENT_UI_BEHAVIOR`、`AGENT_UI_BUTTON` |
-
-**可迁数据、不迁代码**
-
-| 数据 | 落点 | 说明 |
-| --- | --- | --- |
-| Preview 场景名与 UI 快照 JSON | `packages/mobile-contract/fixtures/preview/` | Gate A **§16.3 十场景**；RN 冻结后 **contract 为 Native Preview 唯一源** |
-| Token 数值与语义名 | `packages/mobile-contract/design-tokens.json` | 三端 `core-ui` 各读；与 Web `check-design-tokens` **逐步对齐** |
-
-**明确不继承（技术层 — Native 各端用平台原生方案重做）**
-
-- **样式与组件运行时**：NativeWind / Tailwind class、RN 组件树、StyleSheet 组合方式。
-- **动画与容器**：Reanimated、Gorhom Bottom Sheet、Expo Router 等 **API 与实现**；Native 用 Compose / SwiftUI / ArkUI 等价交互，**数值对齐本节「只参考」表与 `design-tokens.json`** 即可。
-- **列表与性能路径**：FlashList、RN 内 Run 同步 / coalescer / store（如 `use-agent-host*`、`agent-run-ui-store`）。
-- **Phase B 数据面**：UI **只** 依赖 **`AgentSessionPort`** + **`mobile-core`**；行为金标为 **`mobile-contract` domain golden** 与 **API / Web 语义**，**不是** RN hook 行为。
+- **`apps/web`**：产品 **行为语义** 以 Web `/agent` 为权威（[19-agent-frontend.md](./19-agent-frontend.md)、[36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md) **§4**）；Native **不共用 React 组件**，通过 **`design-tokens.json` + parity 对照** 保持一致。
+- **Preview 与 token 权威**：`packages/mobile-contract/fixtures/preview/`（Gate A 十场景）、`design-tokens.json`（三端 `core-ui` 读取）。
+- **Phase B 数据面**：UI **只** 依赖 **`AgentSessionPort`** + **`mobile-core`**；行为金标为 **`mobile-contract` domain golden** 与 **API / Web 语义**。
 
 **冲突时的优先级**
 
 ```text
-agent-protocol + Web /agent 产品语义  >  mobile-contract golden  >  RN 壳（VIA 对照）
+agent-protocol + Web /agent 产品语义  >  mobile-contract golden  >  各端 HIG/Material/鸿蒙规范允许的展示差异
 ```
 
-- RN 与 Web 在 **布局或文案** 上不一致时：以 **Web + 36 §4** 为准，RN 仅作「Mobile 上曾长什么样」的辅助对照。
-- RN 与 Native 在 **HIG / Material / 鸿蒙规范** 上的系统差异：**允许**（见 §3.4.2「允许差异」）。
-
-#### 3.4.6 依赖规则（UI）
+#### 3.4.5 依赖规则（UI）
 
 | 从 | 到 | 允许 |
 | --- | --- | --- |
@@ -406,7 +376,7 @@ packages/mobile-contract/
   tools/                  # 可选：校验脚本（Gradle task / Node 只读校验）
 ```
 
-**Phase A 数据来源**：优先从 `apps/mobile` 已有 preview fixture **迁移或转录** 到 `fixtures/preview/`，保证 Native 与 RN 对照同一产品语义；RN 冻结后 **以 `mobile-contract` 为 Native Preview 唯一源**。
+**Phase A 数据来源**：`packages/mobile-contract/fixtures/preview/` 为 Native Preview **唯一源**。
 
 ### 5.2 使用方式
 
@@ -559,7 +529,7 @@ apps/harmony/
 
 ## 9. 实施顺序与里程碑
 
-与 **`apps/mobile`（RN）实施节奏对齐**：**先把界面与交互做到可发布级体验，再对接 Harness 服务器**。v1 **同一 B 编号** 以 **Android + iOS** 一起验收；允许个人先合单端 PR，但 **Gate A / Gate B 出口必须双端同时满足**（鸿蒙跟 **Gate B′**，见 §9.3.1）。
+**先把界面与交互做到可发布级体验，再对接 Harness 服务器**。v1 **同一 B 编号** 以 **Android + iOS** 一起验收；允许个人先合单端 PR，但 **Gate A / Gate B 出口必须双端同时满足**（鸿蒙跟 **Gate B′**，见 §9.3.1）。
 
 ### 9.1 总览
 
@@ -573,7 +543,7 @@ Phase A（UI / UX / 性能）  ──►  Phase B（mobile-core + 直连 API） 
 | --- | --- | --- |
 | `mobile-core` | 不接入运行时（可并行写骨架，不阻塞 UI） | **必须**接入，为唯一归约层 |
 | `mobile-contract` | `fixtures/preview/` 驱动 UI | `run-events` + `expected/domain` 锁行为 |
-| 后端 | **无** | **直连 Harness API 服务器**（Settings 配置 URL；与 RN 联调方式一致） |
+| 后端 | **无** | **直连 Harness API 服务器**（Settings 配置 URL） |
 | 性能门禁 | Macrobenchmark / Instruments / 长 fixture 滚动 | 在真 API 下复测长 Run |
 
 ### 9.2 Phase A — UI / UX / 动画 / 交互（无后端）
@@ -582,25 +552,23 @@ Phase A（UI / UX / 性能）  ──►  Phase B（mobile-core + 直连 API） 
 
 **目标**：在不依赖网络的情况下，把 Agent 工作台 **所有用户可见路径** 做完整，并把 **滚动、流式模拟、Sheet 动画、键盘** 等优化到 Native 上限。
 
-| 编号 | 交付（Android + iOS 并行） | 参考（RN 路径） |
+| 编号 | 交付（Android + iOS 并行） | 验收参考 |
 | --- | --- | --- |
-| **A0** | 工程脚手架、**`core-ui` / `CoreUI`（tokens + 首批 primitive）**、导航壳、Dev Preview 入口 | 脚手架 + Preview 路由 |
+| **A0** | 工程脚手架、**`core-ui` / `CoreUI`（tokens + 首批 primitive）**、导航壳、Dev Preview 入口 | Preview Dev Menu |
 | **A1** | 会话列表 / Session Drawer、空态 Landing、切换动画 | Session UI fixture |
-| **A2** | 对话流：用户气泡、Assistant 文本、**流式模拟**（定时器 / 脚本回放）、FlashList 等等价优化 | 长会话 fixture、滚动压测 |
+| **A2** | 对话流：用户气泡、Assistant 文本、**流式模拟**（定时器 / 脚本回放）、长列表虚拟化与滚动优化 | 长会话 fixture、滚动压测 |
 | **A3** | Markdown / 代码块 / 公式（完成态）；流式阶段纯文本 | `MarkdownView` 对齐 Web |
 | **A4** | Process 时间线、tool_activity 内联、Reasoning / CoT 块 | legacy blocks / timeline fixture |
 | **A5** | Composer 全 UI：模型菜单、推理、附件区、Skill、Plan 浮卡、HITL/澄清 **静态态** | Composer modes fixture |
 | **A6** | Workbench 全 Tab UI（Activity / Sources / Report / Artifact / Context）+ Sheet（**Phone 分段 IA**） | Workbench fixture |
 | **A7** | Settings / MCP **表单 UI**（可本地假保存）、Reader / Report 预览 | Settings 静态、Reader |
 | **A8** | 动效与交互硬化：BottomSheet、键盘联动、连接态 Pill（假状态）、错误/空态 | 交互 polish |
-| **A9** | **性能 sign-off**：长 thread（20+ turn）、大 Markdown、快速开关 Workbench；双端 benchmark 达标 | RN 性能痛点对标 |
+| **A9** | **性能 sign-off**：长 thread（20+ turn）、大 Markdown、快速开关 Workbench；双端 benchmark 达标 | Macrobenchmark / Instruments |
 
 **Phase A 技术要点**
 
 - ViewModel **只依赖 `AgentSessionPort`**；Preview 实现可内置 **ReplayController**（按 tick 推进 `fixtures/preview` 中的流式字段）。
 - **禁止** Phase A 为赶进度引入真实 HTTP；避免 UI 与 API 形态耦合。
-- **`apps/mobile`**：作 **视觉与交互对照**；fixture 迁移到 `mobile-contract/fixtures/preview`。
-
 **Phase A 出口（Gate A）**
 
 1. Preview 菜单（或 Dev Menu）可切换 **§16.3 所列 10 个** fixture 场景。  
@@ -630,7 +598,7 @@ Phase A（UI / UX / 性能）  ──►  Phase B（mobile-core + 直连 API） 
 
 - **只连远程 Harness API**（开发/预发/生产由 Settings 或构建 flavor 决定）；Mobile **不**打包、不启动 NestJS/PostgreSQL。
 - 鉴权方式与当前 API 部署一致（local user / token 等）；细节在 Settings Phase B 实现，本文不锁。
-- 联调验收：同一 `sessionId` / `runId` 下，Mobile 与 Web 以 **服务端 Snapshot** 为准对照（与 RN [42-mobile-api-integration-plan.md](./42-mobile-api-integration-plan.md) 协作方式相同）。
+- 联调验收：同一 `sessionId` / `runId` 下，Mobile 与 Web 以 **服务端 Snapshot** 为准对照（细则见 [45-native-mobile-phase-b-integration.md](./45-native-mobile-phase-b-integration.md)）。
 
 **Phase B 功能出口（Gate B — 功能）**
 
@@ -669,21 +637,6 @@ Phase A（UI / UX / 性能）  ──►  Phase B（mobile-core + 直连 API） 
 - **UI 组** 在 Phase A 全力做体验；**Core 组** 可在 A 阶段编写 `mobile-core`（含 **ohosArm64 骨架**）与 golden，**默认不接入 App 主路径**，直至 B0。
 - **鸿蒙 UI** 可在 v1 周期内并行 **A0～A9**，但 **Gate A / Gate B 以 Android+iOS 为准**。
 - Phase B 中 **禁止** 大规模改 Screen 结构；若必须改，须同步更新 preview fixture，避免 Preview 回归失效。
-
-### 9.5 与 RN 里程碑对照（便于迁移思维）
-
-| RN（[36 §13](./36-mobile-agent-frontend.md) 思路） | Native |
-| --- | --- |
-| 静态 UI / Preview / fixture 回归 | **Phase A（A0～A9）** |
-| P1 Settings URL + Session CRUD | **B0～B1** |
-| P2 SSE + Snapshot + cancel | **B2** |
-| P3 Composer 全量 | **B3** |
-| P4 HITL | **B4** |
-| P5 Workbench | **B5** |
-| P7 MCP Settings | **B6** |
-| P8 推送（**v1.1**）、Maestro、Sentry、商店 | **B6～B7** 功能硬化 + **§16 Release**（推送不进 v1 B6；**B7 ≠ Maestro/提审**） |
-
-**RN `apps/mobile`**：不参与 Gate；Preview fixture 可 **迁移** 至 `mobile-contract`。
 
 ---
 
@@ -755,7 +708,7 @@ API：直连 **Settings 配置的 Harness 服务器**（dev/staging/prod）；�
 3. **同一版本号**（如 `1.0.0`）提交 Store；功能开关服务端控制（可选）。  
 4. **最低 OS**：Android **minSdk 26**；iOS **17.0+**（双端 Release 一致声明）。
 
-应用 ID：**`com.harness.agent`**（与历史 RN 一致，便于 Maestro / 用户覆盖安装策略后续再定）。
+应用 ID：**`com.harness.agent`**（三端统一；便于 Maestro / 用户覆盖安装策略后续再定）。
 
 ---
 
@@ -767,18 +720,7 @@ API：直连 **Settings 配置的 Harness 服务器**（dev/staging/prod）；�
 
 ---
 
-## 14. 与遗留 `apps/mobile` 的关系
-
-| 项 | 说明 |
-| --- | --- |
-| 状态 | **Deprecated**，不删库，不随 Native 功能演进 |
-| 用途 | **仅 VIA 对照**（§3.4.5）：视觉 / IA / 交互规格；parity 人工对照；Preview fixture 迁移源；**不**作 Release 运行时 |
-| 文档 | [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)、[42-mobile-api-integration-plan.md](./42-mobile-api-integration-plan.md) 中 RN 路径以 **本文** 为 Release 依据；联调细节仍可参考 API 章节 |
-| 共享 TS 包 | Web 继续使用；Mobile Release **不依赖** RN 运行时，但 **`agent-protocol` 仍为协议源** |
-
----
-
-## 15. 并行开发协作建议
+## 14. 并行开发协作建议
 
 | 角色 | Phase A | Phase B |
 | --- | --- | --- |
@@ -806,7 +748,7 @@ API：直连 **Settings 配置的 Harness 服务器**（dev/staging/prod）；�
 | 类别 | v1 结论 |
 | --- | --- |
 | **Parity 来源** | **36 §4** 全部 ID：**M-SVC、M-SES、M-RUN、M-CONV、M-CMP、M-FILE、M-ART、M-RPT、M-SET、M-PND**（落地顺序见 [45 §7.1](./45-native-mobile-phase-b-integration.md)） |
-| **Workbench Tab** | **Activity / Artifact / Sources / Report**；**Debug Tab 不做**。**Context Tab**：RN/ Web 矩阵含 Context；**Native v1 主 UI 不展示 Context Tab**（与 Gate A 一致，见 [45 §1.5](./45-native-mobile-phase-b-integration.md)）；可选 Settings/Debug 只读 JSON |
+| **Workbench Tab** | **Activity / Artifact / Sources / Report**；**Debug Tab 不做**。**Context Tab**：Web 矩阵含 Context；**Native v1 主 UI 不展示 Context Tab**（与 Gate A 一致，见 [45 §1.5](./45-native-mobile-phase-b-integration.md)）；可选 Settings/Debug 只读 JSON |
 | **Workbench 行为** | 保留 pinned/follow、`FOCUS_WORKBENCH_TARGET`、降级提示；Native App 输出过程中不自动弹出 Workbench，用户主动点击后再打开 |
 | **Bash 终端 UI** | 与 Web **只读展示 + 复制**（`BashTerminalPanel` 语义），**不提供交互式 shell 输入** |
 | **MCP Settings** | 全 CRUD + Test（M-SET-3～5） |
@@ -835,7 +777,7 @@ API：直连 **Settings 配置的 Harness 服务器**（dev/staging/prod）；�
 | **本地持久化** | **DataStore / UserDefaults + Keychain**（URL、偏好）；v1 **可不建 Room/SwiftData**，恢复以 Snapshot 为主 |
 | **构建变体** | Android **`preview` / `production` flavor**；iOS **Debug（Preview，不链 Core）/ Release（链 Core）** |
 | **Markdown** | 流式节流后渲染；Android **Markwon**、iOS **MarkdownUI**（见 [46-native-mobile-markdown-strategy.md](./46-native-mobile-markdown-strategy.md)）；**禁止** Production 扩展自研 block 解析；Report **v1 不用 WebView** |
-| **流式 UI 刷新** | tail 更新约 **100ms** 合并（与 RN 现网同量级） |
+| **流式 UI 刷新** | tail 更新约 **100ms** 合并 |
 | **Design Token** | **`packages/mobile-contract/design-tokens.json`** 为数值权威；**三端**各自读取；与 Web `check-design-tokens` **逐步对齐** |
 | **Primitive 首批（A0）** | AppScaffold、AppTopBar、AppText、AppButton、AppIcon、AppTextField、AppSheet、ListRow、Badge、Spinner、Divider |
 | **Snapshot 测试** | Android **Paparazzi**；iOS **swift-snapshot-testing** |
@@ -863,8 +805,6 @@ API：直连 **Settings 配置的 Harness 服务器**（dev/staging/prod）；�
 | `workbench-report-markdown.json` | Report / 大 Markdown |
 | `workbench-sources.json` | Sources Tab |
 | `connection-offline-error.json` | 连接态 / ProblemDetails 展示 |
-
-RN `apps/mobile` preview 可向上述名称 **迁移或映射**（对照表可在实现时补 README）。
 
 ### 16.4 CI / 门禁（v1 / v1.1）
 
@@ -911,13 +851,13 @@ Job 命名在 CI 落地时写入仓库 workflow，**不阻塞架构开工**。
 
 - **三端原生 UI + 一份 KMP `mobile-core` + `mobile-contract`**；Run 归约 **仅在 Phase B 由 core 承担**；UI 为 **Compose / SwiftUI / ArkUI** 上各自 `core-ui`，视觉对齐、**代码不共享**（§3.4）。  
 - **HarmonyOS**：**ArkTS 原生 + NAPI 接 core**（§3.5、§8）；**v1.1 Gate B′**，不推翻 Android/iOS 方案。  
-- **实施顺序与 RN 一致**：Phase A fixture UI → Phase B 直连服务器；**v1 Gate B（功能）= B0～B7**（详 **[45](./45-native-mobile-phase-b-integration.md)**）；**Release = §16**；**Gate B′ = 鸿蒙**。  
+- **实施顺序**：Phase A fixture UI → Phase B 直连服务器；**v1 Gate B（功能）= B0～B7**（详 **[45](./45-native-mobile-phase-b-integration.md)**）；**Release = §16**；**Gate B′ = 鸿蒙**。  
 - 目录：**`apps/android`、`apps/ios`、`apps/harmony`、`packages/mobile-core`、`packages/mobile-contract`**。  
 - **v1 范围与技术默认**：§16；**鸿蒙**：§16.5；运维：§17；Port：§5.4。
 
 ---
 
-*文档维护：Native Mobile 架构变更请更新 §2.2、§3.4（含 §3.4.5 RN/VIA）、§3.5、§8、§9、§16 与 Port 约定（§5.4、§6.3、§7.3、§8.3）；Phase B 功能细则同步 **[45-native-mobile-phase-b-integration.md](./45-native-mobile-phase-b-integration.md)**。*
+*文档维护：Native Mobile 架构变更请更新 §2.2、§3.4、§3.5、§8、§9、§16 与 Port 约定（§5.4、§6.3、§7.3、§8.3）；Phase B 功能细则同步 **[45-native-mobile-phase-b-integration.md](./45-native-mobile-phase-b-integration.md)**。*
 
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |

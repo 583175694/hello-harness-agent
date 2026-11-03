@@ -10,7 +10,7 @@
       "blocks": [
         {
           "type": "text",
-          "content": "# 报告摘要\n\n完成态 Markdown 渲染（对照 RN `MarkdownView` chat variant）。\n\n- 支持标题与列表\n- 支持 fenced code\n\n```ts\nconst preview = true;\n```\n\n详细正文见 Workbench Report Tab。"
+          "content": "# 报告摘要\n\n完成态 Markdown 渲染（对照 design-tokens `MarkdownView` chat variant）。\n\n- 支持标题与列表\n- 支持 fenced code\n\n```ts\nconst preview = true;\n```\n\n详细正文见 Workbench Report Tab。"
         }
       ]
     }

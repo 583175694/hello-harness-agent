@@ -63,7 +63,7 @@ enum GateAPreviewFixtures {
     }
 }
 
-/// 对齐 RN `tailwind.config.js` + Android `HarnessLayout`.
+/// 对齐 design-tokens / Web `tailwind.config.js` + Android `HarnessLayout`.
 enum HarnessLayout {
     static let controlRadius: CGFloat = 8
     static let panelRadius: CGFloat = 12
@@ -96,7 +96,7 @@ enum HarnessLayout {
     static let composerPlusSize: CGFloat = 44
     static let composerSendSize: CGFloat = 32
     static let composerMinInputHeight: CGFloat = 44
-    /// 约 5 行 × 22pt 行高，对齐 Android / RN Composer。
+    /// 约 5 行 × 22pt 行高，对齐 Android Composer / design-tokens。
     static let composerMaxInputHeight: CGFloat = 120
     static let composerInputMaxLines = 5
     static let iconToolbarSize: CGFloat = 40

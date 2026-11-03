@@ -5,7 +5,7 @@
 > 最后更新：2026-10-27  
 > 上级架构：[43-native-mobile-clients-architecture.md](./43-native-mobile-clients-architecture.md)（Phase A/B 总纲）  
 > 产品 parity：[36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md) **§4**（能力 ID）；**§5 Pad IA 延至 v1.1**  
-> RN 对照（仅 VIA）：[43-native-mobile-clients-architecture.md](./43-native-mobile-clients-architecture.md) **§3.4.5**
+> 架构与 Web 对齐：[43-native-mobile-clients-architecture.md](./43-native-mobile-clients-architecture.md) **§3.4.4**
 
 ---
 
@@ -46,7 +46,7 @@
   - Reader（Report / Artifact 全屏阅读）
   - Preview / Dev Menu（切换 fixture 场景）
 - **UI 状态矩阵**（§4）：空态、加载态、错误态、禁用态、HITL 静态态、流式中（纯文本 tail）、完成态 Markdown 等。
-- **交互与动效**：Drawer 滑入、Workbench 多档 detent、键盘与 Composer 联动、Sheet/附件/Skill overlay、Reduce Motion 分支、按压缩放 vs 背景反馈（对齐 RN `AGENT_UI_*` **规格**，不抄 RN 技术）。
+- **交互与动效**：Drawer 滑入、Workbench 多档 detent、键盘与 Composer 联动、Sheet/附件/Skill overlay、Reduce Motion 分支、按压缩放 vs 背景反馈（对齐 `design-tokens.json` 与 Web `AGENT_UI_*` **规格**）。
 - **流式模拟**：Preview Port 内 **ReplayController**（定时器 / 脚本）推进 tail 字段；**禁止** 真 SSE。
 - **本地假持久化**：主题、字号、Settings 表单、Memory/MCP 列表等 **内存或本地 KV 假保存**（用于演示 Settings UI；**不**定义 Phase B 的 API URL 联调契约）。
 - **无障碍与触控**：最小 hit target、accessibilityLabel（各端平台惯例）。
@@ -59,7 +59,7 @@
 - **`mobile-contract` 的 `run-events` / `expected/domain` golden**（Phase B）。
 - OAuth、真鉴权、Token 与服务器 **local user** 联调。
 - 推送（FCM/APNs/Push Kit）、Sentry 生产接入、Maestro 真 API E2E。
-- **iPad 并排 IA**（36 §5；v1.1）；可保留 **RN 对照认知**，Native v1 不验收 Pad。
+- **iPad 并排 IA**（36 §5；v1.1）；可保留 **Web 对照认知**，Native v1 不验收 Pad。
 - Debug Workbench Tab（与 Web 一致：**不做**）。
 
 ### 3.3 产品能力 ID 在本阶段的含义
@@ -105,7 +105,7 @@
 `AppScaffold`、`AppTopBar`、`AppText`、`AppButton`、`AppIcon`、`AppTextField`、`AppSheet`、`ListRow`、`Badge`、`Spinner`、`Divider`。
 
 **Pattern / Feature（A1～A7 逐步）**  
-与 RN 对照命名建议（实现语言各端不同）：
+与 Web 对照命名建议（实现语言各端不同）：
 
 | Pattern | 职责 |
 | --- | --- |
@@ -151,7 +151,7 @@ ViewModel / @Observable  ──►  core-ui + feature UI
 
 - UI **禁止** 直接读 JSON 文件；经 **Port + 与 schema 对齐的 UI 模型**。
 - Fixture 文件名与 **43 §16.3 十场景** 一致；不足场景在 contract README 补映射表。
-- **`design-tokens.json`** 为颜色/间距权威；从 RN `design-tokens.ts` **迁移数值**，不迁 NativeWind。
+- **`design-tokens.json`** 为颜色/间距权威；与 Web 暖灰语义逐步对齐。
 
 ---
 
@@ -205,7 +205,7 @@ ViewModel / @Observable  ──►  core-ui + feature UI
 
 ### 8.4 人工回归参考
 
-可复用并改编 [apps/mobile/docs/ui-regression-checklist.md](../apps/mobile/docs/ui-regression-checklist.md)（浮层独立、detent、Plan pill、Settings 持久化等 **交互规格**）；路由改为各端 Preview 入口。
+交互规格见 [native-mobile-gate-a-ui-regression.md](./native-mobile-gate-a-ui-regression.md)（浮层独立、detent、Plan pill、Settings 持久化等）；路由为各端 Preview 入口。
 
 ---
 
@@ -215,7 +215,7 @@ ViewModel / @Observable  ──►  core-ui + feature UI
 packages/mobile-contract/
   design-tokens.json
   schema/                    # ActiveSessionState 等（可先最小 JSON Schema）
-  fixtures/preview/          # 十场景 JSON（可从 RN 转录）
+  fixtures/preview/          # 十场景 JSON（权威 Preview 数据）
   README.md
 
 apps/android/                # Compose, preview flavor
@@ -231,8 +231,8 @@ apps/harmony/                # ArkTS, entry + core-ui 骨架
 
 - **合并顺序**：`mobile-contract`（tokens + fixture + schema）→ **v1 双端 UI** → 鸿蒙 UI。  
 - 单 PR 尽量 **单 milestone 切片**（如 A5 Composer only），带 Snapshot 或截图。  
-- RN **仅 VIA 对照**（43 §3.4.5）；PR 描述注明对照的 RN 文件/Preview 路由。  
-- 产品语义冲突：**Web + 36 §4** 优先于 RN。
+- PR 描述注明对照的 Preview fixture 名与 Web 组件（若有）。  
+- 产品语义冲突：**Web + 36 §4** 优先。
 
 ---
 
@@ -243,8 +243,7 @@ apps/harmony/                # ArkTS, entry + core-ui 骨架
 | [43-native-mobile-clients-architecture.md](./43-native-mobile-clients-architecture.md) | 总架构、Port、Gate |
 | [36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md) | Parity ID、IA |
 | [18-project-structure.md](./18-project-structure.md) | Monorepo 目录 |
-| [apps/mobile/docs/ui-regression-checklist.md](../apps/mobile/docs/ui-regression-checklist.md) | 交互回归条目 |
-| [apps/mobile/docs/parity-checklist.md](../apps/mobile/docs/parity-checklist.md) | RN parity 人工对照 |
+| [native-mobile-gate-a-ui-regression.md](./native-mobile-gate-a-ui-regression.md) | 交互回归条目 |
 
 ---
 

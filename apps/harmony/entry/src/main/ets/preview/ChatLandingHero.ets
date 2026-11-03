@@ -1,6 +1,6 @@
 import { HarnessColors } from '../coreui/HarnessColors';
 
-/** 对齐 RN `ConversationEmptyHero`：40vp 皮皮虾 BrandIcon + 欢迎语。 */
+/** 对齐 design-tokens / Web `ConversationEmptyHero`：40vp 皮皮虾 BrandIcon + 欢迎语。 */
 @Component
 export struct ChatLandingHero {
   @Prop welcomeText: string = '欢迎回来，想从哪里开始？';

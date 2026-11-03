@@ -1,6 +1,6 @@
 # Native Mobile Gate A — UI 交互回归（改编）
 
-源自 [apps/mobile/docs/ui-regression-checklist.md](../apps/mobile/docs/ui-regression-checklist.md)；路由改为各端 **Preview Dev Menu** + 上表 fixture 名。§8.4 人工参考。
+Native Mobile Gate A UI 回归清单；路由为各端 **Preview Dev Menu** + fixture 名。§8.4 人工参考。
 
 ## 准备
 

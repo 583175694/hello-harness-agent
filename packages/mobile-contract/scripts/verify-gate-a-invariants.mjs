@@ -543,7 +543,7 @@ if (fs.existsSync(harmonyAppTextField)) {
   }
 }
 
-// A6 Workbench Tab（activity + artifact，对齐 RN/Web；来源/报告并入实时跟随；Gate A 不含 Context Tab）
+// A6 Workbench Tab（activity + artifact，对齐 Web/Web；来源/报告并入实时跟随；Gate A 不含 Context Tab）
 const wbTabTriple = [
   'apps/android/app/src/main/kotlin/com/harness/agent/ui/workbench/WorkbenchSheetOverlay.kt',
   'apps/ios/Harness/Preview/WorkbenchSheetView.swift',
@@ -648,13 +648,13 @@ const wbLabelPaths = [
 for (const rel of wbLabelPaths) {
   const t = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
   if (!t.includes('实时跟随')) {
-    fail(`${rel} Workbench activity tab must label 实时跟随 (RN/Web parity)`);
+    fail(`${rel} Workbench activity tab must label 实时跟随 (Web/Web parity)`);
   }
 }
 if (!fs.readFileSync(path.join(repoRoot, 'apps/android/core-ui/src/main/kotlin/com/harness/agent/coreui/primitives/HarnessSegmentedControl.kt'), 'utf8').includes('colors.primary')) {
-  fail('HarnessSegmentedControl must use primary selected segment (RN segmentTabSelected)');
+  fail('HarnessSegmentedControl must use primary selected segment (design-tokens segmentTabSelected)');
 }
-ok('Workbench tab labels + segmented control align with RN VIA');
+ok('Workbench tab labels + segmented control align with 三端对齐');
 
 for (const rel of [
   'apps/android/app/src/main/kotlin/com/harness/agent/ui/chat/ChatTopBar.kt',
@@ -663,10 +663,10 @@ for (const rel of [
 ]) {
   const t = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
   if (/场景/.test(t)) {
-    fail(`${rel} must not expose Dev Menu「场景」in chat top bar (RN parity)`);
+    fail(`${rel} must not expose Dev Menu「场景」in chat top bar (Web parity)`);
   }
 }
-ok('Chat top bar matches RN (no in-bar Dev Menu chip)');
+ok('Chat top bar matches Web (no in-bar Dev Menu chip)');
 
 const harmonyPagesJson = path.join(repoRoot, 'apps/harmony/entry/src/main/resources/base/profile/main_pages.json');
 if (fs.existsSync(harmonyPagesJson)) {

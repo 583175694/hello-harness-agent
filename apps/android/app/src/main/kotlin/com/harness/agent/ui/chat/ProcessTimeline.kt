@@ -378,7 +378,7 @@ private fun TextProcessStep(
     }
 }
 
-/** 对齐 Web Lucide `Dot` / RN 6px 轨道圆点。 */
+/** 对齐 Web Lucide `Dot` / design-tokens 6px 轨道圆点。 */
 @Composable
 private fun ProcessTimelineNodeDot() {
     Box(

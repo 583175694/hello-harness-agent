@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.harness.agent.coreui.tokens.LocalHarnessColors
 import kotlinx.coroutines.launch
 
-/** 轻提示（对齐 Web toast / RN 短反馈）。 */
+/** 轻提示（对齐 Web toast 短反馈）。 */
 fun interface AppToastState {
     fun show(message: String)
 }

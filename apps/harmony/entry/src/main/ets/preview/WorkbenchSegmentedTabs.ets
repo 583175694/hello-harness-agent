@@ -2,7 +2,7 @@ import { HarnessColors } from '../coreui/HarnessColors';
 import { PreviewLocalPreferences } from './PreviewLocalPreferences';
 import { SlidingSegmentTrack } from './SlidingSegmentTrack';
 
-/** Pattern：Workbench 分段 Tab（滑动高亮，对齐 RN `SlidingSegmentTrack`）。 */
+/** Pattern：Workbench 分段 Tab（滑动高亮，对齐 design-tokens / Web `SlidingSegmentTrack`）。 */
 @Component
 export struct WorkbenchSegmentedTabs {
   @Prop tabs: string[] = [];

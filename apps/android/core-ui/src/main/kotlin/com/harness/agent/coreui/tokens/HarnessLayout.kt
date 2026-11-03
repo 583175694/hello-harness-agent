@@ -2,7 +2,7 @@ package com.harness.agent.coreui.tokens
 
 import androidx.compose.ui.unit.dp
 
-/** 对齐 RN `tailwind.config.js` borderRadius + `AGENT_UI_LAYOUT` / `AGENT_UI_BUTTON`。 */
+/** 对齐 design-tokens / Web `tailwind.config.js` borderRadius + `AGENT_UI_LAYOUT` / `AGENT_UI_BUTTON`。 */
 object HarnessLayout {
     val controlRadius = 8.dp
     val panelRadius = 12.dp
@@ -55,7 +55,7 @@ object HarnessLayout {
     /** 输入区与安全区/屏幕底之间的额外呼吸间距（系统 inset 之外）。 */
     val composerChromeBottomExtra = 10.dp
     val composerMinInputHeight = 44.dp
-    /** 约 5 行（14sp / 22sp 行高），对齐 RN `max-h-24` / 微信多行输入上限。 */
+    /** 约 5 行（14sp / 22sp 行高），对齐 design-tokens / Web `max-h-24` / 微信多行输入上限。 */
     val composerMaxInputHeight = 120.dp
     const val composerInputMaxLines = 5
     val workbenchHandleWidth = 36.dp

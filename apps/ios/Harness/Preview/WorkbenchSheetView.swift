@@ -584,7 +584,7 @@ struct WorkbenchRestoreConfirmSnapshotView: View {
     }
 }
 
-/// 对齐 RN `SlidingSegmentTrack` / Android `HarnessSegmentedControl`（240ms ease-out 滑动高亮）。
+/// 对齐 design-tokens / Web `SlidingSegmentTrack` / Android `HarnessSegmentedControl`（240ms ease-out 滑动高亮）。
 struct HarnessSlidingSegmentedControl<Option: Hashable>: View {
     let options: [Option]
     @Binding var selection: Option

@@ -299,7 +299,7 @@
         "passageBody": "演示场景应覆盖 Activity / Sources / Report / Artifact 四 Tab，便于设计评审与截图。"
       },
       {
-        "title": "React Native Sheet Patterns",
+        "title": "Native Bottom Sheet Patterns",
         "url": "https://example.com/ui/bottom-sheet",
         "snippet": "Detent 44% / 72% / 98%…"
       },

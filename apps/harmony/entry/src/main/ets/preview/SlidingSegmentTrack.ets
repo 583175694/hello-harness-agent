@@ -3,7 +3,7 @@ import { PreviewLocalPreferences } from './PreviewLocalPreferences';
 
 const SLIDE_MS = 240;
 
-/** 对齐 RN `SlidingSegmentTrack`：equal-width 分段 + 滑动高亮。 */
+/** 对齐 design-tokens / Web `SlidingSegmentTrack`：equal-width 分段 + 滑动高亮。 */
 @Component
 export struct SlidingSegmentTrack {
   @Prop segmentCount: number = 1;

@@ -37,6 +37,7 @@ export class HarmonyMobileEngine {
   private workbenchRunId: string | undefined = undefined;
   private sessionMessages: Map<string, import('./HarmonyCoreTypes').PersistedMessageRow[]> = new Map();
   private sessionArtifactSeries: Map<string, ArtifactSeriesRow[]> = new Map();
+  private sessionFollowUps: Map<string, import('../preview/PreviewModels').FollowUpRow[]> = new Map();
   private paginationBefore: Map<string, string | undefined> = new Map();
   private loadingOlderSessions: Set<string> = new Set();
   private composerSkills: string[] = [];
@@ -215,6 +216,7 @@ export class HarmonyMobileEngine {
     }
     this.sessionMessages.set(sessionId, detail.messages);
     this.sessionArtifactSeries.set(sessionId, detail.artifactSeries ?? []);
+    this.sessionFollowUps.set(sessionId, HarmonyMobileEngine.followUpsFromDetail(detail));
     this.paginationBefore.set(sessionId, detail.pagination?.nextBefore);
     const canLoadOlder = HarmonyMobileEngine.canLoadOlderFromPagination(detail);
     const isCurrentSelection = this.selectedSessionId === sessionId;
@@ -537,6 +539,7 @@ export class HarmonyMobileEngine {
     this.pendingSessions.delete(sessionId);
     this.sessionMessages.delete(sessionId);
     this.sessionArtifactSeries.delete(sessionId);
+    this.sessionFollowUps.delete(sessionId);
     this.paginationBefore.delete(sessionId);
     if (this.liveRun?.sessionId === sessionId) {
       this.runSseClient?.destroy();
@@ -885,6 +888,7 @@ export class HarmonyMobileEngine {
       `/api/agent/sessions/${sessionId}?limit=100`,
     );
     const followUps = HarmonyMobileEngine.followUpsFromDetail(response.session);
+    this.sessionFollowUps.set(sessionId, followUps);
     this.snapshot = {
       ...this.snapshot,
       composer: {
@@ -940,6 +944,10 @@ export class HarmonyMobileEngine {
       lines,
       workbench,
       canLoadOlderMessages: (this.paginationBefore.get(sessionId)?.length ?? 0) > 0,
+      composer: {
+        ...this.snapshot.composer,
+        followUps: this.sessionFollowUps.get(sessionId) ?? [],
+      },
       sessionDrawer: {
         ...this.snapshot.sessionDrawer,
         sessions: HarmonyCoreSessionMapper.drawerRows(this.summaries, sessionId, this.pendingSessions),

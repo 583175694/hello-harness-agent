@@ -13,10 +13,14 @@ export struct PreviewDrawerOverlay {
   @Link visible: boolean;
   @Prop sessions: SessionDrawerRow[] = [];
   @Prop refreshing: boolean = false;
+  @Prop loadingMore: boolean = false;
+  @Prop canLoadMore: boolean = false;
   @Prop newConversationEnabled: boolean = true;
   @Prop reduceMotion: boolean = PreviewLocalPreferences.reduceMotion;
   @Prop useDark: boolean = PreviewLocalPreferences.themeDark;
   onRefresh: () => void = () => {
+  };
+  onLoadMore: () => void = () => {
   };
   onNewConversation: () => void = () => {
   };
@@ -424,6 +428,27 @@ export struct PreviewDrawerOverlay {
                 ForEach(this.sessions.filter((r) => !r.pinned), (row: SessionDrawerRow) => {
                   this.sessionRow(row)
                 }, (row: SessionDrawerRow) => `r-${row.id}`)
+              }
+              if (this.canLoadMore) {
+                Text(this.loadingMore ? '正在加载更多…' : '加载更多')
+                  .fontSize(12)
+                  .fontColor(HarnessColors.linkText(this.useDark))
+                  .width('100%')
+                  .textAlign(TextAlign.Center)
+                  .padding({ top: 12, bottom: 12 })
+                  .opacity(this.loadingMore ? 0.55 : 1)
+                  .onClick(() => {
+                    if (!this.loadingMore) {
+                      this.onLoadMore();
+                    }
+                  })
+              } else if (this.sessions.filter((r) => !r.pinned).length > 0) {
+                Text('已全部加载')
+                  .fontSize(11)
+                  .fontColor(HarnessColors.mutedText(this.useDark))
+                  .width('100%')
+                  .textAlign(TextAlign.Center)
+                  .padding({ top: 10, bottom: 12 })
               }
             }
             .width('100%')

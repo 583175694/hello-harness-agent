@@ -1,6 +1,8 @@
 package com.harness.agent.port
 
 import com.harness.agent.model.ActiveSessionState
+import com.harness.agent.model.ArtifactDownloadPayload
+import com.harness.agent.model.ArtifactPreviewPayload
 import kotlinx.coroutines.flow.StateFlow
 
 /** Phase A/B 共用语义；Phase A 仅 Preview 实现。 */
@@ -39,7 +41,7 @@ interface AgentSessionPort {
         modelId: String? = null,
         reasoningEffort: String? = null,
         skillNames: List<String> = emptyList(),
-    ) {}
+    ): Boolean = true
 
     suspend fun respondClarification(answer: String) {}
 
@@ -67,6 +69,20 @@ interface AgentSessionPort {
     fun clearWorkbenchFocusHint() {}
 
     suspend fun loadOlderMessages(sessionId: String) {}
+
+    suspend fun loadOlderSessionSummaries() {}
+
+    suspend fun previewArtifact(artifactId: String): Result<ArtifactPreviewPayload> =
+        Result.failure(UnsupportedOperationException("preview unavailable"))
+
+    suspend fun downloadArtifact(artifactId: String): Result<ArtifactDownloadPayload> =
+        Result.failure(UnsupportedOperationException("download unavailable"))
+
+    suspend fun previewFile(fileId: String): Result<ArtifactPreviewPayload> =
+        Result.failure(UnsupportedOperationException("preview unavailable"))
+
+    suspend fun downloadFile(fileId: String): Result<ArtifactDownloadPayload> =
+        Result.failure(UnsupportedOperationException("download unavailable"))
 
     /** B6 / M-RUN-6：App 进后台时断开 SSE。 */
     fun onAppBackground() {}

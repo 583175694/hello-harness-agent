@@ -57,13 +57,87 @@ export class SessionsService implements OnModuleInit {
     return { session: this.toSummary(session) };
   }
 
-  // 按最近更新时间返回本地用户的会话列表。
-  async list(userId: string): Promise<{ sessions: SessionSummary[] }> {
-    const sessions = await this.prisma.session.findMany({
-      where: { userId },
-      orderBy: [{ isPinned: 'desc' }, { updatedAt: 'desc' }],
+  // 置顶会话全量返回；普通会话按 updatedAt/id 游标分页。
+  async list(
+    userId: string,
+    options: { limit?: number; before?: string } = {},
+  ): Promise<{
+    sessions: SessionSummary[];
+    pagination?: { limit: number; hasMore: boolean; nextBefore?: string };
+  }> {
+    if (options.limit === undefined) {
+      const all = await this.prisma.session.findMany({
+        where: { userId },
+        orderBy: [{ isPinned: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
+      });
+      return { sessions: all.map((session) => this.toSummary(session)) };
+    }
+    const pinned = await this.prisma.session.findMany({
+      where: { userId, isPinned: true },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });
-    return { sessions: sessions.map((session) => this.toSummary(session)) };
+    const cursor = options.before ? await this.resolveSessionCursor(userId, options.before) : undefined;
+    if (options.before && !cursor) this.throwNotFound();
+    const normalWhere = {
+      userId,
+      isPinned: false,
+      ...(cursor
+        ? {
+            OR: [
+              { updatedAt: { lt: cursor.updatedAt } },
+              { updatedAt: cursor.updatedAt, id: { lt: cursor.id } },
+            ],
+          }
+        : {}),
+    };
+    const page = await this.prisma.session.findMany({
+      where: normalWhere,
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      take: options.limit + 1,
+    });
+    const hasMore = page.length > options.limit;
+    const normal = page.slice(0, options.limit);
+    const anchor = normal.at(-1);
+    const nextBefore = hasMore && anchor ? this.encodeSessionCursor(anchor) : undefined;
+    return {
+      sessions: [...pinned, ...normal].map((session) => this.toSummary(session)),
+      pagination: {
+        limit: options.limit,
+        hasMore,
+        ...(nextBefore ? { nextBefore } : {}),
+      },
+    };
+  }
+
+  // 游标携带锚点原始排序键，避免锚点被重命名/置顶/删除后翻页丢项；旧 sessionId 游标继续可用。
+  private async resolveSessionCursor(
+    userId: string,
+    value: string,
+  ): Promise<{ id: string; updatedAt: Date }> {
+    const decoded = this.decodeSessionCursor(value);
+    if (decoded) return decoded;
+    const session = await this.prisma.session.findFirst({
+      where: { id: value, userId },
+      select: { id: true, updatedAt: true },
+    });
+    return session ?? this.throwNotFound();
+  }
+
+  private encodeSessionCursor(session: { id: string; updatedAt: Date }): string {
+    return Buffer.from(`${session.updatedAt.toISOString()}|${session.id}`, 'utf8').toString('base64url');
+  }
+
+  private decodeSessionCursor(value: string): { id: string; updatedAt: Date } | null {
+    try {
+      const raw = Buffer.from(value, 'base64url').toString('utf8');
+      const separator = raw.indexOf('|');
+      if (separator <= 0 || separator === raw.length - 1) return null;
+      const updatedAt = new Date(raw.slice(0, separator));
+      if (Number.isNaN(updatedAt.getTime())) return null;
+      return { id: raw.slice(separator + 1), updatedAt };
+    } catch {
+      return null;
+    }
   }
 
   // 更新会话名称或置顶状态，并返回新的会话摘要。

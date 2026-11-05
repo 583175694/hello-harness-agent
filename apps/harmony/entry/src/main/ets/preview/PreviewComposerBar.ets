@@ -1,9 +1,11 @@
-import { ComposerPreviewState, FollowUpRow, ToolApprovalItemPreview } from './PreviewModels';
+import { ComposerAttachmentRow, ComposerPreviewState, FollowUpRow, ToolApprovalItemPreview } from './PreviewModels';
 import { HarnessColors } from '../coreui/HarnessColors';
 import { PreviewUiAction } from './PreviewSessionReducer';
 import { PreviewComposerBlockKind } from './PreviewAuth';
 import { ComposerBlockBanner } from './ComposerBlockBanner';
 import { harnessPressOpacity } from '../coreui/HarnessPressScale';
+import { HarnessAgentHttp } from '../core/HarnessAgentHttp';
+import { image } from '@kit.ImageKit';
 import {
   HarnessArrowUpIcon,
   HarnessChevronDownIcon,
@@ -36,7 +38,12 @@ export struct PreviewComposerBar {
   };
   onPreviewAction: (action: PreviewUiAction) => void = () => {
   };
+  onSendComposerText: (text: string, modelId: string, reasoningEffort: string,
+    skillNames: string[], onAccepted: (accepted: boolean) => void) => void = () => {
+  };
   @Prop modelLabelOverride: string = '';
+  @Prop selectedModelId: string = '';
+  @Prop selectedReasoningEffort: string = '';
   @Prop useDark: boolean = false;
   @Prop workbenchOpen: boolean = false;
   @Prop composerBlock: PreviewComposerBlockKind = PreviewComposerBlockKind.NONE;
@@ -75,6 +82,18 @@ export struct PreviewComposerBar {
       this.draft = seed;
       this.onClearComposerRevisionSeed();
     }
+  }
+
+  attachmentRows(): ComposerAttachmentRow[] {
+    const items = this.composer.attachmentItems;
+    if (items !== undefined && items.length > 0) {
+      return items;
+    }
+    return this.composer.attachmentNames.map((fileName: string) => ({
+      fileId: '',
+      fileName,
+      mediaType: 'application/octet-stream',
+    }));
   }
 
   @Builder
@@ -159,12 +178,18 @@ export struct PreviewComposerBar {
           }
           .width('100%')
         }
-        if (this.composer.attachmentNames.length > 0) {
+        if (this.attachmentRows().length > 0) {
           Scroll() {
             Row({ space: 6 }) {
-              ForEach(this.composer.attachmentNames, (fileName: string) => {
-                this.attachmentCard(fileName)
-              }, (fileName: string) => fileName)
+              ForEach(this.attachmentRows(), (item: ComposerAttachmentRow) => {
+                AuthedAttachmentThumbnail({
+                  item,
+                  useDark: this.useDark,
+                  onRemoveAttachment: (fileId: string) => {
+                    this.onPreviewAction({ kind: 'removeAttachment', id: fileId });
+                  },
+                })
+              }, (item: ComposerAttachmentRow) => item.fileId.length > 0 ? item.fileId : item.fileName)
             }
           }
           .scrollable(ScrollDirection.Horizontal)
@@ -262,12 +287,20 @@ export struct PreviewComposerBar {
         .onClick(() => this.onModelClick())
       }
       Stack({ alignContent: Alignment.Center }) {
-        HarnessArrowUpIcon({
-          color: this.sendPressEnabled() ? HarnessColors.primaryForeground(this.useDark) :
-            HarnessColors.mutedText(this.useDark),
-          size: 16,
-          stroke: 2.5,
-        })
+        if (this.runningState() && this.draft.trim().length === 0) {
+          Row()
+            .width(12)
+            .height(12)
+            .borderRadius(3)
+            .backgroundColor(HarnessColors.primaryForeground(this.useDark))
+        } else {
+          HarnessArrowUpIcon({
+            color: this.sendPressEnabled() ? HarnessColors.primaryForeground(this.useDark) :
+              HarnessColors.mutedText(this.useDark),
+            size: 16,
+            stroke: 2.5,
+          })
+        }
       }
       .width(SEND_SIZE)
       .height(SEND_SIZE)
@@ -283,12 +316,26 @@ export struct PreviewComposerBar {
           this.sendPressed = false;
         }
       })
+      .accessibilityText(
+        this.runningState() && this.draft.trim().length === 0 ?
+          '停止当前任务' : (this.runningState() ? '发送补充' : '发送任务'),
+      )
       .onClick(() => {
-        if (this.composer.submitting && this.draft.trim().length === 0) {
+        if (this.runningState() && this.draft.trim().length === 0) {
           this.onPreviewAction({ kind: 'stopRun' });
         } else if (this.sendEnabled()) {
-          this.onPreviewAction({ kind: 'sendText', text: this.draft });
-          this.draft = '';
+          const text = this.draft;
+          this.onSendComposerText(
+            text,
+            this.selectedModelId,
+            this.selectedReasoningEffort,
+            this.composer.selectedSkills.slice(),
+            (accepted: boolean) => {
+              if (accepted) {
+                this.draft = '';
+              }
+            },
+          );
         }
       })
     }
@@ -426,8 +473,12 @@ export struct PreviewComposerBar {
     return this.inputEnabled() && this.draft.trim().length > 0;
   }
 
+  runningState(): boolean {
+    return this.composer.submitting || this.composer.composerTextMode === 'steer';
+  }
+
   sendPressEnabled(): boolean {
-    return this.inputEnabled() && (this.draft.trim().length > 0 || this.composer.submitting);
+    return this.inputEnabled() && (this.draft.trim().length > 0 || this.runningState());
   }
 
   inputEnabled(): boolean {
@@ -449,21 +500,79 @@ export struct PreviewComposerBar {
       lower.endsWith('.webp');
   }
 
-  @Builder
-  attachmentCard(fileName: string) {
-    if (this.isImageFile(fileName)) {
-      Text('IMG')
-        .fontSize(10)
-        .fontColor(HarnessColors.mutedText(this.useDark))
-        .width(ATTACHMENT_STRIP_HEIGHT)
-        .height(ATTACHMENT_STRIP_HEIGHT)
-        .textAlign(TextAlign.Center)
-        .backgroundColor(HarnessColors.subtleBg(this.useDark))
-        .borderRadius(8)
-        .border({ width: 1, color: HarnessColors.composerBorder(this.useDark) })
+}
+
+@Component
+struct AuthedAttachmentThumbnail {
+  @Prop item: ComposerAttachmentRow = { fileId: '', fileName: '', mediaType: '' };
+  @Prop useDark: boolean = false;
+  @Prop removing: boolean = false;
+  onRemoveAttachment: (fileId: string) => void = () => {
+  };
+  @State pixelMap: image.PixelMap | undefined = undefined;
+  @State failed: boolean = false;
+
+  private isImage(): boolean {
+    const lower = this.item.fileName.toLowerCase();
+    return this.item.mediaType.startsWith('image/') || lower.endsWith('.png') || lower.endsWith('.jpg') ||
+      lower.endsWith('.jpeg') || lower.endsWith('.webp');
+  }
+
+  aboutToAppear(): void {
+    if (!this.isImage() || this.item.fileId.length === 0) {
+      return;
+    }
+    void this.loadThumbnail();
+  }
+
+  private async loadThumbnail(): Promise<void> {
+    try {
+      const content = await HarnessAgentHttp.getBinary(`/api/agent/files/${this.item.fileId}/preview`);
+      if (content.data.byteLength === 0) {
+        this.failed = true;
+        return;
+      }
+      const source = image.createImageSource(content.data);
+      this.pixelMap = await source.createPixelMap();
+      source.release();
+    } catch (_e) {
+      this.failed = true;
+    }
+  }
+
+  build() {
+    if (this.isImage()) {
+      Stack({ alignContent: Alignment.Center }) {
+        if (this.pixelMap !== undefined) {
+          Image(this.pixelMap)
+            .width(ATTACHMENT_STRIP_HEIGHT)
+            .height(ATTACHMENT_STRIP_HEIGHT)
+            .objectFit(ImageFit.Cover)
+            .borderRadius(8)
+            .clip(true)
+        } else {
+          Text(this.failed ? 'IMG' : '…')
+            .fontSize(10)
+            .fontColor(HarnessColors.mutedText(this.useDark))
+            .width(ATTACHMENT_STRIP_HEIGHT)
+            .height(ATTACHMENT_STRIP_HEIGHT)
+            .textAlign(TextAlign.Center)
+            .borderRadius(8)
+            .backgroundColor(HarnessColors.subtleBg(this.useDark))
+            .border({ width: 1, color: HarnessColors.composerBorder(this.useDark) })
+            .clip(true)
+        }
+      }
+      .width(ATTACHMENT_STRIP_HEIGHT)
+      .height(ATTACHMENT_STRIP_HEIGHT)
+      .borderRadius(8)
+      .clip(true)
+      .opacity(this.removing ? 0.45 : 1)
+      .enabled(!this.removing)
+      .onClick(() => this.onRemoveAttachment(this.item.fileId))
     } else {
       Row({ space: 8 }) {
-        Text(this.fileExtLabel(fileName))
+        Text(fileExtensionLabel(this.item.fileName))
           .fontSize(9)
           .fontWeight(FontWeight.Bold)
           .fontColor(HarnessColors.linkText(this.useDark))
@@ -472,7 +581,7 @@ export struct PreviewComposerBar {
           .textAlign(TextAlign.Center)
           .backgroundColor(HarnessColors.canvas(this.useDark))
           .borderRadius(4)
-        Text(fileName)
+        Text(this.item.fileName)
           .fontSize(13)
           .fontWeight(FontWeight.Medium)
           .fontColor(HarnessColors.primaryText(this.useDark))
@@ -491,14 +600,18 @@ export struct PreviewComposerBar {
       .backgroundColor(HarnessColors.subtleBg(this.useDark))
       .borderRadius(8)
       .border({ width: 1, color: HarnessColors.composerBorder(this.useDark) })
+      .clip(true)
+      .opacity(this.removing ? 0.45 : 1)
+      .enabled(!this.removing)
+      .onClick(() => this.onRemoveAttachment(this.item.fileId))
     }
   }
+}
 
-  fileExtLabel(fileName: string): string {
-    const dot = fileName.lastIndexOf('.');
-    if (dot < 0 || dot === fileName.length - 1) {
-      return 'FILE';
-    }
-    return fileName.substring(dot + 1).toUpperCase().substring(0, 4);
+function fileExtensionLabel(fileName: string): string {
+  const dot = fileName.lastIndexOf('.');
+  if (dot < 0 || dot === fileName.length - 1) {
+    return 'FILE';
   }
+  return fileName.substring(dot + 1).toUpperCase().substring(0, 4);
 }

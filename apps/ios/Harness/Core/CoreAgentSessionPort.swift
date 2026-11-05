@@ -29,9 +29,11 @@ final class CoreAgentSessionPort: AgentSessionPort {
     private(set) var composerModelOptions: [ComposerModelOption] = []
     private(set) var skillPickerNames: [String] = []
     private(set) var sessionState = ActiveSessionState()
+    private let preferences: PreviewAppPreferences
     var onSessionStateChange: ((ActiveSessionState) -> Void)?
 
     init(preferences: PreviewAppPreferences = PreviewAppPreferences()) {
+        self.preferences = preferences
         bridge = CoreServices.makeEngineBridge(preferences: preferences)
         bridge.startObserving { [weak self] viewState in
             Task { @MainActor in
@@ -175,7 +177,7 @@ final class CoreAgentSessionPort: AgentSessionPort {
                             fileId: fileId,
                             fileName: uploadedName,
                             mediaType: mediaType,
-                            previewUri: nil
+                            previewUri: CoreServices.filePreviewURL(fileId: fileId, preferences: self.preferences)
                         ))
                         self.sessionState = self.mergeComposerState(self.sessionState)
                         self.onSessionStateChange?(self.sessionState)
@@ -201,7 +203,8 @@ final class CoreAgentSessionPort: AgentSessionPort {
         onSessionStateChange?(sessionState)
     }
 
-    func submitComposerText(_ text: String, modelId: String?, reasoningEffort: String?, skillNames: [String]) async {
+    @discardableResult
+    func submitComposerText(_ text: String, modelId: String?, reasoningEffort: String?, skillNames: [String]) async -> Bool {
         let skills = skillNames.isEmpty ? composerSkills : skillNames
         let attachmentIds = composerAttachments.map(\.fileId)
         let submittedSessionId = sessionState.scenarioId
@@ -217,13 +220,14 @@ final class CoreAgentSessionPort: AgentSessionPort {
                 }
             )
         }
-        guard ok else { return }
+        guard ok else { return false }
         // 上传/提交期间用户可能已切到别的会话：只清本次提交所属会话的草稿。
-        guard selectionStillMatches(submittedSessionId) else { return }
+        guard selectionStillMatches(submittedSessionId) else { return true }
         composerSkills.removeAll()
         composerAttachments.removeAll()
         sessionState = sessionState.withComposerSkills([]).withComposerAttachments([])
         onSessionStateChange?(sessionState)
+        return true
     }
 
     /// 草稿属于“当前选中会话”。未选中时保存后选中也算同一草稿，切到已有会话则视为已切换。
@@ -305,6 +309,94 @@ final class CoreAgentSessionPort: AgentSessionPort {
     func loadOlderMessages(sessionId: String) async {
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             bridge.loadOlderMessages(sessionId: sessionId) { _, _ in cont.resume() }
+        }
+    }
+
+    func loadOlderSessionSummaries() async {
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            bridge.loadOlderSessionSummaries { _, _ in cont.resume() }
+        }
+    }
+
+    func previewArtifact(artifactId: String) async -> Result<ReaderPreviewContent, Error> {
+        await withCheckedContinuation { (cont: CheckedContinuation<Result<ReaderPreviewContent, Error>, Never>) in
+            bridge.previewArtifact(artifactId: artifactId) { ok, message, base64, contentType, fileName, binary in
+                if ok.boolValue, let base64, let bytes = Data(base64Encoded: base64) {
+                    cont.resume(returning: .success(ReaderPreviewContent(
+                        bytes: bytes,
+                        contentType: contentType ?? "application/octet-stream",
+                        fileName: fileName ?? "",
+                        binary: binary.boolValue
+                    )))
+                } else {
+                    cont.resume(returning: .failure(NSError(
+                        domain: "HarnessCore",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: message ?? "预览失败"]
+                    )))
+                }
+            }
+        }
+    }
+
+    func downloadArtifact(artifactId: String) async -> Result<ReaderDownloadContent, Error> {
+        await withCheckedContinuation { (cont: CheckedContinuation<Result<ReaderDownloadContent, Error>, Never>) in
+            bridge.downloadArtifact(artifactId: artifactId) { ok, message, base64, contentType, fileName in
+                if ok.boolValue, let base64, let bytes = Data(base64Encoded: base64) {
+                    cont.resume(returning: .success(ReaderDownloadContent(
+                        bytes: bytes,
+                        contentType: contentType ?? "application/octet-stream",
+                        fileName: fileName ?? "download"
+                    )))
+                } else {
+                    cont.resume(returning: .failure(NSError(
+                        domain: "HarnessCore",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: message ?? "下载失败"]
+                    )))
+                }
+            }
+        }
+    }
+
+    func previewFile(fileId: String) async -> Result<ReaderPreviewContent, Error> {
+        await withCheckedContinuation { (cont: CheckedContinuation<Result<ReaderPreviewContent, Error>, Never>) in
+            bridge.previewFile(fileId: fileId) { ok, message, base64, contentType, fileName, binary in
+                if ok.boolValue, let base64, let bytes = Data(base64Encoded: base64) {
+                    cont.resume(returning: .success(ReaderPreviewContent(
+                        bytes: bytes,
+                        contentType: contentType ?? "application/octet-stream",
+                        fileName: fileName ?? "",
+                        binary: binary.boolValue
+                    )))
+                } else {
+                    cont.resume(returning: .failure(NSError(
+                        domain: "HarnessCore",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: message ?? "预览失败"]
+                    )))
+                }
+            }
+        }
+    }
+
+    func downloadFile(fileId: String) async -> Result<ReaderDownloadContent, Error> {
+        await withCheckedContinuation { (cont: CheckedContinuation<Result<ReaderDownloadContent, Error>, Never>) in
+            bridge.downloadFile(fileId: fileId) { ok, message, base64, contentType, fileName in
+                if ok.boolValue, let base64, let bytes = Data(base64Encoded: base64) {
+                    cont.resume(returning: .success(ReaderDownloadContent(
+                        bytes: bytes,
+                        contentType: contentType ?? "application/octet-stream",
+                        fileName: fileName ?? "download"
+                    )))
+                } else {
+                    cont.resume(returning: .failure(NSError(
+                        domain: "HarnessCore",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: message ?? "下载失败"]
+                    )))
+                }
+            }
         }
     }
 

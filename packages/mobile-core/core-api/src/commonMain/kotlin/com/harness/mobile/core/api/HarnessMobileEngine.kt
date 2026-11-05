@@ -34,6 +34,16 @@ interface HarnessMobileEngine {
 
     suspend fun loadOlderMessages(sessionId: String): Result<Unit>
 
+    suspend fun loadOlderSessionSummaries(): Result<Unit>
+
+    suspend fun previewArtifact(artifactId: String): Result<ArtifactPreviewContent>
+
+    suspend fun downloadArtifact(artifactId: String): Result<ArtifactDownloadContent>
+
+    suspend fun previewFile(fileId: String): Result<ArtifactPreviewContent>
+
+    suspend fun downloadFile(fileId: String): Result<ArtifactDownloadContent>
+
     suspend fun beginNewConversation()
 
     suspend fun createSession(title: String): Result<Unit>

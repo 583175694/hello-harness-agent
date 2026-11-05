@@ -149,7 +149,7 @@ final class GateAFixtureSnapshotTests: XCTestCase {
 
     func testReportReaderFullScreen() {
         let session = loader.load(fileName: "workbench-report-markdown.json")
-        let md = session.workbench.reportMarkdown ?? "# Preview Report"
+        let md = session.workbench.reportMarkdown ?? ""
         let view =
             NavigationStack {
                 PreviewReportReaderView(title: session.title, markdown: md)
@@ -160,10 +160,35 @@ final class GateAFixtureSnapshotTests: XCTestCase {
 
     func testArtifactReaderFullScreen() {
         let session = loader.load(fileName: "workbench-report-markdown.json")
-        let diff = session.workbench.artifactDiffPreview ?? "--- diff"
+        let artifactBody = session.workbench.reportMarkdown ?? "# Artifact"
         let view =
             NavigationStack {
-                PreviewReportReaderView(title: "Artifact", markdown: diff, isArtifact: true)
+                PreviewReportReaderView(
+                    title: "Artifact",
+                    markdown: artifactBody,
+                    isArtifact: true,
+                    target: ReaderTarget(
+                        artifactId: "fixture-artifact",
+                        fileName: "artifact.md",
+                        mediaType: "text/markdown",
+                        fileKind: "markdown"
+                    ),
+                    loadPreview: { _ in
+                        .success(ReaderPreviewContent(
+                            bytes: Data(artifactBody.utf8),
+                            contentType: "text/markdown",
+                            fileName: "artifact.md",
+                            binary: false
+                        ))
+                    },
+                    loadDownload: { _ in
+                        .success(ReaderDownloadContent(
+                            bytes: Data(artifactBody.utf8),
+                            contentType: "text/markdown",
+                            fileName: "artifact.md"
+                        ))
+                    }
+                )
             }
             .frame(width: 390, height: 844)
         assertSnapshot(of: view, as: .image(layout: .fixed(width: 390, height: 844)))

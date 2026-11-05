@@ -1,6 +1,7 @@
 package com.harness.agent.ui.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -109,7 +110,7 @@ private fun ComposerAttachmentItemCard(
             .background(colors.subtle, shape)
             .border(1.dp, colors.composerBorder, shape)
     if (isImageAttachment(item.fileName) || item.mediaType.startsWith("image/")) {
-        Box(modifier = cardModifier.width(stripHeight)) {
+        Box(modifier = cardModifier.width(stripHeight).clip(shape)) {
             if (onRemove != null) {
                 androidx.compose.material3.IconButton(
                     onClick = onRemove,
@@ -124,7 +125,7 @@ private fun ComposerAttachmentItemCard(
                     serverPreviewUrl = item.previewUri.takeUnless { isLocalPreviewUri(it) },
                     localPreviewUri = item.previewUri.takeIf { isLocalPreviewUri(it) },
                     contentDescription = item.fileName,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().clip(shape),
                     contentScale = ContentScale.Crop,
                 )
             } else {

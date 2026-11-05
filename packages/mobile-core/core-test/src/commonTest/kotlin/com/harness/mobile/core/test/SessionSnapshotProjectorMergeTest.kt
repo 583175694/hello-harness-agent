@@ -57,6 +57,51 @@ class SessionSnapshotProjectorMergeTest {
         assertEquals("fetch_content", line.process.last().name)
     }
 
+    @Test
+    fun projectsStableMessageIdsAndArtifactMetadata() {
+        val message =
+            msg("assistant-artifact", "2026-01-01", "已生成报告。").copy(
+                role = "assistant",
+                metadata = buildJsonObject {
+                    put("blocks", buildJsonArray {
+                        add(buildJsonObject {
+                            put("type", "artifact")
+                            put("artifactId", "art-1")
+                            put("fileId", "file-1")
+                            put("fileName", "report.md")
+                            put("mediaType", "text/markdown")
+                            put("fileKind", "markdown")
+                            put("size", 42)
+                            put("status", "ready")
+                            put("createdAt", "2026-01-01T00:00:00Z")
+                            put("seriesId", "series-1")
+                            put("versionNumber", 2)
+                            put("isCurrent", true)
+                        })
+                    })
+                },
+            )
+
+        val line = SessionSnapshotProjector.conversationFromMessages(listOf(message)).single()
+
+        assertEquals("assistant-artifact", line.id)
+        assertEquals(1, line.artifacts.size)
+        assertEquals("art-1", line.artifacts.single().artifactId)
+        assertEquals("file-1", line.artifacts.single().fileId)
+        assertEquals("markdown", line.artifacts.single().fileKind)
+        assertEquals(true, line.artifacts.single().isCurrent)
+    }
+
+    @Test
+    fun oldPayloadWithoutConversationLineIdStillDeserializes() {
+        val payload =
+            """{"session":{"id":"s1","title":"t","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","messages":[]}}"""
+        val parsed =
+            kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                .decodeFromString<com.harness.mobile.core.api.SessionDetailResponse>(payload)
+        assertEquals("s1", parsed.session.id)
+    }
+
     private fun msg(
         id: String,
         createdAt: String,

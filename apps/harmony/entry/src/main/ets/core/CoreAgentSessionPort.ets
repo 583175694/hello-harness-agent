@@ -17,6 +17,28 @@ export function getSharedHarmonyMobileEngine(): HarmonyMobileEngine {
   return engine();
 }
 
+export interface CoreArtifactContent {
+  artifactId?: string;
+  fileId?: string;
+  fileName: string;
+  mediaType: string;
+  fileKind: string;
+  data?: ArrayBuffer;
+  contentType?: string;
+  loaded: boolean;
+  error?: string;
+}
+
+let sharedArtifactContent: CoreArtifactContent | undefined = undefined;
+
+export function openSharedArtifactContent(content: CoreArtifactContent): void {
+  sharedArtifactContent = content;
+}
+
+export function getSharedArtifactContent(): CoreArtifactContent | undefined {
+  return sharedArtifactContent;
+}
+
 /**
  * Phase B Core Port → [HarmonyMobileEngine]（薄 HTTP；NAPI mobile-core 后续替换）。
  */
@@ -82,6 +104,10 @@ export class CoreAgentSessionPort implements AgentSessionPort {
     await this.core.uploadComposerAttachment(fileName, fileData, mediaType);
   }
 
+  removeComposerAttachment(fileId: string): void {
+    this.core.removeComposerAttachment(fileId);
+  }
+
   async refreshSkillPicker(): Promise<void> {
     await this.core.refreshSkillPicker();
   }
@@ -99,8 +125,28 @@ export class CoreAgentSessionPort implements AgentSessionPort {
     modelId?: string,
     reasoningEffort?: string,
     skillNames?: string[],
-  ): Promise<void> {
-    await this.core.submitComposer(text, modelId, reasoningEffort, skillNames);
+  ): Promise<boolean> {
+    return await this.core.submitComposer(text, modelId, reasoningEffort, skillNames);
+  }
+
+  async loadOlderSessionSummaries(): Promise<void> {
+    await this.core.loadOlderSessionSummaries();
+  }
+
+  async previewArtifact(artifactId: string): Promise<{ data: ArrayBuffer; contentType: string; fileName: string }> {
+    return await this.core.previewArtifact(artifactId);
+  }
+
+  async downloadArtifact(artifactId: string): Promise<{ data: ArrayBuffer; contentType: string; fileName: string }> {
+    return await this.core.downloadArtifact(artifactId);
+  }
+
+  async previewFile(fileId: string): Promise<{ data: ArrayBuffer; contentType: string; fileName: string }> {
+    return await this.core.previewFile(fileId);
+  }
+
+  async downloadFile(fileId: string): Promise<{ data: ArrayBuffer; contentType: string; fileName: string }> {
+    return await this.core.downloadFile(fileId);
   }
 
   async cancelActiveRun(): Promise<void> {

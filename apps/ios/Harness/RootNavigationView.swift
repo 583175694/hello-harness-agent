@@ -21,8 +21,8 @@ struct RootNavigationView: View {
                     preferences.openReader(title: title, markdown: markdown, isArtifact: false)
                     path.append(PreviewRoute.reader)
                 },
-                onOpenArtifactReader: { title, diff in
-                    preferences.openReader(title: title, markdown: diff, isArtifact: true)
+                onOpenArtifactReader: { target in
+                    preferences.openArtifactReader(target)
                     path.append(PreviewRoute.reader)
                 },
                 onLoadDemoFixture: {
@@ -71,7 +71,10 @@ struct RootNavigationView: View {
                     PreviewReportReaderView(
                         title: preferences.readerTitle,
                         markdown: preferences.readerMarkdown,
-                        isArtifact: preferences.readerIsArtifact
+                        isArtifact: preferences.readerIsArtifact,
+                        target: preferences.readerTarget,
+                        loadPreview: { target in await store.preview(target: target) },
+                        loadDownload: { target in await store.download(target: target) }
                     )
                 }
             }

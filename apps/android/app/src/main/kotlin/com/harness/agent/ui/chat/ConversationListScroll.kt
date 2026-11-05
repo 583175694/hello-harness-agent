@@ -9,7 +9,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import com.harness.agent.model.ConversationItem
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 
@@ -33,14 +32,15 @@ fun ConversationScrollOnEnterAndUserSendEffect(
     hasLoadOlderHeader: Boolean,
 ) {
     var trackedUserTurns by remember(sessionKey) { mutableIntStateOf(0) }
-
-    LaunchedEffect(sessionKey, hasLoadOlderHeader) {
+    LaunchedEffect(sessionKey) {
         trackedUserTurns = conversationUserTurnCount(conversation)
         scrollToLastUserTurn(listState, conversation, hasLoadOlderHeader, animated = false)
     }
 
     val userTurns = conversationUserTurnCount(conversation)
-    LaunchedEffect(userTurns, hasLoadOlderHeader, conversation.size) {
+    // 注意：不要用 conversation.size 作为 key。发送后 assistant 占位消息会立刻追加，
+    // size 变化会取消正在进行的滚底动画，导致动画停在半路再被下面的逻辑二次定位（可见跳动）。
+    LaunchedEffect(userTurns) {
         if (userTurns <= trackedUserTurns) return@LaunchedEffect
         trackedUserTurns = userTurns
         scrollToLastUserTurn(listState, conversation, hasLoadOlderHeader, animated = true)
@@ -52,23 +52,13 @@ private suspend fun scrollToLastUserTurn(
     conversation: List<ConversationItem>,
     hasLoadOlderHeader: Boolean,
     animated: Boolean,
-) {
-    val userIndex = conversation.indexOfLast { it is ConversationItem.User }
-    if (userIndex < 0) return
-    val lazyIndex = conversationLazyIndex(userIndex, hasLoadOlderHeader)
+): Unit {
+    if (conversation.isEmpty()) return
+    val lazyIndex = conversationLazyIndex(conversation.lastIndex, hasLoadOlderHeader)
     snapshotFlow { listState.layoutInfo.totalItemsCount }
         .filter { it > lazyIndex }
         .first()
-    if (animated) {
-        listState.animateScrollToItem(lazyIndex)
-    } else {
-        listState.scrollToItem(lazyIndex)
-    }
-    // 键盘收起 / IME padding 变化后列表高度会变，补滚一次定位到刚发的用户消息。
-    delay(120)
-    if (animated) {
-        listState.animateScrollToItem(lazyIndex)
-    } else {
-        listState.scrollToItem(lazyIndex)
-    }
+    // 表格行高已在 HarnessMarkdownTextView 首次 onMeasure 内定型，滚动途中不会有 item 变高；
+    // 因此只滚一次，不再用“动画 + delay(120) 补滚”的二次定位（那会产生可见回弹）。
+    if (animated) listState.animateScrollToItem(lazyIndex) else listState.scrollToItem(lazyIndex)
 }

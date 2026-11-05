@@ -50,7 +50,23 @@ enum WorkbenchSnapshotMapper {
             hasDeliverables: snapshot.hasDeliverables?.boolValue,
             activityTimeline: timeline,
             toolExecutions: tools,
-            deliverableFiles: [],
+            deliverableFiles: snapshot.deliverableFiles.map { ref in
+                WorkbenchDeliverableFile(
+                    id: ref.artifactId,
+                    fileName: ref.fileName,
+                    subtitle: [ref.fileKind, ref.versionNumber.map { "v\($0.intValue)" }]
+                        .compactMap { $0 }
+                        .joined(separator: " · "),
+                    artifactId: ref.artifactId,
+                    fileId: ref.fileId,
+                    mediaType: ref.mediaType,
+                    fileKind: ref.fileKind,
+                    size: Int(ref.size),
+                    status: ref.status,
+                    versionNumber: ref.versionNumber?.intValue,
+                    isCurrent: ref.isCurrent?.boolValue ?? true
+                )
+            },
             bashSnippet: snapshot.bashSnippet,
             reportMarkdown: snapshot.reportMarkdown,
             sources: sources,

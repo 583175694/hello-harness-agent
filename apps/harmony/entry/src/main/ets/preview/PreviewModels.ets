@@ -13,12 +13,39 @@ export interface ProcessBlockRow {
 }
 
 export interface ChatLine {
+  id?: string;
   role: string;
   /** 完成态正文（markdownContent / blocks） */
   text: string;
+  attachments?: UserAttachmentRow[];
   pendingText?: string;
   finalText?: string;
+  deliveryStatus?: string;
   process: ProcessBlockRow[];
+  artifacts?: ArtifactCardRow[];
+}
+
+export interface UserAttachmentRow {
+  fileId: string;
+  fileName: string;
+  mediaType: string;
+  size?: number;
+  status?: string;
+  fileKind?: string;
+  previewUrl?: string;
+}
+
+export interface ArtifactCardRow {
+  artifactId: string;
+  fileId?: string;
+  fileName: string;
+  mediaType?: string;
+  fileKind?: string;
+  size?: number;
+  status?: string;
+  seriesId?: string;
+  versionNumber?: number;
+  isCurrent?: boolean;
 }
 
 export interface PlanStepRow {
@@ -42,6 +69,12 @@ export interface ArtifactVersionRow {
   logicalName?: string;
   versionNumber?: number;
   expectedCurrentArtifactId?: string;
+  fileName?: string;
+  fileId?: string;
+  mediaType?: string;
+  fileKind?: string;
+  size?: number;
+  status?: string;
 }
 
 export interface WorkbenchActivityRow {
@@ -69,6 +102,14 @@ export interface WorkbenchDeliverableFileRow {
   fileName: string;
   subtitle: string;
   previewMarkdown: string;
+  artifactId?: string;
+  fileId?: string;
+  mediaType?: string;
+  fileKind?: string;
+  size?: number;
+  status?: string;
+  versionNumber?: number;
+  isCurrent?: boolean;
 }
 
 export interface WorkbenchPreviewState {
@@ -122,6 +163,12 @@ export interface ToolApprovalItemPreview {
   command: string;
 }
 
+export interface ComposerAttachmentRow {
+  fileId: string;
+  fileName: string;
+  mediaType: string;
+}
+
 export interface ComposerPreviewState {
   composerMode: string;
   composerTextMode: string;
@@ -140,6 +187,7 @@ export interface ComposerPreviewState {
   planInitialExpanded: boolean;
   modelLabel: string;
   attachmentNames: string[];
+  attachmentItems?: ComposerAttachmentRow[];
   selectedSkills: string[];
   revisionDraftSeed?: string;
 }
@@ -282,16 +330,32 @@ export function parseWorkbench(raw: Record<string, Object> | undefined): Workben
         fileName: `${row['fileName'] ?? ''}`,
         subtitle: `${row['subtitle'] ?? ''}`,
         previewMarkdown: `${row['previewMarkdown'] ?? ''}`,
+        artifactId: row['artifactId'] !== undefined ? `${row['artifactId']}` : undefined,
+        fileId: row['fileId'] !== undefined ? `${row['fileId']}` : undefined,
+        mediaType: row['mediaType'] !== undefined ? `${row['mediaType']}` : undefined,
+        fileKind: row['fileKind'] !== undefined ? `${row['fileKind']}` : undefined,
+        size: row['size'] !== undefined ? Number(row['size']) : undefined,
+        status: row['status'] !== undefined ? `${row['status']}` : undefined,
+        versionNumber: row['versionNumber'] !== undefined ? Number(row['versionNumber']) : undefined,
+        isCurrent: row['isCurrent'] === true,
       });
     });
   }
   if (deliverableFiles.length === 0) {
     artifactVersions.forEach((ver, index) => {
       deliverableFiles.push({
-        id: `ver-${index}`,
+        id: ver.id.length > 0 ? ver.id : `ver-${index}`,
         fileName: ver.label.split(' ·')[0] ?? ver.label,
         subtitle: ver.label,
-        previewMarkdown: `${raw['artifactDiffPreview'] ?? ''}`,
+        previewMarkdown: '',
+          artifactId: ver.id,
+          versionNumber: ver.versionNumber,
+          isCurrent: ver.selected,
+        fileId: ver.fileId,
+        mediaType: ver.mediaType,
+        fileKind: ver.fileKind,
+        size: ver.size,
+        status: ver.status,
       });
     });
   }
@@ -332,6 +396,7 @@ export function parseComposer(raw: Record<string, Object> | undefined): Composer
     planInitialExpanded: false,
     modelLabel: '默认模型',
     attachmentNames: [],
+    attachmentItems: [],
     selectedSkills: [],
   };
   if (!raw) {
@@ -389,6 +454,14 @@ export function parseComposer(raw: Record<string, Object> | undefined): Composer
   if (attachments) {
     base.attachmentNames = attachments.slice();
   }
+  const attachmentRows = raw['attachmentItems'] as Array<Record<string, string>> | undefined;
+  if (attachmentRows) {
+    base.attachmentItems = attachmentRows.map((row) => ({
+      fileId: `${row['fileId'] ?? ''}`,
+      fileName: `${row['fileName'] ?? ''}`,
+      mediaType: `${row['mediaType'] ?? ''}`,
+    }));
+  }
   const skills = raw['selectedSkills'] as string[] | undefined;
   if (skills) {
     base.selectedSkills = skills.slice();
@@ -435,6 +508,7 @@ export function parseProcessBlocks(processRaw: Array<Record<string, Object>> | u
     if (type === 'reasoning') {
       const row = emptyProcessBlock();
       row.kind = 'reasoning';
+      row.id = `${block['id'] ?? ''}`;
       row.content = `${block['content'] ?? ''}`;
       row.durationMs = Number(block['durationMs'] ?? 0);
       row.streaming = block['streaming'] === true;
@@ -460,6 +534,7 @@ export function parseProcessBlocks(processRaw: Array<Record<string, Object>> | u
     if (type === 'text') {
       const row = emptyProcessBlock();
       row.kind = 'text';
+      row.id = `${block['id'] ?? ''}`;
       row.content = `${block['content'] ?? ''}`;
       if (row.content.trim().length > 0) {
         blocks.push(row);
@@ -476,8 +551,27 @@ export function parseConversation(rows: Array<Record<string, Object>> | undefine
   }
   rows.forEach((row) => {
     const kind = `${row['kind'] ?? ''}`;
+    const id = `${row['id'] ?? ''}`;
     if (kind === 'user') {
-      out.push({ role: 'user', text: `${row['content'] ?? ''}`, process: [] });
+      const line: ChatLine = {
+        id: id.length > 0 ? `message:${id}` : `preview-user-${out.length}`,
+        role: 'user',
+        text: `${row['content'] ?? ''}`,
+        process: [],
+      };
+      const attachmentsRaw = row['attachments'] as Array<Record<string, Object>> | undefined;
+      if (attachmentsRaw !== undefined) {
+        line.attachments = attachmentsRaw.map((attachment, index) => ({
+          fileId: `${attachment['fileId'] ?? ''}`,
+          fileName: `${attachment['fileName'] ?? `附件 ${index + 1}`}`,
+          mediaType: `${attachment['mediaType'] ?? 'application/octet-stream'}`,
+          size: attachment['size'] !== undefined ? Number(attachment['size']) : undefined,
+          status: attachment['status'] !== undefined ? `${attachment['status']}` : undefined,
+          fileKind: attachment['fileKind'] !== undefined ? `${attachment['fileKind']}` : undefined,
+          previewUrl: attachment['previewUrl'] !== undefined ? `${attachment['previewUrl']}` : undefined,
+        }));
+      }
+      out.push(line);
       return;
     }
     if (kind === 'assistant') {
@@ -504,15 +598,34 @@ export function parseConversation(rows: Array<Record<string, Object>> | undefine
         text = '（assistant turn）';
       }
       const line: ChatLine = {
+        id: id.length > 0 ? `message:${id}` : `preview-assistant-${out.length}`,
         role: 'assistant',
         text: text,
         process: process,
       };
+      const artifactsRaw = row['artifacts'] as Array<Record<string, Object>> | undefined;
+      if (artifactsRaw !== undefined) {
+        line.artifacts = artifactsRaw.map((artifact, index) => ({
+          artifactId: `${artifact['artifactId'] ?? `artifact-${index}`}`,
+          fileId: `${artifact['fileId'] ?? ''}`,
+          fileName: `${artifact['fileName'] ?? '文件'}`,
+          mediaType: `${artifact['mediaType'] ?? 'text/plain'}`,
+          fileKind: `${artifact['fileKind'] ?? 'text'}`,
+          size: Number(artifact['size'] ?? 0),
+          status: `${artifact['status'] ?? 'ready'}`,
+          seriesId: artifact['seriesId'] !== undefined ? `${artifact['seriesId']}` : undefined,
+          versionNumber: artifact['versionNumber'] !== undefined ? Number(artifact['versionNumber']) : undefined,
+          isCurrent: artifact['isCurrent'] === true,
+        }));
+      }
       if (pendingRaw.length > 0) {
         line.pendingText = pendingRaw;
       }
       if (finalRaw.length > 0) {
         line.finalText = finalRaw;
+      }
+      if (row['deliveryStatus'] !== undefined) {
+        line.deliveryStatus = `${row['deliveryStatus']}`;
       }
       out.push(line);
     }

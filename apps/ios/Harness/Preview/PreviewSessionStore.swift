@@ -10,6 +10,9 @@ final class PreviewSessionStore {
 
     var session: ActiveSessionState
     let fixtures: [PreviewFixtureDescriptor]
+    /// 提交成功回调：仅成功才清空 Composer 草稿。
+    var onComposerTextAccepted: ((String) -> Void)?
+    var composerSubmitError: String?
 
     var drawerOpen = false
     var drawerSessions: [SessionDrawerItem] = []
@@ -330,6 +333,33 @@ final class PreviewSessionStore {
         #endif
     }
 
+    func loadOlderSessionSummaries() {
+        #if CORE_PORT
+        guard port is CoreAgentSessionPort else { return }
+        Task { await port.loadOlderSessionSummaries() }
+        #endif
+    }
+
+    func preview(target: ReaderTarget) async -> Result<ReaderPreviewContent, Error> {
+        if let artifactId = target.artifactId, !artifactId.isEmpty {
+            return await port.previewArtifact(artifactId: artifactId)
+        }
+        if let fileId = target.fileId, !fileId.isEmpty {
+            return await port.previewFile(fileId: fileId)
+        }
+        return .failure(NSError(domain: "HarnessReader", code: 1, userInfo: [NSLocalizedDescriptionKey: "缺少 artifactId / fileId"]))
+    }
+
+    func download(target: ReaderTarget) async -> Result<ReaderDownloadContent, Error> {
+        if let artifactId = target.artifactId, !artifactId.isEmpty {
+            return await port.downloadArtifact(artifactId: artifactId)
+        }
+        if let fileId = target.fileId, !fileId.isEmpty {
+            return await port.downloadFile(fileId: fileId)
+        }
+        return .failure(NSError(domain: "HarnessReader", code: 1, userInfo: [NSLocalizedDescriptionKey: "缺少 artifactId / fileId"]))
+    }
+
     func applyPreviewAction(_ action: PreviewUiAction) {
         #if CORE_PORT
         if port is CoreAgentSessionPort {
@@ -361,6 +391,39 @@ final class PreviewSessionStore {
         }
         #endif
         session = PreviewSessionReducer.reduce(state: session, action: action)
+    }
+
+    func submitComposerText(
+        text: String,
+        modelId: String?,
+        reasoningEffort: String?,
+        skillNames: [String],
+        onAccepted: @escaping (Bool) -> Void = { _ in }
+    ) {
+        #if CORE_PORT
+        if let core = port as? CoreAgentSessionPort {
+            Task {
+                let ok = await core.submitComposerText(
+                    text,
+                    modelId: modelId,
+                    reasoningEffort: reasoningEffort,
+                    skillNames: skillNames
+                )
+                if !ok { await MainActor.run { self.composerSubmitError = "发送失败，请重试" } }
+                onAccepted(ok)
+                if ok { onComposerTextAccepted?(text) }
+            }
+            return
+        }
+        #endif
+        applyPreviewAction(.sendComposerText(
+            text: text,
+            modelId: modelId,
+            reasoningEffort: reasoningEffort,
+            skillNames: skillNames
+        ))
+        onAccepted(true)
+        onComposerTextAccepted?(text)
     }
 
     private var apiUrlRefreshTask: Task<Void, Never>?

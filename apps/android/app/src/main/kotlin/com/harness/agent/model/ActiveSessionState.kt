@@ -16,6 +16,8 @@ data class ActiveSessionState(
     val previewTransitions: PreviewTransitionBundle? = null,
     val canLoadOlderMessages: Boolean = false,
     val loadingOlderMessages: Boolean = false,
+    val canLoadOlderSessionSummaries: Boolean = false,
+    val loadingOlderSessionSummaries: Boolean = false,
 )
 
 data class ReplayConfig(
@@ -32,12 +34,16 @@ data class ChromeState(
 )
 
 sealed class ConversationItem {
+    abstract val id: String
+
     data class User(
+        override val id: String,
         val content: String,
         val attachments: List<UserAttachmentItem> = emptyList(),
     ) : ConversationItem()
 
     data class Assistant(
+        override val id: String,
         val deliveryStatus: String = "completed",
         /** 对齐 Web `item.pending`（Run 进行中 assistant）。 */
         val pending: Boolean = false,
@@ -50,5 +56,22 @@ sealed class ConversationItem {
         /** 完成态 Markdown（流式阶段仍为纯 Text）。 */
         val markdownContent: String? = null,
         val process: List<ProcessBlock> = emptyList(),
+        val artifacts: List<ArtifactItem> = emptyList(),
     ) : ConversationItem()
+}
+
+
+data class ArtifactItem(
+    val artifactId: String,
+    val fileId: String,
+    val fileName: String,
+    val mediaType: String = "text/plain",
+    val fileKind: String = "text",
+    val size: Int = 0,
+    val status: String = "ready",
+    val seriesId: String? = null,
+    val versionNumber: Int? = null,
+    val isCurrent: Boolean? = null,
+) {
+    val id: String get() = artifactId
 }

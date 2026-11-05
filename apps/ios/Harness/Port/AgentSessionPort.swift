@@ -1,5 +1,19 @@
 import Foundation
 
+struct ReaderPreviewContent {
+    var bytes: Data
+    var contentType: String
+    var fileName: String
+    var binary: Bool
+
+}
+
+struct ReaderDownloadContent {
+    var bytes: Data
+    var contentType: String
+    var fileName: String
+}
+
 /// Phase A/B 共用语义；Preview 与 Core 各自实现（对齐 Android `AgentSessionPort.kt`）。
 protocol AgentSessionPort: AnyObject {
     var sessionState: ActiveSessionState { get }
@@ -16,7 +30,7 @@ protocol AgentSessionPort: AnyObject {
     func renameSession(sessionId: String, title: String) async
     func togglePinSession(sessionId: String) async
     func deleteSession(sessionId: String) async
-    func submitComposerText(_ text: String, modelId: String?, reasoningEffort: String?, skillNames: [String]) async
+    func submitComposerText(_ text: String, modelId: String?, reasoningEffort: String?, skillNames: [String]) async -> Bool
     func addComposerSkill(_ skill: String)
     func uploadComposerAttachment(fileName: String, data: Data, mediaType: String) async throws
     func removeComposerAttachment(fileId: String)
@@ -32,6 +46,11 @@ protocol AgentSessionPort: AnyObject {
     func setWorkbenchOpen(_ open: Bool)
     func clearWorkbenchFocusHint()
     func loadOlderMessages(sessionId: String) async
+    func loadOlderSessionSummaries() async
+    func previewArtifact(artifactId: String) async -> Result<ReaderPreviewContent, Error>
+    func downloadArtifact(artifactId: String) async -> Result<ReaderDownloadContent, Error>
+    func previewFile(fileId: String) async -> Result<ReaderPreviewContent, Error>
+    func downloadFile(fileId: String) async -> Result<ReaderDownloadContent, Error>
     func onAppBackground()
     func onAppForeground() async
     func restoreArtifactVersion(artifactId: String, expectedCurrentArtifactId: String) async
@@ -49,7 +68,7 @@ extension AgentSessionPort {
     func renameSession(sessionId: String, title: String) async {}
     func togglePinSession(sessionId: String) async {}
     func deleteSession(sessionId: String) async {}
-    func submitComposerText(_ text: String, modelId: String? = nil, reasoningEffort: String? = nil, skillNames: [String] = []) async {}
+    func submitComposerText(_ text: String, modelId: String? = nil, reasoningEffort: String? = nil, skillNames: [String] = []) async -> Bool { true }
     func addComposerSkill(_ skill: String) {}
     func uploadComposerAttachment(fileName: String, data: Data, mediaType: String) async throws {}
     func removeComposerAttachment(fileId: String) {}
@@ -65,6 +84,19 @@ extension AgentSessionPort {
     func setWorkbenchOpen(_ open: Bool) {}
     func clearWorkbenchFocusHint() {}
     func loadOlderMessages(sessionId: String) async {}
+    func loadOlderSessionSummaries() async {}
+    func previewArtifact(artifactId: String) async -> Result<ReaderPreviewContent, Error> {
+        .failure(NSError(domain: "HarnessReader", code: 1, userInfo: [NSLocalizedDescriptionKey: "预览不可用"]))
+    }
+    func downloadArtifact(artifactId: String) async -> Result<ReaderDownloadContent, Error> {
+        .failure(NSError(domain: "HarnessReader", code: 1, userInfo: [NSLocalizedDescriptionKey: "下载不可用"]))
+    }
+    func previewFile(fileId: String) async -> Result<ReaderPreviewContent, Error> {
+        .failure(NSError(domain: "HarnessReader", code: 1, userInfo: [NSLocalizedDescriptionKey: "预览不可用"]))
+    }
+    func downloadFile(fileId: String) async -> Result<ReaderDownloadContent, Error> {
+        .failure(NSError(domain: "HarnessReader", code: 1, userInfo: [NSLocalizedDescriptionKey: "下载不可用"]))
+    }
     func onAppBackground() {}
     func onAppForeground() async {}
     func restoreArtifactVersion(artifactId: String, expectedCurrentArtifactId: String) async {}

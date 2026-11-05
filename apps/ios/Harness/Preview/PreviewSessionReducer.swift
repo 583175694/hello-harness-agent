@@ -152,7 +152,7 @@ enum PreviewSessionReducer {
 private extension ActiveSessionState {
     func appendingUser(_ content: String) -> ActiveSessionState {
         var copy = self
-        copy.conversation.append(.user(content: content, attachments: []))
+        copy.conversation.append(.user(id: "preview-user-\(copy.conversation.count)", content: content, attachments: []))
         return copy
     }
 

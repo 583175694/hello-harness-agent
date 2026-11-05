@@ -12,7 +12,7 @@ struct WorkbenchSheetView: View {
     let onDismiss: () -> Void
     @State private var presentProgress: CGFloat = 0
     var onOpenReportReader: (() -> Void)? = nil
-    var onOpenArtifactReader: (() -> Void)? = nil
+    var onOpenArtifactReader: ((WorkbenchDeliverableFile) -> Void)? = nil
     var onOpenFilePreview: ((String, String) -> Void)? = nil
     var onRestoreArtifactVersion: ((String, String) -> Void)? = nil
     var onBeginArtifactRevision: ((String) -> Void)? = nil
@@ -28,7 +28,7 @@ struct WorkbenchSheetView: View {
         state: WorkbenchState,
         onDismiss: @escaping () -> Void,
         onOpenReportReader: (() -> Void)? = nil,
-        onOpenArtifactReader: (() -> Void)? = nil,
+        onOpenArtifactReader: ((WorkbenchDeliverableFile) -> Void)? = nil,
         onOpenFilePreview: ((String, String) -> Void)? = nil,
         onRestoreArtifactVersion: ((String, String) -> Void)? = nil,
         onBeginArtifactRevision: ((String) -> Void)? = nil,
@@ -182,11 +182,10 @@ struct WorkbenchSheetView: View {
                     WorkbenchFilesView(
                         files: state.deliverableFiles,
                         onPreview: { file in
-                            let md = file.previewMarkdown ?? "# \(file.fileName)\n\n（Preview 文件预览）"
-                            if let onOpenFilePreview {
-                                onOpenFilePreview(file.fileName, md)
-                            } else {
-                                onOpenReportReader?()
+                            if !file.artifactId.isEmpty || !file.fileId.isEmpty {
+                                onOpenArtifactReader?(file)
+                            } else if let md = file.previewMarkdown, !md.isEmpty {
+                                onOpenFilePreview?(file.fileName, md)
                             }
                         }
                     )

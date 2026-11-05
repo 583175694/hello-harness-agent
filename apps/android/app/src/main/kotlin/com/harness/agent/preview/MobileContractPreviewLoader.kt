@@ -267,6 +267,7 @@ class MobileContractPreviewLoader(
                 "user" ->
                     items +=
                         ConversationItem.User(
+                            id = "preview-user-$i",
                             content = obj.optString("content"),
                         )
                 "assistant" -> {
@@ -284,12 +285,14 @@ class MobileContractPreviewLoader(
                         }
                     items +=
                         ConversationItem.Assistant(
+                            id = "preview-assistant-$i",
                             deliveryStatus = deliveryStatus,
                             pendingText = if (streaming) null else pendingRaw.ifBlank { null },
                             summary = null,
                             tailTarget = if (streaming) pendingRaw.ifBlank { null } else null,
                             markdownContent = finalizedBody,
                             process = obj.optJSONArray("process")?.toProcessBlocks().orEmpty(),
+                            artifacts = emptyList(),
                         )
                 }
             }
@@ -317,12 +320,13 @@ class MobileContractPreviewLoader(
                 "reasoning" ->
                     blocks +=
                         ProcessBlock.Reasoning(
+                            id = obj.optString("id"),
                             content = obj.optString("content"),
                             durationMs = obj.optLong("durationMs").takeIf { it > 0 },
                             streaming = obj.optBoolean("streaming"),
                         )
                 "text" ->
-                    blocks += ProcessBlock.Text(content = obj.optString("content"))
+                    blocks += ProcessBlock.Text(id = obj.optString("id"), content = obj.optString("content"))
             }
         }
         return blocks

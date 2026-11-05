@@ -1,16 +1,24 @@
-import { CreateRunResponseRow, LiveRunStateRow, RunSnapshotRow, RunStreamEventRow, SessionActiveRunRow, SessionDetailRow } from './HarmonyCoreTypes';
+import { CreateRunResponseRow, FileRefRow, LiveRunStateRow, RunSnapshotRow, RunStreamEventRow, SessionActiveRunRow, SessionDetailRow } from './HarmonyCoreTypes';
 import { HarmonyInterruptParser } from './HarmonyInterruptParser';
+import { ArtifactCardRow } from '../preview/PreviewModels';
 
 export class HarmonyRunLiveReducer {
-  fromCreateRun(sessionId: string, userText: string, response: CreateRunResponseRow): LiveRunStateRow {
+  fromCreateRun(
+    sessionId: string,
+    userText: string,
+    response: CreateRunResponseRow,
+    userAttachments: FileRefRow[] = [],
+  ): LiveRunStateRow {
     return {
       sessionId,
       runId: response.runId,
       userMessageId: response.userMessageId,
       assistantMessageId: response.assistantMessageId,
       userText,
+      userAttachments: userAttachments.slice(),
       assistantText: '',
       reasoningText: '',
+      artifacts: [],
       deliveryStatus: 'streaming',
       cursor: 0,
     };
@@ -27,8 +35,10 @@ export class HarmonyRunLiveReducer {
       userMessageId: userMsg?.id ?? '',
       assistantMessageId: activeRun.assistantMessageId,
       userText: userMsg?.content ?? '',
+      userAttachments: userMsg?.attachments ?? [],
       assistantText: assistantMsg?.content ?? '',
       reasoningText: assistantMsg?.reasoning ?? '',
+      artifacts: HarmonyRunLiveReducer.artifactsFromMetadata(assistantMsg?.metadata),
       deliveryStatus: activeRun.status.length > 0 ? activeRun.status : 'streaming',
       cursor: activeRun.lastEventSequence ?? 0,
     };
@@ -41,6 +51,7 @@ export class HarmonyRunLiveReducer {
       assistantText: snapshot.assistantContent && snapshot.assistantContent.length > 0 ?
         snapshot.assistantContent : state.assistantText,
       reasoningText: HarmonyRunLiveReducer.reasoningFromBlocks(snapshot.blocks) || state.reasoningText,
+      artifacts: HarmonyRunLiveReducer.artifactsFromBlocks(snapshot.blocks) ?? state.artifacts,
       cursor: Math.max(state.cursor, snapshot.lastEventSequence ?? 0),
       deliveryStatus: terminal ? snapshot.status : state.deliveryStatus,
     };
@@ -85,6 +96,10 @@ export class HarmonyRunLiveReducer {
       if (reasoning.length > 0) {
         next.reasoningText = reasoning;
       }
+      const artifacts = HarmonyRunLiveReducer.artifactsFromBlocks(blocks);
+      if (artifacts !== undefined && artifacts.length > 0) {
+        next.artifacts = artifacts;
+      }
       const status = event.payload ? `${event.payload['status'] ?? ''}` : '';
       if (HarmonyRunLiveReducer.isTerminal(status)) {
         next.deliveryStatus = status;
@@ -119,5 +134,36 @@ export class HarmonyRunLiveReducer {
       .filter((b) => `${b['type'] ?? ''}` === 'reasoning')
       .map((b) => `${b['content'] ?? ''}`)
       .join('');
+  }
+
+  private static artifactsFromMetadata(
+    metadata: Record<string, Object> | undefined,
+  ): ArtifactCardRow[] {
+    return HarmonyRunLiveReducer.artifactsFromBlocks(
+      metadata?.['blocks'] as Array<Record<string, Object>> | undefined,
+    ) ?? [];
+  }
+
+  private static artifactsFromBlocks(
+    blocks: Array<Record<string, Object>> | undefined,
+  ): ArtifactCardRow[] | undefined {
+    if (blocks === undefined) {
+      return undefined;
+    }
+    return blocks
+      .filter((block) => `${block['type'] ?? ''}` === 'artifact')
+      .map((block) => ({
+        artifactId: `${block['artifactId'] ?? ''}`,
+        fileId: `${block['fileId'] ?? ''}`,
+        fileName: `${block['fileName'] ?? '文件'}`,
+        mediaType: `${block['mediaType'] ?? 'text/plain'}`,
+        fileKind: `${block['fileKind'] ?? 'text'}`,
+        size: Number(block['size'] ?? 0),
+        status: `${block['status'] ?? 'ready'}`,
+        seriesId: block['seriesId'] !== undefined ? `${block['seriesId']}` : undefined,
+        versionNumber: block['versionNumber'] !== undefined ? Number(block['versionNumber']) : undefined,
+        isCurrent: block['isCurrent'] === true,
+      }))
+      .filter((row) => row.artifactId.length > 0);
   }
 }

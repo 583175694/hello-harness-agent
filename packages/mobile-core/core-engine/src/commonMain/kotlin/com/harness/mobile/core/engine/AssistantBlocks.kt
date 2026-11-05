@@ -13,4 +13,5 @@ internal object AssistantBlockTypes {
     const val TEXT = "text"
     const val REASONING = "reasoning"
     const val TOOL = "tool_activity"
+    const val ARTIFACT = "artifact"
 }

@@ -12,7 +12,8 @@ export type PreviewUiActionKind =
   | 'approveTools'
   | 'rejectTools'
   | 'addSkill'
-  | 'addAttachment';
+  | 'addAttachment'
+  | 'removeAttachment';
 
 export interface PreviewUiAction {
   kind: PreviewUiActionKind;
@@ -52,6 +53,8 @@ export class PreviewSessionReducer {
         return PreviewSessionReducer.addSkill(session, lines, action.text ?? '');
       case 'addAttachment':
         return PreviewSessionReducer.addAttachment(session, lines, action.text ?? '');
+      case 'removeAttachment':
+        return PreviewSessionReducer.removeAttachment(session, lines, action.id ?? '');
       default:
         return { session, lines };
     }
@@ -219,6 +222,20 @@ export class PreviewSessionReducer {
     return { session: { ...session, composer }, lines };
   }
 
+  private static removeAttachment(session: PreviewSessionState, lines: ChatLine[], fileId: string):
+    { session: PreviewSessionState; lines: ChatLine[] } {
+    if (fileId.length === 0) {
+      return { session, lines };
+    }
+    const composer = PreviewSessionReducer.copyComposer(session.composer);
+    composer.attachmentNames = composer.attachmentNames.slice();
+    if (composer.attachmentItems !== undefined) {
+      composer.attachmentItems = composer.attachmentItems.filter((item) => item.fileId !== fileId);
+      composer.attachmentNames = composer.attachmentItems.map((item) => item.fileName);
+    }
+    return { session: PreviewSessionReducer.syncPeek(session, composer), lines };
+  }
+
   private static copyComposer(c: ComposerPreviewState): ComposerPreviewState {
     return {
       composerMode: c.composerMode,
@@ -238,6 +255,7 @@ export class PreviewSessionReducer {
       planInitialExpanded: c.planInitialExpanded,
       modelLabel: c.modelLabel,
       attachmentNames: c.attachmentNames.slice(),
+      attachmentItems: c.attachmentItems !== undefined ? c.attachmentItems.slice() : undefined,
       selectedSkills: c.selectedSkills.slice(),
     };
   }

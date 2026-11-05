@@ -26,6 +26,7 @@ final class GateAMarkdownGoldenSnapshotTests: XCTestCase {
         for fileName in Self.fixtures {
             let session = loader.load(fileName: fileName)
             guard case .assistant(
+                id: _,
                 status: _,
                 pending: _,
                 pendingText: _,
@@ -33,7 +34,8 @@ final class GateAMarkdownGoldenSnapshotTests: XCTestCase {
                 summary: _,
                 tailTarget: _,
                 markdownContent: let markdownContent,
-                process: _
+                process: _,
+                artifacts: _
             ) = session.conversation.last else {
                 XCTFail("missing assistant in \(fileName)")
                 continue

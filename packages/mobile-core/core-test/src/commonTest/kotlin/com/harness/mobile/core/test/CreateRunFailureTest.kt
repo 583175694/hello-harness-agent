@@ -40,4 +40,21 @@ class CreateRunFailureTest {
             ProblemDetails("t", "t", 409, "ACTIVE_RUN", "d").isAuthRequired(),
         )
     }
+
+    @Test
+    fun problemMessageExposesStatusAndDetailForPlatformBridges() {
+        val problem =
+            ApiProblem(
+                ProblemDetails(
+                    type = "about:blank",
+                    title = "NOT_FOUND",
+                    status = 404,
+                    code = "ARTIFACT_NOT_FOUND",
+                    detail = "产物不存在。",
+                ),
+            )
+        val message = problem.message.orEmpty()
+        assertTrue(message.contains("404"), message)
+        assertTrue(message.contains("产物不存在。"), message)
+    }
 }

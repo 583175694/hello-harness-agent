@@ -1,6 +1,6 @@
 import { PreviewSessionState } from '../preview/PreviewFixtureLoader';
-import { ChatLine, SessionDrawerRow, emptyWorkbench, parseComposer } from '../preview/PreviewModels';
-import { LiveRunStateRow, SessionSummaryRow } from './HarmonyCoreTypes';
+import { ChatLine, SessionDrawerRow, UserAttachmentRow, emptyWorkbench, parseComposer } from '../preview/PreviewModels';
+import { FileRefRow, LiveRunStateRow, SessionSummaryRow } from './HarmonyCoreTypes';
 
 export class HarmonyCoreSessionMapper {
   static emptyLanding(): PreviewSessionState {
@@ -49,8 +49,15 @@ export class HarmonyCoreSessionMapper {
   }
 
   static linesFromLive(live: LiveRunStateRow): ChatLine[] {
-    const lines: ChatLine[] = [{ role: 'user', text: live.userText, process: [] }];
+    const lines: ChatLine[] = [{
+      id: live.userMessageId.length > 0 ? `message:${live.userMessageId}` : `live:${live.runId}:user`,
+      role: 'user',
+      text: live.userText,
+      attachments: HarmonyCoreSessionMapper.userAttachmentRows(live.userAttachments ?? []),
+      process: [],
+    }];
     lines.push({
+      id: live.assistantMessageId.length > 0 ? `message:${live.assistantMessageId}` : `live:${live.runId}:assistant`,
       role: 'assistant',
       text: live.assistantText,
       process: live.reasoningText !== undefined && live.reasoningText.length > 0 ? [{
@@ -65,8 +72,22 @@ export class HarmonyCoreSessionMapper {
         durationMs: 0,
         streaming: live.deliveryStatus === 'streaming',
       }] : [],
+      artifacts: live.artifacts ?? [],
+      deliveryStatus: live.deliveryStatus,
     });
     return lines;
+  }
+
+  private static userAttachmentRows(refs: FileRefRow[]): UserAttachmentRow[] {
+    return refs.map((ref) => ({
+      fileId: ref.fileId,
+      fileName: ref.fileName,
+      mediaType: ref.mediaType,
+      size: ref.size,
+      status: ref.status,
+      fileKind: ref.fileKind,
+      previewUrl: ref.previewUrl,
+    }));
   }
 
   static mergeLive(
@@ -86,10 +107,24 @@ export class HarmonyCoreSessionMapper {
     const lines = activeLive ? HarmonyCoreSessionMapper.mergeLiveLines(base.lines, activeLive) : base.lines;
     const clar = activeLive?.composerClarification;
     const approval = activeLive?.composerToolApproval;
+    const selectedRunning = selectedId !== undefined && runningIds.has(selectedId);
+    const tailAssistantStreaming = (() => {
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i];
+        if (line.role !== 'assistant') {
+          continue;
+        }
+        return line.deliveryStatus === 'streaming' || line.deliveryStatus === 'pending' ||
+          line.pendingText !== undefined;
+      }
+      return false;
+    })();
     const runtimeSteer =
-      activeLive !== undefined &&
-      selectedId !== undefined &&
-      !HarmonyRunLiveReducerIsTerminal(activeLive.deliveryStatus) &&
+      (selectedRunning ||
+        (activeLive !== undefined &&
+          selectedId !== undefined &&
+          !HarmonyRunLiveReducerIsTerminal(activeLive.deliveryStatus)) ||
+        tailAssistantStreaming) &&
       clar === undefined &&
       approval === undefined;
     let composerMode = 'default';
@@ -121,6 +156,8 @@ export class HarmonyCoreSessionMapper {
       ...base,
       canLoadOlderMessages: base.canLoadOlderMessages ?? false,
       loadingOlderMessages: base.loadingOlderMessages ?? false,
+      canLoadOlderSessionSummaries: base.canLoadOlderSessionSummaries ?? false,
+      loadingOlderSessionSummaries: base.loadingOlderSessionSummaries ?? false,
       fileName: selectedId ?? 'core-landing',
       title,
       isLanding: lines.length === 0 && selectedId === undefined,

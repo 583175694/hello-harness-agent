@@ -18,13 +18,15 @@ struct AssistantProcessTimelineView: View {
     @State private var open = true
     @State private var userExpanded = false
 
-    private var renderable: [(Int, ProcessBlock)] {
+    private var renderable: [TimelineDisplayBlock] {
         blocks.enumerated().compactMap { index, block in
             switch block {
             case .reasoning, .toolActivity:
-                return (index, block)
-            case .text(let content):
-                return content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : (index, block)
+                return TimelineDisplayBlock(index: index, block: block)
+            case .text(_, let content):
+                return content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? nil
+                    : TimelineDisplayBlock(index: index, block: block)
             }
         }
     }
@@ -47,24 +49,24 @@ struct AssistantProcessTimelineView: View {
                 }
                 .buttonStyle(ProcessTimelineTextButtonStyle())
                 .padding(.vertical, 4)
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(renderable.enumerated()), id: \.offset) { displayIndex, pair in
-                        ProcessTimelineRow(
-                            block: pair.1,
-                            isLast: displayIndex == renderable.count - 1,
-                            reduceMotion: previewReduceMotion,
-                            onOpenWorkbench: onOpenWorkbench
-                        )
+                if open {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(renderable) { entry in
+                            ProcessTimelineRow(
+                                block: entry.block,
+                                isLast: entry.index == renderable.last?.index,
+                                reduceMotion: previewReduceMotion,
+                                onOpenWorkbench: onOpenWorkbench
+                            )
+                        }
                     }
+                    .padding(.leading, 4)
+                    .transition(.opacity)
                 }
-                .padding(.leading, 4)
-                .scaleEffect(x: 1, y: open ? 1 : 0, anchor: .top)
-                .opacity(open ? 1 : 0)
-                .animation(previewReduceMotion ? nil : .easeOut(duration: 0.22), value: open)
-                .accessibilityHidden(!open)
             }
             .padding(.vertical, 4)
             .clipped()
+            .animation(previewReduceMotion ? nil : .easeOut(duration: 0.22), value: open)
             .onAppear {
                 if !userExpanded, finalOutputVisible, !running {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -80,6 +82,13 @@ struct AssistantProcessTimelineView: View {
     private var headerLabel: String {
         ProcessTimelineLabels.headerLabel(blocks: blocks, running: running)
     }
+}
+
+private struct TimelineDisplayBlock: Identifiable {
+    let index: Int
+    let block: ProcessBlock
+
+    var id: String { block.explicitId ?? "process:\(index)" }
 }
 
 private struct ProcessTimelineRow: View {
@@ -121,7 +130,7 @@ private struct ProcessTimelineRow: View {
                         guard let onOpenWorkbench, !id.isEmpty else { return }
                         onOpenWorkbench(id)
                     }
-                case .reasoning(let content, let durationMs, let streaming):
+                case .reasoning(_, let content, let durationMs, let streaming):
                     VStack(alignment: .leading, spacing: 0) {
                         Button {
                             toggleReasoningOpen()
@@ -140,17 +149,17 @@ private struct ProcessTimelineRow: View {
                             .frame(height: 20, alignment: .leading)
                         }
                         .buttonStyle(ProcessTimelineTextButtonStyle())
-                        ProcessTimelineReasoningScrollBody(
-                            content: content,
-                            streaming: streaming,
-                            reduceMotion: prefersReducedMotion
-                        )
-                        .scaleEffect(x: 1, y: reasoningOpen ? 1 : 0, anchor: .top)
-                        .opacity(reasoningOpen ? 1 : 0)
-                        .animation(prefersReducedMotion ? nil : .easeOut(duration: 0.22), value: reasoningOpen)
-                        .accessibilityHidden(!reasoningOpen)
+                        if reasoningOpen {
+                            ProcessTimelineReasoningScrollBody(
+                                content: content,
+                                streaming: streaming,
+                                reduceMotion: prefersReducedMotion
+                            )
+                            .transition(.opacity)
+                        }
                     }
                     .clipped()
+                    .animation(prefersReducedMotion ? nil : .easeOut(duration: 0.22), value: reasoningOpen)
                     .onAppear {
                         if streaming {
                             reasoningOpen = true
@@ -187,7 +196,7 @@ private struct ProcessTimelineRow: View {
                         reasoningAutoCloseTask?.cancel()
                         reasoningAutoCloseTask = nil
                     }
-                case .text(let content):
+                case .text(_, let content):
                     Text(content)
                         .font(.subheadline)
                         .foregroundStyle(HarnessColors.secondary)
@@ -239,23 +248,42 @@ private struct ProcessTimelineReasoningScrollBody: View {
     private let fadeHeight: CGFloat = 18
 
     @Environment(\.colorScheme) private var colorScheme
+    @State private var userPinnedAway = false
+    @State private var lastContentOffset: CGFloat = 0
 
     var body: some View {
         let fadeBase = HarnessColors.canvas(colorScheme)
         ScrollViewReader { proxy in
             ScrollView {
-                Text(content)
-                    .font(.subheadline)
-                    .foregroundStyle(HarnessColors.muted)
-                    .lineSpacing(6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .id("reasoningScrollEnd")
+                Group {
+                    if streaming {
+                        Text(content)
+                            .font(.subheadline)
+                            .foregroundStyle(HarnessColors.muted)
+                            .lineSpacing(6)
+                    } else {
+                        ChatMarkdownView(markdown: content, compact: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .id("reasoningScrollEnd")
             }
             .frame(maxHeight: maxHeight)
             .padding(.top, 6)
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
             .scrollIndicators(.hidden)
+            .background {
+                ScrollAnchorBridge { offset in
+                    if streaming, offset < lastContentOffset - 6 {
+                        userPinnedAway = true
+                    }
+                    if offset > lastContentOffset + 12 {
+                        userPinnedAway = false
+                    }
+                    lastContentOffset = offset
+                }
+            }
             .overlay(alignment: .top) {
                 LinearGradient(
                     colors: [fadeBase, fadeBase.opacity(0)],
@@ -275,7 +303,7 @@ private struct ProcessTimelineReasoningScrollBody: View {
                 .allowsHitTesting(false)
             }
             .onChange(of: content) { _, _ in
-                guard streaming else { return }
+                guard streaming, !userPinnedAway else { return }
                 if reduceMotion {
                     proxy.scrollTo("reasoningScrollEnd", anchor: .bottom)
                 } else {

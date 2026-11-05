@@ -11,6 +11,7 @@ import {
   WorkbenchFocusTargetRow,
 } from './HarmonyWorkbenchFocusProjector';
 import { ArtifactSeriesRow } from './HarmonyCoreTypes';
+import { ArtifactCardRow, ChatLine, WorkbenchDeliverableFileRow } from '../preview/PreviewModels';
 import {
   CreateRunResponseRow,
   FileRefRow,
@@ -22,11 +23,15 @@ import {
   SessionDetailRow,
   SessionSummaryRow,
   PersistedMessageRow,
+  SubmitPendingInputRow,
 } from './HarmonyCoreTypes';
 
 /** 对齐 packages/mobile-core SessionEngineController（鸿蒙薄 HTTP 子集）。 */
 export class HarmonyMobileEngine {
   private summaries: SessionSummaryRow[] = [];
+  private sessionListBefore: string | undefined = undefined;
+  private sessionListHasMore: boolean = false;
+  private loadingOlderSessionSummaries: boolean = false;
   private selectedSessionId: string | undefined = undefined;
   private pendingSessions: Set<string> = new Set();
   private liveRun: LiveRunStateRow | undefined = undefined;
@@ -45,8 +50,10 @@ export class HarmonyMobileEngine {
   private composerRevisionSeed: string | undefined = undefined;
   private composerAttachmentIds: string[] = [];
   private composerAttachmentNames: string[] = [];
+  private composerAttachmentMediaTypes: string[] = [];
   private skillPickerNames: string[] = [];
   private runSseClient: http.HttpRequest | undefined = undefined;
+  private emitTimer: number = -1;
   private workbenchChrome: {
     open: boolean;
     followMode: string;
@@ -71,6 +78,7 @@ export class HarmonyMobileEngine {
 
   /** E9：401 mid-run — 停止 SSE，保留会话 UI，提示重新登录。 */
   private abortRunObserversForAuth(): void {
+    this.flushCoalescedEmit();
     this.runSseClient?.destroy();
     this.runSseClient = undefined;
     this.observingRunId = undefined;
@@ -106,6 +114,30 @@ export class HarmonyMobileEngine {
         workbenchFocusHint: this.workbenchChrome.focusHint,
       },
     };
+  }
+
+  /** 对齐 mobile-core 33ms live UI 合并：token 级 SSE 更新不得逐帧刷新整棵树。 */
+  private emitCoalesced(loading: boolean = false): void {
+    if (loading) {
+      this.emit(loading);
+      return;
+    }
+    if (this.emitTimer >= 0) {
+      return;
+    }
+    this.emitTimer = setTimeout((): void => {
+      this.emitTimer = -1;
+      this.emit(false);
+    }, 33);
+  }
+
+  private flushCoalescedEmit(): void {
+    if (this.emitTimer < 0) {
+      return;
+    }
+    clearTimeout(this.emitTimer);
+    this.emitTimer = -1;
+    this.emit(false);
   }
 
   private emit(loading: boolean = false): void {
@@ -175,9 +207,65 @@ export class HarmonyMobileEngine {
   }
 
   async refreshSessionList(): Promise<void> {
-    const response = await HarnessAgentHttp.getJson<{ sessions: SessionSummaryRow[] }>('/api/agent/sessions');
-    this.summaries = response.sessions ?? [];
+    const response = await HarnessAgentHttp.getJson<{
+      sessions: SessionSummaryRow[];
+      pagination?: { limit: number; hasMore: boolean; nextBefore?: string };
+    }>('/api/agent/sessions?limit=100');
+    const firstPage = response.sessions ?? [];
+    const byId = new Map<string, SessionSummaryRow>();
+    firstPage.forEach((row) => byId.set(row.id, row));
+    this.summaries.forEach((row) => {
+      if (!byId.has(row.id)) {
+        byId.set(row.id, row);
+      }
+    });
+    this.summaries = Array.from(byId.values());
+    this.sessionListBefore = response.pagination?.nextBefore;
+    this.sessionListHasMore = response.pagination?.hasMore === true;
+    this.snapshot = {
+      ...this.snapshot,
+      canLoadOlderSessionSummaries: this.sessionListHasMore,
+      loadingOlderSessionSummaries: false,
+      sessionDrawer: {
+        ...this.snapshot.sessionDrawer,
+        sessions: HarmonyCoreSessionMapper.drawerRows(this.summaries, this.selectedSessionId, this.pendingSessions),
+      },
+    };
     this.emit(false);
+  }
+
+  async loadOlderSessionSummaries(): Promise<void> {
+    if (!this.sessionListHasMore || this.sessionListBefore === undefined ||
+      this.sessionListBefore.length === 0 || this.loadingOlderSessionSummaries) {
+      return;
+    }
+    this.loadingOlderSessionSummaries = true;
+    this.snapshot = { ...this.snapshot, loadingOlderSessionSummaries: true };
+    this.onSnapshot(this.snapshot);
+    try {
+      const response = await HarnessAgentHttp.getJson<{
+        sessions: SessionSummaryRow[];
+        pagination?: { limit: number; hasMore: boolean; nextBefore?: string };
+      }>(`/api/agent/sessions?limit=100&before=${encodeURIComponent(this.sessionListBefore)}`);
+      const byId = new Map<string, SessionSummaryRow>();
+      this.summaries.forEach((row) => byId.set(row.id, row));
+      (response.sessions ?? []).forEach((row) => byId.set(row.id, row));
+      this.summaries = Array.from(byId.values());
+      this.sessionListBefore = response.pagination?.nextBefore;
+      this.sessionListHasMore = response.pagination?.hasMore === true;
+      this.snapshot = {
+        ...this.snapshot,
+        canLoadOlderSessionSummaries: this.sessionListHasMore,
+        loadingOlderSessionSummaries: false,
+        sessionDrawer: {
+          ...this.snapshot.sessionDrawer,
+          sessions: HarmonyCoreSessionMapper.drawerRows(this.summaries, this.selectedSessionId, this.pendingSessions),
+        },
+      };
+    } finally {
+      this.loadingOlderSessionSummaries = false;
+      this.emit(false);
+    }
   }
 
   async selectSession(sessionId: string): Promise<void> {
@@ -237,7 +325,7 @@ export class HarmonyMobileEngine {
       this.emit(false);
       return;
     }
-    let lines = HarmonyMobileEngine.linesFromMessages(detail.messages);
+    let lines = HarmonyMobileEngine.linesFromMessages(detail.messages, detail.artifactSeries);
     lines = this.mergeConversationWithLiveRun(sessionId, lines);
     const followUps = HarmonyMobileEngine.followUpsFromDetail(detail);
     const composer = parseComposer(undefined);
@@ -260,6 +348,8 @@ export class HarmonyMobileEngine {
       workbench,
       canLoadOlderMessages: canLoadOlder,
       loadingOlderMessages: false,
+      canLoadOlderSessionSummaries: this.sessionListHasMore,
+      loadingOlderSessionSummaries: this.loadingOlderSessionSummaries,
       sessionDrawer: {
         draftTitle: '新对话',
         searchPlaceholder: '搜索会话',
@@ -302,7 +392,7 @@ export class HarmonyMobileEngine {
       if (this.selectedSessionId === sessionId) {
         this.snapshot = {
           ...this.snapshot,
-          lines: HarmonyMobileEngine.linesFromMessages(merged),
+          lines: HarmonyMobileEngine.linesFromMessages(merged, this.sessionArtifactSeries.get(sessionId)),
           canLoadOlderMessages: HarmonyMobileEngine.canLoadOlderFromPagination(detail),
           loadingOlderMessages: false,
         };
@@ -347,7 +437,7 @@ export class HarmonyMobileEngine {
     if (sessionId === undefined) {
       const created = await HarnessAgentHttp.postJson<{ session: SessionSummaryRow }>(
         '/api/agent/sessions',
-        { title: titleHint.substring(0, 40) || '新对话' },
+        { title: titleHint.trim().substring(0, 28).trim() || '新对话' },
       );
       this.summaries = this.summaries.filter((s) => s.id !== created.session.id).concat([created.session]);
       sessionId = created.session.id;
@@ -360,19 +450,48 @@ export class HarmonyMobileEngine {
     if (this.composerAttachmentNames.length >= 4) {
       return;
     }
-    const sessionId = await this.ensureSessionForComposer(fileName.substring(0, 40) || '附件');
+    const sessionId = await this.ensureSessionForComposer(fileName.trim().substring(0, 28).trim() || '附件');
     const uploaded = await HarnessAgentHttp.uploadSessionFile(sessionId, fileName, mediaType, fileData);
     const ready = await this.awaitFileReady(uploaded.fileId);
     this.composerAttachmentIds.push(ready.fileId);
     this.composerAttachmentNames.push(ready.fileName);
+    this.composerAttachmentMediaTypes.push(ready.mediaType);
     this.snapshot = {
       ...this.snapshot,
       composer: {
         ...this.snapshot.composer,
         attachmentNames: this.composerAttachmentNames.slice(),
+        attachmentItems: this.composerAttachmentIds.map((fileId, index) => ({
+          fileId,
+          fileName: this.composerAttachmentNames[index] ?? fileId,
+          mediaType: this.composerAttachmentMediaTypes[index] ?? mediaType,
+        })),
       },
     };
     this.onSnapshot(this.snapshot);
+  }
+
+  removeComposerAttachment(fileId: string): void {
+    const index = this.composerAttachmentIds.indexOf(fileId);
+    if (index < 0) {
+      return;
+    }
+    this.composerAttachmentIds.splice(index, 1);
+    this.composerAttachmentNames.splice(index, 1);
+    this.composerAttachmentMediaTypes.splice(index, 1);
+    this.snapshot = {
+      ...this.snapshot,
+      composer: {
+        ...this.snapshot.composer,
+        attachmentNames: this.composerAttachmentNames.slice(),
+        attachmentItems: this.composerAttachmentIds.map((id, i) => ({
+          fileId: id,
+          fileName: this.composerAttachmentNames[i] ?? id,
+          mediaType: this.composerAttachmentMediaTypes[i] ?? 'application/octet-stream',
+        })),
+      },
+    };
+    this.emit(false);
   }
 
   addComposerSkill(skill: string): void {
@@ -391,28 +510,35 @@ export class HarmonyMobileEngine {
     this.onSnapshot(this.snapshot);
   }
 
-  async submitComposer(text: string, modelId?: string, reasoningEffort?: string, skillNames?: string[]): Promise<void> {
+  async submitComposer(text: string, modelId?: string, reasoningEffort?: string, skillNames?: string[]): Promise<boolean> {
     const trimmed = text.trim();
     if (trimmed.length === 0) {
-      return;
+      return false;
     }
     let sessionId = this.selectedSessionId;
     if (sessionId === undefined) {
       const created = await HarnessAgentHttp.postJson<{ session: SessionSummaryRow }>(
         '/api/agent/sessions',
-        { title: trimmed.substring(0, 40) || '新对话' },
+        { title: trimmed.substring(0, 28).trim() || '新对话' },
       );
       this.summaries = this.summaries.filter((s) => s.id !== created.session.id).concat([created.session]);
       sessionId = created.session.id;
       this.selectedSessionId = sessionId;
     }
     if (this.runtimeActiveFor(sessionId)) {
-      await HarnessAgentHttp.postJson(`/api/agent/sessions/${sessionId}/pending-inputs`, {
-        content: trimmed,
-        idempotencyKey: HarnessAgentHttp.randomClientId(),
-      });
+      const submitted = await HarnessAgentHttp.postJson<SubmitPendingInputRow>(
+        `/api/agent/sessions/${sessionId}/pending-inputs`,
+        {
+          content: trimmed,
+          idempotencyKey: HarnessAgentHttp.randomClientId(),
+        },
+      );
+      if (submitted.kind !== 'pending') {
+        // run 已结束：不得当作送达，否则 Composer 会清空草稿。
+        throw new Error('当前任务已结束，请重新发送。');
+      }
       await this.refreshPendingInputsUi(sessionId);
-      return;
+      return true;
     }
     const config = this.publicConfig;
     if (!config) {
@@ -425,6 +551,14 @@ export class HarmonyMobileEngine {
         reasoningEffort.trim() :
         'off';
     this.pendingSessions.add(sessionId);
+    const userAttachments: FileRefRow[] = this.composerAttachmentIds.map((fileId, index) => ({
+      fileId,
+      fileName: this.composerAttachmentNames[index] ?? fileId,
+      mediaType: this.composerAttachmentMediaTypes[index] ?? 'application/octet-stream',
+      size: 0,
+      status: 'ready',
+      previewUrl: `/api/agent/files/${fileId}/preview`,
+    }));
     this.snapshot = {
       ...this.snapshot,
       composer: { ...this.snapshot.composer, submitting: true },
@@ -455,6 +589,15 @@ export class HarmonyMobileEngine {
       this.composerSkills = [];
       this.composerAttachmentIds = [];
       this.composerAttachmentNames = [];
+      this.composerAttachmentMediaTypes = [];
+      this.snapshot = {
+        ...this.snapshot,
+        composer: {
+          ...this.snapshot.composer,
+          attachmentNames: [],
+          attachmentItems: [],
+        },
+      };
       this.composerRevisionContext = undefined;
       this.composerRevisionSeed = undefined;
     } catch (failure) {
@@ -473,10 +616,11 @@ export class HarmonyMobileEngine {
       }
       throw failure as Error;
     }
-    const live = this.reducer.fromCreateRun(sessionId, trimmed, response);
+    const live = this.reducer.fromCreateRun(sessionId, trimmed, response, userAttachments);
     this.liveRun = live;
     this.attachRunObserver(live);
     this.emit(false);
+    return true;
   }
 
   async renameSession(sessionId: string, title: string): Promise<void> {
@@ -558,6 +702,7 @@ export class HarmonyMobileEngine {
     } else {
       this.emit(false);
     }
+    return true;
   }
 
   async cancelActiveRun(): Promise<void> {
@@ -636,6 +781,7 @@ export class HarmonyMobileEngine {
   }
 
   onAppBackground(): void {
+    this.flushCoalescedEmit();
     this.runSseClient?.destroy();
     this.runSseClient = undefined;
     this.sseBusy = false;
@@ -757,6 +903,27 @@ export class HarmonyMobileEngine {
     if (sessionId !== undefined) {
       await this.refreshPendingInputsUi(sessionId);
     }
+  }
+
+  async previewArtifact(artifactId: String): Promise<{ data: ArrayBuffer; contentType: string; fileName: string }> {
+    const result = await HarnessAgentHttp.getBinary(`/api/agent/artifacts/${artifactId}/preview`);
+    return { data: result.data, contentType: result.contentType, fileName: result.fileName };
+  }
+
+  async downloadArtifact(artifactId: String): Promise<{ data: ArrayBuffer; contentType: string; fileName: string }> {
+    const result = await HarnessAgentHttp.getBinary(`/api/agent/artifacts/${artifactId}/download`);
+    return { data: result.data, contentType: result.contentType, fileName: result.fileName };
+  }
+
+  async previewFile(fileId: String): Promise<{ data: ArrayBuffer; contentType: string; fileName: string }> {
+    const result = await HarnessAgentHttp.getBinary(`/api/agent/files/${fileId}/preview`);
+    return { data: result.data, contentType: result.contentType, fileName: result.fileName };
+  }
+
+  /** fileId-only 资源的下载：走原始文件变体，避免 preview 对 docx/xlsx 返回文本预览。 */
+  async downloadFile(fileId: String): Promise<{ data: ArrayBuffer; contentType: string; fileName: string }> {
+    const result = await HarnessAgentHttp.getBinary(`/api/agent/files/${fileId}/content/original`);
+    return { data: result.data, contentType: result.contentType, fileName: result.fileName };
   }
 
   async refreshWorkbench(): Promise<void> {
@@ -926,9 +1093,9 @@ export class HarmonyMobileEngine {
   private refreshSnapshotShellFromSessionCache(sessionId: string): void {
     const messages = this.sessionMessages.get(sessionId) ?? [];
     const summary = this.summaries.find((s) => s.id === sessionId);
-    let lines = HarmonyMobileEngine.linesFromMessages(messages);
-    lines = this.mergeConversationWithLiveRun(sessionId, lines);
     const series = this.sessionArtifactSeries.get(sessionId) ?? [];
+    let lines = HarmonyMobileEngine.linesFromMessages(messages, series);
+    lines = this.mergeConversationWithLiveRun(sessionId, lines);
     const workbench =
       series.length > 0
         ? HarmonyWorkbenchArtifactProjector.applySeries(
@@ -989,12 +1156,63 @@ export class HarmonyMobileEngine {
     return page.hasMore === true || (page.nextBefore !== undefined && `${page.nextBefore}`.length > 0);
   }
 
-  private static linesFromMessages(messages: PersistedMessageRow[]): import('../preview/PreviewModels').ChatLine[] {
-    return messages.map((m) => ({
-      role: m.role,
-      text: m.content,
-      process: m.role === 'assistant' ? HarmonyMobileEngine.processBlocksFromMetadata(m.metadata) : [],
-    }));
+  private static linesFromMessages(
+    messages: PersistedMessageRow[],
+    series?: ArtifactSeriesRow[],
+  ): import('../preview/PreviewModels').ChatLine[] {
+    return messages.map((m, index) => {
+      const line: ChatLine = {
+        id: m.id.length > 0 ? `message:${m.id}` : `message-fallback:${m.sessionId}:${m.role}:${index}`,
+        role: m.role,
+        text: m.content,
+        process: m.role === 'assistant' ? HarmonyMobileEngine.processBlocksFromMetadata(m.metadata) : [],
+      };
+      if (m.role === 'assistant') {
+        line.artifacts = HarmonyMobileEngine.artifactsFromMetadata(m.metadata, series);
+      } else {
+        line.attachments = (m.attachments ?? []).map((ref) => ({
+          fileId: ref.fileId,
+          fileName: ref.fileName,
+          mediaType: ref.mediaType,
+          size: ref.size,
+          status: ref.status,
+          fileKind: ref.fileKind,
+          previewUrl: ref.previewUrl,
+        }));
+      }
+      return line;
+    });
+  }
+
+  private static artifactsFromMetadata(
+    metadata: Record<string, Object> | undefined,
+    series?: ArtifactSeriesRow[],
+  ): ArtifactCardRow[] {
+    const blocks = metadata?.['blocks'] as Array<Record<string, Object>> | undefined;
+    if (blocks === undefined) {
+      return [];
+    }
+    // session 快照的 currentArtifactId 是唯一真源；仅当整份 series 都没有 current 时才用 metadata。
+    const currentArtifactIds = (series ?? [])
+      .map((s) => s.currentArtifactId)
+      .filter((id): id is string => id !== undefined && id.length > 0);
+    return blocks
+      .filter((block) => `${block['type'] ?? ''}` === 'artifact')
+      .map((block) => ({
+        artifactId: `${block['artifactId'] ?? ''}`,
+        fileId: `${block['fileId'] ?? ''}`,
+        fileName: `${block['fileName'] ?? '文件'}`,
+        mediaType: `${block['mediaType'] ?? 'text/plain'}`,
+        fileKind: `${block['fileKind'] ?? 'text'}`,
+        size: Number(block['size'] ?? 0),
+        status: `${block['status'] ?? 'ready'}`,
+        seriesId: block['seriesId'] !== undefined ? `${block['seriesId']}` : undefined,
+        versionNumber: block['versionNumber'] !== undefined ? Number(block['versionNumber']) : undefined,
+        isCurrent: currentArtifactIds.length > 0 ?
+          currentArtifactIds.indexOf(`${block['artifactId'] ?? ''}`) >= 0 :
+          block['isCurrent'] === true,
+      }))
+      .filter((row) => row.artifactId.length > 0);
   }
 
   private static processBlocksFromMetadata(metadata: Record<string, Object> | undefined): Array<Object> {
@@ -1100,7 +1318,7 @@ export class HarmonyMobileEngine {
       this.observingRunId = undefined;
       this.sseBusy = false;
       this.liveRun = live;
-      this.emit(false);
+      this.flushCoalescedEmit();
       await this.refreshSessionList();
       await this.loadSessionDetail(sessionId, true);
       this.syncFollowUpAfterTerminal(sessionId);
@@ -1117,7 +1335,7 @@ export class HarmonyMobileEngine {
             .then((snap) => {
               live = this.reducer.applySnapshot(live, snap);
               this.liveRun = live;
-              this.emit(false);
+              this.emitCoalesced(false);
               if (HarmonyRunLiveReducer.isTerminal(live.deliveryStatus)) {
                 void finishTerminal();
               }
@@ -1129,7 +1347,7 @@ export class HarmonyMobileEngine {
         }
         live = this.reducer.applyEvent(live, event);
         this.liveRun = live;
-        this.emit(false);
+        this.emitCoalesced(false);
       },
       async () => {
         if (HarmonyRunLiveReducer.isTerminal(live.deliveryStatus)) {
@@ -1140,7 +1358,7 @@ export class HarmonyMobileEngine {
           const snap = await HarnessAgentHttp.getJson<RunSnapshotRow>(`/api/agent/runs/${runId}`);
           live = this.reducer.applySnapshot(live, snap);
           this.liveRun = live;
-          this.emit(false);
+          this.emitCoalesced(false);
           if (HarmonyRunLiveReducer.isTerminal(live.deliveryStatus)) {
             await finishTerminal();
           }

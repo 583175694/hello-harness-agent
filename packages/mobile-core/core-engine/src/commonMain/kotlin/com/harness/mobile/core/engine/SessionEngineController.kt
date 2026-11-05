@@ -1,10 +1,13 @@
 package com.harness.mobile.core.engine
 
 import com.harness.mobile.core.api.ApiProblem
+import com.harness.mobile.core.api.ArtifactDownloadContent
+import com.harness.mobile.core.api.ArtifactPreviewContent
 import com.harness.mobile.core.api.ArtifactSeriesRef
 import com.harness.mobile.core.api.ArtifactVersionContext
 import com.harness.mobile.core.api.ConnectionState
 import com.harness.mobile.core.api.EngineConfig
+import com.harness.mobile.core.api.ListSessionsResponse
 import com.harness.mobile.core.api.SessionActiveRun
 import com.harness.mobile.core.api.SessionDetail
 import com.harness.mobile.core.api.SessionPagination
@@ -42,6 +45,11 @@ internal class SessionEngineController(
     private val publicConfigProvider: () -> PublicAgentConfig?,
     private val onConnectionState: (ConnectionState) -> Unit = {},
 ) {
+    private companion object {
+        /** 与服务端 `AGENT_PROTOCOL_LIMITS.sessionTitleMaxLength` 保持一致。 */
+        const val PROVISIONAL_SESSION_TITLE_MAX_LENGTH = 28
+    }
+
     private val sessionsClient = HarnessSessionsClient.create(config)
     private val runsClient = HarnessRunsClient.create(config)
     private val pendingInputsClient = HarnessPendingInputsClient.create(config)
@@ -64,11 +72,15 @@ internal class SessionEngineController(
     private var pendingLiveUi: LiveRunState? = null
 
     private val summaries = mutableListOf<SessionSummary>()
+    private var sessionListBefore: String? = null
+    private var sessionListHasMore = false
+    private var loadingOlderSessionSummaries = false
     private var selectedSessionId: String? = null
     private val pendingSessions = mutableSetOf<String>()
     private val loadedSessions = mutableSetOf<String>()
     private val detailInFlight = mutableSetOf<String>()
     private val paginationBefore = mutableMapOf<String, String?>()
+    private val paginationHasMore = mutableMapOf<String, Boolean>()
     private val sessionMessages = mutableMapOf<String, List<PersistedMessage>>()
     private val sessionArtifactSeries = mutableMapOf<String, List<ArtifactSeriesRef>>()
     private var composerRevisionContext: ArtifactVersionContext? = null
@@ -80,12 +92,51 @@ internal class SessionEngineController(
 
     suspend fun refreshSessionList(): Result<Unit> =
         runCatching {
-            val list = sessionsClient.listSessions().sessions
+            val response = sessionsClient.listSessions(limit = 100)
+            val merged = SessionSnapshotProjector.mergeSessionListFirstPage(response.sessions, summaries)
             summaries.clear()
-            summaries.addAll(list)
+            summaries.addAll(merged)
+            syncSessionListPagination(response)
             publishSnapshot()
             Unit
         }
+
+    suspend fun loadOlderSessionSummaries(): Result<Unit> =
+        runCatching {
+            val before = sessionListBefore
+            if (!sessionListHasMore || before.isNullOrBlank() || loadingOlderSessionSummaries) {
+                return@runCatching Unit
+            }
+            loadingOlderSessionSummaries = true
+            publishSessionListLoading(true)
+            try {
+                val response = sessionsClient.listSessions(limit = 100, before = before)
+                val merged = SessionSnapshotProjector.mergeOlderSessionSummaries(summaries, response.sessions)
+                summaries.clear()
+                summaries.addAll(merged)
+                syncSessionListPagination(response)
+            } finally {
+                loadingOlderSessionSummaries = false
+                publishSessionListLoading(false)
+            }
+            publishSnapshot()
+            Unit
+        }
+
+    private fun syncSessionListPagination(response: ListSessionsResponse) {
+        sessionListBefore = response.pagination?.nextBefore
+        sessionListHasMore = response.pagination?.hasMore == true
+    }
+
+    private fun publishSessionListLoading(loading: Boolean) {
+        val current = _activeSnapshot.value ?: return
+        publishActive(
+            current.copy(
+                loadingOlderSessionSummaries = loading,
+                canLoadOlderSessionSummaries = sessionListHasMore,
+            ),
+        )
+    }
 
     suspend fun selectSession(sessionId: String) {
         if (selectedSessionId != sessionId) {
@@ -133,6 +184,7 @@ internal class SessionEngineController(
                     pendingSessions.remove(sessionId)
                 }
                 paginationBefore[sessionId] = detail.pagination?.nextBefore
+                paginationHasMore[sessionId] = detail.pagination?.hasMore == true
                 sessionMessages[sessionId] = detail.messages
                 sessionArtifactSeries[sessionId] = detail.artifactSeries
                 // E1：晚到的 detail 只更新 cache；用户已切走时不覆盖当前 UI、也不改 selectedSessionId。
@@ -177,7 +229,7 @@ internal class SessionEngineController(
     suspend fun loadOlderMessages(sessionId: String): Result<Unit> =
         runCatching {
             val before = paginationBefore[sessionId]
-            if (before.isNullOrBlank() || loadingOlder.contains(sessionId)) {
+            if (before.isNullOrBlank() || paginationHasMore[sessionId] != true || loadingOlder.contains(sessionId)) {
                 return@runCatching Unit
             }
             loadingOlder.add(sessionId)
@@ -188,6 +240,7 @@ internal class SessionEngineController(
                 val detail =
                     sessionsClient.getSession(sessionId, limit = 100, before = before).session
                 paginationBefore[sessionId] = detail.pagination?.nextBefore
+                paginationHasMore[sessionId] = detail.pagination?.hasMore == true
                 val merged =
                     SessionSnapshotProjector.mergeMessagePages(
                         existing = sessionMessages[sessionId].orEmpty(),
@@ -242,10 +295,14 @@ internal class SessionEngineController(
         sessionListRefreshJob?.cancel()
         sessionListRefreshJob = null
         summaries.clear()
+        sessionListBefore = null
+        sessionListHasMore = false
+        loadingOlderSessionSummaries = false
         selectedSessionId = null
         loadedSessions.clear()
         detailInFlight.clear()
         paginationBefore.clear()
+        paginationHasMore.clear()
         sessionMessages.clear()
         sessionArtifactSeries.clear()
         loadingOlder.clear()
@@ -295,13 +352,7 @@ internal class SessionEngineController(
         }
         selectedSessionId = null
         resetWorkbenchChrome()
-        publishActive(
-            SessionSnapshotProjector.landingSnapshot(
-                summaries = summaries,
-                selectedId = null,
-                runningSessionIds = pendingSessions.toSet(),
-            ),
-        )
+        publishActive(landingSnapshot(selectedId = null))
     }
 
     suspend fun refreshWorkbench(): Result<Unit> =
@@ -395,6 +446,18 @@ internal class SessionEngineController(
         _activeSnapshot.value?.let { publishActive(it) }
     }
 
+    suspend fun previewArtifact(artifactId: String): Result<ArtifactPreviewContent> =
+        runCatching { artifactsClient.previewArtifact(artifactId) }
+
+    suspend fun downloadArtifact(artifactId: String): Result<ArtifactDownloadContent> =
+        runCatching { artifactsClient.downloadArtifact(artifactId) }
+
+    suspend fun previewFile(fileId: String): Result<ArtifactPreviewContent> =
+        runCatching { artifactsClient.previewFile(fileId) }
+
+    suspend fun downloadFile(fileId: String): Result<ArtifactDownloadContent> =
+        runCatching { artifactsClient.downloadFile(fileId) }
+
     suspend fun restoreArtifactVersion(
         artifactId: String,
         expectedCurrentArtifactId: String,
@@ -447,7 +510,7 @@ internal class SessionEngineController(
 
     suspend fun createSession(title: String): Result<Unit> =
         runCatching {
-            val created = sessionsClient.createSession(title).session
+            val created = sessionsClient.createSession(provisionalSessionTitle(title)).session
             summaries.removeAll { it.id == created.id }
             summaries.add(created)
             selectedSessionId = created.id
@@ -491,6 +554,7 @@ internal class SessionEngineController(
             loadedSessions.remove(sessionId)
             pendingSessions.remove(sessionId)
             paginationBefore.remove(sessionId)
+            paginationHasMore.remove(sessionId)
             sessionMessages.remove(sessionId)
             sessionArtifactSeries.remove(sessionId)
             pendingAttachments.clear(sessionId)
@@ -530,13 +594,7 @@ internal class SessionEngineController(
     private fun publishSnapshot() {
         val selected = selectedSessionId
         if (selected == null) {
-            publishActive(
-                SessionSnapshotProjector.landingSnapshot(
-                    summaries = summaries,
-                    selectedId = null,
-                    runningSessionIds = pendingSessions.toSet(),
-                ),
-            )
+            publishActive(landingSnapshot(selectedId = null))
             return
         }
         val current = _activeSnapshot.value
@@ -549,25 +607,35 @@ internal class SessionEngineController(
                             selectedId = selected,
                             runningSessionIds = pendingSessions.toSet(),
                         ),
+                    canLoadOlderSessionSummaries = sessionListHasMore,
+                    loadingOlderSessionSummaries = loadingOlderSessionSummaries,
                 ),
             )
         } else {
             publishActive(
-                SessionSnapshotProjector.landingSnapshot(
-                    summaries = summaries,
-                    selectedId = selected,
-                    runningSessionIds = pendingSessions.toSet(),
-                ).copy(sessionId = selected, title = summaries.firstOrNull { it.id == selected }?.title ?: "会话"),
+                landingSnapshot(selectedId = selected)
+                    .copy(sessionId = selected, title = summaries.firstOrNull { it.id == selected }?.title ?: "会话"),
             )
         }
     }
 
-    private fun emptyLanding(): MobileActiveSessionSnapshot =
+    private fun emptyLanding(): MobileActiveSessionSnapshot = landingSnapshot(selectedId = selectedSessionId)
+
+    /**
+     * landing 快照同样携带会话列表分页状态；否则 `refreshSessionList()` 之后紧接着的
+     * “新对话”发布会把 hasMore/nextBefore 覆盖成未分页，Drawer 只能显示“已全部加载”。
+     */
+    private fun landingSnapshot(selectedId: String?): MobileActiveSessionSnapshot =
         SessionSnapshotProjector.landingSnapshot(
             summaries = summaries,
-            selectedId = selectedSessionId,
+            selectedId = selectedId,
             runningSessionIds = pendingSessions.toSet(),
+            canLoadOlderSessionSummaries = sessionListHasMore,
+            loadingOlderSessionSummaries = loadingOlderSessionSummaries,
         )
+
+    private fun provisionalSessionTitle(text: String): String =
+        text.trim().take(PROVISIONAL_SESSION_TITLE_MAX_LENGTH).trim().ifBlank { "新对话" }
 
     suspend fun listSkills(query: String? = null) =
         runCatching { skillsClient.listSkills(query) }
@@ -578,7 +646,7 @@ internal class SessionEngineController(
         mediaType: String,
     ): Result<FileRef> =
         runCatching {
-            val sessionId = ensureSessionForComposer(fileName.take(40).ifBlank { "附件" })
+            val sessionId = ensureSessionForComposer(fileName.ifBlank { "附件" })
             val uploaded = filesClient.uploadFile(sessionId, fileName, bytes, mediaType)
             val ready = awaitFileReady(getFile = { filesClient.getFile(it) }, fileId = uploaded.fileId)
             pendingAttachments.add(sessionId, ready)
@@ -594,7 +662,7 @@ internal class SessionEngineController(
     private suspend fun ensureSessionForComposer(titleHint: String): String {
         var sessionId = selectedSessionId
         if (sessionId == null) {
-            val created = sessionsClient.createSession(titleHint.ifBlank { "新对话" }).session
+            val created = sessionsClient.createSession(provisionalSessionTitle(titleHint)).session
             summaries.removeAll { it.id == created.id }
             summaries.add(created)
             sessionId = created.id
@@ -615,13 +683,17 @@ internal class SessionEngineController(
         runCatching {
             val trimmed = text.trim()
             if (trimmed.isEmpty()) return@runCatching Unit
-            val sessionId = ensureSessionForComposer(trimmed.take(40).ifBlank { "新对话" })
+            val sessionId = ensureSessionForComposer(trimmed)
             if (runtimeActiveFor(sessionId)) {
-                pendingInputsClient.submitPendingInput(
-                    sessionId = sessionId,
-                    content = trimmed,
-                    idempotencyKey = randomClientId(),
-                )
+                val kind =
+                    pendingInputsClient.submitPendingInput(
+                        sessionId = sessionId,
+                        content = trimmed,
+                        idempotencyKey = randomClientId(),
+                    )
+                if (kind != "pending") {
+                    error("当前任务已结束，请重新发送。")
+                }
                 pendingAttachments.clear(sessionId)
                 refreshPendingInputsUi(sessionId)
                 return@runCatching Unit
@@ -859,7 +931,7 @@ internal class SessionEngineController(
             } else {
                 null
             }
-        val nextBefore = paginationBefore[sessionId]
+        val hasMore = paginationHasMore[sessionId] == true
         val detail =
             SessionDetail(
                 id = sessionId,
@@ -869,8 +941,14 @@ internal class SessionEngineController(
                 isPinned = summary?.isPinned ?: false,
                 messages = messages,
                 pagination =
-                    nextBefore?.let {
-                        SessionPagination(limit = 100, hasMore = it.isNotBlank(), nextBefore = it)
+                    if (hasMore) {
+                        SessionPagination(
+                            limit = 100,
+                            hasMore = true,
+                            nextBefore = paginationBefore[sessionId],
+                        )
+                    } else {
+                        null
                     },
                 activeRun = activeRun,
                 artifactSeries = sessionArtifactSeries[sessionId].orEmpty(),
@@ -897,7 +975,7 @@ internal class SessionEngineController(
                 sessionId = sessionId,
                 conversation = conversation,
                 isLanding = conversation.isEmpty(),
-                canLoadOlderMessages = !paginationBefore[sessionId].isNullOrBlank(),
+                canLoadOlderMessages = paginationHasMore[sessionId] == true,
                 loadingOlderMessages = false,
             ),
         )
@@ -1089,6 +1167,7 @@ internal class SessionEngineController(
         if (activeRunId == runId) activeRunId = null
         if (liveRun?.runId == runId) liveRun = null
         liveRunBySession.remove(sessionId)
+        pendingSessions.remove(sessionId)
         refreshSessionListDebounced()
         syncFollowUpAfterTerminal(sessionId)
     }
@@ -1185,11 +1264,13 @@ internal class SessionEngineController(
                 conversation =
                     listOf(
                         com.harness.mobile.core.api.MobileConversationLine(
+                            id = "create-failure:${sessionId}:user",
                             kind = "user",
                             content = userText,
                             attachments = userAttachments,
                         ),
                         com.harness.mobile.core.api.MobileConversationLine(
+                            id = "create-failure:${sessionId}:assistant",
                             kind = "assistant",
                             content = detail,
                             deliveryStatus = "failed",
@@ -1200,7 +1281,9 @@ internal class SessionEngineController(
                 composerSubmitting = false,
                 workbench = prior?.workbench,
                 workbenchRunId = prior?.workbenchRunId,
-                canLoadOlderMessages = !paginationBefore[sessionId].isNullOrBlank(),
+                canLoadOlderMessages = paginationHasMore[sessionId] == true,
+                canLoadOlderSessionSummaries = sessionListHasMore,
+                loadingOlderSessionSummaries = loadingOlderSessionSummaries,
             ),
         )
     }
@@ -1231,7 +1314,7 @@ internal class SessionEngineController(
         if (liveUiCoalesceJob?.isActive == true) return
         liveUiCoalesceJob =
             scope.launch {
-                delay(16)
+                delay(33)
                 val latest = pendingLiveUi ?: return@launch
                 pendingLiveUi = null
                 publishLiveRunNow(latest, submitting = false)
@@ -1270,7 +1353,9 @@ internal class SessionEngineController(
                 composerSubmitting = submitting,
                 workbench = prior?.workbench,
                 workbenchRunId = prior?.workbenchRunId,
-                canLoadOlderMessages = prior?.canLoadOlderMessages ?: !paginationBefore[sessionId].isNullOrBlank(),
+                canLoadOlderMessages = paginationHasMore[sessionId] == true,
+                canLoadOlderSessionSummaries = sessionListHasMore,
+                loadingOlderSessionSummaries = loadingOlderSessionSummaries,
                 loadingOlderMessages = prior?.loadingOlderMessages ?: false,
                 composerClarification = live?.composerClarification,
                 composerToolApproval = live?.composerToolApproval,
@@ -1337,6 +1422,9 @@ internal class SessionEngineController(
     private fun publishActive(snapshot: MobileActiveSessionSnapshot) {
         _activeSnapshot.value =
             snapshot.copy(
+                // 会话列表分页只由列表接口维护；detail/live 投影不得把它覆盖回默认值。
+                canLoadOlderSessionSummaries = sessionListHasMore,
+                loadingOlderSessionSummaries = loadingOlderSessionSummaries,
                 workbenchOpen = workbenchChrome.open,
                 followMode = workbenchChrome.followMode,
                 workbenchFocusTarget = workbenchChrome.focusTarget,

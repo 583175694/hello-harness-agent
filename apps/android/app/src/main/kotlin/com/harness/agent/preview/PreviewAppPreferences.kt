@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import com.harness.agent.model.ReaderTarget
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -51,6 +52,8 @@ class PreviewAppPreferences(
     var readerMarkdown by mutableStateOf("")
         private set
     var readerIsArtifact by mutableStateOf(false)
+        private set
+    var readerTarget by mutableStateOf<ReaderTarget?>(null)
         private set
 
     var authProfile by mutableStateOf(loadAuthProfile())
@@ -132,6 +135,14 @@ class PreviewAppPreferences(
         readerTitle = title
         readerMarkdown = markdown
         readerIsArtifact = isArtifact
+        readerTarget = null
+    }
+
+    fun openArtifactReader(target: ReaderTarget) {
+        readerTitle = target.fileName.ifBlank { "文件" }
+        readerMarkdown = ""
+        readerIsArtifact = true
+        readerTarget = target
     }
 
     fun upsertMcpServer(server: PreviewMcpServer) {

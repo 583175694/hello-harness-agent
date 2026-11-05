@@ -49,6 +49,9 @@ export struct PreviewWorkbenchSheet {
   @Prop useDark: boolean = PreviewLocalPreferences.themeDark;
   onOpenReader: (title: string, body: string, isArtifact: boolean) => void = () => {
   };
+  onOpenArtifactReader: (artifactId: string, fileId: string, fileName: string, mediaType: string, fileKind: string) => void =
+    () => {
+    };
   onRestoreArtifactVersion: (restoreArtifactId: string, expectedCurrentArtifactId: string) => void = () => {
   };
   onBeginArtifactRevision: (artifactId: string) => void = () => {
@@ -339,6 +342,14 @@ export struct PreviewWorkbenchSheet {
     }
   }
 
+  private openArtifact(artifactId: string, fileId: string, fileName: string, mediaType: string, fileKind: string): void {
+    if (artifactId.length > 0 || fileId.length > 0) {
+      this.onOpenArtifactReader(artifactId, fileId, fileName, mediaType, fileKind);
+      return;
+    }
+    this.onOpenReader(fileName, '', true);
+  }
+
   @Builder
   artifactVersionsTabContent() {
     const current = this.currentArtifactVersion();
@@ -359,6 +370,18 @@ export struct PreviewWorkbenchSheet {
           }
           .layoutWeight(1)
           Row({ space: 12 }) {
+            Text('打开')
+              .fontSize(13)
+              .fontColor(HarnessColors.linkText(this.useDark))
+              .onClick(() => {
+                this.openArtifact(
+                  ver.id,
+                  ver.fileId ?? '',
+                  ver.fileName ?? ver.label,
+                  ver.mediaType ?? '',
+                  ver.fileKind ?? '',
+                );
+              })
             Text('修改')
               .fontSize(13)
               .fontColor(HarnessColors.linkText(this.useDark))
@@ -405,13 +428,17 @@ export struct PreviewWorkbenchSheet {
             }
           }
           .layoutWeight(1)
-          Text('预览')
+          Text('打开')
             .fontSize(13)
             .fontColor(HarnessColors.linkText(this.useDark))
             .onClick(() => {
-              const md = file.previewMarkdown.length > 0 ? file.previewMarkdown :
-                `# ${file.fileName}\n\n（Preview 文件预览）`;
-              this.onOpenReader(file.fileName, md, false);
+              this.openArtifact(
+                file.artifactId ?? '',
+                file.fileId ?? '',
+                file.fileName,
+                file.mediaType ?? '',
+                file.fileKind ?? '',
+              );
             })
         }
         .width('100%')

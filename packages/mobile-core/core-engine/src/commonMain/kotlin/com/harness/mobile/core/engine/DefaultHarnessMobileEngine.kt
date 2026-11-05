@@ -1,6 +1,8 @@
 package com.harness.mobile.core.engine
 
 import com.harness.mobile.core.api.ApiProblem
+import com.harness.mobile.core.api.ArtifactDownloadContent
+import com.harness.mobile.core.api.ArtifactPreviewContent
 import com.harness.mobile.core.api.ConnectionState
 import com.harness.mobile.core.api.EngineConfig
 import com.harness.mobile.core.api.HarnessMobileEngine
@@ -230,6 +232,21 @@ class DefaultHarnessMobileEngine(
 
     override suspend fun loadOlderMessages(sessionId: String): Result<Unit> =
         sessions.loadOlderMessages(sessionId).captureAuthAndProblem()
+
+    override suspend fun loadOlderSessionSummaries(): Result<Unit> =
+        sessions.loadOlderSessionSummaries().captureAuthAndProblem()
+
+    override suspend fun previewArtifact(artifactId: String): Result<ArtifactPreviewContent> =
+        sessions.previewArtifact(artifactId).captureAuthAndProblem()
+
+    override suspend fun downloadArtifact(artifactId: String): Result<ArtifactDownloadContent> =
+        sessions.downloadArtifact(artifactId).captureAuthAndProblem()
+
+    override suspend fun downloadFile(fileId: String): Result<ArtifactDownloadContent> =
+        sessions.downloadFile(fileId).captureAuthAndProblem()
+
+    override suspend fun previewFile(fileId: String): Result<ArtifactPreviewContent> =
+        sessions.previewFile(fileId).captureAuthAndProblem()
 
     override fun onAppBackground() {
         sessions.onAppBackground()

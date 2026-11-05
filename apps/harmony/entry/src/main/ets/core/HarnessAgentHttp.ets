@@ -10,6 +10,12 @@ export interface HarnessProblemDetails {
   detail: string;
 }
 
+export interface HarnessBinaryResponse {
+  data: ArrayBuffer;
+  contentType: string;
+  fileName: string;
+}
+
 /** B0～B1 文档允许的 ArkTS 薄 HTTP（REST + SSE；golden 仍在 JVM mobile-core）。 */
 export class HarnessAgentHttp {
   static normalizeBase(url: string): string {
@@ -98,6 +104,68 @@ export class HarnessAgentHttp {
       throw new Error(`HTTP ${response.code}: ${response.body}`);
     }
     return JSON.parse(response.body) as T;
+  }
+
+  static async getBinary(path: string): Promise<HarnessBinaryResponse> {
+    const base = HarnessAgentHttp.baseUrl();
+    const client = http.createHttp();
+    const headers: Record<string, string> = {};
+    const cookie = HarnessAgentHttp.cookieHeader();
+    if (cookie) {
+      headers['Cookie'] = cookie;
+    }
+    return new Promise((resolve, reject) => {
+      client.request(`${base}${path}`, {
+        method: http.RequestMethod.GET,
+        header: headers,
+        expectDataType: http.HttpDataType.ARRAY_BUFFER,
+        readTimeout: 60000,
+        connectTimeout: 15000,
+      }, (err, data) => {
+        client.destroy();
+        if (err) {
+          reject(err);
+          return;
+        }
+        const code = data?.responseCode ?? 0;
+        const header = (data?.header ?? {}) as Record<string, string>;
+        const contentType = header['content-type'] ?? header['Content-Type'] ?? 'application/octet-stream';
+        const disposition = header['content-disposition'] ?? header['Content-Disposition'] ?? '';
+        if (code < 200 || code >= 300) {
+          const body = typeof data?.result === 'string' ? data.result as string : '';
+          reject(new Error(`HTTP ${code}: ${body}`));
+          return;
+        }
+        const result = data?.result;
+        let bytes: ArrayBuffer;
+        if (result instanceof ArrayBuffer) {
+          bytes = result;
+        } else if (typeof result === 'string') {
+          const encoded = new util.TextEncoder().encodeInto(result);
+          bytes = encoded.buffer;
+        } else {
+          bytes = new ArrayBuffer(0);
+        }
+        resolve({
+          data: bytes,
+          contentType: contentType.split(';')[0].trim(),
+          fileName: HarnessAgentHttp.fileNameFromDisposition(disposition),
+        });
+      });
+    });
+  }
+
+  private static fileNameFromDisposition(disposition: string): string {
+    const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+    if (utf8 !== null) {
+      try {
+        return decodeURIComponent(utf8[1]);
+      } catch (_e) {
+        return utf8[1];
+      }
+    }
+    const plain = /filename="?([^";]+)"?/i.exec(disposition);
+    return plain !== null ? plain[1] : '';
   }
 
   static async uploadSessionFile(

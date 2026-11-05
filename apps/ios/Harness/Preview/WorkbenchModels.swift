@@ -36,6 +36,14 @@ struct WorkbenchDeliverableFile: Equatable, Identifiable {
     let fileName: String
     var subtitle: String = ""
     var previewMarkdown: String?
+    var artifactId: String = ""
+    var fileId: String = ""
+    var mediaType: String = "text/plain"
+    var fileKind: String = "text"
+    var size: Int = 0
+    var status: String = "ready"
+    var versionNumber: Int?
+    var isCurrent: Bool = true
 }
 
 struct WorkbenchState: Equatable {

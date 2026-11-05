@@ -6,7 +6,7 @@ enum ProcessTimelineLabels {
         var ms = 0
         for block in blocks {
             switch block {
-            case .reasoning(_, let durationMs, _):
+            case .reasoning(_, _, let durationMs, _):
                 ms += durationMs ?? 0
             case .toolActivity(_, _, _, _, let duration):
                 if let duration {

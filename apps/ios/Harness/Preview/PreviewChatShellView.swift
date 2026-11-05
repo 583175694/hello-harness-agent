@@ -11,7 +11,7 @@ struct PreviewChatShellView: View {
     var onOpenSettings: () -> Void
     var onOpenLogin: () -> Void = {}
     var onOpenReportReader: (String, String) -> Void
-    var onOpenArtifactReader: (String, String) -> Void = { _, _ in }
+    var onOpenArtifactReader: (ReaderTarget) -> Void = { _ in }
     var onLoadDemoFixture: () -> Void = {}
     /// 快照测试：禁止 onAppear 自动展开 Workbench。
     var suppressAutoWorkbench: Bool = false
@@ -30,7 +30,7 @@ struct PreviewChatShellView: View {
         onOpenSettings: @escaping () -> Void,
         onOpenLogin: @escaping () -> Void = {},
         onOpenReportReader: @escaping (String, String) -> Void,
-        onOpenArtifactReader: @escaping (String, String) -> Void = { _, _ in },
+        onOpenArtifactReader: @escaping (ReaderTarget) -> Void = { _ in },
         onLoadDemoFixture: @escaping () -> Void = {},
         suppressAutoWorkbench: Bool = false,
         initialWorkbenchOpen: Bool = false
@@ -56,237 +56,23 @@ struct PreviewChatShellView: View {
                     connectionState: store.session.chrome.connectionState,
                     runSummary: store.session.chrome.runSummary,
                     workbenchBadge: store.session.workbench.workbenchCount,
-                    onOpenDrawer: {
-                        PreviewKeyboardDismiss.run()
-                        store.drawerOpen = true
-                    },
-                    onNewConversation: {
-                        PreviewKeyboardDismiss.run()
-                        let started = store.startNewConversation(draftTitle: store.session.sessionDrawer.draftTitle)
-                        if !started {
-                            appToast.show(HarnessCopy.alreadyInNewSession)
-                        }
-                    },
-                    onOpenWorkbench: {
-                        PreviewKeyboardDismiss.run()
-                        if store.coreEngineActive {
-                            store.openWorkbenchPanel()
-                        } else {
-                            store.refreshWorkbench()
-                        }
-                        workbenchOpen = true
-                        store.syncWorkbenchOpenFromUi(true)
-                    }
+                    onOpenDrawer: openDrawer,
+                    onNewConversation: startNewConversation,
+                    onOpenWorkbench: openWorkbench
                 )
-
                 ZStack {
                     VStack(spacing: 0) {
-                        if !serviceBannerDismissed && store.session.chrome.serviceState != "ready" {
-                            ServiceBannerView(
-                                serviceState: store.session.chrome.serviceState,
-                                onRetry: { serviceBannerDismissed = false },
-                                onDismiss: { serviceBannerDismissed = true }
-                            )
-                        }
-                        if store.session.chrome.serviceState == "ready" {
-                            ProblemDetailsCardView(
-                                title: store.session.problemTitle,
-                                detail: store.session.problemDetail
-                            )
-                        }
-
-                        Group {
-                            if store.session.conversation.isEmpty {
-                                VStack(spacing: 16) {
-                                    HStack(spacing: 14) {
-                                        BrandIconView(size: 40)
-                                        Text(HarnessCopy.newSessionWelcome)
-                                            .font(.system(size: 18, weight: .medium))
-                                    }
-                                    if store.session.scenarioId == "empty-landing" {
-                                        Button(action: onLoadDemoFixture) {
-                                            Text("加载演示 Mock（对话 + 工作台）")
-                                                .font(.body)
-                                                .foregroundStyle(HarnessColors.link)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .accessibilityIdentifier("landing-load-demo-mock")
-                                        Text("或：设置 → 演示场景")
-                                            .font(.caption)
-                                            .foregroundStyle(HarnessColors.muted)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            } else {
-                                ScrollViewReader { proxy in
-                                    ScrollView {
-                                        LazyVStack(spacing: HarnessLayout.chatListTurnSpacing) {
-                                            if store.session.canLoadOlderMessages {
-                                                Button {
-                                                    store.loadOlderMessages()
-                                                } label: {
-                                                    Text(
-                                                        store.session.loadingOlderMessages
-                                                            ? "正在加载更早消息…"
-                                                            : "加载更早消息"
-                                                    )
-                                                    .font(.footnote)
-                                                    .foregroundStyle(HarnessColors.secondary)
-                                                    .frame(maxWidth: .infinity)
-                                                    .padding(.vertical, 12)
-                                                }
-                                                .disabled(store.session.loadingOlderMessages)
-                                            }
-                                            ForEach(Array(store.session.conversation.enumerated()), id: \.offset) { idx, item in
-                                                ConversationTurnRowView(
-                                                    item: item,
-                                                    previewReduceMotion: preferences.reduceMotion
-                                                ) { toolId in
-                                                    focusedToolStepId = toolId
-                                                    workbenchOpen = true
-                                                    if store.coreEngineActive {
-                                                        let runId =
-                                                            store.session.workbench.runId
-                                                            ?? store.session.scenarioId
-                                                        store.focusWorkbenchToolCall(
-                                                            runId: runId,
-                                                            toolCallId: toolId
-                                                        )
-                                                        store.syncWorkbenchOpenFromUi(true)
-                                                    }
-                                                }
-                                                .id(idx)
-                                            }
-                                            Color.clear.frame(height: 1).id("gate-a-scroll-bottom")
-                                        }
-                                        .padding(.horizontal, 12)
-                                        .padding(.top, 4)
-                                    }
-                                    .accessibilityIdentifier("conversation-scroll")
-                                    .onChange(of: fixtureFileName) { _, _ in
-                                        if !store.session.conversation.isEmpty {
-                                            proxy.scrollTo("gate-a-scroll-bottom", anchor: .bottom)
-                                        }
-                                    }
-                                    .onChange(of: userTurnCount(in: store.session.conversation)) { oldCount, newCount in
-                                        guard newCount > oldCount else { return }
-                                        if case .user = store.session.conversation.last {
-                                            proxy.scrollTo("gate-a-scroll-bottom", anchor: .bottom)
-                                        }
-                                    }
-                                    .onAppear {
-                                        if !store.session.conversation.isEmpty {
-                                            proxy.scrollTo("gate-a-scroll-bottom", anchor: .bottom)
-                                        }
-                                        guard fixtureFileName.contains("long-thread-scroll") else { return }
-                                        var step = 0
-                                        GateAScrollPerformanceMonitor.startIfNeeded {
-                                            step = (step + 8) % store.session.conversation.count
-                                            withAnimation(.linear(duration: 0.08)) {
-                                                proxy.scrollTo(step, anchor: .top)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .background(HarnessColors.canvas)
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        VStack(spacing: 0) {
-                            ComposerStackView(
-                                state: store.session.composer,
-                                workbenchOpen: workbenchOpen,
-                                composerBlock: preferences.resolveComposerBlock(),
-                                onLoginClick: onOpenLogin,
-                                onPreviewAction: store.applyPreviewAction,
-                                useCoreAttachments: store.coreEngineActive,
-                                onUploadAttachmentData: { name, data, mime in
-                                    store.uploadComposerAttachment(fileName: name, data: data, mediaType: mime)
-                                },
-                                modelCatalog: store.composerModelCatalog,
-                                skillPickerNames: store.skillPickerNames,
-                                onSkillSheetOpen: store.onComposerSkillSheetOpen,
-                                onClearComposerRevisionSeed: store.clearComposerRevisionSeed
-                            )
-                        }
-                        .background {
-                            GeometryReader { proxy in
-                                Color.clear.preference(
-                                    key: ComposerChromeHeightKey.self,
-                                    value: proxy.size.height
-                                )
-                            }
-                        }
-                        .background(HarnessColors.canvas)
+                        conversationArea
                     }
                 }
             }
             .overlay(alignment: .bottom) {
-                let composer = store.session.composer
-                if PreviewChromeFlags.showPlanOverlay,
-                   !workbenchOpen,
-                   composer.showPlan,
-                   composer.mode != "clarification",
-                   composer.mode != "hitl",
-                   let plan = composer.plan
-                {
-                    PlanFloatingCardView(plan: plan, lockCollapsed: workbenchOpen)
-                        .frame(maxWidth: 360)
-                        .padding(.bottom, composerChromeHeight + 8)
-                        .frame(maxWidth: .infinity)
-                }
+                planOverlay
             }
             .onPreferenceChange(ComposerChromeHeightKey.self) { composerChromeHeight = $0 }
 
-            WorkbenchSheetView(
-                previewReduceMotion: preferences.reduceMotion,
-                visible: workbenchOpen,
-                state: store.session.workbench,
-                onDismiss: {
-                    workbenchOpen = false
-                    focusedToolStepId = nil
-                    store.syncWorkbenchOpenFromUi(false)
-                },
-                onOpenReportReader: {
-                    let md = store.session.workbench.reportMarkdown ?? "# Preview Report"
-                    onOpenReportReader(store.session.title, md)
-                },
-                onOpenArtifactReader: {
-                    let diff = store.session.workbench.artifactDiffPreview ?? "--- diff"
-                    onOpenArtifactReader("Artifact", diff)
-                },
-                onOpenFilePreview: { fileName, markdown in
-                    onOpenReportReader(fileName, markdown)
-                },
-                onRestoreArtifactVersion: { restoreId, expectedId in
-                    if store.coreEngineActive {
-                        store.restoreArtifactVersion(
-                            restoreId: restoreId,
-                            expectedCurrentArtifactId: expectedId
-                        )
-                    } else {
-                        appToast.show("Preview：已确认恢复（未写服务器）")
-                    }
-                },
-                onBeginArtifactRevision: { artifactId in
-                    if store.coreEngineActive {
-                        store.beginArtifactRevision(artifactId: artifactId)
-                    } else {
-                        appToast.show("Preview：已预填修改草稿（未写服务器）")
-                    }
-                },
-                initialFocusedToolId: focusedToolStepId
-            )
-
-            SessionDrawerOverlayView(
-                store: store,
-                previewReduceMotion: preferences.reduceMotion,
-                onOpenSettings: {
-                    store.drawerOpen = false
-                    onOpenSettings()
-                })
+            workbenchSheet
+            sessionDrawer
         }
         .environment(\.previewContentFontSize, CGFloat(preferences.contentFontSize))
         .onChange(of: store.session.scenarioId) { _, _ in
@@ -309,6 +95,341 @@ struct PreviewChatShellView: View {
             appToast.show(hint)
             store.clearWorkbenchFocusHint()
         }
+    }
+}
+
+private extension PreviewChatShellView {
+    func openDrawer() {
+        PreviewKeyboardDismiss.run()
+        store.drawerOpen = true
+    }
+
+    func startNewConversation() {
+        PreviewKeyboardDismiss.run()
+        let started = store.startNewConversation(draftTitle: store.session.sessionDrawer.draftTitle)
+        if !started {
+            appToast.show(HarnessCopy.alreadyInNewSession)
+        }
+    }
+
+    func openWorkbench() {
+        PreviewKeyboardDismiss.run()
+        if store.coreEngineActive {
+            store.openWorkbenchPanel()
+        } else {
+            store.refreshWorkbench()
+        }
+        workbenchOpen = true
+        store.syncWorkbenchOpenFromUi(true)
+    }
+
+    var conversationArea: some View {
+        VStack(spacing: 0) {
+            serviceChrome
+            Group {
+                if store.session.conversation.isEmpty {
+                    emptyConversationView
+                } else {
+                    ScrollViewReader { proxy in
+                        conversationScrollView(proxy: proxy)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+                topFade
+            }
+            .overlay(alignment: .bottom) {
+                bottomFade
+            }
+            composerInset
+        }
+        .background(HarnessColors.canvas)
+    }
+
+    @ViewBuilder
+    var serviceChrome: some View {
+        if !serviceBannerDismissed && store.session.chrome.serviceState != "ready" {
+            ServiceBannerView(
+                serviceState: store.session.chrome.serviceState,
+                onRetry: { serviceBannerDismissed = false },
+                onDismiss: { serviceBannerDismissed = true }
+            )
+        }
+        if store.session.chrome.serviceState == "ready" {
+            ProblemDetailsCardView(
+                title: store.session.problemTitle,
+                detail: store.session.problemDetail
+            )
+        }
+    }
+
+    var emptyConversationView: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 14) {
+                BrandIconView(size: 40)
+                Text(HarnessCopy.newSessionWelcome)
+                    .font(.system(size: 18, weight: .medium))
+            }
+            if store.session.scenarioId == "empty-landing" {
+                Button(action: onLoadDemoFixture) {
+                    Text("加载演示 Mock（对话 + 工作台）")
+                        .font(.body)
+                        .foregroundStyle(HarnessColors.link)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("landing-load-demo-mock")
+                Text("或：设置 → 演示场景")
+                    .font(.caption)
+                    .foregroundStyle(HarnessColors.muted)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    var topFade: some View {
+        LinearGradient(
+            colors: [HarnessColors.canvas, HarnessColors.canvas.opacity(0)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: 18)
+        .allowsHitTesting(false)
+    }
+
+    var bottomFade: some View {
+        LinearGradient(
+            colors: [HarnessColors.canvas.opacity(0), HarnessColors.canvas],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: 18)
+        .allowsHitTesting(false)
+    }
+
+    var composerInset: some View {
+        VStack(spacing: 0) {
+            ComposerStackView(
+                state: store.session.composer,
+                workbenchOpen: workbenchOpen,
+                composerBlock: preferences.resolveComposerBlock(),
+                onLoginClick: onOpenLogin,
+                onPreviewAction: store.applyPreviewAction,
+                useCoreAttachments: store.coreEngineActive,
+                onUploadAttachmentData: { name, data, mime in
+                    store.uploadComposerAttachment(fileName: name, data: data, mediaType: mime)
+                },
+                modelCatalog: store.composerModelCatalog,
+                skillPickerNames: store.skillPickerNames,
+                onSkillSheetOpen: store.onComposerSkillSheetOpen,
+                onClearComposerRevisionSeed: store.clearComposerRevisionSeed,
+                onSendComposerText: { text, modelId, reasoningEffort, skillNames, completion in
+                    store.submitComposerText(
+                        text: text,
+                        modelId: modelId,
+                        reasoningEffort: reasoningEffort,
+                        skillNames: skillNames,
+                        onAccepted: completion
+                    )
+                }
+            )
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ComposerChromeHeightKey.self,
+                    value: proxy.size.height
+                )
+            }
+        }
+        .onChange(of: store.composerSubmitError) { _, message in
+            guard let message, !message.isEmpty else { return }
+            appToast.show(message)
+            store.composerSubmitError = nil
+        }
+        .background(HarnessColors.canvas)
+    }
+
+    @ViewBuilder
+    var planOverlay: some View {
+        let composer = store.session.composer
+        if PreviewChromeFlags.showPlanOverlay,
+           !workbenchOpen,
+           composer.showPlan,
+           composer.mode != "clarification",
+           composer.mode != "hitl",
+           let plan = composer.plan
+        {
+            PlanFloatingCardView(plan: plan, lockCollapsed: workbenchOpen)
+                .frame(maxWidth: 360)
+                .padding(.bottom, composerChromeHeight + 8)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    var workbenchSheet: some View {
+        WorkbenchSheetView(
+            previewReduceMotion: preferences.reduceMotion,
+            visible: workbenchOpen,
+            state: store.session.workbench,
+            onDismiss: {
+                workbenchOpen = false
+                focusedToolStepId = nil
+                store.syncWorkbenchOpenFromUi(false)
+            },
+            onOpenReportReader: {
+                let md = store.session.workbench.reportMarkdown ?? ""
+                onOpenReportReader(store.session.title, md)
+            },
+            onOpenArtifactReader: openWorkbenchArtifact,
+            onRestoreArtifactVersion: restoreArtifactVersion,
+            onBeginArtifactRevision: beginArtifactRevision,
+            initialFocusedToolId: focusedToolStepId
+        )
+    }
+
+    var sessionDrawer: some View {
+        SessionDrawerOverlayView(
+            store: store,
+            previewReduceMotion: preferences.reduceMotion,
+            onOpenSettings: {
+                store.drawerOpen = false
+                onOpenSettings()
+            }
+        )
+    }
+
+    func openWorkbenchArtifact(_ file: WorkbenchDeliverableFile) {
+        onOpenArtifactReader(ReaderTarget(
+            artifactId: file.artifactId,
+            fileId: file.fileId,
+            fileName: file.fileName,
+            mediaType: file.mediaType,
+            fileKind: file.fileKind
+        ))
+    }
+
+    func restoreArtifactVersion(_ restoreId: String, _ expectedId: String) {
+        if store.coreEngineActive {
+            store.restoreArtifactVersion(
+                restoreId: restoreId,
+                expectedCurrentArtifactId: expectedId
+            )
+        } else {
+            appToast.show("Preview：已确认恢复（未写服务器）")
+        }
+    }
+
+    func beginArtifactRevision(_ artifactId: String) {
+        if store.coreEngineActive {
+            store.beginArtifactRevision(artifactId: artifactId)
+        } else {
+            appToast.show("Preview：已预填修改草稿（未写服务器）")
+        }
+    }
+}
+
+private extension PreviewChatShellView {
+    @ViewBuilder
+    func conversationScrollView(proxy: ScrollViewProxy) -> some View {
+        ScrollView {
+            conversationList
+        }
+        .accessibilityIdentifier("conversation-scroll")
+        .onChange(of: fixtureFileName) { _, _ in
+            scrollToBottom(proxy)
+        }
+        .onChange(of: userTurnCount(in: store.session.conversation)) { oldCount, newCount in
+            guard newCount > oldCount else { return }
+            if case .user = store.session.conversation.last {
+                scrollToBottom(proxy)
+            }
+        }
+        .onAppear {
+            if !store.session.conversation.isEmpty {
+                scrollToBottom(proxy)
+            }
+            startGateAScrollIfNeeded(proxy: proxy)
+        }
+    }
+
+    @ViewBuilder
+    var conversationList: some View {
+        LazyVStack(spacing: HarnessLayout.chatListTurnSpacing) {
+            if store.session.canLoadOlderMessages {
+                Button {
+                    store.loadOlderMessages()
+                } label: {
+                    Text(
+                        store.session.loadingOlderMessages
+                            ? "正在加载更早消息…"
+                            : "加载更早消息"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(HarnessColors.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                }
+                .disabled(store.session.loadingOlderMessages)
+            }
+            ForEach(Array(store.session.conversation.enumerated()), id: \.offset) { _, item in
+                conversationRow(item)
+            }
+            Color.clear
+                .frame(height: 28)
+                .id("conversation-tail-spacer")
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+        .padding(.bottom, 4)
+    }
+
+    func startGateAScrollIfNeeded(proxy: ScrollViewProxy) {
+        guard fixtureFileName.contains("long-thread-scroll") else { return }
+        var step = 0
+        GateAScrollPerformanceMonitor.startIfNeeded {
+            step = (step + 8) % store.session.conversation.count
+            guard step < store.session.conversation.count else { return }
+            withAnimation(.linear(duration: 0.08)) {
+                proxy.scrollTo(store.session.conversation[step].id, anchor: .top)
+            }
+        }
+    }
+}
+
+private extension PreviewChatShellView {
+    @ViewBuilder
+    func conversationRow(_ item: ConversationItem) -> some View {
+        ConversationTurnRowView(
+            item: item,
+            previewReduceMotion: preferences.reduceMotion,
+            onOpenWorkbenchStep: openWorkbenchStep,
+            onOpenArtifact: openArtifact
+        )
+    }
+
+    func openWorkbenchStep(_ toolId: String) {
+        focusedToolStepId = toolId
+        workbenchOpen = true
+        guard store.coreEngineActive else { return }
+        let runId = store.session.workbench.runId ?? store.session.scenarioId
+        store.focusWorkbenchToolCall(runId: runId, toolCallId: toolId)
+        store.syncWorkbenchOpenFromUi(true)
+    }
+
+    func openArtifact(_ artifact: ArtifactItem) {
+        onOpenArtifactReader(ReaderTarget(
+            artifactId: artifact.artifactId,
+            fileId: artifact.fileId,
+            fileName: artifact.fileName,
+            mediaType: artifact.mediaType,
+            fileKind: artifact.fileKind
+        ))
+    }
+
+    func scrollToBottom(_ proxy: ScrollViewProxy) {
+        guard !store.session.conversation.isEmpty else { return }
+        proxy.scrollTo("conversation-tail-spacer", anchor: .bottom)
     }
 }
 

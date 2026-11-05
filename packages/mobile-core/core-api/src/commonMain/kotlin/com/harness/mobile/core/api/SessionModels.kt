@@ -68,8 +68,16 @@ data class SessionDetail(
 )
 
 @Serializable
+data class SessionListPagination(
+    val limit: Int,
+    val hasMore: Boolean,
+    val nextBefore: String? = null,
+)
+
+@Serializable
 data class ListSessionsResponse(
     val sessions: List<SessionSummary>,
+    val pagination: SessionListPagination? = null,
 )
 
 @Serializable
@@ -109,6 +117,7 @@ data class MobileSessionDrawerRow(
 )
 
 data class MobileConversationLine(
+    val id: String = "",
     val kind: String,
     val content: String,
     val attachments: List<FileRef> = emptyList(),
@@ -119,6 +128,7 @@ data class MobileConversationLine(
     val reasoning: String? = null,
     val reasoningStreaming: Boolean = false,
     val process: List<MobileProcessBlock> = emptyList(),
+    val artifacts: List<ArtifactRef> = emptyList(),
 )
 
 data class MobileProcessBlock(
@@ -147,6 +157,8 @@ data class MobileActiveSessionSnapshot(
     val isLanding: Boolean,
     val drawerSessions: List<MobileSessionDrawerRow>,
     val conversation: List<MobileConversationLine>,
+    val canLoadOlderSessionSummaries: Boolean = false,
+    val loadingOlderSessionSummaries: Boolean = false,
     val followUps: List<MobileFollowUpRow> = emptyList(),
     val sessionDetailLoading: Boolean = false,
     val composerSubmitting: Boolean = false,

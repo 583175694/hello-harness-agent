@@ -76,6 +76,87 @@ class HarnessEngineBridge(
         }
     }
 
+    fun loadOlderSessionSummaries(onComplete: (Boolean, String?) -> Unit = { _, _ -> }) {
+        scope.launch {
+            val result = engine.loadOlderSessionSummaries()
+            onComplete(result.isSuccess, result.exceptionOrNull()?.message)
+        }
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    fun previewArtifact(
+        artifactId: String,
+        onComplete: (Boolean, String?, String?, String?, String?, Boolean) -> Unit,
+    ) {
+        scope.launch {
+            val result = engine.previewArtifact(artifactId)
+            val content = result.getOrNull()
+            onComplete(
+                result.isSuccess,
+                result.exceptionOrNull()?.message,
+                content?.bytes?.let { Base64.encode(it) },
+                content?.contentType,
+                content?.fileName,
+                content?.binary ?: false,
+            )
+        }
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    fun downloadArtifact(
+        artifactId: String,
+        onComplete: (Boolean, String?, String?, String?, String?) -> Unit,
+    ) {
+        scope.launch {
+            val result = engine.downloadArtifact(artifactId)
+            val content = result.getOrNull()
+            onComplete(
+                result.isSuccess,
+                result.exceptionOrNull()?.message,
+                content?.bytes?.let { Base64.encode(it) },
+                content?.contentType,
+                content?.fileName,
+            )
+        }
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    fun previewFile(
+        fileId: String,
+        onComplete: (Boolean, String?, String?, String?, String?, Boolean) -> Unit,
+    ) {
+        scope.launch {
+            val result = engine.previewFile(fileId)
+            val content = result.getOrNull()
+            onComplete(
+                result.isSuccess,
+                result.exceptionOrNull()?.message,
+                content?.bytes?.let { Base64.encode(it) },
+                content?.contentType,
+                content?.fileName,
+                content?.binary ?: false,
+            )
+        }
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    fun downloadFile(
+        fileId: String,
+        onComplete: (Boolean, String?, String?, String?, String?) -> Unit,
+    ) {
+        scope.launch {
+            val result = engine.downloadFile(fileId)
+            val content = result.getOrNull()
+            onComplete(
+                result.isSuccess,
+                result.exceptionOrNull()?.message,
+                content?.bytes?.let { Base64.encode(it) },
+                content?.contentType,
+                content?.fileName,
+            )
+        }
+    }
+
     fun selectSession(sessionId: String) {
         scope.launch { engine.selectSession(sessionId) }
     }

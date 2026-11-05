@@ -50,6 +50,7 @@ final class PreviewAppPreferences {
     var readerTitle: String = "Report"
     var readerMarkdown: String = ""
     var readerIsArtifact: Bool = false
+    var readerTarget: ReaderTarget?
 
     var authProfile: PreviewAuthProfile? {
         didSet { persistAuth() }
@@ -105,6 +106,14 @@ final class PreviewAppPreferences {
         readerTitle = title
         readerMarkdown = markdown
         readerIsArtifact = isArtifact
+        readerTarget = nil
+    }
+
+    func openArtifactReader(_ target: ReaderTarget) {
+        readerTitle = target.fileName.isEmpty ? "文件" : target.fileName
+        readerMarkdown = ""
+        readerIsArtifact = true
+        readerTarget = target
     }
 
     func upsertMcp(_ server: PreviewMcpServer) {

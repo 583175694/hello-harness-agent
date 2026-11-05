@@ -114,6 +114,17 @@ const streamFixture = JSON.parse(read('fixtures/preview/streaming-assistant-tail
 if (!streamFixture.replay?.assistantTail) {
   fail('streaming-assistant-tail.json missing replay.assistantTail (#12)');
 }
+const harmonyReplay = read('apps/harmony/entry/src/main/ets/preview/PreviewReplayController.ets');
+if ((harmonyReplay.match(/\.\.\.prior/g) ?? []).length < 2) {
+  fail('Harmony ReplayController must preserve id/artifacts via prior spread (#1/#12)');
+}
+const harmonyChatScroll = read('apps/harmony/entry/src/main/ets/pages/PreviewChatPage.ets');
+if (/lastTailUserId\s*=\s*`pending:/.test(harmonyChatScroll)) {
+  fail('Harmony chat must not fabricate pending tail ids (#6)');
+}
+if (!/nextTail\s*!==\s*this\.lastTailUserId[\s\S]{0,180}scrollConversationToBottom/.test(harmonyChatScroll)) {
+  fail('Harmony chat must scroll only when the tail user message id changes (#6)');
+}
 ok('UI regression static: ReplayController + streaming fixture (#12)');
 
 // #13 Process timeline → Workbench（点工具行打开，无 Composer Peek 条）
@@ -424,8 +435,11 @@ ok('UI regression static: Workbench full-bleed scrim + top bar structure (#5)');
 if (!/imePadding/.test(read('apps/android/app/src/main/kotlin/com/harness/agent/ui/PreviewScreens.kt'))) {
   fail('Android Preview chat shell missing imePadding (#2)');
 }
-if (!/safeAreaInset\(edge: \.bottom/.test(read('apps/ios/Harness/Preview/PreviewChatShellView.swift'))) {
-  fail('iOS Preview chat shell missing bottom safeAreaInset for Composer (#2)');
+if (/safeAreaInset\(edge: \.bottom/.test(iosShell)) {
+  fail('iOS Preview chat shell must not stack safeAreaInset with the sibling Composer (#2)');
+}
+if (!/conversationScrollView\(proxy: proxy\)[\s\S]*composerInset[\s\S]*ComposerStackView/.test(iosShell)) {
+  fail('iOS Preview chat shell must lay out Composer as a sibling below the conversation list (#2)');
 }
 if (!/keyboardAvoidMode/.test(read('apps/harmony/entry/src/main/ets/pages/PreviewChatPage.ets'))) {
   fail('Harmony PreviewChatPage missing keyboardAvoidMode (#2)');

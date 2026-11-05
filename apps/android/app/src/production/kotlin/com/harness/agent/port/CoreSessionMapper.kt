@@ -1,6 +1,7 @@
 package com.harness.agent.port
 
 import com.harness.agent.model.ActiveSessionState
+import com.harness.agent.model.ArtifactItem
 import com.harness.agent.model.ChromeState
 import com.harness.agent.model.ConversationItem
 import com.harness.agent.model.SessionDrawerItem
@@ -22,7 +23,12 @@ object CoreSessionMapper {
                 FollowUpFixture(id = row.id, content = row.content)
             }
         val runtimeSteer =
-            snapshot?.drawerSessions?.any { it.active && it.running } == true &&
+            (
+                snapshot?.drawerSessions?.any { it.active && it.running } == true ||
+                    snapshot?.conversation?.lastOrNull()?.let {
+                        it.kind == "assistant" && (it.pending || it.deliveryStatus == "streaming")
+                    } == true
+            ) &&
                 snapshot.composerClarification == null &&
                 snapshot.composerToolApproval == null
         val clarification = snapshot?.composerClarification
@@ -87,6 +93,8 @@ object CoreSessionMapper {
                 workbench = WorkbenchSnapshotMapper.toUi(snapshot?.workbench),
                 canLoadOlderMessages = snapshot?.canLoadOlderMessages == true,
                 loadingOlderMessages = snapshot?.loadingOlderMessages == true,
+                canLoadOlderSessionSummaries = snapshot?.canLoadOlderSessionSummaries == true,
+                loadingOlderSessionSummaries = snapshot?.loadingOlderSessionSummaries == true,
                 uiHints =
                     com.harness.agent.model.UiHints(
                         workbenchOpen = snapshot?.workbenchOpen == true,
@@ -107,6 +115,7 @@ object CoreSessionMapper {
         when (line.kind) {
             "user" ->
                 ConversationItem.User(
+                    id = line.id.ifBlank { "user-${line.hashCode()}" },
                     content = line.content,
                     attachments = line.attachments.map(::toUserAttachment),
                 )
@@ -117,6 +126,7 @@ object CoreSessionMapper {
                 val pendingBody = line.pendingText?.takeIf { it.isNotBlank() }
                 val finalBody = line.finalText?.takeIf { it.isNotBlank() }
                 ConversationItem.Assistant(
+                    id = line.id.ifBlank { "assistant-${line.hashCode()}" },
                     deliveryStatus = status,
                     pending = line.pending,
                     pendingText = if (runInProgress) pendingBody else null,
@@ -126,6 +136,7 @@ object CoreSessionMapper {
                     process = if (line.process.isNotEmpty()) line.process.mapNotNull { block ->
                         when (block.kind) {
                             "reasoning" -> com.harness.agent.model.ProcessBlock.Reasoning(
+                                id = block.id,
                                 content = block.content,
                                 durationMs = block.durationMs,
                                 streaming = block.streaming,
@@ -137,21 +148,37 @@ object CoreSessionMapper {
                                 status = block.status,
                                 duration = block.duration,
                             )
-                            "text" -> com.harness.agent.model.ProcessBlock.Text(block.content)
+                            "text" -> com.harness.agent.model.ProcessBlock.Text(block.id, block.content)
                             else -> null
                         }
                     } else line.reasoning?.takeIf { it.isNotBlank() }?.let {
                         listOf(
                             com.harness.agent.model.ProcessBlock.Reasoning(
+                                id = "${line.id}:reasoning",
                                 content = it,
                                 streaming = streaming && line.reasoningStreaming,
                             ),
                         )
                     }.orEmpty(),
+                    artifacts = line.artifacts.map(::toArtifactItem),
                 )
             }
             else -> null
         }
+
+    private fun toArtifactItem(ref: com.harness.mobile.core.api.ArtifactRef): ArtifactItem =
+        ArtifactItem(
+            artifactId = ref.artifactId,
+            fileId = ref.fileId,
+            fileName = ref.fileName,
+            mediaType = ref.mediaType,
+            fileKind = ref.fileKind,
+            size = ref.size,
+            status = ref.status,
+            seriesId = ref.seriesId,
+            versionNumber = ref.versionNumber,
+            isCurrent = ref.isCurrent,
+        )
 
     private fun toUserAttachment(ref: FileRef): UserAttachmentItem =
         UserAttachmentItem(

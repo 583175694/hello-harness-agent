@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -47,6 +48,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.harness.agent.coreui.motion.rememberHarnessReduceMotion
+import com.harness.agent.coreui.markdown.ChatMarkdown
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -193,15 +195,17 @@ fun AssistantProcessTimeline(
                 renderable.forEachIndexed { index, pair ->
                     val (_, block) = pair
                     val isLast = index == renderable.lastIndex
-                    when (block) {
-                        is ProcessBlock.ToolActivity -> ToolActivityStep(block, isLast, onOpenWorkbench)
-                        is ProcessBlock.Reasoning ->
-                            ReasoningStep(
-                                block = block,
-                                isLast = isLast,
-                                reduceMotion = reduceMotion,
-                            )
-                        is ProcessBlock.Text -> TextProcessStep(block, isLast)
+                    key(block.stableKey(index)) {
+                        when (block) {
+                            is ProcessBlock.ToolActivity -> ToolActivityStep(block, isLast, onOpenWorkbench)
+                            is ProcessBlock.Reasoning ->
+                                ReasoningStep(
+                                    block = block,
+                                    isLast = isLast,
+                                    reduceMotion = reduceMotion,
+                                )
+                            is ProcessBlock.Text -> TextProcessStep(block, isLast)
+                        }
                     }
                 }
             }
@@ -483,8 +487,17 @@ private fun ProcessTimelineReasoningScrollBody(
 ) {
     val colors = LocalHarnessColors.current
     val scrollState = rememberScrollState()
+    var userPinnedAway by remember { mutableStateOf(false) }
+    LaunchedEffect(scrollState.isScrollInProgress) {
+        if (scrollState.isScrollInProgress && scrollState.value < scrollState.maxValue - 8) {
+            userPinnedAway = true
+        }
+        if (!scrollState.isScrollInProgress && scrollState.value >= scrollState.maxValue - 4) {
+            userPinnedAway = false
+        }
+    }
     LaunchedEffect(text, streaming) {
-        if (streaming) {
+        if (streaming && !userPinnedAway) {
             scrollState.scrollTo(scrollState.maxValue)
         }
     }
@@ -523,7 +536,15 @@ private fun ProcessTimelineReasoningScrollBody(
                     .fillMaxWidth()
                     .verticalScroll(scrollState),
         ) {
-            ProcessTimelineReasoningText(text = text)
+            if (streaming) {
+                ProcessTimelineReasoningText(text = text)
+            } else {
+                ChatMarkdown(
+                    markdown = text,
+                    modifier = Modifier.fillMaxWidth(),
+                    compact = true,
+                )
+            }
         }
     }
 }

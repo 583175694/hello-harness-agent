@@ -7,6 +7,8 @@ import { PreviewComposerBlockKind } from './PreviewAuth';
 export struct PreviewComposerStack {
   @Prop composer: ComposerPreviewState;
   @Prop modelLabelOverride: string = '';
+  @Prop selectedModelId: string = '';
+  @Prop selectedReasoningEffort: string = '';
   @Prop useDark: boolean = false;
   @Prop workbenchOpen: boolean = false;
   @Prop composerBlock: PreviewComposerBlockKind = PreviewComposerBlockKind.NONE;
@@ -20,6 +22,9 @@ export struct PreviewComposerStack {
   };
   onPreviewAction: (action: import('./PreviewSessionReducer').PreviewUiAction) => void = () => {
   };
+  onSendComposerText: (text: string, modelId: string, reasoningEffort: string,
+    skillNames: string[], onAccepted: (accepted: boolean) => void) => void = () => {
+  };
   onClearComposerRevisionSeed: () => void = () => {
   };
 
@@ -27,6 +32,8 @@ export struct PreviewComposerStack {
     PreviewComposerBar({
       composer: this.composer,
       modelLabelOverride: this.modelLabelOverride,
+      selectedModelId: this.selectedModelId,
+      selectedReasoningEffort: this.selectedReasoningEffort,
       useDark: this.useDark,
       workbenchOpen: this.workbenchOpen,
       composerBlock: this.composerBlock,
@@ -35,6 +42,8 @@ export struct PreviewComposerStack {
       onAttachClick: () => this.onAttachClick(),
       onSkillClick: () => this.onSkillClick(),
       onPreviewAction: (action) => this.onPreviewAction(action),
+      onSendComposerText: (text, modelId, reasoningEffort, skillNames, onAccepted) =>
+        this.onSendComposerText(text, modelId, reasoningEffort, skillNames, onAccepted),
       onClearComposerRevisionSeed: () => this.onClearComposerRevisionSeed(),
     })
   }

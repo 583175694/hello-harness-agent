@@ -1,3 +1,5 @@
+import { ArtifactCardRow } from '../preview/PreviewModels';
+
 export interface SessionSummaryRow {
   id: string;
   title: string;
@@ -13,6 +15,7 @@ export interface PersistedMessageRow {
   role: string;
   kind: string;
   content: string;
+  attachments?: FileRefRow[];
   reasoning?: string;
   metadata?: Record<string, Object>;
   runId?: string;
@@ -25,6 +28,10 @@ export interface SessionActiveRunRow {
   assistantMessageId: string;
   status: string;
   lastEventSequence?: number;
+}
+
+export interface SubmitPendingInputRow {
+  kind: string;
 }
 
 export interface PendingUserInputRow {
@@ -42,6 +49,8 @@ export interface FileRefRow {
   size: number;
   status: string;
   errorCode?: string;
+  previewUrl?: string;
+  fileKind?: string;
 }
 
 export interface SessionPaginationRow {
@@ -52,6 +61,13 @@ export interface SessionPaginationRow {
 
 export interface ArtifactRefRow {
   artifactId: string;
+  fileId?: string;
+  fileName?: string;
+  mediaType?: string;
+  fileKind?: string;
+  size?: number;
+  status?: string;
+  seriesId?: string;
   versionNumber?: number;
   isCurrent?: boolean;
 }
@@ -143,8 +159,10 @@ export interface LiveRunStateRow {
   userMessageId: string;
   assistantMessageId: string;
   userText: string;
+  userAttachments?: FileRefRow[];
   assistantText: string;
   reasoningText: string;
+  artifacts?: ArtifactCardRow[];
   deliveryStatus: string;
   cursor: number;
   composerClarification?: ComposerClarificationLiveRow;

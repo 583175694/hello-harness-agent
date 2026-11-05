@@ -21,7 +21,7 @@ enum CoreSessionMapper {
                                 previewUrl: attachment.previewUrl
                             )
                         }
-                    return .user(content: line.content, attachments: attachments)
+                    return .user(id: line.id, content: line.content, attachments: attachments)
                 }
                 if kind == "assistant" {
                     let status = line.deliveryStatus ?? "completed"
@@ -29,7 +29,22 @@ enum CoreSessionMapper {
                     let runInProgress = line.pending || streaming
                     let pendingBody = line.pendingText?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let finalBody = line.finalText?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let artifacts = line.artifacts.map { ref in
+                        ArtifactItem(
+                            artifactId: ref.artifactId,
+                            fileId: ref.fileId,
+                            fileName: ref.fileName,
+                            mediaType: ref.mediaType,
+                            fileKind: ref.fileKind,
+                            size: Int(ref.size),
+                            status: ref.status,
+                            seriesId: ref.seriesId,
+                            versionNumber: ref.versionNumber?.intValue,
+                            isCurrent: ref.isCurrent?.boolValue
+                        )
+                    }
                     return .assistant(
+                        id: line.id,
                         status: status,
                         pending: line.pending,
                         pendingText: runInProgress ? (pendingBody?.isEmpty == false ? pendingBody : nil) : nil,
@@ -40,15 +55,16 @@ enum CoreSessionMapper {
                         process: !line.process.isEmpty
                             ? line.process.compactMap { block in
                                 switch block.kind {
-                                case "reasoning": return .reasoning(content: block.content, durationMs: block.durationMs?.intValue, streaming: block.streaming)
+                                case "reasoning": return .reasoning(id: block.id, content: block.content, durationMs: block.durationMs?.intValue, streaming: block.streaming)
                                 case "tool": return .toolActivity(id: block.id, name: block.name, summary: block.summary, status: block.status, duration: block.duration)
-                                case "text": return .text(block.content)
+                                case "text": return .text(id: block.id, content: block.content)
                                 default: return nil
                                 }
                             }
                             : (line.reasoning?.isEmpty == false
-                            ? [.reasoning(content: line.reasoning!, durationMs: nil, streaming: streaming && line.reasoningStreaming)]
-                            : [])
+                            ? [.reasoning(id: "\(line.id):reasoning", content: line.reasoning!, durationMs: nil, streaming: streaming && line.reasoningStreaming)]
+                            : []),
+                        artifacts: artifacts
                     )
                 }
                 return nil
@@ -99,7 +115,10 @@ enum CoreSessionMapper {
         let clarification = snapshot?.composerClarification
         let toolApproval = snapshot?.composerToolApproval
         let runtimeSteer =
-            drawerRows.contains { $0.active && $0.running }
+            (
+                drawerRows.contains { $0.active && $0.running }
+                    || snapshot?.conversation.last.map { $0.kind == "assistant" && ($0.pending || $0.deliveryStatus == "streaming") } == true
+            )
             && clarification == nil
             && toolApproval == nil
         let composerMode: String =
@@ -155,7 +174,9 @@ enum CoreSessionMapper {
             composer: composer,
             workbench: WorkbenchSnapshotMapper.toUi(snapshot?.workbench),
             canLoadOlderMessages: snapshot?.canLoadOlderMessages ?? false,
-            loadingOlderMessages: snapshot?.loadingOlderMessages ?? false
+            loadingOlderMessages: snapshot?.loadingOlderMessages ?? false,
+            canLoadOlderSessionSummaries: snapshot?.canLoadOlderSessionSummaries ?? false,
+            loadingOlderSessionSummaries: snapshot?.loadingOlderSessionSummaries ?? false
         )
     }
 }

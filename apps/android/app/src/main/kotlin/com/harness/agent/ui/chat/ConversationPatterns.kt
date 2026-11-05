@@ -2,6 +2,7 @@ package com.harness.agent.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,9 +17,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.unit.Dp
@@ -31,7 +34,9 @@ import com.harness.agent.coreui.primitives.AppText
 import com.harness.agent.coreui.primitives.AppTextStyle
 import com.harness.agent.coreui.tokens.HarnessLayout
 import com.harness.agent.coreui.tokens.LocalHarnessColors
+import com.harness.agent.model.ArtifactItem
 import com.harness.agent.model.ConversationItem
+import com.harness.agent.model.toReaderTarget
 import com.harness.agent.model.UserAttachmentItem
 
 @Composable
@@ -39,6 +44,7 @@ fun ConversationTurnRow(
     item: ConversationItem,
     modifier: Modifier = Modifier,
     onOpenWorkbenchStep: ((toolCallId: String) -> Unit)? = null,
+    onOpenArtifact: ((ArtifactItem) -> Unit)? = null,
     previewReduceMotion: Boolean = false,
 ) {
     when (item) {
@@ -53,6 +59,7 @@ fun ConversationTurnRow(
                 item = item,
                 modifier = modifier,
                 onOpenWorkbenchStep = onOpenWorkbenchStep,
+                onOpenArtifact = onOpenArtifact,
                 previewReduceMotion = previewReduceMotion,
             )
     }
@@ -134,7 +141,10 @@ private fun UserAttachmentStack(attachments: List<UserAttachmentItem>) {
                                 serverPreviewUrl = attachment.previewUrl,
                                 localPreviewUri = null,
                                 contentDescription = attachment.fileName,
-                                modifier = Modifier.fillMaxSize(),
+                                modifier =
+                                    Modifier
+                                        .fillMaxSize()
+                                        .clip(RoundedCornerShape(12.dp)),
                                 contentScale = ContentScale.Crop,
                             )
                         } else {
@@ -182,6 +192,7 @@ fun AssistantMessageBubble(
     item: ConversationItem.Assistant,
     modifier: Modifier = Modifier,
     onOpenWorkbenchStep: ((toolCallId: String) -> Unit)? = null,
+    onOpenArtifact: ((ArtifactItem) -> Unit)? = null,
     previewReduceMotion: Boolean = false,
 ) {
     val hasProcess = item.process.isNotEmpty()
@@ -252,6 +263,54 @@ fun AssistantMessageBubble(
                         followsProcessTimeline = followsProcess,
                     )
                 }
+        }
+        if (item.artifacts.isNotEmpty()) {
+            AssistantArtifactCards(item.artifacts, onOpenArtifact)
+        }
+    }
+}
+
+@Composable
+private fun AssistantArtifactCards(
+    artifacts: List<ArtifactItem>,
+    onOpenArtifact: ((ArtifactItem) -> Unit)?,
+) {
+    val colors = LocalHarnessColors.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        artifacts.forEach { artifact ->
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(HarnessLayout.panelRadius))
+                        .background(colors.surface, RoundedCornerShape(HarnessLayout.panelRadius))
+                        .border(1.dp, colors.composerBorder, RoundedCornerShape(HarnessLayout.panelRadius))
+                        .clickable(enabled = onOpenArtifact != null) { onOpenArtifact?.invoke(artifact) }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                AppText(
+                    text = artifact.fileKind.uppercase().take(4).ifBlank { "FILE" },
+                    style = AppTextStyle.Link,
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    AppText(
+                        text = artifact.fileName,
+                        style = AppTextStyle.Body,
+                    )
+                    AppText(
+                        text = listOfNotNull(
+                            artifact.fileKind,
+                            artifact.versionNumber?.let { "v$it" },
+                            artifact.status,
+                            if (artifact.isCurrent == true) "当前版本" else null,
+                        ).joinToString(" · "),
+                        style = AppTextStyle.Muted,
+                    )
+                }
+                AppText("打开", style = AppTextStyle.Link)
+            }
         }
     }
 }

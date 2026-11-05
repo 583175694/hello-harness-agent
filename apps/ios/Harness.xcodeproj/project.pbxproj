@@ -14,6 +14,7 @@
 		09DAA27CA40EEFCE397961E1 /* preview in Resources */ = {isa = PBXBuildFile; fileRef = E88B674CAD5717C46CF95E6E /* preview */; };
 		0F014886C39836351B767902 /* ProcessTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEDD72D4F547571EAD447312 /* ProcessTimelineView.swift */; };
 		0F7E5FA6B2C6B4862CB65E71 /* ProcessTimelineLabels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B78AEF306B11FFDC0DEE683F /* ProcessTimelineLabels.swift */; };
+		1199FDEA20E6C6AF95C74819 /* ScrollAnchorBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDF350F015599C5D997645A4 /* ScrollAnchorBridge.swift */; };
 		124B06B9CFD43791A22732E2 /* testWorkbenchReportMarkdownArtifactRestoreConfirm.1.png in Resources */ = {isa = PBXBuildFile; fileRef = FD6B0FCA68EFFBF514667CA9 /* testWorkbenchReportMarkdownArtifactRestoreConfirm.1.png */; };
 		14BD1F372442837D560D41E0 /* GateAFullScreenSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C88086316BC3F509C77E416A /* GateAFullScreenSnapshotTests.swift */; };
 		16DAB77EC735035F6960D950 /* PreviewTypography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6DF2EB052E48C0D5AD9F17 /* PreviewTypography.swift */; };
@@ -240,6 +241,7 @@
 		DBBAD4968E90A61444D9DE97 /* FollowUpQueuePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowUpQueuePanelView.swift; sourceTree = "<group>"; };
 		DC378D0E6FBED3848FD9F81B /* testWorkbenchSourcesSheet.1.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = testWorkbenchSourcesSheet.1.png; sourceTree = "<group>"; };
 		DDA3638B14C1307F0920A83F /* GateAMarkdownGoldenSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GateAMarkdownGoldenSnapshotTests.swift; sourceTree = "<group>"; };
+		DDF350F015599C5D997645A4 /* ScrollAnchorBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollAnchorBridge.swift; sourceTree = "<group>"; };
 		E0796F5E0D888A495AA179ED /* ComposerAttachmentViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerAttachmentViews.swift; sourceTree = "<group>"; };
 		E10A84BE88F604A4E599E530 /* CoreSettingsApi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreSettingsApi.swift; sourceTree = "<group>"; };
 		E1A4F99DC33BDC1359E1659B /* GateAWorkbenchDetentSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GateAWorkbenchDetentSnapshotTests.swift; sourceTree = "<group>"; };
@@ -319,6 +321,7 @@
 				B78AEF306B11FFDC0DEE683F /* ProcessTimelineLabels.swift */,
 				CEDD72D4F547571EAD447312 /* ProcessTimelineView.swift */,
 				EDD0E1AA0426F199EF50C32D /* ReplayController.swift */,
+				DDF350F015599C5D997645A4 /* ScrollAnchorBridge.swift */,
 				38F03AC66F6DEA312BA3BF16 /* SessionDrawerModels.swift */,
 				BAF68190D3ADEC2ECC5989AA /* SessionDrawerOverlayView.swift */,
 				37384378A15B2A5FAA1E1020 /* StreamingChatMarkdownView.swift */,
@@ -742,6 +745,7 @@
 				0F014886C39836351B767902 /* ProcessTimelineView.swift in Sources */,
 				2C09615C9AFD2855CA25F6FA /* ReplayController.swift in Sources */,
 				6CBD55413F1A1A973C693B80 /* RootNavigationView.swift in Sources */,
+				1199FDEA20E6C6AF95C74819 /* ScrollAnchorBridge.swift in Sources */,
 				6A1D02CCEF7B3696C184E138 /* SessionDrawerModels.swift in Sources */,
 				DD765AEE1490963EFAF1A2F4 /* SessionDrawerOverlayView.swift in Sources */,
 				221CEE3A9285586CD960E0FD /* StreamingChatMarkdownView.swift in Sources */,

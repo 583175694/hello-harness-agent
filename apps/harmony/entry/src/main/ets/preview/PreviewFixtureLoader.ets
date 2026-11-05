@@ -49,6 +49,8 @@ export interface PreviewSessionState {
   previewTransitions?: PreviewTransitionBundle;
   canLoadOlderMessages?: boolean;
   loadingOlderMessages?: boolean;
+  canLoadOlderSessionSummaries?: boolean;
+  loadingOlderSessionSummaries?: boolean;
 }
 
 export class PreviewFixtureLoader {

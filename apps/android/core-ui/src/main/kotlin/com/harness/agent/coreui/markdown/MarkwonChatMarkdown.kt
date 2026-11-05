@@ -3,7 +3,6 @@ package com.harness.agent.coreui.markdown
 import android.text.method.LinkMovementMethod
 import android.util.TypedValue
 import android.view.ViewGroup
-import android.widget.TextView
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.runtime.Composable
@@ -97,7 +96,7 @@ fun MarkwonChatMarkdown(
     AndroidView(
         modifier = modifier.then(widthModifier),
         factory = { ctx ->
-            TextView(ctx).apply {
+            HarnessMarkdownTextView(ctx).apply {
                 layoutParams =
                     ViewGroup.LayoutParams(
                         if (compact) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT,

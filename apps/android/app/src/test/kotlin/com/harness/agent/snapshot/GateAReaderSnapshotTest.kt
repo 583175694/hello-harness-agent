@@ -5,6 +5,9 @@ import app.cash.paparazzi.Paparazzi
 import com.harness.agent.coreui.tokens.HarnessTheme
 import com.harness.agent.preview.MobileContractPreviewLoader
 import com.harness.agent.preview.PreviewAppPreferences
+import com.harness.agent.model.ArtifactDownloadPayload
+import com.harness.agent.model.ArtifactPreviewPayload
+import com.harness.agent.model.ReaderTarget
 import com.harness.agent.ui.reader.PreviewReportReaderScreen
 import org.junit.Rule
 import org.junit.Test
@@ -26,7 +29,7 @@ class GateAReaderSnapshotTest {
         val prefs = PreviewAppPreferences(paparazzi.context)
         prefs.openReader(
             title = state.title,
-            markdown = state.workbench.reportMarkdown ?: "# Preview Report",
+            markdown = state.workbench.reportMarkdown ?: "",
             isArtifact = false,
         )
         paparazzi.snapshot(name = "report-reader") {
@@ -40,14 +43,39 @@ class GateAReaderSnapshotTest {
     fun artifactReader_diffPreview() {
         val state = load("workbench-report-markdown.json")
         val prefs = PreviewAppPreferences(paparazzi.context)
-        prefs.openReader(
-            title = "Artifact",
-            markdown = state.workbench.artifactDiffPreview ?: "--- diff",
-            isArtifact = true,
+        prefs.openArtifactReader(
+            ReaderTarget(
+                artifactId = "fixture-artifact",
+                fileName = "artifact.md",
+                mediaType = "text/markdown",
+                fileKind = "markdown",
+            ),
         )
         paparazzi.snapshot(name = "artifact-reader") {
             HarnessTheme(darkTheme = false) {
-                PreviewReportReaderScreen(preferences = prefs, onBack = {})
+                PreviewReportReaderScreen(
+                    preferences = prefs,
+                    onBack = {},
+                    loadPreview = {
+                        Result.success(
+                            ArtifactPreviewPayload(
+                                bytes = (state.workbench.reportMarkdown ?: "# Artifact").encodeToByteArray(),
+                                contentType = "text/markdown",
+                                fileName = "artifact.md",
+                                binary = false,
+                            ),
+                        )
+                    },
+                    loadDownload = {
+                        Result.success(
+                            ArtifactDownloadPayload(
+                                bytes = ByteArray(0),
+                                contentType = "text/markdown",
+                                fileName = "artifact.md",
+                            ),
+                        )
+                    },
+                )
             }
         }
     }

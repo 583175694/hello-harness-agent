@@ -7,6 +7,7 @@ sealed interface PreviewUiAction {
         val modelId: String? = null,
         val reasoningEffort: String? = null,
         val skillNames: List<String> = emptyList(),
+        val onResult: ((Boolean) -> Unit)? = null,
     ) : PreviewUiAction
 
     data object StopRun : PreviewUiAction

@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -447,6 +448,7 @@ private fun ComposerInputRow(
     onDismissKeyboard: () -> Unit = {},
 ) {
     val colors = LocalHarnessColors.current
+    val running = state.submitting || state.composerTextMode == "steer"
     val enabled = state.composerTextMode != "disabled" && state.mode != "hitl" && !inputBlocked
     val placeholder =
         when (state.composerTextMode) {
@@ -464,7 +466,7 @@ private fun ComposerInputRow(
         }
     }
     val canSend = enabled && draft.isNotBlank()
-    val canPressSend = enabled && (canSend || state.submitting)
+    val canPressSend = enabled && (canSend || running)
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         TextField(
@@ -531,10 +533,9 @@ private fun ComposerInputRow(
                             .background(
                                 when {
                                     !enabled -> colors.subtle
-                                    state.submitting && draft.isBlank() -> colors.primary
+                                    running && draft.isBlank() -> colors.primary
                                     canSend -> colors.primary
-                                    state.submitting -> colors.muted
-                                    else -> colors.primary
+                                    else -> colors.subtle
                                 },
                             )
                             .clickable(
@@ -543,30 +544,40 @@ private fun ComposerInputRow(
                                 indication = null,
                             ) {
                                 when {
-                                    state.submitting && draft.isBlank() ->
+                                    running && draft.isBlank() ->
                                         onPreviewAction(PreviewUiAction.StopRun)
                                     canSend -> {
                                         onDismissKeyboard()
+                                        val submittedText = draft
                                         onPreviewAction(
                                             PreviewUiAction.SendComposerText(
-                                                text = draft,
+                                                text = submittedText,
                                                 modelId = modelId,
                                                 reasoningEffort = reasoningEffort,
                                                 skillNames = state.selectedSkills,
+                                                onResult = { ok -> if (ok && draft == submittedText) draft = "" },
                                             ),
                                         )
-                                        draft = ""
                                     }
                                 }
                             },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.ArrowUpward,
-                        contentDescription = if (state.submitting) "停止运行" else "发送任务",
-                        modifier = Modifier.size(18.dp),
-                        tint = colors.primaryForeground,
-                    )
+                    if (running && draft.isBlank()) {
+                        Icon(
+                            imageVector = Icons.Rounded.Stop,
+                            contentDescription = "停止当前任务",
+                            modifier = Modifier.size(16.dp),
+                            tint = colors.primaryForeground,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.ArrowUpward,
+                            contentDescription = if (running) "发送补充" else "发送任务",
+                            modifier = Modifier.size(18.dp),
+                            tint = colors.primaryForeground,
+                        )
+                    }
                 }
             }
         }

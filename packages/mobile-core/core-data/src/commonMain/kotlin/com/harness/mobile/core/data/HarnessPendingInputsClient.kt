@@ -18,11 +18,12 @@ class HarnessPendingInputsClient internal constructor(
     private val config: EngineConfig,
     private val httpClient: HttpClient,
 ) {
+    /** 返回 "pending" 表示已入队；"run" 表示对端 run 已结束，调用方不得当作已送达。 */
     suspend fun submitPendingInput(
         sessionId: String,
         content: String,
         idempotencyKey: String,
-    ) {
+    ): String {
         val base = HarnessAgentHttpClient.normalizeBaseUrl(config.apiBaseUrlProvider())
         val response =
             httpClient.post("$base/api/agent/sessions/$sessionId/pending-inputs") {
@@ -30,7 +31,10 @@ class HarnessPendingInputsClient internal constructor(
                 setBody(PendingInputBody(content = content, idempotencyKey = idempotencyKey))
                 applyAuth()
             }
-        ensureOk(response)
+        if (!response.status.isSuccess()) {
+            HarnessAgentHttpClient.throwApiProblem(response)
+        }
+        return response.body<SubmitPendingInputResponse>().kind
     }
 
     suspend fun sendPendingInput(inputId: String): CreateRunResponse {
@@ -93,6 +97,11 @@ class HarnessPendingInputsClient internal constructor(
         fun create(config: EngineConfig): HarnessPendingInputsClient =
             HarnessPendingInputsClient(config, HarnessAgentHttpClient.createDefaultClient())
     }
+
+    @Serializable
+    private data class SubmitPendingInputResponse(
+        val kind: String,
+    )
 
     @Serializable
     private data class PendingInputBody(

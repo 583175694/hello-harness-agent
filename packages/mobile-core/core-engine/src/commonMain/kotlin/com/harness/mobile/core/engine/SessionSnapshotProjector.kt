@@ -18,8 +18,29 @@ object SessionSnapshotProjector {
     fun sortSummaries(sessions: List<SessionSummary>): List<SessionSummary> =
         sessions.sortedWith(
             compareByDescending<SessionSummary> { it.isPinned }
-                .thenByDescending { it.updatedAt },
+                .thenByDescending { it.updatedAt }
+                .thenByDescending { it.id },
         )
+
+    fun mergeSessionListFirstPage(
+        firstPage: List<SessionSummary>,
+        existing: List<SessionSummary>,
+    ): List<SessionSummary> {
+        val merged = linkedMapOf<String, SessionSummary>()
+        firstPage.forEach { merged[it.id] = it }
+        existing.forEach { if (!merged.containsKey(it.id)) merged[it.id] = it }
+        return merged.values.toList()
+    }
+
+    fun mergeOlderSessionSummaries(
+        existing: List<SessionSummary>,
+        olderPage: List<SessionSummary>,
+    ): List<SessionSummary> {
+        val merged = linkedMapOf<String, SessionSummary>()
+        existing.forEach { merged[it.id] = it }
+        olderPage.forEach { if (!merged.containsKey(it.id)) merged[it.id] = it }
+        return merged.values.toList()
+    }
 
     fun drawerRows(
         summaries: List<SessionSummary>,
@@ -41,6 +62,8 @@ object SessionSnapshotProjector {
         summaries: List<SessionSummary>,
         selectedId: String?,
         runningSessionIds: Set<String>,
+        canLoadOlderSessionSummaries: Boolean = false,
+        loadingOlderSessionSummaries: Boolean = false,
     ): MobileActiveSessionSnapshot =
         MobileActiveSessionSnapshot(
             sessionId = null,
@@ -48,6 +71,8 @@ object SessionSnapshotProjector {
             isLanding = true,
             drawerSessions = drawerRows(summaries, selectedId, runningSessionIds),
             conversation = emptyList(),
+            canLoadOlderSessionSummaries = canLoadOlderSessionSummaries,
+            loadingOlderSessionSummaries = loadingOlderSessionSummaries,
         )
 
     fun fromDetail(
@@ -67,11 +92,31 @@ object SessionSnapshotProjector {
             title = detail.title,
             isLanding = detail.messages.isEmpty(),
             drawerSessions = drawerRows(summaries, detail.id, runningIds),
-            conversation = detail.messages.mapNotNull(::toConversationLine),
+            conversation = applyCurrentArtifacts(detail.messages, detail.artifactSeries),
             followUps = followUpsFromDetail(detail),
             canLoadOlderMessages = detail.pagination?.hasMore == true ||
                 !detail.pagination?.nextBefore.isNullOrBlank(),
         )
+    }
+
+    private fun applyCurrentArtifacts(
+        messages: List<PersistedMessage>,
+        series: List<com.harness.mobile.core.api.ArtifactSeriesRef>,
+    ): List<MobileConversationLine> {
+        val currentArtifactIds =
+            series.mapNotNull { it.currentArtifactId }.toSet()
+        return messages.mapNotNull(::toConversationLine).map { line ->
+            if (line.artifacts.isEmpty() || currentArtifactIds.isEmpty()) {
+                line
+            } else {
+                line.copy(
+                    artifacts =
+                        line.artifacts.map { artifact ->
+                            artifact.copy(isCurrent = artifact.artifactId in currentArtifactIds)
+                        },
+                )
+            }
+        }
     }
 
     fun followUpsFromDetail(detail: SessionDetail): List<MobileFollowUpRow> =
@@ -100,6 +145,7 @@ object SessionSnapshotProjector {
         when (message.role) {
             "user" ->
                 MobileConversationLine(
+                    id = message.id,
                     kind = "user",
                     content = message.content,
                     attachments = message.attachments.orEmpty(),
@@ -114,6 +160,7 @@ object SessionSnapshotProjector {
             val presentation = AssistantPresentation.presentAssistantBlocks(blocks)
             val deliveryStatus = message.deliveryStatus ?: "completed"
             MobileConversationLine(
+                id = message.id,
                 kind = "assistant",
                 content = presentation.pendingText + presentation.finalText,
                 deliveryStatus = deliveryStatus,
@@ -126,21 +173,50 @@ object SessionSnapshotProjector {
                         .joinToString("") { it.content }
                         .ifBlank { message.reasoning },
                 process = presentation.process,
+                artifacts = presentation.artifacts,
             )
         } else {
             MobileConversationLine(
+                id = message.id,
                 kind = "assistant",
                 content = message.content,
                 deliveryStatus = message.deliveryStatus ?: "completed",
                 finalText = message.content.ifBlank { null },
                 reasoning = message.reasoning,
                 process = processBlocks(message.metadata),
+                artifacts = processArtifacts(message.metadata),
             )
         }
     }
 
     internal fun processBlocks(metadata: JsonObject): List<MobileProcessBlock> =
         (metadata["blocks"] as? JsonArray)?.mapNotNull { element -> (element as? JsonObject)?.let(::toProcessBlock) }.orEmpty()
+
+    internal fun processArtifacts(metadata: JsonObject): List<com.harness.mobile.core.api.ArtifactRef> =
+        (metadata["blocks"] as? JsonArray)
+            .orEmpty()
+            .mapNotNull { element ->
+                (element as? JsonObject)?.takeIf {
+                    it["type"]?.jsonPrimitive?.content == "artifact"
+                }?.let(::toArtifactRef)
+            }
+            .distinctBy { it.artifactId }
+
+    internal fun toArtifactRef(block: JsonObject): com.harness.mobile.core.api.ArtifactRef =
+        com.harness.mobile.core.api.ArtifactRef(
+            artifactId = block["artifactId"]?.jsonPrimitive?.content.orEmpty(),
+            fileId = block["fileId"]?.jsonPrimitive?.content.orEmpty(),
+            fileName = block["fileName"]?.jsonPrimitive?.content.orEmpty(),
+            mediaType = block["mediaType"]?.jsonPrimitive?.content.orEmpty(),
+            fileKind = block["fileKind"]?.jsonPrimitive?.content.orEmpty(),
+            size = block["size"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+            status = block["status"]?.jsonPrimitive?.content.orEmpty(),
+            createdAt = block["createdAt"]?.jsonPrimitive?.content.orEmpty(),
+            seriesId = block["seriesId"]?.jsonPrimitive?.content,
+            logicalName = block["logicalName"]?.jsonPrimitive?.content,
+            versionNumber = block["versionNumber"]?.jsonPrimitive?.content?.toIntOrNull(),
+            isCurrent = block["isCurrent"]?.jsonPrimitive?.content?.toBooleanStrictOrNull(),
+        )
 
     internal fun processBlocks(blocksValue: List<JsonElement>): List<MobileProcessBlock> =
         blocksValue.mapNotNull { element: JsonElement -> (element as? JsonObject)?.let { toProcessBlock(it) } }

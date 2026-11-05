@@ -9,6 +9,9 @@ import com.harness.agent.model.ActiveSessionState
 import com.harness.agent.model.ComposerModelOption
 import com.harness.agent.model.PREVIEW_COMPOSER_MODELS
 import com.harness.agent.model.SessionDrawerItem
+import com.harness.agent.model.ReaderTarget
+import com.harness.agent.model.ArtifactDownloadPayload
+import com.harness.agent.model.ArtifactPreviewPayload
 import com.harness.agent.port.ComposerCatalogPort
 import java.util.UUID
 import com.harness.agent.port.AgentSessionPort
@@ -231,12 +234,14 @@ class PreviewSessionViewModel(
                 port.addComposerSkill(action.skill)
             isCorePort && action is PreviewUiAction.SendComposerText ->
                 viewModelScope.launch {
-                    port.submitComposerText(
-                        action.text,
-                        action.modelId,
-                        action.reasoningEffort,
-                        action.skillNames,
-                    )
+                    val ok =
+                        port.submitComposerText(
+                            action.text,
+                            action.modelId,
+                            action.reasoningEffort,
+                            action.skillNames,
+                        )
+                    action.onResult?.invoke(ok)
                 }
             isCorePort && action is PreviewUiAction.SubmitClarification ->
                 viewModelScope.launch {
@@ -264,7 +269,12 @@ class PreviewSessionViewModel(
                 }
             isCorePort && action is PreviewUiAction.RemoveAttachment ->
                 port.removeComposerAttachment(action.fileId)
-            else -> previewPort?.applyPreviewAction(action)
+            else -> {
+                previewPort?.applyPreviewAction(action)
+                if (action is PreviewUiAction.SendComposerText) {
+                    action.onResult?.invoke(action.text.isNotBlank())
+                }
+            }
         }
     }
 
@@ -326,6 +336,27 @@ class PreviewSessionViewModel(
             port.loadOlderMessages(sessionId)
         }
     }
+
+    fun loadOlderSessionSummaries() {
+        if (previewPort != null) return
+        viewModelScope.launch {
+            port.loadOlderSessionSummaries()
+        }
+    }
+
+    suspend fun previewArtifactTarget(target: ReaderTarget): Result<ArtifactPreviewPayload> =
+        when {
+            !target.artifactId.isNullOrBlank() -> port.previewArtifact(target.artifactId!!)
+            !target.fileId.isNullOrBlank() -> port.previewFile(target.fileId!!)
+            else -> Result.failure(IllegalArgumentException("缺少 artifactId / fileId"))
+        }
+
+    suspend fun downloadArtifactTarget(target: ReaderTarget): Result<ArtifactDownloadPayload> =
+        when {
+            !target.artifactId.isNullOrBlank() -> port.downloadArtifact(target.artifactId!!)
+            !target.fileId.isNullOrBlank() -> port.downloadFile(target.fileId!!)
+            else -> Result.failure(IllegalArgumentException("缺少 artifactId / fileId"))
+        }
 
     fun scheduleCoreConnectionRefresh() {
         if (previewPort != null) return

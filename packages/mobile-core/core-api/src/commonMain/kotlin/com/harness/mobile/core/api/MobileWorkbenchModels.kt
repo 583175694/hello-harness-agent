@@ -26,6 +26,7 @@ data class MobileWorkbenchSnapshot(
     val bashSnippet: String? = null,
     val artifactDiffPreview: String? = null,
     val artifactVersions: List<MobileWorkbenchArtifactVersion> = emptyList(),
+    val deliverableFiles: List<ArtifactRef> = emptyList(),
     val artifactRestorePrompt: String? = null,
 )
 

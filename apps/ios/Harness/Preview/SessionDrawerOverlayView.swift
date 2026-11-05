@@ -83,6 +83,29 @@ struct SessionDrawerOverlayView: View {
                         }
                         sectionLabel("最近")
                         ForEach(recent) { row($0) }
+                        if store.session.canLoadOlderSessionSummaries || store.session.loadingOlderSessionSummaries {
+                            Button {
+                                store.loadOlderSessionSummaries()
+                            } label: {
+                                Text(
+                                    store.session.loadingOlderSessionSummaries
+                                        ? "正在加载更多会话…"
+                                        : "加载更多会话"
+                                )
+                                .font(.system(size: 13))
+                                .foregroundStyle(HarnessColors.muted(colorScheme))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(store.session.loadingOlderSessionSummaries)
+                        } else if !recent.isEmpty {
+                            Text("已全部加载")
+                                .font(.system(size: 12))
+                                .foregroundStyle(HarnessColors.muted(colorScheme))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
                     }
                 }
                 .refreshable {

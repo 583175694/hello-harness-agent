@@ -98,6 +98,9 @@ fun SessionDrawerOverlay(
     onNewConversation: () -> Unit,
     newConversationEnabled: Boolean = true,
     onRefresh: () -> Unit,
+    canLoadMore: Boolean = false,
+    loadingMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
     onSelectSession: (String) -> Unit,
     onLongPressSession: (SessionDrawerItem) -> Unit,
     onDismissMenu: () -> Unit,
@@ -180,6 +183,9 @@ fun SessionDrawerOverlay(
                 onNewConversation = onNewConversation,
                 newConversationEnabled = newConversationEnabled,
                 onRefresh = onRefresh,
+                canLoadMore = canLoadMore,
+                loadingMore = loadingMore,
+                onLoadMore = onLoadMore,
                 onSelectSession = onSelectSession,
                 onLongPressSession = { item, topPx, heightPx ->
                     menuAnchorTopPx = topPx
@@ -273,6 +279,9 @@ private fun DrawerPanelContent(
     onNewConversation: () -> Unit,
     newConversationEnabled: Boolean = true,
     onRefresh: () -> Unit,
+    canLoadMore: Boolean = false,
+    loadingMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
     onSelectSession: (String) -> Unit,
     onLongPressSession: (SessionDrawerItem, Float, Float) -> Unit,
     onOpenSettings: () -> Unit,
@@ -335,6 +344,23 @@ private fun DrawerPanelContent(
                             menuHighlighted = item.id == menuHighlightId,
                             onSelect = onSelectSession,
                             onLongPress = onLongPressSession,
+                        )
+                    }
+                    item(key = "drawer-load-more") {
+                        Text(
+                            text =
+                                when {
+                                    loadingMore -> "正在加载更多…"
+                                    canLoadMore -> "加载更多"
+                                    else -> "已全部加载"
+                                },
+                            color = colors.muted,
+                            fontSize = 13.sp,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = canLoadMore && !loadingMore, onClick = onLoadMore)
+                                    .padding(vertical = 14.dp),
                         )
                     }
                 }

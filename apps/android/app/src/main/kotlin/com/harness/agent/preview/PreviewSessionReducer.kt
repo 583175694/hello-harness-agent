@@ -196,7 +196,7 @@ object PreviewSessionReducer {
     }
 
     private fun ActiveSessionState.appendUser(content: String): ActiveSessionState =
-        copy(conversation = conversation + ConversationItem.User(content))
+        copy(conversation = conversation + ConversationItem.User(id = "preview-user-${conversation.size}", content = content))
 
     private fun ActiveSessionState.advancePlanIfNeeded(): ActiveSessionState {
         val plan = composer.plan ?: return this

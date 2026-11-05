@@ -59,6 +59,7 @@ import com.harness.agent.coreui.primitives.AppButton
 import com.harness.agent.coreui.primitives.AppSheet
 import com.harness.agent.model.WorkbenchSourceCard
 import com.harness.agent.model.WorkbenchState
+import com.harness.agent.model.WorkbenchDeliverableFile
 
 private val DETENTS = listOf(0.44f, 0.72f, 0.98f)
 private val TABS = listOf("activity", "artifact")
@@ -70,8 +71,7 @@ fun WorkbenchSheetOverlay(
     state: WorkbenchState,
     onDismiss: () -> Unit,
     onOpenReportReader: (() -> Unit)? = null,
-    onOpenArtifactReader: (() -> Unit)? = null,
-    onOpenFilePreview: ((fileName: String, markdown: String) -> Unit)? = null,
+    onOpenArtifactReader: ((WorkbenchDeliverableFile) -> Unit)? = null,
     onRestoreArtifactVersion: ((restoreArtifactId: String, expectedCurrentArtifactId: String) -> Unit)? = null,
     onBeginArtifactRevision: ((artifactId: String) -> Unit)? = null,
     initialFocusedToolId: String? = null,
@@ -222,9 +222,7 @@ fun WorkbenchSheetOverlay(
                             .fillMaxWidth()
                             .fillMaxHeight(),
                     onOpenFilePreview = { file ->
-                        val md = file.previewMarkdown ?: "# ${file.fileName}\n\n（Preview 文件预览）"
-                        onOpenFilePreview?.invoke(file.fileName, md)
-                            ?: onOpenArtifactReader?.invoke()
+                        onOpenArtifactReader?.invoke(file)
                     },
                     onRequestRestore = { restoreId, expectedId ->
                         if (onRestoreArtifactVersion != null) {
@@ -310,7 +308,7 @@ private fun WorkbenchTabContent(
     state: WorkbenchState,
     initialFocusedToolId: String? = null,
     modifier: Modifier = Modifier,
-    onOpenFilePreview: (com.harness.agent.model.WorkbenchDeliverableFile) -> Unit,
+    onOpenFilePreview: (WorkbenchDeliverableFile) -> Unit,
     onRequestRestore: (restoreArtifactId: String, expectedCurrentArtifactId: String) -> Unit = { _, _ -> },
     onBeginRevision: (artifactId: String) -> Unit = {},
 ) {

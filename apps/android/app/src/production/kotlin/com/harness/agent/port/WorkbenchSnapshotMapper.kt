@@ -2,6 +2,7 @@ package com.harness.agent.port
 
 import com.harness.agent.model.WorkbenchActivityEvent
 import com.harness.agent.model.WorkbenchArtifactVersion
+import com.harness.agent.model.WorkbenchDeliverableFile
 import com.harness.agent.model.WorkbenchSourceCard
 import com.harness.agent.model.WorkbenchState
 import com.harness.agent.model.WorkbenchToolExecution
@@ -42,7 +43,22 @@ object WorkbenchSnapshotMapper {
                         linkedSourceIndexes = tool.linkedSourceIndexes,
                     )
                 },
-            deliverableFiles = emptyList(),
+            deliverableFiles =
+                snapshot.deliverableFiles.map { ref ->
+                    WorkbenchDeliverableFile(
+                        id = ref.artifactId,
+                        fileName = ref.fileName,
+                        subtitle = listOfNotNull(ref.fileKind, ref.versionNumber?.let { "v$it" }).joinToString(" · "),
+                        artifactId = ref.artifactId,
+                        fileId = ref.fileId,
+                        mediaType = ref.mediaType,
+                        fileKind = ref.fileKind,
+                        size = ref.size,
+                        status = ref.status,
+                        versionNumber = ref.versionNumber,
+                        isCurrent = ref.isCurrent == true,
+                    )
+                },
             bashSnippet = snapshot.bashSnippet,
             reportMarkdown = snapshot.reportMarkdown,
             sources =

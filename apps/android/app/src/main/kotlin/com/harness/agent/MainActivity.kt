@@ -113,8 +113,8 @@ class MainActivity : ComponentActivity() {
                                 preferences.openReader(title, markdown, isArtifact = false)
                                 navController.navigate("reader/report")
                             },
-                            onOpenArtifactReader = { title, diff ->
-                                preferences.openReader(title, diff, isArtifact = true)
+                            onOpenArtifactReader = { target ->
+                                preferences.openArtifactReader(target)
                                 navController.navigate("reader/report")
                             },
                         )
@@ -179,6 +179,8 @@ class MainActivity : ComponentActivity() {
                         PreviewReportReaderScreen(
                             preferences = preferences,
                             onBack = { navController.popBackStack() },
+                            loadPreview = viewModel::previewArtifactTarget,
+                            loadDownload = viewModel::downloadArtifactTarget,
                         )
                     }
                 }

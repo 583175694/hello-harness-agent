@@ -3,6 +3,8 @@ package com.harness.agent.port
 import com.harness.agent.core.CoreServices
 import com.harness.agent.core.toComposerModelOptions
 import com.harness.agent.model.ActiveSessionState
+import com.harness.agent.model.ArtifactDownloadPayload
+import com.harness.agent.model.ArtifactPreviewPayload
 import com.harness.agent.model.ComposerAttachmentItem
 import com.harness.agent.model.ComposerModelOption
 import com.harness.mobile.core.api.FileRef
@@ -246,7 +248,7 @@ class CoreAgentSessionPort(
         modelId: String?,
         reasoningEffort: String?,
         skillNames: List<String>,
-    ) {
+    ): Boolean {
         val skills = skillNames.ifEmpty { composerSkills.toList() }
         val attachmentIds =
             composerAttachmentItems
@@ -255,7 +257,7 @@ class CoreAgentSessionPort(
         val selectionAtStart = engine.activeSnapshot.value?.sessionId
         val submitted = engine.submitComposer(text, modelId, reasoningEffort, skills, attachmentIds)
         if (submitted.isSuccess) {
-            if (!selectionStillMatches(selectionAtStart)) return
+            if (!selectionStillMatches(selectionAtStart)) return true
             clearComposerAttachments()
             composerSkills.clear()
             _sessionState.value =
@@ -263,6 +265,7 @@ class CoreAgentSessionPort(
                     composer = _sessionState.value.composer.copy(selectedSkills = emptyList()),
                 )
         }
+        return submitted.isSuccess
     }
 
     /** 草稿属于“当前选中会话”。未选中时保存后选中也算同一草稿，切到已有会话则视为已切换。 */
@@ -345,6 +348,48 @@ class CoreAgentSessionPort(
     override suspend fun loadOlderMessages(sessionId: String) {
         engine.loadOlderMessages(sessionId)
     }
+
+    override suspend fun loadOlderSessionSummaries() {
+        engine.loadOlderSessionSummaries()
+    }
+
+    override suspend fun previewArtifact(artifactId: String): Result<ArtifactPreviewPayload> =
+        engine.previewArtifact(artifactId).map { content ->
+            ArtifactPreviewPayload(
+                bytes = content.bytes,
+                contentType = content.contentType,
+                fileName = content.fileName,
+                binary = content.binary,
+            )
+        }
+
+    override suspend fun downloadArtifact(artifactId: String): Result<ArtifactDownloadPayload> =
+        engine.downloadArtifact(artifactId).map { content ->
+            ArtifactDownloadPayload(
+                bytes = content.bytes,
+                contentType = content.contentType,
+                fileName = content.fileName,
+            )
+        }
+
+    override suspend fun previewFile(fileId: String): Result<ArtifactPreviewPayload> =
+        engine.previewFile(fileId).map { content ->
+            ArtifactPreviewPayload(
+                bytes = content.bytes,
+                contentType = content.contentType,
+                fileName = content.fileName,
+                binary = content.binary,
+            )
+        }
+
+    override suspend fun downloadFile(fileId: String): Result<ArtifactDownloadPayload> =
+        engine.downloadFile(fileId).map { content ->
+            ArtifactDownloadPayload(
+                bytes = content.bytes,
+                contentType = content.contentType,
+                fileName = content.fileName,
+            )
+        }
 
     override fun onAppBackground() {
         engine.onAppBackground()

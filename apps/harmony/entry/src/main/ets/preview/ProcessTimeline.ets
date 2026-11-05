@@ -3,6 +3,7 @@ import { ProcessTimelineNodeDot, ProcessTimelineToolRailIcon } from './ProcessTi
 import { toolActivityInlineSummary, toolActivityPrimaryLine } from './ToolActivityLabel';
 import { harnessPressOpacity } from '../coreui/HarnessPressScale';
 import { HarnessChevronDownIcon } from '../coreui/HarnessVectorIcons';
+import { ChatMarkdown } from '../coreui/ChatMarkdown';
 import { PreviewLocalPreferences } from './PreviewLocalPreferences';
 import { ProcessBlockRow } from './PreviewModels';
 
@@ -158,7 +159,8 @@ export struct AssistantProcessTimeline {
               reduceMotion: this.reduceMotion,
               onOpenWorkbench: this.onOpenWorkbench,
             })
-          }, (block: ProcessBlockRow, index: number) => `${index}-${block.kind}-${block.id}`)
+          }, (block: ProcessBlockRow, index: number) =>
+            block.id.length > 0 ? `${block.kind}-${block.id}` : `${block.kind}-${index}`)
         }
         .padding({ left: 4 })
       }
@@ -191,6 +193,7 @@ struct ProcessTimelineRow {
   @State reasoningOpen: boolean = false;
   @State toolPressed: boolean = false;
   @State reasoningTriggerPressed: boolean = false;
+  @State reasoningPinnedAway: boolean = false;
   private reasoningScroller: Scroller = new Scroller();
   private lastReasoningStreaming: boolean = false;
   private reasoningAutoCloseTimer: number = -1;
@@ -230,11 +233,15 @@ struct ProcessTimelineRow {
     }
     this.lastReasoningStreaming = streaming;
 
-    if (!streaming) {
+    if (!streaming || this.reasoningPinnedAway) {
       return;
     }
     setTimeout((): void => {
-      this.reasoningScroller.scrollEdge(Edge.Bottom);
+      try {
+        this.reasoningScroller.scrollEdge(Edge.Bottom);
+      } catch (_e) {
+        // Preview：推理块尚未布局完成时忽略
+      }
     }, 0);
   }
 
@@ -363,15 +370,42 @@ struct ProcessTimelineRow {
             if (this.reasoningOpen) {
               Stack({ alignContent: Alignment.TopStart }) {
                 Scroll(this.reasoningScroller) {
-                  Text(this.block.content)
-                    .fontSize(14)
-                    .lineHeight(22)
-                    .fontColor(HarnessColors.mutedText(this.useDark))
-                    .width('100%')
+                  if (this.block.streaming) {
+                    Text(this.block.content)
+                      .fontSize(14)
+                      .lineHeight(22)
+                      .fontColor(HarnessColors.mutedText(this.useDark))
+                      .width('100%')
+                  } else {
+                    ChatMarkdown({
+                      markdown: this.block.content,
+                      fontSize: 14,
+                      useDark: this.useDark,
+                      compact: true,
+                    })
+                  }
                 }
                 .width('100%')
                 .constraintSize({ maxHeight: REASONING_CONTENT_MAX_HEIGHT })
                 .scrollBar(BarState.Off)
+                .onReachEnd(() => {
+                  if (this.block.streaming) {
+                    this.reasoningPinnedAway = false;
+                  }
+                })
+                .gesture(
+                  PanGesture({ direction: PanDirection.Vertical })
+                    .onActionStart(() => {
+                      if (this.block.streaming) {
+                        this.reasoningPinnedAway = true;
+                      }
+                    })
+                    .onActionUpdate(() => {
+                      if (this.block.streaming) {
+                        this.reasoningPinnedAway = true;
+                      }
+                    })
+                )
                 .padding({ left: 12, right: 12, top: 6, bottom: 8 })
 
                 Row()

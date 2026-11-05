@@ -974,8 +974,12 @@ struct PreviewReportReaderView: View {
     let title: String
     let markdown: String
     var isArtifact: Bool = false
+    var target: ReaderTarget? = nil
+    var loadPreview: ((ReaderTarget) async -> Result<ReaderPreviewContent, Error>)? = nil
+    var loadDownload: ((ReaderTarget) async -> Result<ReaderDownloadContent, Error>)? = nil
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @State private var state: ReaderContentState = .loading
 
     var body: some View {
         VStack(spacing: 0) {
@@ -997,23 +1001,199 @@ struct PreviewReportReaderView: View {
             .padding(.horizontal, 4)
             .background(HarnessColors.canvas(colorScheme))
 
-            ScrollView {
-                Group {
-                    if isArtifact {
-                        Text(markdown.isEmpty ? "diff preview" : markdown)
-                            .font(.caption.monospaced())
+            Group {
+                switch state {
+                case .loading:
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .empty:
+                    readerStatePanel(title: "内容为空", detail: "该文件暂无可用内容。") { EmptyView() }
+                case .error(let message):
+                    readerStatePanel(title: "无法预览", detail: message) { downloadAction }
+                case .unsupported(let reason):
+                    readerStatePanel(title: "暂不支持内联预览", detail: reason) { downloadAction }
+                case .text(let body):
+                    ScrollView {
+                        MarkdownBodyView(markdown: body)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        MarkdownBodyView(markdown: markdown.isEmpty ? "# 空报告" : markdown)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                            .padding(.bottom, 16)
                     }
+                case .image(let data):
+                    ZoomableReaderImage(data: data)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
             }
         }
         .background(HarnessColors.canvas(colorScheme))
         .toolbar(.hidden, for: .navigationBar)
+        .task(id: target) { await load() }
+    }
+
+    private func load() async {
+        guard let target else {
+            state = markdown.isEmpty ? .empty : .text(markdown)
+            return
+        }
+        guard let loadPreview else {
+            state = .error("当前构建未连接预览服务")
+            return
+        }
+        state = .loading
+        switch await loadPreview(target) {
+        case .success(let result):
+            state = result.toReaderState(target: target)
+        case .failure(let error):
+            state = .error(readerMessage(error))
+        }
+    }
+
+    @ViewBuilder
+    private var downloadAction: some View {
+        if let target, let loadDownload {
+            Button("下载并打开") {
+                Task {
+                    switch await loadDownload(target) {
+                    case .success(let result):
+                        ReaderFileSharing.present(data: result.bytes, fileName: result.fileName, contentType: result.contentType)
+                    case .failure(let error):
+                        state = .error(readerMessage(error))
+                    }
+                }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
+    private func readerStatePanel<Action: View>(
+        title: String,
+        detail: String,
+        @ViewBuilder action: () -> Action
+    ) -> some View {
+        VStack(spacing: 10) {
+            Text(title).font(.headline).foregroundStyle(HarnessColors.primary(colorScheme))
+            Text(detail)
+                .font(.subheadline)
+                .foregroundStyle(HarnessColors.muted(colorScheme))
+                .multilineTextAlignment(.center)
+            action()
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func readerMessage(_ error: Error) -> String {
+        let raw = error.localizedDescription
+        let lower = raw.lowercased()
+        if raw.contains("401") || lower.contains("auth") || raw.contains("AUTH_REQUIRED") {
+            return "登录已失效，请重新登录。"
+        }
+        if raw.contains("404") || lower.contains("not found") || raw.contains("NOT_FOUND") ||
+            raw.contains("ARTIFACT_DELETED") {
+            return "文件不存在或已被删除。"
+        }
+        if lower.contains("offline") || lower.contains("network") || lower.contains("connect") ||
+            lower.contains("timed out") || lower.contains("timeout") {
+            return "网络连接失败，请重试。"
+        }
+        return raw.isEmpty ? "请求失败，请检查网络后重试。" : raw
+    }
+}
+
+enum ReaderContentState: Equatable {
+    case loading
+    case empty
+    case error(String)
+    case unsupported(String)
+    case text(String)
+    case image(Data)
+}
+
+private extension ReaderPreviewContent {
+    func toReaderState(target: ReaderTarget) -> ReaderContentState {
+        let type = contentType.isEmpty ? target.mediaType : contentType
+        let kind = target.fileKind.lowercased()
+        if bytes.isEmpty { return .empty }
+        if target.requiresExternalDocumentOpener() {
+            return .unsupported("\(target.fileKind.uppercased()) 文件需下载后用系统应用打开。")
+        }
+        if type.hasPrefix("image/") || kind == "image" { return .image(bytes) }
+        if type.contains("html") || kind == "html" {
+            return .unsupported("HTML 文件需用浏览器或系统应用打开。")
+        }
+        if type.hasPrefix("text/") || type.contains("json") || ["markdown", "json", "text"].contains(kind) {
+            return .text(String(data: bytes, encoding: .utf8) ?? "")
+        }
+        return .unsupported("\(type.isEmpty ? target.fileName : type) 需用系统应用打开。")
+    }
+}
+
+private extension ReaderTarget {
+    func requiresExternalDocumentOpener() -> Bool {
+        let kind = fileKind.lowercased()
+        let type = mediaType.lowercased()
+        return ["docx", "xlsx", "pptx"].contains(kind)
+            || type.contains("wordprocessingml")
+            || type.contains("spreadsheetml")
+            || type.contains("presentationml")
+    }
+}
+
+private struct ZoomableReaderImage: View {
+    let data: Data
+    @State private var scale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @GestureState private var gestureScale: CGFloat = 1
+    @GestureState private var gestureOffset: CGSize = .zero
+
+    var body: some View {
+        GeometryReader { proxy in
+            if let image = UIImage(data: data) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .scaleEffect(scale * gestureScale)
+                    .offset(x: offset.width + gestureOffset.width, y: offset.height + gestureOffset.height)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        SimultaneousGesture(
+                            MagnificationGesture()
+                                .updating($gestureScale) { value, state, _ in state = value }
+                                .onEnded { value in scale = min(max(scale * value, 1), 5) },
+                            DragGesture()
+                                .updating($gestureOffset) { value, state, _ in state = value.translation }
+                                .onEnded { value in
+                                    offset = CGSize(
+                                        width: offset.width + value.translation.width,
+                                        height: offset.height + value.translation.height
+                                    )
+                                }
+                        )
+                    )
+                    .simultaneousGesture(
+                        TapGesture(count: 2).onEnded {
+                            scale = 1
+                            offset = .zero
+                        }
+                    )
+            } else {
+                Text("无法显示图片")
+                    .foregroundStyle(HarnessColors.muted(.light))
+            }
+        }
+        .clipped()
+    }
+}
+
+enum ReaderFileSharing {
+    @MainActor
+    static func present(data: Data, fileName: String, contentType: String) {
+        let safeName = fileName.isEmpty ? "artifact" : fileName.replacingOccurrences(of: "/", with: "_")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(safeName)
+        try? data.write(to: url, options: .atomic)
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else { return }
+        root.present(controller, animated: true)
     }
 }

@@ -44,9 +44,8 @@ export class PreviewReplayController {
     this.streamField =
       prior.finalText !== undefined && `${prior.finalText}`.length > 0 ? 'finalText' : 'pendingText';
     this.workingLines[this.lineIndex] = {
-      role: 'assistant',
+      ...prior,
       text: '',
-      process: prior.process.slice(),
       pendingText: this.streamField === 'pendingText' ? '' : prior.pendingText,
       finalText: this.streamField === 'finalText' ? '' : prior.finalText,
     };
@@ -61,9 +60,8 @@ export class PreviewReplayController {
     const slice = this.tailTarget.substring(0, this.endIndex);
     const prior = this.workingLines[this.lineIndex];
     const next: ChatLine = {
-      role: 'assistant',
+      ...prior,
       text: '',
-      process: prior.process.slice(),
       pendingText: prior.pendingText,
       finalText: prior.finalText,
     };

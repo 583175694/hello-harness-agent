@@ -1,11 +1,11 @@
-import { KeyboardAvoidMode, ListScroller, router, ScrollAlign } from '@kit.ArkUI';
+import { KeyboardAvoidMode, LengthMetrics, ListScroller, router, ScrollAlign } from '@kit.ArkUI';
 import { HarnessColors } from '../coreui/HarnessColors';
 import { ChatTopBar } from '../preview/ChatTopBar';
 import { PreviewSessionState } from '../preview/PreviewFixtureLoader';
 import { PreviewAgentSessionPort } from '../preview/PreviewAgentSessionPort';
 import { CoreAgentSessionPort } from '../core/CoreAgentSessionPort';
 import { HarmonyAttachmentPicker } from '../core/HarmonyAttachmentPicker';
-import { ChatLine } from '../preview/PreviewModels';
+import { ArtifactCardRow, ChatLine } from '../preview/PreviewModels';
 import { ConversationTurnRow } from '../preview/ConversationPatterns';
 import { PreviewComposerStack } from '../preview/PreviewComposerStack';
 import { PreviewChromeFlags } from '../preview/PreviewChromeFlags';
@@ -248,6 +248,8 @@ struct PreviewChatPage {
     if (this.corePort !== null) {
       if (action.kind === 'addSkill' && action.text) {
         this.corePort.addComposerSkill(action.text);
+      } else if (action.kind === 'removeAttachment') {
+        void this.corePort.removeComposerAttachment?.(action.id ?? '');
       } else if (action.kind === 'sendText' && action.text) {
         const skills = this.session?.composer.selectedSkills ?? [];
         void this.corePort.submitComposerText(
@@ -255,7 +257,13 @@ struct PreviewChatPage {
           action.modelId ?? this.selectedModelId,
           action.reasoningEffort ?? this.reasoningEffort,
           skills,
-        );
+        ).then((accepted: boolean) => {
+          if (accepted && this.session !== null) {
+            this.session.composer = { ...this.session.composer, submitting: true };
+          }
+        }).catch((error: Object) => {
+          AppToast.show(error instanceof Error ? error.message : '发送失败，请重试');
+        });
       } else if (action.kind === 'cancelRun' || action.kind === 'stopRun') {
         void this.corePort.cancelActiveRun();
       } else if (action.kind === 'sendFollowUp') {
@@ -385,6 +393,22 @@ struct PreviewChatPage {
     });
   }
 
+  private openArtifactReader(artifact: ArtifactCardRow): void {
+    router.pushUrl({
+      url: 'pages/PreviewReaderPage',
+      params: {
+        title: artifact.fileName,
+        body: '',
+        isArtifact: true,
+        artifactId: artifact.artifactId,
+        fileId: artifact.fileId ?? '',
+        fileName: artifact.fileName,
+        mediaType: artifact.mediaType ?? '',
+        fileKind: artifact.fileKind ?? '',
+      },
+    });
+  }
+
   pageTransition() {
     harnessPageTransition()
   }
@@ -501,16 +525,37 @@ struct PreviewChatPage {
                       void this.corePort.setWorkbenchOpen?.(true);
                     }
                   },
+                  onOpenArtifact: (artifact: ArtifactCardRow) => {
+                    this.openArtifactReader(artifact);
+                  },
                 })
               }
             }, (line: ChatLine, index: number) => `${index}-${line.role}`)
             ListItem() {
-              Row().width('100%').height(1)
+              Row().width('100%').height(28)
             }
           }
           .layoutWeight(1)
           .padding({ left: 12, right: 12, top: 4 })
           .scrollBar(BarState.Off)
+          Row()
+            .width('100%')
+            .height(18)
+            .align(Alignment.Top)
+            .linearGradient({
+              angle: 180,
+              colors: [[HarnessColors.canvas(this.themeDark), 0], ['#00101010', 1]],
+            })
+            .hitTestBehavior(HitTestMode.None)
+          Row()
+            .width('100%')
+            .height(18)
+            .align(Alignment.Bottom)
+            .linearGradient({
+              angle: 180,
+              colors: [['#00101010', 0], [HarnessColors.canvas(this.themeDark), 1]],
+            })
+            .hitTestBehavior(HitTestMode.None)
         }
           }
           .width('100%')
@@ -527,6 +572,8 @@ struct PreviewChatPage {
             this.reasoningEffort,
             this.corePort !== null && this.coreModelCatalog.length > 0 ? this.coreModelCatalog : undefined,
           ),
+          selectedModelId: this.selectedModelId,
+          selectedReasoningEffort: this.reasoningEffort,
           useDark: this.themeDark,
           workbenchOpen: this.workbenchOpen,
           composerBlock: PreviewLocalPreferences.resolveComposerBlock(),
@@ -547,6 +594,22 @@ struct PreviewChatPage {
           },
           onPreviewAction: (action: PreviewUiAction) => {
             this.applyPreviewAction(action);
+          },
+          onSendComposerText: (text: string, modelId: string, reasoningEffort: string,
+            skillNames: string[], onAccepted: (accepted: boolean) => void) => {
+            if (this.corePort !== null) {
+              void this.corePort.submitComposerText(text, modelId, reasoningEffort, skillNames)
+                .then((accepted: boolean) => {
+                  onAccepted(accepted);
+                })
+                .catch((error: Object) => {
+                  onAccepted(false);
+                  AppToast.show(error instanceof Error ? error.message : '发送失败，请重试');
+                });
+              return;
+            }
+            this.applyPreviewAction({ kind: 'sendText', text, modelId, reasoningEffort });
+            onAccepted(true);
           },
           onClearComposerRevisionSeed: () => {
             this.corePort?.clearComposerRevisionSeed?.();
@@ -581,12 +644,21 @@ struct PreviewChatPage {
         visible: $drawerOpen,
         sessions: this.drawerSessions,
         refreshing: this.drawerRefreshing,
+        loadingMore: s.loadingOlderSessionSummaries === true,
+        canLoadMore: s.canLoadOlderSessionSummaries === true,
         newConversationEnabled: !this.isInDraftMode(),
         reduceMotion: this.reduceMotion,
         useDark: this.themeDark,
         liveSessionActions: this.corePort !== null,
         onRefresh: () => {
           this.refreshDrawerSessions();
+        },
+        onLoadMore: () => {
+          void this.corePort?.loadOlderSessionSummaries?.().then(() => {
+            if (this.session !== null) {
+              this.drawerSessions = this.session.sessionDrawer.sessions.slice();
+            }
+          });
         },
         onNewConversation: () => {
           this.startNewConversation();
@@ -618,6 +690,16 @@ struct PreviewChatPage {
         coreRestoreEnabled: this.corePort !== null,
         onOpenReader: (title: string, body: string, isArtifact: boolean) => {
           this.openReader(title, body, isArtifact);
+        },
+        onOpenArtifactReader: (artifactId: string, fileId: string, fileName: string,
+          mediaType: string, fileKind: string) => {
+          this.openArtifactReader({
+            artifactId,
+            fileId,
+            fileName,
+            mediaType,
+            fileKind,
+          });
         },
         onRestoreArtifactVersion: (restoreId: string, expectedId: string) => {
           void this.corePort?.restoreArtifactVersion?.(restoreId, expectedId);
@@ -697,7 +779,7 @@ struct PreviewChatPage {
     .width('100%')
     .height('100%')
     .backgroundColor(HarnessColors.canvas(this.themeDark))
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
     .keyboardAvoidMode(KeyboardAvoidMode.RESIZE)
   }
 }

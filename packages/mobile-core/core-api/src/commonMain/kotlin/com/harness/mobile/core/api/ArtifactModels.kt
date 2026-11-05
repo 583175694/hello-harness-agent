@@ -49,3 +49,18 @@ data class ArtifactSeriesRef(
     val updatedAt: String = "",
     val versions: List<ArtifactRef> = emptyList(),
 )
+
+
+/** 已鉴权的 artifact/file 预览内容；binary 由平台端写入临时文件后系统预览。 */
+data class ArtifactPreviewContent(
+    val bytes: ByteArray,
+    val contentType: String,
+    val fileName: String,
+    val binary: Boolean = false,
+)
+
+data class ArtifactDownloadContent(
+    val bytes: ByteArray,
+    val contentType: String,
+    val fileName: String,
+)

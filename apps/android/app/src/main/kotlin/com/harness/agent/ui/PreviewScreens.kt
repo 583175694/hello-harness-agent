@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -33,6 +35,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -64,6 +68,10 @@ import com.harness.agent.ui.chat.ConversationTurnRow
 import com.harness.agent.ui.chat.SessionDrawerOverlay
 import com.harness.agent.MainActivity
 import com.harness.agent.ui.workbench.WorkbenchSheetOverlay
+import com.harness.agent.model.ArtifactItem
+import com.harness.agent.model.toReaderTarget
+import com.harness.agent.model.ReaderTarget
+import com.harness.agent.model.WorkbenchDeliverableFile
 
 @Composable
 fun PreviewDevMenuScreen(
@@ -126,7 +134,7 @@ fun PreviewChatShellScreen(
     onOpenSettings: () -> Unit,
     onOpenLogin: () -> Unit = {},
     onOpenReportReader: (title: String, markdown: String) -> Unit,
-    onOpenArtifactReader: (title: String, diff: String) -> Unit,
+    onOpenArtifactReader: (ReaderTarget) -> Unit,
 ) {
     val context = LocalContext.current
     val imagePicker =
@@ -244,6 +252,7 @@ fun PreviewChatShellScreen(
                 viewModel::refreshWorkbench
             },
         onLoadOlderMessages = viewModel::loadOlderMessages,
+        onLoadOlderSessionSummaries = viewModel::loadOlderSessionSummaries,
         onRestoreArtifactVersion = { restoreId, expectedId ->
             if (viewModel.coreEngineActive) {
                 viewModel.restoreArtifactVersion(restoreId, expectedId)
@@ -301,7 +310,7 @@ fun PreviewChatShellSnapshot(
         onDeleteSession = {},
         onOpenSettings = {},
         onOpenReportReader = { _, _ -> },
-        onOpenArtifactReader = { _, _ -> },
+        onOpenArtifactReader = {},
         onRefreshWorkbench = {},
     )
 }
@@ -336,10 +345,11 @@ private fun PreviewChatShellLayout(
     onOpenLogin: () -> Unit = {},
     onLoadDemoFixture: () -> Unit = {},
     onOpenReportReader: (title: String, markdown: String) -> Unit,
-    onOpenArtifactReader: (title: String, diff: String) -> Unit,
+    onOpenArtifactReader: (ReaderTarget) -> Unit,
     onPreviewAction: (PreviewUiAction) -> Unit = {},
     onRefreshWorkbench: () -> Unit = {},
     onLoadOlderMessages: () -> Unit = {},
+    onLoadOlderSessionSummaries: () -> Unit = {},
     onRestoreArtifactVersion: (restoreArtifactId: String, expectedCurrentArtifactId: String) -> Unit = { _, _ -> },
     onBeginArtifactRevision: (artifactId: String) -> Unit = {},
     onClearComposerRevisionSeed: () -> Unit = {},
@@ -379,11 +389,11 @@ private fun PreviewChatShellLayout(
                 .fillMaxSize()
                 .background(colors.canvas),
     ) {
+        // 键盘弹起时 imePadding 已包含底部安全区；再叠加 navigationBarsPadding 会多留一条空白。
         Column(
             Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .navigationBarsPadding()
                 .imePadding(),
         ) {
             ChatTopBar(
@@ -429,6 +439,7 @@ private fun PreviewChatShellLayout(
                                     onOpenDemo = onLoadDemoFixture,
                                 )
                             else ->
+                                Box(Modifier.fillMaxSize()) {
                                 LazyColumn(
                                     state = conversationListState,
                                     modifier =
@@ -445,23 +456,39 @@ private fun PreviewChatShellLayout(
                                             )
                                         }
                                     }
-                                    itemsIndexed(
+                                    items(
                                         items = conversation,
-                                        key = { index, item ->
-                                            when (item) {
-                                                is com.harness.agent.model.ConversationItem.User ->
-                                                    "u-$index-${item.content.hashCode()}"
-                                                is com.harness.agent.model.ConversationItem.Assistant ->
-                                                    "a-$index-${item.deliveryStatus}"
-                                            }
-                                        },
-                                    ) { _, item ->
+                                        key = { item -> item.id },
+                                    ) { item ->
                                         ConversationTurnRow(
                                             item = item,
                                             previewReduceMotion = previewReduceMotion,
                                             onOpenWorkbenchStep = onOpenWorkbenchFromProcess,
+                                            onOpenArtifact = { artifact -> onOpenArtifactReader(artifact.toReaderTarget()) },
                                         )
                                     }
+                                    item(key = "conversation-tail-spacer") {
+                                        Spacer(Modifier.height(28.dp))
+                                    }
+                                }
+                                Box(
+                                    Modifier
+                                        .align(Alignment.TopCenter)
+                                        .fillMaxWidth()
+                                        .height(18.dp)
+                                        .background(
+                                            Brush.verticalGradient(listOf(colors.canvas, Color.Transparent)),
+                                        ),
+                                )
+                                Box(
+                                    Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .fillMaxWidth()
+                                        .height(18.dp)
+                                        .background(
+                                            Brush.verticalGradient(listOf(Color.Transparent, colors.canvas)),
+                                        ),
+                                )
                                 }
                         }
                     }
@@ -522,16 +549,10 @@ private fun PreviewChatShellLayout(
             previewReduceMotion = previewReduceMotion,
             onDismiss = { onWorkbenchOpenChange(false) },
             onOpenReportReader = {
-                val markdown = state.workbench.reportMarkdown ?: "# Preview Report\n\n（fixture 无 reportMarkdown）"
+                val markdown = state.workbench.reportMarkdown.orEmpty()
                 onOpenReportReader(state.title, markdown)
             },
-            onOpenArtifactReader = {
-                val diff = state.workbench.artifactDiffPreview ?: "--- artifact diff preview"
-                onOpenArtifactReader("Artifact", diff)
-            },
-            onOpenFilePreview = { fileName, markdown ->
-                onOpenReportReader(fileName, markdown)
-            },
+            onOpenArtifactReader = { onOpenArtifactReader(it.toReaderTarget()) },
             onRestoreArtifactVersion = onRestoreArtifactVersion,
             onBeginArtifactRevision = onBeginArtifactRevision,
             initialFocusedToolId = focusedToolStepId,
@@ -547,6 +568,9 @@ private fun PreviewChatShellLayout(
             onNewConversation = onNewConversation,
             newConversationEnabled = newConversationEnabled,
             onRefresh = onRefreshDrawer,
+            canLoadMore = state.canLoadOlderSessionSummaries || state.loadingOlderSessionSummaries,
+            loadingMore = state.loadingOlderSessionSummaries,
+            onLoadMore = onLoadOlderSessionSummaries,
             onSelectSession = onSelectSession,
             onLongPressSession = onLongPressSession,
             onDismissMenu = onDismissMenu,

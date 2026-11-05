@@ -1,45 +1,292 @@
 package com.harness.agent.ui.reader
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.core.content.FileProvider
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.harness.agent.coreui.markdown.ChatMarkdown
+import com.harness.agent.coreui.feedback.LocalAppToast
+import com.harness.agent.coreui.primitives.AppButton
 import com.harness.agent.coreui.primitives.AppScaffold
 import com.harness.agent.coreui.primitives.AppText
 import com.harness.agent.coreui.primitives.AppTextStyle
+import com.harness.agent.coreui.tokens.HarnessLayout
+import com.harness.agent.coreui.tokens.LocalHarnessColors
+import com.harness.agent.model.ArtifactDownloadPayload
+import com.harness.agent.model.ArtifactPreviewPayload
+import com.harness.agent.model.ReaderTarget
 import com.harness.agent.preview.PreviewAppPreferences
 import com.harness.agent.ui.settings.SettingsTopBar
+import kotlinx.coroutines.launch
+import java.io.File
+
+sealed interface ReaderContentState {
+    data object Loading : ReaderContentState
+    data object Empty : ReaderContentState
+    data class Error(val message: String) : ReaderContentState
+    data class Text(val markdown: String) : ReaderContentState
+    data class Image(val bytes: ByteArray, val contentType: String) : ReaderContentState
+    data class Unsupported(val reason: String) : ReaderContentState
+}
 
 /** Workbench 文件 / 报告全屏阅读：canvas 底、无内容卡片，顶栏与设置页一致（左上返回）。 */
 @Composable
 fun PreviewReportReaderScreen(
     preferences: PreviewAppPreferences,
     onBack: () -> Unit,
+    loadPreview: (suspend (ReaderTarget) -> Result<ArtifactPreviewPayload>)? = null,
+    loadDownload: (suspend (ReaderTarget) -> Result<ArtifactDownloadPayload>)? = null,
 ) {
-    val body = preferences.readerMarkdown.ifBlank { "# 空报告\n\n从 Workbench 打开。" }
+    val context = LocalContext.current
+    val toast = LocalAppToast.current
+    val scope = rememberCoroutineScope()
+    val target = preferences.readerTarget
+    var state by remember(target) {
+        mutableStateOf<ReaderContentState>(
+            if (target == null) {
+                preferences.readerMarkdown
+                    .takeIf { it.isNotBlank() }
+                    ?.let(ReaderContentState::Text)
+                    ?: ReaderContentState.Empty
+            } else {
+                ReaderContentState.Loading
+            },
+        )
+    }
+
+    LaunchedEffect(target) {
+        val artifactTarget = target ?: return@LaunchedEffect
+        if (loadPreview == null) {
+            state = ReaderContentState.Error("当前构建未连接预览服务")
+            return@LaunchedEffect
+        }
+        val result = loadPreview(artifactTarget)
+        state =
+            result.fold(
+                onSuccess = { content -> content.toReaderState(artifactTarget) },
+                onFailure = { failure -> ReaderContentState.Error(failure.readerMessage()) },
+            )
+    }
+
+    fun downloadAndOpen() {
+        val artifactTarget = target ?: return
+        if (loadDownload == null) return
+        scope.launch {
+            loadDownload(artifactTarget)
+                .onSuccess { download ->
+                    if (!shareBytes(context, download.fileName, download.contentType, download.bytes)) {
+                        toast.show("未找到可打开该文件的应用，请安装后再试。")
+                    }
+                }
+                .onFailure { state = ReaderContentState.Error(it.readerMessage()) }
+        }
+    }
+
     AppScaffold(
         topBar = {
             SettingsTopBar(title = preferences.readerTitle, onBack = onBack)
         },
     ) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(top = 8.dp, bottom = 16.dp),
-        ) {
-            if (preferences.readerIsArtifact) {
-                AppText(text = body, style = AppTextStyle.Caption)
-            } else {
-                ChatMarkdown(markdown = body, modifier = Modifier.fillMaxWidth())
+        Box(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+            when (val current = state) {
+                ReaderContentState.Loading ->
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                ReaderContentState.Empty ->
+                    ReaderStatePanel(title = "内容为空", detail = "该文件暂无可用内容。")
+                is ReaderContentState.Error ->
+                    ReaderStatePanel(
+                        title = "无法预览",
+                        detail = current.message,
+                        actionLabel = if (target != null && loadDownload != null) "下载文件" else null,
+                        onAction = ::downloadAndOpen,
+                    )
+                is ReaderContentState.Unsupported ->
+                    ReaderStatePanel(
+                        title = "暂不支持内联预览",
+                        detail = current.reason,
+                        actionLabel = if (target != null && loadDownload != null) "下载并打开" else null,
+                        onAction = ::downloadAndOpen,
+                    )
+                is ReaderContentState.Text ->
+                    Column(
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(top = 8.dp, bottom = 16.dp),
+                    ) {
+                        ChatMarkdown(markdown = current.markdown, modifier = Modifier.fillMaxWidth())
+                    }
+                is ReaderContentState.Image ->
+                    ZoomableImage(bytes = current.bytes, modifier = Modifier.fillMaxSize().padding(vertical = 12.dp))
             }
         }
     }
+}
+
+internal fun ArtifactPreviewPayload.toReaderState(target: ReaderTarget): ReaderContentState {
+    val resolvedType = contentType.ifBlank { target.mediaType }
+    val resolvedKind = target.fileKind.lowercase()
+    return when {
+        bytes.isEmpty() -> ReaderContentState.Empty
+        target.requiresExternalDocumentOpener() ->
+            ReaderContentState.Unsupported("${target.fileKind.uppercase()} 文件需下载后用系统应用打开。")
+        resolvedType.startsWith("image/") || resolvedKind == "image" ->
+            ReaderContentState.Image(bytes, resolvedType)
+        resolvedType.contains("html", ignoreCase = true) || resolvedKind == "html" ->
+            ReaderContentState.Unsupported("HTML 文件需用浏览器或系统应用打开。")
+        resolvedType.startsWith("text/") || resolvedType.contains("json", ignoreCase = true) ||
+            resolvedKind in setOf("markdown", "json", "text") ->
+            ReaderContentState.Text(bytes.decodeToString())
+        else -> ReaderContentState.Unsupported("${resolvedType.ifBlank { target.fileName }} 需用系统应用打开。")
+    }
+}
+
+private fun ReaderTarget.requiresExternalDocumentOpener(): Boolean {
+    val kind = fileKind.lowercase()
+    val type = mediaType.lowercase()
+    return kind in setOf("docx", "xlsx", "pptx") ||
+        type.contains("wordprocessingml") ||
+        type.contains("spreadsheetml") ||
+        type.contains("presentationml")
+}
+
+internal fun Throwable.readerMessage(): String {
+    val raw = message?.trim().orEmpty()
+    return when {
+        raw.isEmpty() -> "请求失败，请检查网络后重试。"
+        raw.contains("401") || raw.contains("AUTH_REQUIRED", ignoreCase = true) -> "登录已失效，请重新登录。"
+        raw.contains("404") || raw.contains("NOT_FOUND", ignoreCase = true) ||
+            raw.contains("ARTIFACT_DELETED", ignoreCase = true) -> "文件不存在或已被删除。"
+        raw.contains("connect", ignoreCase = true) || raw.contains("timeout", ignoreCase = true) -> "网络连接失败，请重试。"
+        else -> raw
+    }
+}
+
+@Composable
+private fun ReaderStatePanel(
+    title: String,
+    detail: String,
+    actionLabel: String? = null,
+    onAction: () -> Unit = {},
+) {
+    val colors = LocalHarnessColors.current
+    Column(
+        modifier = Modifier.fillMaxSize().padding(top = 48.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        AppText(text = title, style = AppTextStyle.Title)
+        AppText(text = detail, style = AppTextStyle.Muted)
+        if (actionLabel != null) {
+            AppButton(text = actionLabel, onClick = onAction, modifier = Modifier.padding(top = 8.dp))
+        }
+        Box(Modifier.size(1.dp).background(colors.canvas))
+    }
+}
+
+@Composable
+private fun ZoomableImage(
+    bytes: ByteArray,
+    modifier: Modifier = Modifier,
+) {
+    val bitmap = remember(bytes) {
+        runCatching { android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
+    }
+    var scale by remember(bytes) { mutableFloatStateOf(1f) }
+    var offset by remember(bytes) { mutableStateOf(Offset.Zero) }
+    if (bitmap == null) {
+        ReaderStatePanel(title = "无法显示图片", detail = "图片数据不完整。")
+        return
+    }
+    Box(modifier = modifier.clipToBounds(), contentAlignment = Alignment.Center) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "图片预览",
+            contentScale = ContentScale.Fit,
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offset.x
+                        translationY = offset.y
+                    }
+                    .pointerInput(bytes) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            scale = (scale * zoom).coerceIn(1f, 5f)
+                            offset = if (scale <= 1f) Offset.Zero else offset + pan
+                        }
+                    }
+                    .pointerInput(bytes) {
+                        detectTapGestures(
+                            onDoubleTap = {
+                                scale = 1f
+                                offset = Offset.Zero
+                            },
+                        )
+                    },
+        )
+    }
+}
+
+private fun shareBytes(
+    context: Context,
+    fileName: String,
+    contentType: String,
+    bytes: ByteArray,
+): Boolean {
+    if (bytes.isEmpty()) return false
+    val safeName = fileName.ifBlank { "artifact" }
+    val dir = File(context.cacheDir, "reader").apply { mkdirs() }
+    val file = File(dir, safeName.replace('/', '_'))
+    file.writeBytes(bytes)
+    val uri: Uri =
+        FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file,
+        )
+    val intent =
+        Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, contentType.ifBlank { "*/*" })
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    return runCatching { context.startActivity(intent) }.isSuccess
 }

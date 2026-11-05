@@ -38,6 +38,8 @@ struct ComposerAttachmentStripView: View {
                         ZStack(alignment: .topTrailing) {
                             ComposerAttachmentCardView(
                                 fileName: item.fileName,
+                                mediaType: item.mediaType,
+                                previewUri: item.previewUri,
                                 stripHeight: stripHeight,
                                 fileMaxWidth: fileMaxWidth
                             )
@@ -65,20 +67,28 @@ struct ComposerAttachmentStripView: View {
 
 private struct ComposerAttachmentCardView: View {
     let fileName: String
+    let mediaType: String
+    let previewUri: String?
     let stripHeight: CGFloat
     let fileMaxWidth: CGFloat
 
     var body: some View {
-        let isImage = isImageAttachment(fileName)
+        let isImage = mediaType.hasPrefix("image/") || isImageAttachment(fileName)
         if isImage {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(HarnessColors.subtle)
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(HarnessColors.composerBorder, lineWidth: 1)
-                Text("IMG").font(.caption2).foregroundStyle(HarnessColors.muted)
+                if let url = imageURL {
+                    ComposerAuthedImage(url: url)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                } else {
+                    Text("IMG").font(.caption2).foregroundStyle(HarnessColors.muted)
+                }
             }
             .frame(width: stripHeight, height: stripHeight)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         } else {
             HStack(spacing: 8) {
                 Text(fileExtensionLabel(fileName))
@@ -110,10 +120,36 @@ private struct ComposerAttachmentCardView: View {
         return lower.hasSuffix(".png") || lower.hasSuffix(".jpg") || lower.hasSuffix(".jpeg") || lower.hasSuffix(".webp")
     }
 
+    private var imageURL: URL? {
+        PreviewImageURL.resolve(previewUri)
+    }
+
     private func fileExtensionLabel(_ name: String) -> String {
         guard let dot = name.lastIndex(of: ".") else { return "FILE" }
         let ext = name[name.index(after: dot)...]
         return String(ext).uppercased().prefix(4).description
+    }
+}
+
+enum PreviewImageURL {
+    static func resolve(_ raw: String?) -> URL? {
+        let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !value.isEmpty else { return nil }
+        if value.hasPrefix("file://") || value.hasPrefix("content://") {
+            return URL(string: value)
+        }
+        if let absolute = URL(string: value), absolute.scheme != nil {
+            return absolute
+        }
+        #if CORE_PORT
+        let base = CoreServices.apiBaseUrl
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if !base.isEmpty, let baseURL = URL(string: base) {
+            return URL(string: value.hasPrefix("/") ? value : "/\(value)", relativeTo: baseURL)
+        }
+        #endif
+        return URL(string: value)
     }
 }
 
@@ -151,5 +187,49 @@ private struct FlowLayout: Layout {
             x += size.width + spacing
         }
         return (CGSize(width: maxWidth, height: y + rowHeight), frames)
+    }
+}
+
+
+struct ComposerAuthedImage: View {
+    let url: URL
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else if failed {
+                Text("IMG").font(.caption2).foregroundStyle(HarnessColors.muted)
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .task(id: url) {
+            await load()
+        }
+    }
+
+    private func load() async {
+        var request = URLRequest(url: url)
+        #if CORE_PORT
+        if let cookie = CoreServices.cookieHeader() {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+        #endif
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let decoded = UIImage(data: data) else {
+                failed = true
+                return
+            }
+            image = decoded
+        } catch {
+            failed = true
+        }
     }
 }

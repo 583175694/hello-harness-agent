@@ -21,13 +21,14 @@ final class ReplayController {
         cancel()
         guard let config else { return }
         guard let index = conversation.lastIndex(where: {
-            if case .assistant(status: let status, pending: _, pendingText: _, finalText: _, summary: _, tailTarget: let tail, markdownContent: _, process: _) = $0 {
+            if case .assistant(id: _, status: let status, pending: _, pendingText: _, finalText: _, summary: _, tailTarget: let tail, markdownContent: _, process: _, artifacts: _) = $0 {
                 return status == "streaming" && tail != nil
             }
             return false
         }) else { return }
 
         guard case .assistant(
+            id: let messageId,
             status: let status,
             pending: _,
             pendingText: _,
@@ -35,7 +36,8 @@ final class ReplayController {
             summary: _,
             tailTarget: let tailTarget,
             markdownContent: _,
-            process: _
+            process: let process,
+            artifacts: let artifacts
         ) = conversation[index],
               status == "streaming",
               let target = tailTarget,
@@ -50,6 +52,7 @@ final class ReplayController {
                 end = min(end + config.codepointsPerTick, target.count)
                 let slice = String(target.prefix(end))
                 current[index] = .assistant(
+                    id: messageId,
                     status: "streaming",
                     pending: true,
                     pendingText: slice,
@@ -57,12 +60,14 @@ final class ReplayController {
                     summary: nil,
                     tailTarget: target,
                     markdownContent: nil,
-                    process: []
+                    process: process,
+                    artifacts: artifacts
                 )
                 await MainActor.run { onUpdate(current) }
             }
             guard !Task.isCancelled else { return }
             current[index] = .assistant(
+                id: messageId,
                 status: "completed",
                 pending: false,
                 pendingText: nil,
@@ -70,7 +75,8 @@ final class ReplayController {
                 summary: nil,
                 tailTarget: nil,
                 markdownContent: target,
-                process: []
+                process: process,
+                artifacts: artifacts
             )
             await MainActor.run { onUpdate(current) }
         }

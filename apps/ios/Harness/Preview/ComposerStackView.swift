@@ -13,6 +13,7 @@ struct ComposerStackView: View {
     var skillPickerNames: [String] = ComposerCatalogDefaults.previewSkills
     var onSkillSheetOpen: () -> Void = {}
     var onClearComposerRevisionSeed: () -> Void = {}
+    var onSendComposerText: ((String, String?, String?, [String], @escaping (Bool) -> Void) -> Void)? = nil
     @State private var draft: String = ""
     @State private var fileImporterOpen = false
     @State private var clarificationAnswer: String = ""
@@ -23,7 +24,27 @@ struct ComposerStackView: View {
     @State private var reasoningEffort: String
 
     private var modelChipLabel: String {
-        ComposerModelMenuLabels.chipLabel(modelId: selectedModelId, effort: reasoningEffort)
+        let catalog = modelCatalog.isEmpty ? ComposerCatalogDefaults.previewModels : modelCatalog
+        let label = catalog.first(where: { $0.id == selectedModelId })?.label ?? selectedModelId
+        return "\(label) · \(ComposerModelMenuLabels.reasoningShortLabel(reasoningEffort))"
+    }
+
+    /// 服务端目录到达后把本地初始（或旧 fixture）模型对齐到可用项，避免提交 `CONFLICT`。
+    private func reconcileModelSelection(_ catalog: [ComposerModelOption]) {
+        let models = catalog.isEmpty ? ComposerCatalogDefaults.previewModels : catalog
+        guard let first = models.first else { return }
+        if models.contains(where: { $0.id == selectedModelId }) {
+            let allowed = models.first(where: { $0.id == selectedModelId })?.reasoningOptions ?? []
+            if !allowed.contains(reasoningEffort), let last = allowed.last {
+                reasoningEffort = last
+            }
+            return
+        }
+        selectedModelId = first.id
+        let allowed = first.reasoningOptions
+        if !allowed.contains(reasoningEffort) {
+            reasoningEffort = allowed.last ?? "high"
+        }
     }
 
     private var overlayOpen: Bool {
@@ -41,7 +62,8 @@ struct ComposerStackView: View {
         modelCatalog: [ComposerModelOption] = ComposerCatalogDefaults.previewModels,
         skillPickerNames: [String] = ComposerCatalogDefaults.previewSkills,
         onSkillSheetOpen: @escaping () -> Void = {},
-        onClearComposerRevisionSeed: @escaping () -> Void = {}
+        onClearComposerRevisionSeed: @escaping () -> Void = {},
+        onSendComposerText: ((String, String?, String?, [String], @escaping (Bool) -> Void) -> Void)? = nil
     ) {
         self.state = state
         self.workbenchOpen = workbenchOpen
@@ -54,6 +76,7 @@ struct ComposerStackView: View {
         self.skillPickerNames = skillPickerNames
         self.onSkillSheetOpen = onSkillSheetOpen
         self.onClearComposerRevisionSeed = onClearComposerRevisionSeed
+        self.onSendComposerText = onSendComposerText
         _selectedModelId = State(initialValue: ComposerModelMenuLabels.resolveModelId(from: state.selectedModelLabel))
         _reasoningEffort = State(initialValue: ComposerModelMenuLabels.resolveReasoning(from: state.selectedModelLabel))
     }
@@ -64,7 +87,6 @@ struct ComposerStackView: View {
             composerBubbleShell
         }
         .padding(.horizontal, 12)
-        .padding(.bottom, HarnessLayout.composerChromeBottomExtra)
         .sheet(isPresented: $attachOpen) {
             attachmentSheet
         }
@@ -78,6 +100,12 @@ struct ComposerStackView: View {
             guard let seed, !seed.isEmpty else { return }
             draft = seed
             onClearComposerRevisionSeed()
+        }
+        .onChange(of: modelCatalog) { _, catalog in
+            reconcileModelSelection(catalog)
+        }
+        .onAppear {
+            reconcileModelSelection(modelCatalog)
         }
         .onChange(of: overlayOpen) { _, open in
             if open { PreviewKeyboardDismiss.run() }
@@ -263,10 +291,11 @@ struct ComposerStackView: View {
     }
 
     private var composerInputRow: some View {
+        let running = state.submitting || state.composerTextMode == "steer"
         let enabled = state.composerTextMode != "disabled" && state.mode != "hitl" && composerBlock == .none
         let showModel = state.composerTextMode != "clarification"
         let canSend = enabled && !draft.isEmpty
-        let canPressSend = enabled && (canSend || state.submitting)
+        let canPressSend = enabled && (canSend || running)
         let placeholder: String = {
             switch state.composerTextMode {
             case "steer": return "补充方向，将从下一步骤应用……"
@@ -317,26 +346,40 @@ struct ComposerStackView: View {
                 }
 
                 Button {
-                    if state.submitting && draft.isEmpty {
+                    if running && draft.isEmpty {
                         onPreviewAction(.stopRun)
                     } else if canSend {
-                        onPreviewAction(
-                            .sendComposerText(
-                                text: draft,
-                                modelId: selectedModelId,
-                                reasoningEffort: reasoningEffort,
-                                skillNames: state.selectedSkills
+                        if let onSendComposerText {
+                            onSendComposerText(draft, selectedModelId, reasoningEffort, state.selectedSkills) { accepted in
+                                if accepted { draft = "" }
+                            }
+                        } else {
+                            onPreviewAction(
+                                .sendComposerText(
+                                    text: draft,
+                                    modelId: selectedModelId,
+                                    reasoningEffort: reasoningEffort,
+                                    skillNames: state.selectedSkills
+                                )
                             )
-                        )
-                        draft = ""
+                        }
                     }
                 } label: {
-                    HarnessSymbol.image("arrow.up", size: 16)
-                        .foregroundStyle(HarnessColors.primaryForeground)
-                        .frame(width: HarnessLayout.composerSendSize, height: HarnessLayout.composerSendSize)
-                        .background(canPressSend ? HarnessColors.primary : HarnessColors.subtle)
-                        .clipShape(Circle())
+                    Group {
+                        if running && draft.isEmpty {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(HarnessColors.primaryForeground)
+                                .frame(width: 12, height: 12)
+                        } else {
+                            HarnessSymbol.image("arrow.up", size: 16)
+                                .foregroundStyle(HarnessColors.primaryForeground)
+                        }
+                    }
+                    .frame(width: HarnessLayout.composerSendSize, height: HarnessLayout.composerSendSize)
+                    .background(canPressSend ? HarnessColors.primary : HarnessColors.subtle)
+                    .clipShape(Circle())
                 }
+                .accessibilityLabel(running && draft.isEmpty ? "停止当前任务" : (running ? "发送补充" : "发送任务"))
                 .buttonStyle(HarnessPressScaleButtonStyle())
                 .disabled(!canPressSend)
             }

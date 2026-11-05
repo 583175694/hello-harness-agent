@@ -14,7 +14,8 @@ export interface AgentSessionPort {
   renameSession?(sessionId: string, title: string): Promise<void>;
   togglePinSession?(sessionId: string): Promise<void>;
   deleteSession?(sessionId: string): Promise<void>;
-  submitComposerText?(text: string, modelId?: string, reasoningEffort?: string, skillNames?: string[]): Promise<void>;
+  submitComposerText?(text: string, modelId?: string, reasoningEffort?: string, skillNames?: string[]): Promise<boolean>;
+  removeComposerAttachment?(fileId: string): void;
   addComposerSkill?(skill: string): void;
   uploadComposerAttachment?(fileName: string, fileData: ArrayBuffer, mediaType: string): Promise<void>;
   cancelActiveRun?(): Promise<void>;
@@ -26,6 +27,11 @@ export interface AgentSessionPort {
   setWorkbenchOpen?(open: boolean): void;
   clearWorkbenchFocusHint?(): void;
   loadOlderMessages?(sessionId: string): Promise<void>;
+  loadOlderSessionSummaries?(): Promise<void>;
+  previewArtifact?(artifactId: string): Promise<{ data: ArrayBuffer; contentType: string; fileName: string }>;
+  downloadArtifact?(artifactId: string): Promise<{ data: ArrayBuffer; contentType: string; fileName: string }>;
+  previewFile?(fileId: string): Promise<{ data: ArrayBuffer; contentType: string; fileName: string }>;
+  downloadFile?(fileId: string): Promise<{ data: ArrayBuffer; contentType: string; fileName: string }>;
   respondClarification?(answer: string): Promise<void>;
   approveToolCalls?(): Promise<void>;
   rejectToolCalls?(): Promise<void>;

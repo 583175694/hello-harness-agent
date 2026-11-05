@@ -9,6 +9,7 @@ data class AssistantMessagePresentation(
     val process: List<MobileProcessBlock>,
     val pendingText: String,
     val finalText: String,
+    val artifacts: List<com.harness.mobile.core.api.ArtifactRef> = emptyList(),
 )
 
 internal object AssistantPresentation {
@@ -18,7 +19,8 @@ internal object AssistantPresentation {
                 val type = block["type"]?.jsonPrimitive?.content
                 type == AssistantBlockTypes.TEXT ||
                     type == AssistantBlockTypes.TOOL ||
-                    type == AssistantBlockTypes.REASONING
+                    type == AssistantBlockTypes.REASONING ||
+                    type == AssistantBlockTypes.ARTIFACT
             }
         val toolRounds =
             timeline
@@ -31,6 +33,7 @@ internal object AssistantPresentation {
         val process = mutableListOf<MobileProcessBlock>()
         val pending = mutableListOf<String>()
         val final = mutableListOf<String>()
+        val artifacts = mutableListOf<com.harness.mobile.core.api.ArtifactRef>()
 
         timeline.forEachIndexed { index, block ->
             when (block["type"]?.jsonPrimitive?.content) {
@@ -56,6 +59,23 @@ internal object AssistantPresentation {
                             durationMs = block["durationMs"]?.jsonPrimitive?.longOrNull,
                             streaming = completedAt == null,
                             roundSequence = block["roundSequence"]?.jsonPrimitive?.content?.toIntOrNull(),
+                        )
+                }
+                AssistantBlockTypes.ARTIFACT -> {
+                    artifacts +=
+                        com.harness.mobile.core.api.ArtifactRef(
+                            artifactId = block["artifactId"]?.jsonPrimitive?.content.orEmpty(),
+                            fileId = block["fileId"]?.jsonPrimitive?.content.orEmpty(),
+                            fileName = block["fileName"]?.jsonPrimitive?.content.orEmpty(),
+                            mediaType = block["mediaType"]?.jsonPrimitive?.content.orEmpty(),
+                            fileKind = block["fileKind"]?.jsonPrimitive?.content.orEmpty(),
+                            size = block["size"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                            status = block["status"]?.jsonPrimitive?.content.orEmpty(),
+                            createdAt = block["createdAt"]?.jsonPrimitive?.content.orEmpty(),
+                            seriesId = block["seriesId"]?.jsonPrimitive?.content,
+                            logicalName = block["logicalName"]?.jsonPrimitive?.content,
+                            versionNumber = block["versionNumber"]?.jsonPrimitive?.content?.toIntOrNull(),
+                            isCurrent = block["isCurrent"]?.jsonPrimitive?.content?.toBooleanStrictOrNull(),
                         )
                 }
                 AssistantBlockTypes.TEXT -> {
@@ -84,6 +104,7 @@ internal object AssistantPresentation {
             process = process,
             pendingText = pending.joinToString(""),
             finalText = final.joinToString(""),
+            artifacts = artifacts,
         )
     }
 

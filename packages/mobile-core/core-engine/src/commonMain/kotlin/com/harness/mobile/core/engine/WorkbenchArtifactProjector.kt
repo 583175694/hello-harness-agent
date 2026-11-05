@@ -1,5 +1,6 @@
 package com.harness.mobile.core.engine
 
+import com.harness.mobile.core.api.ArtifactRef
 import com.harness.mobile.core.api.ArtifactSeriesRef
 import com.harness.mobile.core.api.MobileWorkbenchArtifactVersion
 import com.harness.mobile.core.api.MobileWorkbenchSnapshot
@@ -15,6 +16,7 @@ object WorkbenchArtifactProjector {
         val countBoost = versions.size
         return snapshot.copy(
             artifactVersions = versions,
+            deliverableFiles = currentDeliverableFiles(series),
             artifactRestorePrompt = restorePromptForSeries(series),
             workbenchCount = snapshot.workbenchCount.coerceAtLeast(countBoost),
             hasDeliverables = snapshot.hasDeliverables ?: true,
@@ -40,13 +42,26 @@ object WorkbenchArtifactProjector {
     fun versionsFromSeries(series: List<ArtifactSeriesRef>): List<MobileWorkbenchArtifactVersion> =
         series.flatMap { s -> versionsForSeries(s) }
 
+    fun currentDeliverableFiles(series: List<ArtifactSeriesRef>): List<ArtifactRef> =
+        series.mapNotNull { s ->
+            val current =
+                s.currentArtifactId?.let { id -> s.versions.firstOrNull { it.artifactId == id } }
+                    ?: s.versions.firstOrNull { it.isCurrent == true }
+                    ?: s.versions.lastOrNull()
+            current?.copy(
+                seriesId = s.seriesId,
+                logicalName = s.logicalName,
+                isCurrent = true,
+            )
+        }.filter { it.artifactId.isNotBlank() }
+
     private fun versionsForSeries(series: ArtifactSeriesRef): List<MobileWorkbenchArtifactVersion> {
         val currentId = series.currentArtifactId
         return series.versions
             .sortedBy { it.versionNumber ?: 0 }
-            .mapNotNull { ref ->
-                val versionNumber = ref.versionNumber ?: return@mapNotNull null
-                val selected = ref.artifactId == currentId || ref.isCurrent == true
+            .mapIndexedNotNull { index, ref ->
+                val versionNumber = ref.versionNumber ?: return@mapIndexedNotNull null
+                val selected = isSelectedVersion(series, ref.artifactId, index)
                 val suffix = if (selected) "（当前）" else ""
                 MobileWorkbenchArtifactVersion(
                     id = ref.artifactId,
@@ -58,6 +73,24 @@ object WorkbenchArtifactProjector {
                     expectedCurrentArtifactId = currentId,
                 )
             }
+    }
+
+    /**
+     * session 快照的 currentArtifactId 是唯一真源；仅当 series 没有 current 时才回退到
+     * metadata 的 isCurrent，且取最后一个标记，避免旧 metadata 让多个版本同时显示“当前”。
+     */
+    internal fun isSelectedVersion(
+        series: ArtifactSeriesRef,
+        artifactId: String,
+        sortedIndex: Int,
+    ): Boolean {
+        val currentId = series.currentArtifactId
+        if (!currentId.isNullOrBlank()) return artifactId == currentId
+        val flagged =
+            series.versions
+                .sortedBy { it.versionNumber ?: 0 }
+                .mapIndexedNotNull { index, ref -> index.takeIf { ref.isCurrent == true } }
+        return flagged.lastOrNull() == sortedIndex
     }
 
     private fun restorePromptForSeries(series: List<ArtifactSeriesRef>): String? {

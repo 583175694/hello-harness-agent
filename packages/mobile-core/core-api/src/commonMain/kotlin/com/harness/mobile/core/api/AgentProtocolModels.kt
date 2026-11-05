@@ -77,4 +77,14 @@ data class ProblemDetails(
 
 class ApiProblem(
     val problem: ProblemDetails,
-) : Exception(problem.title)
+) : Exception(problemMessage(problem))
+
+/**
+ * 平台端只有 message 可用（iOS bridge / ArkTS exception），把状态码与 detail 一并暴露，
+ * 否则 401 / 404 只能落到英文 title，阅读器无法给出明确状态。
+ */
+private fun problemMessage(problem: ProblemDetails): String {
+    val detail = problem.detail.trim()
+    val suffix = if (detail.isNotEmpty() && detail != problem.title) ": $detail" else ""
+    return "HTTP ${problem.status} ${problem.title}$suffix"
+}

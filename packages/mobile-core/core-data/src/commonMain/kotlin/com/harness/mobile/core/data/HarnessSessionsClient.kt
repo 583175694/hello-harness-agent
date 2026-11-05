@@ -25,10 +25,21 @@ class HarnessSessionsClient internal constructor(
     private val config: EngineConfig,
     private val httpClient: HttpClient,
 ) {
-    suspend fun listSessions(): ListSessionsResponse {
+    suspend fun listSessions(
+        limit: Int? = null,
+        before: String? = null,
+    ): ListSessionsResponse {
         val base = HarnessAgentHttpClient.normalizeBaseUrl(config.apiBaseUrlProvider())
+        val query =
+            buildString {
+                if (limit != null) append("?limit=$limit")
+                if (!before.isNullOrBlank()) {
+                    append(if (queryContainsQuery()) "&" else "?")
+                    append("before=${encodeURLParameter(before)}")
+                }
+            }
         val response =
-            httpClient.get("$base/api/agent/sessions") {
+            httpClient.get("$base/api/agent/sessions$query") {
                 applyAuth()
             }
         return parseOk(response)
@@ -104,6 +115,11 @@ class HarnessSessionsClient internal constructor(
         fun create(config: EngineConfig): HarnessSessionsClient =
             HarnessSessionsClient(config, HarnessAgentHttpClient.createDefaultClient())
     }
+
+    private fun StringBuilder.queryContainsQuery(): Boolean = contains('?')
+
+    private fun encodeURLParameter(value: String): String =
+        value.replace("%", "%25").replace("&", "%26").replace("=", "%3D").replace("+", "%2B")
 
     @Serializable
     private data class CreateSessionBody(val title: String)

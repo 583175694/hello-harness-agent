@@ -215,11 +215,13 @@ class RunLiveReducer {
         val bodyText = presentation.pendingText + presentation.finalText
         return listOf(
             MobileConversationLine(
+                id = state.userMessageId.ifBlank { "live:${state.runId}:user" },
                 kind = "user",
                 content = state.userText,
                 attachments = state.userAttachments,
             ),
             MobileConversationLine(
+                id = state.assistantMessageId.ifBlank { "live:${state.runId}:assistant" },
                 kind = "assistant",
                 content = bodyText,
                 deliveryStatus = if (inProgress) "streaming" else state.deliveryStatus,
@@ -229,6 +231,7 @@ class RunLiveReducer {
                 reasoning = reasoningFallback,
                 reasoningStreaming = streaming && presentation.process.any { it.kind == "reasoning" && it.streaming },
                 process = presentation.process,
+                artifacts = presentation.artifacts,
             ),
         )
     }

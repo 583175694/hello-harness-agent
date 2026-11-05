@@ -23,6 +23,8 @@ struct ActiveSessionState: Equatable {
     var previewTransitions: PreviewTransitionBundle?
     var canLoadOlderMessages: Bool = false
     var loadingOlderMessages: Bool = false
+    var canLoadOlderSessionSummaries: Bool = false
+    var loadingOlderSessionSummaries: Bool = false
 }
 
 struct UserAttachmentItem: Equatable {
@@ -31,9 +33,10 @@ struct UserAttachmentItem: Equatable {
     var previewUrl: String?
 }
 
-enum ConversationItem: Equatable {
-    case user(content: String, attachments: [UserAttachmentItem])
+enum ConversationItem: Equatable, Identifiable {
+    case user(id: String, content: String, attachments: [UserAttachmentItem])
     case assistant(
+        id: String,
         status: String,
         pending: Bool,
         pendingText: String?,
@@ -41,8 +44,38 @@ enum ConversationItem: Equatable {
         summary: String?,
         tailTarget: String?,
         markdownContent: String?,
-        process: [ProcessBlock]
+        process: [ProcessBlock],
+        artifacts: [ArtifactItem]
     )
+
+    var id: String {
+        switch self {
+        case .user(let id, _, _): return id
+        case .assistant(let id, _, _, _, _, _, _, _, _, _): return id
+        }
+    }
+}
+
+struct ArtifactItem: Equatable, Identifiable {
+    let artifactId: String
+    let fileId: String
+    var fileName: String = ""
+    var mediaType: String = "text/plain"
+    var fileKind: String = "text"
+    var size: Int = 0
+    var status: String = "ready"
+    var seriesId: String?
+    var versionNumber: Int?
+    var isCurrent: Bool?
+    var id: String { artifactId }
+}
+
+struct ReaderTarget: Equatable, Hashable {
+    var artifactId: String?
+    var fileId: String?
+    var fileName: String = "文件"
+    var mediaType: String = ""
+    var fileKind: String = ""
 }
 
 struct ChromeState: Equatable {
@@ -87,10 +120,15 @@ final class MobileContractPreviewLoader {
     private func parse(json: [String: Any]) -> ActiveSessionState {
         var conversation: [ConversationItem] = []
         if let rows = json["conversation"] as? [[String: Any]] {
-            for row in rows {
+            for (index, row) in rows.enumerated() {
                 let kind = row["kind"] as? String ?? ""
+                let messageId = row["id"] as? String
                 if kind == "user" {
-                    conversation.append(.user(content: row["content"] as? String ?? "", attachments: []))
+                    conversation.append(.user(
+                        id: messageId?.isEmpty == false ? messageId! : "preview-user-\(index)",
+                        content: row["content"] as? String ?? "",
+                        attachments: []
+                    ))
                 } else if kind == "assistant" {
                     let status = row["deliveryStatus"] as? String ?? "completed"
                     let pendingRaw = row["pendingText"] as? String
@@ -108,6 +146,7 @@ final class MobileContractPreviewLoader {
                     }
                     conversation.append(
                         .assistant(
+                            id: messageId?.isEmpty == false ? messageId! : "preview-assistant-\(index)",
                             status: status,
                             pending: streaming,
                             pendingText: streaming ? nil : pendingRaw,
@@ -115,7 +154,8 @@ final class MobileContractPreviewLoader {
                             summary: nil,
                             tailTarget: streaming ? pendingRaw : nil,
                             markdownContent: finalizedBody,
-                            process: parseProcess(row["process"] as? [[String: Any]])
+                            process: parseProcess(row["process"] as? [[String: Any]]),
+                            artifacts: []
                         )
                     )
                 }
@@ -374,13 +414,14 @@ final class MobileContractPreviewLoader {
             case "reasoning":
                 result.append(
                     .reasoning(
+                        id: row["id"] as? String ?? "",
                         content: row["content"] as? String ?? "",
                         durationMs: row["durationMs"] as? Int,
                         streaming: row["streaming"] as? Bool ?? false
                     )
                 )
             case "text":
-                result.append(.text(row["content"] as? String ?? ""))
+                result.append(.text(id: row["id"] as? String ?? "", content: row["content"] as? String ?? ""))
             default:
                 break
             }

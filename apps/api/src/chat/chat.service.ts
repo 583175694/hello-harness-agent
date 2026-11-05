@@ -119,7 +119,6 @@ export class ChatService {
     prepared: PreparedSessionStream,
     signal?: AbortSignal,
     options: {
-      persistFinal?: boolean;
       onProjection?: (snapshot: ChatProjectionSnapshot) => void | Promise<void>;
       lifecycle?: RuntimeLifecycleController;
       onBeforeModelRequest?: (
@@ -1233,11 +1232,11 @@ export class ChatService {
         content: `${finalTranscriptMessage.content ?? ''}${finalTranscriptSuffix}`,
       });
     await notifyProjection();
-    if (options.persistFinal !== false)
+    // Durable Run 由 RunRepository.terminal 落库；此处仅服务无 runId 的单测/脚本。
+    if (!prepared.runId) {
       await this.delivery.save({
         userId: prepared.userId,
         sessionId: prepared.sessionId,
-        ...(prepared.runId ? { runId: prepared.runId } : {}),
         messageId: prepared.assistantMessageId,
         model,
         blocks: conversation.snapshot(),
@@ -1245,24 +1244,12 @@ export class ChatService {
         executions: snapshot.executions,
         sources: snapshot.sources,
       });
+    }
     this.logger.log(
       `回复完成 | Run=${shortLogId(prepared.runId ?? 'none')} | 会话=${shortLogId(prepared.sessionId)} | 总耗时=${formatLogDuration(Date.now() - startedAt)} | 输出=${content.length} 字 | 工具=${toolCallCount} 次`,
       ChatService.name,
     );
     yield { type: 'message.completed', messageId: prepared.assistantMessageId, model };
-  }
-
-  // 统一记录流式回复失败，避免不同层重复输出同一异常。
-  logStreamFailure(
-    sessionId: string,
-    elapsedMilliseconds: number,
-    error: unknown,
-    runId?: string,
-  ): void {
-    this.logger.warn(
-      `回复生成失败 | Run=${shortLogId(runId ?? 'none')} | 会话=${shortLogId(sessionId)} | 耗时=${formatLogDuration(elapsedMilliseconds)} | 原因=${describeLogError(error)}`,
-      ChatService.name,
-    );
   }
 
   // 读取模型密钥，缺失时返回可操作的配置错误。

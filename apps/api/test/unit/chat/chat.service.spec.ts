@@ -257,7 +257,7 @@ describe('ChatService streamPrepared', () => {
       ],
     });
 
-    await collect(service.streamPrepared(prepared, undefined, { persistFinal: false }));
+    await collect(service.streamPrepared({ ...prepared, runId: 'unit-test-run' }));
 
     const request = providerCreate.mock.calls[0]?.[0] as {
       thinking: { type: string };

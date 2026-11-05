@@ -280,7 +280,6 @@ export class RunExecutor implements OnModuleDestroy {
         },
         active.abortController.signal,
         {
-          persistFinal: false,
           // ChatService 在 yield Event 前交付对应完整 Projection，保证下方 commit 后能写入同版本状态。
           onProjection: async (next) => {
             projection = next;

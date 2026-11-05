@@ -1,4 +1,8 @@
 // 集中维护跨前后端共享的协议限制，避免表单与接口约束漂移。
+
+/** 用户上传与 Agent 生成文件的统一体积上限（字节）。 */
+export const AGENT_FILE_MAX_BYTES = 20 * 1024 * 1024;
+
 export const AGENT_PROTOCOL_LIMITS = {
   // Session 标题和侧栏编辑框允许的最大字符数。
   sessionTitleMaxLength: 28,
@@ -36,9 +40,11 @@ export const AGENT_PROTOCOL_LIMITS = {
   fileReadSmallMaxCodePoints: 4_000,
   /** 大文件 read(scope=file) outline 可选 head/tail 预览行数。 */
   fileReadOutlinePreviewLines: 12,
-  // 用户上传文件解析为正文后的最大 Unicode 字符数（code points）。
+  // 用户上传与生成产物允许的最大字节数（与 AGENT_FILE_MAX_BYTES 一致）。
+  agentFileMaxBytes: AGENT_FILE_MAX_BYTES,
+  // 用户上传文件解析为正文后的最大 Unicode 字符数（code points）；对用户提示优先展示体积上限。
   uploadParsedContentMaxCodePoints: 60_000,
-  generatedFileMaxBytes: 10 * 1024 * 1024,
+  generatedFileMaxBytes: AGENT_FILE_MAX_BYTES,
   generatedFileMaxCodePoints: 40_000,
   // 正式报告与工具轮输出预算对齐，避免把超长正文塞进单次 tool-call JSON。
   createReportMaxCodePoints: 16_000,

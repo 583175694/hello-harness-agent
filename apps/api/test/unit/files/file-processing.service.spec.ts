@@ -56,6 +56,17 @@ describe('FileProcessingService', () => {
     });
   });
 
+  it('parses HTML uploads as normalized html documents', async () => {
+    const result = await service.parse({
+      buffer: Buffer.from('<!doctype html><html><body><p>Hi</p></body></html>'),
+      mimetype: 'text/html',
+      originalname: 'page.html',
+    });
+    expect(result.fileKind).toBe('html');
+    expect(result.normalizedContent).toContain('<p>Hi</p>');
+    expect(result.overview).toMatchObject({ format: 'html' });
+  });
+
   it('formats JSON and exposes its root type', async () => {
     const result = await service.parse({
       buffer: Buffer.from('{"ok":true}'),

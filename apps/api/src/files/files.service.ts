@@ -265,7 +265,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     if (buffer.length > 20 * 1024 * 1024)
       throw new BadRequestException({
         code: AGENT_ERROR_CODES.generatedFileTooLarge,
-        detail: '输出文件超过 20 MiB。',
+        detail: '输出文件超过 20 MB。',
       });
     const mediaType = mediaTypeFromFileName(input.fileName);
     const fileKind = artifactKindFromMediaType(mediaType);

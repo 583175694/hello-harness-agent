@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { buildSectionIndex } from './file-section-index';
 
 // C1 文件大小、会话容量、正文字符数和 PDF 页数上限。
-export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_FILE_BYTES = AGENT_PROTOCOL_LIMITS.agentFileMaxBytes;
 export const MAX_SESSION_FILE_BYTES = 100 * 1024 * 1024;
 export const MAX_PARSED_CODE_POINTS = AGENT_PROTOCOL_LIMITS.uploadParsedContentMaxCodePoints;
 export const MAX_PDF_PAGES = 200;
@@ -19,6 +19,7 @@ export const ALLOWED_DOCUMENT_TYPES = new Set([
   'text/plain',
   'text/markdown',
   'text/csv',
+  'text/html',
   'application/json',
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -28,7 +29,17 @@ export const ALLOWED_DOCUMENT_TYPES = new Set([
 // 防止压缩图片解码后占用过多内存。
 const MAX_DECODED_PIXELS = 40_000_000;
 
-type FileKind = 'image' | 'text' | 'markdown' | 'csv' | 'json' | 'pdf' | 'docx' | 'xlsx' | 'pptx';
+type FileKind =
+  | 'image'
+  | 'text'
+  | 'markdown'
+  | 'csv'
+  | 'html'
+  | 'json'
+  | 'pdf'
+  | 'docx'
+  | 'xlsx'
+  | 'pptx';
 export type ParsedFile = {
   fileKind: FileKind;
   mediaType: string;
@@ -62,13 +73,13 @@ export class FileProcessingService {
     const normalizedFile = { ...file, originalname: decodeMultipartFileName(file.originalname) };
     if (file.buffer.length === 0) throw this.reject('FILE_EMPTY', '文件为空。');
     if (file.buffer.length > MAX_FILE_BYTES)
-      throw this.reject('FILE_TOO_LARGE', '文件超过 20 MiB 限制。');
+      throw this.reject('FILE_TOO_LARGE', '文件超过 20 MB 限制。');
     // 统一浏览器传入的 MIME，后续校验都使用归一化结果。
     const mediaType = normalizeMediaType(normalizedFile.mimetype, normalizedFile.originalname);
     if (!ALLOWED_IMAGE_TYPES.has(mediaType) && !ALLOWED_DOCUMENT_TYPES.has(mediaType))
       throw this.reject(
         'FILE_TYPE_UNSUPPORTED',
-        '仅支持图片、TXT、Markdown、CSV、JSON、PDF、DOCX、XLSX 和 PPTX 文件。',
+        '仅支持图片、TXT、Markdown、CSV、HTML、JSON、PDF、DOCX、XLSX 和 PPTX 文件。',
       );
     if (!matchesMagic(file.buffer, mediaType))
       throw this.reject('FILE_SIGNATURE_MISMATCH', '文件类型与实际内容不一致。');
@@ -156,6 +167,9 @@ export class FileProcessingService {
         }
         normalizedContent = JSON.stringify(value, null, 2);
         overview = { format: 'json', rootType: Array.isArray(value) ? 'array' : typeof value };
+      } else if (prepared.fileKind === 'html') {
+        normalizedContent = text;
+        overview = { format: 'html' };
       } else if (prepared.fileKind === 'csv') {
         // CSV 规范化为稳定的逐行表格文本。
         const rows = parseCsv(text);
@@ -178,7 +192,7 @@ export class FileProcessingService {
     if (characterCount > MAX_PARSED_CODE_POINTS)
       throw this.reject(
         'FILE_CONTENT_TOO_LARGE',
-        `文件解析内容超过 ${MAX_PARSED_CODE_POINTS.toLocaleString('zh-CN')} 字符限制。`,
+        '文件解析后正文过大，请压缩、拆分或缩短内容后重新上传。',
       );
     return {
       ...prepared,
@@ -242,6 +256,7 @@ export class FileProcessingService {
 // 根据 MIME 和扩展名有限归一化文件类型，兼容浏览器常见上传结果。
 function normalizeMediaType(mediaType: string, name: string): string {
   if (mediaType === 'text/plain' && /\.md$/i.test(name)) return 'text/markdown';
+  if (mediaType === 'text/plain' && /\.html?$/i.test(name)) return 'text/html';
   if (mediaType === 'application/octet-stream') {
     const ext = name.toLowerCase().split('.').pop();
     return (
@@ -250,6 +265,8 @@ function normalizeMediaType(mediaType: string, name: string): string {
           txt: 'text/plain',
           md: 'text/markdown',
           csv: 'text/csv',
+          html: 'text/html',
+          htm: 'text/html',
           json: 'application/json',
           pdf: 'application/pdf',
           docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -268,6 +285,7 @@ function kindFor(mediaType: string): FileKind {
       'text/plain': 'text',
       'text/markdown': 'markdown',
       'text/csv': 'csv',
+      'text/html': 'html',
       'application/json': 'json',
       'application/pdf': 'pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',

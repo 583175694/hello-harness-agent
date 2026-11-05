@@ -214,7 +214,7 @@ OpenAI-compatible Adapter 已捕获并选择性回放 DeepSeek `reasoning_conten
 
 实现已落地：Model Adapter 负责供应商 reasoning 编解码和能力校验，Runtime/Repository 持久化并恢复 canonical transcript。后续用户轮次按顺序回放 reasoning + Tool Call + Tool Result 原子单元与 final answer，但不回放无 Tool Call 最终 Round 的 reasoning。Composer 通过 Public Config 提供 Flash/Pro 和 `off/low/high/max` 四档选择，模型与推理强度在 Run 创建时冻结并纳入幂等 hash。失败、取消、进程中断和未闭合 Tool Call 不进入 committed history；Session 删除级联清理 transcript。Context Engineering 已在该 canonical transcript 之上实现第一阶段编译、预算、裁剪和压缩。详细设计见 [27-reasoning-context-transcript.md](./27-reasoning-context-transcript.md) 与 [03-context-engineering.md](./03-context-engineering.md)。
 
-本轮 review 加固了模型透传和完整性边界：ChatService 使用 Run 冻结模型，不再用默认模型覆盖用户选择；Snapshot profile 改为必填；未知模型直接拒绝；transcript 校验孤立 Tool Call 和缺失 Tool Result；前端不再兼容渲染最终回答之后的非法 reasoning/tool 顺序。旧的 `prepareSessionStream()` Message 上下文方法仍因现有历史单测保留，但实际 Run 执行链不再调用它，后续可单独删除并重写测试。
+本轮 review 加固了模型透传和完整性边界：ChatService 使用 Run 冻结模型，不再用默认模型覆盖用户选择；Snapshot profile 改为必填；未知模型直接拒绝；transcript 校验孤立 Tool Call 和缺失 Tool Result；前端不再兼容渲染最终回答之后的非法 reasoning/tool 顺序。Run 执行链由 `RunRepository.loadTranscript()` 组装上下文并调用 `ChatService.streamPrepared()`；legacy `prepareSessionStream()` 已移除。
 
 ### DeepSeek V4 Model Adapter 上下文优化（已实施）
 

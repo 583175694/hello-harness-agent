@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 
@@ -49,18 +49,14 @@ import type {
   PlanSnapshot,
 } from '@harness/agent-protocol';
 import { ENV_KEYS } from '../bootstrap/env.constants';
-import { PrismaService } from '../database/prisma.service';
 import { AgentRuntimeService } from '../agent-runtime/agent-runtime.service';
-import { SessionExecutionRegistry } from '../sessions/session-execution.registry';
 import { ResearchProjectionCollector } from '../projection/research-projection.collector';
 import { ConversationBlockCollector } from '../projection/conversation-block.collector';
 import { AssistantDeliveryRepository } from '../persistence/assistant-delivery.repository';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
-import { CHAT_CONTEXT_MESSAGE_LIMIT, CHAT_SYSTEM_PROMPT } from './chat.constants';
-import { compareMessageOrder } from './message-order';
+import { CHAT_SYSTEM_PROMPT } from './chat.constants';
 import type { ModelMessage, UserContentBlock } from '../model/model-adapter';
 import type { ReasoningEffort } from '@harness/agent-protocol';
-import { getDefaultModel } from '../model/model-catalog';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
 import type { RuntimeLifecycleController } from '../agent-runtime/runtime-lifecycle';
 
@@ -111,75 +107,10 @@ export type ChatProjectionSnapshot = {
 export class ChatService {
   constructor(
     @Inject(ConfigService) private readonly config: ConfigService,
-    @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(SessionExecutionRegistry) private readonly executions: SessionExecutionRegistry,
     @Inject(AgentRuntimeService) private readonly runtime: AgentRuntimeService,
     @Inject(AssistantDeliveryRepository) private readonly delivery: AssistantDeliveryRepository,
     @Inject(Logger) private readonly logger: Logger,
   ) {}
-
-  // 在发送 SSE 头之前校验、加锁、持久化用户消息并读取数据库上下文。
-  async prepareSessionStream(
-    userId: string,
-    sessionId: string,
-    content: string,
-  ): Promise<PreparedSessionStream> {
-    const startedAt = Date.now();
-    const session = await this.prisma.session.findFirst({
-      where: { id: sessionId, userId },
-    });
-    if (!session)
-      throw new NotFoundException({
-        code: AGENT_ERROR_CODES.sessionNotFound,
-        detail: '会话不存在。',
-      });
-    // 从持久化开始占用执行权，保证同一会话的上下文不会被并发写入打乱。
-    this.executions.acquire(sessionId);
-    const userMessageId = crypto.randomUUID();
-    try {
-      await this.prisma.$transaction([
-        this.prisma.message.create({
-          data: {
-            id: userMessageId,
-            userId,
-            sessionId,
-            role: 'user',
-            kind: 'user_message',
-            content,
-          },
-        }),
-        this.prisma.session.update({ where: { id: sessionId }, data: { updatedAt: new Date() } }),
-      ]);
-      const stored = await this.prisma.message.findMany({
-        where: { sessionId, userId, role: { in: ['user', 'assistant'] } },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: CHAT_CONTEXT_MESSAGE_LIMIT,
-      });
-      const assistantMessageId = crypto.randomUUID();
-      this.logger.log(
-        `会话准备完成 | 会话=${shortLogId(sessionId)} | 用户消息=${shortLogId(userMessageId)} | 回复消息=${shortLogId(assistantMessageId)} | 上下文=${stored.length} 条 | 耗时=${formatLogDuration(Date.now() - startedAt)}`,
-        ChatService.name,
-      );
-      return {
-        userId,
-        sessionId,
-        userMessageId,
-        assistantMessageId,
-        model: getDefaultModel().id,
-        reasoningEffort: getDefaultModel().reasoning.default,
-        // 数据库按倒序截取最近消息，交给模型前恢复为自然时间顺序。
-        messages: stored.sort(compareMessageOrder).map((message) => ({
-          id: message.id,
-          role: message.role,
-          content: message.content,
-          createdAt: message.createdAt.toISOString(),
-        })),
-      };
-    } catch (error) {
-      this.executions.release(sessionId);
-      throw error;
-    }
-  }
 
   // 调用 Agent Runtime，并把每个语义事件同时映射为：
   // 1. 可持久化的完整 Projection；2. 携带稳定 Round/Block 位置的 Chat SSE。
@@ -1319,11 +1250,6 @@ export class ChatService {
       ChatService.name,
     );
     yield { type: 'message.completed', messageId: prepared.assistantMessageId, model };
-  }
-
-  // 释放由 Controller 持有到 SSE 完成的会话执行权。
-  releaseSession(sessionId: string): void {
-    this.executions.release(sessionId);
   }
 
   // 统一记录流式回复失败，避免不同层重复输出同一异常。

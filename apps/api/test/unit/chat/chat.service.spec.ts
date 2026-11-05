@@ -8,12 +8,25 @@ import { OpenAICompatibleModelAdapter } from '../../../src/model/openai-compatib
 import { AgentRuntimeService } from '../../../src/agent-runtime/agent-runtime.service';
 import { BashCommandPolicyService } from '../../../src/sandbox/bash-command-policy.service';
 import { AssistantDeliveryRepository } from '../../../src/persistence/assistant-delivery.repository';
-import { SessionExecutionRegistry } from '../../../src/sessions/session-execution.registry';
-import { ChatService } from '../../../src/chat/chat.service';
+import { ChatService, type PreparedSessionStream } from '../../../src/chat/chat.service';
 import { ToolRegistryService } from '../../../src/tools/tool-registry.service';
 import type { ToolExposureService } from '../../../src/tools/tool-exposure/tool-exposure.service';
 
 const CHAT_COMPLETIONS_MODEL_ID = 'deepseek-v4-pro';
+
+/** 与 RunExecutor 一致：由调用方组装 transcript，不再经 legacy message 表截断。 */
+function makePrepared(overrides: Partial<PreparedSessionStream> = {}): PreparedSessionStream {
+  return {
+    userId: 'local-user',
+    sessionId: 'session-1',
+    userMessageId: 'user-message-1',
+    assistantMessageId: crypto.randomUUID(),
+    model: CHAT_COMPLETIONS_MODEL_ID,
+    reasoningEffort: 'high',
+    messages: [{ role: 'user', content: 'new question' }],
+    ...overrides,
+  };
+}
 
 // 创建不连接数据库和网络的 ChatService 测试环境。
 function makeService(
@@ -27,25 +40,12 @@ function makeService(
     debug: vi.fn(),
   } as unknown as Logger;
   const messageCreate = vi.fn().mockResolvedValue({});
-  const sessionUpdate = vi.fn().mockResolvedValue({});
-  const storedMessages = Array.from({ length: 25 }, (_, index) => ({
-    id: `message-${index}`,
-    userId: 'local-user',
-    sessionId: 'session-1',
-    role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
-    kind: index % 2 === 0 ? ('user_message' as const) : ('assistant_delivery' as const),
-    content: `content-${index}`,
-    createdAt: new Date(1_700_000_000_000 + index),
-    metadata: {},
-  }));
   const prisma = {
     session: {
-      findFirst: vi.fn().mockResolvedValue({ id: 'session-1', userId: 'local-user' }),
-      update: sessionUpdate,
+      update: vi.fn().mockResolvedValue({}),
     },
     message: {
       create: messageCreate,
-      findMany: vi.fn().mockResolvedValue(storedMessages.slice(-20).reverse()),
     },
     agentRunDetail: {
       upsert: vi.fn().mockResolvedValue({}),
@@ -56,7 +56,6 @@ function makeService(
     get: vi.fn((key: string) => (key === 'OPENAI_API_KEY' ? 'test-key' : undefined)),
     getOrThrow: vi.fn(() => 'test-model'),
   };
-  const executions = new SessionExecutionRegistry();
   const modelAdapter = new OpenAICompatibleModelAdapter(config as unknown as ConfigService);
   (modelAdapter as unknown as { client: OpenAI }).client = {
     chat: { completions: { create: providerCreate } },
@@ -91,15 +90,13 @@ function makeService(
   );
   const service = new ChatService(
     config as unknown as ConfigService,
-    prisma as unknown as PrismaService,
-    executions,
     runtime,
     new AssistantDeliveryRepository(prisma as unknown as PrismaService, logger, {
       trimAndPersist: vi.fn(async (input) => input.projection),
     } as never),
     logger,
   );
-  return { service, messageCreate, executions, prisma };
+  return { service, messageCreate, prisma };
 }
 
 // 收集异步事件流，确保生成器完整执行到持久化阶段。
@@ -109,8 +106,8 @@ async function collect(stream: AsyncIterable<unknown>): Promise<unknown[]> {
   return values;
 }
 
-describe('ChatService session persistence', () => {
-  it('loads only the latest 20 database messages and persists a completed assistant', async () => {
+describe('ChatService streamPrepared', () => {
+  it('persists a completed assistant delivery', async () => {
     const providerCreate = vi.fn().mockResolvedValue(
       (async function* () {
         yield { choices: [{ delta: { content: '完整' } }] };
@@ -125,15 +122,10 @@ describe('ChatService session persistence', () => {
         };
       })(),
     );
-    const { service, messageCreate, executions, prisma } = makeService(providerCreate);
+    const { service, messageCreate, prisma } = makeService(providerCreate);
 
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
-    prepared.reasoningEffort = 'max';
-    expect(prepared.messages).toHaveLength(20);
-    expect(prepared.messages[0]).toMatchObject({ id: 'message-5', content: 'content-5' });
+    const prepared = makePrepared({ reasoningEffort: 'max' });
     const events = await collect(service.streamPrepared(prepared));
-    service.releaseSession('session-1');
 
     expect(events).toEqual([
       expect.objectContaining({
@@ -177,8 +169,8 @@ describe('ChatService session persistence', () => {
       }),
       expect.anything(),
     );
-    expect(messageCreate).toHaveBeenCalledTimes(2);
-    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+    expect(messageCreate).toHaveBeenCalledTimes(1);
+    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
       data: {
         id: prepared.assistantMessageId,
         role: 'assistant',
@@ -207,21 +199,15 @@ describe('ChatService session persistence', () => {
         }),
       }),
     );
-    expect(executions.isActive('session-1')).toBe(false);
   });
 
-  it('retains only the user message when the provider fails', async () => {
+  it('does not persist assistant delivery when the provider fails', async () => {
     const providerCreate = vi.fn().mockRejectedValue(new Error('provider unavailable'));
-    const { service, messageCreate, prisma } = makeService(providerCreate);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
+    const { service, messageCreate } = makeService(providerCreate);
+    const prepared = makePrepared();
 
     await expect(collect(service.streamPrepared(prepared))).rejects.toThrow();
-    service.releaseSession('session-1');
-    expect(messageCreate).toHaveBeenCalledTimes(1);
-    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
-      data: { role: 'user', kind: 'user_message', content: 'new question' },
-    });
+    expect(messageCreate).not.toHaveBeenCalled();
   });
 
   it('does not persist a length-truncated assistant response', async () => {
@@ -231,14 +217,13 @@ describe('ChatService session persistence', () => {
         yield { choices: [{ delta: {}, finish_reason: 'length' }] };
       })(),
     );
-    const { service, messageCreate, prisma } = makeService(providerCreate);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
+    const { service, messageCreate } = makeService(providerCreate);
+    const prepared = makePrepared();
 
     await expect(collect(service.streamPrepared(prepared))).rejects.toMatchObject({
       response: { code: 'MODEL_OUTPUT_LIMIT' },
     });
-    expect(messageCreate).toHaveBeenCalledTimes(1);
+    expect(messageCreate).not.toHaveBeenCalled();
   });
 
   it('replays reasoning only for historical assistant tool-call messages', async () => {
@@ -248,10 +233,9 @@ describe('ChatService session persistence', () => {
       })(),
     );
     const { service } = makeService(providerCreate);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
-    prepared.reasoningEffort = 'off';
-    prepared.messages = [
+    const prepared = makePrepared({
+      reasoningEffort: 'off',
+      messages: [
       { role: 'user', content: '问题一' },
       { role: 'assistant', content: '普通回答', reasoning: '不应回放的最终推理' },
       {
@@ -270,7 +254,8 @@ describe('ChatService session persistence', () => {
       },
       { role: 'tool', toolCallId: 'call-1', content: '{"ok":true}' },
       { role: 'user', content: '问题二' },
-    ];
+      ],
+    });
 
     await collect(service.streamPrepared(prepared, undefined, { persistFinal: false }));
 
@@ -359,8 +344,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate, prisma } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'search the web');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
+    const prepared = makePrepared({ messages: [{ role: 'user', content: 'search the web' }] });
     const onTranscriptItem = vi.fn();
     prepared.onTranscriptItem = onTranscriptItem;
     const events = await collect(service.streamPrepared(prepared));
@@ -394,7 +378,7 @@ describe('ChatService session persistence', () => {
     expect(finalTranscript.content).toContain('检索完成。');
     expect(finalTranscript.content).toContain('https://example.com/');
     expect(finalTranscript.content).not.toContain('我先检索。');
-    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
       data: {
         content: expect.stringContaining('我先检索。检索完成。'),
         metadata: {
@@ -458,8 +442,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate, prisma } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'search the web');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
+    const prepared = makePrepared({ messages: [{ role: 'user', content: 'search the web' }] });
     const events = await collect(service.streamPrepared(prepared));
 
     expect(events).toEqual(
@@ -473,7 +456,7 @@ describe('ChatService session persistence', () => {
         expect.objectContaining({ type: 'message.completed' }),
       ]),
     );
-    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
       data: {
         content: '联网检索失败，当前无法验证最新信息。',
         metadata: {
@@ -628,8 +611,7 @@ describe('ChatService session persistence', () => {
       ),
     };
     const { service, messageCreate, prisma } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'research AI');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
+    const prepared = makePrepared({ messages: [{ role: 'user', content: 'research AI' }] });
     const events = await collect(service.streamPrepared(prepared));
 
     expect(events).toEqual(
@@ -642,7 +624,7 @@ describe('ChatService session persistence', () => {
         }),
       ]),
     );
-    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
       data: {
         metadata: {
           agent: expect.objectContaining({ toolCallCount: 2 }),
@@ -690,8 +672,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate, prisma } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'stop search');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
+    const prepared = makePrepared({ messages: [{ role: 'user', content: 'stop search' }] });
     const events = await collect(service.streamPrepared(prepared));
 
     const started = events.find(
@@ -701,7 +682,7 @@ describe('ChatService session persistence', () => {
       (event) => (event as { type?: string }).type === 'tool.cancelled',
     ) as { blockId: string; code: string };
     expect(cancelled).toMatchObject({ blockId: started.blockId, code: 'SEARCH_CANCELLED' });
-    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
       data: {
         content: '检索已停止。',
         metadata: {
@@ -760,8 +741,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'stop search');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
+    const prepared = makePrepared({ messages: [{ role: 'user', content: 'stop search' }] });
     const events: unknown[] = [];
 
     await expect(
@@ -781,8 +761,7 @@ describe('ChatService session persistence', () => {
         }),
       ]),
     );
-    expect(messageCreate).toHaveBeenCalledTimes(1);
-    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({ data: { role: 'user' } });
+    expect(messageCreate).not.toHaveBeenCalled();
   });
 
   it('deduplicates sources while retaining every associated tool call', async () => {
@@ -850,13 +829,12 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate, prisma } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'compare sources');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
+    const prepared = makePrepared({ messages: [{ role: 'user', content: 'compare sources' }] });
 
     await collect(service.streamPrepared(prepared));
 
     expect(registry.execute).toHaveBeenCalledTimes(2);
-    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
       data: {
         metadata: {
           agent: expect.objectContaining({ toolCallCount: 2 }),
@@ -934,8 +912,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'research extensively');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
+    const prepared = makePrepared({ messages: [{ role: 'user', content: 'research extensively' }] });
 
     await collect(service.streamPrepared(prepared));
 
@@ -950,7 +927,7 @@ describe('ChatService session persistence', () => {
     expect(deliveryRoundRequest.tools?.map((tool) => tool.function.name)).not.toContain('web_search');
     expect(providerCreate.mock.calls[40]?.[0]).not.toHaveProperty('tool_choice');
     expect(registry.execute).toHaveBeenCalledTimes(40);
-    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
       data: {
         content: '已达到工具预算，基于现有资料回答。',
         metadata: { agent: expect.objectContaining({ toolCallCount: 40 }) },
@@ -999,8 +976,7 @@ describe('ChatService session persistence', () => {
       }),
     };
     const { service, messageCreate, prisma } = makeService(providerCreate, registry);
-    const prepared = await service.prepareSessionStream('local-user', 'session-1', 'ping mcp');
-    prepared.model = CHAT_COMPLETIONS_MODEL_ID;
+    const prepared = makePrepared({ messages: [{ role: 'user', content: 'ping mcp' }] });
     const events = await collect(service.streamPrepared(prepared));
 
     expect(events).toEqual(
@@ -1019,7 +995,7 @@ describe('ChatService session persistence', () => {
         expect.objectContaining({ type: 'message.delta', delta: 'MCP 完成。' }),
       ]),
     );
-    expect(messageCreate.mock.calls[1]?.[0]).toMatchObject({
+    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
       data: {
         metadata: {
           agent: expect.objectContaining({ toolCallCount: 1 }),

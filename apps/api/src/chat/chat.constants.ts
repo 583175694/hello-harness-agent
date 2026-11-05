@@ -1,8 +1,5 @@
 import { AGENT_PROTOCOL_LIMITS, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 
-// 当前普通对话读取的最近消息数量，独立于接口允许提交的最大消息数。
-export const CHAT_CONTEXT_MESSAGE_LIMIT = 20;
-
 // 普通对话与研究 Agent 共用的最高优先级行为和提示注入边界。
 export const CHAT_SYSTEM_PROMPT =
   `你是一个可靠、简洁的通用任务助手。需要最新信息、公开网页事实或来源验证时先使用 ${AGENT_TOOL_NAMES.webSearch} 发现 URL。` +

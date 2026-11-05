@@ -3,18 +3,16 @@ import type OpenAI from 'openai';
 import type { Logger } from 'nestjs-pino';
 import { describe, expect, it, vi } from 'vitest';
 
-import { PrismaService } from '../../../src/database/prisma.service';
 import { OpenAICompatibleModelAdapter } from '../../../src/model/openai-compatible-model.adapter';
 import { AgentRuntimeService } from '../../../src/agent-runtime/agent-runtime.service';
 import { BashCommandPolicyService } from '../../../src/sandbox/bash-command-policy.service';
-import { AssistantDeliveryRepository } from '../../../src/persistence/assistant-delivery.repository';
 import { ChatService, type PreparedSessionStream } from '../../../src/chat/chat.service';
 import { ToolRegistryService } from '../../../src/tools/tool-registry.service';
 import type { ToolExposureService } from '../../../src/tools/tool-exposure/tool-exposure.service';
 
 const CHAT_COMPLETIONS_MODEL_ID = 'deepseek-v4-pro';
 
-/** 与 RunExecutor 一致：由调用方组装 transcript，不再经 legacy message 表截断。 */
+/** 与 RunExecutor 一致：由调用方组装 transcript；持久化由 RunRepository.terminal 负责。 */
 function makePrepared(overrides: Partial<PreparedSessionStream> = {}): PreparedSessionStream {
   return {
     userId: 'local-user',
@@ -28,30 +26,15 @@ function makePrepared(overrides: Partial<PreparedSessionStream> = {}): PreparedS
   };
 }
 
-// 创建不连接数据库和网络的 ChatService 测试环境。
 function makeService(
   providerCreate: ReturnType<typeof vi.fn>,
   toolRegistry: Partial<ToolRegistryService> = { definitions: vi.fn(() => undefined) },
 ) {
-  // 单测注入静默 Logger，只验证事件与持久化结果，不污染测试输出。
   const logger = {
     log: vi.fn(),
     warn: vi.fn(),
     debug: vi.fn(),
   } as unknown as Logger;
-  const messageCreate = vi.fn().mockResolvedValue({});
-  const prisma = {
-    session: {
-      update: vi.fn().mockResolvedValue({}),
-    },
-    message: {
-      create: messageCreate,
-    },
-    agentRunDetail: {
-      upsert: vi.fn().mockResolvedValue({}),
-    },
-    $transaction: vi.fn((operations: Promise<unknown>[]) => Promise.all(operations)),
-  };
   const config = {
     get: vi.fn((key: string) => (key === 'OPENAI_API_KEY' ? 'test-key' : undefined)),
     getOrThrow: vi.fn(() => 'test-model'),
@@ -91,15 +74,11 @@ function makeService(
   const service = new ChatService(
     config as unknown as ConfigService,
     runtime,
-    new AssistantDeliveryRepository(prisma as unknown as PrismaService, logger, {
-      trimAndPersist: vi.fn(async (input) => input.projection),
-    } as never),
     logger,
   );
-  return { service, messageCreate, prisma };
+  return { service };
 }
 
-// 收集异步事件流，确保生成器完整执行到持久化阶段。
 async function collect(stream: AsyncIterable<unknown>): Promise<unknown[]> {
   const values: unknown[] = [];
   for await (const value of stream) values.push(value);
@@ -107,7 +86,7 @@ async function collect(stream: AsyncIterable<unknown>): Promise<unknown[]> {
 }
 
 describe('ChatService streamPrepared', () => {
-  it('persists a completed assistant delivery', async () => {
+  it('streams a completed assistant reply', async () => {
     const providerCreate = vi.fn().mockResolvedValue(
       (async function* () {
         yield { choices: [{ delta: { content: '完整' } }] };
@@ -122,7 +101,7 @@ describe('ChatService streamPrepared', () => {
         };
       })(),
     );
-    const { service, messageCreate, prisma } = makeService(providerCreate);
+    const { service } = makeService(providerCreate);
 
     const prepared = makePrepared({ reasoningEffort: 'max' });
     const events = await collect(service.streamPrepared(prepared));
@@ -169,61 +148,29 @@ describe('ChatService streamPrepared', () => {
       }),
       expect.anything(),
     );
-    expect(messageCreate).toHaveBeenCalledTimes(1);
-    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
-      data: {
-        id: prepared.assistantMessageId,
-        role: 'assistant',
-        kind: 'assistant_delivery',
-        content: '完整回答',
-        metadata: {
-          agent: expect.objectContaining({
-            toolCallCount: 0,
-            detailRef: prepared.assistantMessageId,
-          }),
-        },
-      },
-    });
-    expect(prisma.agentRunDetail.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({
-          researchProjection: expect.objectContaining({
-            blocks: expect.arrayContaining([
-              expect.objectContaining({
-                id: `${prepared.assistantMessageId}-text-1`,
-                type: 'text',
-                content: '完整回答',
-              }),
-            ]),
-          }),
-        }),
-      }),
-    );
   });
 
-  it('does not persist assistant delivery when the provider fails', async () => {
+  it('surfaces provider failures without completing the stream', async () => {
     const providerCreate = vi.fn().mockRejectedValue(new Error('provider unavailable'));
-    const { service, messageCreate } = makeService(providerCreate);
+    const { service } = makeService(providerCreate);
     const prepared = makePrepared();
 
     await expect(collect(service.streamPrepared(prepared))).rejects.toThrow();
-    expect(messageCreate).not.toHaveBeenCalled();
   });
 
-  it('does not persist a length-truncated assistant response', async () => {
+  it('does not complete a length-truncated assistant response', async () => {
     const providerCreate = vi.fn().mockImplementation(async () =>
       (async function* () {
         yield { choices: [{ delta: { content: '不完整回答' } }] };
         yield { choices: [{ delta: {}, finish_reason: 'length' }] };
       })(),
     );
-    const { service, messageCreate } = makeService(providerCreate);
+    const { service } = makeService(providerCreate);
     const prepared = makePrepared();
 
     await expect(collect(service.streamPrepared(prepared))).rejects.toMatchObject({
       response: { code: 'MODEL_OUTPUT_LIMIT' },
     });
-    expect(messageCreate).not.toHaveBeenCalled();
   });
 
   it('replays reasoning only for historical assistant tool-call messages', async () => {
@@ -236,24 +183,24 @@ describe('ChatService streamPrepared', () => {
     const prepared = makePrepared({
       reasoningEffort: 'off',
       messages: [
-      { role: 'user', content: '问题一' },
-      { role: 'assistant', content: '普通回答', reasoning: '不应回放的最终推理' },
-      {
-        role: 'assistant',
-        content: '我先搜索。',
-        reasoning: '必须回放的工具推理',
-        toolCalls: [
-          {
-            id: 'call-1',
-            name: 'web_search',
-            arguments: '{"query":"test"}',
-            blockSequence: 1,
-            providerIndex: 0,
-          },
-        ],
-      },
-      { role: 'tool', toolCallId: 'call-1', content: '{"ok":true}' },
-      { role: 'user', content: '问题二' },
+        { role: 'user', content: '问题一' },
+        { role: 'assistant', content: '普通回答', reasoning: '不应回放的最终推理' },
+        {
+          role: 'assistant',
+          content: '我先搜索。',
+          reasoning: '必须回放的工具推理',
+          toolCalls: [
+            {
+              id: 'call-1',
+              name: 'web_search',
+              arguments: '{"query":"test"}',
+              blockSequence: 1,
+              providerIndex: 0,
+            },
+          ],
+        },
+        { role: 'tool', toolCallId: 'call-1', content: '{"ok":true}' },
+        { role: 'user', content: '问题二' },
       ],
     });
 
@@ -278,7 +225,7 @@ describe('ChatService streamPrepared', () => {
     ).toBe('不应回放的最终推理');
   });
 
-  it('executes a streamed tool call and persists its recoverable snapshot', async () => {
+  it('executes a streamed tool call and emits recoverable transcript items', async () => {
     const providerCreate = vi
       .fn()
       .mockResolvedValueOnce(
@@ -343,7 +290,7 @@ describe('ChatService streamPrepared', () => {
         logFields: { durationMs: 10, resultCount: 1 },
       }),
     };
-    const { service, messageCreate, prisma } = makeService(providerCreate, registry);
+    const { service } = makeService(providerCreate, registry);
     const prepared = makePrepared({ messages: [{ role: 'user', content: 'search the web' }] });
     const onTranscriptItem = vi.fn();
     prepared.onTranscriptItem = onTranscriptItem;
@@ -378,32 +325,9 @@ describe('ChatService streamPrepared', () => {
     expect(finalTranscript.content).toContain('检索完成。');
     expect(finalTranscript.content).toContain('https://example.com/');
     expect(finalTranscript.content).not.toContain('我先检索。');
-    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
-      data: {
-        content: expect.stringContaining('我先检索。检索完成。'),
-        metadata: {
-          model: CHAT_COMPLETIONS_MODEL_ID,
-          agent: expect.objectContaining({ toolCallCount: 1 }),
-        },
-      },
-    });
-    expect(prisma.agentRunDetail.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({
-          researchProjection: expect.objectContaining({
-            blocks: expect.arrayContaining([
-              expect.objectContaining({ type: 'tool_activity', toolCallId: 'call-search' }),
-            ]),
-            executions: [
-              expect.objectContaining({ toolCallId: 'call-search', status: 'completed' }),
-            ],
-          }),
-        }),
-      }),
-    );
   });
 
-  it('reports a failed tool call and still persists the model restricted answer', async () => {
+  it('reports a failed tool call and still completes the model answer', async () => {
     const providerCreate = vi
       .fn()
       .mockResolvedValueOnce(
@@ -441,7 +365,7 @@ describe('ChatService streamPrepared', () => {
         logFields: { durationMs: 10 },
       }),
     };
-    const { service, messageCreate, prisma } = makeService(providerCreate, registry);
+    const { service } = makeService(providerCreate, registry);
     const prepared = makePrepared({ messages: [{ role: 'user', content: 'search the web' }] });
     const events = await collect(service.streamPrepared(prepared));
 
@@ -455,23 +379,6 @@ describe('ChatService streamPrepared', () => {
         }),
         expect.objectContaining({ type: 'message.completed' }),
       ]),
-    );
-    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
-      data: {
-        content: '联网检索失败，当前无法验证最新信息。',
-        metadata: {
-          agent: expect.objectContaining({ toolCallCount: 1 }),
-        },
-      },
-    });
-    expect(prisma.agentRunDetail.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({
-          researchProjection: expect.objectContaining({
-            executions: [expect.objectContaining({ toolCallId: 'call-failed', status: 'failed' })],
-          }),
-        }),
-      }),
     );
   });
 
@@ -610,7 +517,7 @@ describe('ChatService streamPrepared', () => {
         ),
       ),
     };
-    const { service, messageCreate, prisma } = makeService(providerCreate, registry);
+    const { service } = makeService(providerCreate, registry);
     const prepared = makePrepared({ messages: [{ role: 'user', content: 'research AI' }] });
     const events = await collect(service.streamPrepared(prepared));
 
@@ -624,14 +531,6 @@ describe('ChatService streamPrepared', () => {
         }),
       ]),
     );
-    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
-      data: {
-        metadata: {
-          agent: expect.objectContaining({ toolCallCount: 2 }),
-        },
-      },
-    });
-    expect(JSON.stringify(prisma.agentRunDetail.upsert.mock.calls[0]?.[0])).not.toContain('<html');
   });
 
   it('projects a cancelled tool separately and updates the same activity block', async () => {
@@ -671,7 +570,7 @@ describe('ChatService streamPrepared', () => {
         logFields: { durationMs: 10 },
       }),
     };
-    const { service, messageCreate, prisma } = makeService(providerCreate, registry);
+    const { service } = makeService(providerCreate, registry);
     const prepared = makePrepared({ messages: [{ role: 'user', content: 'stop search' }] });
     const events = await collect(service.streamPrepared(prepared));
 
@@ -682,35 +581,9 @@ describe('ChatService streamPrepared', () => {
       (event) => (event as { type?: string }).type === 'tool.cancelled',
     ) as { blockId: string; code: string };
     expect(cancelled).toMatchObject({ blockId: started.blockId, code: 'SEARCH_CANCELLED' });
-    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
-      data: {
-        content: '检索已停止。',
-        metadata: {
-          agent: expect.objectContaining({ toolCallCount: 1 }),
-        },
-      },
-    });
-    expect(prisma.agentRunDetail.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({
-          researchProjection: expect.objectContaining({
-            blocks: expect.arrayContaining([
-              expect.objectContaining({
-                type: 'tool_activity',
-                toolCallId: 'call-cancelled',
-                status: 'cancelled',
-              }),
-            ]),
-            executions: [
-              expect.objectContaining({ toolCallId: 'call-cancelled', status: 'cancelled' }),
-            ],
-          }),
-        }),
-      }),
-    );
   });
 
-  it('does not persist a partial assistant timeline when tool execution is aborted', async () => {
+  it('aborts tool execution without completing the assistant stream', async () => {
     const providerCreate = vi.fn().mockResolvedValue(
       (async function* () {
         yield {
@@ -740,7 +613,7 @@ describe('ChatService streamPrepared', () => {
         return Promise.reject(new DOMException('Aborted', 'AbortError'));
       }),
     };
-    const { service, messageCreate } = makeService(providerCreate, registry);
+    const { service } = makeService(providerCreate, registry);
     const prepared = makePrepared({ messages: [{ role: 'user', content: 'stop search' }] });
     const events: unknown[] = [];
 
@@ -761,7 +634,6 @@ describe('ChatService streamPrepared', () => {
         }),
       ]),
     );
-    expect(messageCreate).not.toHaveBeenCalled();
   });
 
   it('deduplicates sources while retaining every associated tool call', async () => {
@@ -828,35 +700,21 @@ describe('ChatService streamPrepared', () => {
         });
       }),
     };
-    const { service, messageCreate, prisma } = makeService(providerCreate, registry);
+    const { service } = makeService(providerCreate, registry);
     const prepared = makePrepared({ messages: [{ role: 'user', content: 'compare sources' }] });
 
-    await collect(service.streamPrepared(prepared));
+    const events = await collect(service.streamPrepared(prepared));
 
     expect(registry.execute).toHaveBeenCalledTimes(2);
-    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
-      data: {
-        metadata: {
-          agent: expect.objectContaining({ toolCallCount: 2 }),
-        },
-      },
-    });
-    expect(prisma.agentRunDetail.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({
-          researchProjection: expect.objectContaining({
-            executions: [
-              expect.objectContaining({ toolCallId: 'call-first' }),
-              expect.objectContaining({ toolCallId: 'call-second' }),
-            ],
-          }),
-        }),
-      }),
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'tool.completed', toolCallId: 'call-first' }),
+        expect.objectContaining({ type: 'tool.completed', toolCallId: 'call-second' }),
+      ]),
     );
   });
 
   it('enters delivery phase after 40 investigation tool turns and completes with a text-only round', async () => {
-    // 模拟 40 轮调查工具调用，验证第 41 轮进入 delivery（仍可能有交付工具）且最终可无工具回答。
     let modelRound = 0;
     const providerCreate = vi.fn().mockImplementation(() => {
       modelRound += 1;
@@ -911,10 +769,10 @@ describe('ChatService streamPrepared', () => {
         });
       }),
     };
-    const { service, messageCreate } = makeService(providerCreate, registry);
+    const { service } = makeService(providerCreate, registry);
     const prepared = makePrepared({ messages: [{ role: 'user', content: 'research extensively' }] });
 
-    await collect(service.streamPrepared(prepared));
+    const events = await collect(service.streamPrepared(prepared));
 
     expect(providerCreate).toHaveBeenCalledTimes(41);
     expect(providerCreate.mock.calls[0]?.[0]).toEqual(
@@ -927,12 +785,14 @@ describe('ChatService streamPrepared', () => {
     expect(deliveryRoundRequest.tools?.map((tool) => tool.function.name)).not.toContain('web_search');
     expect(providerCreate.mock.calls[40]?.[0]).not.toHaveProperty('tool_choice');
     expect(registry.execute).toHaveBeenCalledTimes(40);
-    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
-      data: {
-        content: '已达到工具预算，基于现有资料回答。',
-        metadata: { agent: expect.objectContaining({ toolCallCount: 40 }) },
-      },
-    });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'message.delta',
+          delta: '已达到工具预算，基于现有资料回答。',
+        }),
+      ]),
+    );
   });
 
   it('projects MCP string output as external_tool without treating it as web_search', async () => {
@@ -975,7 +835,7 @@ describe('ChatService streamPrepared', () => {
         logFields: { durationMs: 8 },
       }),
     };
-    const { service, messageCreate, prisma } = makeService(providerCreate, registry);
+    const { service } = makeService(providerCreate, registry);
     const prepared = makePrepared({ messages: [{ role: 'user', content: 'ping mcp' }] });
     const events = await collect(service.streamPrepared(prepared));
 
@@ -994,28 +854,6 @@ describe('ChatService streamPrepared', () => {
         }),
         expect.objectContaining({ type: 'message.delta', delta: 'MCP 完成。' }),
       ]),
-    );
-    expect(messageCreate.mock.calls[0]?.[0]).toMatchObject({
-      data: {
-        metadata: {
-          agent: expect.objectContaining({ toolCallCount: 1 }),
-        },
-      },
-    });
-    expect(prisma.agentRunDetail.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({
-          researchProjection: expect.objectContaining({
-            executions: [
-              expect.objectContaining({
-                toolName: 'external_tool',
-                publicName: mcpToolName,
-                outputPreview: 'pong-response-text',
-              }),
-            ],
-          }),
-        }),
-      }),
     );
   });
 });

@@ -2,7 +2,7 @@ import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 
-import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
+import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES, mcpToolBusinessSummary } from '@harness/agent-protocol';
 import {
   fileSearchInputSchema,
   fileReadInputSchema,
@@ -52,7 +52,6 @@ import { ENV_KEYS } from '../bootstrap/env.constants';
 import { AgentRuntimeService } from '../agent-runtime/agent-runtime.service';
 import { ResearchProjectionCollector } from '../projection/research-projection.collector';
 import { ConversationBlockCollector } from '../projection/conversation-block.collector';
-import { AssistantDeliveryRepository } from '../persistence/assistant-delivery.repository';
 import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
 import { CHAT_SYSTEM_PROMPT } from './chat.constants';
 import type { ModelMessage, UserContentBlock } from '../model/model-adapter';
@@ -67,7 +66,6 @@ import {
   isExternalPresentation,
 } from '../tools/tool-presentation';
 import {
-  externalToolCompletedSummary,
   externalToolInputSummary,
   externalToolOutputPreview,
   summarizeExternalToolInput,
@@ -108,7 +106,6 @@ export class ChatService {
   constructor(
     @Inject(ConfigService) private readonly config: ConfigService,
     @Inject(AgentRuntimeService) private readonly runtime: AgentRuntimeService,
-    @Inject(AssistantDeliveryRepository) private readonly delivery: AssistantDeliveryRepository,
     @Inject(Logger) private readonly logger: Logger,
   ) {}
 
@@ -1232,19 +1229,6 @@ export class ChatService {
         content: `${finalTranscriptMessage.content ?? ''}${finalTranscriptSuffix}`,
       });
     await notifyProjection();
-    // Durable Run 由 RunRepository.terminal 落库；此处仅服务无 runId 的单测/脚本。
-    if (!prepared.runId) {
-      await this.delivery.save({
-        userId: prepared.userId,
-        sessionId: prepared.sessionId,
-        messageId: prepared.assistantMessageId,
-        model,
-        blocks: conversation.snapshot(),
-        toolCallCount,
-        executions: snapshot.executions,
-        sources: snapshot.sources,
-      });
-    }
     this.logger.log(
       `回复完成 | Run=${shortLogId(prepared.runId ?? 'none')} | 会话=${shortLogId(prepared.sessionId)} | 总耗时=${formatLogDuration(Date.now() - startedAt)} | 输出=${content.length} 字 | 工具=${toolCallCount} 次`,
       ChatService.name,
@@ -1612,7 +1596,10 @@ export class ChatService {
       return `找到 ${input.searchResult.results?.length ?? 0} 个结果`;
     }
     if (input.externalTool) {
-      return externalToolCompletedSummary(input.externalTool.publicName, input.externalTool.input);
+      return mcpToolBusinessSummary(
+        input.externalTool.publicName,
+        summarizeExternalToolInput(input.externalTool.input),
+      );
     }
     return '工具调用已完成';
   }

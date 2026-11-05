@@ -6,8 +6,6 @@ export const AGENT_PROTOCOL_LIMITS = {
   sessionChatContentMaxLength: 100_000,
   // 单条消息允许绑定的最大图片数量。
   sessionImageAttachmentsMax: 4,
-  // 无状态 Chat 请求允许携带的最大历史消息数。
-  chatHistoryMaxMessages: 40,
   // 单次 Agent 运行允许执行的工具调用总数（metadata / schema；Run 主收敛改由 Tool Turn 分池）。
   agentToolMaxCalls: 40,
   // assistant metadata 中 agent 快照（executions / toolCallCount）读路径上限；须覆盖调查+交付阶段持久化的历史 Run。

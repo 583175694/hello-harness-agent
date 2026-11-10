@@ -1,4 +1,5 @@
 import { ArtifactCardRow } from '../preview/PreviewModels';
+import { PlanSnapshotRow } from './HarmonyPlanProjector';
 
 export interface SessionSummaryRow {
   id: string;
@@ -121,6 +122,7 @@ export interface RunSnapshotRow {
   blocks?: Array<Record<string, Object>>;
   lastEventSequence?: number;
   activeInterrupt?: Record<string, Object>;
+  plan?: Record<string, Object>;
 }
 
 export interface ComposerClarificationLiveRow {
@@ -168,6 +170,7 @@ export interface LiveRunStateRow {
   composerClarification?: ComposerClarificationLiveRow;
   composerToolApproval?: ComposerToolApprovalLiveRow;
   latestToolCallId?: string;
+  plan?: PlanSnapshotRow;
 }
 
 export interface PublicAgentConfigRow {

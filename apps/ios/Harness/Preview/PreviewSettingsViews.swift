@@ -8,7 +8,6 @@ struct PreviewSettingsRootView: View {
     var onOpenLogin: () -> Void = {}
     var onOpenMemory: () -> Void = {}
     var onOpenMcp: () -> Void = {}
-    var onOpenConnection: () -> Void = {}
     @Environment(\.appToast) private var appToast
     @Environment(\.colorScheme) private var colorScheme
 
@@ -33,14 +32,6 @@ struct PreviewSettingsRootView: View {
                             onIncrement: { preferences.contentFontSize = min(20, preferences.contentFontSize + 1) }
                         )
                         settingsSoftDivider()
-                        Toggle(isOn: $preferences.reduceMotion) {
-                            Text("Reduce Motion")
-                                .foregroundStyle(HarnessColors.secondary(colorScheme))
-                        }
-                        .tint(HarnessColors.primary(colorScheme))
-                        .padding(.horizontal, 16)
-                        .frame(minHeight: settingsRowMinHeight)
-                        settingsSoftDivider()
                         if preferences.isLoggedIn, let profile = preferences.authProfile {
                             settingsNavRowLabel(title: profile.displayName, trailing: profile.phone, showChevron: false)
                                 .padding(.horizontal, 16)
@@ -55,20 +46,6 @@ struct PreviewSettingsRootView: View {
                         }
                     }
 
-                    settingsGroup(sectionLabel: "开发") {
-                        Toggle(isOn: Binding(
-                            get: { preferences.composerBlockDemo == .transcriptIncompatible },
-                            set: { on in preferences.composerBlockDemo = on ? .transcriptIncompatible : .none }
-                        )) {
-                            Text("Composer 阻断")
-                                .font(.body)
-                                .foregroundStyle(HarnessColors.secondary(colorScheme))
-                        }
-                        .tint(HarnessColors.primary(colorScheme))
-                        .padding(.horizontal, 16)
-                        .frame(minHeight: settingsRowMinHeight)
-                    }
-
                     settingsGroup(sectionLabel: "Agent") {
                         settingsNavRowButton(title: "记忆", action: onOpenMemory)
                         settingsNavRowButton(title: "MCP 服务器", showDividerAfter: true, action: onOpenMcp)
@@ -76,18 +53,6 @@ struct PreviewSettingsRootView: View {
                             settingsNavRowLabel(title: "演示场景", trailing: nil)
                                 .padding(.horizontal, 16)
                                 .frame(minHeight: settingsRowMinHeight)
-                        }
-                        .buttonStyle(HarnessPressScaleButtonStyle())
-                    }
-
-                    settingsGroup(sectionLabel: "连接") {
-                        Button(action: onOpenConnection) {
-                            settingsNavRowLabel(
-                                title: "API Base URL",
-                                trailing: apiConnectionSummary(preferences.apiBaseUrl)
-                            )
-                            .padding(.horizontal, 16)
-                            .frame(minHeight: settingsRowMinHeight)
                         }
                         .buttonStyle(HarnessPressScaleButtonStyle())
                     }
@@ -172,11 +137,12 @@ struct PreviewConnectionSettingsView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     settingsGroup {
                         VStack(alignment: .leading, spacing: 8) {
-                            settingsTextField(
-                                label: "API Base URL",
-                                text: $preferences.apiBaseUrl,
-                                placeholder: "http://192.168.x.x:4318"
-                            )
+                            Text("API Base URL")
+                                .font(.caption)
+                                .foregroundStyle(HarnessColors.muted(colorScheme))
+                            Text(HarnessAgentEndpoints.apiBaseURL)
+                                .font(.body)
+                                .foregroundStyle(HarnessColors.secondary(colorScheme))
                         }
                         .padding(16)
                     }
@@ -187,9 +153,6 @@ struct PreviewConnectionSettingsView: View {
         .background(HarnessColors.canvas(colorScheme))
         .navigationTitle("连接")
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: preferences.apiBaseUrl) { _, _ in
-            store.scheduleCoreConnectionRefresh()
-        }
     }
 }
 

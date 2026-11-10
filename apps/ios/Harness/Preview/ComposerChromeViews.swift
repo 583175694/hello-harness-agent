@@ -55,7 +55,6 @@ struct PlanFloatingCardView: View {
                     .overlay(RoundedRectangle(cornerRadius: HarnessLayout.panelRadius).stroke(HarnessColors.composerBorder))
                     .clipShape(RoundedRectangle(cornerRadius: HarnessLayout.panelRadius))
                     .padding(.bottom, 8)
-                    .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
                     .frame(maxWidth: 360)
                     .frame(maxWidth: .infinity)
@@ -69,7 +68,7 @@ struct PlanFloatingCardView: View {
                         ProgressView()
                             .scaleEffect(0.65)
                         Text("第 \(min(activeIndex + 1, steps.count)) / \(steps.count) 步")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.subheadline)
                             .foregroundStyle(HarnessColors.primary)
                     }
                     .padding(.horizontal, 16)
@@ -78,7 +77,6 @@ struct PlanFloatingCardView: View {
                     .background(HarnessColors.surface)
                     .clipShape(Capsule())
                     .overlay(Capsule().stroke(HarnessColors.composerBorder))
-                    .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("执行计划，第 \(activeIndex + 1) / \(steps.count) 步")

@@ -37,7 +37,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -106,7 +105,6 @@ fun PlanFloatingCard(
                         .widthIn(max = 360.dp)
                         .padding(bottom = 8.dp)
                         .heightIn(max = 280.dp)
-                        .shadow(8.dp, RoundedCornerShape(HarnessLayout.panelRadius), clip = false)
                         .clip(RoundedCornerShape(HarnessLayout.panelRadius))
                         .border(1.dp, colors.composerBorder, RoundedCornerShape(HarnessLayout.panelRadius))
                         .background(colors.surface)
@@ -127,7 +125,6 @@ fun PlanFloatingCard(
             modifier =
                 Modifier
                     .defaultMinSize(minHeight = 38.dp)
-                    .shadow(6.dp, CircleShape, clip = false)
                     .clip(CircleShape)
                     .border(1.dp, colors.composerBorder, CircleShape)
                     .background(colors.surface)

@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.harness.agent.model.ReaderTarget
+import com.harness.mobile.core.api.HarnessAgentEndpoints
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -29,6 +30,8 @@ data class PreviewMcpServer(
 
 data class PreviewMemoryEntry(
     val id: String,
+    val title: String = "",
+    val kind: String = "preference",
     val text: String,
 )
 
@@ -41,12 +44,14 @@ class PreviewAppPreferences(
         private set
     var contentFontSize by mutableIntStateOf(prefs.getInt(KEY_FONT_SIZE, 15).coerceIn(13, 20))
         private set
-    var apiBaseUrl by mutableStateOf(prefs.getString(KEY_API_URL, "") ?: "")
-        private set
+    val apiBaseUrl: String
+        get() = HarnessAgentEndpoints.API_BASE_URL
+    /** Production 注入鉴权 Cookie，供 HTML 预览 WebView 使用。 */
+    var sessionCookieHeaderProvider: () -> String? = { null }
     var allowAgentMemoryWrite by mutableStateOf(prefs.getBoolean(KEY_MEMORY_WRITE, true))
         private set
-    var reduceMotion by mutableStateOf(prefs.getBoolean(KEY_REDUCE_MOTION, false))
-        private set
+    val reduceMotion: Boolean
+        get() = false
     var readerTitle by mutableStateOf("Report")
         private set
     var readerMarkdown by mutableStateOf("")
@@ -57,10 +62,6 @@ class PreviewAppPreferences(
         private set
 
     var authProfile by mutableStateOf(loadAuthProfile())
-        private set
-
-    /** Settings 演示：模拟 transcript 不兼容阻断。 */
-    var composerBlockDemo by mutableStateOf(loadComposerBlockDemo())
         private set
 
     val isLoggedIn: Boolean
@@ -84,19 +85,9 @@ class PreviewAppPreferences(
         prefs.edit().putInt(KEY_FONT_SIZE, contentFontSize).apply()
     }
 
-    fun updateApiBaseUrl(url: String) {
-        apiBaseUrl = url
-        prefs.edit().putString(KEY_API_URL, url).apply()
-    }
-
     fun updateAllowAgentMemoryWrite(value: Boolean) {
         allowAgentMemoryWrite = value
         prefs.edit().putBoolean(KEY_MEMORY_WRITE, value).apply()
-    }
-
-    fun updateReduceMotion(value: Boolean) {
-        reduceMotion = value
-        prefs.edit().putBoolean(KEY_REDUCE_MOTION, value).apply()
     }
 
     fun updateAuthProfile(profile: PreviewAuthProfile?) {
@@ -112,15 +103,7 @@ class PreviewAppPreferences(
         }
     }
 
-    fun updateComposerBlockDemo(kind: PreviewComposerBlockKind) {
-        composerBlockDemo = kind
-        prefs.edit().putString(KEY_COMPOSER_BLOCK_DEMO, kind.name).apply()
-    }
-
     fun resolveComposerBlock(): PreviewComposerBlockKind {
-        if (composerBlockDemo != PreviewComposerBlockKind.NONE) {
-            return composerBlockDemo
-        }
         if (apiBaseUrl.trim().isNotEmpty() && !isLoggedIn) {
             return PreviewComposerBlockKind.LOGIN_REQUIRED
         }
@@ -171,6 +154,24 @@ class PreviewAppPreferences(
         persistMemoryEntries()
     }
 
+    fun updateMemoryEntry(
+        id: String,
+        title: String,
+        kind: String,
+        text: String,
+    ) {
+        val index = memoryEntries.indexOfFirst { it.id == id }
+        if (index < 0) return
+        memoryEntries[index] =
+            PreviewMemoryEntry(
+                id = id,
+                title = title.trim(),
+                kind = kind,
+                text = text.trim(),
+            )
+        persistMemoryEntries()
+    }
+
     @Composable
     fun resolveDarkTheme(): Boolean =
         when (themeMode) {
@@ -213,6 +214,8 @@ class PreviewAppPreferences(
             array.put(
                 JSONObject()
                     .put("id", entry.id)
+                    .put("title", entry.title)
+                    .put("kind", entry.kind)
                     .put("text", entry.text),
             )
         }
@@ -241,7 +244,14 @@ class PreviewAppPreferences(
         return buildList {
             for (i in 0 until array.length()) {
                 val row = array.getJSONObject(i)
-                add(PreviewMemoryEntry(id = row.getString("id"), text = row.getString("text")))
+                add(
+                    PreviewMemoryEntry(
+                        id = row.getString("id"),
+                        title = row.optString("title", ""),
+                        kind = row.optString("kind", "preference"),
+                        text = row.getString("text"),
+                    ),
+                )
             }
         }
     }
@@ -275,24 +285,15 @@ class PreviewAppPreferences(
         return PreviewAuthProfile(displayName = name, phone = phone)
     }
 
-    private fun loadComposerBlockDemo(): PreviewComposerBlockKind =
-        runCatching {
-            PreviewComposerBlockKind.valueOf(
-                prefs.getString(KEY_COMPOSER_BLOCK_DEMO, PreviewComposerBlockKind.NONE.name)!!,
-            )
-        }.getOrDefault(PreviewComposerBlockKind.NONE)
-
     companion object {
         private const val PREFS_NAME = "preview_app_preferences"
         private const val KEY_THEME = "themeMode"
         private const val KEY_FONT_SIZE = "contentFontSize"
         private const val KEY_API_URL = "apiBaseUrl"
         private const val KEY_MEMORY_WRITE = "allowAgentMemoryWrite"
-        private const val KEY_REDUCE_MOTION = "reduceMotion"
         private const val KEY_MCP = "mcpServersJson"
         private const val KEY_MEMORY = "memoryEntriesJson"
         private const val KEY_AUTH_PHONE = "authPhone"
         private const val KEY_AUTH_NAME = "authDisplayName"
-        private const val KEY_COMPOSER_BLOCK_DEMO = "composerBlockDemo"
     }
 }

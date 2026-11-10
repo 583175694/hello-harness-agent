@@ -1,5 +1,6 @@
 package com.harness.agent.ui
 
+import com.harness.agent.BuildConfig
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -72,6 +74,7 @@ import com.harness.agent.model.ArtifactItem
 import com.harness.agent.model.toReaderTarget
 import com.harness.agent.model.ReaderTarget
 import com.harness.agent.model.WorkbenchDeliverableFile
+import kotlinx.coroutines.launch
 
 @Composable
 fun PreviewDevMenuScreen(
@@ -155,6 +158,7 @@ fun PreviewChatShellScreen(
     val selectedSessionId by viewModel.selectedSessionId.collectAsState()
     val inDraftMode = selectedSessionId?.startsWith("draft-") == true
     val toast = LocalAppToast.current
+    val scope = rememberCoroutineScope()
     var workbenchOpen by remember { mutableStateOf(false) }
     var focusedToolStepId by remember { mutableStateOf<String?>(null) }
 
@@ -242,8 +246,20 @@ fun PreviewChatShellScreen(
             onOpenLogin()
         },
         onLoadDemoFixture = onLoadDemoFixture,
-        onOpenReportReader = onOpenReportReader,
-        onOpenArtifactReader = onOpenArtifactReader,
+        onOpenReportReader = { title, markdown ->
+            workbenchOpen = false
+            if (viewModel.coreEngineActive) {
+                viewModel.syncWorkbenchOpenFromUi(false)
+            }
+            onOpenReportReader(title, markdown)
+        },
+        onOpenArtifactReader = { target ->
+            workbenchOpen = false
+            if (viewModel.coreEngineActive) {
+                viewModel.syncWorkbenchOpenFromUi(false)
+            }
+            onOpenArtifactReader(target)
+        },
         onPreviewAction = viewModel::applyPreviewAction,
         onRefreshWorkbench =
             if (viewModel.coreEngineActive) {
@@ -261,13 +277,29 @@ fun PreviewChatShellScreen(
             }
         },
         onBeginArtifactRevision = { artifactId ->
+            workbenchOpen = false
             if (viewModel.coreEngineActive) {
+                viewModel.syncWorkbenchOpenFromUi(false)
                 viewModel.beginArtifactRevision(artifactId)
             } else {
                 toast.show("Preview：已预填修改草稿（未写服务器）")
             }
         },
         onClearComposerRevisionSeed = viewModel::clearComposerRevisionSeed,
+        onDownloadDeliverable = { file ->
+            if (viewModel.coreEngineActive) {
+                scope.launch {
+                    viewModel
+                        .downloadArtifactTarget(file.toReaderTarget())
+                        .onSuccess { payload ->
+                            com.harness.agent.util.DeliverableExporter
+                                .shareBytes(context, payload.bytes, payload.fileName, payload.contentType)
+                                .onFailure { toast.show(it.message ?: "无法分享文件") }
+                        }
+                        .onFailure { toast.show(it.message ?: "下载失败") }
+                }
+            }
+        },
         useCoreAttachments = viewModel.coreEngineActive,
         onPickImageAttachment = { imagePicker.launch("image/*") },
         onPickDocumentAttachment = { documentPicker.launch(arrayOf("*/*")) },
@@ -352,6 +384,7 @@ private fun PreviewChatShellLayout(
     onLoadOlderSessionSummaries: () -> Unit = {},
     onRestoreArtifactVersion: (restoreArtifactId: String, expectedCurrentArtifactId: String) -> Unit = { _, _ -> },
     onBeginArtifactRevision: (artifactId: String) -> Unit = {},
+    onDownloadDeliverable: (WorkbenchDeliverableFile) -> Unit = {},
     onClearComposerRevisionSeed: () -> Unit = {},
     useCoreAttachments: Boolean = false,
     onPickImageAttachment: () -> Unit = {},
@@ -435,7 +468,9 @@ private fun PreviewChatShellLayout(
                             isLanding ->
                                 ChatLandingHero(
                                     welcomeText = "欢迎回来，想从哪里开始？",
-                                    showDemoEntry = state.scenarioId == "empty-landing",
+                                    showDemoEntry =
+                                        BuildConfig.USE_PREVIEW_PORT &&
+                                            state.scenarioId == "empty-landing",
                                     onOpenDemo = onLoadDemoFixture,
                                 )
                             else ->
@@ -516,13 +551,13 @@ private fun PreviewChatShellLayout(
         }
 
         val composer = state.composer
-        if (
-            PreviewChromeFlags.showPlanOverlay &&
+        val planOverlayEnabled =
+            composer.showPlan &&
                 !workbenchOpen &&
-                composer.showPlan &&
                 composer.mode != "clarification" &&
-                composer.mode != "hitl"
-        ) {
+                composer.mode != "hitl" &&
+                (coreEngineWorkbench || PreviewChromeFlags.showPlanOverlay)
+        if (planOverlayEnabled) {
             val planBottomInset = with(density) { composerChromeHeightPx.toDp() } + 8.dp
             Box(
                 modifier =
@@ -555,6 +590,7 @@ private fun PreviewChatShellLayout(
             onOpenArtifactReader = { onOpenArtifactReader(it.toReaderTarget()) },
             onRestoreArtifactVersion = onRestoreArtifactVersion,
             onBeginArtifactRevision = onBeginArtifactRevision,
+            onDownloadDeliverable = onDownloadDeliverable,
             initialFocusedToolId = focusedToolStepId,
         )
 

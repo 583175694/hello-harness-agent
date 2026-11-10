@@ -29,6 +29,9 @@ import {
 } from '../preview/PreviewComposerModelSheet';
 import { harnessPageTransition } from '../coreui/HarnessPageTransition';
 import { previewUiActionScrollsConversationToBottom } from '../preview/ConversationListScroll';
+import { getSharedHarmonyMobileEngine } from '../core/CoreAgentSessionPort';
+import { HarmonyDeliverableExporter } from '../core/HarmonyDeliverableExporter';
+import { common } from '@kit.AbilityKit';
 
 @Entry
 @Component
@@ -409,6 +412,27 @@ struct PreviewChatPage {
     });
   }
 
+  private async shareWorkbenchDeliverable(artifactId: string, fileId: string, fileName: string): Promise<void> {
+    if (this.corePort === null) {
+      return;
+    }
+    try {
+      const engine = getSharedHarmonyMobileEngine();
+      const content =
+        artifactId.length > 0 ? await engine.downloadArtifact(artifactId) :
+          await engine.downloadFile(fileId);
+      const uiContext = getContext(this) as common.UIAbilityContext;
+      await HarmonyDeliverableExporter.shareBytes(
+        uiContext,
+        content.data,
+        content.fileName.length > 0 ? content.fileName : fileName,
+        content.contentType,
+      );
+    } catch (error) {
+      AppToast.show('下载失败，请稍后重试');
+    }
+  }
+
   pageTransition() {
     harnessPageTransition()
   }
@@ -623,7 +647,8 @@ struct PreviewChatPage {
       .height('100%')
       .backgroundColor(HarnessColors.canvas(this.themeDark))
 
-      if (PreviewChromeFlags.showPlanOverlay && !this.workbenchOpen && s.composer.showPlan &&
+      if ((PreviewChromeFlags.showPlanOverlay || PreviewLocalPreferences.useCorePort) &&
+        !this.workbenchOpen && s.composer.showPlan &&
         s.composer.composerMode !== 'clarification' &&
         s.composer.composerMode !== 'hitl' && s.composer.planSteps.length > 0) {
         Column() {
@@ -711,6 +736,9 @@ struct PreviewChatPage {
           } else {
             AppToast.show('Preview：已预填修改草稿（未写服务器）');
           }
+        },
+        onDownloadDeliverable: (artifactId: string, fileId: string, fileName: string) => {
+          void this.shareWorkbenchDeliverable(artifactId, fileId, fileName);
         },
       })
 

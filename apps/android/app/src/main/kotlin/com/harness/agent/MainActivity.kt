@@ -28,13 +28,14 @@ import com.harness.agent.ui.PreviewDevMenuScreen
 import com.harness.agent.ui.reader.PreviewReportReaderScreen
 import com.harness.agent.ui.settings.PreviewMcpFormScreen
 import com.harness.agent.ui.settings.PreviewMcpListScreen
+import com.harness.agent.ui.settings.PreviewMemoryEntryScreen
 import com.harness.agent.ui.settings.PreviewMemoryHubScreen
-import com.harness.agent.ui.settings.PreviewConnectionScreen
 import com.harness.agent.ui.navigation.harnessNavEnterTransition
 import com.harness.agent.ui.navigation.harnessNavExitTransition
 import com.harness.agent.ui.navigation.harnessNavPopEnterTransition
 import com.harness.agent.ui.navigation.harnessNavPopExitTransition
 import com.harness.agent.ui.settings.PreviewSettingsRootScreen
+import com.harness.agent.BuildConfig
 
 class MainActivity : ComponentActivity() {
     private lateinit var sessionViewModel: PreviewSessionViewModel
@@ -43,6 +44,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val preferencesHolder = PreviewAppPreferences(applicationContext)
+        MainActivityFlavor.wirePreviewAuth(preferencesHolder)
         val port = AgentSessionPortModule.create(applicationContext, preferencesHolder)
         sessionViewModel = PreviewSessionViewModel(port)
         val viewModel = sessionViewModel
@@ -83,20 +85,22 @@ class MainActivity : ComponentActivity() {
                         if (reduceMotion) ExitTransition.None else harnessNavPopExitTransition()
                     },
                 ) {
-                    composable("dev-menu") {
-                        PreviewDevMenuScreen(
-                            viewModel = viewModel,
-                            onBack = { navController.popBackStack() },
-                            onOpenScenario = { fileName ->
-                                selectedFixture = fileName
-                                viewModel.selectFixture(fileName)
-                                navController.navigate("chat") {
-                                    popUpTo("chat") { inclusive = true }
-                                    launchSingleTop = true
-                                }
-                            },
-                            onOpenSettings = { navController.navigate("settings") },
-                        )
+                    if (BuildConfig.USE_PREVIEW_PORT) {
+                        composable("dev-menu") {
+                            PreviewDevMenuScreen(
+                                viewModel = viewModel,
+                                onBack = { navController.popBackStack() },
+                                onOpenScenario = { fileName ->
+                                    selectedFixture = fileName
+                                    viewModel.selectFixture(fileName)
+                                    navController.navigate("chat") {
+                                        popUpTo("chat") { inclusive = true }
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onOpenSettings = { navController.navigate("settings") },
+                            )
+                        }
                     }
                     composable("chat") {
                         PreviewChatShellScreen(
@@ -126,18 +130,15 @@ class MainActivity : ComponentActivity() {
                             onOpenLogin = { navController.navigate("settings/login") },
                             onOpenMemory = { navController.navigate("settings/memory") },
                             onOpenMcp = { navController.navigate("settings/mcp") },
-                            onOpenConnection = { navController.navigate("settings/connection") },
-                            onOpenPreviewScenarios = { navController.navigate("dev-menu") },
+                            onOpenPreviewScenarios =
+                                if (BuildConfig.USE_PREVIEW_PORT) {
+                                    { navController.navigate("dev-menu") }
+                                } else {
+                                    {}
+                                },
                             onSignOut = {
                                 MainActivityFlavor.signOut(this@MainActivity, preferences, port) {}
                             },
-                        )
-                    }
-                    composable("settings/connection") {
-                        PreviewConnectionScreen(
-                            preferences = preferences,
-                            onBack = { navController.popBackStack() },
-                            onApiUrlChanged = { viewModel.scheduleCoreConnectionRefresh() },
                         )
                     }
                     composable("settings/login") {
@@ -154,6 +155,15 @@ class MainActivity : ComponentActivity() {
                     composable("settings/memory") {
                         PreviewMemoryHubScreen(
                             backend = memoryBackend,
+                            onBack = { navController.popBackStack() },
+                            onOpenEntry = { id -> navController.navigate("settings/memory/$id") },
+                        )
+                    }
+                    composable("settings/memory/{entryId}") { backStackEntry ->
+                        val entryId = backStackEntry.arguments?.getString("entryId").orEmpty()
+                        PreviewMemoryEntryScreen(
+                            backend = memoryBackend,
+                            entryId = entryId,
                             onBack = { navController.popBackStack() },
                         )
                     }

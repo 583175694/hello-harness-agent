@@ -253,9 +253,9 @@ private extension PreviewChatShellView {
     @ViewBuilder
     var planOverlay: some View {
         let composer = store.session.composer
-        if PreviewChromeFlags.showPlanOverlay,
+        let planEnabled = composer.showPlan && (store.coreEngineActive || PreviewChromeFlags.showPlanOverlay)
+        if planEnabled,
            !workbenchOpen,
-           composer.showPlan,
            composer.mode != "clarification",
            composer.mode != "hitl",
            let plan = composer.plan
@@ -284,6 +284,7 @@ private extension PreviewChatShellView {
             onOpenArtifactReader: openWorkbenchArtifact,
             onRestoreArtifactVersion: restoreArtifactVersion,
             onBeginArtifactRevision: beginArtifactRevision,
+            onDownloadDeliverable: downloadWorkbenchDeliverable,
             initialFocusedToolId: focusedToolStepId
         )
     }
@@ -325,6 +326,26 @@ private extension PreviewChatShellView {
             store.beginArtifactRevision(artifactId: artifactId)
         } else {
             appToast.show("Preview：已预填修改草稿（未写服务器）")
+        }
+    }
+
+    func downloadWorkbenchDeliverable(_ file: WorkbenchDeliverableFile) {
+        guard store.coreEngineActive else { return }
+        let target = ReaderTarget(
+            artifactId: file.artifactId,
+            fileId: file.fileId,
+            fileName: file.fileName,
+            mediaType: file.mediaType,
+            fileKind: file.fileKind
+        )
+        Task {
+            let result = await store.download(target: target)
+            switch result {
+            case .success(let content):
+                ReaderFileSharing.present(data: content.bytes, fileName: content.fileName, contentType: content.contentType)
+            case .failure:
+                appToast.show("下载失败")
+            }
         }
     }
 }

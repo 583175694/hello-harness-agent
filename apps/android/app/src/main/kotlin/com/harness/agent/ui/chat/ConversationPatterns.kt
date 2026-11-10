@@ -105,6 +105,7 @@ fun UserMessageBubble(
                     ChatMarkdown(
                         markdown = text,
                         compact = true,
+                        userBubble = true,
                         contentMaxWidth = maxBubbleWidth,
                         modifier = Modifier.wrapContentWidth(Alignment.Start),
                     )

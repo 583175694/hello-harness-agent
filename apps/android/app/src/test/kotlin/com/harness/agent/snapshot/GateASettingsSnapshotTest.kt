@@ -33,7 +33,6 @@ class GateASettingsSnapshotTest {
                     onBack = {},
                     onOpenMemory = {},
                     onOpenMcp = {},
-                    onOpenConnection = {},
                 )
                 }
             }
@@ -63,6 +62,7 @@ class GateASettingsSnapshotTest {
                     PreviewMemoryHubScreen(
                         backend = PreviewMemorySettingsBackend(prefs),
                         onBack = {},
+                        onOpenEntry = {},
                     )
                 }
             }

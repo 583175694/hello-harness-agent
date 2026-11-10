@@ -27,7 +27,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,8 +36,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import com.harness.agent.coreui.feedback.AppConfirmDialog
@@ -50,8 +54,9 @@ import com.harness.agent.coreui.primitives.AppTextStyle
 import com.harness.agent.coreui.primitives.AppTopBar
 import com.harness.agent.coreui.tokens.HarnessLayout
 import com.harness.agent.coreui.tokens.LocalHarnessColors
+import com.harness.agent.BuildConfig
 import com.harness.agent.preview.PreviewAppPreferences
-import com.harness.agent.preview.PreviewComposerBlockKind
+import com.harness.agent.settings.MemoryEntryUiModel
 import com.harness.agent.settings.MemoryHubState
 import com.harness.agent.settings.MemorySettingsBackend
 import com.harness.agent.settings.McpServerUiModel
@@ -69,7 +74,6 @@ fun PreviewSettingsRootScreen(
     onOpenLogin: () -> Unit = {},
     onOpenMemory: () -> Unit,
     onOpenMcp: () -> Unit,
-    onOpenConnection: () -> Unit,
     onOpenPreviewScenarios: () -> Unit = {},
     onSignOut: () -> Unit = {
         preferences.updateAuthProfile(null)
@@ -104,12 +108,6 @@ fun PreviewSettingsRootScreen(
                     onIncrement = { preferences.updateContentFontSize(preferences.contentFontSize + 1) },
                     showDivider = true,
                 )
-                SettingsToggleRow(
-                    title = "Reduce Motion",
-                    checked = preferences.reduceMotion,
-                    onCheckedChange = preferences::updateReduceMotion,
-                    showDivider = true,
-                )
                 if (preferences.isLoggedIn) {
                     SettingsNavRow(
                         title = preferences.authProfile?.displayName ?: "账号",
@@ -128,36 +126,16 @@ fun PreviewSettingsRootScreen(
                 }
             }
 
-            SettingsGroup(sectionLabel = "开发") {
-                SettingsToggleRow(
-                    title = "Composer 阻断",
-                    checked = preferences.composerBlockDemo == PreviewComposerBlockKind.TRANSCRIPT_INCOMPATIBLE,
-                    onCheckedChange = { on ->
-                        preferences.updateComposerBlockDemo(
-                            if (on) PreviewComposerBlockKind.TRANSCRIPT_INCOMPATIBLE else PreviewComposerBlockKind.NONE,
-                        )
-                    },
-                    showDivider = false,
-                )
-            }
-
             SettingsGroup(sectionLabel = "Agent") {
                 SettingsNavRow(title = "记忆", onClick = onOpenMemory, showDivider = true)
                 SettingsNavRow(title = "MCP 服务器", onClick = onOpenMcp, showDivider = true)
-                SettingsNavRow(
-                    title = "演示场景",
-                    onClick = onOpenPreviewScenarios,
-                    showDivider = true,
-                )
-            }
-
-            SettingsGroup(sectionLabel = "连接") {
-                SettingsNavRow(
-                    title = "API Base URL",
-                    trailingValue = apiConnectionSummary(preferences.apiBaseUrl),
-                    onClick = onOpenConnection,
-                    showDivider = false,
-                )
+                if (BuildConfig.USE_PREVIEW_PORT) {
+                    SettingsNavRow(
+                        title = "演示场景",
+                        onClick = onOpenPreviewScenarios,
+                        showDivider = true,
+                    )
+                }
             }
 
             }
@@ -171,45 +149,6 @@ fun PreviewSettingsRootScreen(
                             toast.show("已退出登录")
                         },
                     )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun PreviewConnectionScreen(
-    preferences: PreviewAppPreferences,
-    onBack: () -> Unit,
-    onApiUrlChanged: () -> Unit = {},
-) {
-    AppScaffold(topBar = { SettingsTopBar(title = "连接", onBack = onBack) }) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
-            ) {
-                SettingsGroup {
-                    Column(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 16.dp),
-                    ) {
-                        SettingsTextField(
-                            value = preferences.apiBaseUrl,
-                            onValueChange = { url ->
-                                preferences.updateApiBaseUrl(url)
-                                onApiUrlChanged()
-                            },
-                            label = "API Base URL",
-                            placeholder = "http://192.168.x.x:4318",
-                        )
-                    }
                 }
             }
         }
@@ -401,6 +340,7 @@ fun PreviewMcpFormScreen(
 fun PreviewMemoryHubScreen(
     backend: MemorySettingsBackend,
     onBack: () -> Unit,
+    onOpenEntry: (String) -> Unit,
 ) {
     var state by remember { mutableStateOf(MemoryHubState(allowAgentWrite = true, entries = emptyList())) }
     val scope = rememberCoroutineScope()
@@ -442,20 +382,8 @@ fun PreviewMemoryHubScreen(
                 } else {
                     state.entries.forEachIndexed { index, entry ->
                         SettingsMemoryEntryRow(
-                            text = entry.text,
-                            onDelete = {
-                                scope.launch {
-                                    backend.deleteEntry(entry.id).fold(
-                                        onSuccess = {
-                                            state =
-                                                state.copy(
-                                                    entries = state.entries.filterNot { it.id == entry.id },
-                                                )
-                                        },
-                                        onFailure = { toast.show(it.message ?: "删除失败") },
-                                    )
-                                }
-                            },
+                            preview = memoryEntryPreviewLine(entry),
+                            onClick = { onOpenEntry(entry.id) },
                             showDivider = index < state.entries.lastIndex,
                         )
                     }
@@ -464,6 +392,170 @@ fun PreviewMemoryHubScreen(
         }
     }
 }
+
+@Composable
+fun PreviewMemoryEntryScreen(
+    backend: MemorySettingsBackend,
+    entryId: String,
+    onBack: () -> Unit,
+) {
+    var loaded by remember(entryId) { mutableStateOf<MemoryEntryUiModel?>(null) }
+    var title by remember(entryId) { mutableStateOf("") }
+    var content by remember(entryId) { mutableStateOf("") }
+    var kind by remember(entryId) { mutableStateOf("preference") }
+    var saving by remember { mutableStateOf(false) }
+    var deleteConfirm by remember { mutableStateOf<AppConfirmRequest?>(null) }
+    val toast = LocalAppToast.current
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(backend, entryId) {
+        val row = backend.entry(entryId)
+        loaded = row
+        title = row?.title.orEmpty()
+        content = row?.text.orEmpty()
+        kind = row?.kind ?: "preference"
+    }
+
+    fun resolvedTitle(): String =
+        title.trim().ifBlank {
+            content.lineSequence().firstOrNull()?.trim()?.take(80).orEmpty().ifBlank { "记忆" }
+        }
+
+    AppScaffold(topBar = { SettingsTopBar(title = "记忆详情", onBack = onBack) }) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
+            ) {
+                SettingsGroup(sectionLabel = "内容") {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        SettingsTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            label = "标题",
+                            placeholder = "可选，留空则用正文首句",
+                        )
+                        MemoryMultilineField(
+                            value = content,
+                            onValueChange = { content = it },
+                            label = "正文",
+                            placeholder = "记忆内容",
+                        )
+                    }
+                }
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    Text(
+                        text = "删除",
+                        color = LocalHarnessColors.current.link,
+                        fontSize = 15.sp,
+                        modifier =
+                            Modifier
+                                .clickable {
+                                    deleteConfirm =
+                                        AppConfirmRequest(
+                                            title = "删除记忆",
+                                            message = "删除后无法恢复，确定继续？",
+                                            confirmLabel = "删除",
+                                            destructive = true,
+                                            onConfirm = {
+                                                scope.launch {
+                                                    backend.deleteEntry(entryId).fold(
+                                                        onSuccess = { onBack() },
+                                                        onFailure = { toast.show(it.message ?: "删除失败") },
+                                                    )
+                                                }
+                                            },
+                                        )
+                                }
+                                .padding(vertical = 8.dp),
+                    )
+                }
+            }
+            SettingsBottomDock {
+                SettingsPillButton(
+                    text = if (saving) "保存中…" else "保存",
+                    enabled = !saving && content.isNotBlank() && loaded != null,
+                    onClick = {
+                        scope.launch {
+                            saving = true
+                            backend
+                                .updateEntry(
+                                    id = entryId,
+                                    kind = kind,
+                                    title = resolvedTitle(),
+                                    content = content.trim(),
+                                ).fold(
+                                    onSuccess = {
+                                        toast.show("已保存")
+                                        onBack()
+                                    },
+                                    onFailure = { toast.show(it.message ?: "保存失败") },
+                                )
+                            saving = false
+                        }
+                    },
+                )
+            }
+        }
+    }
+
+    AppConfirmDialog(request = deleteConfirm, onDismiss = { deleteConfirm = null })
+}
+
+@Composable
+private fun MemoryMultilineField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String,
+) {
+    val colors = LocalHarnessColors.current
+    val shape = RoundedCornerShape(HarnessLayout.controlRadius)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = colors.muted,
+            modifier = Modifier.padding(bottom = 6.dp),
+        )
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            textStyle = TextStyle(fontSize = 16.sp, color = colors.secondary, lineHeight = 22.sp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 160.dp)
+                    .background(colors.subtle, shape)
+                    .border(1.dp, colors.composerBorder, shape)
+                    .padding(horizontal = 12.dp, vertical = 11.dp),
+            decorationBox = { inner ->
+                Box {
+                    if (value.isEmpty() && placeholder.isNotEmpty()) {
+                        Text(text = placeholder, fontSize = 16.sp, color = colors.composerPlaceholder)
+                    }
+                    inner()
+                }
+            },
+        )
+    }
+}
+
+private fun memoryEntryPreviewLine(entry: MemoryEntryUiModel): String =
+    entry.text.replace('\n', ' ').trim().ifBlank { entry.title.trim() }
 
 @Composable
 internal fun SettingsTopBar(
@@ -761,8 +853,8 @@ private fun McpServerRow(
 
 @Composable
 private fun SettingsMemoryEntryRow(
-    text: String,
-    onDelete: () -> Unit,
+    preview: String,
+    onClick: () -> Unit,
     showDivider: Boolean,
 ) {
     val colors = LocalHarnessColors.current
@@ -772,20 +864,23 @@ private fun SettingsMemoryEntryRow(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = HarnessLayout.settingsRowMinHeight)
+                    .clickable(onClick = onClick)
                     .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = text,
+                text = preview,
                 color = colors.secondary,
                 fontSize = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            Text(
-                text = "删除",
-                color = colors.link,
-                fontSize = 14.sp,
-                modifier = Modifier.clickable(onClick = onDelete),
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = colors.composerPlaceholder,
+                modifier = Modifier.size(18.dp),
             )
         }
     }

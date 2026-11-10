@@ -1,6 +1,7 @@
 import { PreviewSessionState } from '../preview/PreviewFixtureLoader';
 import { ChatLine, SessionDrawerRow, UserAttachmentRow, emptyWorkbench, parseComposer } from '../preview/PreviewModels';
 import { FileRefRow, LiveRunStateRow, SessionSummaryRow } from './HarmonyCoreTypes';
+import { HarmonyPlanProjector } from './HarmonyPlanProjector';
 
 export class HarmonyCoreSessionMapper {
   static emptyLanding(): PreviewSessionState {
@@ -133,12 +134,21 @@ export class HarmonyCoreSessionMapper {
     } else if (approval !== undefined) {
       composerMode = 'hitl';
     }
+    const runActive =
+      runtimeSteer ||
+        base.composer.submitting ||
+        (activeLive !== undefined && !HarmonyRunLiveReducerIsTerminal(activeLive.deliveryStatus));
+    const livePlan = activeLive?.plan;
+    const showPlan = HarmonyPlanProjector.shouldShowOverlay(livePlan, runActive);
     const composer = {
       ...base.composer,
       revisionDraftSeed: base.composer.revisionDraftSeed,
       composerMode,
       composerTextMode: runtimeSteer ? 'steer' : (clar !== undefined ? 'clarification' : 'new-run'),
       submitting: runtimeSteer || base.composer.submitting,
+      showPlan,
+      planExplanation: livePlan?.explanation ?? '',
+      planSteps: livePlan?.steps.slice() ?? [],
       clarification: clar !== undefined ?
         { question: clar.question, options: clar.options.slice(), allowFreeText: clar.allowFreeText } :
         undefined,

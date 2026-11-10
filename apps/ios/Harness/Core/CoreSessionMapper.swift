@@ -157,6 +157,17 @@ enum CoreSessionMapper {
                 )
             }
         composer.revisionDraftSeed = snapshot?.composerRevisionSeed
+        if let corePlan = snapshot?.composerPlan {
+            composer.showPlan = snapshot?.showPlanOverlay ?? false
+            let steps: [PlanStepFixture] =
+                corePlan.steps.map { row in
+                    PlanStepFixture(step: row.step, status: row.status)
+                }
+            composer.plan =
+                steps.isEmpty
+                    ? nil
+                    : PlanFixture(explanation: corePlan.explanation, steps: steps, initialExpanded: false)
+        }
 
         return ActiveSessionState(
             scenarioId: snapshot?.sessionId ?? "core-landing",

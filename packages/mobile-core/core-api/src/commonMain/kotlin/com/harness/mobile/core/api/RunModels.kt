@@ -2,6 +2,7 @@ package com.harness.mobile.core.api
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 @Serializable
 data class CreateRunResponse(
@@ -24,6 +25,7 @@ data class RunSnapshot(
     val lastEventSequence: Int = 0,
     /** `GET /runs/:id` 补水：pending clarification / tool_approval（B4）。 */
     val activeInterrupt: JsonElement? = null,
+    val plan: JsonObject? = null,
 )
 
 @Serializable

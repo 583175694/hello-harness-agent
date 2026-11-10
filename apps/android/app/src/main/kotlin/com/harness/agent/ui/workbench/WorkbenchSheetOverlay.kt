@@ -55,14 +55,16 @@ import com.harness.agent.coreui.primitives.AppText
 import com.harness.agent.coreui.primitives.AppTextStyle
 import com.harness.agent.coreui.primitives.HarnessSegmentedControl
 import com.harness.agent.coreui.tokens.LocalHarnessColors
+import com.harness.agent.coreui.feedback.LocalAppToast
 import com.harness.agent.coreui.primitives.AppButton
 import com.harness.agent.coreui.primitives.AppSheet
 import com.harness.agent.model.WorkbenchSourceCard
 import com.harness.agent.model.WorkbenchState
 import com.harness.agent.model.WorkbenchDeliverableFile
+import com.harness.agent.model.coerceWorkbenchTab
+import com.harness.agent.model.visibleWorkbenchTabs
 
 private val DETENTS = listOf(0.44f, 0.72f, 0.98f)
-private val TABS = listOf("activity", "artifact")
 private const val SHEET_MOTION_MS = 280
 
 @Composable
@@ -74,6 +76,7 @@ fun WorkbenchSheetOverlay(
     onOpenArtifactReader: ((WorkbenchDeliverableFile) -> Unit)? = null,
     onRestoreArtifactVersion: ((restoreArtifactId: String, expectedCurrentArtifactId: String) -> Unit)? = null,
     onBeginArtifactRevision: ((artifactId: String) -> Unit)? = null,
+    onDownloadDeliverable: ((WorkbenchDeliverableFile) -> Unit)? = null,
     initialFocusedToolId: String? = null,
     previewReduceMotion: Boolean = false,
 ) {
@@ -82,9 +85,12 @@ fun WorkbenchSheetOverlay(
     var detentIndex by rememberSaveable(state.initialSheetIndex, state.workbenchCount) {
         mutableIntStateOf(state.resolvedInitialDetent())
     }
-    var activeTab by rememberSaveable(state.initialView) { mutableStateOf(state.initialView.ifBlank { "activity" }) }
-    LaunchedEffect(state.initialView) {
-        activeTab = state.initialView.ifBlank { "activity" }
+    val visibleTabs = remember(state) { state.visibleWorkbenchTabs() }
+    var activeTab by rememberSaveable(state.initialView, visibleTabs) {
+        mutableStateOf(state.coerceWorkbenchTab(state.initialView.ifBlank { "activity" }))
+    }
+    LaunchedEffect(state.initialView, visibleTabs) {
+        activeTab = state.coerceWorkbenchTab(state.initialView.ifBlank { "activity" })
     }
     LaunchedEffect(initialFocusedToolId) {
         if (!initialFocusedToolId.isNullOrBlank()) {
@@ -209,12 +215,15 @@ fun WorkbenchSheetOverlay(
                     )
                 }
                 WorkbenchSegmentedTabs(
+                    tabs = visibleTabs,
                     activeTab = activeTab,
                     onTabSelected = { activeTab = it },
                 )
                 WorkbenchTabContent(
                     activeTab = activeTab,
                     state = state,
+                    onOpenPassage = { passageCard = it },
+                    onOpenReportReader = onOpenReportReader,
                     initialFocusedToolId = initialFocusedToolId,
                     modifier =
                         Modifier
@@ -232,6 +241,7 @@ fun WorkbenchSheetOverlay(
                     onBeginRevision = { artifactId ->
                         onBeginArtifactRevision?.invoke(artifactId)
                     },
+                    onDownloadDeliverable = onDownloadDeliverable,
                 )
             }
         }
@@ -291,11 +301,12 @@ private fun WorkbenchState.resolvedInitialDetent(): Int {
 
 @Composable
 private fun WorkbenchSegmentedTabs(
+    tabs: List<String>,
     activeTab: String,
     onTabSelected: (String) -> Unit,
 ) {
     HarnessSegmentedControl(
-        segments = TABS.map { it to WorkbenchTabLabels.label(it) },
+        segments = tabs.map { it to WorkbenchTabLabels.label(it) },
         selectedId = activeTab,
         onSelected = onTabSelected,
         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -306,12 +317,16 @@ private fun WorkbenchSegmentedTabs(
 private fun WorkbenchTabContent(
     activeTab: String,
     state: WorkbenchState,
+    onOpenPassage: (WorkbenchSourceCard) -> Unit,
+    onOpenReportReader: (() -> Unit)?,
     initialFocusedToolId: String? = null,
     modifier: Modifier = Modifier,
     onOpenFilePreview: (WorkbenchDeliverableFile) -> Unit,
     onRequestRestore: (restoreArtifactId: String, expectedCurrentArtifactId: String) -> Unit = { _, _ -> },
     onBeginRevision: (artifactId: String) -> Unit = {},
+    onDownloadDeliverable: ((WorkbenchDeliverableFile) -> Unit)? = null,
 ) {
+    val toast = LocalAppToast.current
     when (activeTab) {
         "activity" ->
             WorkbenchActivityFollowPane(
@@ -319,22 +334,40 @@ private fun WorkbenchTabContent(
                 modifier = modifier,
                 initialStepId = initialFocusedToolId,
             )
-        "artifact" ->
-            if (state.artifactVersions.isNotEmpty()) {
-                WorkbenchArtifactVersionsPane(
-                    versions = state.artifactVersions,
-                    restorePrompt = state.artifactRestorePrompt,
-                    onRequestRestore = onRequestRestore,
-                    onBeginRevision = onBeginRevision,
-                    modifier = modifier,
-                )
-            } else {
-                WorkbenchFilesPane(
-                    files = state.deliverableFiles,
-                    onPreview = onOpenFilePreview,
-                    modifier = modifier,
-                )
-            }
+        "sources" ->
+            WorkbenchSourcesPane(
+                state = state,
+                onOpenPassage = onOpenPassage,
+                modifier = modifier,
+            )
+        "report" ->
+            WorkbenchReportPane(
+                state = state,
+                onOpenFullScreen = { onOpenReportReader?.invoke() },
+                modifier = modifier,
+            )
+        "artifact" -> {
+            val rows = resolveWorkbenchArtifactRows(state)
+            val currentArtifactId =
+                state.artifactVersions.firstOrNull { it.selected }?.id
+                    ?: state.artifactVersions.lastOrNull()?.id
+            WorkbenchFilesPane(
+                files = rows,
+                restorePrompt = state.artifactRestorePrompt,
+                onPreview = onOpenFilePreview,
+                onDownload = { file ->
+                    if (onDownloadDeliverable != null) {
+                        onDownloadDeliverable(file)
+                    } else {
+                        toast.show("Preview：已模拟下载 ${file.fileName}")
+                    }
+                },
+                onBeginRevision = onBeginRevision,
+                onRequestRestore = onRequestRestore,
+                expectedCurrentArtifactId = currentArtifactId,
+                modifier = modifier,
+            )
+        }
         else ->
             WorkbenchActivityFollowPane(
                 state = state,

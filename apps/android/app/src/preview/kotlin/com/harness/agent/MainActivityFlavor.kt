@@ -12,6 +12,8 @@ import com.harness.agent.port.AgentSessionPort
 import com.harness.agent.ui.settings.LoginCoordinator
 
 object MainActivityFlavor {
+    fun wirePreviewAuth(preferences: PreviewAppPreferences) = Unit
+
     fun imageAuth(preferences: PreviewAppPreferences): HarnessImageAuth = HarnessImageAuth()
 
     fun loginCoordinator(): LoginCoordinator = PreviewLoginCoordinator

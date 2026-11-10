@@ -18,6 +18,7 @@ fun StreamingChatMarkdown(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     followsProcessTimeline: Boolean = false,
+    timelineReasoningStyle: Boolean = false,
     debounceMs: Long = PREVIEW_STREAM_DEBOUNCE_MS,
 ) {
     var displayed by remember { mutableStateOf("") }
@@ -34,6 +35,7 @@ fun StreamingChatMarkdown(
             modifier = modifier,
             compact = compact,
             followsProcessTimeline = followsProcessTimeline,
+            timelineReasoningStyle = timelineReasoningStyle,
         )
     }
 }

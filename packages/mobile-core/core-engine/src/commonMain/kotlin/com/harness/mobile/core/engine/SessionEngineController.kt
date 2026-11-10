@@ -38,6 +38,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 internal class SessionEngineController(
     private val config: EngineConfig,
@@ -981,6 +985,27 @@ internal class SessionEngineController(
         )
     }
 
+    private fun sessionLiveFor(sessionId: String): LiveRunState? =
+        liveRunBySession[sessionId]
+            ?: liveRun?.takeIf { it.sessionId == sessionId }
+
+    private fun attachComposerPlan(
+        snapshot: MobileActiveSessionSnapshot,
+        detail: SessionDetail,
+        sessionLive: LiveRunState?,
+    ): MobileActiveSessionSnapshot {
+        val plan =
+            sessionLive?.plan
+                ?: PlanProjector.latestPlanFromMessages(detail.messages)
+        val runActive =
+            detail.activeRun != null ||
+                (sessionLive != null && !runReducer.isTerminal(sessionLive.deliveryStatus))
+        return snapshot.copy(
+            composerPlan = plan,
+            showPlanOverlay = PlanProjector.shouldShowPlanOverlay(plan, runActive),
+        )
+    }
+
     private fun mergeDetailWithLive(
         detail: com.harness.mobile.core.api.SessionDetail,
         runningSessionIds: Set<String>,
@@ -991,31 +1016,33 @@ internal class SessionEngineController(
                 summaries = summaries,
                 runningSessionIds = runningSessionIds,
             )
-        val live = liveRun
-        if (live == null || live.sessionId != detail.id || selectedSessionId != detail.id) {
-            return withArtifactSeriesOnWorkbench(projected, detail)
-        }
-        // R6：不以 stale detail 覆盖更丰富的 live assistant
-        val liveConversation = runReducer.toConversation(live)
-        val detailAssistant = projected.conversation.lastOrNull { it.kind == "assistant" }
-        val liveAssistant = liveConversation.lastOrNull { it.kind == "assistant" }
-        val prior = _activeSnapshot.value
-        val withConversation =
-            if (assistantLiveRichness(liveAssistant) >= assistantLiveRichness(detailAssistant)) {
-                projected.copy(conversation = mergeLiveConversation(projected.conversation, live))
-            } else {
+        val sessionLive = sessionLiveFor(detail.id)
+        val merged =
+            if (sessionLive == null || selectedSessionId != detail.id) {
                 projected
-            }
-        val shell =
-            if (prior?.sessionId == detail.id) {
-                withConversation.copy(
-                    workbench = prior.workbench,
-                    workbenchRunId = prior.workbenchRunId,
-                )
             } else {
-                withConversation
+                // R6：不以 stale detail 覆盖更丰富的 live assistant
+                val live = sessionLive
+                val liveConversation = runReducer.toConversation(live)
+                val detailAssistant = projected.conversation.lastOrNull { it.kind == "assistant" }
+                val liveAssistant = liveConversation.lastOrNull { it.kind == "assistant" }
+                val prior = _activeSnapshot.value
+                val withConversation =
+                    if (assistantLiveRichness(liveAssistant) >= assistantLiveRichness(detailAssistant)) {
+                        projected.copy(conversation = mergeLiveConversation(projected.conversation, live))
+                    } else {
+                        projected
+                    }
+                if (prior?.sessionId == detail.id) {
+                    withConversation.copy(
+                        workbench = prior.workbench,
+                        workbenchRunId = prior.workbenchRunId,
+                    )
+                } else {
+                    withConversation
+                }
             }
-        return withArtifactSeriesOnWorkbench(shell, detail)
+        return attachComposerPlan(withArtifactSeriesOnWorkbench(merged, detail), detail, sessionLive)
     }
 
     private fun withArtifactSeriesOnWorkbench(
@@ -1158,9 +1185,11 @@ internal class SessionEngineController(
         runId: String,
         final: LiveRunState,
     ) {
+        mergeTerminalRunIntoSessionMessages(sessionId, runId, final)
         if (selectedSessionId == sessionId) {
             liveRun = final
             publishLiveRun(final, submitting = false)
+            publishActiveSessionFromCache(sessionId)
         } else {
             publishSnapshot()
         }
@@ -1170,6 +1199,82 @@ internal class SessionEngineController(
         pendingSessions.remove(sessionId)
         refreshSessionListDebounced()
         syncFollowUpAfterTerminal(sessionId)
+    }
+
+    /**
+     * Run 在后台结束时，[loadSessionDetail] 因仍挂在 [pendingSessions] 而被跳过，
+     * [sessionMessages] 不会写入本轮 user/assistant，切回会话会看到「整轮消失」直到下次强刷。
+     * 在终态把本轮合并进缓存，使 [publishActiveSessionFromCache] / [publishSnapshot] 能投影出完整对话。
+     */
+    private fun mergeTerminalRunIntoSessionMessages(
+        sessionId: String,
+        runId: String,
+        final: LiveRunState,
+    ) {
+        if (!isTerminal(final.deliveryStatus)) return
+        val presentation = AssistantPresentation.presentAssistantBlocks(final.blocks)
+        val bodyText = presentation.pendingText + presentation.finalText
+        val userId = final.userMessageId.ifBlank { "live:$runId:user" }
+        val assistantId = final.assistantMessageId.ifBlank { "live:$runId:assistant" }
+        val existing = sessionMessages[sessionId].orEmpty().toMutableList()
+        val priorAssistant = existing.find { it.id == assistantId && it.role == "assistant" }
+        val planElement =
+            final.plan?.let(PlanProjector::planToJson)
+                ?: priorAssistant?.metadata?.get("plan")
+        val metadata: JsonObject =
+            buildJsonObject {
+                if (final.blocks.isNotEmpty()) {
+                    put("blocks", JsonArray(final.blocks))
+                }
+                planElement?.let { put("plan", it) }
+            }
+        val resolvedRunId = runId.takeIf { it.isNotBlank() }
+        val userLine =
+            existing.find { it.id == userId && it.role == "user" }
+                ?: PersistedMessage(
+                    id = userId,
+                    sessionId = sessionId,
+                    role = "user",
+                    kind = "message",
+                    content = final.userText,
+                    createdAt = "",
+                    attachments = final.userAttachments,
+                    runId = resolvedRunId,
+                )
+        val assistantLine =
+            existing.find { it.id == assistantId && it.role == "assistant" }
+                ?: PersistedMessage(
+                    id = assistantId,
+                    sessionId = sessionId,
+                    role = "assistant",
+                    kind = "message",
+                    content = bodyText,
+                    createdAt = "",
+                    runId = resolvedRunId,
+                    deliveryStatus = final.deliveryStatus,
+                    metadata = metadata,
+                )
+        val byId = linkedMapOf<String, PersistedMessage>()
+        for (message in existing) {
+            byId[message.id] = message
+        }
+        byId[userLine.id] =
+            userLine.copy(
+                content = final.userText,
+                attachments = final.userAttachments,
+                runId = userLine.runId ?: runId.takeIf { it.isNotBlank() },
+            )
+        byId[assistantLine.id] =
+            assistantLine.copy(
+                content = bodyText,
+                deliveryStatus = final.deliveryStatus,
+                metadata = metadata,
+                runId = assistantLine.runId ?: runId.takeIf { it.isNotBlank() },
+            )
+        sessionMessages[sessionId] =
+            byId.values.sortedWith(
+                compareBy<PersistedMessage> { it.createdAt }.thenBy { if (it.role == "user") 0 else 1 },
+            )
     }
 
     private fun syncFollowUpAfterTerminal(sessionId: String) {
@@ -1359,6 +1464,14 @@ internal class SessionEngineController(
                 loadingOlderMessages = prior?.loadingOlderMessages ?: false,
                 composerClarification = live?.composerClarification,
                 composerToolApproval = live?.composerToolApproval,
+                composerPlan = live?.plan,
+                showPlanOverlay =
+                    PlanProjector.shouldShowPlanOverlay(
+                        plan = live?.plan,
+                        runActive =
+                            submitting ||
+                                (live != null && !runReducer.isTerminal(live.deliveryStatus)),
+                    ),
             ),
         )
     }

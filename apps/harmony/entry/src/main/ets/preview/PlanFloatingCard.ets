@@ -76,7 +76,6 @@ export struct PlanFloatingCard {
         .border({ width: 1, color: HarnessColors.composerBorderColor(this.useDark) })
         .borderRadius(12)
         .margin({ bottom: 8 })
-        .shadow({ radius: 8, color: '#14000000', offsetY: 2 })
       }
       Row({ space: 8 }) {
         LoadingProgress()
@@ -85,7 +84,6 @@ export struct PlanFloatingCard {
           .color(HarnessColors.primaryText(this.useDark))
         Text(`第 ${stepNumber} / ${this.steps.length} 步`)
           .fontSize(14)
-          .fontWeight(FontWeight.Medium)
           .fontColor(HarnessColors.primaryText(this.useDark))
       }
       .height(38)
@@ -93,7 +91,6 @@ export struct PlanFloatingCard {
       .backgroundColor(HarnessColors.surface(this.useDark))
       .border({ width: 1, color: HarnessColors.composerBorderColor(this.useDark) })
       .borderRadius(999)
-      .shadow({ radius: 6, color: '#14000000', offsetY: 2 })
       .onClick(() => {
         if (!this.lockCollapsed) {
           this.expanded = !this.expanded;

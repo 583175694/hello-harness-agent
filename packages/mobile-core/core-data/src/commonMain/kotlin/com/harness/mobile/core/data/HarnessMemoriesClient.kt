@@ -7,6 +7,8 @@ import com.harness.mobile.core.api.MemoryListResponse
 import com.harness.mobile.core.api.MemoryRecordView
 import com.harness.mobile.core.api.MemorySettingsPatch
 import com.harness.mobile.core.api.MemorySettingsView
+import com.harness.mobile.core.api.MemoryUpdateRequest
+import com.harness.mobile.core.api.MemoryUpdateResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
@@ -42,6 +44,21 @@ class HarnessMemoriesClient internal constructor(
                 applyAuth()
             }
         val wrapped: MemoryCreateResponse = parseOk(response)
+        return wrapped.memory
+    }
+
+    suspend fun updateMemory(
+        memoryId: String,
+        body: MemoryUpdateRequest,
+    ): MemoryRecordView {
+        val base = HarnessAgentHttpClient.normalizeBaseUrl(config.apiBaseUrlProvider())
+        val response =
+            httpClient.patch("$base/api/agent/memories/$memoryId") {
+                contentType(ContentType.Application.Json)
+                setBody(body)
+                applyAuth()
+            }
+        val wrapped: MemoryUpdateResponse = parseOk(response)
         return wrapped.memory
     }
 

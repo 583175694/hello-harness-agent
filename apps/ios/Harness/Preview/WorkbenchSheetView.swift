@@ -16,6 +16,7 @@ struct WorkbenchSheetView: View {
     var onOpenFilePreview: ((String, String) -> Void)? = nil
     var onRestoreArtifactVersion: ((String, String) -> Void)? = nil
     var onBeginArtifactRevision: ((String) -> Void)? = nil
+    var onDownloadDeliverable: ((WorkbenchDeliverableFile) -> Void)? = nil
     var initialFocusedToolId: String? = nil
     @State private var detentIndex: Int
     @State private var activeTab: String
@@ -32,6 +33,7 @@ struct WorkbenchSheetView: View {
         onOpenFilePreview: ((String, String) -> Void)? = nil,
         onRestoreArtifactVersion: ((String, String) -> Void)? = nil,
         onBeginArtifactRevision: ((String) -> Void)? = nil,
+        onDownloadDeliverable: ((WorkbenchDeliverableFile) -> Void)? = nil,
         initialFocusedToolId: String? = nil
     ) {
         self.previewReduceMotion = previewReduceMotion
@@ -44,8 +46,9 @@ struct WorkbenchSheetView: View {
         self.onOpenFilePreview = onOpenFilePreview
         self.onRestoreArtifactVersion = onRestoreArtifactVersion
         self.onBeginArtifactRevision = onBeginArtifactRevision
+        self.onDownloadDeliverable = onDownloadDeliverable
         _detentIndex = State(initialValue: state.resolvedInitialDetent)
-        _activeTab = State(initialValue: state.initialView)
+        _activeTab = State(initialValue: WorkbenchTabResolver.coerceActiveTab(state: state, requested: state.initialView))
         _presentProgress = State(initialValue: visible ? 1 : 0)
     }
 
@@ -101,7 +104,7 @@ struct WorkbenchSheetView: View {
             if newId != nil { activeTab = "activity" }
         }
         .onChange(of: state.initialView) { _, view in
-            activeTab = view.isEmpty ? "activity" : view
+            activeTab = WorkbenchTabResolver.coerceActiveTab(state: state, requested: view.isEmpty ? "activity" : view)
         }
         .ignoresSafeArea()
         .sheet(item: $passageCard) { card in
@@ -138,20 +141,12 @@ struct WorkbenchSheetView: View {
         }
     }
 
-    private func workbenchTabLabel(_ tab: String) -> String {
-        switch tab {
-        case "activity": return "实时跟随"
-        case "artifact": return "文件"
-        default: return tab
-        }
-    }
-
     private var tabBar: some View {
-        let tabs = ["activity", "artifact"]
+        let tabs = WorkbenchTabResolver.visibleTabs(state: state)
         return HarnessSlidingSegmentedControl(
             options: tabs,
             selection: $activeTab,
-            label: workbenchTabLabel
+            label: WorkbenchTabResolver.tabLabel
         )
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -159,7 +154,17 @@ struct WorkbenchSheetView: View {
 
     @ViewBuilder
     private var tabBody: some View {
-        if activeTab == "artifact" {
+        if activeTab == "sources" {
+            WorkbenchSourcesListView(
+                state: state,
+                onOpenPassage: { passageCard = $0 }
+            )
+        } else if activeTab == "report" {
+            WorkbenchReportTabView(
+                state: state,
+                onOpenFullScreen: { onOpenReportReader?() }
+            )
+        } else if activeTab == "artifact" {
             ScrollView {
                 if !state.artifactVersions.isEmpty {
                     WorkbenchArtifactVersionsSection(
@@ -181,6 +186,7 @@ struct WorkbenchSheetView: View {
                 } else {
                     WorkbenchFilesView(
                         files: state.deliverableFiles,
+                        onDownload: onDownloadDeliverable,
                         onPreview: { file in
                             if !file.artifactId.isEmpty || !file.fileId.isEmpty {
                                 onOpenArtifactReader?(file)
@@ -436,8 +442,76 @@ private struct WorkbenchStepNavButton: View {
     }
 }
 
+struct WorkbenchSourcesListView: View {
+    let state: WorkbenchState
+    let onOpenPassage: (WorkbenchSourceCard) -> Void
+
+    var body: some View {
+        if state.sources.isEmpty {
+            WorkbenchTabEmptyStateView(
+                title: state.sourcesRetrievalOnly ? "检索进行中" : "暂无来源",
+                message: state.sourcesRetrievalOnly
+                    ? "网页检索完成后，引用来源会显示在这里。"
+                    : "助手引用的网页与段落会汇总在此。"
+            )
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("共 \(state.sources.count) 个来源")
+                        .font(.caption)
+                        .foregroundStyle(HarnessColors.muted)
+                    ForEach(state.sources) { card in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(card.title).font(.subheadline.weight(.medium))
+                            Text(card.url).font(.caption).foregroundStyle(HarnessColors.link)
+                            if !card.snippet.isEmpty {
+                                Text(card.snippet).font(.caption).foregroundStyle(HarnessColors.muted)
+                            }
+                            if let body = card.passageBody, !body.isEmpty {
+                                Button("查看引用段落") { onOpenPassage(card) }
+                                    .font(.caption)
+                            }
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: HarnessLayout.panelRadius, style: .continuous)
+                                .stroke(HarnessColors.composerBorder, lineWidth: 1)
+                        )
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+        }
+    }
+}
+
+struct WorkbenchReportTabView: View {
+    let state: WorkbenchState
+    let onOpenFullScreen: () -> Void
+
+    var body: some View {
+        let md = state.reportMarkdown?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if md.isEmpty {
+            WorkbenchTabEmptyStateView(title: "暂无报告", message: "Run 生成报告后会显示在这里。")
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("报告预览").font(.caption).foregroundStyle(HarnessColors.muted)
+                    ChatMarkdownView(markdown: md, compact: true)
+                    Button("全屏阅读", action: onOpenFullScreen)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+        }
+    }
+}
+
 struct WorkbenchFilesView: View {
     let files: [WorkbenchDeliverableFile]
+    var onDownload: ((WorkbenchDeliverableFile) -> Void)? = nil
     let onPreview: (WorkbenchDeliverableFile) -> Void
 
     var body: some View {
@@ -457,6 +531,10 @@ struct WorkbenchFilesView: View {
                         }
                     }
                     Spacer()
+                    if let onDownload {
+                        Button("下载") { onDownload(file) }
+                            .font(.subheadline)
+                    }
                     Button {
                         onPreview(file)
                     } label: {

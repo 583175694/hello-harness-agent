@@ -51,7 +51,6 @@ struct RootNavigationView: View {
                         onOpenLogin: { path.append(PreviewRoute.login) },
                         onOpenMemory: { path.append(PreviewRoute.memory) },
                         onOpenMcp: { path.append(PreviewRoute.mcpList) },
-                        onOpenConnection: { path.append(PreviewRoute.connection) },
                     )
                 case .memory:
                     PreviewMemoryHubView(preferences: preferences)

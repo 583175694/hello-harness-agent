@@ -11,6 +11,7 @@ import com.harness.mobile.core.api.MobileActiveSessionSnapshot
 import com.harness.agent.model.FollowUpFixture
 import com.harness.mobile.core.api.FileRef
 import com.harness.mobile.core.api.MobileConversationLine
+import com.harness.mobile.core.api.MobilePlanSnapshot
 import com.harness.agent.model.UserAttachmentItem
 
 object CoreSessionMapper {
@@ -74,6 +75,8 @@ object CoreSessionMapper {
                                 )
                             },
                         revisionDraftSeed = snapshot?.composerRevisionSeed,
+                        showPlan = snapshot?.showPlanOverlay == true,
+                        plan = snapshot?.composerPlan?.toPlanFixture(),
                     ),
                 chrome = mapChrome(connection),
                 sessionDrawer =
@@ -213,4 +216,16 @@ object CoreSessionMapper {
                     runSummary = "服务不可用",
                 )
         }
+
+    private fun MobilePlanSnapshot.toPlanFixture(): com.harness.agent.model.PlanFixture =
+        com.harness.agent.model.PlanFixture(
+            explanation = explanation,
+            steps =
+                steps.map { step ->
+                    com.harness.agent.model.PlanStepFixture(
+                        step = step.step,
+                        status = step.status,
+                    )
+                },
+        )
 }

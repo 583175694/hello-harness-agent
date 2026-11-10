@@ -18,11 +18,40 @@ class ProductionMemorySettingsBackend(
                 list.memories.map { memory ->
                     MemoryEntryUiModel(
                         id = memory.memoryId,
+                        title = memory.title,
+                        kind = memory.kind,
                         text = memory.summary.ifBlank { memory.title },
                     )
                 },
         )
     }
+
+    override suspend fun entry(id: String): MemoryEntryUiModel? = load().entries.find { it.id == id }
+
+    override suspend fun updateEntry(
+        id: String,
+        kind: String,
+        title: String,
+        content: String,
+    ): Result<MemoryEntryUiModel> =
+        runCatching {
+            val memory =
+                client.updateMemory(
+                    memoryId = id,
+                    body =
+                        com.harness.mobile.core.api.MemoryUpdateRequest(
+                            kind = kind,
+                            title = title,
+                            content = content,
+                        ),
+                )
+            MemoryEntryUiModel(
+                id = memory.memoryId,
+                title = memory.title,
+                kind = memory.kind,
+                text = memory.summary.ifBlank { memory.title },
+            )
+        }.mapError()
 
     override suspend fun setAllowAgentWrite(enabled: Boolean): Result<Unit> =
         runCatching {

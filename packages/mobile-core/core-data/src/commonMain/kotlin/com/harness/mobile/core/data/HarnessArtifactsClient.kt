@@ -42,6 +42,16 @@ class HarnessArtifactsClient internal constructor(
         return parseOk(response)
     }
 
+    suspend fun artifactPreviewUrl(artifactId: String): String {
+        val base = HarnessAgentHttpClient.normalizeBaseUrl(config.apiBaseUrlProvider())
+        return "$base/api/agent/artifacts/$artifactId/preview"
+    }
+
+    suspend fun filePreviewUrl(fileId: String): String {
+        val base = HarnessAgentHttpClient.normalizeBaseUrl(config.apiBaseUrlProvider())
+        return "$base/api/agent/files/$fileId/preview"
+    }
+
     suspend fun previewArtifact(artifactId: String): ArtifactPreviewContent {
         val base = HarnessAgentHttpClient.normalizeBaseUrl(config.apiBaseUrlProvider())
         val response =

@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -48,9 +49,18 @@ import com.harness.agent.coreui.tokens.LocalHarnessColors
 import com.harness.agent.model.ArtifactDownloadPayload
 import com.harness.agent.model.ArtifactPreviewPayload
 import com.harness.agent.model.ReaderTarget
+import com.harness.agent.media.resolveArtifactPreviewUrl
+import com.harness.agent.media.resolveAgentFilePreviewUrl
 import com.harness.agent.preview.PreviewAppPreferences
+import com.harness.mobile.core.api.ArtifactPreviewCapability
+import com.harness.mobile.core.api.ArtifactPreviewMode
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.ui.viewinterop.AndroidView
 import com.harness.agent.ui.settings.SettingsTopBar
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 sealed interface ReaderContentState {
@@ -60,6 +70,7 @@ sealed interface ReaderContentState {
     data class Text(val markdown: String) : ReaderContentState
     data class Image(val bytes: ByteArray, val contentType: String) : ReaderContentState
     data class Unsupported(val reason: String) : ReaderContentState
+    data class AuthenticatedUrl(val url: String) : ReaderContentState
 }
 
 /** Workbench 文件 / 报告全屏阅读：canvas 底、无内容卡片，顶栏与设置页一致（左上返回）。 */
@@ -87,8 +98,29 @@ fun PreviewReportReaderScreen(
         )
     }
 
-    LaunchedEffect(target) {
+    LaunchedEffect(target, preferences.apiBaseUrl) {
         val artifactTarget = target ?: return@LaunchedEffect
+        when (
+            ArtifactPreviewCapability.resolve(
+                artifactTarget.fileKind,
+                artifactTarget.mediaType,
+                artifactTarget.fileName,
+            )
+        ) {
+            ArtifactPreviewMode.RemoteAuthenticatedUrl -> {
+                val url =
+                    artifactTarget.artifactId?.let { resolveArtifactPreviewUrl(preferences.apiBaseUrl, it) }
+                        ?: artifactTarget.fileId?.let { resolveAgentFilePreviewUrl(preferences.apiBaseUrl, it) }
+                state =
+                    if (url.isNullOrBlank()) {
+                        ReaderContentState.Unsupported("无法构造预览地址，请下载后查看。")
+                    } else {
+                        ReaderContentState.AuthenticatedUrl(url)
+                    }
+                return@LaunchedEffect
+            }
+            else -> Unit
+        }
         if (loadPreview == null) {
             state = ReaderContentState.Error("当前构建未连接预览服务")
             return@LaunchedEffect
@@ -153,37 +185,59 @@ fun PreviewReportReaderScreen(
                         ChatMarkdown(markdown = current.markdown, modifier = Modifier.fillMaxWidth())
                     }
                 is ReaderContentState.Image ->
-                    ZoomableImage(bytes = current.bytes, modifier = Modifier.fillMaxSize().padding(vertical = 12.dp))
+                    ZoomableImageState(bytes = current.bytes, modifier = Modifier.fillMaxSize().padding(vertical = 12.dp))
+                is ReaderContentState.AuthenticatedUrl ->
+                    AuthenticatedHtmlWebView(
+                        url = current.url,
+                        cookieHeader = preferences.sessionCookieHeaderProvider(),
+                        modifier = Modifier.fillMaxSize().padding(vertical = 8.dp),
+                    )
             }
         }
     }
 }
 
+@Composable
+private fun AuthenticatedHtmlWebView(
+    url: String,
+    cookieHeader: String?,
+    modifier: Modifier = Modifier,
+) {
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = false
+                webViewClient = WebViewClient()
+            }
+        },
+        update = { webView ->
+            val headers =
+                cookieHeader?.trim()?.takeIf { it.isNotEmpty() }?.let { mapOf("Cookie" to it) }
+            if (headers != null) {
+                webView.loadUrl(url, headers)
+            } else {
+                webView.loadUrl(url)
+            }
+        },
+    )
+}
+
 internal fun ArtifactPreviewPayload.toReaderState(target: ReaderTarget): ReaderContentState {
     val resolvedType = contentType.ifBlank { target.mediaType }
     val resolvedKind = target.fileKind.lowercase()
-    return when {
-        bytes.isEmpty() -> ReaderContentState.Empty
-        target.requiresExternalDocumentOpener() ->
-            ReaderContentState.Unsupported("${target.fileKind.uppercase()} 文件需下载后用系统应用打开。")
-        resolvedType.startsWith("image/") || resolvedKind == "image" ->
-            ReaderContentState.Image(bytes, resolvedType)
-        resolvedType.contains("html", ignoreCase = true) || resolvedKind == "html" ->
-            ReaderContentState.Unsupported("HTML 文件需用浏览器或系统应用打开。")
-        resolvedType.startsWith("text/") || resolvedType.contains("json", ignoreCase = true) ||
-            resolvedKind in setOf("markdown", "json", "text") ->
-            ReaderContentState.Text(bytes.decodeToString())
-        else -> ReaderContentState.Unsupported("${resolvedType.ifBlank { target.fileName }} 需用系统应用打开。")
+    if (bytes.isEmpty()) return ReaderContentState.Empty
+    return when (ArtifactPreviewCapability.resolve(resolvedKind, resolvedType, target.fileName)) {
+        ArtifactPreviewMode.InlineImage -> ReaderContentState.Image(bytes, resolvedType)
+        ArtifactPreviewMode.InlineText -> ReaderContentState.Text(bytes.decodeToString())
+        ArtifactPreviewMode.ExternalOpen,
+        ArtifactPreviewMode.DownloadOnly,
+        ->
+            ReaderContentState.Unsupported("${target.fileKind.ifBlank { resolvedType }} 需下载后用系统应用打开。")
+        ArtifactPreviewMode.RemoteAuthenticatedUrl ->
+            ReaderContentState.Unsupported("HTML 预览需在联网环境下打开。")
     }
-}
-
-private fun ReaderTarget.requiresExternalDocumentOpener(): Boolean {
-    val kind = fileKind.lowercase()
-    val type = mediaType.lowercase()
-    return kind in setOf("docx", "xlsx", "pptx") ||
-        type.contains("wordprocessingml") ||
-        type.contains("spreadsheetml") ||
-        type.contains("presentationml")
 }
 
 internal fun Throwable.readerMessage(): String {
@@ -221,22 +275,37 @@ private fun ReaderStatePanel(
 }
 
 @Composable
-private fun ZoomableImage(
+private fun ZoomableImageState(
     bytes: ByteArray,
     modifier: Modifier = Modifier,
 ) {
-    val bitmap = remember(bytes) {
-        runCatching { android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
+    var bitmap by remember(bytes) { mutableStateOf<ImageBitmap?>(null) }
+    var decodeFailed by remember(bytes) { mutableStateOf(false) }
+    LaunchedEffect(bytes) {
+        decodeFailed = false
+        bitmap =
+            withContext(Dispatchers.Default) {
+                runCatching { android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
+                    .getOrNull()
+            }
+        if (bitmap == null) decodeFailed = true
     }
     var scale by remember(bytes) { mutableFloatStateOf(1f) }
     var offset by remember(bytes) { mutableStateOf(Offset.Zero) }
-    if (bitmap == null) {
-        ReaderStatePanel(title = "无法显示图片", detail = "图片数据不完整。")
+    val ready = bitmap
+    if (ready == null) {
+        if (decodeFailed) {
+            ReaderStatePanel(title = "无法显示图片", detail = "图片数据不完整。")
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
         return
     }
     Box(modifier = modifier.clipToBounds(), contentAlignment = Alignment.Center) {
         Image(
-            bitmap = bitmap.asImageBitmap(),
+            bitmap = ready,
             contentDescription = "图片预览",
             contentScale = ContentScale.Fit,
             modifier =

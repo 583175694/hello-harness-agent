@@ -38,15 +38,11 @@ final class PreviewAppPreferences {
     var contentFontSize: Int {
         didSet { defaults.set(contentFontSize, forKey: Keys.fontSize) }
     }
-    var apiBaseUrl: String {
-        didSet { defaults.set(apiBaseUrl, forKey: Keys.apiUrl) }
-    }
+    var apiBaseUrl: String { HarnessAgentEndpoints.apiBaseURL }
     var allowAgentMemoryWrite: Bool {
         didSet { defaults.set(allowAgentMemoryWrite, forKey: Keys.memoryWrite) }
     }
-    var reduceMotion: Bool {
-        didSet { defaults.set(reduceMotion, forKey: Keys.reduceMotion) }
-    }
+    var reduceMotion: Bool { false }
     var readerTitle: String = "Report"
     var readerMarkdown: String = ""
     var readerIsArtifact: Bool = false
@@ -54,10 +50,6 @@ final class PreviewAppPreferences {
 
     var authProfile: PreviewAuthProfile? {
         didSet { persistAuth() }
-    }
-
-    var composerBlockDemo: PreviewComposerBlockKind {
-        didSet { defaults.set(composerBlockDemo.rawValue, forKey: Keys.composerBlockDemo) }
     }
 
     var isLoggedIn: Bool { authProfile != nil }
@@ -72,18 +64,13 @@ final class PreviewAppPreferences {
         themeMode = PreviewThemeMode(rawValue: themeRaw) ?? .system
         let font = defaults.integer(forKey: Keys.fontSize)
         contentFontSize = font == 0 ? 15 : min(max(font, 13), 20)
-        apiBaseUrl = defaults.string(forKey: Keys.apiUrl) ?? ""
         allowAgentMemoryWrite = defaults.object(forKey: Keys.memoryWrite) as? Bool ?? true
-        reduceMotion = defaults.object(forKey: Keys.reduceMotion) as? Bool ?? false
         authProfile = Self.loadAuth(from: defaults)
-        let blockRaw = defaults.string(forKey: Keys.composerBlockDemo) ?? PreviewComposerBlockKind.none.rawValue
-        composerBlockDemo = PreviewComposerBlockKind(rawValue: blockRaw) ?? .none
         mcpServers = Self.loadMcp(from: defaults) ?? Self.defaultMcp
         memoryEntries = Self.loadMemory(from: defaults) ?? Self.defaultMemory
     }
 
     func resolveComposerBlock() -> PreviewComposerBlockKind {
-        if composerBlockDemo != .none { return composerBlockDemo }
         if !apiBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isLoggedIn {
             return .loginRequired
         }

@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.harness.agent.coreui.tokens.HarnessLayout
 import com.harness.agent.coreui.tokens.LocalContentFontSizeSp
 import com.harness.agent.coreui.tokens.LocalHarnessColors
 import io.noties.markwon.AbstractMarkwonPlugin
@@ -71,11 +72,25 @@ fun MarkwonChatMarkdown(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     followsProcessTimeline: Boolean = false,
+    timelineReasoningStyle: Boolean = false,
     contentMaxWidth: Dp? = null,
+    userBubble: Boolean = false,
 ) {
     val markwon = rememberHarnessMarkwon()
     val colors = LocalHarnessColors.current
-    val baseSp = LocalContentFontSizeSp.current.coerceIn(13, 20)
+    val baseContentSp = LocalContentFontSizeSp.current.coerceIn(13, 20)
+    val baseSp =
+        if (timelineReasoningStyle) {
+            14f
+        } else {
+            baseContentSp.toFloat()
+        }
+    val textColorArgb =
+        if (timelineReasoningStyle) {
+            colors.muted.toArgb()
+        } else {
+            colors.primary.toArgb()
+        }
     val density = LocalDensity.current
     val topPad =
         if (followsProcessTimeline) {
@@ -104,31 +119,78 @@ fun MarkwonChatMarkdown(
                     )
                 movementMethod = LinkMovementMethod.getInstance()
                 setTextIsSelectable(true)
-                setTextColor(colors.primary.toArgb())
+                setTextColor(textColorArgb)
                 setLinkTextColor(colors.link.toArgb())
-                setLineSpacing(0f, if (compact) 1.45f else 1.55f)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, baseSp.toFloat())
+                val lineMul =
+                    when {
+                        timelineReasoningStyle -> 22f / 14f
+                        userBubble -> HarnessLayout.chatMarkdownUserBubbleLeadingPx / baseSp
+                        compact -> 1.45f
+                        else -> 1.55f
+                    }
+                setLineSpacing(0f, lineMul)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, baseSp)
                 setPadding(0, topPad, 0, 0)
+                appliedCompact = compact
+                appliedTextSizeSp = baseSp
+                appliedTextColor = textColorArgb
+                appliedLinkColor = colors.link.toArgb()
+                appliedTopPadding = topPad
+                appliedLineSpacingMultiplier = lineMul
+                appliedTimelineReasoningStyle = timelineReasoningStyle
             }
         },
         update = { textView ->
-            textView.layoutParams =
-                ViewGroup.LayoutParams(
-                    if (compact) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                )
-            if (compact && maxWidthPx != null) {
-                textView.maxWidth = maxWidthPx
-            } else {
-                textView.maxWidth = Int.MAX_VALUE
+            // AndroidView.update 会在 item 重组 / 预取 / 回滚时反复执行。这里必须幂等：
+            // 否则每次都把整段 Markdown 重新解析并 setText，长回复（实测 1.8 万 px 高）
+            // 会在滚动时触发整段重新排版，表现为“气泡上方一顿”。
+            if (textView.appliedCompact != compact) {
+                textView.layoutParams =
+                    ViewGroup.LayoutParams(
+                        if (compact) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    )
+                textView.appliedCompact = compact
             }
-            textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, baseSp.toFloat())
-            textView.setTextColor(colors.primary.toArgb())
-            textView.setLinkTextColor(colors.link.toArgb())
-            textView.setPadding(0, topPad, 0, 0)
-            textView.setLineSpacing(0f, if (compact) 1.45f else 1.55f)
-            markwon.setMarkdown(textView, markdown)
-            textView.requestLayout()
+            val targetMaxWidth = if (compact) maxWidthPx ?: Int.MAX_VALUE else Int.MAX_VALUE
+            if (textView.maxWidth != targetMaxWidth) textView.maxWidth = targetMaxWidth
+            if (textView.appliedTextSizeSp != baseSp) {
+                textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, baseSp)
+                textView.appliedTextSizeSp = baseSp
+            }
+            if (textView.appliedTimelineReasoningStyle != timelineReasoningStyle) {
+                textView.appliedTimelineReasoningStyle = timelineReasoningStyle
+            }
+            if (textView.appliedTextColor != textColorArgb) {
+                textView.setTextColor(textColorArgb)
+                textView.appliedTextColor = textColorArgb
+            }
+            val linkColor = colors.link.toArgb()
+            if (textView.appliedLinkColor != linkColor) {
+                textView.setLinkTextColor(linkColor)
+                textView.appliedLinkColor = linkColor
+            }
+            if (textView.appliedTopPadding != topPad) {
+                textView.setPadding(0, topPad, 0, 0)
+                textView.appliedTopPadding = topPad
+            }
+            val lineMultiplier =
+                when {
+                    timelineReasoningStyle -> 22f / 14f
+                    userBubble -> HarnessLayout.chatMarkdownUserBubbleLeadingPx / baseSp
+                    compact -> 1.45f
+                    else -> 1.55f
+                }
+            if (textView.appliedLineSpacingMultiplier != lineMultiplier) {
+                textView.setLineSpacing(0f, lineMultiplier)
+                textView.appliedLineSpacingMultiplier = lineMultiplier
+            }
+            if (textView.renderedMarkdown != markdown || textView.renderedWith !== markwon) {
+                markwon.setMarkdown(textView, markdown)
+                textView.renderedMarkdown = markdown
+                textView.renderedWith = markwon
+                textView.requestLayout()
+            }
         },
     )
 }

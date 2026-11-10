@@ -7,7 +7,6 @@ import { SettingsSoftDivider } from '../coreui/SettingsSoftDivider';
 import { SettingsSection } from '../coreui/SettingsSection';
 import { AppToast } from '../coreui/AppFeedback';
 import { SettingsPillButton } from '../coreui/SettingsPillButton';
-import { PreviewComposerBlockKind } from '../preview/PreviewAuth';
 import { PreviewLocalPreferences } from '../preview/PreviewLocalPreferences';
 import { harnessPageTransition } from '../coreui/HarnessPageTransition';
 
@@ -15,19 +14,14 @@ import { harnessPageTransition } from '../coreui/HarnessPageTransition';
 @Component
 struct PreviewSettingsPage {
   @State themeDark: boolean = PreviewLocalPreferences.themeDark;
-  @State apiUrl: string = PreviewLocalPreferences.apiUrl;
-  @State reduceMotion: boolean = PreviewLocalPreferences.reduceMotion;
   @State contentFontSize: number = PreviewLocalPreferences.contentFontSize;
-  @State transcriptBlockDemo: boolean =
-    PreviewLocalPreferences.composerBlockDemo === PreviewComposerBlockKind.TRANSCRIPT_INCOMPATIBLE;
 
   onPageShow(): void {
     this.themeDark = PreviewLocalPreferences.themeDark;
-    this.apiUrl = PreviewLocalPreferences.apiUrl;
   }
 
   private apiSummary(): string {
-    const t = this.apiUrl.trim();
+    const t = PreviewLocalPreferences.apiUrl.trim();
     if (t.length === 0) {
       return '未配置';
     }
@@ -111,22 +105,6 @@ struct PreviewSettingsPage {
               .height(48)
               .padding({ left: 16, right: 16 })
               SettingsSoftDivider({ useDark: this.themeDark })
-              Row() {
-                Text('Reduce Motion')
-                  .fontSize(16)
-                  .layoutWeight(1)
-                  .fontColor(HarnessColors.secondaryText(this.themeDark))
-                Toggle({ type: ToggleType.Switch, isOn: this.reduceMotion })
-                  .selectedColor(HarnessColors.primary)
-                  .onChange((on: boolean) => {
-                    this.reduceMotion = on;
-                    PreviewLocalPreferences.reduceMotion = on;
-                  })
-              }
-              .width('100%')
-              .height(48)
-              .padding({ left: 16, right: 16 })
-              SettingsSoftDivider({ useDark: this.themeDark })
               if (PreviewLocalPreferences.isLoggedIn && PreviewLocalPreferences.authProfile !== null) {
                 SettingsNavRow({
                   title: PreviewLocalPreferences.authProfile.displayName,
@@ -147,25 +125,6 @@ struct PreviewSettingsPage {
               }
             }
 
-            SettingsSection({ sectionLabel: '开发', useDark: this.themeDark }) {
-              Row() {
-                Text('Composer 阻断')
-                  .fontSize(16)
-                  .layoutWeight(1)
-                  .fontColor(HarnessColors.secondaryText(this.themeDark))
-                Toggle({ type: ToggleType.Switch, isOn: this.transcriptBlockDemo })
-                  .selectedColor(HarnessColors.primary)
-                  .onChange((on: boolean) => {
-                    this.transcriptBlockDemo = on;
-                    PreviewLocalPreferences.composerBlockDemo =
-                      on ? PreviewComposerBlockKind.TRANSCRIPT_INCOMPATIBLE : PreviewComposerBlockKind.NONE;
-                  })
-              }
-              .width('100%')
-              .height(48)
-              .padding({ left: 16, right: 16 })
-            }
-
             SettingsSection({ sectionLabel: 'Agent', useDark: this.themeDark }) {
               SettingsNavRow({
                 title: '记忆',
@@ -184,16 +143,6 @@ struct PreviewSettingsPage {
                 useDark: this.themeDark,
                 showDivider: false,
                 onClick: () => router.pushUrl({ url: 'pages/PreviewMenuPage' }),
-              })
-            }
-
-            SettingsSection({ sectionLabel: '连接', useDark: this.themeDark }) {
-              SettingsNavRow({
-                title: 'API Base URL',
-                trailingValue: this.apiSummary(),
-                useDark: this.themeDark,
-                showDivider: false,
-                onClick: () => router.pushUrl({ url: 'pages/PreviewConnectionPage' }),
               })
             }
 

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "workbench-activity-bash",
+  "title": "Activity · Bash",
+  "conversation": [
+    { "kind": "user", "content": "运行只读 Bash 片段。" },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "blocks": [{ "type": "text", "content": "命令输出见 Workbench Activity。" }]
+    }
+  ],
+  "composer": {},
+  "workbench": {
+    "initialView": "activity",
+    "initialSheetIndex": 2,
+    "workbenchCount": 1,
+    "activityTimeline": [
+      { "id": "t1", "kind": "plan", "title": "规划检索关键词", "status": "completed" },
+      { "id": "t2", "kind": "tool", "title": "web_search", "status": "completed" },
+      { "id": "t3", "kind": "read", "title": "read_file docs/runbook.md", "status": "completed" },
+      { "id": "t4", "kind": "bash", "title": "curl example.com", "status": "completed", "highlighted": true },
+      { "id": "t5", "kind": "write", "title": "写入 activity 摘要", "status": "completed" }
+    ],
+    "bashSnippet": "$ curl -s https://example.com | head -n 3\n<!doctype html>\n<html>…"
+  }
+}

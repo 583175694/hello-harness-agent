@@ -36,7 +36,7 @@ bash apps/android/scripts/launch-preview-release.sh
 
 Gate A 签字与 Paparazzi 仍以 **previewDebug** 为准；release 仅便于真机体验对比。
 
-Fixture 与 `design-tokens.json` 在 `preBuild` 时从 `packages/mobile-contract` 同步到 `assets/`。
+Fixture 与 `design-tokens.json` 在 `preBuild` 时从 `packages/mobile-contract` 同步到 `src/preview/assets/`（仅 **preview** flavor 打进 APK；**production** 正式包不含演示 JSON）。
 
 ## 自动化验证
 

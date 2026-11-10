@@ -35,16 +35,10 @@ struct PreviewConnectionPage {
             Column({ space: 20 }) {
               SettingsSection({ useDark: this.themeDark }) {
                 Column({ space: 8 }) {
-                  AppTextField({
-                    label: 'API Base URL',
-                    placeholder: 'http://192.168.x.x:4318',
-                    text: this.apiUrl,
-                    useDark: this.themeDark,
-                    onChange: (v: string) => {
-                      this.apiUrl = v;
-                      PreviewLocalPreferences.apiUrl = v;
-                    },
-                  })
+                  Text(PreviewLocalPreferences.API_BASE_URL)
+                    .fontSize(16)
+                    .fontColor(HarnessColors.secondary(this.themeDark))
+                    .width('100%')
                 }
                 .width('100%')
                 .padding(16)

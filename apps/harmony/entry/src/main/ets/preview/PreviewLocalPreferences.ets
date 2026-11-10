@@ -22,7 +22,14 @@ export class PreviewLocalPreferences {
     { id: 'mem-1', text: '用户偏好：简洁回答' },
     { id: 'mem-2', text: '常用项目：hello-harness-agent' },
   ];
-  static apiUrl: string = 'https://api.example.com';
+  static readonly API_BASE_URL: string = 'https://pipishrimp.cn';
+  static get apiUrl(): string {
+    return PreviewLocalPreferences.API_BASE_URL;
+  }
+
+  static set apiUrl(_value: string) {
+    // 固定线上地址，忽略写入。
+  }
   /** Phase B：`harness_session` Cookie value（verify 后写入）。 */
   static sessionToken: string = '';
   /** Dev Menu / Settings 开启后 Chat 走 CoreAgentSessionPort（Preview fixture 仍可用）。 */
@@ -40,9 +47,6 @@ export class PreviewLocalPreferences {
   }
 
   static resolveComposerBlock(): PreviewComposerBlockKind {
-    if (PreviewLocalPreferences.composerBlockDemo !== PreviewComposerBlockKind.NONE) {
-      return PreviewLocalPreferences.composerBlockDemo;
-    }
     if (PreviewLocalPreferences.apiUrl.trim().length > 0 && !PreviewLocalPreferences.isLoggedIn) {
       return PreviewComposerBlockKind.LOGIN_REQUIRED;
     }

@@ -3,6 +3,7 @@ package com.harness.mobile.core.engine
 import com.harness.mobile.core.api.MobileComposerClarification
 import com.harness.mobile.core.api.MobileComposerToolApproval
 import com.harness.mobile.core.api.MobileConversationLine
+import com.harness.mobile.core.api.MobilePlanSnapshot
 import com.harness.mobile.core.api.RunSnapshot
 import com.harness.mobile.core.api.RunStreamEvent
 import com.harness.mobile.core.api.SessionActiveRun
@@ -27,6 +28,7 @@ data class LiveRunState(
     val composerClarification: MobileComposerClarification? = null,
     val composerToolApproval: MobileComposerToolApproval? = null,
     val latestToolCallId: String? = null,
+    val plan: MobilePlanSnapshot? = null,
 )
 
 class RunLiveReducer {
@@ -137,6 +139,11 @@ class RunLiveReducer {
         var next = state.copy(cursor = event.seq)
         val payloadObject = event.payload?.jsonObject
         when (event.type) {
+            "plan.updated" -> {
+                PlanProjector.parsePlan(event.payload)?.let { plan ->
+                    next = next.copy(plan = plan)
+                }
+            }
             "message.delta",
             "message.phase.completed",
             "message.discarded",
@@ -175,7 +182,13 @@ class RunLiveReducer {
                         }.getOrNull()
                     }
                 if (snapshot != null) {
-                    next = applySnapshot(next, snapshot).copy(cursor = maxOf(next.cursor, event.seq))
+                    val planFromSnapshot = snapshot.plan?.let(PlanProjector::parsePlan)
+                    next =
+                        applySnapshot(next, snapshot)
+                            .copy(
+                                cursor = maxOf(next.cursor, event.seq),
+                                plan = planFromSnapshot ?: next.plan,
+                            )
                 } else {
                     val status = payloadObject?.get("status")?.jsonPrimitive?.content
                     if (status != null && isTerminal(status)) {
@@ -236,7 +249,7 @@ class RunLiveReducer {
         )
     }
 
-    private fun isTerminal(status: String): Boolean =
+    fun isTerminal(status: String): Boolean =
         status == "completed" || status == "failed" || status == "cancelled"
 
     /** Aligns with TS [snapshotDeliveryStatus]. */

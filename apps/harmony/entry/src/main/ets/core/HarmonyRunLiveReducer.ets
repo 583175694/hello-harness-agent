@@ -1,6 +1,7 @@
 import { CreateRunResponseRow, FileRefRow, LiveRunStateRow, RunSnapshotRow, RunStreamEventRow, SessionActiveRunRow, SessionDetailRow } from './HarmonyCoreTypes';
 import { HarmonyInterruptParser } from './HarmonyInterruptParser';
 import { ArtifactCardRow } from '../preview/PreviewModels';
+import { HarmonyPlanProjector } from './HarmonyPlanProjector';
 
 export class HarmonyRunLiveReducer {
   fromCreateRun(
@@ -63,6 +64,10 @@ export class HarmonyRunLiveReducer {
         composerToolApproval: pending?.toolApproval,
       };
     }
+    const planFromSnapshot = HarmonyPlanProjector.parsePlan(snapshot.plan);
+    if (planFromSnapshot !== undefined) {
+      next.plan = planFromSnapshot;
+    }
     return next;
   }
 
@@ -74,7 +79,12 @@ export class HarmonyRunLiveReducer {
       return state;
     }
     let next: LiveRunStateRow = { ...state, cursor: event.seq };
-    if (event.type === 'message.delta') {
+    if (event.type === 'plan.updated') {
+      const plan = HarmonyPlanProjector.parsePlan(event.payload);
+      if (plan !== undefined) {
+        next.plan = plan;
+      }
+    } else if (event.type === 'message.delta') {
       const payload = event.payload;
       const delta = payload ? `${payload['delta'] ?? ''}` : '';
       if (delta.length > 0) {
@@ -91,6 +101,10 @@ export class HarmonyRunLiveReducer {
       next.deliveryStatus = 'cancelled';
     } else if (event.type === 'run.snapshot') {
       const payload = event.payload;
+      const planFromEvent = HarmonyPlanProjector.parsePlan(payload);
+      if (planFromEvent !== undefined) {
+        next.plan = planFromEvent;
+      }
       const blocks = payload?.['blocks'] as Array<Record<string, Object>> | undefined;
       const reasoning = HarmonyRunLiveReducer.reasoningFromBlocks(blocks);
       if (reasoning.length > 0) {

@@ -543,6 +543,7 @@ private fun ProcessTimelineReasoningScrollBody(
                     markdown = text,
                     modifier = Modifier.fillMaxWidth(),
                     compact = true,
+                    timelineReasoningStyle = true,
                 )
             }
         }

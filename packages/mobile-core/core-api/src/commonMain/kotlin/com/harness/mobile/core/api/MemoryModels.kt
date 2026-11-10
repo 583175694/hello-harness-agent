@@ -38,3 +38,15 @@ data class MemorySettingsView(
 data class MemorySettingsPatch(
     val allowAgentWrite: Boolean,
 )
+
+@Serializable
+data class MemoryUpdateRequest(
+    val kind: String,
+    val title: String,
+    val content: String,
+)
+
+@Serializable
+data class MemoryUpdateResponse(
+    val memory: MemoryRecordView,
+)

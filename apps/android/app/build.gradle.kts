@@ -16,7 +16,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0-preview"
+        versionName = "0.1.0"
     }
 
     flavorDimensions += "mode"
@@ -69,14 +69,15 @@ android {
     }
 }
 
+/** Gate A / preview flavor 专用；production 包不合并 `src/preview/assets`。 */
 val syncMobileContractFixtures by tasks.registering(Copy::class) {
     from(contractRoot.resolve("fixtures/preview"))
-    into(layout.projectDirectory.dir("src/main/assets/mobile-contract/fixtures/preview"))
+    into(layout.projectDirectory.dir("src/preview/assets/mobile-contract/fixtures/preview"))
 }
 
 val syncMobileContractTokens by tasks.registering(Copy::class) {
     from(contractRoot.resolve("design-tokens.json"))
-    into(layout.projectDirectory.dir("src/main/assets/mobile-contract"))
+    into(layout.projectDirectory.dir("src/preview/assets/mobile-contract"))
 }
 
 tasks.named("preBuild") {
@@ -84,6 +85,7 @@ tasks.named("preBuild") {
 }
 
 dependencies {
+    implementation("com.harness.mobile.core:core-api")
     "productionImplementation"("com.harness.mobile.core:core-engine")
     "productionImplementation"("com.harness.mobile.core:core-auth")
     "productionImplementation"("com.harness.mobile.core:core-data")

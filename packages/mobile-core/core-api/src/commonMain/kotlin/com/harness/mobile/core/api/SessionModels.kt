@@ -176,4 +176,6 @@ data class MobileActiveSessionSnapshot(
     val workbenchFocusTarget: MobileWorkbenchFocusTarget? = null,
     val workbenchFocusHint: String? = null,
     val workbenchFocusedToolCallId: String? = null,
+    val composerPlan: MobilePlanSnapshot? = null,
+    val showPlanOverlay: Boolean = false,
 )

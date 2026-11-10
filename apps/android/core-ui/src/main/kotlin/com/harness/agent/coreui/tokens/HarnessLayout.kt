@@ -17,6 +17,8 @@ object HarnessLayout {
     const val chatMarkdownLeadingAt14 = 24
     /** 用户气泡行高 @14px，对齐 Web `--h-leading-bubble`。 */
     const val chatMarkdownBubbleLeadingAt14 = 22
+    /** 用户气泡 Markdown 行高（px）：略紧于 Web，避免 Markwon 气泡内显得过疏。 */
+    const val chatMarkdownUserBubbleLeadingPx = 20
     val chatBubblePaddingHorizontal = 16.dp
     val chatBubblePaddingVertical = 12.dp
     /** LazyColumn 相邻两轮间距。 */

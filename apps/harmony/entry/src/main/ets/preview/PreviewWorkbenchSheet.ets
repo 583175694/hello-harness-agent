@@ -14,6 +14,7 @@ import { WorkbenchSegmentedTabs } from './WorkbenchSegmentedTabs';
 import { WorkbenchTabEmptyState } from './WorkbenchTabEmptyState';
 import { AppConfirmPanel } from '../coreui/AppConfirmPanel';
 import { AppFeedback } from '../coreui/AppFeedback';
+import { WorkbenchTabResolver } from '../core/WorkbenchTabResolver';
 
 const WB_DETENT_HEIGHTS: string[] = ['44%', '72%', '98%'];
 /** 对齐 Web `.workbench-tool-slider` / Android HarnessLayout。 */
@@ -55,6 +56,8 @@ export struct PreviewWorkbenchSheet {
   onRestoreArtifactVersion: (restoreArtifactId: string, expectedCurrentArtifactId: string) => void = () => {
   };
   onBeginArtifactRevision: (artifactId: string) => void = () => {
+  };
+  onDownloadDeliverable: (artifactId: string, fileId: string, fileName: string) => void = () => {
   };
   /** Core 联调：true 时恢复走 Port；false 时仅 Preview 确认 Toast。 */
   @Prop coreRestoreEnabled: boolean = false;
@@ -123,7 +126,8 @@ export struct PreviewWorkbenchSheet {
   }
 
   private syncFromState(): void {
-    this.activeTab = this.state.initialView.length > 0 ? this.state.initialView : 'activity';
+    const initial = this.state.initialView.length > 0 ? this.state.initialView : 'activity';
+    this.activeTab = WorkbenchTabResolver.coerceActiveTab(this.state, initial);
     this.detentIndex = this.resolvedInitialDetent();
   }
 
@@ -140,12 +144,13 @@ export struct PreviewWorkbenchSheet {
     }
     if (this.state.initialView !== this.lastInitialView) {
       this.lastInitialView = this.state.initialView;
-      this.activeTab = this.state.initialView.length > 0 ? this.state.initialView : 'activity';
+      const initial = this.state.initialView.length > 0 ? this.state.initialView : 'activity';
+      this.activeTab = WorkbenchTabResolver.coerceActiveTab(this.state, initial);
     }
   }
 
   visibleTabs(): string[] {
-    return ['activity', 'artifact'];
+    return WorkbenchTabResolver.visibleTabs(this.state);
   }
 
   @Builder
@@ -408,6 +413,73 @@ export struct PreviewWorkbenchSheet {
   }
 
   @Builder
+  sourcesTabContent() {
+    if (this.state.sources.length === 0) {
+      WorkbenchTabEmptyState({
+        title: this.state.sourcesRetrievalOnly ? '检索进行中' : '暂无来源',
+        message: this.state.sourcesRetrievalOnly ? '网页检索完成后，引用来源会显示在这里。' : '助手引用的网页与段落会汇总在此。',
+        useDark: this.useDark,
+      })
+    } else {
+      Column({ space: 10 }) {
+        Text(`共 ${this.state.sources.length} 个来源`)
+          .fontSize(12)
+          .fontColor(HarnessColors.mutedText(this.useDark))
+          .width('100%')
+        ForEach(this.state.sources, (src: WorkbenchSourceItem) => {
+          Column({ space: 4 }) {
+            Text(src.title).fontSize(14).fontColor(HarnessColors.primaryText(this.useDark))
+            Text(src.url).fontSize(11).fontColor(HarnessColors.linkText(this.useDark))
+            if (src.snippet.length > 0) {
+              Text(src.snippet).fontSize(11).fontColor(HarnessColors.mutedText(this.useDark))
+            }
+            if ((src.passageBody ?? '').length > 0) {
+              Text('查看引用段落')
+                .fontSize(13)
+                .fontColor(HarnessColors.linkText(this.useDark))
+                .onClick(() => {
+                  this.passageTitle = src.title;
+                  this.passageHeading = src.passageHeading ?? '';
+                  this.passageBody = src.passageBody ?? '';
+                  this.passageOpen = true;
+                })
+            }
+          }
+          .width('100%')
+          .padding(12)
+          .borderRadius(12)
+          .border({ width: 1, color: HarnessColors.composerBorder(this.useDark) })
+        }, (src: WorkbenchSourceItem) => src.url + src.title)
+      }
+      .padding({ left: 16, right: 16, top: 8 })
+    }
+  }
+
+  @Builder
+  reportTabContent() {
+    const md = (this.state.reportMarkdown ?? '').trim();
+    if (md.length === 0) {
+      WorkbenchTabEmptyState({
+        title: '暂无报告',
+        message: 'Run 生成报告后会显示在这里。',
+        useDark: this.useDark,
+      })
+    } else {
+      Column({ space: 12 }) {
+        Text('报告预览').fontSize(12).fontColor(HarnessColors.mutedText(this.useDark))
+        PreviewMarkdownText({ markdown: md, useDark: this.useDark })
+        Text('全屏阅读')
+          .fontSize(14)
+          .fontColor(HarnessColors.linkText(this.useDark))
+          .onClick(() => {
+            this.onOpenReportReader();
+          })
+      }
+      .padding({ left: 16, right: 16, top: 8 })
+    }
+  }
+
+  @Builder
   filesTabContent() {
     if (this.state.artifactVersions.length > 0) {
       this.artifactVersionsTabContent()
@@ -428,18 +500,32 @@ export struct PreviewWorkbenchSheet {
             }
           }
           .layoutWeight(1)
-          Text('打开')
-            .fontSize(13)
-            .fontColor(HarnessColors.linkText(this.useDark))
-            .onClick(() => {
-              this.openArtifact(
-                file.artifactId ?? '',
-                file.fileId ?? '',
-                file.fileName,
-                file.mediaType ?? '',
-                file.fileKind ?? '',
-              );
-            })
+          Row({ space: 12 }) {
+            Text('打开')
+              .fontSize(13)
+              .fontColor(HarnessColors.linkText(this.useDark))
+              .onClick(() => {
+                this.openArtifact(
+                  file.artifactId ?? '',
+                  file.fileId ?? '',
+                  file.fileName,
+                  file.mediaType ?? '',
+                  file.fileKind ?? '',
+                );
+              })
+            if (this.coreRestoreEnabled) {
+              Text('下载')
+                .fontSize(13)
+                .fontColor(HarnessColors.linkText(this.useDark))
+                .onClick(() => {
+                  this.onDownloadDeliverable(
+                    file.artifactId ?? '',
+                    file.fileId ?? '',
+                    file.fileName,
+                  );
+                })
+            }
+          }
         }
         .width('100%')
         .padding({ left: 14, right: 14, top: 12, bottom: 12 })
@@ -527,6 +613,20 @@ export struct PreviewWorkbenchSheet {
             }
             .layoutWeight(1)
             .width('100%')
+          } else if (this.activeTab === 'sources') {
+            Scroll() {
+              this.sourcesTabContent()
+            }
+            .layoutWeight(1)
+            .width('100%')
+            .scrollBar(BarState.Auto)
+          } else if (this.activeTab === 'report') {
+            Scroll() {
+              this.reportTabContent()
+            }
+            .layoutWeight(1)
+            .width('100%')
+            .scrollBar(BarState.Auto)
           } else {
             Scroll() {
               Column({ space: 8 }) {

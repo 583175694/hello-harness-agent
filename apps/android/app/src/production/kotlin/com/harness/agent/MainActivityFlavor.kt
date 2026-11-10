@@ -17,6 +17,11 @@ import com.harness.mobile.core.auth.cookieHeader
 import kotlinx.coroutines.launch
 
 object MainActivityFlavor {
+    fun wirePreviewAuth(preferences: PreviewAppPreferences) {
+        val services = AgentSessionPortModule.coreServicesOrNull()
+        preferences.sessionCookieHeaderProvider = { services?.tokenStore?.cookieHeader() }
+    }
+
     fun imageAuth(preferences: PreviewAppPreferences): HarnessImageAuth {
         val services = AgentSessionPortModule.coreServicesOrNull()
         return HarnessImageAuth(

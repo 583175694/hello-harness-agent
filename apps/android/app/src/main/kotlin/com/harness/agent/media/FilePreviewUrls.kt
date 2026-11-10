@@ -1,6 +1,15 @@
 package com.harness.agent.media
 
 /** 将服务端相对 preview 路径转为可请求的绝对 URL（COS 内容经 API 代理，非直连桶）。 */
+fun resolveArtifactPreviewUrl(
+    apiBaseUrl: String,
+    artifactId: String,
+): String? {
+    val base = apiBaseUrl.trim().removeSuffix("/")
+    if (base.isEmpty() || artifactId.isBlank()) return null
+    return "$base/api/agent/artifacts/${artifactId.trim()}/preview"
+}
+
 fun resolveAgentFilePreviewUrl(
     apiBaseUrl: String,
     fileId: String,

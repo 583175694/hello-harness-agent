@@ -2,6 +2,7 @@ package com.harness.agent.snapshot
 
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
+import com.harness.agent.coreui.feedback.AppToastHost
 import com.harness.agent.coreui.tokens.HarnessTheme
 import com.harness.agent.preview.MobileContractPreviewLoader
 import com.harness.agent.model.ConversationItem
@@ -26,10 +27,10 @@ import org.junit.Test
 class GateAFixtureSnapshotTest {
     @get:Rule
     val paparazzi =
-        Paparazzi(
-            deviceConfig = DeviceConfig.PIXEL_5,
-            theme = "android:Theme.Material.Light.NoActionBar",
-        )
+    Paparazzi(
+        deviceConfig = DeviceConfig.PIXEL_5,
+        theme = "android:Theme.Material.Light.NoActionBar",
+    )
 
     private fun load(fileName: String) = MobileContractPreviewLoader(paparazzi.context).load(fileName)
 
@@ -37,7 +38,9 @@ class GateAFixtureSnapshotTest {
     fun emptyLanding() {
         paparazzi.snapshot {
             HarnessTheme {
-                ChatLandingHero(welcomeText = "欢迎回来，想从哪里开始？")
+                AppToastHost {
+                    ChatLandingHero(welcomeText = "欢迎回来，想从哪里开始？")
+                }
             }
         }
     }
@@ -47,7 +50,9 @@ class GateAFixtureSnapshotTest {
         val state = load("hitl-clarification.json")
         paparazzi.snapshot {
             HarnessTheme {
-                ComposerStack(state = state.composer)
+                AppToastHost {
+                    ComposerStack(state = state.composer)
+                }
             }
         }
     }
@@ -57,7 +62,9 @@ class GateAFixtureSnapshotTest {
         val state = load("hitl-tool-approval.json")
         paparazzi.snapshot {
             HarnessTheme {
-                ComposerStack(state = state.composer)
+                AppToastHost {
+                    ComposerStack(state = state.composer)
+                }
             }
         }
     }
@@ -67,7 +74,9 @@ class GateAFixtureSnapshotTest {
         val state = load("process-timeline-tools.json")
         paparazzi.snapshot {
             HarnessTheme {
-                ComposerStack(state = state.composer)
+                AppToastHost {
+                    ComposerStack(state = state.composer)
+                }
             }
         }
     }
@@ -78,7 +87,9 @@ class GateAFixtureSnapshotTest {
         val assistant = state.conversation.filterIsInstance<ConversationItem.Assistant>().first()
         paparazzi.snapshot {
             HarnessTheme {
-                AssistantMessageBubble(item = assistant)
+                AppToastHost {
+                    AssistantMessageBubble(item = assistant)
+                }
             }
         }
     }
@@ -89,8 +100,10 @@ class GateAFixtureSnapshotTest {
         val assistant = state.conversation.filterIsInstance<com.harness.agent.model.ConversationItem.Assistant>().first()
         paparazzi.snapshot {
             HarnessTheme {
-                AssistantMessageBubble(item = assistant)
-                ComposerStack(state = state.composer)
+                AppToastHost {
+                    AssistantMessageBubble(item = assistant)
+                    ComposerStack(state = state.composer)
+                }
             }
         }
     }
@@ -100,16 +113,18 @@ class GateAFixtureSnapshotTest {
         val state = load("connection-offline-error.json")
         paparazzi.snapshot {
             HarnessTheme {
-                ChatTopBar(
-                    title = state.title,
-                    connectionState = state.chrome.connectionState,
-                    runSummary = state.chrome.runSummary,
-                    workbenchBadge = 0,
-                    onOpenDrawer = {},
-                    onNewConversation = {},
-                    onOpenWorkbench = {},
-                )
-                ServiceBanner(serviceState = state.chrome.serviceState, onRetry = {}, onDismiss = {})
+                AppToastHost {
+                    ChatTopBar(
+                        title = state.title,
+                        connectionState = state.chrome.connectionState,
+                        runSummary = state.chrome.runSummary,
+                        workbenchBadge = 0,
+                        onOpenDrawer = {},
+                        onNewConversation = {},
+                        onOpenWorkbench = {},
+                    )
+                    ServiceBanner(serviceState = state.chrome.serviceState, onRetry = {}, onDismiss = {})
+                }
             }
         }
     }
@@ -119,12 +134,14 @@ class GateAFixtureSnapshotTest {
         val state = load("workbench-report-markdown.json")
         paparazzi.snapshot {
             HarnessTheme {
-                Box(Modifier.height(640.dp)) {
-                    WorkbenchSheetOverlay(
-                        visible = true,
-                        state = state.workbench,
-                        onDismiss = {},
-                    )
+                AppToastHost {
+                    Box(Modifier.height(640.dp)) {
+                        WorkbenchSheetOverlay(
+                            visible = true,
+                            state = state.workbench,
+                            onDismiss = {},
+                        )
+                    }
                 }
             }
         }
@@ -136,8 +153,10 @@ class GateAFixtureSnapshotTest {
         val wb = state.workbench.copy(initialView = "artifact")
         paparazzi.snapshot {
             HarnessTheme {
-                Box(Modifier.height(640.dp)) {
-                    WorkbenchSheetOverlay(visible = true, state = wb, onDismiss = {})
+                AppToastHost {
+                    Box(Modifier.height(640.dp)) {
+                        WorkbenchSheetOverlay(visible = true, state = wb, onDismiss = {})
+                    }
                 }
             }
         }
@@ -148,13 +167,15 @@ class GateAFixtureSnapshotTest {
         val state = load("rich-session-showcase.json")
         paparazzi.snapshot {
             HarnessTheme {
-                Box(Modifier.height(640.dp)) {
-                    WorkbenchSheetOverlay(
-                        visible = true,
-                        state = state.workbench,
-                        onDismiss = {},
-                        previewReduceMotion = true,
-                    )
+                AppToastHost {
+                    Box(Modifier.height(640.dp)) {
+                        WorkbenchSheetOverlay(
+                            visible = true,
+                            state = state.workbench,
+                            onDismiss = {},
+                            previewReduceMotion = true,
+                        )
+                    }
                 }
             }
         }
@@ -165,13 +186,15 @@ class GateAFixtureSnapshotTest {
         val state = load("workbench-report-markdown.json")
         paparazzi.snapshot {
             HarnessTheme {
-                Box(Modifier.height(420.dp)) {
-                    WorkbenchRestoreConfirmSheet(
-                        visible = true,
-                        prompt = state.workbench.artifactRestorePrompt,
-                        onDismiss = {},
-                        onConfirm = {},
-                    )
+                AppToastHost {
+                    Box(Modifier.height(420.dp)) {
+                        WorkbenchRestoreConfirmSheet(
+                            visible = true,
+                            prompt = state.workbench.artifactRestorePrompt,
+                            onDismiss = {},
+                            onConfirm = {},
+                        )
+                    }
                 }
             }
         }
@@ -183,10 +206,12 @@ class GateAFixtureSnapshotTest {
         val sample = state.conversation.take(2)
         paparazzi.snapshot {
             HarnessTheme {
-                sample.forEach { item ->
-                    when (item) {
-                        is ConversationItem.User -> UserMessageBubble(text = item.content)
-                        is ConversationItem.Assistant -> AssistantMessageBubble(item = item)
+                AppToastHost {
+                    sample.forEach { item ->
+                        when (item) {
+                            is ConversationItem.User -> UserMessageBubble(text = item.content)
+                            is ConversationItem.Assistant -> AssistantMessageBubble(item = item)
+                        }
                     }
                 }
             }
@@ -198,8 +223,10 @@ class GateAFixtureSnapshotTest {
         val state = load("workbench-activity-bash.json")
         paparazzi.snapshot {
             HarnessTheme {
-                Box(Modifier.height(640.dp)) {
-                    WorkbenchSheetOverlay(visible = true, state = state.workbench, onDismiss = {})
+                AppToastHost {
+                    Box(Modifier.height(640.dp)) {
+                        WorkbenchSheetOverlay(visible = true, state = state.workbench, onDismiss = {})
+                    }
                 }
             }
         }
@@ -210,8 +237,10 @@ class GateAFixtureSnapshotTest {
         val state = load("workbench-sources.json")
         paparazzi.snapshot {
             HarnessTheme {
-                Box(Modifier.height(640.dp)) {
-                    WorkbenchSheetOverlay(visible = true, state = state.workbench, onDismiss = {})
+                AppToastHost {
+                    Box(Modifier.height(640.dp)) {
+                        WorkbenchSheetOverlay(visible = true, state = state.workbench, onDismiss = {})
+                    }
                 }
             }
         }
@@ -221,12 +250,14 @@ class GateAFixtureSnapshotTest {
     fun workbenchSources_passageHalfSheet() {
         val state = load("workbench-sources.json")
         val card =
-            state.workbench.sources.firstOrNull { !it.passageBody.isNullOrBlank() }
-                ?: error("workbench-sources.json needs passageBody (#14)")
+        state.workbench.sources.firstOrNull { !it.passageBody.isNullOrBlank() }
+        ?: error("workbench-sources.json needs passageBody (#14)")
         paparazzi.snapshot {
             HarnessTheme {
-                Box(Modifier.height(520.dp)) {
-                    WorkbenchPassageSheet(card = card, onDismiss = {})
+                AppToastHost {
+                    Box(Modifier.height(520.dp)) {
+                        WorkbenchPassageSheet(card = card, onDismiss = {})
+                    }
                 }
             }
         }
@@ -237,8 +268,10 @@ class GateAFixtureSnapshotTest {
         val state = load("workbench-sources-retrieval-only.json")
         paparazzi.snapshot {
             HarnessTheme {
-                Box(Modifier.height(640.dp)) {
-                    WorkbenchSheetOverlay(visible = true, state = state.workbench, onDismiss = {})
+                AppToastHost {
+                    Box(Modifier.height(640.dp)) {
+                        WorkbenchSheetOverlay(visible = true, state = state.workbench, onDismiss = {})
+                    }
                 }
             }
         }

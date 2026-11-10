@@ -422,6 +422,11 @@ class CoreAgentSessionPort(
 
     private suspend fun bootstrapIfConfigured() {
         if (services.engineConfig().apiBaseUrlProvider().trim().isEmpty()) return
+        // 未登录时不打受保护接口，避免启动即弹 401；只保留可匿名访问的 readiness/config。
+        if (services.tokenStore.getToken().isNullOrBlank()) {
+            engine.refreshReadiness()
+            return
+        }
         refreshReadiness()
         refreshPublicConfig()
         refreshSessionList()

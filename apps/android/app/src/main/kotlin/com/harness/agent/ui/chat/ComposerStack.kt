@@ -45,6 +45,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.harness.agent.coreui.primitives.AppButton
@@ -79,6 +82,7 @@ fun ComposerStack(
     skillPickerNames: List<String> = emptyList(),
     onSkillSheetOpen: () -> Unit = {},
     onClearComposerRevisionSeed: () -> Unit = {},
+    draftPersistenceKey: Any? = null,
 ) {
     val colors = LocalHarnessColors.current
     var attachmentOpen by rememberSaveable { mutableStateOf(false) }
@@ -188,6 +192,7 @@ fun ComposerStack(
                             onPreviewAction = onPreviewAction,
                             onClearComposerRevisionSeed = onClearComposerRevisionSeed,
                             onDismissKeyboard = dismissKeyboard,
+                            draftPersistenceKey = draftPersistenceKey,
                         )
                     }
                 }
@@ -268,9 +273,11 @@ private fun ClarificationPanel(
                     Badge(
                         text = opt,
                         modifier =
-                            Modifier.clickable(enabled = !submitting) {
-                                onSubmit(opt)
-                            },
+                            Modifier
+                                .semantics { role = Role.Button }
+                                .clickable(enabled = !submitting) {
+                                    onSubmit(opt)
+                                },
                     )
                 }
             }
@@ -446,6 +453,7 @@ private fun ComposerInputRow(
     onPreviewAction: (PreviewUiAction) -> Unit,
     onClearComposerRevisionSeed: () -> Unit = {},
     onDismissKeyboard: () -> Unit = {},
+    draftPersistenceKey: Any? = null,
 ) {
     val colors = LocalHarnessColors.current
     val running = state.submitting || state.composerTextMode == "steer"
@@ -457,7 +465,8 @@ private fun ComposerInputRow(
             "disabled" -> "正在取消当前任务……"
             else -> "描述你想完成的任务……"
         }
-    var draft by rememberSaveable(state.composerTextMode) { mutableStateOf("") }
+    // 以会话为键保存草稿：旋转/临时 composerTextMode 变化不会清空输入。
+    var draft by rememberSaveable(draftPersistenceKey ?: state.composerTextMode) { mutableStateOf("") }
     LaunchedEffect(state.revisionDraftSeed) {
         val seed = state.revisionDraftSeed?.trim().orEmpty()
         if (seed.isNotEmpty()) {

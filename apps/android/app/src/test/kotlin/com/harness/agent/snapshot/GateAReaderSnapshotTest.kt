@@ -2,6 +2,7 @@ package com.harness.agent.snapshot
 
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
+import com.harness.agent.coreui.feedback.AppToastHost
 import com.harness.agent.coreui.tokens.HarnessTheme
 import com.harness.agent.preview.MobileContractPreviewLoader
 import com.harness.agent.preview.PreviewAppPreferences
@@ -34,7 +35,9 @@ class GateAReaderSnapshotTest {
         )
         paparazzi.snapshot(name = "report-reader") {
             HarnessTheme(darkTheme = false) {
-                PreviewReportReaderScreen(preferences = prefs, onBack = {})
+                AppToastHost {
+                    PreviewReportReaderScreen(preferences = prefs, onBack = {})
+                }
             }
         }
     }
@@ -53,29 +56,31 @@ class GateAReaderSnapshotTest {
         )
         paparazzi.snapshot(name = "artifact-reader") {
             HarnessTheme(darkTheme = false) {
-                PreviewReportReaderScreen(
-                    preferences = prefs,
-                    onBack = {},
-                    loadPreview = {
-                        Result.success(
-                            ArtifactPreviewPayload(
-                                bytes = (state.workbench.reportMarkdown ?: "# Artifact").encodeToByteArray(),
-                                contentType = "text/markdown",
-                                fileName = "artifact.md",
-                                binary = false,
-                            ),
-                        )
-                    },
-                    loadDownload = {
-                        Result.success(
-                            ArtifactDownloadPayload(
-                                bytes = ByteArray(0),
-                                contentType = "text/markdown",
-                                fileName = "artifact.md",
-                            ),
-                        )
-                    },
-                )
+                AppToastHost {
+                    PreviewReportReaderScreen(
+                        preferences = prefs,
+                        onBack = {},
+                        loadPreview = {
+                            Result.success(
+                                ArtifactPreviewPayload(
+                                    bytes = (state.workbench.reportMarkdown ?: "# Artifact").encodeToByteArray(),
+                                    contentType = "text/markdown",
+                                    fileName = "artifact.md",
+                                    binary = false,
+                                ),
+                            )
+                        },
+                        loadDownload = {
+                            Result.success(
+                                ArtifactDownloadPayload(
+                                    bytes = ByteArray(0),
+                                    contentType = "text/markdown",
+                                    fileName = "artifact.md",
+                                ),
+                            )
+                        },
+                    )
+                }
             }
         }
     }

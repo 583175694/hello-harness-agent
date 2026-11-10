@@ -118,8 +118,8 @@ fun UserMessageBubble(
 @Composable
 private fun UserAttachmentStack(attachments: List<UserAttachmentItem>) {
     val colors = LocalHarnessColors.current
-    val images = attachments.filter { it.isImage() }
-    val files = attachments.filterNot { it.isImage() }
+    val images = attachments.filter { it.isImage() && (!it.previewUrl.isNullOrBlank() || it.fileId.isNotBlank()) }
+    val files = attachments.filterNot { it.isImage() && (!it.previewUrl.isNullOrBlank() || it.fileId.isNotBlank()) }
     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (images.isNotEmpty()) {
             Row(
@@ -150,9 +150,12 @@ private fun UserAttachmentStack(attachments: List<UserAttachmentItem>) {
                             )
                         } else {
                             androidx.compose.material3.Text(
-                                text = "IMG",
+                                text = attachment.fileName,
                                 color = colors.muted,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
+                                maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(8.dp),
                             )
                         }
                     }
@@ -181,6 +184,7 @@ private fun UserAttachmentFileChip(fileName: String) {
             color = colors.primary,
             fontSize = 13.sp,
             maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         )
     }
 }

@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -56,6 +55,7 @@ import com.harness.agent.preview.PreviewAppPreferences
 import com.harness.agent.coreui.feedback.LocalAppToast
 import com.harness.agent.preview.PreviewSessionViewModel
 import com.harness.agent.ui.chat.ConversationScrollOnEnterAndUserSendEffect
+import com.harness.agent.ui.chat.rememberConversationListState
 import com.harness.agent.ui.chat.LoadOlderMessagesBanner
 import com.harness.agent.ui.chat.ServiceBanner
 import com.harness.agent.ui.chat.formatApiProblemToast
@@ -401,7 +401,7 @@ private fun PreviewChatShellLayout(
     var serviceBannerDismissed by rememberSaveable(state.scenarioId) { mutableStateOf(false) }
     var composerChromeHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
-    val conversationListState = rememberLazyListState()
+    val conversationListState = rememberConversationListState()
     val conversation = state.conversation
     ConversationScrollOnEnterAndUserSendEffect(
         listState = conversationListState,
@@ -543,6 +543,7 @@ private fun PreviewChatShellLayout(
                 skillPickerNames = skillPickerNames,
                 onSkillSheetOpen = onSkillSheetOpen,
                 onClearComposerRevisionSeed = onClearComposerRevisionSeed,
+                draftPersistenceKey = state.scenarioId,
                 modifier =
                     Modifier.onSizeChanged { size ->
                         composerChromeHeightPx = size.height

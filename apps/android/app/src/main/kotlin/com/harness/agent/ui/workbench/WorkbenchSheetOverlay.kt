@@ -26,7 +26,9 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.harness.agent.coreui.markdown.ChatMarkdown
 import com.harness.agent.coreui.primitives.HarnessIconButton
+import com.harness.agent.coreui.markdown.ChatMarkdown
 import com.harness.agent.coreui.primitives.HarnessIconButtonShape
 import com.harness.agent.coreui.tokens.HarnessLayout
 import androidx.compose.runtime.Composable
@@ -390,6 +392,10 @@ internal fun WorkbenchPassageSheet(
         card.passageHeading?.let {
             AppText(text = it, style = AppTextStyle.Muted)
         }
-        AppText(text = card.passageBody, style = AppTextStyle.Body, modifier = Modifier.padding(top = 8.dp))
+        ChatMarkdown(
+            markdown = card.passageBody,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            compact = true,
+        )
     }
 }

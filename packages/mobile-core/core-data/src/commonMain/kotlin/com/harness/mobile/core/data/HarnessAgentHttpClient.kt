@@ -7,6 +7,7 @@ import com.harness.mobile.core.api.PublicAgentConfig
 import com.harness.mobile.core.api.ServiceStatus
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -106,6 +107,11 @@ class HarnessAgentHttpClient internal constructor(
 
         fun createDefaultClient(): HttpClient =
             HttpClient(createPlatformHttpEngine()) {
+                install(HttpTimeout) {
+                    connectTimeoutMillis = 15_000
+                    requestTimeoutMillis = 30_000
+                    socketTimeoutMillis = 30_000
+                }
                 install(ContentNegotiation) {
                     json(
                         Json {

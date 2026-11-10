@@ -58,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -288,8 +289,10 @@ private fun DrawerPanelContent(
 ) {
     val colors = LocalHarnessColors.current
     val contentFont = LocalContentFontSizeSp.current.coerceIn(13, 20)
-    val pinned = sessions.filter { it.pinned }
-    val recent = sessions.filter { !it.pinned }
+    var query by rememberSaveable { mutableStateOf("") }
+    val matched = sessions.filter { item -> query.isBlank() || item.title.contains(query.trim(), ignoreCase = true) }
+    val pinned = matched.filter { it.pinned }
+    val recent = matched.filter { !it.pinned }
     Column(
         modifier =
             Modifier
@@ -307,6 +310,13 @@ private fun DrawerPanelContent(
                 contentFontSp = contentFont,
                 enabled = newConversationEnabled,
                 onClick = onNewConversation,
+            )
+            SettingsTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = "搜索",
+                placeholder = "搜索会话",
+                modifier = Modifier.padding(top = 10.dp),
             )
             PullToRefreshBox(
                 isRefreshing = refreshing,
@@ -333,10 +343,19 @@ private fun DrawerPanelContent(
                     }
                     item {
                         AppText(
-                            text = "最近",
+                            text = if (query.isBlank()) "最近" else "搜索结果",
                             style = AppTextStyle.Muted,
                             modifier = Modifier.padding(start = 4.dp, bottom = 4.dp, top = 4.dp),
                         )
+                    }
+                    if (matched.isEmpty()) {
+                        item {
+                            AppText(
+                                text = "未找到匹配会话",
+                                style = AppTextStyle.Muted,
+                                modifier = Modifier.padding(start = 4.dp, top = 8.dp),
+                            )
+                        }
                     }
                     items(recent, key = { it.id }) { item ->
                         SessionDrawerRow(
@@ -478,6 +497,7 @@ private fun SessionDrawerRow(
                 }
                 .clip(RoundedCornerShape(HarnessLayout.panelRadius))
                 .background(rowBackground)
+                .semantics { contentDescription = item.title }
                 .combinedClickable(
                     onClick = { onSelect(item.id) },
                     onLongClick = { onLongPress(item, rowTopPx, rowHeightPx) },

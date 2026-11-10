@@ -25,14 +25,18 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.PhoneIphone
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +47,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -55,6 +63,7 @@ import com.harness.agent.coreui.feedback.LocalAppToast
 import androidx.compose.runtime.rememberCoroutineScope
 import com.harness.agent.preview.PreviewAppPreferences
 import com.harness.agent.preview.PreviewAuthProfile
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val RESEND_SECONDS = 60
@@ -86,10 +95,12 @@ fun PreviewLoginScreen(
     val density = LocalDensity.current
     val scrollState = rememberScrollState()
 
-    var phone by remember { mutableStateOf("") }
-    var code by remember { mutableStateOf("") }
-    var codeSent by remember { mutableStateOf(false) }
-    var resendIn by remember { mutableIntStateOf(0) }
+    var phone by rememberSaveable { mutableStateOf("") }
+    var code by rememberSaveable { mutableStateOf("") }
+    var codeSent by rememberSaveable { mutableStateOf(false) }
+    var resendIn by rememberSaveable { mutableIntStateOf(0) }
+    var submitting by remember { mutableStateOf(false) }
+    var inlineError by rememberSaveable { mutableStateOf<String?>(null) }
 
     val imeBottomPx = WindowInsets.ime.getBottom(density)
     val imeBottomDp = with(density) { imeBottomPx.toDp() }
@@ -99,8 +110,20 @@ fun PreviewLoginScreen(
 
     val phoneReady = phone.trim().length >= 6
     val codeReady = !codeSent || code.trim().length >= 4
-    val canSubmit = phoneReady && codeReady
-    val buttonLabel = if (!codeSent) "Get Verification Code" else "Log in"
+    val canSubmit = !submitting && phoneReady && codeReady
+    val buttonLabel =
+        when {
+            submitting -> if (codeSent) "登录中…" else "发送中…"
+            !codeSent -> "获取验证码"
+            else -> "登录"
+        }
+
+    LaunchedEffect(resendIn) {
+        if (resendIn > 0) {
+            delay(1_000)
+            resendIn -= 1
+        }
+    }
 
     BoxWithConstraints(
         modifier =
@@ -125,6 +148,33 @@ fun PreviewLoginScreen(
                     .fillMaxSize()
                     .verticalScroll(scrollState),
         ) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .semantics {
+                                role = Role.Button
+                                contentDescription = "返回"
+                            }
+                            .clickable(onClick = onBack),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "返回",
+                        tint = LoginButtonBlack,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
             Column(
                 modifier =
                     Modifier
@@ -143,7 +193,7 @@ fun PreviewLoginScreen(
                 )
                 Spacer(modifier = Modifier.height(heroToTitleGap))
                 Text(
-                    text = "Your AI Assistant\nIs Here",
+                    text = "你的 AI 助手\n随时待命",
                     color = LoginTitleColor,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
@@ -152,7 +202,7 @@ fun PreviewLoginScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Always ready to help",
+                    text = "登录后即可继续对话与同步任务",
                     color = LoginSubtitleColor,
                     fontSize = 15.sp,
                     lineHeight = 22.sp,
@@ -161,23 +211,29 @@ fun PreviewLoginScreen(
                 Spacer(modifier = Modifier.height(formTopGap))
                 LoginPhoneField(
                     value = phone,
-                    onValueChange = { phone = it },
-                    placeholder = "Enter your phone number",
+                    onValueChange = {
+                        phone = it
+                        inlineError = null
+                    },
+                    placeholder = "请输入手机号",
                     showPhoneIcon = true,
                 )
                 if (codeSent) {
                     Spacer(modifier = Modifier.height(12.dp))
                     LoginPhoneField(
                         value = code,
-                        onValueChange = { code = it },
-                        placeholder = "Enter verification code",
+                        onValueChange = {
+                            code = it
+                            inlineError = null
+                        },
+                        placeholder = "请输入验证码",
                         showPhoneIcon = false,
                         keyboardType = KeyboardType.Number,
                     )
                     if (resendIn > 0) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Resend in ${resendIn}s",
+                            text = "${resendIn}s 后可重新获取",
                             color = LoginSubtitleColor,
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center,
@@ -185,40 +241,61 @@ fun PreviewLoginScreen(
                         )
                     }
                 }
+                inlineError?.let { message ->
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = message,
+                        color = Color(0xFFC0392B),
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 Spacer(modifier = Modifier.height(16.dp))
                 LoginPrimaryButton(
                     text = buttonLabel,
                     enabled = canSubmit,
+                    loading = submitting,
                     onClick = {
                         when {
-                            phone.trim().length < 6 -> toast.show("Please enter a valid phone number")
+                            phone.trim().length < 6 -> inlineError = "请输入有效手机号"
                             !codeSent -> {
                                 scope.launch {
+                                    submitting = true
+                                    inlineError = null
                                     loginCoordinator.sendVerificationCode(phone.trim()).fold(
                                         onSuccess = {
                                             codeSent = true
                                             resendIn = RESEND_SECONDS
-                                            toast.show("Verification code sent")
+                                            toast.show("验证码已发送")
                                         },
-                                        onFailure = {
-                                            toast.show(it.message ?: "Failed to send code")
+                                        onFailure = { error ->
+                                            val message = error.toLoginMessage("验证码发送失败，请稍后重试")
+                                            inlineError = message
+                                            toast.show(message)
                                         },
                                     )
+                                    submitting = false
                                 }
                             }
-                            code.trim().length < 4 -> toast.show("Please enter the verification code")
+                            code.trim().length < 4 -> inlineError = "请输入验证码"
                             else -> {
                                 scope.launch {
+                                    submitting = true
+                                    inlineError = null
                                     loginCoordinator.verifyAndLogin(phone.trim(), code.trim()).fold(
                                         onSuccess = { profile ->
                                             preferences.updateAuthProfile(profile)
-                                            toast.show("Logged in")
+                                            toast.show("登录成功")
                                             onLoggedIn()
                                         },
-                                        onFailure = {
-                                            toast.show(it.message ?: "Login failed")
+                                        onFailure = { error ->
+                                            val message = error.toLoginMessage("登录失败，请检查验证码后重试")
+                                            inlineError = message
+                                            toast.show(message)
                                         },
                                     )
+                                    submitting = false
                                 }
                             }
                         }
@@ -298,6 +375,7 @@ private fun LoginPrimaryButton(
     text: String,
     enabled: Boolean,
     onClick: () -> Unit,
+    loading: Boolean = false,
 ) {
     Box(
         modifier =
@@ -305,17 +383,38 @@ private fun LoginPrimaryButton(
                 .fillMaxWidth()
                 .height(52.dp)
                 .clip(LoginFieldShape)
-                .background(if (enabled) LoginButtonBlack else LoginButtonDisabled)
+                .background(if (enabled || loading) LoginButtonBlack else LoginButtonDisabled)
+                .semantics { role = Role.Button }
                 .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = text,
-            color = Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    color = Color.White,
+                    strokeWidth = 2.dp,
+                )
+            }
+            Text(
+                text = text,
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
     }
+}
+
+private fun Throwable.toLoginMessage(fallback: String): String {
+    val problem = this as? com.harness.mobile.core.api.ApiProblem
+    return problem?.problem?.detail?.takeIf { it.isNotBlank() }
+        ?: problem?.problem?.title?.takeIf { it.isNotBlank() }
+        ?: message?.takeIf { it.isNotBlank() }
+        ?: fallback
 }
 
 private fun maskPhone(phone: String): String {

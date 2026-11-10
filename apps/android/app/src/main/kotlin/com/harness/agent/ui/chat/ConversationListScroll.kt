@@ -1,7 +1,10 @@
 package com.harness.agent.ui.chat
 
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -20,6 +23,11 @@ fun conversationLazyIndex(
     hasLoadOlderHeader: Boolean,
 ): Int = conversationIndex + if (hasLoadOlderHeader) 1 else 0
 
+/** 旋转/进程内配置变化后恢复会话滚动位置。 */
+@Composable
+fun rememberConversationListState(): LazyListState =
+    rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+
 /**
  * 对话列表滚底：仅 (1) 进入/切换会话 (2) 用户发送新消息。
  * 流式输出、尾条变高、assistant 回复均不吸底。
@@ -31,9 +39,14 @@ fun ConversationScrollOnEnterAndUserSendEffect(
     sessionKey: Any,
     hasLoadOlderHeader: Boolean,
 ) {
-    var trackedUserTurns by remember(sessionKey) { mutableIntStateOf(0) }
+    var trackedUserTurns by remember(sessionKey) { mutableIntStateOf(conversationUserTurnCount(conversation)) }
+    var restoredAfterConfigChange by rememberSaveable(sessionKey) { mutableStateOf(false) }
     LaunchedEffect(sessionKey) {
-        trackedUserTurns = conversationUserTurnCount(conversation)
+        if (restoredAfterConfigChange && listState.firstVisibleItemIndex > 0) {
+            trackedUserTurns = conversationUserTurnCount(conversation)
+            return@LaunchedEffect
+        }
+        restoredAfterConfigChange = true
         scrollToLastUserTurn(listState, conversation, hasLoadOlderHeader, animated = false)
     }
 

@@ -118,6 +118,8 @@ fun AppText(
     modifier: Modifier = Modifier,
     style: AppTextStyle = AppTextStyle.Body,
     tabularNums: Boolean = false,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: androidx.compose.ui.text.style.TextOverflow = androidx.compose.ui.text.style.TextOverflow.Clip,
 ) {
     val colors = LocalHarnessColors.current
     val base = LocalContentFontSizeSp.current.coerceIn(13, 20)
@@ -139,6 +141,8 @@ fun AppText(
                 fontSize = size,
                 fontFeatureSettings = if (tabularNums) "tnum" else null,
             ),
+        maxLines = maxLines,
+        overflow = overflow,
     )
 }
 

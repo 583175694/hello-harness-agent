@@ -33,3 +33,4 @@ packages/mobile-core/**/build/
 packages/mobile-core/core-engine/build/XCFrameworks/
 apps/android/.kotlin/
 apps/android/**/build/
+apps/android/macrobenchmark/build/

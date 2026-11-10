@@ -157,6 +157,7 @@ class MainActivity : ComponentActivity() {
                             backend = memoryBackend,
                             onBack = { navController.popBackStack() },
                             onOpenEntry = { id -> navController.navigate("settings/memory/$id") },
+                            onOpenLogin = { navController.navigate("settings/login") },
                         )
                     }
                     composable("settings/memory/{entryId}") { backStackEntry ->

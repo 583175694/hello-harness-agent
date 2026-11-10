@@ -65,6 +65,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import kotlinx.coroutines.launch
+import com.harness.mobile.core.api.ApiProblem
 import com.harness.agent.preview.PreviewThemeMode
 
 @Composable
@@ -160,40 +161,65 @@ fun PreviewMcpListScreen(
     backend: McpSettingsBackend,
     onBack: () -> Unit,
     onEditServer: (String) -> Unit,
+    onOpenLogin: () -> Unit = {},
 ) {
     var servers by remember { mutableStateOf<List<McpServerUiModel>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var unauthorized by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(backend) {
-        servers = backend.listServers()
+
+    suspend fun reload() {
+        loading = true
+        errorMessage = null
+        unauthorized = false
+        runCatching { backend.listServers() }
+            .onSuccess { servers = it }
+            .onFailure { error ->
+                unauthorized = error.isUnauthorized()
+                errorMessage = error.toSettingsMessage("MCP 服务列表加载失败")
+            }
+        loading = false
     }
+
+    LaunchedEffect(backend) { reload() }
     LifecycleResumeEffect(backend) {
-        scope.launch { servers = backend.listServers() }
+        scope.launch { reload() }
         onPauseOrDispose { }
     }
     AppScaffold(topBar = { SettingsTopBar(title = "MCP 服务器", onBack = onBack) }) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
+            SettingsLoadGate(
+                loading = loading,
+                errorMessage = errorMessage,
+                unauthorized = unauthorized,
+                onRetry = { scope.launch { reload() } },
+                onOpenLogin = onOpenLogin,
+                modifier = Modifier.weight(1f),
             ) {
-                SettingsGroup(sectionLabel = "已配置") {
-                    if (servers.isEmpty()) {
-                        AppText(
-                            text = "暂无服务器",
-                            style = AppTextStyle.Muted,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        )
-                    } else {
-                        servers.forEachIndexed { index, server ->
-                            McpServerRow(
-                                server = server,
-                                onClick = { onEditServer(server.id) },
-                                showDivider = index < servers.lastIndex,
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
+                ) {
+                    SettingsGroup(sectionLabel = "已配置") {
+                        if (servers.isEmpty()) {
+                            AppText(
+                                text = "暂无服务器",
+                                style = AppTextStyle.Muted,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                             )
+                        } else {
+                            servers.forEachIndexed { index, server ->
+                                McpServerRow(
+                                    server = server,
+                                    onClick = { onEditServer(server.id) },
+                                    showDivider = index < servers.lastIndex,
+                                )
+                            }
                         }
                     }
                 }
@@ -225,11 +251,14 @@ fun PreviewMcpFormScreen(
             url = ""
             enabled = true
         } else {
-            val row = backend.listServers().find { it.id == serverId }
+            val row = runCatching { backend.listServers().find { it.id == serverId } }.getOrNull()
             existing = row
             name = row?.serverName ?: ""
             url = row?.url ?: ""
             enabled = row?.enabled ?: true
+            if (row == null) {
+                toast.show("无法加载 MCP 服务器，请稍后重试")
+            }
         }
     }
 
@@ -341,51 +370,76 @@ fun PreviewMemoryHubScreen(
     backend: MemorySettingsBackend,
     onBack: () -> Unit,
     onOpenEntry: (String) -> Unit,
+    onOpenLogin: () -> Unit = {},
 ) {
     var state by remember { mutableStateOf(MemoryHubState(allowAgentWrite = true, entries = emptyList())) }
+    var loading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var unauthorized by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val toast = LocalAppToast.current
-    LaunchedEffect(backend) {
-        state = backend.load()
+
+    suspend fun reload() {
+        loading = true
+        errorMessage = null
+        unauthorized = false
+        runCatching { backend.load() }
+            .onSuccess { state = it }
+            .onFailure { error ->
+                unauthorized = error.isUnauthorized()
+                errorMessage = error.toSettingsMessage("记忆加载失败")
+            }
+        loading = false
     }
+
+    LaunchedEffect(backend) { reload() }
     AppScaffold(topBar = { SettingsTopBar(title = "记忆", onBack = onBack) }) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(top = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
+        SettingsLoadGate(
+            loading = loading,
+            errorMessage = errorMessage,
+            unauthorized = unauthorized,
+            onRetry = { scope.launch { reload() } },
+            onOpenLogin = onOpenLogin,
+            modifier = Modifier.fillMaxSize(),
         ) {
-            SettingsGroup(sectionLabel = "写入") {
-                SettingsToggleRow(
-                    title = "允许 Agent 写入记忆",
-                    checked = state.allowAgentWrite,
-                    onCheckedChange = { enabled ->
-                        scope.launch {
-                            backend.setAllowAgentWrite(enabled).fold(
-                                onSuccess = { state = state.copy(allowAgentWrite = enabled) },
-                                onFailure = { toast.show(it.message ?: "更新失败") },
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(HarnessLayout.settingsGroupGap),
+            ) {
+                SettingsGroup(sectionLabel = "写入") {
+                    SettingsToggleRow(
+                        title = "允许 Agent 写入记忆",
+                        checked = state.allowAgentWrite,
+                        onCheckedChange = { enabled ->
+                            scope.launch {
+                                backend.setAllowAgentWrite(enabled).fold(
+                                    onSuccess = { state = state.copy(allowAgentWrite = enabled) },
+                                    onFailure = { toast.show(it.message ?: "更新失败") },
+                                )
+                            }
+                        },
+                        showDivider = false,
+                    )
+                }
+                SettingsGroup(sectionLabel = "条目") {
+                    if (state.entries.isEmpty()) {
+                        AppText(
+                            text = "暂无记忆",
+                            style = AppTextStyle.Muted,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        )
+                    } else {
+                        state.entries.forEachIndexed { index, entry ->
+                            SettingsMemoryEntryRow(
+                                preview = memoryEntryPreviewLine(entry),
+                                onClick = { onOpenEntry(entry.id) },
+                                showDivider = index < state.entries.lastIndex,
                             )
                         }
-                    },
-                    showDivider = false,
-                )
-            }
-            SettingsGroup(sectionLabel = "条目") {
-                if (state.entries.isEmpty()) {
-                    AppText(
-                        text = "暂无记忆",
-                        style = AppTextStyle.Muted,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                    )
-                } else {
-                    state.entries.forEachIndexed { index, entry ->
-                        SettingsMemoryEntryRow(
-                            preview = memoryEntryPreviewLine(entry),
-                            onClick = { onOpenEntry(entry.id) },
-                            showDivider = index < state.entries.lastIndex,
-                        )
                     }
                 }
             }
@@ -409,11 +463,14 @@ fun PreviewMemoryEntryScreen(
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(backend, entryId) {
-        val row = backend.entry(entryId)
+        val row = runCatching { backend.entry(entryId) }.getOrNull()
         loaded = row
         title = row?.title.orEmpty()
         content = row?.text.orEmpty()
         kind = row?.kind ?: "preference"
+        if (row == null) {
+            toast.show("无法加载记忆详情，请返回重试")
+        }
     }
 
     fun resolvedTitle(): String =
@@ -513,6 +570,60 @@ fun PreviewMemoryEntryScreen(
     }
 
     AppConfirmDialog(request = deleteConfirm, onDismiss = { deleteConfirm = null })
+}
+
+private fun Throwable.isUnauthorized(): Boolean =
+    (this as? ApiProblem)?.problem?.status == 401 || cause?.let { (it as? ApiProblem)?.problem?.status == 401 } == true
+
+private fun Throwable.toSettingsMessage(fallback: String): String =
+    (this as? ApiProblem)?.problem?.let { problem ->
+        if (problem.status == 401) "请先登录后再使用此功能。" else problem.detail.ifBlank { problem.title }.ifBlank { fallback }
+    } ?: message?.takeIf { it.isNotBlank() } ?: fallback
+
+@Composable
+private fun SettingsLoadGate(
+    loading: Boolean,
+    errorMessage: String?,
+    unauthorized: Boolean,
+    onRetry: () -> Unit,
+    onOpenLogin: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    when {
+        loading ->
+            Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                com.harness.agent.coreui.primitives.Spinner()
+            }
+        errorMessage != null ->
+            Column(
+                modifier = modifier.fillMaxSize().padding(horizontal = 24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                AppText(text = errorMessage, style = AppTextStyle.Body, modifier = Modifier.fillMaxWidth())
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SettingsPillButton(
+                        text = "重试",
+                        style = SettingsPillStyle.Subtle,
+                        modifier = Modifier.weight(1f),
+                        onClick = onRetry,
+                    )
+                    if (unauthorized) {
+                        SettingsPillButton(
+                            text = "去登录",
+                            modifier = Modifier.weight(1f),
+                            onClick = onOpenLogin,
+                        )
+                    }
+                }
+            }
+        else -> content()
+    }
 }
 
 @Composable

@@ -14,6 +14,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.harness.agent.coreui.primitives.AppText
 import com.harness.agent.coreui.primitives.AppTextStyle
@@ -89,6 +92,7 @@ internal fun ComposerModelMenuSheetContent(
                     Modifier
                         .fillMaxWidth()
                         .defaultMinSize(minHeight = 48.dp)
+                        .semantics { role = Role.Button }
                         .clickable {
                             onModelIdChange(model.id)
                             onReasoningChange(coerceReasoningForModel(model.id, effort, models))

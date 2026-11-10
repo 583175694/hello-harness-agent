@@ -39,6 +39,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.harness.agent.coreui.primitives.AppSheet
@@ -194,6 +197,7 @@ fun ComposerModelMenuChip(
                 .defaultMinSize(minHeight = HarnessLayout.composerPlusSize)
                 .harnessPressOpacity(enabled = enabled, interactionSource = interactionSource)
                 .clip(RoundedCornerShape(HarnessLayout.controlRadius))
+                .semantics { role = Role.Button }
                 .clickable(
                     enabled = enabled,
                     onClick = onClick,
@@ -207,6 +211,8 @@ fun ComposerModelMenuChip(
         AppText(
             text = modelLabel,
             style = AppTextStyle.Caption,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
         Icon(

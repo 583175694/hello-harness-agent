@@ -2,6 +2,7 @@ package com.harness.agent.snapshot
 
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
+import com.harness.agent.coreui.feedback.AppToastHost
 import com.harness.agent.coreui.tokens.HarnessTheme
 import com.harness.agent.preview.MobileContractPreviewLoader
 import com.harness.agent.ui.PreviewChatShellSnapshot
@@ -27,11 +28,13 @@ class GateAWorkbenchDetentSnapshotTest {
             )
         paparazzi.snapshot(name = "workbench-low-detent-44pct") {
             HarnessTheme(darkTheme = false) {
-                PreviewChatShellSnapshot(
-                    state = state,
-                    fixtureFileName = "workbench-sources.json",
-                    workbenchOpen = true,
-                )
+                AppToastHost {
+                    PreviewChatShellSnapshot(
+                        state = state,
+                        fixtureFileName = "workbench-sources.json",
+                        workbenchOpen = true,
+                    )
+                }
             }
         }
     }

@@ -1,7 +1,7 @@
 # Native Mobile Phase B — 进度与联调启动
 
-> 对照 [45-native-mobile-phase-b-integration.md](./45-native-mobile-phase-b-integration.md) B0～B7。  
-> **真 API 手验**：[native-mobile-phase-b-manual-verification.md](./native-mobile-phase-b-manual-verification.md)  
+> 对照 [45-native-mobile-phase-b-integration.md](./45-native-mobile-phase-b-integration.md) B0～B7。
+> **真 API 手验**：[native-mobile-phase-b-manual-verification.md](./native-mobile-phase-b-manual-verification.md)
 > 最后更新：2026-10-30（工程态快照，非 Gate B 签字）
 
 ## B0～B7 勾选（三端）
@@ -27,10 +27,10 @@
 
 ### 共用前提
 
-1. 启动 Harness API（与 Web 相同）：`pnpm dev` 或部署环境。  
-2. 确认：`curl -sS "$BASE/readyz"`、`curl -sS "$BASE/api/agent/config/public"`。  
-3. 登录后 Snapshot 对拍：`HARNESS_SESSION_COOKIE='…' pnpm phase-b:parity <sessionId> [runId]`。  
-4. 手机/模拟器与 API 同网段；Base URL **无** trailing slash。
+1. 启动 Harness API（与 Web 相同）：`pnpm dev` 或部署环境。
+2. 确认：`curl -sS "$BASE/readyz"`、`curl -sS "$BASE/api/agent/config/public"`。
+3. 登录后 Snapshot 对拍：`HARNESS_SESSION_COOKIE='…' pnpm phase-b:parity <sessionId> [runId]`。
+4. 手机/模拟器与 API 同网段；Base URL 由 `HarnessAgentEndpoints.API_BASE_URL` 编译期固定（当前 production 为 `https://pipishrimp.cn`），**无** trailing slash。
 
 ### Android（production）
 
@@ -40,12 +40,12 @@ cd apps/android
 # 或 Android Studio：Build Variant = productionDebug
 ```
 
-1. 打开 App → **设置** → 填 **API Base URL**。  
-2. **登录**（手机号 + 验证码）→ token 写入 EncryptedSharedPreferences 占位（当前 SharedPreferences，见技术债）。  
-3. Drawer：会话列表 / 新建 / 重命名 / 置顶 / 删除。  
+1. 安装 productionDebug → 打开 App（Base URL 由编译期 `HarnessAgentEndpoints` 决定，设置页暂不提供输入框）。
+2. **登录**（手机号 + 验证码）→ token 写入 SharedPreferences（加密存储见技术债）。
+3. Drawer：会话列表 / 新建 / 重命名 / 置顶 / 删除。
 4. Composer 发 Run → 流式 assistant → Stop 取消；Run 中再发 → pending-input。
 
-验证：`pnpm mobile-core:test`、`:app:compileProductionDebugKotlin`。
+验证：`cd packages/mobile-core && ./gradlew :core-data:jvmTest`、`cd apps/android && ./gradlew :app:testPreviewDebugUnitTest :app:compileProductionDebugKotlin`。
 
 ### iOS（Release + Core）
 
@@ -56,8 +56,8 @@ xcodebuild -scheme Harness -configuration Release -destination 'platform=iOS Sim
 # XCFramework 仅 arm64 slice；Release 已在 project.yml 排除 iphonesimulator x86_64
 ```
 
-1. Release 包：`import HarnessMobileCore` + `CoreAgentSessionPort`。  
-2. 设置 API URL；登录（`CoreServices` + UserDefaults `harness_session`）。  
+1. Release 包：`import HarnessMobileCore` + `CoreAgentSessionPort`。
+2. 设置 API URL；登录（`CoreServices` + UserDefaults `harness_session`）。
 3. Composer / Drawer 与 Android 同 Port 语义。
 
 验证（工程）：`pnpm mobile-core:xcframework` 后上式 **BUILD SUCCEEDED**（2026-10-30）。
@@ -66,11 +66,11 @@ Debug 仍为 **Preview**（fixture），不参与 Core 联调。
 
 ### 鸿蒙（Core 薄 HTTP）
 
-1. DevEco 打开 `apps/harmony`；**设置 → 连接** 填 API URL。  
-2. 登录（非 `example.com` 时走 `HarmonyCoreAuth`）。  
-3. **连接 → 打开 Core 联调会话** → Composer 发消息（模型/Skill 来自 public config 与 `/api/skills`）。  
-4. 附件：Composer「+」→ 照片/文件 → 系统文档选择器 → 上传轮询就绪后随 Run 提交 `attachmentIds`。  
-5. Preview 十场景：Dev Menu → fixture 列表（**不**开 `useCorePort`）。  
+1. DevEco 打开 `apps/harmony`；**设置 → 连接** 填 API URL。
+2. 登录（非 `example.com` 时走 `HarmonyCoreAuth`）。
+3. **连接 → 打开 Core 联调会话** → Composer 发消息（模型/Skill 来自 public config 与 `/api/skills`）。
+4. 附件：Composer「+」→ 照片/文件 → 系统文档选择器 → 上传轮询就绪后随 Run 提交 `attachmentIds`。
+5. Preview 十场景：Dev Menu → fixture 列表（**不**开 `useCorePort`）。
 6. Workbench：Run 中首个 tool 应 **auto-open** Sheet；TopBar / 时间线点击应 **focus** 到对应 tool（无法解析时 Toast 降级 Activity）。
 
 自动化（本仓库 CI/本机）：`pnpm gate-a:verify:harmony` ☑ fixture；`pnpm phase-b:verify:local` ☑（JVM + Gate A + smoke-api）。

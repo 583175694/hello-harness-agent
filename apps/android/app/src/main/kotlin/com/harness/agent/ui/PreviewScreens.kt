@@ -186,6 +186,12 @@ fun PreviewChatShellScreen(
         if (!viewModel.coreEngineActive) return@LaunchedEffect
         viewModel.apiErrorToasts.collect { message ->
             toast.show(message)
+            if (message.contains("登录", ignoreCase = true) ||
+                message.contains("401", ignoreCase = true) ||
+                message.contains("AUTH_REQUIRED", ignoreCase = true)
+            ) {
+                preferences.refreshSessionTokenPresence()
+            }
         }
     }
     LaunchedEffect(state.scenarioId, state.problemTitle, state.problemDetail) {

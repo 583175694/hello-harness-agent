@@ -60,13 +60,21 @@ jobs:
       - name: Sync mobile-contract into Android assets
         run: bash apps/android/scripts/sync-mobile-contract.sh
 
-      - name: Unit + snapshot tests (Paparazzi baselines 本地 optional，不进库)
+      - name: Unit + snapshot tests (Preview)
         working-directory: apps/android
         run: ./gradlew :app:testPreviewDebugUnitTest --no-daemon
+
+      - name: Production unit tests
+        working-directory: apps/android
+        run: ./gradlew :app:testProductionDebugUnitTest --no-daemon
 
       - name: Compile Preview + Production
         working-directory: apps/android
         run: ./gradlew :app:compilePreviewDebugKotlin :app:compileProductionDebugKotlin --no-daemon
+
+      - name: Release build + lint gate
+        working-directory: apps/android
+        run: ./gradlew :app:assembleProductionRelease :app:lintProductionRelease --no-daemon
 
   native-mobile-gate-a-ios:
     runs-on: macos-latest

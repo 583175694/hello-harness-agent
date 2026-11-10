@@ -209,7 +209,20 @@ private fun AuthenticatedHtmlWebView(
             WebView(context).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = false
-                webViewClient = WebViewClient()
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                settings.setSupportMultipleWindows(false)
+                webViewClient =
+                    object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: android.webkit.WebResourceRequest?,
+                        ): Boolean {
+                            val target = request?.url ?: return true
+                            return target.host != Uri.parse(url).host || target.scheme != "https"
+                        }
+                    }
             }
         },
         update = { webView ->

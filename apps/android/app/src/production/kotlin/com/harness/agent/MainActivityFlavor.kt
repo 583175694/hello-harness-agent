@@ -20,6 +20,7 @@ object MainActivityFlavor {
     fun wirePreviewAuth(preferences: PreviewAppPreferences) {
         val services = AgentSessionPortModule.coreServicesOrNull()
         preferences.sessionCookieHeaderProvider = { services?.tokenStore?.cookieHeader() }
+        preferences.observeSessionToken { services?.hasValidSession() == true }
     }
 
     fun imageAuth(preferences: PreviewAppPreferences): HarnessImageAuth {

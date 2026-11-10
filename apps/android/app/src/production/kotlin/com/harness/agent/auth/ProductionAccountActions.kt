@@ -9,7 +9,7 @@ object ProductionAccountActions {
         preferences: PreviewAppPreferences,
     ) {
         runCatching { services.authClient().logout() }
-        services.tokenStore.clearToken()
+        services.clearAuth()
         preferences.updateAuthProfile(null)
     }
 }

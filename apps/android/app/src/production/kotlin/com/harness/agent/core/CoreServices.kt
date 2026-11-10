@@ -13,6 +13,11 @@ class CoreServices(
     private val preferences: PreviewAppPreferences,
 ) {
     val tokenStore = PlatformSessionTokenStore(context.applicationContext)
+    fun hasValidSession(): Boolean = tokenStore.getToken() != null
+
+    fun clearAuth() {
+        tokenStore.clearToken()
+    }
 
     fun apiBaseUrl(): String = preferences.apiBaseUrl
 

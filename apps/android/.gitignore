@@ -1,8 +1,12 @@
-/.gradle/
-/build/
-/local.properties
-/.idea/
-*.iml
-/app/build/
-/core-ui/build/
-/captures/
+# Local release signing material must never be committed.
+keystore.properties
+*.jks
+*.keystore
+
+# Local Android Studio / Gradle state
+.gradle/
+.idea/
+local.properties
+
+# Test-only fixture copy generated from packages/mobile-contract
+app/src/test/assets/

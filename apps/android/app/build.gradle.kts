@@ -5,16 +5,19 @@ plugins {
     alias(libs.plugins.paparazzi)
 }
 
+import java.util.Properties
+
 val contractRoot = rootProject.projectDir.parentFile.parentFile.resolve("packages/mobile-contract")
+val releaseKeystoreProperties = rootProject.file("keystore.properties")
 
 android {
     namespace = "com.harness.agent"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.harness.agent"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
     }
@@ -32,11 +35,34 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val properties = Properties()
+            if (releaseKeystoreProperties.isFile) {
+                releaseKeystoreProperties.inputStream().use { input -> properties.load(input) }
+            }
+            val storeFileValue =
+                properties.getProperty("storeFile")?.trim().orEmpty()
+                    .ifEmpty { System.getenv("ANDROID_KEYSTORE_PATH")?.trim().orEmpty() }
+            if (storeFileValue.isNotEmpty()) {
+                storeFile = rootProject.file(storeFileValue)
+                storePassword = properties.getProperty("storePassword", System.getenv("ANDROID_KEYSTORE_PASSWORD"))
+                keyAlias = properties.getProperty("keyAlias", System.getenv("ANDROID_KEY_ALIAS"))
+                keyPassword = properties.getProperty("keyPassword", System.getenv("ANDROID_KEY_PASSWORD"))
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
-            // 本地真机可装 previewRelease（非 debuggable）；正式上架再换 release keystore
-            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            val releaseSigning = signingConfigs.getByName("release")
+            signingConfig = if (releaseSigning.storeFile != null) releaseSigning else null
         }
         debug {
             isDebuggable = true

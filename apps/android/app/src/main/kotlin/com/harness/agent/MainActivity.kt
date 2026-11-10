@@ -44,8 +44,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val preferencesHolder = PreviewAppPreferences(applicationContext)
-        MainActivityFlavor.wirePreviewAuth(preferencesHolder)
         val port = AgentSessionPortModule.create(applicationContext, preferencesHolder)
+        MainActivityFlavor.wirePreviewAuth(preferencesHolder)
         sessionViewModel = PreviewSessionViewModel(port)
         val viewModel = sessionViewModel
         val mcpBackend = MainActivityFlavor.mcpSettingsBackend(preferencesHolder)

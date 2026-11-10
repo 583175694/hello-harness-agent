@@ -38,6 +38,27 @@ Gate A 签字与 Paparazzi 仍以 **previewDebug** 为准；release 仅便于真
 
 Fixture 与 `design-tokens.json` 在 `preBuild` 时从 `packages/mobile-contract` 同步到 `src/preview/assets/`（仅 **preview** flavor 打进 APK；**production** 正式包不含演示 JSON）。
 
+## Production release 构建与签名
+
+Release 开启 R8、资源压缩和资源收缩；未配置 keystore 时 Gradle 只产出 **unsigned** 包，不会回退到 debug 签名。
+
+本地签名（`keystore.properties` 已在 `.gitignore`，禁止提交）：
+
+```bash
+cd apps/android
+cp keystore.properties.example keystore.properties  # 然后填入真实路径与密码
+./gradlew :app:assembleProductionRelease :app:assembleProductionReleaseBundle
+```
+
+CI 也可通过 `ANDROID_KEYSTORE_PATH`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 提供签名材料。
+
+产物：
+
+- APK：`app/build/outputs/apk/production/release/`
+- AAB：`app/build/outputs/bundle/productionRelease/`
+
+`targetSdk = 36`；应用已关闭备份与明文流量，正式包不包含 preview fixture 或 `profileable`。
+
 ## 自动化验证
 
 与 CI job `native-mobile-gate-a-android` 一致：
@@ -45,7 +66,9 @@ Fixture 与 `design-tokens.json` 在 `preBuild` 时从 `packages/mobile-contract
 ```bash
 pnpm --filter @harness/mobile-contract validate:gate-a
 bash apps/android/scripts/sync-mobile-contract.sh
-cd apps/android && ./gradlew :app:compilePreviewDebugKotlin --no-daemon
+cd apps/android
+./gradlew :app:testPreviewDebugUnitTest :app:testProductionDebugUnitTest --no-daemon
+./gradlew :app:assembleProductionRelease :app:lintProductionRelease --no-daemon
 ```
 
 Runbook（Paparazzi / Macrobenchmark）：[`docs/gate-a-runbook.md`](docs/gate-a-runbook.md)。任务书：[`docs/44-native-mobile-phase-a-static-ui.md`](../../docs/44-native-mobile-phase-a-static-ui.md)。

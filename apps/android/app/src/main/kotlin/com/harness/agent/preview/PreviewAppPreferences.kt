@@ -48,6 +48,10 @@ class PreviewAppPreferences(
         get() = HarnessAgentEndpoints.API_BASE_URL
     /** Production 注入鉴权 Cookie，供 HTML 预览 WebView 使用。 */
     var sessionCookieHeaderProvider: () -> String? = { null }
+    private var sessionTokenPresentProvider: () -> Boolean = { true }
+    /** UI reads this state to recompose when token is cleared or expires. */
+    var sessionTokenPresent by mutableStateOf(true)
+        private set
     var allowAgentMemoryWrite by mutableStateOf(prefs.getBoolean(KEY_MEMORY_WRITE, true))
         private set
     val reduceMotion: Boolean
@@ -65,7 +69,7 @@ class PreviewAppPreferences(
         private set
 
     val isLoggedIn: Boolean
-        get() = authProfile != null
+        get() = authProfile != null && sessionTokenPresent
 
     val mcpServers: SnapshotStateList<PreviewMcpServer> = mutableStateListOf<PreviewMcpServer>().apply {
         addAll(loadMcpServers())
@@ -88,6 +92,23 @@ class PreviewAppPreferences(
     fun updateAllowAgentMemoryWrite(value: Boolean) {
         allowAgentMemoryWrite = value
         prefs.edit().putBoolean(KEY_MEMORY_WRITE, value).apply()
+    }
+
+    /** 登录态以持久化 token 为准；资料只用于展示。 */
+    fun observeSessionToken(presentProvider: () -> Boolean) {
+        sessionTokenPresentProvider = presentProvider
+        refreshSessionTokenPresence()
+    }
+
+    fun refreshSessionTokenPresence() {
+        val present = sessionTokenPresentProvider()
+        sessionTokenPresent = present
+        if (!present) {
+            updateAuthProfile(null)
+        } else if (authProfile == null) {
+            // Logged in on another screen; reload profile persisted at login time.
+            authProfile = loadAuthProfile()
+        }
     }
 
     fun updateAuthProfile(profile: PreviewAuthProfile?) {

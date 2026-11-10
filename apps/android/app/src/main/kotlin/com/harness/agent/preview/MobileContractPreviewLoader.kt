@@ -26,6 +26,11 @@ import com.harness.agent.model.WorkbenchState
 import com.harness.agent.model.WorkbenchToolExecution
 import com.harness.agent.port.PreviewFixtureDescriptor
 import org.json.JSONArray
+import java.io.File
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.name
+import kotlin.io.path.readText
+import kotlin.io.path.walk
 import org.json.JSONObject
 
 class MobileContractPreviewLoader(
@@ -46,11 +51,22 @@ class MobileContractPreviewLoader(
         return parseActiveSession(json)
     }
 
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
     private fun readFixtureJson(fileName: String): JSONObject {
-        context.assets.open("$FIXTURE_DIR/$fileName").use { stream ->
-            val text = stream.bufferedReader().readText()
-            return JSONObject(text)
-        }
+        val text =
+            runCatching {
+                context.assets.open("$FIXTURE_DIR/$fileName").use { it.bufferedReader().readText() }
+            }.getOrElse {
+                val repoFixture =
+                    File(System.getProperty("user.dir")).toPath().walk()
+                        .firstOrNull { file ->
+                            file.isRegularFile() &&
+                                file.name == fileName &&
+                                file.parent?.fileName?.toString() == "preview"
+                        }
+                repoFixture?.readText() ?: throw it
+            }
+        return JSONObject(text)
     }
 
     private fun parseActiveSession(json: JSONObject): ActiveSessionState {

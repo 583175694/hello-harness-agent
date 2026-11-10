@@ -286,6 +286,8 @@ fun PreviewLoginScreen(
                                     loginCoordinator.verifyAndLogin(phone.trim(), code.trim()).fold(
                                         onSuccess = { profile ->
                                             preferences.updateAuthProfile(profile)
+                                            // Token is now persisted; update the shared login-state tick.
+                                            preferences.refreshSessionTokenPresence()
                                             toast.show("登录成功")
                                             onLoggedIn()
                                         },

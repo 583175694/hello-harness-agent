@@ -13,9 +13,11 @@ export struct ComposerBlockBanner {
       Blank();
     } else {
       Row({ space: 8 }) {
-        Text('ⓘ')
-          .fontSize(14)
-          .fontColor(HarnessColors.secondaryText(this.useDark))
+        if (this.blockKind !== PreviewComposerBlockKind.LOGIN_REQUIRED) {
+          Text('ⓘ')
+            .fontSize(14)
+            .fontColor(HarnessColors.secondaryText(this.useDark))
+        }
         Text(this.message())
           .fontSize(12)
           .fontColor(HarnessColors.primaryText(this.useDark))
@@ -36,7 +38,7 @@ export struct ComposerBlockBanner {
 
   private message(): string {
     if (this.blockKind === PreviewComposerBlockKind.LOGIN_REQUIRED) {
-      return '已配置 API，请先登录后再发送消息。';
+      return '登录后即可开始对话';
     }
     if (this.blockKind === PreviewComposerBlockKind.TRANSCRIPT_INCOMPATIBLE) {
       return '当前会话与所选模型不兼容，请新建会话或更换模型。';

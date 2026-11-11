@@ -31,7 +31,7 @@ fun ComposerBlockBanner(
     val (message, action) =
         when (kind) {
             PreviewComposerBlockKind.LOGIN_REQUIRED ->
-                "已配置 API，请先登录后再发送消息。" to "去登录"
+                "登录后即可开始对话" to "去登录"
             PreviewComposerBlockKind.TRANSCRIPT_INCOMPATIBLE ->
                 "当前会话与所选模型不兼容，请新建会话或更换模型。" to null
             PreviewComposerBlockKind.NONE -> return
@@ -45,11 +45,13 @@ fun ComposerBlockBanner(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(
-            imageVector = Icons.Rounded.Info,
-            contentDescription = null,
-            tint = colors.secondary,
-        )
+        if (kind != PreviewComposerBlockKind.LOGIN_REQUIRED) {
+            Icon(
+                imageVector = Icons.Rounded.Info,
+                contentDescription = null,
+                tint = colors.secondary,
+            )
+        }
         AppText(text = message, style = AppTextStyle.Caption, modifier = Modifier.weight(1f))
         if (action != null) {
             AppText(

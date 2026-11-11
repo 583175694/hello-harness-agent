@@ -193,7 +193,7 @@ fun PreviewLoginScreen(
                 )
                 Spacer(modifier = Modifier.height(heroToTitleGap))
                 Text(
-                    text = "你的 AI 助手\n随时待命",
+                    text = "良朋在侧，虚席以待",
                     color = LoginTitleColor,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
@@ -202,7 +202,7 @@ fun PreviewLoginScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "登录后即可继续对话与同步任务",
+                    text = "言未尽而可续，事未已而随形",
                     color = LoginSubtitleColor,
                     fontSize = 15.sp,
                     lineHeight = 22.sp,

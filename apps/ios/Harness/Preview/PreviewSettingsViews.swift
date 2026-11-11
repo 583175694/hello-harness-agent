@@ -427,12 +427,12 @@ struct PreviewLoginView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     loginHeroIllustration(height: heroHeight)
-                    Text("Your AI Assistant\nIs Here")
+                    Text("良朋在侧，虚席以待")
                         .font(.system(size: 28, weight: .bold))
                         .multilineTextAlignment(.center)
                         .foregroundStyle(Color.black)
                         .padding(.top, heroToTitleGap)
-                    Text("Always ready to help")
+                    Text("言未尽而可续，事未已而随形")
                         .font(.system(size: 15))
                         .foregroundStyle(Color(red: 0.60, green: 0.60, blue: 0.60))
                         .multilineTextAlignment(.center)

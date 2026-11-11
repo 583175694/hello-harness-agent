@@ -37,14 +37,14 @@ struct PreviewLoginPage {
       Scroll() {
         Column() {
           this.heroIllustration()
-          Text('Your AI Assistant\nIs Here')
+          Text('良朋在侧，虚席以待')
             .fontSize(28)
             .fontWeight(FontWeight.Bold)
             .fontColor(LOGIN_TITLE)
             .textAlign(TextAlign.Center)
             .lineHeight(34)
             .margin({ top: this.lerp(24, 12) })
-          Text('Always ready to help')
+          Text('言未尽而可续，事未已而随形')
             .fontSize(15)
             .fontColor(LOGIN_SUBTITLE)
             .textAlign(TextAlign.Center)

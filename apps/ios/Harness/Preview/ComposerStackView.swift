@@ -445,8 +445,10 @@ struct ComposerBlockBannerView: View {
         if kind == .none { EmptyView() }
         else {
             HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "info.circle")
-                    .foregroundStyle(HarnessColors.secondary)
+                if kind != .loginRequired {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(HarnessColors.secondary)
+                }
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(HarnessColors.primary)
@@ -467,7 +469,7 @@ struct ComposerBlockBannerView: View {
     private var message: String {
         switch kind {
         case .none: return ""
-        case .loginRequired: return "已配置 API，请先登录后再发送消息。"
+        case .loginRequired: return "登录后即可开始对话"
         case .transcriptIncompatible: return "当前会话与所选模型不兼容，请新建会话或更换模型。"
         }
     }

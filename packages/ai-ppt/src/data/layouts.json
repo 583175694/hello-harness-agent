@@ -1,0 +1,150 @@
+[
+  {
+    "id": "cover",
+    "canvas": { "width": 1280, "height": 720 },
+    "slots": [
+      {
+        "id": "title",
+        "role": "title",
+        "box": { "x": 80, "y": 200, "w": 1120, "h": 120 },
+        "capacity": { "minChars": 4, "maxChars": 40, "maxLines": 2 },
+        "styleRef": "coverTitle",
+        "decorative": false
+      },
+      {
+        "id": "subtitle",
+        "role": "body",
+        "box": { "x": 80, "y": 340, "w": 1120, "h": 80 },
+        "capacity": { "minChars": 4, "maxChars": 80, "maxLines": 2 },
+        "styleRef": "body",
+        "decorative": false
+      },
+      {
+        "id": "meta",
+        "role": "caption",
+        "box": { "x": 80, "y": 600, "w": 1120, "h": 40 },
+        "capacity": { "minChars": 4, "maxChars": 60, "maxLines": 1 },
+        "styleRef": "caption",
+        "decorative": false
+      }
+    ]
+  },
+  {
+    "id": "agenda",
+    "canvas": { "width": 1280, "height": 720 },
+    "slots": [
+      {
+        "id": "title",
+        "role": "title",
+        "box": { "x": 80, "y": 48, "w": 800, "h": 56 },
+        "capacity": { "minChars": 2, "maxChars": 24, "maxLines": 1 },
+        "styleRef": "slideTitle",
+        "decorative": false
+      },
+      {
+        "id": "items",
+        "role": "body",
+        "box": { "x": 100, "y": 140, "w": 1080, "h": 520 },
+        "capacity": { "minChars": 10, "maxChars": 400, "maxLines": 12 },
+        "styleRef": "body",
+        "decorative": false
+      }
+    ]
+  },
+  {
+    "id": "section",
+    "canvas": { "width": 1280, "height": 720 },
+    "slots": [
+      {
+        "id": "number",
+        "role": "metric",
+        "box": { "x": 80, "y": 200, "w": 200, "h": 120 },
+        "capacity": { "minChars": 1, "maxChars": 4, "maxLines": 1 },
+        "styleRef": "sectionNumber",
+        "decorative": false
+      },
+      {
+        "id": "title",
+        "role": "title",
+        "box": { "x": 80, "y": 340, "w": 1120, "h": 120 },
+        "capacity": { "minChars": 2, "maxChars": 40, "maxLines": 2 },
+        "styleRef": "slideTitle",
+        "decorative": false
+      }
+    ]
+  },
+  {
+    "id": "three-col",
+    "canvas": { "width": 1280, "height": 720 },
+    "slots": [
+      {
+        "id": "title",
+        "role": "title",
+        "box": { "x": 80, "y": 40, "w": 1120, "h": 56 },
+        "capacity": { "minChars": 2, "maxChars": 36, "maxLines": 1 },
+        "styleRef": "slideTitle",
+        "decorative": false
+      },
+      {
+        "id": "cols",
+        "role": "body",
+        "box": { "x": 48, "y": 120, "w": 1184, "h": 560 },
+        "capacity": { "minChars": 30, "maxChars": 600, "maxLines": 24 },
+        "styleRef": "body",
+        "decorative": false
+      }
+    ]
+  },
+  {
+    "id": "table",
+    "canvas": { "width": 1280, "height": 720 },
+    "slots": [
+      {
+        "id": "title",
+        "role": "title",
+        "box": { "x": 80, "y": 40, "w": 1120, "h": 56 },
+        "capacity": { "minChars": 2, "maxChars": 36, "maxLines": 1 },
+        "styleRef": "slideTitle",
+        "decorative": false
+      },
+      {
+        "id": "table",
+        "role": "table",
+        "box": { "x": 60, "y": 120, "w": 1160, "h": 540 },
+        "capacity": { "minChars": 20, "maxChars": 1200, "maxLines": 30 },
+        "styleRef": "table",
+        "decorative": false
+      }
+    ]
+  },
+  {
+    "id": "conclusion",
+    "canvas": { "width": 1280, "height": 720 },
+    "slots": [
+      {
+        "id": "title",
+        "role": "title",
+        "box": { "x": 80, "y": 40, "w": 1120, "h": 56 },
+        "capacity": { "minChars": 2, "maxChars": 24, "maxLines": 1 },
+        "styleRef": "slideTitle",
+        "decorative": false
+      },
+      {
+        "id": "points",
+        "role": "body",
+        "box": { "x": 100, "y": 120, "w": 1080, "h": 400 },
+        "capacity": { "minChars": 20, "maxChars": 500, "maxLines": 14 },
+        "styleRef": "body",
+        "decorative": false
+      },
+      {
+        "id": "actions",
+        "role": "body",
+        "box": { "x": 100, "y": 540, "w": 1080, "h": 140 },
+        "capacity": { "minChars": 10, "maxChars": 300, "maxLines": 6 },
+        "styleRef": "body",
+        "decorative": false
+      }
+    ]
+  }
+]

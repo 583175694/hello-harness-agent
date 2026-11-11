@@ -2,9 +2,7 @@ package com.harness.agent.ui.chat
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,22 +31,17 @@ fun ChatLandingHero(
                 .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Image(
-                painter = painterResource(id = R.drawable.brand_icon_app),
-                contentDescription = null,
-                modifier = Modifier.size(40.dp),
-                contentScale = ContentScale.Fit,
-            )
-            AppText(
-                text = welcomeText,
-                style = AppTextStyle.Body,
-                modifier = Modifier.padding(start = 14.dp),
-            )
-        }
+        Image(
+            painter = painterResource(id = R.drawable.brand_icon_app),
+            contentDescription = null,
+            modifier = Modifier.size(96.dp),
+            contentScale = ContentScale.Fit,
+        )
+        AppText(
+            text = welcomeText,
+            style = AppTextStyle.Body,
+            modifier = Modifier.padding(top = 16.dp),
+        )
         if (showDemoEntry) {
             AppText(
                 text = "加载演示 Mock（对话 + 工作台）",

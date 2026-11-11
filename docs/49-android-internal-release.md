@@ -36,7 +36,7 @@ HARNESS_VERSION_CODE=2 HARNESS_VERSION_NAME=0.1.1 \
 
 产物：
 
-- `artifacts/android-internal/harness-<versionName>-<versionCode>.apk`
+- `artifacts/android-internal/pipishrimp-<versionName>-<versionCode>.apk`
 - 同名 `.sha256` 校验文件
 
 脚本会拒绝 unsigned 产物；构建成功但没有签名时会直接失败。
@@ -46,7 +46,7 @@ HARNESS_VERSION_CODE=2 HARNESS_VERSION_NAME=0.1.1 \
 先在至少一台真机上做覆盖安装，再发给内测用户：
 
 ```bash
-adb install -r artifacts/android-internal/harness-0.1.1-2.apk
+adb install -r artifacts/android-internal/pipishrimp-0.1.1-2.apk
 ```
 
 如果报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，说明签名与已安装版本不一致。不要用“卸载重装”掩盖问题：先确认是否拿错 keystore。只有明确接受清空该用户数据时，才执行 `adb uninstall com.harness.agent`。
@@ -99,7 +99,7 @@ CI 产物只保留在 Actions artifact 中，不上传公开商店。
 - 账号注销入口与后端注销接口。当前只有“退出登录”，没有账号删除能力。
 - 崩溃与性能监控（Sentry / Firebase Crashlytics / Bugly 任选），以及对应隐私声明。
 - 用户反馈渠道与内测群里明确的响应人。
-- 应用名称、图标、签名证书的最终确认。当前名称仍是 `Harness`。
+- 图标与签名证书归属的最终确认。应用名已定为启动器短名“皮皮虾”，完整品牌为“皮皮虾 pipishrimp”。
 - 若面向中国大陆公开分发：APP 备案、隐私合规检测、渠道资质。内测群小范围分发可先于商店上架，但不等于豁免。
 
 ## 7. 已知风险

@@ -47,7 +47,7 @@ fi
 "$APKSIGNER" verify "$SOURCE_APK" >/dev/null
 
 mkdir -p "$OUT_DIR"
-OUT_APK="$OUT_DIR/harness-${VERSION_NAME}-${VERSION_CODE}.apk"
+OUT_APK="$OUT_DIR/pipishrimp-${VERSION_NAME}-${VERSION_CODE}.apk"
 cp "$SOURCE_APK" "$OUT_APK"
 sha256sum "$OUT_APK" > "$OUT_APK.sha256" 2>/dev/null || shasum -a 256 "$OUT_APK" > "$OUT_APK.sha256"
 

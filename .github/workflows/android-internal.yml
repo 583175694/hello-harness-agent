@@ -45,6 +45,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: harness-android-${{ inputs.versionName }}-${{ inputs.versionCode }}
+          name: pipishrimp-android-${{ inputs.versionName }}-${{ inputs.versionCode }}
           path: artifacts/android-internal/
           if-no-files-found: error

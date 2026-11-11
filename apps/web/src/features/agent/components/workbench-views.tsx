@@ -9,7 +9,6 @@ import {
   Link2,
   PanelRight,
   Pencil,
-  Search,
 } from 'lucide-react';
 import {
   memo,
@@ -246,7 +245,7 @@ export const WorkbenchShell = memo(function WorkbenchShell({
               title="收起工作区"
               onClick={onClose}
             >
-              <PanelRight size={18} strokeWidth={1.75} aria-hidden="true" />
+              <PanelRight size={20} strokeWidth={2} aria-hidden="true" />
               <span className="workbench-open-button__label">{AGENT_UI_COPY.openWorkbenchLabel}</span>
             </button>
           </header>
@@ -261,7 +260,6 @@ export const WorkbenchShell = memo(function WorkbenchShell({
               <WorkbenchActiveView
                 state={state}
                 toolIndex={toolIndex}
-                onExecutionSelect={onExecutionSelect}
                 onReviseArtifact={onReviseArtifact}
                 onRestoreArtifact={onRestoreArtifact}
                 onArtifactDetailClose={onArtifactDetailClose}
@@ -434,14 +432,12 @@ function ToolCallSliderFooter({
 function WorkbenchActiveView({
   state,
   toolIndex,
-  onExecutionSelect,
   onReviseArtifact,
   onRestoreArtifact,
   onArtifactDetailClose,
 }: {
   state: WorkbenchState;
   toolIndex: number;
-  onExecutionSelect: (tool: ToolCallView) => void;
   onReviseArtifact?: (artifact: ArtifactRef) => void;
   onRestoreArtifact?: (artifact: ArtifactRef) => void;
   onArtifactDetailClose?: () => void;
@@ -462,10 +458,6 @@ function WorkbenchActiveView({
       executions={state.executions}
       sources={state.sources}
       toolIndex={toolIndex}
-      onSelectByIndex={(nextIndex) => {
-        const tool = state.executions[nextIndex];
-        if (tool) onExecutionSelect(tool);
-      }}
     />
   );
 }
@@ -474,12 +466,10 @@ function ToolResultsView({
   executions,
   sources,
   toolIndex,
-  onSelectByIndex,
 }: {
   executions: ToolCallView[];
   sources: SourceView[];
   toolIndex: number;
-  onSelectByIndex: (index: number) => void;
 }) {
   const selectedTool = executions[toolIndex];
   const relatedSources = useMemo(() => {

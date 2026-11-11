@@ -1,0 +1,19 @@
+{
+  "pending": false,
+  "deliveryStatus": "completed",
+  "pendingText": "",
+  "finalText": "结论如下",
+  "process": [
+    {
+      "kind": "text",
+      "content": "正在查询…"
+    },
+    {
+      "kind": "tool",
+      "id": "call-1",
+      "name": "搜索网页",
+      "status": "completed",
+      "summary": "demo"
+    }
+  ]
+}

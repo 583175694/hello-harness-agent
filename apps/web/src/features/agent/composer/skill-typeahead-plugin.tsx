@@ -4,7 +4,7 @@ import {
   MenuOption,
   useBasicTypeaheadTriggerMatch,
 } from '@lexical/react/LexicalTypeaheadMenuPlugin';
-import { COMMAND_PRIORITY_HIGH } from 'lexical';
+import { COMMAND_PRIORITY_HIGH, type TextNode } from 'lexical';
 import { useCallback, useEffect, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -76,7 +76,7 @@ export function SkillTypeaheadPlugin({ enabled }: { enabled: boolean }) {
   const onSelectOption = useCallback(
     (
       selectedOption: SkillMenuOption,
-      textNodeContainingQuery: import('lexical').TextNode | null,
+      textNodeContainingQuery: TextNode | null,
       closeMenu: () => void,
       matchingString: string,
     ) => {

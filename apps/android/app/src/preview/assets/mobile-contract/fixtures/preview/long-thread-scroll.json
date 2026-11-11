@@ -1,0 +1,424 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "long-thread-scroll",
+  "title": "长会话压测",
+  "conversation": [
+    {
+      "kind": "user",
+      "id": "u-1",
+      "content": "压测 turn 1：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-1",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 1，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-2",
+      "content": "压测 turn 2：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-2",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 2，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-3",
+      "content": "压测 turn 3：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-3",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 3，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-4",
+      "content": "压测 turn 4：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-4",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 4，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-5",
+      "content": "压测 turn 5：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-5",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 5，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-6",
+      "content": "压测 turn 6：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-6",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 6，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-7",
+      "content": "压测 turn 7：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-7",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 7，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-8",
+      "content": "压测 turn 8：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-8",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 8，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-9",
+      "content": "压测 turn 9：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-9",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 9，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-10",
+      "content": "压测 turn 10：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-10",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 10，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-11",
+      "content": "压测 turn 11：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-11",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 11，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-12",
+      "content": "压测 turn 12：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-12",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 12，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-13",
+      "content": "压测 turn 13：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-13",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 13，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-14",
+      "content": "压测 turn 14：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-14",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 14，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-15",
+      "content": "压测 turn 15：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-15",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 15，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-16",
+      "content": "压测 turn 16：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-16",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 16，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-17",
+      "content": "压测 turn 17：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-17",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 17，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-18",
+      "content": "压测 turn 18：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-18",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 18，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-19",
+      "content": "压测 turn 19：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-19",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 19，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-20",
+      "content": "压测 turn 20：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-20",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 20，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-21",
+      "content": "压测 turn 21：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-21",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 21，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-22",
+      "content": "压测 turn 22：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-22",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 22，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-23",
+      "content": "压测 turn 23：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-23",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 23，继续滚动以验证列表性能。"
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "u-24",
+      "content": "压测 turn 24：请用一句话确认收到。"
+    },
+    {
+      "kind": "assistant",
+      "id": "a-24",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已收到 turn 24，继续滚动以验证列表性能。"
+        }
+      ]
+    }
+  ],
+  "composer": {
+    "composerTextMode": "new-run"
+  },
+  "chrome": {
+    "connectionState": "live",
+    "serviceState": "ready"
+  },
+  "sessionDrawer": {
+    "draftTitle": "新对话",
+    "searchPlaceholder": "搜索会话",
+    "sessions": [
+      { "id": "lt-1", "title": "长会话压测 · 当前", "time": "刚刚", "active": true },
+      { "id": "lt-2", "title": "scroll-perf-thread-24", "time": "5 分钟前", "pinned": true },
+      { "id": "lt-3", "title": "agent-auth-refactor", "time": "12 分钟前", "running": true },
+      { "id": "lt-4", "title": "payment-gateway-stripe", "time": "1 小时前" },
+      { "id": "lt-5", "title": "redis-caching-layer", "time": "2 小时前", "pinned": true },
+      { "id": "lt-6", "title": "user-profile-api-migration", "time": "昨天" },
+      { "id": "lt-7", "title": "fix-jwt-token-leak", "time": "昨天" },
+      { "id": "lt-8", "title": "macrobenchmark-notes", "time": "2 天前" },
+      { "id": "lt-9", "title": "gate-a-paparazzi-baseline", "time": "3 天前" },
+      { "id": "lt-10", "title": "harmony-rawfile-sync", "time": "4 天前" },
+      { "id": "lt-11", "title": "ios-snapshot-iphone17", "time": "5 天前" },
+      { "id": "lt-12", "title": "workbench-detent-44", "time": "1 周前" },
+      { "id": "lt-13", "title": "composer-steer-mode", "time": "1 周前" },
+      { "id": "lt-14", "title": "hitl-tool-approval-copy", "time": "2 周前" },
+      { "id": "lt-15", "title": "memory-hub-local-kv", "time": "2 周前" },
+      { "id": "lt-16", "title": "mcp-server-crud-preview", "time": "3 周前" },
+      { "id": "lt-17", "title": "drawer-search-clear", "time": "3 周前" },
+      { "id": "lt-18", "title": "streaming-assistant-tail", "time": "1 月前" },
+      { "id": "lt-19", "title": "process-timeline-tools", "time": "1 月前" },
+      { "id": "lt-20", "title": "connection-offline-error", "time": "1 月前" }
+    ]
+  }
+}

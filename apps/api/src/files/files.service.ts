@@ -8,7 +8,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { FileStorage, LocalFileStorage, type FileVariant } from '../file-storage/file-storage';
+import { FileStorage, type FileVariant } from '../file-storage/file-storage';
 import {
   FileProcessingService,
   MAX_FILE_BYTES,
@@ -1307,10 +1307,10 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     return this.readUrl(file);
   }
 
-  // 本地存储专用读取路径，生产 COS 不经过这里。
+  // 原生端经 fileId 直接下载原文件；两种存储都支持按对象读取字节。
   async localContent(userId: string, fileId: string, variant: FileVariant) {
     const file = await this.findReadyForSharedReadable(userId, fileId);
-    if (!(this.storage instanceof LocalFileStorage))
+    if (variant === 'preview' && !file.previewKey)
       throw new NotFoundException({ code: 'FILE_NOT_FOUND', detail: '文件内容不存在。' });
     const result = await this.storage.readObject({
       sessionId: file.sessionId,

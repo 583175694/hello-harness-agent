@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "streaming-assistant-tail",
+  "title": "流式预览",
+  "conversation": [
+    { "kind": "user", "content": "简要介绍 Harness 移动端体验的目标。" },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "streaming",
+      "streaming": true,
+      "pendingText": "在三端提供一致的对话与工作台体验；演示数据来自 fixture，流式输出由 Replay 模拟（约 100ms 合并）。",
+      "blocks": []
+    }
+  ],
+  "composer": {
+    "composerTextMode": "disabled",
+    "submitting": true,
+    "followUps": [
+      { "id": "fu-1", "content": "补充：三端都要过 Gate A 快照" },
+      { "id": "fu-2", "content": "再给一个 workbench 样例" }
+    ]
+  },
+  "chrome": { "connectionState": "live", "serviceState": "ready", "runSummary": "撰写中" },
+  "replay": {
+    "assistantTail": {
+      "tickMs": 100,
+      "codepointsPerTick": 6
+    }
+  }
+}

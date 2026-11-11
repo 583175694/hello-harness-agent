@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "description": "Markdown parity goldens：Web Streamdown 为语义基准，原生 Paparazzi / Snapshot 为像素回归。",
+  "webComponent": "apps/web/src/components/markdown-content.tsx",
+  "webCss": "apps/web/src/styles/markdown.css",
+  "scenarios": [
+    {
+      "id": "chat-markdown-gallery",
+      "previewFixture": "fixtures/preview/chat-markdown-gallery.json",
+      "payloadFile": "fixtures/markdown-golden/payloads/chat-markdown-gallery.md",
+      "kind": "synthetic",
+      "notes": "全组件合成样例（表格 / 代码 / 任务列表 / 公式占位）"
+    },
+    {
+      "id": "markdown-golden-wide-table",
+      "previewFixture": "fixtures/preview/markdown-golden-wide-table.json",
+      "payloadFile": "fixtures/markdown-golden/payloads/markdown-golden-wide-table.md",
+      "kind": "agent-reply",
+      "notes": "多列表格 + emoji，验证横向滚动与列对齐"
+    },
+    {
+      "id": "markdown-golden-research-report",
+      "previewFixture": "fixtures/preview/markdown-golden-research-report.json",
+      "payloadFile": "fixtures/markdown-golden/payloads/markdown-golden-research-report.md",
+      "kind": "agent-reply",
+      "notes": "调研结论：标题阶梯 + 嵌套列表 + 引用"
+    },
+    {
+      "id": "markdown-golden-code-review",
+      "previewFixture": "fixtures/preview/markdown-golden-code-review.json",
+      "payloadFile": "fixtures/markdown-golden/payloads/markdown-golden-code-review.md",
+      "kind": "agent-reply",
+      "notes": "代码审查：多段 fenced code + 行内 code"
+    },
+    {
+      "id": "markdown-golden-incident-summary",
+      "previewFixture": "fixtures/preview/markdown-golden-incident-summary.json",
+      "payloadFile": "fixtures/markdown-golden/payloads/markdown-golden-incident-summary.md",
+      "kind": "agent-reply",
+      "notes": "事故复盘：时间线表 + checklist + 警示引用"
+    }
+  ]
+}

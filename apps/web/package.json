@@ -12,7 +12,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@harness/agent-client": "workspace:*",
+    "@harness/agent-conversation": "workspace:*",
+    "@harness/agent-projection": "workspace:*",
     "@harness/agent-protocol": "workspace:*",
+    "@harness/agent-run-state": "workspace:*",
+    "@harness/agent-ui-types": "workspace:*",
     "@lexical/react": "^0.52.0",
     "@lexical/text": "^0.52.0",
     "@lexical/utils": "^0.52.0",
@@ -31,8 +36,8 @@
     "katex": "^0.18.4",
     "lexical": "^0.52.0",
     "lucide-react": "^0.468.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
     "react-resizable-panels": "^4.14.1",
     "sonner": "^2.0.8",
     "streamdown": "^2.5.0",

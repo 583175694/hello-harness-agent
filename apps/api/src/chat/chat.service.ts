@@ -363,7 +363,6 @@ export class ChatService {
         const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
         const isSandboxCommand = this.isSandboxCommandTool(event.toolName);
         const isBash = event.toolName === AGENT_TOOL_NAMES.bash;
-        const isJobTool = this.isSandboxJobTool(event.toolName);
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput = isWebSearch ? this.asSearchInput(event.input) : undefined;
         let toolSummary = searchInput?.query ?? '';
@@ -668,9 +667,6 @@ export class ChatService {
         const isCurrentTime = event.toolName === AGENT_TOOL_NAMES.getCurrentTime;
         const isMemoryWrite = event.toolName === AGENT_TOOL_NAMES.memoryWrite;
         const isFileSearch = event.toolName === AGENT_TOOL_NAMES.searchFile;
-        const isFileRead =
-          event.toolName === AGENT_TOOL_NAMES.readFile ||
-          event.toolName === AGENT_TOOL_NAMES.readFileLines;
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
         const isSandboxCommand = this.isSandboxCommandTool(event.toolName);

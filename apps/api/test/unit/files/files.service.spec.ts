@@ -52,7 +52,7 @@ describe('FilesService importGeneratedBytes', () => {
     storage.putPreview.mockImplementation(async (input) => ({
       objectKey: `sessions/session-1/files/${input.fileId}/preview`,
     }));
-    prisma.file.update.mockImplementation(async ({ where, data }) => ({
+    prisma.file.update.mockImplementation(async ({ where }) => ({
       id: where.id,
       fileName: 'shot.png',
       mediaType: 'image/png',

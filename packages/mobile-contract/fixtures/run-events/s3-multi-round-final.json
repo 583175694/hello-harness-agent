@@ -1,0 +1,155 @@
+{
+  "assistantMessageId": "asst-1",
+  "sessionId": "s-golden",
+  "runId": "run-golden-s3",
+  "initialCursor": 0,
+  "events": [
+    {
+      "seq": 1,
+      "type": "message.delta",
+      "runId": "run-golden-s3",
+      "payload": {
+        "type": "message.delta",
+        "messageId": "asst-1",
+        "blockId": "text-r1-pending",
+        "delta": "第一轮草稿",
+        "roundId": "round-1",
+        "roundSequence": 1,
+        "blockSequence": 0,
+        "phase": "pending"
+      }
+    },
+    {
+      "seq": 2,
+      "type": "tool.started",
+      "runId": "run-golden-s3",
+      "payload": {
+        "type": "tool.started",
+        "messageId": "asst-1",
+        "blockId": "tool-1",
+        "toolCallId": "call-1",
+        "toolName": "web_search",
+        "title": "搜索网页",
+        "input": { "query": "a" },
+        "startedAt": "2026-01-01T00:00:01.000Z",
+        "roundId": "round-1",
+        "roundSequence": 1,
+        "blockSequence": 1
+      }
+    },
+    {
+      "seq": 3,
+      "type": "tool.completed",
+      "runId": "run-golden-s3",
+      "payload": {
+        "type": "tool.completed",
+        "messageId": "asst-1",
+        "blockId": "tool-1",
+        "toolCallId": "call-1",
+        "toolName": "web_search",
+        "completedAt": "2026-01-01T00:00:02.000Z",
+        "durationMs": 400,
+        "result": { "query": "a", "provider": "serp", "results": [] },
+        "roundId": "round-1",
+        "roundSequence": 1,
+        "blockSequence": 1
+      }
+    },
+    {
+      "seq": 4,
+      "type": "message.phase.completed",
+      "runId": "run-golden-s3",
+      "payload": {
+        "type": "message.phase.completed",
+        "messageId": "asst-1",
+        "blockId": "text-r1-pending",
+        "phase": "final_answer",
+        "roundId": "round-1",
+        "roundSequence": 1,
+        "blockSequence": 0
+      }
+    },
+    {
+      "seq": 5,
+      "type": "model.round.completed",
+      "runId": "run-golden-s3",
+      "payload": {
+        "type": "model.round.completed",
+        "messageId": "asst-1",
+        "observation": { "roundSequence": 1, "durationMs": 200 }
+      }
+    },
+    {
+      "seq": 6,
+      "type": "message.delta",
+      "runId": "run-golden-s3",
+      "payload": {
+        "type": "message.delta",
+        "messageId": "asst-1",
+        "blockId": "text-r1-final",
+        "delta": "第一轮结论",
+        "roundId": "round-1",
+        "roundSequence": 1,
+        "blockSequence": 2,
+        "phase": "final_answer"
+      }
+    },
+    {
+      "seq": 7,
+      "type": "tool.started",
+      "runId": "run-golden-s3",
+      "payload": {
+        "type": "tool.started",
+        "messageId": "asst-1",
+        "blockId": "tool-2",
+        "toolCallId": "call-2",
+        "toolName": "web_search",
+        "title": "搜索网页",
+        "input": { "query": "b" },
+        "startedAt": "2026-01-01T00:00:03.000Z",
+        "roundId": "round-2",
+        "roundSequence": 2,
+        "blockSequence": 0
+      }
+    },
+    {
+      "seq": 8,
+      "type": "tool.completed",
+      "runId": "run-golden-s3",
+      "payload": {
+        "type": "tool.completed",
+        "messageId": "asst-1",
+        "blockId": "tool-2",
+        "toolCallId": "call-2",
+        "toolName": "web_search",
+        "completedAt": "2026-01-01T00:00:04.000Z",
+        "durationMs": 350,
+        "result": { "query": "b", "provider": "serp", "results": [] },
+        "roundId": "round-2",
+        "roundSequence": 2,
+        "blockSequence": 0
+      }
+    },
+    {
+      "seq": 9,
+      "type": "message.delta",
+      "runId": "run-golden-s3",
+      "payload": {
+        "type": "message.delta",
+        "messageId": "asst-1",
+        "blockId": "text-r2-final",
+        "delta": "第二轮结论",
+        "roundId": "round-2",
+        "roundSequence": 2,
+        "blockSequence": 1,
+        "phase": "final_answer"
+      }
+    },
+    {
+      "seq": 10,
+      "type": "run.completed",
+      "runId": "run-golden-s3",
+      "payload": { "type": "run.completed", "status": "completed" }
+    }
+  ]
+}

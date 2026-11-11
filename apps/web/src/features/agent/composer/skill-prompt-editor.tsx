@@ -168,7 +168,9 @@ function EditorRefCapture({
   disabled: boolean;
 }) {
   const [editor] = useLexicalComposerContext();
-  editorRef.current = editor;
+  useEffect(() => {
+    editorRef.current = editor;
+  }, [editor, editorRef]);
   useEffect(() => {
     editor.setEditable(!disabled);
   }, [disabled, editor]);

@@ -3,7 +3,7 @@
 > 文档状态：**权威路线图**（Desktop 客户端产品范围、优先级与多端分工）。实际完成状态以 [implementation-status.md](./implementation-status.md) 为准。  
 > Agent Kernel、Host 能力与 R1 边界以 [00-agent-core-roadmap.md](./00-agent-core-roadmap.md) 为准；Web 行为语义以 [19-agent-frontend.md](./19-agent-frontend.md) 为准。  
 > 最后更新：2026-10-21（P1 增补 Browser/Computer Use、MCP stdio、本机 Skills；Subagent 移出本文）  
-> 关联：[36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)（Mobile parity）、[42-mobile-api-integration-plan.md](./42-mobile-api-integration-plan.md)、[implementation-status.md](./implementation-status.md) § L6 / C8  
+> 关联：[36-mobile-agent-frontend.md](./36-mobile-agent-frontend.md)（Mobile parity）、[45-native-mobile-phase-b-integration.md](./45-native-mobile-phase-b-integration.md)、[implementation-status.md](./implementation-status.md) § L6 / C8  
 
 本文定义 **Harness 桌面 Agent 客户端** 的产品方向、标配能力、差异化分档与落地顺序；不替代 Web 契约，不定义实现技术栈。Mobile 并列分轨见 doc 36。
 

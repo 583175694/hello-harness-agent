@@ -37,10 +37,17 @@ export class SessionsController {
     return this.sessions.create(user.id, result.data.title);
   }
 
-  // 返回当前本地用户的会话列表。
+  // 返回当前本地用户的会话列表；limit/before 仅分页普通会话。
   @Get()
-  list(@CurrentUser() user: RequestUser) {
-    return this.sessions.list(user.id);
+  list(
+    @CurrentUser() user: RequestUser,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+  ) {
+    const parsedLimit = limit === undefined ? undefined : Number(limit);
+    if (parsedLimit !== undefined && (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 200))
+      this.invalid('limit 必须是 1 到 200 之间的整数。');
+    return this.sessions.list(user.id, { limit: parsedLimit, before });
   }
 
   // 返回指定会话消息；传入 limit/before 时按时间游标分页。

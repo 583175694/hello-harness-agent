@@ -1,7 +1,7 @@
 import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, it } from 'vitest';
 
 import { configureHttpBodyParsing } from '../../src/bootstrap/http-body';
 import { HttpExceptionFilter } from '../../src/shared/http-exception.filter';

@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
-
 import { SandboxError } from '../../../src/sandbox/sandbox-error';
 import { BashTool } from '../../../src/tools/bash.tool';
 

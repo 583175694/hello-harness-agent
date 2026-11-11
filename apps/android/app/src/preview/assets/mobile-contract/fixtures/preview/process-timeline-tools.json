@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "process-timeline-tools",
+  "title": "Native Mobile 性能与交互优化 Skill",
+  "conversation": [
+    {
+      "kind": "user",
+      "content": "有没有什么比较好的 Android / iOS 原生客户端性能优化 Skill？交互打磨也想要一个 Skill。"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "process": [
+        {
+          "type": "reasoning",
+          "content": "用户要两类能力：原生端性能审计（FPS、TTI、长列表、内存）和交互打磨（手势、动效、无障碍）。先列已有 Skill，再搜官方 Profiling 与 Compose/SwiftUI 最佳实践，最后打包可安装的 Skill 正文。",
+          "durationMs": 6200
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "skills-list",
+            "name": "skills.list",
+            "summary": "匹配 performance / mobile / interaction",
+            "status": "completed",
+            "duration": "1 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "仓库里缺少 Native Mobile 专用 Skill；Web 向的 summarize 不能覆盖 LazyColumn 回收、Instruments、Macrobenchmark。需要自行撰写并引用公开文档。",
+          "durationMs": 6000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "web-search-native-perf",
+            "name": "web_search",
+            "summary": "Android Macrobenchmark Compose LazyColumn jank 2025",
+            "status": "completed",
+            "duration": "18 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "Android 侧强调 Systrace、GPU 过度绘制与 stable key；iOS 侧看 Instruments Time Profiler 与 List 增量更新。记下可写进 native-perf-audit 的检查清单。",
+          "durationMs": 2000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "bash-readme",
+            "name": "bash",
+            "summary": "curl -sL agent-skills/README.md | head -n 80",
+            "status": "completed",
+            "duration": "3 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "web-fetch-profiling",
+            "name": "web_fetch",
+            "summary": "developer.android.com/topic/performance",
+            "status": "completed",
+            "duration": "5 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "Profiling 页强调主线程 vs 渲染线程、帧 pacing 与列表 prefetch；Compose 需 remember、derivedStateOf、避免整页 recomposition。",
+          "durationMs": 9000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "web-search-interaction",
+            "name": "web_search",
+            "summary": "SwiftUI animation accessibility reduce motion haptics",
+            "status": "completed",
+            "duration": "11 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "read-file-existing",
+            "name": "read_file",
+            "summary": ".agents/skills/better-ui/SKILL.md",
+            "status": "completed",
+            "duration": "1 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "已有 better-ui 偏 Web/通用动效；用户要的是可执行的 audit + polish 两个独立 Skill，需补安装说明与触发词。",
+          "durationMs": 3000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "bash-native-docs",
+            "name": "bash",
+            "summary": "获取 Android/iOS Profiling 文档摘要",
+            "status": "completed",
+            "duration": "4 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "bash-benchmark",
+            "name": "bash",
+            "summary": "整理 Gate A benchmark 场景与阈值",
+            "status": "completed",
+            "duration": "6 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "benchmark 章节可映射到「如何向用户解释卡顿来源」；启动与首帧写进 perf Skill 的「快速 wins」一节。",
+          "durationMs": 25000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "bash-write-perf-skill",
+            "name": "bash",
+            "summary": "撰写 native-perf-audit 技能正文（SKILL.md + 检查表）",
+            "status": "completed",
+            "duration": "8 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "交互 Skill 聚焦：44pt hit area、reduce motion、Tab 切换 150ms 内反馈、按压缩放 0.96；与 design-tokens.json 对齐。",
+          "durationMs": 29000
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "bash-write-interaction-skill",
+            "name": "bash",
+            "summary": "撰写 native-interaction-polish 技能正文",
+            "status": "completed",
+            "duration": "7 秒"
+          }
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "create-report",
+            "name": "create_report",
+            "summary": "Native Mobile 性能与交互优化 Skill 包（可直接安装）",
+            "status": "completed",
+            "duration": "2 秒"
+          }
+        },
+        {
+          "type": "reasoning",
+          "content": "报告已含两个 Skill 摘要与 native-skills-pack.md 路径；回答里说明「为何自写」与安装步骤即可。",
+          "durationMs": 4100
+        },
+        {
+          "type": "tool_activity",
+          "item": {
+            "id": "web-search-running",
+            "name": "web_search",
+            "summary": "（补检）HarmonyOS ArkUI 列表性能 checklist",
+            "status": "running",
+            "statusLabel": "执行中"
+          }
+        }
+      ],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "已经写好，可直接安装使用。完整正文在 **native-skills-pack.md**（含两个 Skill 的触发方式与检查表）。\n\n### 为什么是「自己写」\n\n公开 Skill 多面向 Web；Native Mobile 需要单独覆盖 **长列表回收、流式 tail 合并、平台 Profiler**，通用 summarize 不够用。\n\n### 两个 Skill\n\n1. **native-perf-audit** — Macrobenchmark/Instruments、LazyColumn/LazyVStack stable key、~100ms tail 合并。\n2. **native-interaction-polish** — 触控反馈、动效时长、无障碍与 reduce motion。\n\n需要我把 pack 同步进工作台 **文件** Tab 也可以说一声。"
+        }
+      ]
+    }
+  ],
+  "composer": {
+    "submitting": true,
+    "composerTextMode": "steer",
+    "showPlan": true,
+    "selectedModelLabel": "DeepSeek V3.1 Flash · 中",
+    "attachmentNames": [],
+    "plan": {
+      "explanation": "检索 → 读文档 → 撰写双 Skill → 生成报告。",
+      "steps": [
+        { "step": "列出已有 Skill", "status": "completed" },
+        { "step": "检索原生性能文档", "status": "completed" },
+        { "step": "撰写 native-perf-audit", "status": "completed" },
+        { "step": "撰写 native-interaction-polish", "status": "in_progress" },
+        { "step": "生成安装报告", "status": "pending" }
+      ]
+    }
+  },
+  "chrome": {
+    "connectionState": "live",
+    "serviceState": "ready",
+    "runSummary": "Run 进行中"
+  },
+  "workbench": {
+    "initialView": "activity",
+    "initialSheetIndex": 1,
+    "workbenchCount": 8,
+    "activityTimeline": [
+      { "id": "pt-1", "kind": "tool", "title": "skills.list", "status": "completed" },
+      { "id": "pt-2", "kind": "tool", "title": "web_search · native perf", "status": "completed" },
+      { "id": "pt-3", "kind": "bash", "title": "fetch profiling 文档", "status": "completed" },
+      { "id": "pt-4", "kind": "read", "title": "read_file · better-ui", "status": "completed" },
+      { "id": "pt-5", "kind": "bash", "title": "撰写 native-perf-audit", "status": "completed" },
+      { "id": "pt-6", "kind": "bash", "title": "撰写 native-interaction-polish", "status": "completed" },
+      { "id": "pt-7", "kind": "write", "title": "create_report · Skill 包", "status": "completed" },
+      { "id": "pt-8", "kind": "tool", "title": "web_search · ArkUI checklist", "status": "running", "highlighted": true }
+    ]
+  }
+}

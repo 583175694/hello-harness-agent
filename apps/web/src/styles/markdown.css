@@ -88,6 +88,16 @@
 .markdown-content ul {
   list-style: disc outside;
 }
+/* 对话气泡：marker 略小、首层空心圆，避免粗 disc 抢视觉 */
+.markdown-content--chat ul {
+  list-style: circle outside;
+}
+.markdown-content--chat ul ul {
+  list-style: disc outside;
+}
+.markdown-content--chat li::marker {
+  font-size: 0.7em;
+}
 .markdown-content ol {
   list-style: decimal outside;
 }

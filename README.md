@@ -112,6 +112,10 @@ pnpm db -- studio           # 打开 Prisma Studio
 
 ```text
 apps/web                React/Vite 工作台
+apps/android            Native Android Preview（Gate A 静态 UI）
+apps/ios                Native iOS Preview（Gate A 静态 UI）
+apps/harmony            HarmonyOS Preview（Gate A 静态 UI）
+packages/mobile-contract  三端 Preview fixture / tokens（Gate A）
 apps/api                NestJS API + Prisma
 packages/agent-protocol 跨前后端 canonical schema/type
 packages/agent-testkit  确定性测试 fixtures
@@ -119,6 +123,28 @@ scripts                 本地开发和 PostgreSQL 初始化脚本
 artifacts               本地 Artifact 内容根目录
 docs                    产品、架构与实施文档
 ```
+
+## Native Mobile Gate A（静态 UI）
+
+Phase A 三端 Preview + contract 门禁（无 `mobile-core`、无 Harness SSE）。详见 [`docs/44-native-mobile-phase-a-static-ui.md`](./docs/44-native-mobile-phase-a-static-ui.md) 与 [`docs/native-mobile-gate-a-evidence.md`](./docs/native-mobile-gate-a-evidence.md)。
+
+根目录 **不挂** Native Mobile 的 `pnpm` 脚本；校验与 CI 对齐见 [`packages/mobile-contract/README.md`](./packages/mobile-contract/README.md)，自动化在 [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)。
+
+```bash
+# contract / Preview 静态校验
+pnpm --filter @harness/mobile-contract validate:gate-a
+
+# 本地装 Preview（可选）
+bash apps/android/scripts/launch-preview.sh
+bash apps/android/scripts/launch-preview-release.sh
+bash apps/ios/scripts/launch-preview.sh
+bash apps/harmony/scripts/sync-mobile-contract.sh   # DevEco Run entry 前
+
+# 合并前自检（validate + 快照清单 + git 范围提示）
+bash scripts/gate-a-prep-commit.sh
+```
+
+手验与未证毕项：[`docs/native-mobile-gate-a-open-items.md`](./docs/native-mobile-gate-a-open-items.md) · Goal 阻塞：[`docs/native-mobile-gate-a-blockers.md`](./docs/native-mobile-gate-a-blockers.md) · **关 Goal 签字**：[`docs/native-mobile-gate-a-signoff-checklist.md`](./docs/native-mobile-gate-a-signoff-checklist.md)。三端 Preview 快速手验：[`android`](./apps/android/docs/gate-a-quick-smoke.md) · [`ios`](./apps/ios/docs/gate-a-quick-smoke.md) · [`harmony`](./apps/harmony/docs/gate-a-quick-smoke.md)。
 
 ## 阅读顺序
 

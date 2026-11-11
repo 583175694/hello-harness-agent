@@ -65,8 +65,18 @@ export const createSessionRequestSchema = z.object({
 // 定义创建会话接口的响应结构。
 export const createSessionResponseSchema = z.object({ session: sessionSummarySchema });
 
+// 定义会话列表游标分页；不传 limit 时保持全量返回。
+export const sessionListPaginationSchema = z.object({
+  limit: z.number().int().positive(),
+  hasMore: z.boolean(),
+  nextBefore: z.string().min(1).optional(),
+});
+
 // 定义会话列表接口的响应结构。
-export const listSessionsResponseSchema = z.object({ sessions: z.array(sessionSummarySchema) });
+export const listSessionsResponseSchema = z.object({
+  sessions: z.array(sessionSummarySchema),
+  pagination: sessionListPaginationSchema.optional(),
+});
 
 // 定义会话详情接口的响应结构。
 export const sessionDetailResponseSchema = z.object({ session: sessionDetailSchema });
@@ -103,6 +113,7 @@ export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export type SessionDetail = z.infer<typeof sessionDetailSchema>;
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
+export type SessionListPagination = z.infer<typeof sessionListPaginationSchema>;
 export type ListSessionsResponse = z.infer<typeof listSessionsResponseSchema>;
 export type SessionDetailResponse = z.infer<typeof sessionDetailResponseSchema>;
 export type DeleteSessionResponse = z.infer<typeof deleteSessionResponseSchema>;

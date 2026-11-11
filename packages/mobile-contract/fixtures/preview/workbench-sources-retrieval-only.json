@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "workbench-sources-retrieval-only",
+  "title": "来源 · 仅检索",
+  "conversation": [{ "kind": "user", "content": "仅检索、无文件型来源。" }],
+  "composer": {},
+  "workbench": {
+    "initialView": "sources",
+    "initialSheetIndex": 2,
+    "sourcesRetrievalOnly": true,
+    "sources": []
+  }
+}

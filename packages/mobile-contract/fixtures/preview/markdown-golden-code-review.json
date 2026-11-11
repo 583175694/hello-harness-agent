@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "markdown-golden-code-review",
+  "title": "Markdown Golden · Code Review",
+  "conversation": [
+    {
+      "kind": "user",
+      "content": "Review SessionEngine 改动"
+    },
+    {
+      "kind": "assistant",
+      "deliveryStatus": "completed",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "## Code Review：`SessionEngineController`\n\n整体方向正确；下面 2 处建议在合并前处理。\n\n### 1. 重复订阅\n\n`observeRuns()` 在 `init` 与 `resumeSession` 各注册一次，可能导致 **双份 SSE 事件**。\n\n```kotlin\n// 建议：单例 Job + 会话切换时 cancelAndJoin\nprivate var runsJob: Job? = null\n\nfun bindSession(sessionId: String) {\n    runsJob?.cancel()\n    runsJob = scope.launch { engine.observeRuns(sessionId).collect { … } }\n}\n```\n\n### 2. 错误映射\n\n`ProblemDetails` 的 `type` 未透传时，UI 只能显示泛化文案。\n\n```typescript\nexport function mapProblem(details: ProblemDetails): UiProblem {\n  return {\n    title: details.title ?? '请求失败',\n    type: details.type ?? 'unknown',\n  };\n}\n```\n\n行内引用：`RunControlModels.kt` 第 42 行附近。\n\n**Verdict**：~~阻塞发布~~ → **批准合并**（修完 #1 即可）。\n"
+        }
+      ]
+    }
+  ],
+  "composer": {
+    "composerMode": "default",
+    "composerTextMode": "new-run",
+    "submitting": false,
+    "placeholder": "继续对话…",
+    "modelLabel": "默认模型"
+  },
+  "workbench": {
+    "initialView": "activity",
+    "initialSheetIndex": -1,
+    "workbenchCount": 0
+  }
+}

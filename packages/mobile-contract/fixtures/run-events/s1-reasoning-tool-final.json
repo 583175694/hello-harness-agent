@@ -1,0 +1,89 @@
+{
+  "assistantMessageId": "asst-1",
+  "sessionId": "s-golden",
+  "runId": "run-golden-s1",
+  "initialCursor": 0,
+  "events": [
+    {
+      "seq": 1,
+      "type": "reasoning.delta",
+      "runId": "run-golden-s1",
+      "payload": {
+        "type": "reasoning.delta",
+        "messageId": "asst-1",
+        "blockId": "reasoning-1",
+        "delta": "先检索",
+        "roundId": "round-1",
+        "roundSequence": 1,
+        "blockSequence": 0
+      }
+    },
+    {
+      "seq": 2,
+      "type": "model.round.completed",
+      "runId": "run-golden-s1",
+      "payload": {
+        "type": "model.round.completed",
+        "messageId": "asst-1",
+        "observation": { "roundSequence": 1, "durationMs": 320 }
+      }
+    },
+    {
+      "seq": 3,
+      "type": "tool.started",
+      "runId": "run-golden-s1",
+      "payload": {
+        "type": "tool.started",
+        "messageId": "asst-1",
+        "blockId": "tool-1",
+        "toolCallId": "call-1",
+        "toolName": "web_search",
+        "title": "搜索网页",
+        "input": { "query": "市场" },
+        "startedAt": "2026-01-01T00:00:01.000Z",
+        "roundId": "round-1",
+        "roundSequence": 1,
+        "blockSequence": 1
+      }
+    },
+    {
+      "seq": 4,
+      "type": "tool.completed",
+      "runId": "run-golden-s1",
+      "payload": {
+        "type": "tool.completed",
+        "messageId": "asst-1",
+        "blockId": "tool-1",
+        "toolCallId": "call-1",
+        "toolName": "web_search",
+        "completedAt": "2026-01-01T00:00:02.000Z",
+        "durationMs": 900,
+        "result": { "query": "市场", "provider": "serp", "results": [] },
+        "roundId": "round-1",
+        "roundSequence": 1,
+        "blockSequence": 1
+      }
+    },
+    {
+      "seq": 5,
+      "type": "message.delta",
+      "runId": "run-golden-s1",
+      "payload": {
+        "type": "message.delta",
+        "messageId": "asst-1",
+        "blockId": "text-final",
+        "delta": "最终答案",
+        "roundId": "round-2",
+        "roundSequence": 2,
+        "blockSequence": 0,
+        "phase": "final_answer"
+      }
+    },
+    {
+      "seq": 6,
+      "type": "run.completed",
+      "runId": "run-golden-s1",
+      "payload": { "type": "run.completed", "status": "completed" }
+    }
+  ]
+}

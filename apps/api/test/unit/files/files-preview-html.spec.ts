@@ -131,3 +131,51 @@ describe('artifact HTML preview constants', () => {
     expect(ARTIFACT_HTML_PREVIEW_REFERRER_POLICY).toBe('no-referrer');
   });
 });
+
+describe('FilesService file content download', () => {
+  it('streams original bytes for any storage backend', async () => {
+    const { service, prisma, storage } = makeService();
+    const bytes = Buffer.from('# 真实正文', 'utf8');
+    prisma.file.findFirst.mockResolvedValue({
+      id: 'file-md',
+      sessionId: 'session-1',
+      userId: 'local-user',
+      status: 'ready',
+      fileKind: 'markdown',
+      mediaType: 'text/markdown',
+      originalKey: 'sessions/session-1/files/file-md/original',
+      previewKey: null,
+      fileName: 'report.md',
+    });
+    storage.readObject.mockResolvedValue({ content: bytes });
+
+    const result = await service.localContent('local-user', 'file-md', 'original');
+
+    expect(storage.readObject).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      fileId: 'file-md',
+      variant: 'original',
+    });
+    expect(result).toMatchObject({ content: bytes, contentType: 'text/markdown' });
+  });
+
+  it('rejects preview download when no preview object exists', async () => {
+    const { service, prisma, storage } = makeService();
+    prisma.file.findFirst.mockResolvedValue({
+      id: 'file-pdf',
+      sessionId: 'session-1',
+      userId: 'local-user',
+      status: 'ready',
+      fileKind: 'pdf',
+      mediaType: 'application/pdf',
+      originalKey: 'sessions/session-1/files/file-pdf/original',
+      previewKey: null,
+      fileName: 'doc.pdf',
+    });
+
+    await expect(service.localContent('local-user', 'file-pdf', 'preview')).rejects.toMatchObject({
+      response: { code: 'FILE_NOT_FOUND' },
+    });
+    expect(storage.readObject).not.toHaveBeenCalled();
+  });
+});

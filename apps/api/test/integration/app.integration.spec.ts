@@ -504,6 +504,74 @@ describe('foundation API', () => {
     ]);
   });
 
+  it('paginates ordinary sessions while returning every pinned session', async () => {
+    const pinned = await request(app.getHttpServer())
+      .post('/api/agent/sessions')
+      .send({ title: '__test__分页置顶' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`/api/agent/sessions/${pinned.body.session.id}`)
+      .send({ isPinned: true })
+      .expect(200);
+    const pageTitles = Array.from({ length: 205 }, (_, index) => `__test__分页-${String(index).padStart(3, '0')}`);
+    await prisma.session.createMany({
+      data: pageTitles.map((title, index) => ({
+        id: crypto.randomUUID(),
+        userId: 'local-user',
+        title,
+        createdAt: new Date(`2099-09-01T00:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`),
+        updatedAt: new Date(`2099-09-01T00:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`),
+      })),
+    });
+
+    const first = await request(app.getHttpServer())
+      .get('/api/agent/sessions?limit=100')
+      .expect(200);
+    expect(first.body.pagination).toMatchObject({ limit: 100, hasMore: true });
+    expect(first.body.sessions.some((session: { id: string }) => session.id === pinned.body.session.id)).toBe(true);
+    expect(first.body.sessions.some((session: { id: string }) => session.id === pinned.body.session.id)).toBe(true);
+    expect(first.body.sessions.filter((session: { title: string }) => session.title.startsWith('__test__分页-')).every((session: { isPinned: boolean }) => !session.isPinned)).toBe(true);
+    expect(first.body.sessions.filter((session: { title: string }) => session.title.startsWith('__test__分页-')).length).toBeLessThanOrEqual(100);
+
+    const seen = new Set<string>();
+    let before: string | undefined;
+    for (let page = 0; page < 3; page += 1) {
+      const response = await request(app.getHttpServer())
+        .get(`/api/agent/sessions?limit=100${before ? `&before=${before}` : ''}`)
+        .expect(200);
+      for (const session of response.body.sessions as Array<{ id: string; title: string }>) {
+        if (session.title.startsWith('__test__分页-')) {
+          expect(seen.has(session.id)).toBe(false);
+          seen.add(session.id);
+        }
+      }
+      before = response.body.pagination?.nextBefore;
+      if (!response.body.pagination?.hasMore) break;
+    }
+    expect(seen.size).toBe(205);
+    expect(first.body.sessions.every((session: { id: string }, index: number, all: Array<{ id: string }>) => all.findIndex((item) => item.id === session.id) === index)).toBe(true);
+
+    // 锚点被置顶后旧游标仍指向原排序位置，第二页内容不漂移、不重复。
+    const ordinaryFirstPage = first.body.sessions.filter((session: { isPinned: boolean }) => !session.isPinned);
+    const anchor = ordinaryFirstPage.at(-1) as { id: string };
+    const expectedSecondPageTitles = Array.from(
+      { length: 100 },
+      (_, index) => `__test__分页-${String(104 - index).padStart(3, '0')}`,
+    );
+    await request(app.getHttpServer())
+      .patch(`/api/agent/sessions/${anchor.id}`)
+      .send({ isPinned: true })
+      .expect(200);
+    const afterAnchorChange = await request(app.getHttpServer())
+      .get(`/api/agent/sessions?limit=100&before=${encodeURIComponent(first.body.pagination.nextBefore)}`)
+      .expect(200);
+    expect(
+      afterAnchorChange.body.sessions
+        .filter((session: { isPinned: boolean }) => !session.isPinned)
+        .map((session: { title: string }) => session.title),
+    ).toEqual(expectedSecondPageTitles);
+  });
+
   it('rejects invalid session creation before touching the database', async () => {
     const before = await prisma.session.count({ where: { userId: 'local-user' } });
     const response = await request(app.getHttpServer())

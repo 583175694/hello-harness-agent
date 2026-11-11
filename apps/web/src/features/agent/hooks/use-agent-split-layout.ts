@@ -38,12 +38,12 @@ function readStoredConversationPercent(): number | null {
 
 /** 与 pipishrimp.agent.split 单值存储对齐，供 react-resizable-panels 读写完整 layout。 */
 export const agentSplitLayoutStorage: LayoutStorage = {
-  getItem(_key) {
+  getItem() {
     const conversation = readStoredConversationPercent();
     if (conversation === null) return null;
     return JSON.stringify(layoutFromConversationPercent(conversation));
   },
-  setItem(_key, value) {
+  setItem(_: string, value: string) {
     if (typeof window === 'undefined') return;
     try {
       const layout = JSON.parse(value) as Layout;

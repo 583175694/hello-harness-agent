@@ -212,7 +212,7 @@ describe('ChatService session persistence', () => {
 
   it('retains only the user message when the provider fails', async () => {
     const providerCreate = vi.fn().mockRejectedValue(new Error('provider unavailable'));
-    const { service, messageCreate, prisma } = makeService(providerCreate);
+    const { service, messageCreate } = makeService(providerCreate);
     const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 
@@ -231,7 +231,7 @@ describe('ChatService session persistence', () => {
         yield { choices: [{ delta: {}, finish_reason: 'length' }] };
       })(),
     );
-    const { service, messageCreate, prisma } = makeService(providerCreate);
+    const { service, messageCreate } = makeService(providerCreate);
     const prepared = await service.prepareSessionStream('local-user', 'session-1', 'new question');
     prepared.model = CHAT_COMPLETIONS_MODEL_ID;
 

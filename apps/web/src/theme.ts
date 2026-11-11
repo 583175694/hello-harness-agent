@@ -65,8 +65,6 @@ export function subscribeDocumentTheme(onStoreChange: () => void): () => void {
   };
 }
 
-const fontSizeListeners = new Set<() => void>();
-
 export function subscribeContentFontSize(onStoreChange: () => void): () => void {
   if (typeof window !== 'undefined') {
     window.addEventListener(FONT_SIZE_CHANGE_EVENT, onStoreChange);

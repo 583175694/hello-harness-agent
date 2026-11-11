@@ -1,9 +1,9 @@
-# Mobile Agent Frontend（React Native）
+# Mobile Agent Frontend（Parity 规格）
 
-> 文档状态：**移动端产品与技术方案（待实施）**  
-> 最后更新：2026-09-24  
-> 关联：[00-desktop-client-roadmap.md](./00-desktop-client-roadmap.md)（Desktop 总指挥；跨端遥控 D-P2-5）、[19-agent-frontend.md](./19-agent-frontend.md)（Web 产品契约，Mobile 须语义 parity）、[11-api-protocol.md](./11-api-protocol.md)、[26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)、[18-project-structure.md](./18-project-structure.md)、[35-c4-mcp-client.md](./35-c4-mcp-client.md)（MCP Settings parity）  
-> 范围：**`apps/mobile` React Native 客户端，覆盖当前 Web `/agent` 已实现的全部 Agent 能力**，不是精简版或只读伴侣。
+> 文档状态：**Native 客户端（Android / iOS / 鸿蒙）产品与 Parity 矩阵权威来源**。  
+> 最后更新：2026-11-03  
+> 关联：[43-native-mobile-clients-architecture.md](./43-native-mobile-clients-architecture.md)、[45-native-mobile-phase-b-integration.md](./45-native-mobile-phase-b-integration.md)、[19-agent-frontend.md](./19-agent-frontend.md)（Web 产品契约，Mobile 须语义 parity）、[11-api-protocol.md](./11-api-protocol.md)、[26-connection-durable-agent-loop.md](./26-connection-durable-agent-loop.md)、[18-project-structure.md](./18-project-structure.md)、[35-c4-mcp-client.md](./35-c4-mcp-client.md)（MCP Settings parity）  
+> 范围：**Native Mobile Release 客户端**须覆盖当前 Web `/agent` 已实现的全部 Agent 能力（§4 矩阵），不是精简版或只读伴侣。
 
 ## 1. 目标与非目标
 
@@ -148,7 +148,7 @@ Mobile 是 **本地 Harness Agent 的全功能客户端**，用户可以在外�
 | M-CONV-3 | 穿插顺序 | `conversation-blocks` | text 与 tool_activity 按 durable 顺序，禁止拆分「执行区/回答区」 |
 | M-CONV-4 | CoT | `AgentChainOfThought` | 折叠过程、工具步骤、搜索摘要 |
 | M-CONV-5 | Markdown | 同源规则 | sanitize、外链、`[Sx]` 跳转 Sources（Report 内） |
-| M-CONV-6 | 长列表 | FlashList | >40 条虚拟化；吸底阈值对齐 `stickToBottomThresholdPx` |
+| M-CONV-6 | 长列表 | 平台虚拟化列表（LazyColumn / LazyVStack / List） | >40 条虚拟化；吸底阈值对齐 `stickToBottomThresholdPx` |
 | M-CONV-7 | 点击 Activity | `FOCUS_WORKBENCH_TARGET` | 切工作台 Tab + 定位 execution |
 | M-CONV-8 | 复制 | 本地 | 复制反馈时长对齐 Web |
 
@@ -365,7 +365,7 @@ flowchart TB
 +--------------------------------+
 ```
 
-- **Bash**：复用 `formatBashTerminalRendered` / `formatBashTerminalCopyText` 逻辑（package 下沉）；RN 终端区：等宽字体、ScrollView、复制到剪贴板。
+- **Bash**：复用 `formatBashTerminalRendered` / `formatBashTerminalCopyText` 逻辑（`agent-conversation`）；Native 终端区：等宽字体、可滚动、复制到剪贴板。
 - **其他工具**：title、detail、inputSummary、outputSummary、metrics。
 - 时间线选中态 `aria-pressed` 等价：视觉高亮 + pinned followMode。
 
@@ -432,8 +432,7 @@ GET session detail
 
 ### 7.2 SSE 客户端
 
-- 实现与 `apps/web/src/api/client.ts` 的 `subscribeRun` **字节级等价**：`fetch` + `ReadableStream` + `\n\n` 分帧 + `runStreamEventSchema.parse`。
-- React Native 0.7x+ 优先使用原生 fetch stream；若不 available，使用 `react-native-sse` 或 polyfill，但 **cursor 语义不变**。
+- 语义与 Web `subscribeRun` **等价**：REST + SSE、`Last-Event-ID` cursor、`\n\n` 分帧、`runStreamEventSchema` 校验；由 **`mobile-core`（Ktor）** 实现，**cursor 语义不变**。
 
 ### 7.3 AppState
 
@@ -464,114 +463,41 @@ sequenceDiagram
 
 ### 7.5 真机 API 连接
 
-- Settings 存储 `apiBaseUrl`（MMKV）。
+- Settings 存储 `apiBaseUrl`（DataStore / UserDefaults / 鸿蒙 Preferences）。
 - 文档与 Dev Menu 说明：Mac 开发机 IP、`4318` 端口、防火墙、HTTPS 未来选项。
 - iOS ATS：开发 build 可配置例外；生产建议 HTTPS 反向代理。
 
 ---
 
-## 8. 工程架构
+## 8. 工程架构（Native Release）
 
-### 8.1 Monorepo 目标结构
+> 实施细节以 [43-native-mobile-clients-architecture.md](./43-native-mobile-clients-architecture.md) 为准；本节只保留与 Parity 相关的边界。
+
+### 8.1 仓库布局
 
 ```text
-hello-harness-agent/
-  apps/
-    web/                          # 逐步依赖 packages
-    api/
-    mobile/                       # 新建 Expo 应用
-  packages/
-    agent-protocol/               # 已有
-    agent-testkit/                # 已有
-    agent-client/                 # 新建：REST + SSE + upload
-    agent-conversation/           # 新建：conversation-blocks、tool-copy、bash-transparent
-    agent-projection/             # 新建：workbench 投影、applyRunEvent 纯函数
-    agent-ui-logic/               # 可选：composerMode、focus reducer、pending 合并
+apps/android | apps/ios | apps/harmony     # 各端 UI + AgentSessionPort
+packages/mobile-core                      # KMP：HTTP/SSE、Run 归约（Phase B）
+packages/mobile-contract                  # design-tokens、Preview fixture、domain golden
+packages/agent-protocol                   # 协议权威（TS）；Kotlin DTO 与之对齐
+packages/agent-client / agent-conversation  # Web 与 TS 测试共用；Native 运行时走 mobile-core
 ```
 
 ### 8.2 依赖规则
 
-- Mobile **不得** import `@nestjs/*`、Prisma、后端 entity。
-- Mobile **必须** 通过 `agent-protocol` zod 解析所有 API/SSE payload。
-- Web 重构顺序：**先抽 package + Web 切换引用（零行为变化）**，再建 `apps/mobile`。
+- Native App **不得** 嵌入 NestJS / PostgreSQL；只 **直连 Harness API**。
+- Phase A：UI 仅依赖 **`AgentSessionPort`** + Preview fixture。
+- Phase B：Port 实现换为 **`CoreAgentSessionPort` → `mobile-core`**；UI Screen **不重写**。
+- 行为验收：`mobile-contract` golden + 与 Web **同一 Snapshot** 对照。
 
-### 8.3 从 Web 下沉的模块（首批）
-
-| 现路径 | 目标 package |
-| --- | --- |
-| `apps/web/src/api/client.ts` | `agent-client` |
-| `apps/web/src/features/agent/model/conversation-blocks.ts` | `agent-conversation` |
-| `apps/web/src/features/agent/model/tool-copy.ts` | `agent-conversation` |
-| `apps/web/src/features/agent/model/bash-transparent.ts` | `agent-conversation` |
-| `apps/web/src/features/agent/elements/assistant-message-adapter.ts` | `agent-conversation` 或 `agent-projection` |
-| `app.tsx` 内纯函数投影（workbench from metadata 等） | `agent-projection` |
-
-`app.tsx` 中 React 耦合的 `applyRunSnapshot` / session 状态机：先抽 **reducer + 类型** 到 `agent-ui-logic`，Web/Mobile 各自 hook 包装。
-
-### 8.4 Mobile 技术栈
-
-| 领域 | 选型 | 说明 |
-| --- | --- | --- |
-| 框架 | Expo SDK 52+ | Dev Client；非 Expo Go 限制（原生模块） |
-| 语言 | TypeScript strict | 与 monorepo 一致 |
-| 导航 | React Navigation 7 | Drawer + Native Stack |
-| 列表 | @shopify/flash-list | 长对话 |
-| Sheet | @gorhom/bottom-sheet | HITL、Peek、菜单 |
-| 动画 | react-native-reanimated | Sheet / 列表 |
-| 服务端状态 | TanStack Query v5 | Session 列表、Config |
-| Run 观察 | 每 Session 单例 Observer | ref 存 cursor，与 Web 相同 |
-| 持久化 | react-native-mmkv | apiBaseUrl、theme、fontSize、lastSessionId、cursor 缓存（可选） |
-| 安全存储 | expo-secure-store | 若未来存 token；R1 可无 |
-| 附件 | expo-document-picker、expo-image-picker、expo-clipboard | |
-| 文件 | expo-file-system、expo-sharing | 下载 Artifact |
-| 浏览器 | expo-web-browser | 外链 |
-| 通知 | expo-notifications | §7.4 |
-| Markdown | WebView 模板 或 RN markdown + 共享 sanitize | 与 Web 安全策略一致 |
-| JSON | 轻量树组件 | Context Tab |
-| E2E | Maestro | 黄金路径 |
-| 单测 | vitest/jest 在 packages | 与 web 共用 fixture |
-
-### 8.5 `apps/mobile` 目录（建议）
+### 8.3 本地验证脚本（根 `package.json`）
 
 ```text
-apps/mobile/
-  app/                    # Expo Router 或 src/screens
-  src/
-    features/agent/
-      screens/
-        ChatScreen.tsx
-        WorkbenchPanel.tsx
-        SettingsScreen.tsx
-        McpServerFormScreen.tsx
-        PreviewScreen.tsx
-      components/
-        conversation/
-        composer/
-        workbench/
-        settings/
-      hooks/
-        useRunObserver.ts
-        useSessionState.ts
-      theme/
-    lib/
-      api.ts              # 薄封装 agent-client + baseUrl
-  maestro/
-  app.config.ts
-  package.json
+pnpm validate:gate-a          # mobile-contract + Gate A 静态校验
+pnpm gate-a:verify:android|ios|harmony|all
+pnpm mobile-core:test           # Phase B：core golden
+pnpm phase-b:verify:ci          # engine + Android production 编译
 ```
-
-不提前创建空模块；按里程碑递增（与 [19-agent-frontend.md §21](./19-agent-frontend.md) 精神一致）。
-
-### 8.6 脚本与 CI
-
-```text
-pnpm dev:mobile          # Expo start
-pnpm --filter @harness/mobile typecheck
-pnpm --filter @harness/mobile test     # 若有
-maestro test apps/mobile/maestro/       # CI optional
-```
-
-根 `pnpm check` 扩展：packages 单测 + mobile typecheck（mobile 存在后）。
 
 ---
 
@@ -614,10 +540,10 @@ type MobileChromeState = {
 
 ## 10. 设计系统（Mobile）
 
-- **颜色**：与 Web `--theme-*` 暖灰语义对齐（background/surface/border/text-primary/muted）；RN 使用同一 token 名便于双端主题表。
+- **颜色**：与 Web `--theme-*` 暖灰语义对齐；数值权威 **`packages/mobile-contract/design-tokens.json`**。
 - **字号**：默认正文 15–16pt（可设置 12–17，对齐 Web content font size）。
 - **触控**：最小 hit area 44×44pt；列表行高密度但不低于 44pt 可点区域。
-- **图标**：与 Web lucide 语义一致（可用 `lucide-react-native`）。
+- **图标**：与 Web lucide 语义一致（各端矢量/icon 资源自维护）。
 - **Motion**：Run 进行中 Activity Tab 图标 spin；减少大面积动画以保证 SSE 性能。
 
 ---
@@ -668,18 +594,9 @@ type MobileChromeState = {
 - `agent-conversation`、`agent-projection` 与 Web **同一套** `agent-testkit` fixture 输入。
 - 覆盖：SSE duplicate、tool_activity 插入顺序、Snapshot 恢复 reasoning block、focus target 解析。
 
-### 12.2 Maestro E2E（最低集）
+### 12.2 Release E2E（Maestro，Android / iOS）
 
-| 用例 | 断言 |
-| --- | --- |
-| 配置 API + ready | Composer 可输入 |
-| 创建 Session + 简单 Run | 看到 assistant 回复 |
-| 切换 Session | 不串消息 |
-| 杀 App 重启 | 同一 Session Run 状态合理恢复 |
-| 打开 Workbench Sources | Tab 可见（fixture 或 seed） |
-| Settings MCP 列表 | 与 API 一致 |
-
-与 Playwright mobile viewport **互补**：Web 测响应式 CSS；Maestro 测 Native 导航与生命周期。
+配置 API、Session/Run 主路径、杀进程恢复等 **3～5 条** 真 API 用例；细则见 [43 §16.4](./43-native-mobile-clients-architecture.md)。日常 PR 不阻塞；Release / nightly 必跑。
 
 ### 12.3 手动矩阵
 
@@ -696,15 +613,9 @@ type MobileChromeState = {
 
 | 阶段 | 交付 | 依赖 |
 | --- | --- | --- |
-| **P0** | `agent-client` + `agent-conversation` 抽包；Web 引用无回归 | 无 mobile |
-| **P1** | `apps/mobile` 脚手架；Settings API URL；Session CRUD；ready | P0 |
-| **P2** | createRun + SSE + Snapshot 恢复 + cancel；对话 text/tool_activity | P1 |
-| **P3** | Composer 全量（模型/推理/附件/粘贴/队列/Plan/Context 环） | P2 |
-| **P4** | HITL clarification + approval；controlRun 全类型 | P3 |
-| **P5** | Workbench 全 Tab + focus/pinned/auto-open | P4 |
-| **P6** | Bash Terminal + Artifact revise/restore + Report Reader | P5 |
-| **P7** | Settings MCP 全表单 + Test | P5 |
-| **P8** | 推送、Maestro、iPad 分屏、性能与硬ening | P6–P7 |
+| **Phase A（A0～A9）** | Preview fixture 驱动全 UI；Gate A Snapshot / benchmark | [44](./44-native-mobile-phase-a-static-ui.md) |
+| **Phase B（B0～B7）** | `mobile-core` + 真 API；M-* Parity 扫尾 | [45](./45-native-mobile-phase-b-integration.md) |
+| **Release（§16）** | Sentry、Maestro、商店内测 | Gate B 之后 |
 
 ---
 
@@ -716,7 +627,7 @@ type MobileChromeState = {
 4. SSE replay **不重复** UI item；cursor 严格单调。  
 5. 点击内联 Tool Activity **3s 内**定位到正确 `toolCallId`（常规网络）。  
 6. MCP 在 Mobile 修改后 Web Settings 可见，反之亦然。  
-7. `pnpm check`（含 packages + mobile typecheck）通过。
+7. 根 `pnpm check` + `pnpm phase-b:verify:ci`（Phase B 起）通过。
 
 ---
 
@@ -724,7 +635,7 @@ type MobileChromeState = {
 
 | 风险 | 对策 |
 | --- | --- |
-| RN SSE 不稳定 | Snapshot 轮询降级；foreground 强制 resync |
+| SSE 不稳定 | Snapshot 轮询降级；foreground 强制 resync |
 | 大 JSON Context 卡顿 | 懒展开；限制初始深度 |
 | Markdown 表格差 | Report 用 WebView 渲染 |
 | 双端逻辑漂移 | 共享 package 单测 gate CI |
@@ -758,7 +669,7 @@ type MobileChromeState = {
 | Web | Mobile |
 | --- | --- |
 | `Sidebar` | `SessionDrawer` |
-| `Conversation` | `ConversationPanel` + FlashList |
+| `Conversation` | `ConversationPanel` + 虚拟化列表 |
 | `Composer` / HITL | `ComposerStack` |
 | `WorkbenchShell` | `WorkbenchPanel` 或 `WorkbenchScreen` |
 | `BashTerminalPanel` | `BashTerminalView` |
@@ -767,7 +678,7 @@ type MobileChromeState = {
 | `settings-dialog` | `SettingsStack` + `McpServerForm` |
 | `PlanFloatingCard` | 同逻辑组件 |
 | `FollowUpQueue` | 同逻辑组件 |
-| `AgentChainOfThought` | 同逻辑 RN 布局 |
+| `AgentChainOfThought` | Process 时间线 / CoT 块（各端原生布局） |
 
 ---
 
@@ -795,4 +706,4 @@ harness://agent/session/:sessionId
 harness://agent/session/:sessionId/run/:runId
 ```
 
-查询参数兼容 Web：`?session=<uuid>`。实现阶段在 `app.config.ts` 注册 scheme；通知 payload 携带 `sessionId` + 可选 `runId`。
+查询参数兼容 Web：`?session=<uuid>`。各端在 **Info.plist / AndroidManifest / module.json5** 注册 scheme；通知 payload 携带 `sessionId` + 可选 `runId`。

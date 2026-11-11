@@ -1,0 +1,15 @@
+{
+  "type": "message.delta",
+  "runId": "run-golden-1",
+  "seq": 4,
+  "payload": {
+    "type": "message.delta",
+    "messageId": "asst-1",
+    "blockId": "text-1",
+    "delta": "Hello",
+    "roundId": "round-1",
+    "roundSequence": 1,
+    "blockSequence": 1,
+    "phase": null
+  }
+}

@@ -9,6 +9,8 @@ import java.util.Properties
 
 val contractRoot = rootProject.projectDir.parentFile.parentFile.resolve("packages/mobile-contract")
 val releaseKeystoreProperties = rootProject.file("keystore.properties")
+val configuredVersionCode = providers.gradleProperty("harnessVersionCode").orNull?.toIntOrNull() ?: 1
+val configuredVersionName = providers.gradleProperty("harnessVersionName").orNull?.trim().orEmpty().ifEmpty { "0.1.0" }
 
 android {
     namespace = "com.harness.agent"
@@ -18,8 +20,8 @@ android {
         applicationId = "com.harness.agent"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = configuredVersionCode
+        versionName = configuredVersionName
     }
 
     flavorDimensions += "mode"

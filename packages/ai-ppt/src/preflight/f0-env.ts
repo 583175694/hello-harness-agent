@@ -17,8 +17,12 @@ export type F0Result = {
 const REQUESTED_FAMILIES = ['Noto Sans SC', 'Microsoft YaHei'] as const;
 
 async function fcMatch(family: string): Promise<string> {
-  const { stdout } = await execFileAsync('fc-match', [family, ':lang=zh'], { encoding: 'utf8' });
-  return stdout.split('\n')[0]?.split(',')[0]?.trim().replace(/^"|"$/g, '') ?? '';
+  const { stdout } = await execFileAsync(
+    'fc-match',
+    ['--format=%{family}', family],
+    { encoding: 'utf8' },
+  );
+  return stdout.split('\n')[0]?.trim() ?? '';
 }
 
 async function fcListZh(): Promise<string[]> {

@@ -42,7 +42,26 @@ Fixture 与 `design-tokens.json` 在 `preBuild` 时从 `packages/mobile-contract
 
 Release 开启 R8、资源压缩和资源收缩；未配置 keystore 时 Gradle 只产出 **unsigned** 包，不会回退到 debug 签名。
 
-本地签名（`keystore.properties` 已在 `.gitignore`，禁止提交）：
+### 首次初始化内测签名
+
+```bash
+cd apps/android
+bash scripts/setup-internal-signing.sh
+```
+
+脚本生成 `internal-release.jks` 与 `keystore.properties`（均已在 `.gitignore`，禁止提交）。**请备份这两个文件**；丢失后无法覆盖升级，只能卸载重装。
+
+### 构建、验签与安装
+
+```bash
+cd apps/android
+bash scripts/build-production-release.sh            # 只构建并验签
+bash scripts/build-production-release.sh --install  # 再安装并启动当前 adb 设备
+```
+
+多设备连接时用 `ANDROID_SERIAL=<序列号>` 指定目标设备。若设备已有不同签名的 `com.harness.agent`，覆盖安装会报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`：保留数据需找回原签名；否则 `adb uninstall com.harness.agent`（会清空应用数据）后重装。
+
+也可以手动签名（`keystore.properties` 已在 `.gitignore`，禁止提交）：
 
 ```bash
 cd apps/android

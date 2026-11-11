@@ -10,13 +10,20 @@ RUN apt-get update \
     ca-certificates \
     chromium \
     curl \
+    fontconfig \
     fonts-liberation \
+    fonts-noto-cjk \
     fonts-noto-color-emoji \
+    fonts-wqy-zenhei \
     libgbm1 \
     libnss3 \
     python3 \
     python3-pip \
   && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/font-probe-f0.sh /usr/local/bin/font-probe-f0.sh
+RUN chmod +x /usr/local/bin/font-probe-f0.sh \
+  && /usr/local/bin/font-probe-f0.sh
 
 ENV CHROME_PATH=/usr/bin/chromium
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium

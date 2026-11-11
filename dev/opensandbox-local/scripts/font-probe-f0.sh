@@ -5,7 +5,7 @@ set -euo pipefail
 match_family() {
   local requested="$1"
   local matched
-  matched="$(fc-match -s "$requested" | head -n1 | cut -d',' -f1 | sed 's/^"//;s/"$//')"
+  matched="$(fc-match --format='%{family}' "$requested" | head -n1 | tr -d '\n')"
   # Accept exact family or Noto CJK aliases when requesting Microsoft YaHei (may fall back to Noto).
   if [[ "$requested" == "Noto Sans SC" ]]; then
     if [[ "$matched" != *"Noto Sans SC"* ]] && [[ "$matched" != *"Noto Sans CJK SC"* ]]; then

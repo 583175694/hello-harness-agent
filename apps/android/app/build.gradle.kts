@@ -95,6 +95,12 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+
+    sourceSets {
+        getByName("test") {
+            kotlin.srcDirs("src/previewTest/kotlin")
+        }
+    }
 }
 
 /** Gate A / preview flavor 专用；production 包不合并 `src/preview/assets`。 */

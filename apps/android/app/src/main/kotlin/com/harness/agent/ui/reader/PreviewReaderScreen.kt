@@ -32,6 +32,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -203,10 +204,12 @@ private fun AuthenticatedHtmlWebView(
     cookieHeader: String?,
     modifier: Modifier = Modifier,
 ) {
+    val canvasColor = LocalHarnessColors.current.canvas
     AndroidView(
         modifier = modifier,
         factory = { context ->
             WebView(context).apply {
+                setBackgroundColor(canvasColor.toArgb())
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = false
                 settings.allowFileAccess = false
@@ -226,6 +229,7 @@ private fun AuthenticatedHtmlWebView(
             }
         },
         update = { webView ->
+            webView.setBackgroundColor(canvasColor.toArgb())
             val headers =
                 cookieHeader?.trim()?.takeIf { it.isNotEmpty() }?.let { mapOf("Cookie" to it) }
             if (headers != null) {

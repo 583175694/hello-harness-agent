@@ -546,7 +546,7 @@ private fun SessionDrawerContextMenu(
     LaunchedEffect(target.id) {
         menuProgress.snapTo(0f)
         if (reduceMotion) {
-            menuProgress.animateTo(1f, tween(durationMillis = 160, easing = FastOutSlowInEasing))
+            menuProgress.animateTo(1f, tween(durationMillis = 150, easing = FastOutSlowInEasing))
         } else {
             menuProgress.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 420f))
         }
@@ -579,11 +579,13 @@ private fun SessionDrawerContextMenu(
                     .graphicsLayer {
                         val progress = menuProgress.value
                         alpha = progress
-                        val scale = 0.82f + 0.18f * progress
-                        scaleX = scale
-                        scaleY = scale
-                        transformOrigin = TransformOrigin(0f, 0f)
-                        translationY = (1f - progress) * -12f
+                        if (!reduceMotion) {
+                            val scale = 0.82f + 0.18f * progress
+                            scaleX = scale
+                            scaleY = scale
+                            transformOrigin = TransformOrigin(0f, 0f)
+                            translationY = (1f - progress) * -12f
+                        }
                     },
             shape = RoundedCornerShape(16.dp),
             color = colors.surface,

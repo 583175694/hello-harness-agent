@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.harness.agent.coreui.tokens.HarnessLayout
+import com.harness.agent.coreui.tokens.HarnessSystemBarAppearance
 import com.harness.agent.coreui.tokens.LocalHarnessColors
 
 @Composable
@@ -38,7 +39,16 @@ fun HarnessModalDialog(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val scrimInteraction = remember { MutableInteractionSource() }
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties =
+            androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
+    ) {
+        HarnessSystemBarAppearance()
+        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         AnimatedVisibility(
             visible = true,
             enter = fadeIn(tween(220)),
@@ -70,6 +80,7 @@ fun HarnessModalDialog(
                 color = LocalHarnessColors.current.surface,
             ) {
                 Column(Modifier.padding(16.dp), content = content)
+                }
             }
         }
     }
@@ -102,7 +113,7 @@ fun HarnessModalActionRow(
             onClick = onConfirm,
             enabled = confirmEnabled,
             background = if (destructive) colors.danger else colors.primary,
-            foreground = if (destructive) Color.White else colors.primaryForeground,
+            foreground = if (destructive) colors.dangerForeground else colors.primaryForeground,
             modifier = Modifier.weight(1f),
         )
     }
@@ -122,7 +133,7 @@ fun HarnessModalPrimaryButton(
         onClick = onClick,
         enabled = enabled,
         background = if (destructive) colors.danger else colors.primary,
-        foreground = if (destructive) Color.White else colors.primaryForeground,
+        foreground = if (destructive) colors.dangerForeground else colors.primaryForeground,
         modifier = modifier.fillMaxWidth().padding(top = 16.dp),
     )
 }

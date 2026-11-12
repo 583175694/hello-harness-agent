@@ -19,8 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -29,7 +27,7 @@ import com.harness.agent.coreui.motion.rememberHarnessReduceMotion
 import com.harness.agent.coreui.tokens.HarnessLayout
 import com.harness.agent.coreui.tokens.LocalHarnessColors
 
-private const val SEGMENT_SLIDE_MS = 240
+private const val SEGMENT_SLIDE_MS = 150
 private val SegmentRowHeight = 34.dp
 
 /** 对齐 design-tokens / Web `SlidingSegmentTrack`：滑动高亮 pill，equal-width 分段。 */
@@ -95,7 +93,7 @@ fun HarnessSegmentedControl(
                         Text(
                             text = label,
                             color = if (selected) {
-                                if (colors.primary.luminance() < 0.5f) Color.White else Color(0xFF101010)
+                                colors.primaryForeground
                             } else colors.secondary,
                             fontSize = 12.sp,
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,

@@ -2,6 +2,7 @@ package com.harness.agent.ui.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.draw.clip
 import com.harness.agent.coreui.motion.harnessPressOpacity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -37,6 +39,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.sp
@@ -651,7 +657,7 @@ private fun MemoryMultilineField(
                     .fillMaxWidth()
                     .heightIn(min = 160.dp)
                     .background(colors.subtle, shape)
-                    .border(1.dp, colors.composerBorder, shape)
+                    .border(1.dp, colors.inputBorder, shape)
                     .padding(horizontal = 12.dp, vertical = 11.dp),
             decorationBox = { inner ->
                 Box {
@@ -683,14 +689,25 @@ internal fun SettingsTopBar(
                 .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AppText(
-            text = "‹",
-            style = AppTextStyle.Title,
+        Box(
             modifier =
                 Modifier
-                    .clickable(onClick = onBack)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-        )
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = "返回"
+                    }
+                    .clickable(onClick = onBack),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                contentDescription = null,
+                tint = colors.secondary,
+                modifier = Modifier.size(22.dp),
+            )
+        }
         Text(
             text = title,
             color = colors.secondary,

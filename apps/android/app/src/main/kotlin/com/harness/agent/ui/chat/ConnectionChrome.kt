@@ -16,17 +16,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.sp
 import com.harness.agent.coreui.primitives.AppText
 import com.harness.agent.coreui.primitives.AppTextStyle
 import com.harness.agent.coreui.tokens.LocalHarnessColors
 import androidx.compose.material3.Text
-
-private val NetworkBarBackgroundLight = androidx.compose.ui.graphics.Color(0xFFFCECEA)
-private val NetworkBarForegroundLight = androidx.compose.ui.graphics.Color(0xFF6B5B58)
-private val NetworkBarBackgroundDark = androidx.compose.ui.graphics.Color(0xFF2A2221)
-private val NetworkBarForegroundDark = androidx.compose.ui.graphics.Color(0xFFC4B8B5)
 
 /** 微信式无网络条：单行 + 左侧警示 + 右侧「重新连接」。 */
 @Composable
@@ -40,9 +34,8 @@ fun ServiceBanner(
     @Suppress("UNUSED_PARAMETER")
     val unusedDismiss = onDismiss
     val colors = LocalHarnessColors.current
-    val isDark = colors.canvas.luminance() < 0.45f
-    val barBackground = if (isDark) NetworkBarBackgroundDark else NetworkBarBackgroundLight
-    val barForeground = if (isDark) NetworkBarForegroundDark else NetworkBarForegroundLight
+    val barBackground = colors.rejection
+    val barForeground = colors.rejectionText
     val message =
         when (serviceState) {
             "checking" -> "正在检查服务状态…"
@@ -66,7 +59,7 @@ fun ServiceBanner(
         ) {
             Text(
                 text = "!",
-                color = colors.primaryForeground,
+                color = colors.dangerForeground,
                 fontSize = 12.sp,
                 lineHeight = 12.sp,
             )

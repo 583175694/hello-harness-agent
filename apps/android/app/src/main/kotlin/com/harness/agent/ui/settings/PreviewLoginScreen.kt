@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import com.harness.agent.R
 import com.harness.agent.coreui.feedback.LocalAppToast
+import com.harness.agent.coreui.tokens.LocalHarnessColors
 import androidx.compose.runtime.rememberCoroutineScope
 import com.harness.agent.preview.PreviewAppPreferences
 import com.harness.agent.preview.PreviewAuthProfile
@@ -70,15 +71,6 @@ private const val RESEND_SECONDS = 60
 private const val HERO_COMPACT_RATIO = 0.62f
 private val ReferenceKeyboardHeight = 280.dp
 
-private val LoginBackground = Color.White
-private val LoginTitleColor = Color(0xFF000000)
-private val LoginSubtitleColor = Color(0xFF999999)
-private val LoginFieldBorder = Color(0xFFE5E5E5)
-private val LoginPlaceholder = Color(0xFFBBBBBB)
-private val LoginFieldText = Color(0xFF333333)
-private val LoginButtonBlack = Color(0xFF1A1A1A)
-private val LoginButtonDisabled = Color(0xFF1A1A1A).copy(alpha = 0.35f)
-private val LoginIconMuted = Color(0xFFAAAAAA)
 
 private val LoginFieldShape = RoundedCornerShape(14.dp)
 private val LoginHorizontalPadding = 24.dp
@@ -94,6 +86,16 @@ fun PreviewLoginScreen(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val scrollState = rememberScrollState()
+    val colors = LocalHarnessColors.current
+    val loginBackground = colors.canvas
+    val titleColor = colors.primary
+    val subtitleColor = colors.secondary
+    val fieldBorder = colors.inputBorder
+    val fieldBackground = colors.surface
+    val fieldTextColor = colors.primary
+    val buttonColor = colors.primary
+    val buttonDisabledColor = colors.primary.copy(alpha = 0.35f)
+    val buttonForeground = colors.primaryForeground
 
     var phone by rememberSaveable { mutableStateOf("") }
     var code by rememberSaveable { mutableStateOf("") }
@@ -129,7 +131,7 @@ fun PreviewLoginScreen(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(LoginBackground)
+                .background(loginBackground)
                 .imePadding(),
     ) {
         val viewportHeight = maxHeight
@@ -170,7 +172,7 @@ fun PreviewLoginScreen(
                     Icon(
                         imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = "返回",
-                        tint = LoginButtonBlack,
+                        tint = titleColor,
                         modifier = Modifier.size(22.dp),
                     )
                 }
@@ -194,7 +196,7 @@ fun PreviewLoginScreen(
                 Spacer(modifier = Modifier.height(heroToTitleGap))
                 Text(
                     text = "良朋在侧，虚席以待",
-                    color = LoginTitleColor,
+                    color = titleColor,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     lineHeight = 34.sp,
@@ -203,7 +205,7 @@ fun PreviewLoginScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "言未尽而可续，事未已而随形",
-                    color = LoginSubtitleColor,
+                    color = subtitleColor,
                     fontSize = 15.sp,
                     lineHeight = 22.sp,
                     textAlign = TextAlign.Center,
@@ -215,6 +217,11 @@ fun PreviewLoginScreen(
                         phone = it
                         inlineError = null
                     },
+                    borderColor = fieldBorder,
+                    backgroundColor = fieldBackground,
+                    textColor = fieldTextColor,
+                    placeholderColor = subtitleColor,
+                    cursorColor = buttonColor,
                     placeholder = "请输入手机号",
                     showPhoneIcon = true,
                 )
@@ -226,6 +233,11 @@ fun PreviewLoginScreen(
                             code = it
                             inlineError = null
                         },
+                        borderColor = fieldBorder,
+                        backgroundColor = fieldBackground,
+                        textColor = fieldTextColor,
+                        placeholderColor = subtitleColor,
+                        cursorColor = buttonColor,
                         placeholder = "请输入验证码",
                         showPhoneIcon = false,
                         keyboardType = KeyboardType.Number,
@@ -234,7 +246,7 @@ fun PreviewLoginScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "${resendIn}s 后可重新获取",
-                            color = LoginSubtitleColor,
+                            color = subtitleColor,
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth(),
@@ -245,7 +257,7 @@ fun PreviewLoginScreen(
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
                         text = message,
-                        color = Color(0xFFC0392B),
+                        color = colors.danger,
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
@@ -256,6 +268,8 @@ fun PreviewLoginScreen(
                     text = buttonLabel,
                     enabled = canSubmit,
                     loading = submitting,
+                    backgroundColor = if (canSubmit || submitting) buttonColor else buttonDisabledColor,
+                    foregroundColor = buttonForeground,
                     onClick = {
                         when {
                             phone.trim().length < 6 -> inlineError = "请输入有效手机号"
@@ -329,6 +343,11 @@ private fun LoginPhoneField(
     onValueChange: (String) -> Unit,
     placeholder: String,
     showPhoneIcon: Boolean,
+    borderColor: Color,
+    backgroundColor: Color,
+    textColor: Color,
+    placeholderColor: Color,
+    cursorColor: Color,
     keyboardType: KeyboardType = KeyboardType.Phone,
 ) {
     Row(
@@ -337,8 +356,8 @@ private fun LoginPhoneField(
                 .fillMaxWidth()
                 .height(52.dp)
                 .clip(LoginFieldShape)
-                .border(width = 1.dp, color = LoginFieldBorder, shape = LoginFieldShape)
-                .background(Color.White)
+                .border(width = 1.dp, color = borderColor, shape = LoginFieldShape)
+                .background(backgroundColor)
                 .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -346,7 +365,7 @@ private fun LoginPhoneField(
             Icon(
                 imageVector = Icons.Outlined.PhoneIphone,
                 contentDescription = null,
-                tint = LoginIconMuted,
+                tint = placeholderColor,
                 modifier = Modifier.size(20.dp),
             )
             Spacer(modifier = Modifier.size(10.dp))
@@ -355,7 +374,7 @@ private fun LoginPhoneField(
             if (value.isEmpty()) {
                 Text(
                     text = placeholder,
-                    color = LoginPlaceholder,
+                    color = placeholderColor,
                     fontSize = 16.sp,
                 )
             }
@@ -363,9 +382,9 @@ private fun LoginPhoneField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = true,
-                textStyle = TextStyle(color = LoginFieldText, fontSize = 16.sp),
+                textStyle = TextStyle(color = textColor, fontSize = 16.sp),
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                cursorBrush = SolidColor(LoginButtonBlack),
+                cursorBrush = SolidColor(cursorColor),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -377,6 +396,8 @@ private fun LoginPrimaryButton(
     text: String,
     enabled: Boolean,
     onClick: () -> Unit,
+    backgroundColor: Color,
+    foregroundColor: Color,
     loading: Boolean = false,
 ) {
     Box(
@@ -385,7 +406,7 @@ private fun LoginPrimaryButton(
                 .fillMaxWidth()
                 .height(52.dp)
                 .clip(LoginFieldShape)
-                .background(if (enabled || loading) LoginButtonBlack else LoginButtonDisabled)
+                .background(backgroundColor)
                 .semantics { role = Role.Button }
                 .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -397,13 +418,13 @@ private fun LoginPrimaryButton(
             if (loading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
-                    color = Color.White,
+                    color = foregroundColor,
                     strokeWidth = 2.dp,
                 )
             }
             Text(
                 text = text,
-                color = Color.White,
+                color = foregroundColor,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
             )

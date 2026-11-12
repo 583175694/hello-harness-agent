@@ -30,11 +30,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.text.TextStyle
 import com.harness.agent.coreui.motion.rememberHarnessReduceMotion
 import com.harness.agent.coreui.tokens.HarnessLayout
+import com.harness.agent.coreui.tokens.HarnessSystemBarAppearance
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.material3.Text
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -240,7 +240,7 @@ fun SettingsTextField(
                     .fillMaxWidth()
                     .heightIn(min = 44.dp)
                     .background(colors.subtle, shape)
-                    .border(1.dp, colors.composerBorder, shape)
+                    .border(1.dp, colors.inputBorder, shape)
                     .padding(horizontal = 12.dp, vertical = 11.dp),
             decorationBox = { inner ->
                 Box(contentAlignment = Alignment.CenterStart) {
@@ -260,9 +260,9 @@ fun harnessSwitchColors(): SwitchColors {
     return SwitchDefaults.colors(
         checkedThumbColor = colors.primaryForeground,
         checkedTrackColor = colors.primary,
-        uncheckedThumbColor = Color.White,
-        uncheckedTrackColor = if (colors.canvas.luminance() < 0.5f) colors.subtlePressed else Color(0xFFE6E6E3),
-        uncheckedBorderColor = colors.composerBorder,
+        uncheckedThumbColor = colors.secondary,
+        uncheckedTrackColor = colors.subtlePressed,
+        uncheckedBorderColor = colors.inputBorder,
     )
 }
 
@@ -329,6 +329,7 @@ fun AppSheet(
                 decorFitsSystemWindows = false,
             ),
     ) {
+        HarnessSystemBarAppearance()
         Box(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier =

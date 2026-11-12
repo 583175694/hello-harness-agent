@@ -57,6 +57,7 @@ import com.harness.agent.coreui.primitives.AppText
 import com.harness.agent.coreui.primitives.AppTextStyle
 import com.harness.agent.coreui.primitives.HarnessSegmentedControl
 import com.harness.agent.coreui.tokens.LocalHarnessColors
+import com.harness.agent.coreui.tokens.HarnessSystemBarAppearance
 import com.harness.agent.coreui.feedback.LocalAppToast
 import com.harness.agent.coreui.primitives.AppButton
 import com.harness.agent.coreui.primitives.AppSheet
@@ -134,6 +135,7 @@ fun WorkbenchSheetOverlay(
                 decorFitsSystemWindows = false,
             ),
     ) {
+        HarnessSystemBarAppearance()
         val dialogView = LocalView.current
         DisposableEffect(dialogView) {
             val window = (dialogView.parent as? DialogWindowProvider)?.window

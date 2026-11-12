@@ -19,6 +19,7 @@ import androidx.navigation.navArgument
 import com.harness.agent.coreui.feedback.AppToastHost
 import com.harness.agent.media.ProvideHarnessImageAuth
 import com.harness.agent.coreui.tokens.HarnessTheme
+import com.harness.agent.coreui.tokens.HarnessSystemBarAppearance
 import com.harness.agent.ui.settings.PreviewLoginScreen
 import com.harness.agent.di.AgentSessionPortModule
 import com.harness.agent.preview.PreviewAppPreferences
@@ -63,6 +64,7 @@ class MainActivity : ComponentActivity() {
                 darkTheme = preferences.resolveDarkTheme(),
                 contentFontSizeSp = preferences.contentFontSize,
             ) {
+                HarnessSystemBarAppearance()
                 AppToastHost {
                 ProvideHarnessImageAuth(MainActivityFlavor.imageAuth(preferences)) {
                 val navController = rememberNavController()

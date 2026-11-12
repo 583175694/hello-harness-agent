@@ -5,18 +5,29 @@ FROM node:20-bookworm-slim
 
 ARG AGENT_BROWSER_VERSION=0.38.1
 
+# fonts-noto-cjk is the CJK gate for AI PPT export. Debian ships it as
+# "Noto Sans CJK SC" (not "Noto Sans SC"); the probe and the deck CSS stack
+# accept either. Removing this package silently reintroduces tofu glyphs that
+# every pixel-based metric still scores as healthy (docs/48 §12.0).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
     chromium \
     curl \
+    fontconfig \
     fonts-liberation \
+    fonts-noto-cjk \
     fonts-noto-color-emoji \
+    fonts-wqy-zenhei \
     libgbm1 \
     libnss3 \
     python3 \
     python3-pip \
   && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/font-probe-f0.sh /usr/local/bin/font-probe-f0.sh
+RUN chmod +x /usr/local/bin/font-probe-f0.sh \
+  && /usr/local/bin/font-probe-f0.sh
 
 ENV CHROME_PATH=/usr/bin/chromium
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium

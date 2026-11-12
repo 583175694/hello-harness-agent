@@ -69,6 +69,7 @@ export const {
   getArtifactPreviewUrl,
   getArtifactDownloadUrl,
   downloadArtifact,
+  exportArtifactPptx,
   loadArtifactPreviewImageObjectUrl,
   deleteArtifact,
   submitPendingInput,

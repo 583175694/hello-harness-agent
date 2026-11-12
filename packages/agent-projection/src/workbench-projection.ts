@@ -237,6 +237,7 @@ export function applyToolEvent(current, event, open, currentUserUrls = new Set()
     const completedFileReadLines = completedEvent?.toolName === 'read_file_lines' ? completedEvent : undefined;
     const completedCreateFile = completedEvent?.toolName === 'create_file' ? completedEvent : undefined;
     const completedCreateReport = completedEvent?.toolName === 'create_report' ? completedEvent : undefined;
+    const completedPptExport = completedEvent?.toolName === 'ppt_export' ? completedEvent : undefined;
     const fetchSucceeded = completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
     const resultCount = liveToolCounts(completedEvent, completedFileSearch, completedFileReadLines);
     const sourceCount = completedFetch ? fetchSucceeded.length : resultCount;
@@ -262,6 +263,9 @@ export function applyToolEvent(current, event, open, currentUserUrls = new Set()
                     fileReadLineCount: completedFileReadLines?.result.lines.length,
                     fileName: completedCreateFile?.result.file.fileName,
                     reportTitle: completedCreateReport?.result.report.title,
+                    pptExport: completedPptExport
+                        ? { status: completedPptExport.result.status, fileName: completedPptExport.result.file.fileName }
+                        : undefined,
                     searchResultCount: completedEvent.toolName === 'web_search'
                         ? completedEvent.result.results.length
                         : 0,
@@ -368,11 +372,20 @@ export function applyToolEvent(current, event, open, currentUserUrls = new Set()
         }
     }
     const header = workbenchHeader(executions, sources.length);
-    const completedArtifact = completedCreateFile ?? completedCreateReport;
-    const artifacts = completedArtifact &&
-        !(base.artifacts ?? []).some((item) => item.artifactId === completedArtifact.result.artifact.artifactId)
-        ? [...(base.artifacts ?? []), completedArtifact.result.artifact]
-        : base.artifacts;
+    const completedArtifact = completedCreateFile ?? completedCreateReport ?? completedPptExport;
+    const completedArtifacts = completedCreateFile
+        ? [completedCreateFile.result.artifact]
+        : completedCreateReport
+            ? [completedCreateReport.result.artifact]
+            : completedPptExport
+                ? [
+                    completedPptExport.result.artifact,
+                    ...(completedPptExport.result.preview ? [completedPptExport.result.preview.artifact] : []),
+                ]
+                : [];
+    const artifacts = completedArtifacts.reduce((current, artifact) => current.some((item) => item.artifactId === artifact.artifactId)
+        ? current
+        : [...current, artifact], base.artifacts ?? []);
     return {
         ...base,
         open,

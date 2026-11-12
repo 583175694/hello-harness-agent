@@ -31,18 +31,42 @@ export class ConversationBlockCollector {
 
   constructor(private readonly messageId: string) {}
 
-  appendReasoning(input: { delta: string; roundId: string; roundSequence: number; blockSequence: number }): string {
-    const existing = this.blocks.find((b): b is AssistantReasoningBlock => b.type === 'reasoning' && b.roundId === input.roundId && b.blockSequence === input.blockSequence);
-    if (existing) { existing.content += input.delta; return existing.id; }
-    const block: AssistantReasoningBlock = { id: `${this.messageId}-reasoning-${input.roundSequence}-${input.blockSequence}`, type: 'reasoning', roundId: input.roundId, roundSequence: input.roundSequence, blockSequence: input.blockSequence, content: input.delta, startedAt: new Date().toISOString() };
-    this.insert(block); return block.id;
+  appendReasoning(input: {
+    delta: string;
+    roundId: string;
+    roundSequence: number;
+    blockSequence: number;
+  }): string {
+    const existing = this.blocks.find(
+      (b): b is AssistantReasoningBlock =>
+        b.type === 'reasoning' &&
+        b.roundId === input.roundId &&
+        b.blockSequence === input.blockSequence,
+    );
+    if (existing) {
+      existing.content += input.delta;
+      return existing.id;
+    }
+    const block: AssistantReasoningBlock = {
+      id: `${this.messageId}-reasoning-${input.roundSequence}-${input.blockSequence}`,
+      type: 'reasoning',
+      roundId: input.roundId,
+      roundSequence: input.roundSequence,
+      blockSequence: input.blockSequence,
+      content: input.delta,
+      startedAt: new Date().toISOString(),
+    };
+    this.insert(block);
+    return block.id;
   }
 
   completeReasoning(roundSequence: number, durationMs: number): void {
     const completedAt = new Date().toISOString();
-    for (const block of this.blocks) if (block.type === 'reasoning' && block.roundSequence === roundSequence) {
-      block.completedAt = completedAt; block.durationMs = durationMs;
-    }
+    for (const block of this.blocks)
+      if (block.type === 'reasoning' && block.roundSequence === roundSequence) {
+        block.completedAt = completedAt;
+        block.durationMs = durationMs;
+      }
   }
 
   // 按 Round 内稳定位置合并文本增量；重放同一位置时只更新原 Block。
@@ -287,6 +311,8 @@ export class ConversationBlockCollector {
     if (toolName === 'search_file') return '搜索文件';
     if (toolName === 'read_file_lines' || toolName === 'read_file') return '读取文件';
     if (toolName === 'create_file') return '生成文件';
+    if (toolName === 'create_report') return '生成报告';
+    if (toolName === 'ppt_export') return '生成演示稿';
     if (toolName === 'execute_command') return '执行命令';
     if (toolName === 'bash') return 'Bash';
     if (toolName === 'job_output') return 'Job 输出';

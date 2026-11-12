@@ -869,6 +869,94 @@ describe('R1 workbench shell', () => {
     });
   });
 
+  it('projects PPTX and its HTML preview as separate deliverables', () => {
+    const started: ToolStreamEvent = {
+      type: 'tool.started',
+      messageId: 'assistant-ppt',
+      blockId: 'tool-ppt',
+      toolCallId: 'call-ppt',
+      toolName: 'ppt_export',
+      title: '生成 PPT：季度复盘',
+      input: { fileName: 'review.pptx', title: '季度复盘', slideCount: 8 },
+      startedAt: '2026-11-12T09:00:00.000Z',
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 1,
+    };
+    const completed: ToolStreamEvent = {
+      type: 'tool.completed',
+      messageId: 'assistant-ppt',
+      blockId: 'tool-ppt',
+      toolCallId: 'call-ppt',
+      toolName: 'ppt_export',
+      completedAt: '2026-11-12T09:00:05.000Z',
+      durationMs: 5000,
+      result: {
+        status: 'ok',
+        artifact: {
+          artifactId: 'artifact-ppt',
+          fileId: 'file-ppt',
+          fileName: 'review.pptx',
+          mediaType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          fileKind: 'pptx',
+          size: 512,
+          status: 'ready',
+          createdAt: '2026-11-12T09:00:05.000Z',
+        },
+        file: {
+          fileId: 'file-ppt',
+          fileName: 'review.pptx',
+          mediaType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          fileKind: 'pptx',
+          size: 512,
+          status: 'ready',
+          origin: 'agent_generated',
+        },
+        preview: {
+          artifact: {
+            artifactId: 'artifact-html',
+            fileId: 'file-html',
+            fileName: 'review.html',
+            mediaType: 'text/html',
+            fileKind: 'html',
+            size: 512,
+            status: 'ready',
+            createdAt: '2026-11-12T09:00:05.000Z',
+          },
+          file: {
+            fileId: 'file-html',
+            fileName: 'review.html',
+            mediaType: 'text/html',
+            fileKind: 'html',
+            size: 512,
+            status: 'ready',
+            origin: 'agent_generated',
+          },
+        },
+        report: {
+          planVersion: 1,
+          env: { fonts: [] },
+          checks: [],
+          degrade: 'none',
+        },
+      },
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 1,
+    };
+
+    const streamed = applyToolEvent(applyToolEvent(undefined, started, false), completed, true);
+
+    expect(streamed.artifacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ artifactId: 'artifact-ppt', fileKind: 'pptx' }),
+        expect.objectContaining({ artifactId: 'artifact-html', fileKind: 'html' }),
+      ]),
+    );
+    expect(streamed.artifacts).toHaveLength(2);
+    expect(streamed.executions[0]).toMatchObject({ artifactId: 'artifact-ppt' });
+  });
+
   it('exposes a mock state switcher on the preview route', () => {
     renderWithProviders(
       <>

@@ -13,10 +13,12 @@ import {
   AGENT_TOOL_NAMES,
   bashInputSchema,
   hashBashApprovalBase,
+  pptExportInputSummarySchema,
   renderBashBackgroundResult,
   renderBashResult,
   toBashInputSummary,
   toBashTerminalCommandInput,
+  toPptExportInputSummary,
   type BashInput,
   type BashRunResult,
   type BashTerminalCommandInput,
@@ -108,7 +110,9 @@ export class AgentRuntimeService {
     @Inject(ContextEngineeringService)
     private readonly context?: ContextEngineeringService,
     @Optional() @Inject(SkillRegistryService) private readonly skills?: SkillRegistryService,
-    @Optional() @Inject(MemoryRetrieverService) private readonly memoryRetriever?: MemoryRetrieverService,
+    @Optional()
+    @Inject(MemoryRetrieverService)
+    private readonly memoryRetriever?: MemoryRetrieverService,
     @Optional() @Inject(MemoryConfigService) private readonly memoryConfig?: MemoryConfigService,
   ) {}
 
@@ -147,9 +151,9 @@ export class AgentRuntimeService {
       : input.skills?.length
         ? input.skills
         : registry.list().map((entry) => ({
-          skillId: `catalog:${entry.name}`,
-          version: entry.version,
-          content: `<skill name="${entry.name}" version="${entry.version}" source="${entry.source}"><description>${entry.description.slice(0, 500)}</description></skill>`,
+            skillId: `catalog:${entry.name}`,
+            version: entry.version,
+            content: `<skill name="${entry.name}" version="${entry.version}" source="${entry.source}"><description>${entry.description.slice(0, 500)}</description></skill>`,
           }));
     // 分别记录 Tool Turn 分池、工具调用次数（观测）、交付模式、最终正文和已向客户端展示的文本。
     let toolPhase: ToolPhase = 'investigation';
@@ -162,6 +166,8 @@ export class AgentRuntimeService {
     let finalContent = '';
     let visibleContent = '';
     let modelRounds = 0;
+    // 以 Run 初始输入为基线；用户后续 intervention 会更新最新 user 文本，供工具读取。
+    let initialUserTurnMessage = this.extractRecentUserTexts(messages).last;
     let compactionState: CompactionState | undefined;
     // reasoning-only 只允许单向切换一次到无工具、无思考的最终回答恢复阶段。
     let finalizationRecoveryAttempted = false;
@@ -201,6 +207,7 @@ export class AgentRuntimeService {
       if (input.onBeforeModelRequest) {
         const result = await input.onBeforeModelRequest(modelRounds, finalResponseOnly);
         if (result.messages.length) messages.push(...result.messages);
+        initialUserTurnMessage = this.extractRecentUserTexts(messages).last;
         for (const intervention of result.interventions ?? []) {
           yield {
             type: 'user.intervention',
@@ -583,9 +590,7 @@ export class AgentRuntimeService {
                       : {}),
                     omitted: lastMemoryTrace.omitted,
                     tokenEstimate: lastMemoryTrace.tokenEstimate,
-                    ...(lastMemoryTrace.queryEmbedFailed
-                      ? { queryEmbedFailed: true }
-                      : {}),
+                    ...(lastMemoryTrace.queryEmbedFailed ? { queryEmbedFailed: true } : {}),
                   },
                 }
               : {}),
@@ -756,11 +761,7 @@ export class AgentRuntimeService {
       // 没有工具调用表示模型已经产出最终文本；计划状态不参与此判断。
       if (!normalizedCalls.length) {
         const roundContent = textDeltas.join('');
-        if (
-          !roundContent.trim() &&
-          !finalResponseOnly &&
-          !finalizationRecoveryAttempted
-        ) {
+        if (!roundContent.trim() && !finalResponseOnly && !finalizationRecoveryAttempted) {
           finalizationRecoveryAttempted = true;
           enterFinalAnswer();
           messages.push({
@@ -878,10 +879,7 @@ export class AgentRuntimeService {
               AgentRuntimeService.name,
             );
             toolInput = result.snapshot;
-          } else if (
-            call.name !== AGENT_TOOL_NAMES.toolSearch &&
-            isMcpPublicToolName(call.name)
-          ) {
+          } else if (call.name !== AGENT_TOOL_NAMES.toolSearch && isMcpPublicToolName(call.name)) {
             dispatchPlan.push({
               status: 'ready',
               call,
@@ -972,7 +970,7 @@ export class AgentRuntimeService {
           input,
           call: dispatch.call,
           toolInput: searchInput,
-          messages,
+          latestUserMessage: initialUserTurnMessage,
           roundId,
           modelRounds,
           runSignal,
@@ -1010,9 +1008,7 @@ export class AgentRuntimeService {
                 toolCallId: item.call.id,
                 toolName: item.call.name,
                 input: toBashInputSummary(bashInput, policyClass),
-                argumentsHash: createHash('sha256')
-                  .update(`${base}:${policyClass}`)
-                  .digest('hex'),
+                argumentsHash: createHash('sha256').update(`${base}:${policyClass}`).digest('hex'),
               },
             ];
           }
@@ -1143,7 +1139,7 @@ export class AgentRuntimeService {
             input,
             call,
             toolInput,
-            messages,
+            latestUserMessage: initialUserTurnMessage,
             roundId,
             modelRounds,
             runSignal,
@@ -1256,7 +1252,9 @@ export class AgentRuntimeService {
     const user = [...messages].reverse().find((message) => message.role === 'user');
     if (!user || typeof user.content !== 'string') return [];
     const prefix = user.content.match(/^\s*((?:\/[a-z0-9][a-z0-9._-]*\s*)+)/i)?.[1];
-    return prefix ? [...prefix.matchAll(/\/([a-z0-9][a-z0-9._-]*)/gi)].map((match) => match[1]!) : [];
+    return prefix
+      ? [...prefix.matchAll(/\/([a-z0-9][a-z0-9._-]*)/gi)].map((match) => match[1]!)
+      : [];
   }
 
   private stripSkillCommand(messages: ModelMessage[], hasExplicitSkill: boolean): ModelMessage[] {
@@ -1264,8 +1262,12 @@ export class AgentRuntimeService {
     const index = [...messages].findLastIndex((message) => message.role === 'user');
     if (index < 0) return messages;
     return messages.map((message, messageIndex) => {
-      if (messageIndex !== index || message.role !== 'user' || typeof message.content !== 'string') return message;
-      return { ...message, content: message.content.replace(/^\s*(?:\/[a-z0-9][a-z0-9._-]*\s*)+/i, '').trim() };
+      if (messageIndex !== index || message.role !== 'user' || typeof message.content !== 'string')
+        return message;
+      return {
+        ...message,
+        content: message.content.replace(/^\s*(?:\/[a-z0-9][a-z0-9._-]*\s*)+/i, '').trim(),
+      };
     });
   }
 
@@ -1336,7 +1338,10 @@ export class AgentRuntimeService {
   }
 
   // create_file 的正文只进入工具执行，不进入 SSE、快照、日志或历史 metadata。
-  private bashTerminalInput(toolName: string, input: unknown): BashTerminalCommandInput | undefined {
+  private bashTerminalInput(
+    toolName: string,
+    input: unknown,
+  ): BashTerminalCommandInput | undefined {
     const resolved = this.tools.resolveName(toolName);
     if (resolved !== AGENT_TOOL_NAMES.bash) return undefined;
     const parsed = bashInputSchema.safeParse(input);
@@ -1345,6 +1350,10 @@ export class AgentRuntimeService {
 
   private publicToolInput(toolName: string, input: unknown): unknown {
     const resolved = this.tools.resolveName(toolName);
+    if (resolved === AGENT_TOOL_NAMES.pptExport) {
+      const parsed = pptExportInputSummarySchema.safeParse(toPptExportInputSummary(input));
+      return parsed.success ? parsed.data : { fileName: '', slideCount: 0 };
+    }
     if (resolved === AGENT_TOOL_NAMES.bash && typeof input === 'object' && input !== null) {
       const parsed = bashInputSchema.safeParse(input);
       return parsed.success ? toBashInputSummary(parsed.data) : input;
@@ -1501,7 +1510,12 @@ export class AgentRuntimeService {
     const resolved = this.tools.resolveName(toolName);
     if (resolved === AGENT_TOOL_NAMES.bash) {
       const value = output as BashRunResult | { kind: 'background'; jobId: string };
-      if (typeof value === 'object' && value !== null && 'kind' in value && value.kind === 'background') {
+      if (
+        typeof value === 'object' &&
+        value !== null &&
+        'kind' in value &&
+        value.kind === 'background'
+      ) {
         return renderBashBackgroundResult(value);
       }
       return renderBashResult(output as BashRunResult);
@@ -1561,9 +1575,7 @@ export class AgentRuntimeService {
     } catch (error) {
       const code = this.toolValidationCode(error);
       const detail =
-        error instanceof ToolInputValidationError
-          ? error.detail
-          : '工具参数无法通过 Schema 校验。';
+        error instanceof ToolInputValidationError ? error.detail : '工具参数无法通过 Schema 校验。';
       return {
         status: 'rejected',
         call: item.call,
@@ -1581,7 +1593,7 @@ export class AgentRuntimeService {
     input: AgentRuntimeInput;
     call: RuntimeLifecycleToolCall;
     toolInput: unknown;
-    messages: ModelMessage[];
+    latestUserMessage?: string;
     roundId: string;
     modelRounds: number;
     runSignal: AbortSignal;
@@ -1596,7 +1608,7 @@ export class AgentRuntimeService {
       input,
       call,
       toolInput,
-      messages,
+      latestUserMessage,
       roundId,
       modelRounds,
       runSignal,
@@ -1644,7 +1656,7 @@ export class AgentRuntimeService {
           runId: input.runId,
           messageId: input.messageId,
           toolCallId: call.id,
-          latestUserMessage: this.extractRecentUserTexts(messages).last,
+          ...(latestUserMessage ? { latestUserMessage } : {}),
           ...(bashEgressBoost ? { bashEgressBoost: true } : {}),
         },
         runSignal,

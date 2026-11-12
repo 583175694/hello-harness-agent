@@ -152,6 +152,94 @@ describe('FilesService importGeneratedBytes', () => {
       }),
     );
   });
+
+  it('stores sandbox pptx as a pptx artifact and parses it', async () => {
+    const { service, prisma, storage, processor } = makeService();
+    const pptx = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00]);
+    prisma.session.findUnique.mockResolvedValue({ id: 'session-1', userId: 'local-user' });
+    prisma.file.create.mockResolvedValue({});
+    storage.putOriginal.mockImplementation(async (input) => ({
+      objectKey: `sessions/session-1/files/${input.fileId}/original`,
+    }));
+    storage.putNormalized.mockImplementation(async (input) => ({
+      objectKey: `sessions/session-1/files/${input.fileId}/normalized`,
+    }));
+    processor.parse.mockResolvedValue({
+      fileKind: 'pptx',
+      mediaType:
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      fileName: 'ai-ppt.pptx',
+      normalizedContent: '[Slide 1]\n\n# 封面',
+      parserVersion: 'c1-read-v1',
+      contentHash: 'abc',
+      lineCount: 2,
+      characterCount: 12,
+      overview: { format: 'pptx', slideCount: 1 },
+    });
+    prisma.file.update.mockImplementation(async ({ where }) => ({
+      id: where.id,
+      fileName: 'ai-ppt.pptx',
+      mediaType:
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      fileKind: 'pptx',
+      size: pptx.length,
+      width: null,
+      height: null,
+      status: 'ready',
+      errorCode: null,
+    }));
+
+    const ref = await service.importGeneratedBytes({
+      sessionId: 'session-1',
+      fileName: 'ai-ppt.pptx',
+      data: pptx,
+    });
+
+    expect(prisma.file.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          fileKind: 'pptx',
+          mediaType:
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          origin: 'agent_generated',
+        }),
+      }),
+    );
+    expect(processor.parse).toHaveBeenCalled();
+    expect(ref.fileKind).toBe('pptx');
+  });
+
+  it('stores degraded sandbox html as an html artifact instead of rejecting it', async () => {
+    const { service, prisma, storage } = makeService();
+    const html = Buffer.from('<html><body>deck</body></html>', 'utf8');
+    prisma.session.findUnique.mockResolvedValue({ id: 'session-1', userId: 'local-user' });
+    prisma.file.create.mockResolvedValue({});
+    storage.putOriginal.mockImplementation(async (input) => ({
+      objectKey: `sessions/session-1/files/${input.fileId}/original`,
+    }));
+    storage.putNormalized.mockImplementation(async (input) => ({
+      objectKey: `sessions/session-1/files/${input.fileId}/normalized`,
+    }));
+    prisma.file.update.mockImplementation(async ({ where }) => ({
+      id: where.id,
+      fileName: 'ai-ppt.html',
+      mediaType: 'text/html',
+      fileKind: 'html',
+      size: html.length,
+      width: null,
+      height: null,
+      status: 'ready',
+      errorCode: null,
+    }));
+
+    const ref = await service.importGeneratedBytes({
+      sessionId: 'session-1',
+      fileName: 'ai-ppt.html',
+      data: html,
+    });
+
+    expect(ref.fileKind).toBe('html');
+  });
 });
 
 describe('FilesService recovery', () => {

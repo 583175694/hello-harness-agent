@@ -2190,6 +2190,26 @@ summary:focus-visible {
   display: flex;
   flex-shrink: 0;
   align-items: center;
+  gap: 6px;
+}
+.artifact-html-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.artifact-html-detail-actions .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.artifact-html-detail-actions__primary {
+  border-color: var(--theme-accent);
+  color: var(--theme-accent);
+}
+.artifact-html-detail-actions__primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface));
 }
 .deliverables-page-header__footer {
   margin-top: 8px;

@@ -51,10 +51,12 @@ import { getRunToolOutputUrl } from '../../../api/client';
 import { BashTerminalPanel } from '../elements/bash-terminal-panel';
 import {
   downloadArtifact,
+  exportArtifactPptx,
   getArtifactPreview,
   getArtifactPreviewUrl,
   loadArtifactPreviewImageObjectUrl,
 } from '../../../api/client';
+import { toast } from '../../../components/ui/toast';
 import { parseJsonPreviewText } from '../../../lib/parse-json-preview';
 import { AGENT_UI_COPY } from '../config/ui.constants';
 import { isMcpPublicToolName } from '../model/tool-copy';
@@ -126,7 +128,7 @@ export function resolveToolCallIndex(
   return executions.length - 1;
 }
 
-const ARTIFACT_TOOL_NAMES = new Set(['create_file', 'create_report']);
+const ARTIFACT_TOOL_NAMES = new Set(['create_file', 'create_report', 'ppt_export']);
 
 export function resolveArtifactForTool(
   tool: ToolCallView,
@@ -1262,8 +1264,38 @@ const ArtifactTextPreview = memo(function ArtifactTextPreview({
 
 function ArtifactHtmlDetailActions({ artifact }: { artifact: ArtifactRef }) {
   const previewUrl = getArtifactPreviewUrl(artifact.artifactId);
+  const [isExporting, setIsExporting] = useState(false);
+
+  async function handleExportPptx() {
+    if (isExporting) return;
+    setIsExporting(true);
+    toast.message('正在转换 PPTX，请稍候…');
+    try {
+      await exportArtifactPptx(artifact.artifactId);
+      toast.success('PPTX 已开始下载');
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'PPTX 导出失败，请稍后重试。',
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   return (
     <div className="artifact-html-detail-actions">
+      <button
+        type="button"
+        className="secondary-button artifact-html-detail-actions__primary"
+        onClick={() => {
+          void handleExportPptx();
+        }}
+        disabled={isExporting}
+        aria-busy={isExporting}
+      >
+        <FileText size={16} aria-hidden />
+        {isExporting ? '正在导出…' : '下载 PPTX'}
+      </button>
       <a
         className="secondary-button artifact-html-detail-actions__link"
         href={previewUrl}
@@ -1281,7 +1313,7 @@ function ArtifactHtmlDetailActions({ artifact }: { artifact: ArtifactRef }) {
         }}
       >
         <Download size={16} aria-hidden />
-        下载
+        下载 HTML
       </button>
     </div>
   );

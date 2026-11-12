@@ -11,6 +11,7 @@ export const TOOL_AVAILABILITY: Readonly<Record<string, boolean>> = {
   [AGENT_TOOL_NAMES.readFile]: true,
   [AGENT_TOOL_NAMES.createFile]: true,
   [AGENT_TOOL_NAMES.createReport]: true,
+  [AGENT_TOOL_NAMES.pptExport]: true,
   [AGENT_TOOL_NAMES.executeCommand]: true,
   [AGENT_TOOL_NAMES.bash]: true,
   [AGENT_TOOL_NAMES.jobOutput]: true,

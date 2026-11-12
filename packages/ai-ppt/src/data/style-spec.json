@@ -1,0 +1,21 @@
+{
+  "id": "harness-default-zh",
+  "fontFamily": "\"Noto Sans CJK SC\", \"Noto Sans SC\", \"Microsoft YaHei\", sans-serif",
+  "colors": {
+    "primary": "#1a4d8f",
+    "secondary": "#2d6bb3",
+    "background": "#ffffff",
+    "text": "#1a1a1a",
+    "muted": "#5c6b7a",
+    "accent": "#c45c26",
+    "tableHeader": "#e8f0fa"
+  },
+  "typography": {
+    "coverTitle": 44,
+    "slideTitle": 28,
+    "sectionNumber": 72,
+    "body": 16,
+    "caption": 13,
+    "table": 13
+  }
+}

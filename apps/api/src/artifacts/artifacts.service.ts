@@ -1,13 +1,23 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ArtifactRef, ArtifactSeriesRef, CreateFileInput, CreateFileResult, CreateReportInput, CreateReportResult, ReportRef, RestoreArtifactResult } from '@harness/agent-protocol';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import { PrismaService } from '../database/prisma.service';
 import { FileStorage } from '../file-storage/file-storage';
 import { FilesService } from '../files/files.service';
 import { describeLogError } from '../shared/logging.utils';
+import {
+  ARTIFACTS_PPT_EXPORT_OPTIONS,
+  loadDefaultHtmlFileExporter,
+  loadDefaultPptxExporter,
+  resolveUnpackScriptPath,
+  type ArtifactsPptExportOptions,
+} from './html-to-pptx';
 
 @Injectable()
 export class ArtifactsService {
@@ -15,6 +25,9 @@ export class ArtifactsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(FilesService) private readonly files: FilesService,
     @Inject(FileStorage) private readonly storage: FileStorage,
+    @Optional()
+    @Inject(ARTIFACTS_PPT_EXPORT_OPTIONS)
+    private readonly pptExportOptions?: ArtifactsPptExportOptions,
   ) {}
 
   private async userIdForSession(sessionId: string): Promise<string> {
@@ -482,6 +495,52 @@ export class ArtifactsService {
     return { content: object.content, fileName: artifact.file.fileName, mediaType: artifact.file.mediaType };
   }
 
+  /**
+   * 把会话内已交付的演示 HTML 直接转换为 PPTX 并返回字节。
+   * 不重建 deck plan，避免用户已确认的版式发生漂移。
+   */
+  async exportPptxFromHtml(artifactId: string) {
+    const artifact = await this.findSharedReadable(artifactId);
+    if (artifact.status === 'deleted') throw this.deleted();
+    if (artifact.status !== 'ready' || !artifact.file.originalKey)
+      throw new BadRequestException({ code: AGENT_ERROR_CODES.fileNotReady, detail: '产物尚未准备好。' });
+    if (artifact.file.fileKind !== 'html')
+      throw new BadRequestException({
+        code: AGENT_ERROR_CODES.generatedFileTypeUnsupported,
+        detail: '只有 HTML 演示稿可以转换为 PPTX。',
+      });
+
+    const object = await this.storage.readObject({
+      sessionId: artifact.sessionId,
+      fileId: artifact.fileId,
+      variant: 'original',
+    });
+    const outDir = await mkdtemp(join(tmpdir(), 'harness-artifact-pptx-'));
+    const run = this.pptExportOptions?.run ?? (await loadDefaultHtmlFileExporter());
+    const exportPptx =
+      this.pptExportOptions?.exportPptx ?? (await loadDefaultPptxExporter());
+    const built = await run({
+      html: object.content,
+      fileName: artifact.file.fileName,
+      outDir,
+      unpackScriptPath: resolveUnpackScriptPath(),
+      exportPptx,
+    });
+    if (!built.ok || built.report.degrade !== 'none' || !built.pptxBuffer) {
+      throw new BadRequestException({
+        code: built.report.failureCode ?? 'PPTX_EXPORT_DEGRADED',
+        detail:
+          built.report.failureReason ??
+          'HTML 未能通过 PPTX 导出验收，请打开 HTML 后检查字体或版式。',
+      });
+    }
+    return {
+      content: built.pptxBuffer,
+      fileName: toPptxFileName(artifact.file.fileName),
+      mediaType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    };
+  }
+
   async delete(userId: string, artifactId: string): Promise<{ deletedArtifactId: string; deletedFileId: string }> {
     const artifact = await this.findOwned(userId, artifactId);
     if (artifact.status === 'deleted') throw this.deleted();
@@ -632,4 +691,10 @@ export class ArtifactsService {
   private versionConflict(): ConflictException {
     return new ConflictException({ code: AGENT_ERROR_CODES.artifactVersionConflict, detail: '产物已产生新版本，请基于最新版本重试。' });
   }
+}
+
+function toPptxFileName(fileName: string): string {
+  return /\.html?$/iu.test(fileName)
+    ? fileName.replace(/\.html?$/iu, '.pptx')
+    : `${fileName}.pptx`;
 }

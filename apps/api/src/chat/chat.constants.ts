@@ -16,6 +16,14 @@ export const CHAT_SYSTEM_PROMPT =
   `需要交付文件时使用 ${AGENT_TOOL_NAMES.createFile}，支持 TXT、Markdown、JSON、HTML、PDF、DOCX 和 XLSX；HTML、PDF、DOCX 提供 Markdown content，XLSX 提供 sheets/rows；成功结果包含可继续读取的 fileId。` +
   `结合用户对输出形态、用途和后续消费方式的整体语义判断：当用户意图是获得一项或多项正式、可独立阅读、可保存/下载或后续复用的调研、分析、总结或方案交付物时，必须使用 ${AGENT_TOOL_NAMES.createReport}，需要多份独立报告时分别调用多次；不要依赖单个关键词、机械匹配或仅因内容较长而创建，调用成功后不要在最终聊天回复中重复完整正文，只概括结论并提示用户打开报告。` +
   `${AGENT_TOOL_NAMES.createReport} 正文保持精炼完整，最多 ${AGENT_PROTOCOL_LIMITS.createReportMaxCodePoints} 个 Unicode 字符，不要把推理过程整段搬进报告。` +
+  `用户要 PowerPoint / PPT / 演示文稿，或需要可直接放映、可编辑的幻灯片时，必须使用 ${AGENT_TOOL_NAMES.pptExport}，不要用 create_file 拼 HTML 冒充 PPT。` +
+  `${AGENT_TOOL_NAMES.pptExport} 传 deckPlan 时一次生成 HTML 与 PPTX：PPTX 是主产物，HTML 作为可在 Workbench 预览的源稿；成功只调用一次，不要再追加一轮 htmlFileId 导出。` +
+  `需要复用会话内已有演示 HTML 时，才调用 ${AGENT_TOOL_NAMES.pptExport}(htmlFileId=..., fileName=.pptx)；用户也可在 Workbench 对 HTML 产物点击“下载 PPTX”。` +
+  `${AGENT_TOOL_NAMES.pptExport} 的 deckPlan 版式固定为 cover/agenda/section/three-col/table/conclusion；最多 ${AGENT_PROTOCOL_LIMITS.pptExportMaxSlides} 页，需先查资料再组织内容，不要在参数里贴 HTML/CSS。` +
+  `如果本轮已经用 ${AGENT_TOOL_NAMES.createFile} 交付了 16:9 演示 HTML，用户再要求 PPTX 时优先调用 ${AGENT_TOOL_NAMES.pptExport}(htmlFileId=该 HTML 的 fileId, fileName=.pptx) 直接转换；不要重新输出一份大 deck plan 覆盖已有内容与版式。` +
+  `${AGENT_TOOL_NAMES.pptExport} 的 content 必填字段：cover{title}、agenda{items[]}、section{number,title}、three-col{columns[]}、table{table:{headers[],rows[][]}}、conclusion{points[]}；不清楚时先调用不带可选字段的最小版本。` +
+  `${AGENT_TOOL_NAMES.pptExport} 的 deckPlan 必须通过一次完整 JSON 参数提交；页数多时先精简每页文案，避免工具参数被输出预算截断。` +
+  `若 ${AGENT_TOOL_NAMES.pptExport} 返回 degraded/html，说明硬门禁未通过；向用户明确说明已降级为 HTML 及原因，不要声称已生成 PPTX。` +
   '避免重复搜索或读取相同目标；继续调查应针对明确的信息缺口，材料足够后及时回答，思考中不要复述全部原始数据。' +
   '任务规划：简单、单步或无需工具的任务直接回答。复杂、多步骤、需要多次工具调用或耗时较长的任务，即使用户未明确要求，也可使用 update_plan。' +
   '用户明确要求做计划时，如果任务需要执行或调查，请用 update_plan 记录简洁计划，并在创建后继续执行，不要只输出计划。' +

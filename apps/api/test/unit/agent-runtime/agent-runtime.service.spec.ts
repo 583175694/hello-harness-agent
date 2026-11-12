@@ -43,7 +43,6 @@ type RoundEvent =
       };
     };
 
-// 从固定轮次数组构造供应商无关的模型测试替身。
 function modelFromRounds(rounds: RoundEvent[][]): ModelAdapter & {
   streamRound: ReturnType<typeof vi.fn>;
 } {
@@ -105,8 +104,7 @@ function logger(): Logger {
 
 function toolExposureService(): ToolExposureService {
   return {
-    annotateSnapshot: (snapshot: import('../../../src/mcp/mcp.types').RunMcpSnapshot) =>
-      snapshot,
+    annotateSnapshot: (snapshot: import('../../../src/mcp/mcp.types').RunMcpSnapshot) => snapshot,
     createIndex: () => null,
     deferredCount: () => 0,
     buildMcpDefinitions: () => [],
@@ -174,12 +172,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    const events = await collect(
-      agentRuntime(model),
-      undefined,
-      undefined,
-      'high',
-    );
+    const events = await collect(agentRuntime(model), undefined, undefined, 'high');
     expect(events.filter((event) => event.type === 'text.delta')).toEqual([
       expect.objectContaining({ delta: '我先查询。', phase: 'commentary' }),
       expect.objectContaining({ delta: '最终回答。', phase: 'final_answer' }),
@@ -217,11 +210,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
     const lifecycle = new RuntimeLifecycleController('run-1');
-    const execution = collect(
-      agentRuntime(model),
-      undefined,
-      lifecycle,
-    );
+    const execution = collect(agentRuntime(model), undefined, lifecycle);
     await vi.waitFor(() =>
       expect(lifecycle.snapshot().activeInterrupt?.kind).toBe('clarification'),
     );
@@ -239,6 +228,70 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       }),
     ]);
     expect(model.streamRound).toHaveBeenCalledTimes(2);
+  });
+
+  it('publishes only a safe ppt_export summary in tool events', async () => {
+    const plan = {
+      version: 1,
+      meta: {
+        title: '季度复盘',
+        audience: '管理层',
+        language: 'zh-CN',
+        aspectRatio: '16:9',
+        styleId: 'default',
+      },
+      slides: [
+        {
+          id: 's1',
+          kind: 'cover',
+          claim: '封面',
+          layoutId: 'cover',
+          content: { title: '季度复盘' },
+        },
+      ],
+    };
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            {
+              id: 'call-ppt',
+              name: AGENT_TOOL_NAMES.pptExport,
+              arguments: JSON.stringify({ fileName: 'review.pptx', deckPlan: plan }),
+            },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '已生成 PPT。' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const tools = registry({
+      definitions: vi.fn(() => [
+        { name: AGENT_TOOL_NAMES.pptExport, description: '导出 PPT', parameters: {} },
+      ]),
+    });
+
+    const events = await collect(agentRuntime(model, tools));
+    const started = events.find(
+      (event) => event.type === 'tool.started' && event.toolName === AGENT_TOOL_NAMES.pptExport,
+    );
+    expect(started).toEqual(
+      expect.objectContaining({
+        input: {
+          fileName: 'review.pptx',
+          source: 'plan',
+          title: '季度复盘',
+          slideCount: 1,
+          audience: '管理层',
+          language: 'zh-CN',
+        },
+      }),
+    );
+    expect(JSON.stringify(started)).not.toContain('deckPlan');
   });
 
   it('auto-boosts bash network without tool approval', async () => {
@@ -284,11 +337,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       }),
     });
     const lifecycle = new RuntimeLifecycleController('run-bash-network');
-    const execution = collect(
-      agentRuntime(model, tools),
-      undefined,
-      lifecycle,
-    );
+    const execution = collect(agentRuntime(model, tools), undefined, lifecycle);
     await vi.waitFor(() => expect(tools.execute).toHaveBeenCalled());
     expect(lifecycle.snapshot().activeInterrupt).toBeUndefined();
     await execution;
@@ -343,11 +392,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       }),
     });
     const lifecycle = new RuntimeLifecycleController('run-bash-install');
-    const execution = collect(
-      agentRuntime(model, tools),
-      undefined,
-      lifecycle,
-    );
+    const execution = collect(agentRuntime(model, tools), undefined, lifecycle);
     await vi.waitFor(() =>
       expect(lifecycle.snapshot().activeInterrupt?.kind).toBe('tool_approval'),
     );
@@ -401,11 +446,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         approvalPolicy: vi.fn(() => 'require_approval'),
       } as Partial<ToolRegistryService>);
       const lifecycle = new RuntimeLifecycleController('run-1');
-      const execution = collect(
-        agentRuntime(model, tools),
-        undefined,
-        lifecycle,
-      );
+      const execution = collect(agentRuntime(model, tools), undefined, lifecycle);
       await vi.waitFor(() =>
         expect(lifecycle.snapshot().activeInterrupt?.kind).toBe('tool_approval'),
       );
@@ -505,11 +546,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     const lifecycle = new RuntimeLifecycleController('run-1');
     lifecycle.requestPause();
 
-    const execution = collect(
-      agentRuntime(model),
-      undefined,
-      lifecycle,
-    );
+    const execution = collect(agentRuntime(model), undefined, lifecycle);
     await vi.waitFor(() => expect(lifecycle.snapshot().state).toBe('paused'));
     expect(model.streamRound).not.toHaveBeenCalled();
 
@@ -553,11 +590,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     } as unknown as ModelAdapter & { streamRound: ReturnType<typeof vi.fn> };
     const tools = registry();
     const lifecycle = new RuntimeLifecycleController('run-1');
-    const execution = collect(
-      agentRuntime(model, tools),
-      undefined,
-      lifecycle,
-    );
+    const execution = collect(agentRuntime(model, tools), undefined, lifecycle);
 
     await firstRoundStarted;
     lifecycle.requestPause();
@@ -581,12 +614,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    const events = await collect(
-      agentRuntime(model),
-      undefined,
-      undefined,
-      'high',
-    );
+    const events = await collect(agentRuntime(model), undefined, undefined, 'high');
 
     expect(events.some((event) => (event as { type: string }).type === 'reasoning.delta')).toBe(
       true,
@@ -623,12 +651,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    const events = await collect(
-      agentRuntime(model),
-      undefined,
-      undefined,
-      'high',
-    );
+    const events = await collect(agentRuntime(model), undefined, undefined, 'high');
 
     expect(model.streamRound).toHaveBeenCalledTimes(2);
     expect(model.streamRound.mock.calls[0]?.[0]).toMatchObject({
@@ -663,9 +686,9 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    await expect(collect(agentRuntime(model))).rejects.toMatchObject(
-      { response: { code: AGENT_ERROR_CODES.modelReasoningOnly } },
-    );
+    await expect(collect(agentRuntime(model))).rejects.toMatchObject({
+      response: { code: AGENT_ERROR_CODES.modelReasoningOnly },
+    });
     expect(model.streamRound).toHaveBeenCalledTimes(2);
   });
 
@@ -715,9 +738,9 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ],
     ]);
 
-    await expect(collect(agentRuntime(model))).rejects.toMatchObject(
-      { response: { code: AGENT_ERROR_CODES.modelOutputLimit } },
-    );
+    await expect(collect(agentRuntime(model))).rejects.toMatchObject({
+      response: { code: AGENT_ERROR_CODES.modelOutputLimit },
+    });
     expect(model.streamRound).toHaveBeenCalledTimes(2);
   });
 
@@ -1577,6 +1600,11 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     const toolEvents = events.filter(
       (item) => item.type === 'tool.started' || item.type === 'tool.completed',
     );
-    expect(toolEvents.map((item) => item.toolCallId)).toEqual(['call-mcp', 'call-mcp', 'call-search', 'call-search']);
+    expect(toolEvents.map((item) => item.toolCallId)).toEqual([
+      'call-mcp',
+      'call-mcp',
+      'call-search',
+      'call-search',
+    ]);
   });
 });

@@ -1,4 +1,15 @@
-import { Ellipsis, Menu, PanelRight, Pencil, Pin, PinOff, Plus, Trash2, X } from 'lucide-react';
+import {
+  Ellipsis,
+  LayoutPanelLeft,
+  Menu,
+  PanelRight,
+  Pencil,
+  Pin,
+  PinOff,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react';
 import {
   startTransition,
   useEffect,
@@ -106,6 +117,7 @@ import {
   streamToolTitle,
   toolRunningDetail,
 } from './features/agent/model/tool-copy';
+import { useSessionSidebarOpen } from './features/agent/hooks/use-session-sidebar-open';
 import { AgentSplitLayout } from './features/agent/components/agent-split-layout';
 import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
@@ -1158,6 +1170,26 @@ function resumeWorkbenchAutoFollow(workbench: WorkbenchState): WorkbenchState {
   };
 }
 
+function SessionSidebarToggleButton({
+  open,
+  onToggle,
+}: {
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      className={`icon-button toggle-session-sidebar shrink-0${open ? '' : ' toggle-session-sidebar--collapsed'}`}
+      type="button"
+      aria-label={open ? '收起会话列表' : '展开会话列表'}
+      title={open ? '收起会话列表' : '展开会话列表'}
+      aria-expanded={open}
+      onClick={onToggle}
+    >
+      <LayoutPanelLeft size={18} strokeWidth={1.75} aria-hidden="true" />
+    </button>
+  );
+}
 function WorkbenchOpenButton({
   disabled,
   title,
@@ -1218,6 +1250,7 @@ function PersistentAgentApp() {
   const skipClearPendingOnLoginCloseRef = useRef(false);
   const [reconnectRunId, setReconnectRunId] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { sessionSidebarOpen, toggleSessionSidebar } = useSessionSidebarOpen();
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('high');
   const [models, setModels] = useState<PublicModelConfig[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
@@ -2226,15 +2259,17 @@ function PersistentAgentApp() {
                       ...item,
                       pending: false,
                       deliveryStatus: 'failed',
-                      blocks: item.blocks.length
-                        ? item.blocks
-                        : [
-                            {
-                              id: `${assistantMessageId}-failed`,
-                              type: 'text',
-                              content: '本次回答未完成，请稍后重试。',
+                      error:
+                        requestError instanceof ApiProblem
+                          ? {
+                              code: requestError.problem.code,
+                              detail: requestError.problem.detail,
+                            }
+                          : {
+                              code: 'REQUEST_FAILED',
+                              detail: getErrorMessage(requestError),
                             },
-                          ],
+                      blocks: item.blocks.length ? item.blocks : [],
                     }
                   : item,
               ),
@@ -2412,7 +2447,9 @@ function PersistentAgentApp() {
   }
 
   return (
-    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-canvas text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
+    <div
+      className={`app-shell h-screen min-h-screen min-w-0 overflow-hidden bg-canvas text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible${sessionSidebarOpen ? '' : ' app-shell--sidebar-collapsed'}`}
+    >
       <Sidebar
         serviceState={serviceState}
         serviceLabel=""
@@ -2522,8 +2559,12 @@ function PersistentAgentApp() {
                 >
                   <Menu size={18} />
                 </button>
-                <div className="task-title flex min-w-0 flex-1 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
-                  <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-content font-medium">
+                <div className="task-title flex min-w-0 flex-1 items-center gap-2 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
+                  <SessionSidebarToggleButton
+                    open={sessionSidebarOpen}
+                    onToggle={toggleSessionSidebar}
+                  />
+                  <span className="task-title__label min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-content font-medium">
                     {uiState.label}
                   </span>
                 </div>
@@ -2835,6 +2876,7 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(Boolean(previewState?.previewSubmitting));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { sessionSidebarOpen, toggleSessionSidebar } = useSessionSidebarOpen();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [uiState, setUiState] = useState<AgentUiState>(previewState ?? makeFixture('empty'));
 
@@ -2917,7 +2959,9 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
   const workbenchPresent = Boolean(uiState.workbench);
   const workbenchOpen = Boolean(uiState.workbench?.open);
   return (
-    <div className="app-shell grid h-screen min-h-screen min-w-0 grid-cols-[252px_minmax(0,1fr)] overflow-hidden bg-canvas text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible">
+    <div
+      className={`app-shell h-screen min-h-screen min-w-0 overflow-hidden bg-canvas text-text-primary max-[720px]:block max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:overflow-visible${sessionSidebarOpen ? '' : ' app-shell--sidebar-collapsed'}`}
+    >
       <Sidebar
         serviceState={serviceState}
         serviceLabel={serviceLabel}
@@ -2950,8 +2994,12 @@ export function AppShell({ previewState }: { previewState?: AgentUiState }) {
                 >
                   <Menu size={18} />
                 </button>
-                <div className="task-title flex min-w-0 flex-1 items-baseline gap-2.5 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
-                  <span className="task-title__label overflow-hidden text-ellipsis whitespace-nowrap text-content font-medium">
+                <div className="task-title flex min-w-0 flex-1 items-center gap-2 max-[720px]:flex-col max-[720px]:items-start max-[720px]:gap-0.5">
+                  <SessionSidebarToggleButton
+                    open={sessionSidebarOpen}
+                    onToggle={toggleSessionSidebar}
+                  />
+                  <span className="task-title__label min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-content font-medium">
                     {uiState.label}
                   </span>
                   {uiState.subtitle ? (
@@ -3185,8 +3233,9 @@ function Sidebar({
   return (
     <>
       <aside
-        className={`session-sidebar flex h-screen min-h-screen min-w-0 flex-col overflow-hidden bg-sidebar p-[22px_0_16px_14px] max-[720px]:fixed max-[720px]:inset-y-0 max-[720px]:left-0 max-[720px]:z-20 max-[720px]:w-[min(286px,86vw)] max-[720px]:-translate-x-[102%] max-[720px]:transition-transform ${mobileNavOpen ? 'session-sidebar--open max-[720px]:translate-x-0' : ''}`}
+        className={`session-sidebar flex h-screen min-h-screen min-w-0 flex-col overflow-hidden bg-sidebar max-[720px]:fixed max-[720px]:inset-y-0 max-[720px]:left-0 max-[720px]:z-20 max-[720px]:w-[min(286px,86vw)] max-[720px]:-translate-x-[102%] max-[720px]:transition-transform ${mobileNavOpen ? 'session-sidebar--open max-[720px]:translate-x-0' : ''}`}
       >
+        <div className="session-sidebar__inner flex h-full min-h-0 w-[252px] min-w-[252px] flex-col p-[22px_0_16px_14px]">
         <div className="brand-row flex items-center gap-2.5 px-2 pb-7 pr-[22px]">
           <img
             className="brand-logo h-12 w-auto max-w-[min(240px,calc(100%-36px))] shrink object-contain object-left"
@@ -3315,6 +3364,7 @@ function Sidebar({
               onLogout={onLogout}
             />
           </div>
+        </div>
         </div>
       </aside>
       {menuSessionId && menuAnchor && sessions

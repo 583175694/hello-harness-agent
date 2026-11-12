@@ -183,7 +183,7 @@ export const createFileInputSchema = z
     if (
       !workbook &&
       value.content &&
-      new TextEncoder().encode(value.content).byteLength > 10 * 1024 * 1024
+      new TextEncoder().encode(value.content).byteLength > AGENT_PROTOCOL_LIMITS.generatedFileMaxBytes
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,

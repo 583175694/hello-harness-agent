@@ -8,8 +8,11 @@
 | --- | --- |
 | 服务器 | `ubuntu@175.178.23.83` |
 | 项目目录 | `/www/hello-harness-agent` |
-| Web 入口 | `http://175.178.23.83:4317/agent` |
-| Web/API 健康检查 | `http://175.178.23.83:4317/readyz` |
+| Web 入口（主） | `https://pipishrimp.cn/agent`（`/` 302 到 `/agent`） |
+| Web 入口（备用） | `http://175.178.23.83:4317/agent` |
+| Web/API 健康检查 | `https://pipishrimp.cn/readyz` 或 `http://175.178.23.83:4317/readyz` |
+| 域名 Nginx | `/etc/nginx/sites-available/chat-app.conf`（仓库模板 `deploy/pipishrimp.cn.nginx.conf`） |
+| 招聘页（独立） | `https://pipishrimp.cn/recruitment/index.html` |
 | API 内部地址 | `127.0.0.1:4318` |
 | OpenSandbox | `127.0.0.1:28473` |
 | 数据库 | PostgreSQL `hello_harness_agent` |
@@ -29,6 +32,7 @@ ssh -p 22 ubuntu@175.178.23.83
 
 sudo systemctl status hello-harness-agent opensandbox nginx --no-pager
 curl -fsS http://127.0.0.1:4317/readyz
+curl -fsS https://pipishrimp.cn/readyz
 curl -fsS http://175.178.23.83:4317/readyz
 ss -ltn | grep -E ':(4317|4318|28473)\b'
 ```
@@ -37,7 +41,7 @@ ss -ltn | grep -E ':(4317|4318|28473)\b'
 
 ### 2.1 鉴权与 Cookie
 
-生产环境 `.env` 必须设置 `AUTH_MODE=required`，并配置 `WEB_ORIGIN` 与 Nginx 同源反代（当前 `4317` 反代 `/api` 到 `4318`），以便浏览器携带 `HttpOnly` Cookie（`AUTH_COOKIE_NAME`，默认 `harness_session`）。
+生产环境 `.env` 必须设置 `AUTH_MODE=required`，并配置 `WEB_ORIGIN` 与 Nginx 同源反代（域名 `443` 与备用 `4317` 均反代 `/api` 到 `4318`），以便浏览器携带 `HttpOnly` Cookie（`AUTH_COOKIE_NAME`，默认 `harness_session`）。域名入口当前 `WEB_ORIGIN=https://pipishrimp.cn`。
 
 | 变量 | 说明 |
 | --- | --- |
@@ -176,7 +180,24 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-`nginx -t` 失败时不要 reload。当前站点配置文件是 `/etc/nginx/conf.d/hello-harness-agent.conf`。
+`nginx -t` 失败时不要 reload。
+
+| 配置 | 用途 |
+| --- | --- |
+| `/etc/nginx/conf.d/hello-harness-agent.conf` | 公网 IP `:4317` 备用入口 |
+| `/etc/nginx/sites-available/chat-app.conf` | `pipishrimp.cn` HTTPS（Let's Encrypt）+ `/recruitment` |
+
+更新域名站点时，先备份再覆盖并 reload：
+
+```bash
+sudo cp /etc/nginx/sites-available/chat-app.conf \
+  /etc/nginx/sites-available/chat-app.conf.bak-$(date +%Y%m%d-%H%M%S)
+sudo cp /www/hello-harness-agent/deploy/pipishrimp.cn.nginx.conf \
+  /etc/nginx/sites-available/chat-app.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+证书续期由 certbot 管理；续期后一般无需改 Nginx 路径（仍指向 `/etc/letsencrypt/live/pipishrimp.cn/`）。
 
 ## 6. 环境变量和密钥
 
@@ -190,7 +211,7 @@ chmod 600 /www/hello-harness-agent/.env
 
 - `NODE_ENV=production`
 - `API_HOST=127.0.0.1`、`API_PORT=4318`
-- `WEB_ORIGIN=http://175.178.23.83:4317`
+- `WEB_ORIGIN=https://pipishrimp.cn`（若仅走 IP 备用入口则为 `http://175.178.23.83:4317`）
 - `DATABASE_URL`
 - 模型 API Key 和搜索服务配置
 - COS 四项生产存储配置
@@ -252,7 +273,7 @@ cd /www/hello-harness-agent
 
 浏览器端验证建议使用公网 URL：
 
-1. 打开 `http://175.178.23.83:4317/agent`。
+1. 打开 `https://pipishrimp.cn/agent`（或备用 `http://175.178.23.83:4317/agent`）。
 2. 新建会话，发送“请只回复 DEPLOY_BROWSER_OK”。
 3. 确认收到完整回复，刷新页面后消息仍在。
 4. 打开浏览器控制台，确认没有 `crypto.randomUUID`、SSE 或 5xx 错误。

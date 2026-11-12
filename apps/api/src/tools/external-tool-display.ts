@@ -30,10 +30,3 @@ export function externalToolTitle(publicName: string): string {
   return `运行工具 ${publicName}`;
 }
 
-/** @deprecated 使用 mcpToolBusinessSummary；保留别名避免旧引用。 */
-export function externalToolCompletedSummary(
-  publicName: string,
-  input: unknown,
-): string {
-  return mcpToolBusinessSummary(publicName, summarizeExternalToolInput(input));
-}

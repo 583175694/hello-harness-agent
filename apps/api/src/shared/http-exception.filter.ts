@@ -41,7 +41,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
   private readBody(exception: unknown): ExceptionBody {
     if (this.isMulterLimitError(exception)) {
       return exception.code === 'LIMIT_FILE_SIZE'
-        ? { code: 'FILE_TOO_LARGE', detail: '文件超过 20 MiB 限制。' }
+        ? { code: 'FILE_TOO_LARGE', detail: '文件超过 20 MB 限制。' }
         : { code: 'FILE_TOO_MANY', detail: '一次只能上传一个图片文件。' };
     }
     // 从 Nest 异常中提取可用的错误主体。

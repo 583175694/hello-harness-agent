@@ -126,7 +126,7 @@ export async function renderGeneratedFile(
   ) {
     throw new GeneratedFileRenderError(
       'GENERATED_FILE_RENDER_FAILED',
-      '生成结果为空或超过 10 MB 限制。',
+      '生成结果为空或超过 20 MB 限制。',
     );
   }
   validateSignature(result);

@@ -131,9 +131,11 @@ function formatMessageTime(createdAt?: string, fallback?: string): string {
   }).format(new Date());
 }
 
+const FILE_MAX_MB = AGENT_PROTOCOL_LIMITS.agentFileMaxBytes / (1024 * 1024);
+
 const FILE_ERROR_MESSAGES: Record<string, string> = {
   FILE_EMPTY: '文件为空',
-  FILE_TOO_LARGE: '文件超过 20 MiB 限制',
+  FILE_TOO_LARGE: `文件超过 ${FILE_MAX_MB} MB 限制`,
   FILE_TYPE_UNSUPPORTED: '文件类型不受支持',
   FILE_SIGNATURE_MISMATCH: '文件类型与实际内容不一致',
   FILE_PARSE_FAILED: '文件格式无法解析',
@@ -148,7 +150,7 @@ const FILE_ERROR_MESSAGES: Record<string, string> = {
 // 将服务端稳定错误码转换为用户可读的简短提示。
 function fileErrorMessage(errorCode?: string): string {
   if (errorCode === 'FILE_CONTENT_TOO_LARGE') {
-    return `解析内容超过 ${AGENT_PROTOCOL_LIMITS.uploadParsedContentMaxCodePoints.toLocaleString('zh-CN')} 字符限制`;
+    return '文件解析后内容过大，请压缩或拆分后重新上传';
   }
   return FILE_ERROR_MESSAGES[errorCode ?? ''] ?? '文件处理失败';
 }
@@ -676,7 +678,9 @@ const AssistantMessage = memo(
             <div className="assistant-delivery-status">本次回答已取消</div>
           ) : item.deliveryStatus === 'failed' ? (
             <div className="assistant-delivery-status">
-              本次回答未完成{item.error?.detail ? `：${item.error.detail}` : ''}
+              {item.error?.code ? `[${item.error.code}] ` : ''}
+              本次回答未完成
+              {item.error?.detail ? `：${item.error.detail}` : '，请稍后重试。'}
             </div>
           ) : null}
           {showThinking ? (
@@ -1915,7 +1919,7 @@ export function Composer({
     >
       {composerDragOver ? (
         <div className="composer-drop-overlay" aria-hidden="true">
-          拖放文件或图片以添加附件
+          拖放文件或图片以添加附件（单文件最大 {FILE_MAX_MB} MB）
         </div>
       ) : null}
       {composerPanel ? (
@@ -2212,7 +2216,7 @@ export function Composer({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp,.txt,.md,.csv,.json,.pdf,.docx,.xlsx,.pptx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            accept="image/png,image/jpeg,image/webp,.txt,.md,.csv,.html,.htm,.json,.pdf,.docx,.xlsx,.pptx,text/html,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation"
             multiple
             hidden
             onChange={(event) => {

@@ -55,11 +55,6 @@ export class SandboxManagerService implements OnModuleDestroy {
     await this.scheduleDestroyIfIdle(sessionId);
   }
 
-  /** @deprecated C3-C：Run 结束请使用 releaseRunLease */
-  async releaseRun(runId: string): Promise<void> {
-    await this.releaseRunLease(runId);
-  }
-
   setRunningJobCount(sessionId: string, count: number): void {
     const entry = this.sessions.get(sessionId);
     if (entry) entry.runningJobCount = Math.max(0, count);

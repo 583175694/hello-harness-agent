@@ -30,9 +30,7 @@ function conversationTextPhase(
   return undefined;
 }
 
-function isBashBackgroundToolResult(
-  result: BashPublicToolResult,
-): result is BashBackgroundResult {
+function isBashBackgroundToolResult(result: BashPublicToolResult): result is BashBackgroundResult {
   return 'kind' in result && result.kind === 'background';
 }
 
@@ -46,14 +44,20 @@ function activityToolName(event: ToolStreamEvent): string {
   return resolveActivityToolName(event.toolName, streamPublicName(event));
 }
 
-function toolActivityStartSummary(event: Extract<ToolStreamEvent, { type: 'tool.started' }>): string {
+function toolActivityStartSummary(
+  event: Extract<ToolStreamEvent, { type: 'tool.started' }>,
+): string {
   if (event.toolName === 'external_tool') {
     return mcpToolBusinessSummary(
       streamPublicName(event) ?? activityToolName(event),
       (event.input ?? {}) as Record<string, unknown>,
     );
   }
-  if (event.toolName === 'web_fetch' || event.toolName === 'create_report') {
+  if (
+    event.toolName === 'web_fetch' ||
+    event.toolName === 'create_report' ||
+    event.toolName === 'ppt_export'
+  ) {
     return toolStreamTitle(event.toolName, event.input, { publicName: streamPublicName(event) });
   }
   if (
@@ -85,10 +89,10 @@ function bashTerminalBlockPatch(
   if (!('presentation' in event) || event.presentation !== 'terminal') return {};
   return {
     presentation: 'terminal' as const,
-    ...( 'description' in event && typeof event.description === 'string'
+    ...('description' in event && typeof event.description === 'string'
       ? { description: event.description }
       : {}),
-    ...( 'terminalView' in event && event.terminalView ? { terminalView: event.terminalView } : {}),
+    ...('terminalView' in event && event.terminalView ? { terminalView: event.terminalView } : {}),
     ...(event.type === 'tool.completed' && 'exitCode' in event
       ? { exitCode: event.exitCode ?? null }
       : {}),
@@ -105,7 +109,10 @@ function toolActivityCompletedSummary(
   currentSummary: string,
 ): string {
   if (event.toolName === 'external_tool') {
-    const next = mcpToolBusinessSummary(event.publicName, (event.input ?? {}) as Record<string, unknown>);
+    const next = mcpToolBusinessSummary(
+      event.publicName,
+      (event.input ?? {}) as Record<string, unknown>,
+    );
     const rawName = parseMcpPublicToolName(event.publicName)?.rawName;
     if (rawName && next === rawName && currentSummary.trim() && currentSummary !== rawName) {
       return currentSummary;
@@ -144,13 +151,16 @@ function toolActivityCompletedSummary(
   if (event.toolName === 'read_file_lines') return `读取 ${event.result.lines.length} 行文件内容`;
   if (event.toolName === 'create_file') return `已生成 ${event.result.file.fileName}`;
   if (event.toolName === 'create_report') return `生成报告：${event.result.report.title}`;
+  if (event.toolName === 'ppt_export') {
+    if (event.result.status === 'ok') return `已生成 ${event.result.file.fileName}`;
+    return `PPT 已降级为 HTML：${event.result.file.fileName}`;
+  }
   if (event.toolName === 'bash' || event.toolName === 'execute_command') {
     const commandResult = event.result;
     if (isBashBackgroundToolResult(commandResult)) {
       return `后台 job 已启动，job id：${commandResult.jobId}`;
     }
-    const collected =
-      commandResult.collection?.status === 'collected' ? '，已收集输出文件' : '';
+    const collected = commandResult.collection?.status === 'collected' ? '，已收集输出文件' : '';
     return `命令完成，退出码 ${commandResult.exitCode ?? '无'}${collected}`;
   }
   return currentSummary;
@@ -226,15 +236,39 @@ export function appendTextDelta(
   );
 }
 
-export function appendReasoningDelta(blocks: AssistantContentBlock[], event: Extract<ChatStreamEvent, { type: 'reasoning.delta' }>): AssistantContentBlock[] {
+export function appendReasoningDelta(
+  blocks: AssistantContentBlock[],
+  event: Extract<ChatStreamEvent, { type: 'reasoning.delta' }>,
+): AssistantContentBlock[] {
   const index = blocks.findIndex((b) => b.type === 'reasoning' && b.id === event.blockId);
-  if (index < 0) return insertOrdered(blocks, { id: event.blockId, type: 'reasoning', roundId: event.roundId, roundSequence: event.roundSequence, blockSequence: event.blockSequence, content: event.delta, startedAt: new Date().toISOString() });
-  return orderAssistantBlocks(blocks.map((b, i) => i === index && b.type === 'reasoning' ? { ...b, content: b.content + event.delta } : b));
+  if (index < 0)
+    return insertOrdered(blocks, {
+      id: event.blockId,
+      type: 'reasoning',
+      roundId: event.roundId,
+      roundSequence: event.roundSequence,
+      blockSequence: event.blockSequence,
+      content: event.delta,
+      startedAt: new Date().toISOString(),
+    });
+  return orderAssistantBlocks(
+    blocks.map((b, i) =>
+      i === index && b.type === 'reasoning' ? { ...b, content: b.content + event.delta } : b,
+    ),
+  );
 }
 
-export function completeReasoning(blocks: AssistantContentBlock[], roundSequence: number, durationMs: number): AssistantContentBlock[] {
+export function completeReasoning(
+  blocks: AssistantContentBlock[],
+  roundSequence: number,
+  durationMs: number,
+): AssistantContentBlock[] {
   const completedAt = new Date().toISOString();
-  return blocks.map((b) => b.type === 'reasoning' && b.roundSequence === roundSequence ? { ...b, completedAt, durationMs } : b);
+  return blocks.map((b) =>
+    b.type === 'reasoning' && b.roundSequence === roundSequence
+      ? { ...b, completedAt, durationMs }
+      : b,
+  );
 }
 
 export function completeTextPhase(
@@ -309,9 +343,11 @@ export function applyToolActivityEvent(
       status: 'running',
       title:
         event.toolName === 'external_tool'
-          ? toolStreamTitle(event.toolName, (event.input ?? {}) as Parameters<
-              typeof toolStreamTitle
-            >[1], { publicName: streamPublicName(event) })
+          ? toolStreamTitle(
+              event.toolName,
+              (event.input ?? {}) as Parameters<typeof toolStreamTitle>[1],
+              { publicName: streamPublicName(event) },
+            )
           : event.title,
       summary: toolActivityStartSummary(event),
       startedAt: event.startedAt,
@@ -339,7 +375,9 @@ export function applyToolActivityEvent(
         : block,
     );
     const artifact = event.result.collection.artifact;
-    if (updated.some((block) => block.type === 'artifact' && block.artifactId === artifact.artifactId))
+    if (
+      updated.some((block) => block.type === 'artifact' && block.artifactId === artifact.artifactId)
+    )
       return orderAssistantBlocks(updated);
     return insertOrdered(updated, {
       id: event.blockId.replace(/tool-/u, 'artifact-'),
@@ -352,7 +390,9 @@ export function applyToolActivityEvent(
   }
   if (
     event.type === 'tool.completed' &&
-    (event.toolName === 'create_file' || event.toolName === 'create_report')
+    (event.toolName === 'create_file' ||
+      event.toolName === 'create_report' ||
+      event.toolName === 'ppt_export')
   ) {
     const updated = blocks.map((block, blockIndex) =>
       blockIndex === index && block.type === 'tool_activity'
@@ -365,21 +405,29 @@ export function applyToolActivityEvent(
           }
         : block,
     );
-    if (
-      updated.some(
-        (block) =>
-          block.type === 'artifact' && block.artifactId === event.result.artifact.artifactId,
-      )
-    )
-      return orderAssistantBlocks(updated);
-    return insertOrdered(updated, {
-      id: event.blockId.replace(/tool-/u, 'artifact-'),
-      type: 'artifact',
-      ...event.result.artifact,
-      roundId: event.roundId,
-      roundSequence: event.roundSequence,
-      blockSequence: event.blockSequence,
-    });
+    const artifacts =
+      event.toolName === 'ppt_export' && event.result.preview
+        ? [event.result.artifact, event.result.preview.artifact]
+        : [event.result.artifact];
+    return orderAssistantBlocks(
+      artifacts.reduce((blocksWithArtifacts, artifact, artifactIndex) => {
+        if (
+          blocksWithArtifacts.some(
+            (block) => block.type === 'artifact' && block.artifactId === artifact.artifactId,
+          )
+        )
+          return blocksWithArtifacts;
+        const baseId = event.blockId.replace(/tool-/u, 'artifact-');
+        return insertOrdered(blocksWithArtifacts, {
+          id: artifactIndex === 0 ? baseId : `${baseId}-${artifact.artifactId}`,
+          type: 'artifact',
+          ...artifact,
+          roundId: event.roundId,
+          roundSequence: event.roundSequence,
+          blockSequence: event.blockSequence,
+        });
+      }, updated),
+    );
   }
   return blocks.map((block, blockIndex) => {
     if (blockIndex !== index || block.type !== 'tool_activity') return block;

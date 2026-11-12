@@ -18,6 +18,8 @@ import {
   assistantAgentMetadataSchema,
   runToolOutputUrlResponseSchema,
   toolExecutionSnapshotSchema,
+  pptExportInputSchema,
+  toPptExportInputSummary,
   normalizeSourceUrl,
   webFetchInputSchema,
   webFetchResultSchema,
@@ -203,7 +205,7 @@ describe('foundation protocol', () => {
     ).toMatchObject({ inputType: 'document', fileName: 'legacy.md' });
   });
   it('exports a stable protocol version', () => {
-    expect(protocolVersion).toBe('0.18.0');
+    expect(protocolVersion).toBe('0.19.0');
   });
 
   it('validates external_tool chat stream events for MCP presentation', () => {
@@ -757,5 +759,117 @@ describe('run tool output contracts', () => {
         outputBytes: 9000,
       }),
     ).toMatchObject({ outputRef: 'runs/run-1/tools/call-1/output.json' });
+  });
+
+  it('rejects deck plans missing layout-required content before rendering', () => {
+    const base = {
+      version: 1,
+      meta: {
+        title: 'Test',
+        audience: 'Team',
+        language: 'zh-CN',
+        aspectRatio: '16:9',
+        styleId: 'default',
+      },
+    };
+    expect(
+      pptExportInputSchema.safeParse({
+        fileName: 'deck.pptx',
+        deckPlan: {
+          ...base,
+          slides: [{ id: 's1', kind: 'content', claim: 'c', layoutId: 'table', content: {} }],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      pptExportInputSchema.safeParse({
+        fileName: 'deck.pptx',
+        deckPlan: {
+          ...base,
+          slides: [
+            { id: 's1', kind: 'cover', claim: 'c', layoutId: 'cover', content: { title: 'T' } },
+          ],
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('keeps ppt_export stream payloads free of the deck plan body', () => {
+    const event = chatStreamEventSchema.parse({
+      type: 'tool.started',
+      messageId: 'm',
+      blockId: 'b',
+      roundId: 'r',
+      roundSequence: 1,
+      blockSequence: 0,
+      toolCallId: 'c',
+      toolName: 'ppt_export',
+      title: '生成 PPT',
+      input: { fileName: 'deck.pptx', source: 'plan', title: 'Test', slideCount: 4 },
+      startedAt: '2026-11-12T00:00:00.000Z',
+    });
+    expect(JSON.stringify(event)).not.toContain('deckPlan');
+  });
+
+  it('accepts exactly one ppt_export source and summarizes html file input', () => {
+    expect(
+      pptExportInputSchema.safeParse({ fileName: 'deck.pptx', htmlFileId: 'file-html' }).success,
+    ).toBe(true);
+    expect(
+      pptExportInputSchema.safeParse({
+        fileName: 'deck.pptx',
+        htmlFileId: 'file-html',
+        deckPlan: { version: 1, meta: {}, slides: [] },
+      }).success,
+    ).toBe(false);
+    expect(toPptExportInputSummary({ fileName: 'deck.pptx', htmlFileId: 'file-html' })).toEqual({
+      fileName: 'deck.pptx',
+      source: 'html',
+      htmlFileId: 'file-html',
+    });
+  });
+
+  it('accepts a ppt_export completion with a PPTX and HTML preview', () => {
+    const artifact = (fileName: string, fileKind: 'pptx' | 'html') => ({
+      artifactId: `artifact-${fileKind}`,
+      fileId: `file-${fileKind}`,
+      fileName,
+      mediaType: fileKind === 'pptx' ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation' : 'text/html',
+      fileKind,
+      size: 512,
+      status: 'ready',
+      createdAt: '2026-11-12T00:00:00.000Z',
+    });
+    const file = (fileName: string, fileKind: 'pptx' | 'html') => ({
+      fileId: `file-${fileKind}`,
+      fileName,
+      mediaType: fileKind === 'pptx' ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation' : 'text/html',
+      fileKind,
+      size: 512,
+      status: 'ready',
+      origin: 'agent_generated',
+    });
+
+    const parsed = chatStreamEventSchema.safeParse({
+      type: 'tool.completed',
+      messageId: 'm',
+      blockId: 'b',
+      roundId: 'r',
+      roundSequence: 1,
+      blockSequence: 0,
+      toolCallId: 'c',
+      toolName: 'ppt_export',
+      completedAt: '2026-11-12T00:00:01.000Z',
+      durationMs: 1000,
+      result: {
+        status: 'ok',
+        artifact: artifact('deck.pptx', 'pptx'),
+        file: file('deck.pptx', 'pptx'),
+        preview: { artifact: artifact('deck.html', 'html'), file: file('deck.html', 'html') },
+        report: { planVersion: 1, env: { fonts: [] }, checks: [], degrade: 'none' },
+      },
+    });
+
+    expect(parsed.success).toBe(true);
   });
 });

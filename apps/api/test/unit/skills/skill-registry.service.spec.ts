@@ -11,9 +11,11 @@ const demoSkill: SkillDefinition = {
 };
 
 describe('SkillRegistryService', () => {
-  it('starts empty and lists metadata without instructions after register', () => {
+  it('lists registered metadata without instructions', () => {
     const registry = new SkillRegistryService();
-    expect(registry.list()).toEqual([]);
+    // Bundled skills ship with the app; assert on the registered one instead of
+    // assuming an empty catalog.
+    expect(registry.list().map((entry) => entry.name)).not.toContain('demo-skill');
     registry.register(demoSkill);
     const [entry] = registry.list('demo');
     expect(entry).toMatchObject({ name: 'demo-skill', source: 'bundled/system' });

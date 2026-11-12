@@ -8,6 +8,7 @@ import { FileSearchTool } from './file-search.tool';
 import { FileReadTool } from './file-read.tool';
 import { FileCreateTool } from './file-create.tool';
 import { ReportCreateTool } from './report-create.tool';
+import { PptExportTool } from './ppt-export.tool';
 import { BashTool } from './bash.tool';
 import { JobKillTool, JobListTool, JobOutputTool } from './job.tools';
 import {
@@ -35,6 +36,7 @@ export const AGENT_TOOL_CLASSES = [
   FileReadTool,
   FileCreateTool,
   ReportCreateTool,
+  PptExportTool,
   BashTool,
   JobOutputTool,
   JobListTool,

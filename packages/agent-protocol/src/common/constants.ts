@@ -44,6 +44,9 @@ export const AGENT_PROTOCOL_LIMITS = {
   generatedFileMaxCodePoints: 40_000,
   // 正式报告与工具轮输出预算对齐，避免把超长正文塞进单次 tool-call JSON。
   createReportMaxCodePoints: 16_000,
+  // AI PPT 单次输入上限：10 页或约 3 万字符，避免把 deck plan 塞满单次工具调用。
+  pptExportMaxSlides: 20,
+  pptExportMaxCodePoints: 30_000,
   generatedWorkbookMaxSheets: 10,
   generatedWorkbookMaxRowsPerSheet: 5_000,
   generatedWorkbookMaxCells: 100_000,
@@ -85,6 +88,8 @@ export const AGENT_TOOL_NAMES = {
   updatePlan: 'update_plan',
   createFile: 'create_file',
   createReport: 'create_report',
+  /** 把受约束的 deck plan 渲染并导出为可编辑 PPTX；失败时降级为 HTML。 */
+  pptExport: 'ppt_export',
   executeCommand: 'execute_command',
   bash: 'bash',
   jobOutput: 'job_output',

@@ -55,6 +55,7 @@ export type ToolCopyInput = {
   endLine?: number;
   fileName?: string;
   title?: string;
+  slideCount?: number;
   command?: string;
   description?: string;
   workdir?: string;
@@ -78,9 +79,14 @@ export function toolInputSummary(toolName: string, input: ToolCopyInput): string
     if (input.scope === 'section') return `${input.fileId} · ${input.sectionId ?? 'section'}`;
     return `${input.fileId} · ${input.startLine}-${input.endLine} 行`;
   }
-  if (toolName === 'read_file_lines') return `${input.fileId} · ${input.startLine}-${input.endLine} 行`;
+  if (toolName === 'read_file_lines')
+    return `${input.fileId} · ${input.startLine}-${input.endLine} 行`;
   if (toolName === 'create_file') return input.fileName ?? '';
   if (toolName === 'create_report') return input.title ?? '';
+  if (toolName === 'ppt_export') {
+    const slides = input.slideCount ? ` · ${input.slideCount} 页` : '';
+    return `${input.title ?? input.fileName ?? ''}${slides}`;
+  }
   if (toolName === 'bash') {
     const policy =
       input.policyClass === 'network'
@@ -88,9 +94,8 @@ export function toolInputSummary(toolName: string, input: ToolCopyInput): string
         : input.policyClass === 'install'
           ? ' · 安装依赖'
           : '';
-    const staged =
-      input.inputFiles?.length ?
-        ` · Stage: ${input.inputFiles.map((file) => `${file.path} (${file.fileId.slice(0, 8)}…)`).join(', ')}`
+    const staged = input.inputFiles?.length
+      ? ` · Stage: ${input.inputFiles.map((file) => `${file.path} (${file.fileId.slice(0, 8)}…)`).join(', ')}`
       : '';
     return `${input.description ?? ''}${policy}${staged}${input.command ? ` · ${input.command}` : ''}`;
   }
@@ -124,6 +129,7 @@ export function toolTitle(toolName: string, input: ToolCopyInput): string {
   if (toolName === 'read_file_lines') return `读取文件：${input.startLine}-${input.endLine} 行`;
   if (toolName === 'create_file') return `生成文件：${input.fileName}`;
   if (toolName === 'create_report') return `生成报告：${input.title}`;
+  if (toolName === 'ppt_export') return `生成演示稿：${input.title ?? ''}`.trim();
   if (toolName === 'bash') {
     return input.description?.trim() ? `Bash · ${input.description.trim()}` : 'Bash';
   }
@@ -184,6 +190,7 @@ export function toolRunningDetail(toolName: string): string {
     return '正在读取用户文件';
   if (toolName === 'create_file') return '正在保存生成文件';
   if (toolName === 'create_report') return '正在保存正式报告';
+  if (toolName === 'ppt_export') return '正在渲染并校验 PPT';
   if (toolName === 'bash') return '正在终端执行';
   if (toolName === 'execute_command') return '正在执行命令';
   if (toolName === 'web_search') return '正在搜索公开网页';
@@ -199,6 +206,7 @@ export function persistedCompletedDetail(toolName: string): string {
   if (toolName === 'read_file' || toolName === 'read_file_lines') return '文件读取已完成';
   if (toolName === 'create_file') return '生成文件已完成';
   if (toolName === 'create_report') return '生成报告已完成';
+  if (toolName === 'ppt_export') return 'PPT 导出已完成';
   if (toolName === 'bash') return '终端命令已完成';
   if (toolName === 'execute_command') return '命令执行已完成';
   if (toolName === 'web_search') return '公开网页检索已完成';
@@ -244,6 +252,7 @@ export function persistedOutputSummary(input: {
     return `返回 ${input.resultCount ?? 0} 行文件内容`;
   if (input.toolName === 'create_file') return `已生成 ${input.fileName}`;
   if (input.toolName === 'create_report') return `生成报告：${input.title}`;
+  if (input.toolName === 'ppt_export') return 'PPT 导出已完成';
   if (input.toolName === 'execute_command') return '命令执行已完成';
   if (input.toolName === 'web_search') return `返回 ${input.resultCount ?? 0} 条网页结果`;
   return undefined;
@@ -265,6 +274,7 @@ export function liveOutputSummary(input: {
   fileReadLineCount?: number;
   fileName?: string;
   reportTitle?: string;
+  pptExport?: { status: 'ok' | 'degraded'; fileName: string };
   searchResultCount?: number;
 }): string {
   if (input.toolName === 'external_tool' && input.publicName) {
@@ -279,6 +289,10 @@ export function liveOutputSummary(input: {
   if (input.fileReadLineCount !== undefined) return `返回 ${input.fileReadLineCount} 行文件内容`;
   if (input.fileName) return `已生成 ${input.fileName}`;
   if (input.reportTitle) return `生成报告：${input.reportTitle}`;
+  if (input.pptExport) {
+    if (input.pptExport.status === 'ok') return `已生成 ${input.pptExport.fileName}`;
+    return `PPT 已降级为 HTML：${input.pptExport.fileName}`;
+  }
   if (input.toolName === 'bash') return '终端命令已完成';
   if (input.toolName === 'execute_command') return '命令执行已完成';
   if (input.toolName === 'web_search') return `返回 ${input.searchResultCount ?? 0} 条网页结果`;
@@ -304,15 +318,12 @@ export function persistedActiveView(
 }
 
 export function liveToolCounts(
-  completedEvent:
-    | { toolName: string; result?: { results?: unknown[] } | object }
-    | undefined,
+  completedEvent: { toolName: string; result?: { results?: unknown[] } | object } | undefined,
   fileSearch?: { result: { matches: unknown[] } },
   fileReadLines?: { result: { lines: unknown[] } },
   fileRead?: {
     result:
-      | { scope: 'file'; sections?: unknown[] }
-      | { scope: 'section' | 'lines'; lines: unknown[] };
+      { scope: 'file'; sections?: unknown[] } | { scope: 'section' | 'lines'; lines: unknown[] };
   },
 ): number | undefined {
   if (

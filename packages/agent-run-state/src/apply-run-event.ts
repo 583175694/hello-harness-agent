@@ -35,7 +35,9 @@ function toolHasNewResource(toolEvent: ToolStreamEvent, deps: RunReducerDeps): b
       toolEvent.toolName === 'read_file_lines' &&
       toolEvent.result.lines.length > 0) ||
     (toolEvent.type === 'tool.completed' &&
-      (toolEvent.toolName === 'create_file' || toolEvent.toolName === 'create_report')) ||
+      (toolEvent.toolName === 'create_file' ||
+        toolEvent.toolName === 'create_report' ||
+        toolEvent.toolName === 'ppt_export')) ||
     (toolEvent.type === 'tool.completed' &&
       toolEvent.toolName === 'execute_command' &&
       Boolean(deps.collectedArtifactFromCommandResult(toolEvent.result)))

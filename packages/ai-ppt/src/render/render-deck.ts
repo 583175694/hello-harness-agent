@@ -29,6 +29,16 @@ function asStringArray(value: unknown, key: string): string[] {
   throw new Error(`Expected string[] for content.${key}`);
 }
 
+// 版式里的副标题、页脚、行动项等是可选内容；模型省略时按空值渲染，
+// 而不是让一份通过 schema 校验的 deck plan 在渲染阶段直接抛错。
+function optionalString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function optionalStringArray(value: unknown): string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : [];
+}
+
 function asTable(value: unknown, key: string): TableData {
   if (
     value &&
@@ -64,8 +74,8 @@ function renderSlideBody(slide: DeckPlan['slides'][number], style: StyleSpec): s
   switch (slide.layoutId) {
     case 'cover': {
       const title = asString(c.title, 'title');
-      const subtitle = asString(c.subtitle, 'subtitle');
-      const meta = asString(c.meta, 'meta');
+      const subtitle = optionalString(c.subtitle);
+      const meta = optionalString(c.meta);
       return `
         <div class="cover-hero">
           <h1 class="cover-title">${escapeHtml(title)}</h1>
@@ -78,10 +88,10 @@ function renderSlideBody(slide: DeckPlan['slides'][number], style: StyleSpec): s
       const list = items
         .map(
           (item, index) =>
-            `<li><span class="agenda-num">${String(index + 1).padStart(2, '0')}</span>${escapeHtml(item)}</li>`,
+            `<div class="agenda-row"><span class="agenda-num">${String(index + 1).padStart(2, '0')}</span><span class="agenda-text">${escapeHtml(item)}</span></div>`,
         )
         .join('');
-      return `<ol class="agenda-list">${list}</ol>`;
+      return `<div class="agenda-list">${list}</div>`;
     }
     case 'section': {
       const number = asString(c.number, 'number');
@@ -94,7 +104,7 @@ function renderSlideBody(slide: DeckPlan['slides'][number], style: StyleSpec): s
     }
     case 'three-col': {
       const cols = asStringArray(c.columns, 'columns');
-      const colTitles = asStringArray(c.columnTitles, 'columnTitles');
+      const colTitles = optionalStringArray(c.columnTitles);
       const cards = cols
         .map((body, i) => {
           const t = colTitles[i] ?? `要点 ${i + 1}`;
@@ -113,18 +123,18 @@ function renderSlideBody(slide: DeckPlan['slides'][number], style: StyleSpec): s
     }
     case 'conclusion': {
       const points = asStringArray(c.points, 'points');
-      const actions = asStringArray(c.actions, 'actions');
+      const actions = optionalStringArray(c.actions);
       const pointHtml = points
         .map(
           (p, i) =>
-            `<li><span class="point-num">${i + 1}</span><span>${escapeHtml(p)}</span></li>`,
+            `<div class="point-row"><span class="point-num">${i + 1}</span><span>${escapeHtml(p)}</span></div>`,
         )
         .join('');
       const actionHtml = actions
         .map((a) => `<li>${escapeHtml(a)}</li>`)
         .join('');
       return `
-        <ul class="conclusion-points">${pointHtml}</ul>
+        <div class="conclusion-points">${pointHtml}</div>
         <div class="actions-block">
           <p class="actions-label">下一步行动</p>
           <ul class="actions-list">${actionHtml}</ul>
@@ -169,11 +179,14 @@ function buildCss(style: StyleSpec): string {
       height: 720px;
       overflow: hidden;
       position: relative;
+      display: flex;
+      flex-direction: column;
       background: ${c.background};
       padding: 0 0 48px 0;
       font-family: ${FONT_FAMILY};
     }
     .slide-header {
+      flex: 0 0 auto;
       display: flex;
       align-items: flex-end;
       justify-content: space-between;
@@ -183,10 +196,11 @@ function buildCss(style: StyleSpec): string {
     .slide-title { font-size: ${t.slideTitle}px; font-weight: 600; line-height: 1.25; max-width: 1000px; }
     .slide-index { font-size: ${t.caption}px; color: ${c.muted}; }
     .slide-body {
+      flex: 1 1 auto;
+      min-height: 0;
       padding: 24px 80px 8px;
       font-size: ${t.body}px;
       line-height: 1.5;
-      max-height: 560px;
       overflow: hidden;
     }
     .slide-footer {
@@ -200,25 +214,43 @@ function buildCss(style: StyleSpec): string {
     .cover-title { font-size: ${t.coverTitle}px; font-weight: 700; color: ${c.primary}; line-height: 1.2; }
     .cover-sub { margin-top: 24px; font-size: 22px; color: ${c.text}; }
     .cover-meta { margin-top: 48px; font-size: ${t.caption}px; color: ${c.muted}; }
-    .agenda-list { list-style: none; display: flex; flex-direction: column; gap: 20px; }
-    .agenda-list li { font-size: ${t.body}px; display: flex; gap: 16px; align-items: baseline; }
+    .agenda-list {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      height: 100%;
+      gap: 28px;
+    }
+    .agenda-row { font-size: ${t.body}px; display: flex; gap: 16px; align-items: baseline; }
     .agenda-num { color: ${c.accent}; font-weight: 700; min-width: 36px; }
-    .section-wrap { padding: 80px; text-align: center; }
+    /* Section pages are intentionally sparse; centre vertically instead of
+       leaving the title pinned to the top third. */
+    .section-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 80px;
+      text-align: center;
+    }
     .section-num { display: block; font-size: ${t.sectionNumber}px; font-weight: 700; color: ${c.secondary}; line-height: 1; }
     .section-title { margin-top: 32px; font-size: 36px; font-weight: 600; }
-    .three-col { display: flex; gap: 24px; height: 100%; }
+    /* Stretch cards to the usable body height; otherwise a three-point page
+       leaves three quarters of the canvas blank. */
+    .three-col { display: flex; gap: 24px; height: 100%; align-items: stretch; }
     .col-card {
       flex: 1;
       border: 1px solid ${c.tableHeader};
       border-radius: 8px;
       padding: 20px 16px;
-      background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+      background: #f8fafc;
       overflow: hidden;
     }
-    .col-card h3 { font-size: 18px; color: ${c.primary}; margin-bottom: 12px; }
-    .col-body p { margin-bottom: 8px; font-size: 15px; }
-    .table-wrap { overflow: hidden; max-height: 520px; }
-  .data-table {
+    .col-card h3 { font-size: 20px; color: ${c.primary}; margin-bottom: 16px; }
+    .col-body p { margin-bottom: 12px; font-size: 18px; line-height: 1.6; }
+    .table-wrap { overflow: hidden; }
+    .data-table {
       width: 100%;
       border-collapse: collapse;
       font-size: ${t.table}px;
@@ -230,8 +262,15 @@ function buildCss(style: StyleSpec): string {
       vertical-align: top;
     }
     .table-caption { margin-top: 12px; font-size: ${t.caption}px; color: ${c.muted}; }
-    .conclusion-points { list-style: none; display: flex; flex-direction: column; gap: 16px; }
-    .conclusion-points li { display: flex; gap: 12px; font-size: ${t.body}px; }
+    .conclusion-points {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      flex: 1 1 auto;
+      min-height: 0;
+      gap: 28px;
+    }
+    .point-row { display: flex; gap: 12px; font-size: ${t.body}px; }
     .point-num {
       display: inline-flex;
       width: 28px;
@@ -244,7 +283,12 @@ function buildCss(style: StyleSpec): string {
       font-size: 14px;
       flex-shrink: 0;
     }
-    .actions-block { margin-top: 32px; padding-top: 16px; border-top: 1px solid ${c.tableHeader}; }
+    .actions-block {
+      flex: 0 0 auto;
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid ${c.tableHeader};
+    }
     .actions-label { font-size: 14px; font-weight: 600; color: ${c.accent}; margin-bottom: 8px; }
     .actions-list { list-style: disc; padding-left: 24px; font-size: 15px; }
     .actions-list li { margin-bottom: 6px; }

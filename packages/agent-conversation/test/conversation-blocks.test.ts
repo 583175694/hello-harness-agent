@@ -294,6 +294,97 @@ describe('conversation blocks reducer', () => {
     });
   });
 
+  it('inserts a PPT artifact with its HTML preview', () => {
+    const started = applyToolActivityEvent([], {
+      type: 'tool.started',
+      messageId: 'message-1',
+      blockId: 'tool-ppt',
+      toolCallId: 'call-ppt',
+      toolName: 'ppt_export',
+      title: '生成 PPT：季度复盘',
+      input: { fileName: 'review.pptx', title: '季度复盘', slideCount: 8 },
+      startedAt: '2026-11-12T09:00:00.000Z',
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 1,
+    });
+    const artifact = {
+      artifactId: 'artifact-ppt',
+      fileId: 'file-ppt',
+      fileName: 'review.pptx',
+      mediaType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      fileKind: 'pptx',
+      size: 512,
+      status: 'ready',
+      createdAt: '2026-11-12T09:00:05.000Z',
+    } as const;
+    const blocks = applyToolActivityEvent(started, {
+      type: 'tool.completed',
+      messageId: 'message-1',
+      blockId: 'tool-ppt',
+      toolCallId: 'call-ppt',
+      toolName: 'ppt_export',
+      completedAt: '2026-11-12T09:00:05.000Z',
+      durationMs: 5000,
+      result: {
+        status: 'ok',
+        artifact,
+        file: {
+          fileId: 'file-ppt',
+          fileName: 'review.pptx',
+          mediaType:
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          fileKind: 'pptx',
+          size: 512,
+          status: 'ready',
+          origin: 'agent_generated',
+        },
+        preview: {
+          artifact: {
+            ...artifact,
+            artifactId: 'artifact-html',
+            fileId: 'file-html',
+            fileName: 'review.html',
+            mediaType: 'text/html',
+            fileKind: 'html',
+          },
+          file: {
+            fileId: 'file-html',
+            fileName: 'review.html',
+            mediaType: 'text/html',
+            fileKind: 'html',
+            size: 512,
+            status: 'ready',
+            origin: 'agent_generated',
+          },
+        },
+        report: {
+          planVersion: 1,
+          env: { fonts: [] },
+          checks: [],
+          degrade: 'none',
+        },
+      },
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 1,
+    });
+
+    expect(blocks.map((block) => block.type)).toEqual(['tool_activity', 'artifact', 'artifact']);
+    expect(blocks[0]).toMatchObject({
+      type: 'tool_activity',
+      status: 'completed',
+      summary: '已生成 review.pptx',
+    });
+    expect(blocks[1]).toMatchObject({ type: 'artifact', artifactId: 'artifact-ppt' });
+    expect(blocks[2]).toMatchObject({
+      type: 'artifact',
+      artifactId: 'artifact-html',
+      fileName: 'review.html',
+    });
+    expect(new Set(blocks.map((block) => block.id)).size).toBe(3);
+  });
+
   it('projects execute_command completion and collected artifacts', () => {
     const started = applyToolActivityEvent([], {
       type: 'tool.started',

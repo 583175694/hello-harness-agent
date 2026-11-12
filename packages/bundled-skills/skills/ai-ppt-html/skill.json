@@ -1,0 +1,7 @@
+{
+  "name": "ai-ppt-html",
+  "description": "Generate a 16:9 presentation HTML that converts cleanly to editable PPTX. Use when the user asks for a slide deck, PPT/PPTX, 演示稿, 汇报材料, 路演页 or 培训课件.",
+  "version": "1.0.0",
+  "source": "bundled/system",
+  "modelCallable": true
+}

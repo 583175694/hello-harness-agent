@@ -1530,13 +1530,24 @@ function mediaTypeFromFileName(fileName: string): string {
       webp: 'image/webp',
       docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     } as Record<string, string>
   )[ext ?? ''] ?? 'application/octet-stream';
 }
 
 function artifactKindFromMediaType(
   mediaType: string,
-): 'text' | 'markdown' | 'json' | 'html' | 'pdf' | 'docx' | 'xlsx' | 'image' | undefined {
+):
+  | 'text'
+  | 'markdown'
+  | 'json'
+  | 'html'
+  | 'pdf'
+  | 'docx'
+  | 'xlsx'
+  | 'pptx'
+  | 'image'
+  | undefined {
   const kinds = {
     'text/plain': 'text',
     'text/markdown': 'markdown',
@@ -1548,6 +1559,7 @@ function artifactKindFromMediaType(
     'image/webp': 'image',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
   } as const;
   return kinds[mediaType as keyof typeof kinds];
 }

@@ -18,6 +18,7 @@ describe('tool-turn-budget', () => {
 
   it('allows delivery whitelist only in delivery phase', () => {
     expect(isToolAllowedInPhase(AGENT_TOOL_NAMES.createReport, 'delivery')).toBe(true);
+    expect(isToolAllowedInPhase(AGENT_TOOL_NAMES.pptExport, 'delivery')).toBe(true);
     expect(isToolAllowedInPhase(AGENT_TOOL_NAMES.webSearch, 'delivery')).toBe(false);
     expect(isToolAllowedInPhase(AGENT_TOOL_NAMES.webSearch, 'investigation')).toBe(true);
   });
@@ -26,11 +27,12 @@ describe('tool-turn-budget', () => {
     const definitions = [
       { name: AGENT_TOOL_NAMES.webSearch, description: '', parameters: {} },
       { name: AGENT_TOOL_NAMES.createFile, description: '', parameters: {} },
+      { name: AGENT_TOOL_NAMES.pptExport, description: '', parameters: {} },
       { name: AGENT_TOOL_NAMES.updatePlan, description: '', parameters: {} },
     ];
     const filtered = filterToolDefinitionsForPhase(definitions, 'delivery');
     expect(filtered?.map((item) => item.name).sort()).toEqual(
-      [AGENT_TOOL_NAMES.createFile, AGENT_TOOL_NAMES.updatePlan].sort(),
+      [AGENT_TOOL_NAMES.createFile, AGENT_TOOL_NAMES.pptExport, AGENT_TOOL_NAMES.updatePlan].sort(),
     );
   });
 

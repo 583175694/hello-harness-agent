@@ -1,7 +1,32 @@
 import { z } from 'zod';
+import {
+  deckPlanSchema,
+  deckPlanSlideSchema,
+  tableDataSchema,
+  chartDataSchema,
+  type ChartData,
+  type DeckPlan,
+  type TableData,
+} from '@harness/agent-protocol';
 
-export const FONT_FAMILY =
-  '"Noto Sans SC", "Microsoft YaHei", sans-serif' as const;
+// Debian's fonts-noto-cjk ships "Noto Sans CJK SC"; the Google Fonts build
+// ships "Noto Sans SC". Keep both in the stack so the same HTML renders
+// correctly in the sandbox image and on macOS/Windows developer machines.
+export const CJK_FONT_STACK = [
+  '"Noto Sans CJK SC"',
+  '"Noto Sans SC"',
+  '"Microsoft YaHei"',
+  'sans-serif',
+] as const;
+
+export const FONT_FAMILY = CJK_FONT_STACK.join(', ');
+
+// Probe order: most likely family in the sandbox image first.
+export const CJK_FONT_CANDIDATES = [
+  'Noto Sans CJK SC',
+  'Noto Sans SC',
+  'Microsoft YaHei',
+] as const;
 
 export const FONT_FAMILY_BLACKLIST = [
   '-apple-system',
@@ -10,46 +35,10 @@ export const FONT_FAMILY_BLACKLIST = [
   'PingFang SC',
 ] as const;
 
-export const tableDataSchema = z.object({
-  headers: z.array(z.string()).min(1),
-  rows: z.array(z.array(z.string())).min(1),
-});
-
-export type TableData = z.infer<typeof tableDataSchema>;
-
-export const chartDataSchema = z.object({
-  type: z.string(),
-  labels: z.array(z.string()),
-  series: z.array(z.object({ name: z.string(), values: z.array(z.number()) })),
-});
-
-export type ChartData = z.infer<typeof chartDataSchema>;
-
-export const deckPlanSlideSchema = z.object({
-  id: z.string(),
-  kind: z.enum(['cover', 'toc', 'section', 'content', 'closing']),
-  claim: z.string(),
-  layoutId: z.enum(['cover', 'agenda', 'section', 'three-col', 'table', 'conclusion']),
-  content: z.record(z.union([z.string(), z.array(z.string()), chartDataSchema, tableDataSchema])),
-  evidence: z
-    .array(z.object({ text: z.string(), sourceUrl: z.string().optional() }))
-    .optional(),
-  visualIntent: z.enum(['none', 'image', 'chart', 'diagram', 'quote']).optional(),
-});
-
-export const deckPlanSchema = z.object({
-  version: z.literal(1),
-  meta: z.object({
-    title: z.string(),
-    audience: z.string(),
-    language: z.string(),
-    aspectRatio: z.literal('16:9'),
-    styleId: z.string(),
-  }),
-  slides: z.array(deckPlanSlideSchema).min(1),
-});
-
-export type DeckPlan = z.infer<typeof deckPlanSchema>;
+// deck plan 的契约由 @harness/agent-protocol 统一提供：工具入参、SSE 摘要、
+// 渲染器消费的是同一份定义，避免出现“工具接受、渲染器拒绝”的漂移。
+export { deckPlanSchema, deckPlanSlideSchema, tableDataSchema, chartDataSchema };
+export type { DeckPlan, ChartData, TableData };
 
 export const layoutSlotSchema = z.object({
   id: z.string(),

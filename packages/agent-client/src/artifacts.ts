@@ -129,6 +129,48 @@ export function createArtifactsApi(ctx: ClientContext) {
     anchor.remove();
   }
 
+  /**
+   * 将已交付的 HTML 演示稿直接导出为 PPTX，并用浏览器下载。
+   *
+   * 走 POST 而不是 <a href>，因为导出可能需要数十秒；同时把服务端失败原因
+   * 抛回调用方展示，避免用户只看到“下载失败”却不知道为什么。
+   */
+  async function exportArtifactPptx(artifactId: string): Promise<void> {
+    const response = await ctx.apiFetch(
+      `${ctx.baseUrl}/api/agent/artifacts/${encodeURIComponent(artifactId)}/export-pptx`,
+      { method: 'POST' },
+    );
+    if (!response.ok) {
+      const detail = await readProblemDetail(response);
+      throw new Error(detail || 'PPTX 导出失败，请稍后重试。');
+    }
+    const blob = await response.blob();
+    if (blob.size === 0) throw new Error('导出结果为空，请稍后重试。');
+    const fileName =
+      fileNameFromDisposition(response.headers.get('content-disposition')) ?? 'presentation.pptx';
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function readProblemDetail(response: Response): Promise<string | undefined> {
+    try {
+      const data: unknown = await response.json();
+      if (typeof data === 'object' && data !== null && 'detail' in data) {
+        const detail = (data as { detail?: unknown }).detail;
+        if (typeof detail === 'string') return detail;
+      }
+    } catch {
+      // 非 JSON 错误体按通用文案处理。
+    }
+    return undefined;
+  }
+
   async function loadArtifactPreviewImageObjectUrl(
     artifactId: string,
     signal?: AbortSignal,
@@ -167,7 +209,23 @@ export function createArtifactsApi(ctx: ClientContext) {
     getArtifactPreviewUrl,
     getArtifactDownloadUrl,
     downloadArtifact,
+    exportArtifactPptx,
     loadArtifactPreviewImageObjectUrl,
     deleteArtifact,
   };
+}
+
+/** 兼容 RFC 5987 的 filename* 与普通 filename。 */
+function fileNameFromDisposition(disposition: string | null): string | undefined {
+  if (!disposition) return undefined;
+  const encoded = /filename\*=UTF-8''([^;]+)/iu.exec(disposition)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded.trim());
+    } catch {
+      // 非法编码回退到普通 filename。
+    }
+  }
+  const plain = /filename="?([^";]+)"?/iu.exec(disposition)?.[1];
+  return plain?.trim();
 }

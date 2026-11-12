@@ -2,34 +2,29 @@
 # F0 build-time font probe (docs/48 §13.5). Fail fast if CJK fonts are unusable.
 set -euo pipefail
 
-match_family() {
+# The deck's CSS stack is: "Noto Sans CJK SC", "Noto Sans SC", "Microsoft YaHei", sans-serif.
+# Debian's fonts-noto-cjk exposes "Noto Sans CJK SC"; Google Fonts builds expose
+# "Noto Sans SC". Accept either, but require the family to resolve exactly — a
+# wildcard fallback is exactly the "looks green, renders tofu" trap.
+probe_family() {
   local requested="$1"
   local matched
   matched="$(fc-match --format='%{family}' "$requested" | head -n1 | tr -d '\n')"
-  # Accept exact family or Noto CJK aliases when requesting Microsoft YaHei (may fall back to Noto).
-  if [[ "$requested" == "Noto Sans SC" ]]; then
-    if [[ "$matched" != *"Noto Sans SC"* ]] && [[ "$matched" != *"Noto Sans CJK SC"* ]]; then
-      echo "fc-match failed for ${requested}: got ${matched}" >&2
-      return 1
-    fi
-  elif [[ "$requested" == "Microsoft YaHei" ]]; then
-  local any_noto
-    any_noto="$(fc-list :lang=zh family | head -n1 || true)"
-    if [[ -z "$any_noto" ]] && [[ "$matched" != *"YaHei"* ]] && [[ "$matched" != *"WenQuanYi"* ]]; then
-      echo "fc-match failed for ${requested}: got ${matched}, no :lang=zh fonts" >&2
-      return 1
-    fi
-  else
-    if [[ "$matched" != *"${requested}"* ]]; then
-      echo "fc-match failed for ${requested}: got ${matched}" >&2
-      return 1
-    fi
+  if [[ -z "$matched" ]]; then
+    echo "fc-match failed for ${requested}: empty result" >&2
+    return 1
+  fi
+  if [[ "$matched" != *"${requested}"* ]]; then
+    echo "fc-match failed for ${requested}: got ${matched}" >&2
+    return 1
   fi
   echo "fc-match ok: ${requested} -> ${matched}"
 }
 
-match_family "Noto Sans SC"
-match_family "Microsoft YaHei"
+if ! probe_family "Noto Sans CJK SC" 2>/dev/null; then
+  # Accept the Google Fonts build as well.
+  probe_family "Noto Sans SC"
+fi
 
 zh_count="$(fc-list :lang=zh family 2>/dev/null | wc -l | tr -d ' ')"
 if [[ "${zh_count:-0}" -lt 1 ]]; then
@@ -51,7 +46,7 @@ cat >"$PROBE_HTML" <<'HTML'
       margin: 0;
       width: 1280px;
       height: 720px;
-      font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
+      font-family: "Noto Sans CJK SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
       font-size: 48px;
       background: #fff;
       color: #111;

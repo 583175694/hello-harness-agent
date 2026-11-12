@@ -12,6 +12,8 @@ import {
   createFileResultSchema,
   createReportInputSummarySchema,
   createReportResultSchema,
+  pptExportInputSummarySchema,
+  pptExportResultSchema,
   executeCommandInputSummarySchema,
   executeCommandPublicResultSchema,
   bashBackgroundResultSchema,
@@ -66,10 +68,7 @@ import type { RuntimeLifecycleController } from '../agent-runtime/runtime-lifecy
 
 import { mcpIconSrcFromSnapshot } from '../mcp/mcp-icon-resolver';
 import type { RunMcpSnapshot } from '../mcp/mcp.types';
-import {
-  externalSubKind,
-  isExternalPresentation,
-} from '../tools/tool-presentation';
+import { externalSubKind, isExternalPresentation } from '../tools/tool-presentation';
 import {
   externalToolCompletedSummary,
   externalToolInputSummary,
@@ -251,7 +250,10 @@ export class ChatService {
       onBeforeModelRequest: options.onBeforeModelRequest,
     })) {
       if (event.type === 'model.round.completed') {
-        conversation.completeReasoning(event.observation.roundSequence, event.observation.durationMs);
+        conversation.completeReasoning(
+          event.observation.roundSequence,
+          event.observation.durationMs,
+        );
         modelRounds.push(event.observation);
         await notifyProjection();
         yield event;
@@ -311,7 +313,15 @@ export class ChatService {
       if (event.type === 'reasoning.delta') {
         const blockId = conversation.appendReasoning(event);
         await notifyProjection();
-        yield { type: 'reasoning.delta', messageId: prepared.assistantMessageId, blockId, delta: event.delta, roundId: event.roundId, roundSequence: event.roundSequence, blockSequence: event.blockSequence };
+        yield {
+          type: 'reasoning.delta',
+          messageId: prepared.assistantMessageId,
+          blockId,
+          delta: event.delta,
+          roundId: event.roundId,
+          roundSequence: event.roundSequence,
+          blockSequence: event.blockSequence,
+        };
         continue;
       }
       if (event.type === 'text.phase.completed' || event.type === 'text.discarded') {
@@ -361,6 +371,7 @@ export class ChatService {
           event.toolName === AGENT_TOOL_NAMES.readFileLines;
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
+        const isPptExport = event.toolName === AGENT_TOOL_NAMES.pptExport;
         const isSandboxCommand = this.isSandboxCommandTool(event.toolName);
         const isBash = event.toolName === AGENT_TOOL_NAMES.bash;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
@@ -374,9 +385,7 @@ export class ChatService {
           toolSummary = '获取当前日期和时间';
         } else if (isMemoryWrite) {
           const parsed = memoryWriteInputSummarySchema.safeParse(event.input);
-          toolSummary = parsed.success
-            ? formatMemoryWriteInputSummary(parsed.data)
-            : '写入记忆';
+          toolSummary = parsed.success ? formatMemoryWriteInputSummary(parsed.data) : '写入记忆';
         } else if (isFileSearch) {
           const parsed = fileSearchInputSchema.safeParse(event.input);
           toolSummary = parsed.success ? `搜索文件 ${parsed.data.fileId}` : '搜索文件';
@@ -388,6 +397,11 @@ export class ChatService {
         } else if (isCreateReport) {
           const parsed = createReportInputSummarySchema.safeParse(event.input);
           toolSummary = parsed.success ? `生成报告：${parsed.data.title}` : '生成报告';
+        } else if (isPptExport) {
+          const parsed = pptExportInputSummarySchema.safeParse(event.input);
+          toolSummary = parsed.success
+            ? `生成 PPT：${parsed.data.title}（${parsed.data.slideCount} 页）`
+            : '生成 PPT';
         } else if (isSandboxCommand) {
           const parsed = executeCommandInputSummarySchema.safeParse(event.input);
           toolSummary = parsed.success
@@ -406,8 +420,9 @@ export class ChatService {
         } else if (isExternalTool) {
           toolSummary = externalToolInputSummary(event.toolName, event.input);
         }
-        const bashStartedInput =
-          isBash ? executeCommandInputSummarySchema.safeParse(event.input) : undefined;
+        const bashStartedInput = isBash
+          ? executeCommandInputSummarySchema.safeParse(event.input)
+          : undefined;
         const bashStartTerminalView = bashStartedInput?.success
           ? buildBashTerminalView(
               this.bashTerminalViewInput(
@@ -506,11 +521,7 @@ export class ChatService {
             blockSequence: event.blockSequence,
           };
         } else if (isFileRead) {
-          yield this.fileReadStartedEvent(
-            prepared.assistantMessageId,
-            block,
-            event,
-          );
+          yield this.fileReadStartedEvent(prepared.assistantMessageId, block, event);
         } else if (isCreateFile) {
           yield {
             type: 'tool.started',
@@ -534,6 +545,20 @@ export class ChatService {
             toolName: AGENT_TOOL_NAMES.createReport,
             title: block.title,
             input: createReportInputSummarySchema.parse(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (isPptExport) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.pptExport,
+            title: block.title,
+            input: pptExportInputSummarySchema.parse(event.input),
             startedAt: event.startedAt,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
@@ -669,6 +694,7 @@ export class ChatService {
         const isFileSearch = event.toolName === AGENT_TOOL_NAMES.searchFile;
         const isCreateFile = event.toolName === AGENT_TOOL_NAMES.createFile;
         const isCreateReport = event.toolName === AGENT_TOOL_NAMES.createReport;
+        const isPptExport = event.toolName === AGENT_TOOL_NAMES.pptExport;
         const isSandboxCommand = this.isSandboxCommandTool(event.toolName);
         const isJobTool = this.isSandboxJobTool(event.toolName);
         const isBash = event.toolName === AGENT_TOOL_NAMES.bash;
@@ -677,9 +703,7 @@ export class ChatService {
           ? memoryWriteResultSchema.parse(event.output)
           : undefined;
         const fetchResult = isFetch ? (event.output as WebFetchResult) : undefined;
-        const jobToolResult = isJobTool
-          ? this.toSandboxJobToolTextResult(event.output)
-          : undefined;
+        const jobToolResult = isJobTool ? this.toSandboxJobToolTextResult(event.output) : undefined;
         const searchResult = isWebSearch ? this.asSearchToolResult(event.output) : undefined;
         const fileSearchResult = isFileSearch ? (event.output as FileSearchResult) : undefined;
         const fileReadResult =
@@ -696,6 +720,7 @@ export class ChatService {
         const createReportResult = isCreateReport
           ? createReportResultSchema.parse(event.output)
           : undefined;
+        const pptExportResult = isPptExport ? pptExportResultSchema.parse(event.output) : undefined;
         const sandboxCommandCompletion = isSandboxCommand
           ? this.parseSandboxCommandCompletion(event.output)
           : undefined;
@@ -807,6 +832,28 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           });
+        } else if (pptExportResult) {
+          projection.recordPptExportCompleted({
+            toolCallId: event.toolCallId,
+            toolInput: pptExportInputSummarySchema.parse(event.input),
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: pptExportResult,
+          });
+          conversation.appendArtifact({
+            artifact: pptExportResult.artifact,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          });
+          if (pptExportResult.preview) {
+            conversation.appendArtifact({
+              artifact: pptExportResult.preview.artifact,
+              roundId: event.roundId,
+              roundSequence: event.roundSequence,
+              blockSequence: event.blockSequence,
+            });
+          }
         } else if (executeCommandResult || bashBackgroundResult) {
           projection.recordExecuteCommandCompleted({
             toolCallId: event.toolCallId,
@@ -825,8 +872,9 @@ export class ChatService {
             });
           }
         }
-        const bashCompletedInput =
-          isBash ? executeCommandInputSummarySchema.safeParse(event.input) : undefined;
+        const bashCompletedInput = isBash
+          ? executeCommandInputSummarySchema.safeParse(event.input)
+          : undefined;
         const bashTerminalView =
           bashCompletedInput?.success && (executeCommandResult || bashBackgroundResult)
             ? this.bashTerminalViewForCompletion(
@@ -851,6 +899,7 @@ export class ChatService {
             fileReadLinesResult,
             createFileResult,
             createReportResult,
+            pptExportResult,
             executeCommandResult,
             bashBackgroundResult,
             jobToolResult,
@@ -1047,6 +1096,20 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: createFileResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (pptExportResult) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.pptExport,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: pptExportResult,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -1419,6 +1482,12 @@ export class ChatService {
         ? { toolName: AGENT_TOOL_NAMES.createFile, input: parsed.data }
         : undefined;
     }
+    if (toolName === AGENT_TOOL_NAMES.pptExport) {
+      const parsed = pptExportInputSummarySchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.pptExport, input: parsed.data }
+        : undefined;
+    }
     if (toolName === AGENT_TOOL_NAMES.bash) {
       const parsed = executeCommandInputSummarySchema.safeParse(input);
       return parsed.success ? { toolName: AGENT_TOOL_NAMES.bash, input: parsed.data } : undefined;
@@ -1428,7 +1497,10 @@ export class ChatService {
       if (parsed.success) return { toolName: AGENT_TOOL_NAMES.executeCommand, input: parsed.data };
       const raw = executeCommandInputSchema.safeParse(input);
       return raw.success
-        ? { toolName: AGENT_TOOL_NAMES.executeCommand, input: toExecuteCommandInputSummary(raw.data) }
+        ? {
+            toolName: AGENT_TOOL_NAMES.executeCommand,
+            input: toExecuteCommandInputSummary(raw.data),
+          }
         : undefined;
     }
     if (
@@ -1498,9 +1570,7 @@ export class ChatService {
   }
 
   private isSandboxCommandTool(toolName: string): boolean {
-    return (
-      toolName === AGENT_TOOL_NAMES.bash || toolName === AGENT_TOOL_NAMES.executeCommand
-    );
+    return toolName === AGENT_TOOL_NAMES.bash || toolName === AGENT_TOOL_NAMES.executeCommand;
   }
 
   private isSandboxJobTool(toolName: string): boolean {
@@ -1583,8 +1653,7 @@ export class ChatService {
       const parsed = fileReadInputSchema.safeParse(input);
       if (!parsed.success) return '读取文件';
       if (parsed.data.scope === 'file') return `读取文件 outline · ${parsed.data.fileId}`;
-      if (parsed.data.scope === 'section')
-        return `读取章节 ${parsed.data.sectionId ?? ''}`.trim();
+      if (parsed.data.scope === 'section') return `读取章节 ${parsed.data.sectionId ?? ''}`.trim();
       return `读取文件 ${parsed.data.startLine}-${parsed.data.endLine} 行`;
     }
     const parsed = fileReadLinesInputSchema.safeParse(input);
@@ -1646,6 +1715,10 @@ export class ChatService {
     fileReadLinesResult?: FileReadLinesResult;
     createFileResult?: { file: { fileName: string } };
     createReportResult?: { report: { title: string } };
+    pptExportResult?: {
+      status: 'ok' | 'degraded';
+      file: { fileName: string };
+    };
     executeCommandResult?: { exitCode: number | null; collection?: { status: string } };
     bashBackgroundResult?: BashBackgroundResult;
     jobToolResult?: { text: string };
@@ -1659,8 +1732,7 @@ export class ChatService {
     }
     if (input.isApprovalTest) return '审批测试已完成';
     if (input.isCurrentTime) return '当前时间已获取';
-    if (input.memoryWriteResult)
-      return formatMemoryWriteResultSummary(input.memoryWriteResult);
+    if (input.memoryWriteResult) return formatMemoryWriteResultSummary(input.memoryWriteResult);
     if (input.fileSearchResult) return `找到 ${input.fileSearchResult.matches.length} 个文件命中`;
     if (input.fileReadResult) {
       if (input.fileReadResult.scope === 'file') {
@@ -1677,6 +1749,11 @@ export class ChatService {
       return `读取 ${input.fileReadLinesResult.lines.length} 行文件内容`;
     if (input.createFileResult) return `已生成 ${input.createFileResult.file.fileName}`;
     if (input.createReportResult) return `生成报告：${input.createReportResult.report.title}`;
+    if (input.pptExportResult) {
+      if (input.pptExportResult.status === 'ok')
+        return `已生成 ${input.pptExportResult.file.fileName}`;
+      return `PPT 已降级为 HTML：${input.pptExportResult.file.fileName}`;
+    }
     if (input.bashBackgroundResult) {
       return `后台 job 已启动，job id：${input.bashBackgroundResult.jobId}`;
     }

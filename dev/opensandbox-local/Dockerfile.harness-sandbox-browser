@@ -5,6 +5,10 @@ FROM node:20-bookworm-slim
 
 ARG AGENT_BROWSER_VERSION=0.38.1
 
+# fonts-noto-cjk is the CJK gate for AI PPT export. Debian ships it as
+# "Noto Sans CJK SC" (not "Noto Sans SC"); the probe and the deck CSS stack
+# accept either. Removing this package silently reintroduces tofu glyphs that
+# every pixel-based metric still scores as healthy (docs/48 §12.0).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \

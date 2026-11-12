@@ -8,7 +8,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
@@ -17,6 +18,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@harness/agent-protocol": "workspace:*",
     "dom-to-pptx": "2.1.2",
     "playwright": "1.63.0",
     "zod": "^3.25.76"

@@ -53,6 +53,9 @@ importers:
       '@harness/agent-protocol':
         specifier: workspace:*
         version: link:../../packages/agent-protocol
+      '@harness/ai-ppt':
+        specifier: workspace:*
+        version: link:../../packages/ai-ppt
       '@harness/bundled-skills':
         specifier: workspace:*
         version: link:../../packages/bundled-skills
@@ -422,6 +425,9 @@ importers:
 
   packages/ai-ppt:
     dependencies:
+      '@harness/agent-protocol':
+        specifier: workspace:*
+        version: link:../agent-protocol
       dom-to-pptx:
         specifier: 2.1.2
         version: 2.1.2

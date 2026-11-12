@@ -10,6 +10,8 @@ import type {
   CreateFileInputSummary,
   CreateFileResult,
   CreateReportResult,
+  PptExportInputSummary,
+  PptExportResult,
   ExecuteCommandInputSummary,
   ExecuteCommandPublicResult,
   SourceProvenance,
@@ -37,6 +39,7 @@ type ToolProjectionInput =
   | { toolName: typeof AGENT_TOOL_NAMES.readFile; input: FileReadInput }
   | { toolName: typeof AGENT_TOOL_NAMES.createFile; input: CreateFileInputSummary }
   | { toolName: typeof AGENT_TOOL_NAMES.createReport; input: any }
+  | { toolName: typeof AGENT_TOOL_NAMES.pptExport; input: PptExportInputSummary }
   | { toolName: typeof AGENT_TOOL_NAMES.executeCommand; input: ExecuteCommandInputSummary }
   | { toolName: typeof AGENT_TOOL_NAMES.bash; input: ExecuteCommandInputSummary };
 
@@ -311,6 +314,24 @@ export class ResearchProjectionCollector {
     });
   }
 
+  recordPptExportCompleted(input: {
+    toolCallId: string;
+    toolInput: PptExportInputSummary;
+    completedAt: string;
+    durationMs: number;
+    result: PptExportResult;
+  }): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.pptExport,
+      input: input.toolInput,
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+    });
+  }
+
   // 记录一次批量网页读取，并按 URL 或正文 hash 归并来源而不隐藏执行事实。
   recordFetchCompleted(input: {
     toolCallId: string;
@@ -484,6 +505,8 @@ export class ResearchProjectionCollector {
       return { ...base, toolName: AGENT_TOOL_NAMES.readFile, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.createFile)
       return { ...base, toolName: AGENT_TOOL_NAMES.createFile, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.pptExport)
+      return { ...base, toolName: AGENT_TOOL_NAMES.pptExport, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.executeCommand)
       return { ...base, toolName: AGENT_TOOL_NAMES.executeCommand, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.bash)

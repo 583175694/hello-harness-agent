@@ -10,10 +10,11 @@ export type ToolPhase = 'investigation' | 'delivery' | 'final_only';
 const DELIVERY_PHASE_TOOL_NAMES = new Set<string>([
   AGENT_TOOL_NAMES.createFile,
   AGENT_TOOL_NAMES.createReport,
+  AGENT_TOOL_NAMES.pptExport,
 ]);
 
 export const INVESTIGATION_DELIVERY_SYSTEM_NOTICE =
-  '调查阶段 Tool Turn 已用尽。进入交付阶段：仅可使用 create_file 与 create_report 生成交付物；不得再调用 read_file、web_search、web_fetch 等调查类工具。请基于已有材料完成交付或直接输出最终回答。';
+  '调查阶段 Tool Turn 已用尽。进入交付阶段：仅可使用 create_file、create_report 与 ppt_export 生成交付物；不得再调用 read_file、web_search、web_fetch 等调查类工具。请基于已有材料完成交付或直接输出最终回答。';
 
 /** 业务 tool call 是否计入当前 phase 的 Tool Turn（update_plan 除外）。 */
 export function countsTowardToolTurn(toolName: string): boolean {
@@ -76,7 +77,7 @@ export function evaluateToolDispatchBudget(input: {
         action: 'reject',
         code: AGENT_ERROR_CODES.toolPhaseRestricted,
         detail:
-          '交付阶段仅允许 create_file 与 create_report；请改用交付工具或直接进入最终回答。',
+          '交付阶段仅允许 create_file、create_report 与 ppt_export；请改用交付工具或直接进入最终回答。',
         enterFinalAnswer: false,
       };
     }

@@ -19,7 +19,8 @@ export function processTimelineToolIconKind(toolName: string): ProcessTimelineTo
   ) {
     return 'fileSearch';
   }
-  if (toolName === 'create_file' || toolName === 'create_report') return 'fileText';
+  if (toolName === 'create_file' || toolName === 'create_report' || toolName === 'ppt_export')
+    return 'fileText';
   if (toolName === 'bash') return 'terminal';
   if (toolName === 'get_current_time' || toolName === 'execute_command') return 'clock';
   if (isMcpPublicToolName(toolName)) return 'plug';

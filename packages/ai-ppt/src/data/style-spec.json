@@ -1,6 +1,6 @@
 {
   "id": "harness-default-zh",
-  "fontFamily": "\"Noto Sans SC\", \"Microsoft YaHei\", sans-serif",
+  "fontFamily": "\"Noto Sans CJK SC\", \"Noto Sans SC\", \"Microsoft YaHei\", sans-serif",
   "colors": {
     "primary": "#1a4d8f",
     "secondary": "#2d6bb3",

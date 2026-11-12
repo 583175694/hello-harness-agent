@@ -1,5 +1,6 @@
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
 import type { ExportReportCheck } from '../types.js';
+import { launchChromium } from './browser.js';
 
 const OVERFLOW_SELECTORS = [
   '.slide',
@@ -29,9 +30,7 @@ export async function runF1OverflowChecks(
   const ownBrowser = !options?.browser;
   const browser =
     options?.browser ??
-    (await chromium.launch({
-      headless: true,
-    }));
+    (await launchChromium());
 
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -41,8 +40,7 @@ export async function runF1OverflowChecks(
     const overflows = await page.evaluate((selectors) => {
       const hits: string[] = [];
       for (const selector of selectors) {
-        for (const el of document.querySelectorAll(selector)) {
-          const node = el as HTMLElement;
+        for (const node of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
           const sh = node.scrollHeight;
           const ch = node.clientHeight;
           const sw = node.scrollWidth;
@@ -54,10 +52,9 @@ export async function runF1OverflowChecks(
           }
         }
       }
-      const slides = document.querySelectorAll('.slide');
-      for (const slide of slides) {
+      for (const slide of Array.from(document.querySelectorAll<HTMLElement>('.slide'))) {
         const rect = slide.getBoundingClientRect();
-        for (const child of slide.querySelectorAll('*')) {
+        for (const child of Array.from(slide.querySelectorAll<HTMLElement>('*'))) {
           const childRect = child.getBoundingClientRect();
           if (
             childRect.bottom > rect.bottom + 2 ||

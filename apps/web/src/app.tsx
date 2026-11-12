@@ -513,7 +513,9 @@ export function workbenchFromPersistedMessage(
         sourceCount:
           execution.toolName === 'web_fetch' ? execution.succeededCount : execution.resultCount,
         ...(execution.status === 'completed' &&
-        (execution.toolName === 'create_file' || execution.toolName === 'create_report')
+        (execution.toolName === 'create_file' ||
+          execution.toolName === 'create_report' ||
+          execution.toolName === 'ppt_export')
           ? (() => {
               const matched = artifacts.find((item) => item.fileName === execution.input.fileName);
               return matched ? { artifactId: matched.artifactId } : {};
@@ -693,6 +695,8 @@ export function applyToolEvent(
     completedEvent?.toolName === 'create_file' ? completedEvent : undefined;
   const completedCreateReport =
     completedEvent?.toolName === 'create_report' ? completedEvent : undefined;
+  const completedPptExport =
+    completedEvent?.toolName === 'ppt_export' ? completedEvent : undefined;
   const completedExecuteCommand =
     completedEvent?.toolName === 'execute_command' &&
     collectedArtifactFromCommandResult(completedEvent.result)
@@ -701,13 +705,22 @@ export function applyToolEvent(
   const completedExternal =
     completedEvent?.toolName === 'external_tool' ? completedEvent : undefined;
   const completedArtifact =
-    completedCreateFile ?? completedCreateReport ?? completedExecuteCommand;
-  const completedArtifactRef =
-    completedCreateFile?.result.artifact ??
-    completedCreateReport?.result.artifact ??
-    (completedExecuteCommand
-      ? collectedArtifactFromCommandResult(completedExecuteCommand.result)
-      : undefined);
+    completedCreateFile ?? completedCreateReport ?? completedPptExport ?? completedExecuteCommand;
+  const completedArtifactRefs: ArtifactRef[] | undefined = completedCreateFile
+    ? [completedCreateFile.result.artifact]
+    : completedCreateReport
+      ? [completedCreateReport.result.artifact]
+      : completedPptExport
+        ? [
+            completedPptExport.result.artifact,
+            ...(completedPptExport.result.preview ? [completedPptExport.result.preview.artifact] : []),
+          ]
+        : completedExecuteCommand
+          ? [collectedArtifactFromCommandResult(completedExecuteCommand.result)].filter(
+              (artifact): artifact is ArtifactRef => Boolean(artifact),
+            )
+          : undefined;
+  const completedArtifactRef = completedArtifactRefs?.[0];
   const fetchSucceeded =
     completedFetch?.result.results.filter((item) => item.status === 'succeeded') ?? [];
   const resultCount = liveToolCounts(
@@ -753,6 +766,12 @@ export function applyToolEvent(
                       completedFileReadLines?.result.lines.length),
                 fileName: completedCreateFile?.result.file.fileName,
                 reportTitle: completedCreateReport?.result.report.title,
+                pptExport: completedPptExport
+                  ? {
+                      status: completedPptExport.result.status,
+                      fileName: completedPptExport.result.file.fileName,
+                    }
+                  : undefined,
                 searchResultCount:
                   completedEvent.toolName === 'web_search'
                     ? completedEvent.result.results.length
@@ -880,11 +899,13 @@ export function applyToolEvent(
     }
   }
   const header = workbenchHeader(executions, sources);
-  const artifacts =
-    completedArtifactRef &&
-    !(base.artifacts ?? []).some((item) => item.artifactId === completedArtifactRef.artifactId)
-      ? [...(base.artifacts ?? []), completedArtifactRef]
-      : base.artifacts;
+  const artifacts = (completedArtifactRefs ?? []).reduce<ArtifactRef[]>(
+    (current, artifact) =>
+      current.some((item) => item.artifactId === artifact.artifactId)
+        ? current
+        : [...current, artifact],
+    base.artifacts ?? [],
+  );
   return {
     ...base,
     open,

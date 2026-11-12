@@ -1,20 +1,35 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { chromium } from 'playwright';
-import { exportDeckToPptxBuffer } from '../export/export-pptx.js';
+import { launchChromium } from '../preflight/browser.js';
 import { runF0EnvProbe } from '../preflight/f0-env.js';
 import { runF1OverflowChecks } from '../preflight/f1-overflow.js';
 import { runF1StaticChecks } from '../preflight/f1-static.js';
 import { renderDeckToHtml } from '../render/render-deck.js';
 import type { BuildDeckResult, DeckPlan, ExportReport } from '../types.js';
-import { runUnpackCheckStrict, unpackToExportChecks } from '../verify/unpack-report.js';
+import {
+  UNPACK_CHECK_CODES,
+  runUnpackCheckStrict,
+  unpackToExportChecks,
+  unpackValidationPassed,
+} from '../verify/unpack-report.js';
 
 export type BuildDeckOptions = {
   plan: DeckPlan;
   outDir: string;
   unpackScriptPath: string;
-  skipExport?: boolean;
 };
+
+export type BuildDeckDependencies = {
+  /** 导出器允许注入，API 侧用纯 Node 实现避免把 ESM 包静态引入 CommonJS 构建。 */
+  exportPptx?: (htmlPath: string) => Promise<Buffer>;
+};
+
+// 延迟加载导出链：dom-to-pptx 是纯 ESM，API 的 Jest/CommonJS 单测不应在
+// 只要渲染 HTML 时就被迫初始化 Puppeteer。
+async function defaultExportPptx(htmlPath: string): Promise<Buffer> {
+  const { exportDeckToPptxBuffer } = await import('../export/export-pptx.js');
+  return exportDeckToPptxBuffer(htmlPath);
+}
 
 function emptyReport(plan: DeckPlan): ExportReport {
   return {
@@ -26,12 +41,13 @@ function emptyReport(plan: DeckPlan): ExportReport {
 }
 
 async function attemptExport(
+  exportPptx: (htmlPath: string) => Promise<Buffer>,
   htmlPath: string,
   pptxPath: string,
 ): Promise<{ ok: boolean; error?: string; ms: number }> {
   const started = Date.now();
   try {
-    const buffer = await exportDeckToPptxBuffer(htmlPath);
+    const buffer = await exportPptx(htmlPath);
     await writeFile(pptxPath, buffer);
     return { ok: true, ms: Date.now() - started };
   } catch (error) {
@@ -43,7 +59,18 @@ async function attemptExport(
   }
 }
 
-export async function buildDeck(options: BuildDeckOptions): Promise<BuildDeckResult> {
+async function readPptxBuffer(pptxPath: string): Promise<Buffer | undefined> {
+  try {
+    return await readFile(pptxPath);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function buildDeck(
+  options: BuildDeckOptions,
+  dependencies: BuildDeckDependencies = {},
+): Promise<BuildDeckResult> {
   const { plan, outDir, unpackScriptPath } = options;
   await mkdir(outDir, { recursive: true });
 
@@ -55,7 +82,23 @@ export async function buildDeck(options: BuildDeckOptions): Promise<BuildDeckRes
   await writeFile(htmlPath, html, 'utf8');
 
   const report = emptyReport(plan);
-  const browser = await chromium.launch({ headless: true });
+  const exportPptx = dependencies.exportPptx ?? defaultExportPptx;
+  let browser;
+  try {
+    browser = await launchChromium();
+  } catch (error) {
+    report.degrade = 'html_only';
+    report.failureCode = 'preflight_failed';
+    report.failureReason = `Chromium 启动失败：${error instanceof Error ? error.message : String(error)}`;
+    report.checks.push({
+      code: 'chromium_launch',
+      level: 'error',
+      passed: false,
+      detail: report.failureReason,
+    });
+    await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    return { ok: false, paths: { htmlPath, reportPath }, html, report };
+  }
 
   try {
     const f0 = await runF0EnvProbe({ browser });
@@ -104,19 +147,9 @@ export async function buildDeck(options: BuildDeckOptions): Promise<BuildDeckRes
       };
     }
 
-    if (options.skipExport) {
-      await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-      return {
-        ok: true,
-        paths: { htmlPath, reportPath },
-        html,
-        report,
-      };
-    }
-
-    let exportTry = await attemptExport(htmlPath, pptxPath);
+    let exportTry = await attemptExport(exportPptx, htmlPath, pptxPath);
     if (!exportTry.ok) {
-      exportTry = await attemptExport(htmlPath, pptxPath);
+      exportTry = await attemptExport(exportPptx, htmlPath, pptxPath);
     }
 
     report.checks.push({
@@ -141,12 +174,35 @@ export async function buildDeck(options: BuildDeckOptions): Promise<BuildDeckRes
       };
     }
 
-    let unpack = await runUnpackCheckStrict({
-      pptxPath,
-      htmlPath,
-      unpackScriptPath,
-      jsonOutPath: reportPath,
-    });
+    let unpack;
+    try {
+      unpack = await runUnpackCheckStrict({
+        pptxPath,
+        htmlPath,
+        unpackScriptPath,
+        jsonOutPath: reportPath,
+      });
+    } catch (error) {
+      // 校验器本身不可用（例如部署环境缺 Python 脚本）时，PPTX 已经导出成功，
+      // 不应把整个工具判为失败；降级交付 HTML 并保留具体原因。
+      report.degrade = 'html_only';
+      report.failureCode = 'validation_failed';
+      report.failureReason = `unpack check failed: ${error instanceof Error ? error.message : String(error)}`;
+      report.checks.push({
+        code: 'unpack_passed',
+        level: 'error',
+        passed: false,
+        detail: report.failureReason,
+      });
+      await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+      return {
+        ok: false,
+        paths: { htmlPath, pptxPath, reportPath },
+        html,
+        report,
+        pptxBuffer: await readPptxBuffer(pptxPath),
+      };
+    }
     let unpackChecks = unpackToExportChecks(unpack, plan.slides.length);
     report.checks.push(...unpackChecks);
     report.metrics = {
@@ -157,19 +213,39 @@ export async function buildDeck(options: BuildDeckOptions): Promise<BuildDeckRes
       cjkCoverage: unpack.cjkCoverage,
     };
 
-    const validationOk = unpack.passed && unpackChecks.every((c) => c.passed);
+    const validationOk = unpackValidationPassed(unpack, plan.slides.length);
     if (!validationOk) {
-      const retryExport = await attemptExport(htmlPath, pptxPath);
+      const retryExport = await attemptExport(exportPptx, htmlPath, pptxPath);
       if (retryExport.ok) {
-        unpack = await runUnpackCheckStrict({
-          pptxPath,
-          htmlPath,
-          unpackScriptPath,
-          jsonOutPath: reportPath,
-        });
+        try {
+          unpack = await runUnpackCheckStrict({
+            pptxPath,
+            htmlPath,
+            unpackScriptPath,
+            jsonOutPath: reportPath,
+          });
+        } catch (error) {
+          report.degrade = 'html_only';
+          report.failureCode = 'validation_failed';
+          report.failureReason = `unpack check failed: ${error instanceof Error ? error.message : String(error)}`;
+          report.checks.push({
+            code: 'unpack_passed',
+            level: 'error',
+            passed: false,
+            detail: report.failureReason,
+          });
+          await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+          return {
+            ok: false,
+            paths: { htmlPath, pptxPath, reportPath },
+            html,
+            report,
+            pptxBuffer: await readPptxBuffer(pptxPath),
+          };
+        }
         unpackChecks = unpackToExportChecks(unpack, plan.slides.length);
         report.checks = report.checks.filter(
-          (c) => !['unpack_slides', 'cjk_coverage', 'unpack_passed'].includes(c.code),
+          (c) => !(UNPACK_CHECK_CODES as readonly string[]).includes(c.code),
         );
         report.checks.push(...unpackChecks);
         report.metrics = {
@@ -182,14 +258,13 @@ export async function buildDeck(options: BuildDeckOptions): Promise<BuildDeckRes
       }
     }
 
-    const finalOk =
-      unpack.passed &&
-      unpackToExportChecks(unpack, plan.slides.length).every((c) => c.passed);
+    const finalOk = unpackValidationPassed(unpack, plan.slides.length);
 
     if (!finalOk) {
       report.degrade = 'html_only';
       report.failureCode = 'validation_failed';
-      report.failureReason = unpack.failedChecks.join('; ') || 'unpack check failed';
+      const failing = unpackChecks.filter((c) => !c.passed).map((c) => `${c.code}${c.detail ? `: ${c.detail}` : ''}`);
+      report.failureReason = failing.join('; ') || unpack.failedChecks.join('; ') || 'unpack check failed';
       report.checks.push({
         code: 'validation',
         level: 'error',
@@ -202,19 +277,18 @@ export async function buildDeck(options: BuildDeckOptions): Promise<BuildDeckRes
         paths: { htmlPath, pptxPath, reportPath },
         html,
         report,
-        pptxBuffer: await readFile(pptxPath),
+        pptxBuffer: await readPptxBuffer(pptxPath),
       };
     }
 
     report.degrade = 'none';
     await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-    const pptxBuffer = await readFile(pptxPath);
     return {
       ok: true,
       paths: { htmlPath, pptxPath, reportPath },
       html,
       report,
-      pptxBuffer,
+      pptxBuffer: await readPptxBuffer(pptxPath),
     };
   } finally {
     await browser.close();

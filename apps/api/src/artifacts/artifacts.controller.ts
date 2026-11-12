@@ -1,4 +1,14 @@
-import { BadRequestException, Body, Controller, Delete, Get, Inject, Param, Post, Res } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Post,
+  Res,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { restoreArtifactRequestSchema } from '@harness/agent-protocol';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -81,6 +91,18 @@ export class ArtifactsController {
     @Res() response: Response,
   ) {
     const result = await this.artifacts.download(user.id, artifactId);
+    response.type(result.mediaType);
+    response.attachment(result.fileName);
+    return response.send(result.content);
+  }
+
+  @Post(':artifactId/export-pptx')
+  async exportPptx(
+    @CurrentUser() user: RequestUser,
+    @Param('artifactId') artifactId: string,
+    @Res() response: Response,
+  ) {
+    const result = await this.artifacts.exportPptxFromHtml(artifactId);
     response.type(result.mediaType);
     response.attachment(result.fileName);
     return response.send(result.content);

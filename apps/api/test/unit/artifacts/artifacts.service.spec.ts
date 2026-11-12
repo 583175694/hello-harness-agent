@@ -86,7 +86,12 @@ function createService() {
     series: { logicalName: 'result.md', currentArtifactId: where.id },
   }));
   return {
-    service: new ArtifactsService(prisma as never, files as never, storage as never),
+    service: new ArtifactsService(
+      prisma as never,
+      files as never,
+      storage as never,
+      undefined,
+    ),
     prisma,
     files,
     storage,
@@ -164,6 +169,72 @@ describe('ArtifactsService', () => {
     expect(prisma.report.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ sourceIds: ['source-not-fetched'] }) }),
     );
+  });
+
+  it('exports an HTML artifact to a downloadable PPTX file', async () => {
+    const { prisma, storage, files } = createService();
+    prisma.artifact.findFirst.mockResolvedValue({
+      ...artifact,
+      file: { ...file, fileKind: 'html', fileName: 'deck.html', mediaType: 'text/html' },
+    });
+    storage.readObject.mockResolvedValue({ content: Buffer.from('<html></html>') });
+    const run = vi.fn().mockResolvedValue({
+      ok: true,
+      report: { degrade: 'none' },
+      pptxBuffer: Buffer.from('pptx'),
+    });
+    const service = new ArtifactsService(
+      prisma as never,
+      files as never,
+      storage as never,
+      { run, exportPptx: vi.fn().mockResolvedValue(Buffer.from('pptx')) },
+    );
+
+    await expect(service.exportPptxFromHtml('artifact-1')).resolves.toMatchObject({
+      content: Buffer.from('pptx'),
+      fileName: 'deck.pptx',
+      mediaType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    });
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        html: Buffer.from('<html></html>'),
+        fileName: 'deck.html',
+      }),
+    );
+  });
+
+  it('surfaces the exporter failure reason instead of returning an empty file', async () => {
+    const { prisma, storage, files } = createService();
+    prisma.artifact.findFirst.mockResolvedValue({
+      ...artifact,
+      file: { ...file, fileKind: 'html', fileName: 'deck.html', mediaType: 'text/html' },
+    });
+    storage.readObject.mockResolvedValue({ content: Buffer.from('<html></html>') });
+    const service = new ArtifactsService(
+      prisma as never,
+      files as never,
+      storage as never,
+      {
+        run: vi.fn().mockResolvedValue({
+          ok: false,
+          report: { degrade: 'html_only', failureReason: '中文字体缺失' },
+        }),
+        exportPptx: vi.fn().mockResolvedValue(Buffer.from('pptx')),
+      },
+    );
+
+    await expect(service.exportPptxFromHtml('artifact-1')).rejects.toMatchObject({
+      response: { code: 'PPTX_EXPORT_DEGRADED', detail: '中文字体缺失' },
+    });
+  });
+
+  it('rejects export when the artifact is not HTML', async () => {
+    const { service, prisma } = createService();
+    prisma.artifact.findFirst.mockResolvedValue(artifact);
+
+    await expect(service.exportPptxFromHtml('artifact-1')).rejects.toMatchObject({
+      response: { code: 'GENERATED_FILE_TYPE_UNSUPPORTED' },
+    });
   });
 
   it('streams the original bytes through the authorized download endpoint', async () => {

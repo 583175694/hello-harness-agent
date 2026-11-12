@@ -8,10 +8,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -71,7 +71,7 @@ fun ComposerAttachmentStrip(
     Row(
         modifier =
             modifier
-                .heightIn(min = stripHeight)
+                .height(stripHeight)
                 .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -106,11 +106,10 @@ private fun ComposerAttachmentItemCard(
     val shape = RoundedCornerShape(HarnessLayout.controlRadius)
     val cardModifier =
         Modifier
-            .heightIn(min = stripHeight)
             .background(colors.subtle, shape)
             .border(1.dp, colors.composerBorder, shape)
     if (isImageAttachment(item.fileName) || item.mediaType.startsWith("image/")) {
-        Box(modifier = cardModifier.width(stripHeight).clip(shape)) {
+        Box(modifier = cardModifier.size(stripHeight).clip(shape)) {
             if (onRemove != null) {
                 androidx.compose.material3.IconButton(
                     onClick = onRemove,
@@ -129,7 +128,7 @@ private fun ComposerAttachmentItemCard(
                     serverPreviewUrl = item.previewUri.takeUnless { isLocalPreviewUri(it) },
                     localPreviewUri = item.previewUri.takeIf { isLocalPreviewUri(it) },
                     contentDescription = item.fileName,
-                    modifier = Modifier.fillMaxSize().clip(shape),
+                    modifier = Modifier.size(stripHeight),
                     contentScale = ContentScale.Crop,
                 )
             } else {
@@ -183,7 +182,7 @@ private fun ComposerAttachmentCard(
 
     if (isImageAttachment(fileName)) {
         Box(
-            modifier = cardModifier.width(stripHeight),
+            modifier = cardModifier.size(stripHeight).clip(shape),
             contentAlignment = Alignment.Center,
         ) {
             Text(

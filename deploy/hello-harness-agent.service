@@ -19,7 +19,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/www/hello-harness-agent/artifacts
+ReadWritePaths=/www/hello-harness-agent/artifacts /www/hello-harness-agent/.cache
 
 [Install]
 WantedBy=multi-user.target

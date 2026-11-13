@@ -353,7 +353,65 @@ sudo docker ps --format 'table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}'
 ```
 
 上述 Docker 命令只做检查。清理时先确认具体容器/镜像属于本项目且没有使用者；不要批量删除所有停止容器或悬空镜像。数据库中存在的附件不能直接从 artifacts/COS 删除。备份保留至少一个已验证恢复点，删除前确认异地副本可用。
-PDF 渲染另依赖 ubuntu 用户目录下的 Playwright Chromium（`/home/ubuntu/.cache/ms-playwright`）及系统动态库；这与沙箱内的 Chromium 是两套独立环境。缺失时可在 API 目录执行 `corepack pnpm exec playwright install chromium`，并按实际缺失库补齐依赖。
+PDF 渲染与 **HTML→PPTX**（`dom-to-pptx` / Workbench「下载 PPTX」）需要宿主机上真实可执行的 Chrome/Chromium。两套浏览器分工不同：
+
+- **Playwright** 负责预检与溢出度量，可用镜像自带的 Chromium，也可用 `~/.cache/ms-playwright`。
+- **Puppeteer（`dom-to-pptx`）** 负责出 PPTX，优先复用系统 Chrome。不要把它指向 Playwright 的 `ms-playwright` 目录。
+
+**推荐：装 Google 官方 Chrome（Debian/Ubuntu）**
+
+Ubuntu 22.04 的 `apt-get install chromium-browser` 是**空壳转接包**：它的 `preinst` 会去连 snap store，连不上时每分钟重试、最长 30 分钟，期间一直占着 dpkg 锁。**不要用这个包**。改从 Google 下载官方 deb：
+
+```bash
+curl -fsSL -o /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+sudo DEBIAN_FRONTEND=noninteractive dpkg -i /tmp/google-chrome.deb || true
+sudo DEBIAN_FRONTEND=noninteractive apt-get -f install -y
+google-chrome-stable --version
+```
+
+然后在 API 的 `.env` 写绝对路径并重启：
+
+```bash
+HARNESS_CHROMIUM_PATH=/usr/bin/google-chrome-stable
+sudo systemctl restart hello-harness-agent
+```
+
+**若 dpkg 已被空壳包卡住**（表现为 `apt` 一直不返回、`ps` 里有 `snap info chromium`）：
+
+```bash
+# 1. 终止 snap 探测与 apt/dpkg 进程
+sudo pkill -f "snap info chromium"
+sudo pkill -f "apt-get .*chromium-browser"
+sudo pkill -f "dpkg --status-fd"
+# 2. 该包的 preinst 脚本就是卡点，禁用后强制清除
+sudo mv /var/lib/dpkg/info/chromium-browser.preinst \
+        /var/lib/dpkg/info/chromium-browser.preinst.disabled 2>/dev/null || true
+sudo dpkg --purge --force-all --force-remove-reinstreq chromium-browser
+sudo dpkg --audit   # 应无输出或只剩可 configure 的包
+```
+
+**Puppeteer 缓存回退（可选）**
+
+只有系统里找不到任何可执行 Chrome 时，Puppeteer 才会尝试自己下载约 200 MB 的 Headless Chrome。API 单元启用了 `ProtectHome=read-only`，进程写不了 `~/.cache/puppeteer`，会报 `mkdir '/home/ubuntu/.cache/puppeteer'`。此时：
+
+- 优先修成上面的系统 Chrome；或
+- 设 `PUPPETEER_CACHE_DIR=/www/hello-harness-agent/.cache/puppeteer`（单元已放行该目录），在维护窗口用 `ubuntu` 用户预装一次。
+
+**验证导出是否可用**（不需要打开网页）：
+
+```bash
+cd /www/hello-harness-agent
+/home/ubuntu/.local/node-v22/bin/node --env-file=.env --input-type=module -e '
+import { writeFile } from "node:fs/promises";
+import { exportDeckToPptxBuffer } from "./packages/ai-ppt/dist/export/export-pptx.js";
+const p = "/tmp/deck-smoke.html";
+await writeFile(p, "<html><body><section class=\"slide\" style=\"width:1280px;height:720px;overflow:hidden;font-family:\\\"Noto Sans CJK SC\\\",sans-serif\"><h1>冒烟</h1></section></body></html>");
+const buf = await exportDeckToPptxBuffer(p);
+console.log("pptx bytes", buf.length);
+'
+```
+
+出现 `Using system browser: Google Chrome → /usr/bin/google-chrome` 且输出非零字节即成功。
 
 当前入口是公网 HTTP，且应用使用本地用户模型；不要把该部署当作具备多用户身份隔离的生产系统。需要限制访问时，在本项目入口配置身份验证或收窄安全组来源；使用域名和 HTTPS 后同步调整 `WEB_ORIGIN`。
 

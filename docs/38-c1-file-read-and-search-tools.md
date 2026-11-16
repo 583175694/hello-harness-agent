@@ -168,6 +168,8 @@ sections: [
 
 `read(scope=file)` 的 outline **读取该索引**，不在请求时现算全文结构。
 
+> **HTML 上传（2026-11-16）**：`FileProcessingService` 对 `fileKind=html` 不再保存原始源码，而是用 `html-upload.normalizer.ts` 去掉 `script/style/noscript/template/iframe/svg`、隐藏节点和 `head`，把标题、正文、列表与表格转为 Markdown 后再计 `uploadParsedContentMaxCodePoints`。原文件仍保留，预览与下载不受影响；仅由脚本动态渲染、无静态正文的 HTML 返回 `FILE_EMPTY` 并提示另存为完整静态页面。HTML 的 `parserVersion` 为 `c1-read-v2-html`。
+
 ---
 
 ## 6. 任务分轨（Context compile）

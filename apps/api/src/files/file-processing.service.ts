@@ -4,6 +4,7 @@ import { PDFParse } from 'pdf-parse';
 import { OfficeParser } from 'officeparser';
 import { createHash } from 'node:crypto';
 import { buildSectionIndex } from './file-section-index';
+import { normalizeUploadedHtml } from './html-upload.normalizer';
 
 // C1 文件大小、会话容量、正文字符数和 PDF 页数上限。
 export const MAX_FILE_BYTES = AGENT_PROTOCOL_LIMITS.agentFileMaxBytes;
@@ -168,8 +169,24 @@ export class FileProcessingService {
         normalizedContent = JSON.stringify(value, null, 2);
         overview = { format: 'json', rootType: Array.isArray(value) ? 'array' : typeof value };
       } else if (prepared.fileKind === 'html') {
-        normalizedContent = text;
-        overview = { format: 'html' };
+        // HTML 只保留可读正文与表格，避免脚本、样式和布局标签占满正文预算。
+        try {
+          const extracted = normalizeUploadedHtml(text);
+          if (!extracted.markdown.trim())
+            throw this.reject(
+              'FILE_EMPTY',
+              'HTML 未包含可读正文；若内容由脚本动态渲染，请先另存为完整静态页面后上传。',
+            );
+          normalizedContent = extracted.markdown;
+          overview = {
+            format: 'html',
+            ...(extracted.title ? { title: extracted.title } : {}),
+            normalizedFrom: 'html',
+          };
+        } catch (error) {
+          if (error instanceof BadRequestException) throw error;
+          throw this.reject('FILE_PARSE_FAILED', 'HTML 文件解析失败。');
+        }
       } else if (prepared.fileKind === 'csv') {
         // CSV 规范化为稳定的逐行表格文本。
         const rows = parseCsv(text);
@@ -198,7 +215,7 @@ export class FileProcessingService {
       ...prepared,
       normalizedContent,
       contentHash: sha256(Buffer.from(normalizedContent)),
-      parserVersion: 'c1-read-v1',
+      parserVersion: prepared.fileKind === 'html' ? 'c1-read-v2-html' : 'c1-read-v1',
       pageCount,
       lineCount: normalizedContent ? normalizedContent.split('\n').length : 0,
       characterCount,

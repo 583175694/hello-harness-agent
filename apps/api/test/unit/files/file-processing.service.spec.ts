@@ -56,15 +56,60 @@ describe('FileProcessingService', () => {
     });
   });
 
-  it('parses HTML uploads as normalized html documents', async () => {
+  it('normalizes HTML uploads to readable markdown without markup noise', async () => {
     const result = await service.parse({
-      buffer: Buffer.from('<!doctype html><html><body><p>Hi</p></body></html>'),
+      buffer: Buffer.from(`<!doctype html><html><head>
+        <title>经营看板</title><style>body{color:red}</style>
+        </head><body>
+        <nav>站点导航</nav>
+        <main><h1>利润分析</h1><p>营业收入同比增长 <strong>12%</strong>。</p>
+        <ul><li>毛利率</li><li>净利率</li></ul>
+        <table><tr><th>指标</th><th>金额</th></tr><tr><td>收入</td><td>100</td></tr></table>
+        </main><script>console.log('ignored')</script></body></html>`),
       mimetype: 'text/html',
       originalname: 'page.html',
     });
     expect(result.fileKind).toBe('html');
-    expect(result.normalizedContent).toContain('<p>Hi</p>');
-    expect(result.overview).toMatchObject({ format: 'html' });
+    expect(result.normalizedContent).toContain('# 经营看板');
+    expect(result.normalizedContent).toContain('# 利润分析');
+    expect(result.normalizedContent).toContain('营业收入同比增长 **12%**。');
+    expect(result.normalizedContent).toContain('| 指标 | 金额 |');
+    expect(result.normalizedContent).not.toContain('<p>');
+    expect(result.normalizedContent).not.toContain('body{color:red}');
+    expect(result.normalizedContent).not.toContain("console.log('ignored')");
+    expect(result.parserVersion).toBe('c1-read-v2-html');
+    expect(result.overview).toMatchObject({ format: 'html', normalizedFrom: 'html' });
+  });
+
+  it('explains when HTML has no readable static content', async () => {
+    await expect(
+      service.parse({
+        buffer: Buffer.from(
+          '<!doctype html><html><body><div id="app"></div><script>renderApp()</script></body></html>',
+        ),
+        mimetype: 'text/html',
+        originalname: 'spa.html',
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FILE_EMPTY',
+        detail: expect.stringContaining('脚本动态渲染'),
+      }),
+    });
+  });
+
+  it('counts only readable HTML text against the parsed content limit', async () => {
+    const bulkyMarkup = Array.from(
+      { length: 2_000 },
+      (_, index) => `<div class="layout-row-${index}" data-id="${'x'.repeat(200)}"></div>`,
+    ).join('');
+    const result = await service.parse({
+      buffer: Buffer.from(`<!doctype html><html><body>${bulkyMarkup}<p>核心结论</p></body></html>`),
+      mimetype: 'text/html',
+      originalname: 'dashboard.html',
+    });
+    expect(result.normalizedContent).toBe('核心结论');
+    expect(result.characterCount).toBe(4);
   });
 
   it('formats JSON and exposes its root type', async () => {

@@ -1,4 +1,4 @@
-import type { FileRef } from '../model/types';
+import type { FileRef } from '@harness/agent-protocol';
 import { AGENT_UI_BEHAVIOR } from '../config/ui.constants';
 
 function nextPastedTextFileName(attachments: FileRef[]): string {
@@ -48,15 +48,17 @@ export function handleComposerAttachmentPaste(
   onAttachmentSelected?: (files: File[]) => void,
 ): boolean {
   if (!canPasteAttachments) return false;
+  const clipboardData = event.clipboardData;
+  if (!clipboardData) return false;
   const clipboardFiles = normalizeAttachmentFiles(
-    attachmentFilesFromDataTransfer(event.clipboardData),
+    attachmentFilesFromDataTransfer(clipboardData),
   );
   if (clipboardFiles.length) {
     event.preventDefault();
     onAttachmentSelected?.(clipboardFiles);
     return true;
   }
-  const text = event.clipboardData.getData('text/plain');
+  const text = clipboardData.getData('text/plain');
   if ([...text].length <= AGENT_UI_BEHAVIOR.longPasteThresholdCodePoints) return false;
   event.preventDefault();
   onAttachmentSelected?.([

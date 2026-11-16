@@ -17,7 +17,7 @@ import {
 
 import { ComposerAttachmentPastePlugin } from './composer-attachment-paste-plugin';
 import { ComposerControlledPlugin } from './composer-controlled-plugin';
-import type { FileRef } from '../model/types';
+import type { FileRef } from '@harness/agent-protocol';
 import { runSkillComposerBackspace } from './composer-skill-key-commands';
 import { ComposerSkillKeyPlugin } from './composer-skill-key-plugin';
 import { ComposerSubmitPlugin } from './composer-submit-plugin';

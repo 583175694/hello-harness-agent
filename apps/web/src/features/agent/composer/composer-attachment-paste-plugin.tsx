@@ -1,8 +1,8 @@
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { COMMAND_PRIORITY_HIGH, PASTE_COMMAND } from 'lexical';
+import { COMMAND_PRIORITY_HIGH, PASTE_COMMAND, type PasteCommandType } from 'lexical';
 import { useEffect, useRef } from 'react';
 
-import type { FileRef } from '../model/types';
+import type { FileRef } from '@harness/agent-protocol';
 import { handleComposerAttachmentPaste } from './composer-attachment-paste';
 
 export function ComposerAttachmentPastePlugin({
@@ -32,13 +32,15 @@ export function ComposerAttachmentPastePlugin({
   useEffect(() => {
     return editor.registerCommand(
       PASTE_COMMAND,
-      (event: ClipboardEvent) =>
-        handleComposerAttachmentPaste(
+      (event: PasteCommandType) => {
+        if (!(event instanceof ClipboardEvent)) return false;
+        return handleComposerAttachmentPaste(
           event,
           canPasteAttachmentsRef.current,
           attachmentsRef.current,
           onAttachmentSelectedRef.current,
-        ),
+        );
+      },
       COMMAND_PRIORITY_HIGH,
     );
   }, [editor]);

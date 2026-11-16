@@ -542,7 +542,7 @@ describe('Conversation user message navigation', () => {
     expect(scrollIntoView).toHaveBeenCalled();
   });
 
-  it('uses proportional track layout when there are many user questions', () => {
+  it('keeps evenly spaced ticks when there are many user questions', () => {
     const conversation = Array.from({ length: 30 }, (_, index) => [
       {
         id: `user-${index}`,
@@ -570,8 +570,8 @@ describe('Conversation user message navigation', () => {
         onSubmit={() => undefined}
       />,
     );
-    expect(container.querySelector('.conversation-message-nav--track')).toBeInTheDocument();
-    expect(container.querySelector('.conversation-message-nav__track')).toBeInTheDocument();
+    expect(container.querySelector('.conversation-message-nav--track')).toBeNull();
+    expect(container.querySelectorAll('.conversation-message-nav__tick')).toHaveLength(30);
   });
 });
 

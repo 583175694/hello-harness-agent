@@ -1225,24 +1225,9 @@ summary:focus-visible {
   padding: 34px 0 34px 2px;
   pointer-events: none;
 }
-.conversation-message-nav--track {
-  justify-content: flex-start;
-  padding-top: 30px;
-  padding-bottom: 30px;
-}
-.conversation-message-nav__track {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  pointer-events: auto;
-}
-.conversation-message-nav__tick--track {
-  position: absolute;
-  right: 0;
-  transform: translateY(-50%);
-}
 .conversation-message-nav__list {
+  --nav-fade-top: 0px;
+  --nav-fade-bottom: 0px;
   display: flex;
   width: 100%;
   max-height: 100%;
@@ -1252,9 +1237,27 @@ summary:focus-visible {
   margin: auto 0;
   padding: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   list-style: none;
   pointer-events: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  /* 仅在对应方向还有隐藏刻度时渐隐边界，避免刻度在切口处被硬截断。 */
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--nav-fade-top),
+    #000 calc(100% - var(--nav-fade-bottom)),
+    transparent 100%
+  );
+}
+.conversation-message-nav__list.is-fade-top {
+  --nav-fade-top: 14px;
+}
+.conversation-message-nav__list.is-fade-bottom {
+  --nav-fade-bottom: 14px;
+}
+.conversation-message-nav__list::-webkit-scrollbar {
+  display: none;
 }
 .conversation-message-nav__tick {
   display: flex;

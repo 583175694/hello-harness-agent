@@ -831,11 +831,6 @@ function FollowUpQueue({
 
 type UserMessageAnchor = { id: string; index: number; order: number };
 
-function fallbackAnchorRatio(index: number, totalCount: number): number {
-  if (totalCount <= 1) return 0;
-  return index / (totalCount - 1);
-}
-
 type VirtualMeasurementCache = Array<{ start: number; size: number } | undefined>;
 
 /** 虚拟列表下 user 消息可能未挂载，用测量缓存或估算 offset 计算导航刻度。 */
@@ -859,66 +854,66 @@ const VIRTUAL_PADDING_START_PX = 34;
 
 function ConversationMessageNavigator({
   anchors,
-  anchorRatios,
   activeUserMessageId,
-  layout,
   onNavigate,
 }: {
   anchors: UserMessageAnchor[];
-  anchorRatios: number[];
   activeUserMessageId: string | null;
-  layout: 'compact' | 'track';
   onNavigate: (renderIndex: number) => void;
 }) {
   const listRef = useRef<HTMLOListElement>(null);
+  // 列表内部滚动时，仅在对应方向还有隐藏刻度时显示边界渐隐。
+  const [fade, setFade] = useState({ top: false, bottom: false });
+  const syncFade = useCallback(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const top = list.scrollTop > 1;
+    const bottom = list.scrollTop + list.clientHeight < list.scrollHeight - 1;
+    setFade((current) =>
+      current.top === top && current.bottom === bottom ? current : { top, bottom },
+    );
+  }, []);
+  useLayoutEffect(() => {
+    syncFade();
+    const list = listRef.current;
+    if (!list || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(syncFade);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [anchors.length, syncFade]);
   useEffect(() => {
-    if (layout !== 'compact' || !activeUserMessageId) return;
+    syncFade();
+  }, [anchors.length, syncFade]);
+  useEffect(() => {
+    if (!activeUserMessageId) return;
     const activeButton = listRef.current?.querySelector(
       `[data-nav-anchor="${CSS.escape(activeUserMessageId)}"]`,
     );
     activeButton?.scrollIntoView({ block: 'nearest' });
-  }, [activeUserMessageId, layout, anchors.length]);
+  }, [activeUserMessageId, anchors.length]);
   if (anchors.length < 2) return null;
   return (
-    <nav
-      className={`conversation-message-nav${layout === 'track' ? ' conversation-message-nav--track' : ''}`}
-      aria-label="对话定位"
-    >
-      {layout === 'track' ? (
-        <div className="conversation-message-nav__track">
-          {anchors.map((anchor, anchorIndex) => (
+    <nav className="conversation-message-nav" aria-label="对话定位">
+      <ol
+        ref={listRef}
+        className={`conversation-message-nav__list${fade.top ? ' is-fade-top' : ''}${fade.bottom ? ' is-fade-bottom' : ''}`}
+        onScroll={syncFade}
+      >
+        {anchors.map((anchor) => (
+          <li key={anchor.id}>
             <button
-              key={anchor.id}
               type="button"
               data-nav-anchor={anchor.id}
-              className={`conversation-message-nav__tick conversation-message-nav__tick--track${activeUserMessageId === anchor.id ? ' is-active' : ''}`}
-              style={{ top: `${(anchorRatios[anchorIndex] ?? 0) * 100}%` }}
+              className={`conversation-message-nav__tick${activeUserMessageId === anchor.id ? ' is-active' : ''}`}
               aria-label={`跳转到第 ${anchor.order} 条提问`}
               aria-current={activeUserMessageId === anchor.id ? 'true' : undefined}
               onClick={() => onNavigate(anchor.index)}
             >
               <span className="conversation-message-nav__tick-line" aria-hidden="true" />
             </button>
-          ))}
-        </div>
-      ) : (
-        <ol ref={listRef} className="conversation-message-nav__list">
-          {anchors.map((anchor) => (
-            <li key={anchor.id}>
-              <button
-                type="button"
-                data-nav-anchor={anchor.id}
-                className={`conversation-message-nav__tick${activeUserMessageId === anchor.id ? ' is-active' : ''}`}
-                aria-label={`跳转到第 ${anchor.order} 条提问`}
-                aria-current={activeUserMessageId === anchor.id ? 'true' : undefined}
-                onClick={() => onNavigate(anchor.index)}
-              >
-                <span className="conversation-message-nav__tick-line" aria-hidden="true" />
-              </button>
-            </li>
-          ))}
-        </ol>
-      )}
+          </li>
+        ))}
+      </ol>
     </nav>
   );
 }
@@ -1102,13 +1097,6 @@ function ConversationBody({
     });
   }, [renderedConversation]);
   const [activeUserMessageId, setActiveUserMessageId] = useState<string | null>(null);
-  const [navAnchorRatios, setNavAnchorRatios] = useState<number[]>([]);
-  const navRatioCacheRef = useRef<Map<string, number>>(new Map());
-  const navRatioMeasureFrameRef = useRef<number | null>(null);
-  const conversationNavLayout =
-    userMessageAnchors.length > AGENT_UI_BEHAVIOR.conversationNavCompactMaxAnchors
-      ? 'track'
-      : 'compact';
   const latestAssistantId = [...renderedConversation]
     .reverse()
     .find((item) => item.kind === 'assistant')?.id;
@@ -1159,10 +1147,7 @@ function ConversationBody({
       virtualizer.scrollToIndex(renderedConversation.length - 1, { align: 'end' });
     else node.scrollTop = node.scrollHeight;
   }, [renderedConversation.length, shouldVirtualize, virtualizer]);
-  function handleComposerSubmit(
-    event: FormEvent<HTMLFormElement>,
-    promptOverride?: string,
-  ): void {
+  function handleComposerSubmit(event: FormEvent<HTMLFormElement>, promptOverride?: string): void {
     if (renderedConversation.length === 0) {
       pendingLandingComposerAnimRef.current = true;
       if (composerMeasureRef.current) {
@@ -1171,52 +1156,6 @@ function ConversationBody({
     }
     onSubmit(event, promptOverride);
   }
-  const remeasureNavAnchorRatios = useCallback(() => {
-    const scrollNode = scrollRef.current;
-    if (!scrollNode || userMessageAnchors.length === 0) {
-      setNavAnchorRatios([]);
-      return;
-    }
-    const scrollHeight = shouldVirtualize ? virtualizer.getTotalSize() : scrollNode.scrollHeight;
-    if (scrollHeight <= 0) return;
-    const scrollTop = scrollNode.scrollTop;
-    const scrollRectTop = scrollNode.getBoundingClientRect().top;
-    const ratios = userMessageAnchors.map((anchor) => {
-      const element = scrollNode.querySelector(
-        `[data-user-message-anchor="${CSS.escape(anchor.id)}"]`,
-      ) as HTMLElement | null;
-      let top: number | undefined;
-      if (element) {
-        top = element.getBoundingClientRect().top - scrollRectTop + scrollTop;
-      } else if (shouldVirtualize) {
-        top = estimateMessageRowOffset(
-          virtualizer,
-          anchor.index,
-          VIRTUAL_ROW_ESTIMATE_PX,
-          VIRTUAL_PADDING_START_PX,
-        );
-      }
-      if (top !== undefined) {
-        const ratio = Math.min(1, Math.max(0, top / scrollHeight));
-        navRatioCacheRef.current.set(anchor.id, ratio);
-        return ratio;
-      }
-      return (
-        navRatioCacheRef.current.get(anchor.id) ??
-        fallbackAnchorRatio(anchor.index, renderedConversation.length)
-      );
-    });
-    setNavAnchorRatios(ratios);
-  }, [renderedConversation.length, shouldVirtualize, userMessageAnchors, virtualizer]);
-  const scheduleNavAnchorRatioMeasure = useCallback(() => {
-    if (conversationNavLayout !== 'track') return;
-    if (navRatioMeasureFrameRef.current !== null)
-      cancelAnimationFrame(navRatioMeasureFrameRef.current);
-    navRatioMeasureFrameRef.current = requestAnimationFrame(() => {
-      navRatioMeasureFrameRef.current = null;
-      remeasureNavAnchorRatios();
-    });
-  }, [conversationNavLayout, remeasureNavAnchorRatios]);
   const syncActiveUserMessage = useCallback(() => {
     const node = scrollRef.current;
     if (!node || userMessageAnchors.length === 0) return;
@@ -1263,32 +1202,10 @@ function ConversationBody({
   );
   function handleConversationScroll(): void {
     syncActiveUserMessage();
-    scheduleNavAnchorRatioMeasure();
   }
   useEffect(() => {
     syncActiveUserMessage();
-    setNavAnchorRatios(
-      userMessageAnchors.map(
-        (anchor) =>
-          navRatioCacheRef.current.get(anchor.id) ??
-          fallbackAnchorRatio(anchor.index, renderedConversation.length),
-      ),
-    );
-    remeasureNavAnchorRatios();
-  }, [renderedConversation.length, remeasureNavAnchorRatios, syncActiveUserMessage]);
-  useEffect(() => {
-    if (conversationNavLayout !== 'track') return undefined;
-    const handleResize = () => scheduleNavAnchorRatioMeasure();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [conversationNavLayout, scheduleNavAnchorRatioMeasure]);
-  useEffect(
-    () => () => {
-      if (navRatioMeasureFrameRef.current !== null)
-        cancelAnimationFrame(navRatioMeasureFrameRef.current);
-    },
-    [],
-  );
+  }, [renderedConversation.length, syncActiveUserMessage]);
   useLayoutEffect(() => {
     if (userMessageCount <= prevUserMessageCountRef.current) return;
     prevUserMessageCountRef.current = userMessageCount;
@@ -1305,16 +1222,9 @@ function ConversationBody({
       requestAnimationFrame(() => {
         restorePreservedScroll();
         syncActiveUserMessage();
-        scheduleNavAnchorRatioMeasure();
       });
     });
-  }, [
-    pauseAutoScroll,
-    restorePreservedScroll,
-    scheduleNavAnchorRatioMeasure,
-    syncActiveUserMessage,
-    workbenchOpen,
-  ]);
+  }, [pauseAutoScroll, restorePreservedScroll, syncActiveUserMessage, workbenchOpen]);
 
   useLayoutEffect(() => {
     if (loadingOlder && !prevLoadingOlderRef.current) {
@@ -1327,12 +1237,11 @@ function ConversationBody({
       if (delta > 0) node.scrollTop += delta;
       preservedScrollTopRef.current = node.scrollTop;
       requestAnimationFrame(() => {
-        scheduleNavAnchorRatioMeasure();
         syncActiveUserMessage();
       });
     }
     prevLoadingOlderRef.current = loadingOlder;
-  }, [loadingOlder, pauseAutoScroll, scheduleNavAnchorRatioMeasure, syncActiveUserMessage]);
+  }, [loadingOlder, pauseAutoScroll, syncActiveUserMessage]);
 
   const shellRef = useRef<HTMLDivElement>(null);
   const heroRef = useRef<HTMLDivElement>(null);
@@ -1349,7 +1258,6 @@ function ConversationBody({
     preservedScrollTopRef.current = null;
     suppressStickToBottomUntilRef.current = 0;
     prevWorkbenchOpenRef.current = false;
-    navRatioCacheRef.current.clear();
     const measure = composerMeasureRef.current;
     if (measure) {
       measure.style.transition = '';
@@ -1511,8 +1419,6 @@ function ConversationBody({
           <div className="conversation-scroll-region">
             <ConversationMessageNavigator
               anchors={userMessageAnchors}
-              anchorRatios={navAnchorRatios}
-              layout={conversationNavLayout}
               activeUserMessageId={activeUserMessageId}
               onNavigate={navigateToUserMessage}
             />

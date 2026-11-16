@@ -10,8 +10,6 @@ export const AGENT_UI_BEHAVIOR = {
   longPasteThresholdCodePoints: 4_000,
   // 用户消息气泡超过该高度时默认折叠。
   userMessageCollapsedMaxHeightPx: 280,
-  // 用户提问数超过该值时，定位条改为按会话进度比例分布的轨道模式。
-  conversationNavCompactMaxAnchors: 28,
 } as const;
 
 /** 面向用户展示的产品品牌信息。 */

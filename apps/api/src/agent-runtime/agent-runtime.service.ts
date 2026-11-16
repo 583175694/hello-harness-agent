@@ -344,7 +344,7 @@ export class AgentRuntimeService {
               code,
               detail:
                 error.message === 'FILE_CONTEXT_TOO_LARGE'
-                  ? '文件内容超过当前模型上下文预算，请移除附件或缩短问题后重试。'
+                  ? '文件内容与当前历史合计超过模型上下文预算。单个文件过大时请压缩或拆分后重试；若是历史累积导致，请新建会话继续。'
                   : '当前上下文超过模型预算，无法在保留必要内容后继续执行。',
             },
             { cause: error },

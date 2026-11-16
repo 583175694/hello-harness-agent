@@ -694,6 +694,273 @@ describe('ContextEngineeringService', () => {
     expect(files.createToolResultFile).not.toHaveBeenCalled();
   });
 
+  it('collapses older create_file arguments to pointers and keeps the latest write intact', async () => {
+    const { service } = createService();
+    const oldContent = '旧版本正文'.repeat(2_000);
+    const midContent = '中间版本正文'.repeat(2_000);
+    const latestContent = '当前版本正文'.repeat(2_000);
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: '做一个看板' },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'write-1',
+              name: 'create_file',
+              arguments: JSON.stringify({
+                fileName: 'dashboard.html',
+                contentMode: 'html',
+                content: oldContent,
+              }),
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          toolCallId: 'write-1',
+          content: JSON.stringify({
+            ok: true,
+            output: {
+              artifact: {
+                artifactId: 'artifact-1',
+                fileId: '11111111-1111-4111-8111-111111111111',
+              },
+              file: { fileId: '11111111-1111-4111-8111-111111111111', fileName: 'dashboard.html' },
+            },
+          }),
+        },
+        { role: 'user', content: '改一下配色' },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'write-2',
+              name: 'create_file',
+              arguments: JSON.stringify({
+                fileName: 'dashboard.html',
+                contentMode: 'html',
+                content: midContent,
+              }),
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          toolCallId: 'write-2',
+          content: JSON.stringify({
+            ok: true,
+            output: {
+              artifact: {
+                artifactId: 'artifact-2',
+                fileId: '22222222-2222-4222-8222-222222222222',
+              },
+              file: { fileId: '22222222-2222-4222-8222-222222222222', fileName: 'dashboard.html' },
+            },
+          }),
+        },
+        { role: 'user', content: '再改一下标题' },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'write-3',
+              name: 'create_file',
+              arguments: JSON.stringify({
+                fileName: 'dashboard.html',
+                contentMode: 'html',
+                content: latestContent,
+              }),
+              blockSequence: 0,
+              providerIndex: 0,
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          toolCallId: 'write-3',
+          content: JSON.stringify({
+            ok: true,
+            output: {
+              artifact: {
+                artifactId: 'artifact-3',
+                fileId: '33333333-3333-4333-8333-333333333333',
+              },
+              file: { fileId: '33333333-3333-4333-8333-333333333333', fileName: 'dashboard.html' },
+            },
+          }),
+        },
+      ],
+    });
+
+    const writeArguments = (callId: string): string => {
+      for (const message of compiled.messages) {
+        if (message.role !== 'assistant') continue;
+        const call = message.toolCalls?.find((item) => item.id === callId);
+        if (call) return call.arguments;
+      }
+      throw new Error(`missing call ${callId}`);
+    };
+
+    const first = JSON.parse(writeArguments('write-1')) as Record<string, unknown>;
+    const second = JSON.parse(writeArguments('write-2')) as Record<string, unknown>;
+    const third = JSON.parse(writeArguments('write-3')) as Record<string, unknown>;
+
+    // 只有最近一次写入保留完整正文，历史两次折叠为带产物 fileId 的指针。
+    expect(third.content).toBe(latestContent);
+    expect(first.content).toBeUndefined();
+    expect(second.content).toBeUndefined();
+    expect(first).toMatchObject({
+      fileName: 'dashboard.html',
+      contentMode: 'html',
+      contentOmitted: true,
+      fileId: '11111111-1111-4111-8111-111111111111',
+    });
+    expect(second).toMatchObject({
+      contentOmitted: true,
+      fileId: '22222222-2222-4222-8222-222222222222',
+    });
+    expect(first.originalCharacterCount).toBe([...oldContent].length);
+    expect(writeArguments('write-1')).not.toContain(oldContent);
+
+    // toolCalls 与 tool 结果的配对结构不变，工具链校验仍通过。
+    expect(compiled.messages.filter((message) => message.role === 'tool')).toHaveLength(3);
+  });
+
+  it('produces byte-identical collapsed write arguments across repeated compiles', async () => {
+    const messages: ModelMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: '生成报告' },
+    ];
+    for (const index of [1, 2, 3, 4]) {
+      messages.push({
+        role: 'assistant',
+        content: null,
+        toolCalls: [
+          {
+            id: `write-${index}`,
+            name: 'create_report',
+            arguments: JSON.stringify({
+              title: `第 ${index} 版`,
+              summary: '摘要',
+              fileName: 'report.md',
+              content: `正文${index}`.repeat(1_500),
+            }),
+            blockSequence: 0,
+            providerIndex: 0,
+          },
+        ],
+      });
+      messages.push({
+        role: 'tool',
+        toolCallId: `write-${index}`,
+        content: JSON.stringify({
+          ok: true,
+          output: {
+            file: {
+              fileId: `${index}${index}${index}${index}${index}${index}${index}${index}-1111-4111-8111-111111111111`,
+            },
+          },
+        }),
+      });
+      messages.push({ role: 'user', content: `继续 ${index}` });
+    }
+
+    const first = await createService().service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: structuredClone(messages),
+    });
+    // 模拟下一轮：Runtime 用上一轮编译结果回填后再编译。
+    const second = await createService().service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: structuredClone(first.messages),
+    });
+    expect(second.messages).toEqual(first.messages);
+    expect(JSON.stringify(second.messages)).toBe(JSON.stringify(first.messages));
+  });
+
+  it('keeps write tool results inline so the pointer fileId does not drift across rounds', async () => {
+    const { service, files } = createService();
+    const messages: ModelMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: '生成文件' },
+    ];
+    for (let index = 0; index < 6; index += 1) {
+      const callId = `write-${index}`;
+      const fileId = `${String(index).repeat(8)}-1111-4111-8111-111111111111`;
+      messages.push({
+        role: 'assistant',
+        content: null,
+        toolCalls: [
+          {
+            id: callId,
+            name: 'create_file',
+            arguments: JSON.stringify({
+              fileName: `file-${index}.html`,
+              content: '<html><body>正文</body></html>'.repeat(300),
+            }),
+            blockSequence: 0,
+            providerIndex: 0,
+          },
+        ],
+      });
+      messages.push({
+        role: 'tool',
+        toolCallId: callId,
+        content: JSON.stringify({
+          ok: true,
+          untrustedToolData: true,
+          output: {
+            artifact: { artifactId: `artifact-${index}`, fileId, fileName: `file-${index}.html` },
+            file: {
+              fileId,
+              fileName: `file-${index}.html`,
+              mediaType: 'text/html',
+              size: 9_000,
+              status: 'ready',
+              origin: 'agent_generated',
+              artifactId: `artifact-${index}`,
+              // 让结果稳定超过 collapseOldToolResults 的 256 token 阈值。
+              previewUrl: `/api/files/${fileId}/preview?padding=${'x'.repeat(2_000)}`,
+            },
+          },
+        }),
+      });
+      messages.push({ role: 'user', content: `下一步 ${index}` });
+    }
+
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages,
+    });
+
+    // 写入结果属于产物引用：外置会丢掉产物 fileId，下一轮折叠指针随之漂移。
+    expect(files.createToolResultFile).not.toHaveBeenCalled();
+    const oldestResult = compiled.messages.find(
+      (message) => message.role === 'tool' && message.toolCallId === 'write-0',
+    );
+    expect(oldestResult).toMatchObject({
+      role: 'tool',
+      content: expect.not.stringContaining('[Tool Result stored:'),
+    });
+    expect(oldestResult && oldestResult.role === 'tool' ? oldestResult.content : '').toContain(
+      '"fileId":"00000000-1111-4111-8111-111111111111"',
+    );
+  });
+
   it('counts every visible image at the provider per-image token cap', async () => {
     const { service } = createService();
     const images = Array.from({ length: 9 }, (_, index) => ({

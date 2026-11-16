@@ -1293,12 +1293,12 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  // 为模型适配器生成原文件短期读取地址。
-  async readUrl(file: { id: string; sessionId: string }) {
+  // 为模型适配器生成短期读取地址；图片优先使用已归一化的预览，降低传输与计费成本。
+  async readUrl(file: { id: string; sessionId: string; previewKey?: string | null }) {
     return this.storage.createReadUrl({
       sessionId: file.sessionId,
       fileId: file.id,
-      variant: 'original',
+      variant: file.previewKey ? 'preview' : 'original',
     });
   }
   // 通过 fileId 校验归属后生成读取地址。

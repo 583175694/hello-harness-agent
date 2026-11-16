@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getDeepSeekV3TokenEstimator } from '@harness/deepseek-v3-tokenizer';
 import { ContextEngineeringService } from '../../../src/context-engineering/context-engineering.service';
-import type { ModelAdapter } from '../../../src/model/model-adapter';
+import type { ModelAdapter, ModelMessage } from '../../../src/model/model-adapter';
 
 function variedChinese(length: number): string {
   return Array.from({ length }, (_, index) => String.fromCodePoint(0x4e00 + (index % 2_000))).join(
@@ -692,5 +692,101 @@ describe('ContextEngineeringService', () => {
       messages: live,
     });
     expect(files.createToolResultFile).not.toHaveBeenCalled();
+  });
+
+  it('counts every visible image at the provider per-image token cap', async () => {
+    const { service } = createService();
+    const images = Array.from({ length: 9 }, (_, index) => ({
+      type: 'image_ref' as const,
+      fileId: `image-${index}`,
+    }));
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: [{ type: 'text', text: '同一条消息里的多张图' }, ...images] },
+      ],
+    });
+
+    // 9 张图最少计入 9 × 1024，避免图片在预算中静默消失。
+    expect(compiled.estimatedInputTokens).toBeGreaterThanOrEqual(9 * 1_024);
+    expect(compiled.messages).toEqual([
+      { role: 'system', content: 'system' },
+      { role: 'user', content: [{ type: 'text', text: '同一条消息里的多张图' }, ...images] },
+    ]);
+  });
+
+  it('keeps compacting history when the conversation starts with an image', async () => {
+    const { service, model } = createService();
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: [
+        { role: 'system', content: 'system' },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: '先看这张图' },
+            { type: 'image_ref', fileId: 'first-image' },
+          ],
+        },
+        { role: 'user', content: variedChinese(100_000) },
+        ...Array.from({ length: 12 }, (_, index) => ({
+          role: 'user' as const,
+          content: `最近消息 ${index}`,
+        })),
+      ],
+    });
+
+    // 图片可以被摘要替代；保护它会让早期带图会话永远无法压缩。
+    expect(compiled.compactionTriggered).toBe(true);
+    expect(model.generateText).toHaveBeenCalled();
+  }, 15_000);
+
+  it('omits the oldest images, keeping fileId placeholders, until the round fits', async () => {
+    const { service } = createService();
+    const messages: ModelMessage[] = [
+      { role: 'system' as const, content: 'system' },
+      ...Array.from({ length: 9 }, (_, index) => ({
+        role: 'user' as const,
+        content: [
+          { type: 'text' as const, text: `第 ${index + 1} 张图` },
+          { type: 'image_ref' as const, fileId: `image-${index}` },
+        ],
+      })),
+    ];
+    // 直接驱动预算兜底分支：9 张图 9216 token，这里只允许约 5 张图的空间。
+    const internals = service as unknown as {
+      offloadOldestImagesUntilFits: (
+        messages: ModelMessage[],
+        tools: undefined,
+        promptBudget: number,
+      ) => Promise<{ messages: ModelMessage[] }>;
+      estimate: (messages: ModelMessage[]) => Promise<number>;
+    };
+    const offloaded = (await internals.offloadOldestImagesUntilFits(messages, undefined, 5_000))
+      .messages;
+    const estimatedTokens = await internals.estimate(offloaded);
+
+    const placeholders = offloaded.flatMap((message) =>
+      message.role === 'user' && Array.isArray(message.content)
+        ? message.content
+            .filter((block) => block.type === 'text' && block.text.includes('[image omitted'))
+            .map((block) => (block.type === 'text' ? block.text : ''))
+        : [],
+    );
+    const remaining = offloaded.flatMap((message) =>
+      message.role === 'user' && Array.isArray(message.content)
+        ? message.content.filter((block) => block.type === 'image_ref')
+        : [],
+    );
+    // 最旧优先省略，占位保留 fileId 以便按需重读。
+    expect(placeholders.length).toBeGreaterThan(0);
+    expect(placeholders[0]).toContain('fileId=image-0');
+    expect(placeholders.some((text) => text.includes('fileId=image-8'))).toBe(false);
+    expect(remaining.length).toBeLessThan(9);
+    expect(remaining.at(-1)).toMatchObject({ fileId: 'image-8' });
+    expect(estimatedTokens).toBeLessThanOrEqual(5_000);
   });
 });

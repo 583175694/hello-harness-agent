@@ -122,16 +122,25 @@ export class RunCommandService {
         });
       attachmentIds = [...new Set([...attachmentIds, base.fileId])];
     }
-    // 图片和通用文件共用单消息附件数量限制。
-    if (attachmentIds.length > AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax)
-      throw new ConflictException({
-        code: 'TOO_MANY_ATTACHMENTS',
-        detail: `一条消息最多支持 ${AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax} 个附件。`,
-      });
     const attachments = [];
     // 绑定前逐个校验 Session 归属和 ready 状态。
     for (const attachmentId of attachmentIds)
       attachments.push(await this.files.findReadyForSession(userId, sessionId, attachmentId));
+    // 图片与通用文件分别计数，避免两类附件互相挤占名额。
+    const imageAttachmentCount = attachments.filter(
+      (attachment) => attachment.fileKind === 'image',
+    ).length;
+    const fileAttachmentCount = attachments.length - imageAttachmentCount;
+    if (imageAttachmentCount > AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax)
+      throw new ConflictException({
+        code: AGENT_ERROR_CODES.tooManyImageAttachments,
+        detail: `一条消息最多支持 ${AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax} 张图片。`,
+      });
+    if (fileAttachmentCount > AGENT_PROTOCOL_LIMITS.sessionFileAttachmentsMax)
+      throw new ConflictException({
+        code: AGENT_ERROR_CODES.tooManyFileAttachments,
+        detail: `一条消息最多支持 ${AGENT_PROTOCOL_LIMITS.sessionFileAttachmentsMax} 个文件。`,
+      });
     // 只有图片附件要求模型支持 Vision，文本文件不受影响。
     if (
       attachments.some((attachment) => attachment.fileKind === 'image') &&

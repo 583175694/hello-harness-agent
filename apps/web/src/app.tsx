@@ -1256,8 +1256,9 @@ function PersistentAgentApp() {
   // 当前待发送消息已上传或正在上传的附件。
   const [attachments, setAttachments] = useState<FileRef[]>([]);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
-  // 附件数量的即时值，供并发上传回调执行上限判断。
-  const attachmentCountRef = useRef(0);
+  // 图片与非图片附件分别计数，供并发上传回调执行各自上限判断。
+  const imageAttachmentCountRef = useRef(0);
+  const fileAttachmentCountRef = useRef(0);
   // 每个上传任务的取消控制器。
   const attachmentControllersRef = useRef<Record<string, AbortController>>({});
   // 暂存失败或取消前的本地 File，供重新上传使用。
@@ -1310,8 +1311,16 @@ function PersistentAgentApp() {
   }, [pendingSessions]);
 
   useEffect(() => {
-    attachmentCountRef.current = attachments.length;
-  }, [attachments.length]);
+    // 待上传项还没有服务端 fileKind，先用 MIME 判断，避免并发回调读到旧计数。
+    let images = 0;
+    for (const attachment of attachments) {
+      const isImage =
+        attachment.fileKind === 'image' || attachment.mediaType.startsWith('image/');
+      if (isImage) images += 1;
+    }
+    imageAttachmentCountRef.current = images;
+    fileAttachmentCountRef.current = attachments.length - images;
+  }, [attachments]);
 
   useEffect(() => {
     sessionStatesRef.current = sessionStates;
@@ -1997,11 +2006,23 @@ function PersistentAgentApp() {
   // 上传附件并等待文本解析完成后再允许绑定消息。
   async function handleAttachment(file: File): Promise<void> {
     // 上传前预占附件名额，避免多选文件并发回调使用旧状态。
-    if (attachmentCountRef.current >= 4) {
-      setError('一条消息最多支持 4 个附件。');
+    const fileIsImage = file.type.startsWith('image/');
+    if (
+      fileIsImage &&
+      imageAttachmentCountRef.current >= AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax
+    ) {
+      setError(`一条消息最多支持 ${AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax} 张图片。`);
       return;
     }
-    attachmentCountRef.current += 1;
+    if (
+      !fileIsImage &&
+      fileAttachmentCountRef.current >= AGENT_PROTOCOL_LIMITS.sessionFileAttachmentsMax
+    ) {
+      setError(`一条消息最多支持 ${AGENT_PROTOCOL_LIMITS.sessionFileAttachmentsMax} 个文件。`);
+      return;
+    }
+    if (fileIsImage) imageAttachmentCountRef.current += 1;
+    else fileAttachmentCountRef.current += 1;
     // 选择图片后立即创建临时附件，让 UI 在上传请求期间也能显示 loading。
     // 在 API 请求完成前先反馈给用户；临时地址只用于 UI，并在服务端预览接管后释放。
     const localPreviewUrl = URL.createObjectURL(file);
@@ -2083,7 +2104,12 @@ function PersistentAgentApp() {
     attachmentControllersRef.current[fileId]?.abort();
     delete attachmentFilesRef.current[fileId];
     const item = attachments.find((candidate) => candidate.fileId === fileId);
-    if (item) attachmentCountRef.current = Math.max(0, attachmentCountRef.current - 1);
+    if (item) {
+      const wasImage =
+        item.fileKind === 'image' || item.mediaType.startsWith('image/');
+      if (wasImage) imageAttachmentCountRef.current = Math.max(0, imageAttachmentCountRef.current - 1);
+      else fileAttachmentCountRef.current = Math.max(0, fileAttachmentCountRef.current - 1);
+    }
     setAttachments((current) => current.filter((candidate) => candidate.fileId !== fileId));
     if (item && !fileId.startsWith('pending-')) void deleteFile(fileId).catch(() => undefined);
   }

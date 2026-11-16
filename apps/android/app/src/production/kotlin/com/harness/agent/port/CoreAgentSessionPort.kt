@@ -30,6 +30,11 @@ class CoreAgentSessionPort(
     private val engine = DefaultHarnessMobileEngineFactory.create(services.engineConfig())
     private val composerSkills = mutableListOf<String>()
     private val composerAttachmentItems = mutableListOf<ComposerAttachmentItem>()
+
+    private companion object {
+        const val MAX_IMAGE_ATTACHMENTS = 9
+        const val MAX_FILE_ATTACHMENTS = 4
+    }
     private val composerAttachmentPreviewByFileId = mutableMapOf<String, String>()
 
     private val _sessionState = MutableStateFlow(ActiveSessionState())
@@ -162,7 +167,12 @@ class CoreAgentSessionPort(
         mediaType: String,
         previewUri: String?,
     ) {
-        if (composerAttachmentItems.size >= 4) return
+        // 图片与非图片附件分别计数，与服务端按 fileKind 的校验保持一致。
+        val isImage = mediaType.startsWith("image/")
+        val imageCount = composerAttachmentItems.count { it.mediaType.startsWith("image/") }
+        val fileCount = composerAttachmentItems.size - imageCount
+        if (isImage && imageCount >= MAX_IMAGE_ATTACHMENTS) return
+        if (!isImage && fileCount >= MAX_FILE_ATTACHMENTS) return
         val selectionAtStart = engine.activeSnapshot.value?.sessionId
         val localId = "pending-${System.currentTimeMillis()}-${composerAttachmentItems.size}"
         composerAttachmentItems.add(

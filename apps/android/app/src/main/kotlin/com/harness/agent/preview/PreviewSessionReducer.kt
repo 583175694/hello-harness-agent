@@ -7,7 +7,11 @@ import com.harness.agent.model.applyPreviewPatch
 
 object PreviewSessionReducer {
     private const val MAX_SKILLS = 6
-    private const val MAX_ATTACHMENTS = 4
+    private const val MAX_IMAGE_ATTACHMENTS = 9
+    private const val MAX_FILE_ATTACHMENTS = 4
+    private const val MAX_ATTACHMENTS = MAX_IMAGE_ATTACHMENTS + MAX_FILE_ATTACHMENTS
+    private val IMAGE_EXTENSIONS =
+        setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "avif", "svg")
 
     fun reduce(
         state: ActiveSessionState,
@@ -170,10 +174,18 @@ object PreviewSessionReducer {
         if (name.isEmpty()) return state
         val current = state.composer.attachmentNames
         if (current.contains(name) || current.size >= MAX_ATTACHMENTS) return state
+        // 预览数据只有文件名，按扩展名区分图片与普通文件。
+        val isImage = name.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
+        val imageCount = current.count { isImageName(it) }
+        if (isImage && imageCount >= MAX_IMAGE_ATTACHMENTS) return state
+        if (!isImage && current.size - imageCount >= MAX_FILE_ATTACHMENTS) return state
         return state.copy(
             composer = state.composer.copy(attachmentNames = current + name),
         )
     }
+
+    private fun isImageName(name: String): Boolean =
+        name.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
 
     private fun removeAttachment(
         state: ActiveSessionState,

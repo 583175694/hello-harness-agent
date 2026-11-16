@@ -26,6 +26,8 @@ final class CoreAgentSessionPort: AgentSessionPort {
     private let bridge: HarnessEngineBridge
     private var composerSkills: [String] = []
     private var composerAttachments: [ComposerAttachmentLocal] = []
+    private static let maxImageAttachments = 9
+    private static let maxFileAttachments = 4
     private(set) var composerModelOptions: [ComposerModelOption] = []
     private(set) var skillPickerNames: [String] = []
     private(set) var sessionState = ActiveSessionState()
@@ -154,7 +156,12 @@ final class CoreAgentSessionPort: AgentSessionPort {
     }
 
     func uploadComposerAttachment(fileName: String, data: Data, mediaType: String) async throws {
-        guard composerAttachments.count < 4 else { return }
+        // 图片与非图片附件分别计数，与服务端按 fileKind 的校验保持一致。
+        let isImage = mediaType.hasPrefix("image/")
+        let imageCount = composerAttachments.filter { $0.mediaType.hasPrefix("image/") }.count
+        let fileCount = composerAttachments.count - imageCount
+        if isImage, imageCount >= Self.maxImageAttachments { return }
+        if !isImage, fileCount >= Self.maxFileAttachments { return }
         let uploadSessionId = sessionState.scenarioId
         let base64 = data.base64EncodedString()
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in

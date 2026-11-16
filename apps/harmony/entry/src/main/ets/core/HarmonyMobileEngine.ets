@@ -27,6 +27,9 @@ import {
 } from './HarmonyCoreTypes';
 
 /** 对齐 packages/mobile-core SessionEngineController（鸿蒙薄 HTTP 子集）。 */
+const MAX_IMAGE_ATTACHMENTS: number = 9;
+const MAX_FILE_ATTACHMENTS: number = 4;
+
 export class HarmonyMobileEngine {
   private summaries: SessionSummaryRow[] = [];
   private sessionListBefore: string | undefined = undefined;
@@ -447,7 +450,19 @@ export class HarmonyMobileEngine {
   }
 
   async uploadComposerAttachment(fileName: string, fileData: ArrayBuffer, mediaType: string): Promise<void> {
-    if (this.composerAttachmentNames.length >= 4) {
+    // 图片与非图片附件分别计数，与服务端按 fileKind 的校验保持一致。
+    const isImage: boolean = mediaType.startsWith('image/');
+    let imageCount: number = 0;
+    for (let index: number = 0; index < this.composerAttachmentMediaTypes.length; index += 1) {
+      if (this.composerAttachmentMediaTypes[index].startsWith('image/')) {
+        imageCount += 1;
+      }
+    }
+    const fileCount: number = this.composerAttachmentMediaTypes.length - imageCount;
+    if (isImage && imageCount >= MAX_IMAGE_ATTACHMENTS) {
+      return;
+    }
+    if (!isImage && fileCount >= MAX_FILE_ATTACHMENTS) {
       return;
     }
     const sessionId = await this.ensureSessionForComposer(fileName.trim().substring(0, 28).trim() || '附件');

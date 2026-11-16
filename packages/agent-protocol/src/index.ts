@@ -1222,7 +1222,8 @@ export const createRunRequestSchema = z.object({
   attachmentId: z.string().min(1).optional(),
   attachmentIds: z
     .array(z.string().min(1))
-    .max(AGENT_PROTOCOL_LIMITS.sessionImageAttachmentsMax)
+    // 请求体只约束附件总数；图片与文件的分类上限由服务端按 fileKind 校验。
+    .max(AGENT_PROTOCOL_LIMITS.sessionAttachmentsMax)
     .optional()
     .refine((ids) => !ids || new Set(ids).size === ids.length, '附件不能重复'),
   artifactVersionContext: z

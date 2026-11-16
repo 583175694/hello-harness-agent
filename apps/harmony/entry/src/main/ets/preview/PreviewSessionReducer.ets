@@ -24,7 +24,10 @@ export interface PreviewUiAction {
 }
 
 const MAX_SKILLS: number = 6;
-const MAX_ATTACHMENTS: number = 4;
+const MAX_IMAGE_ATTACHMENTS: number = 9;
+const MAX_FILE_ATTACHMENTS: number = 4;
+const MAX_ATTACHMENTS: number = MAX_IMAGE_ATTACHMENTS + MAX_FILE_ATTACHMENTS;
+const IMAGE_EXTENSIONS: string[] = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic', 'heif', 'avif', 'svg'];
 
 export class PreviewSessionReducer {
   static reduce(
@@ -217,9 +220,31 @@ export class PreviewSessionReducer {
     if (composer.attachmentNames.includes(name) || composer.attachmentNames.length >= MAX_ATTACHMENTS) {
       return { session, lines };
     }
+    // 预览数据只有文件名，按扩展名区分图片与普通文件。
+    const isImage: boolean = PreviewSessionReducer.isImageName(name);
+    let imageCount: number = 0;
+    for (let index: number = 0; index < composer.attachmentNames.length; index += 1) {
+      if (PreviewSessionReducer.isImageName(composer.attachmentNames[index])) {
+        imageCount += 1;
+      }
+    }
+    if (isImage && imageCount >= MAX_IMAGE_ATTACHMENTS) {
+      return { session, lines };
+    }
+    if (!isImage && composer.attachmentNames.length - imageCount >= MAX_FILE_ATTACHMENTS) {
+      return { session, lines };
+    }
     composer.attachmentNames = composer.attachmentNames.slice();
     composer.attachmentNames.push(name);
     return { session: { ...session, composer }, lines };
+  }
+
+  private static isImageName(name: string): boolean {
+    const dot: number = name.lastIndexOf('.');
+    if (dot < 0) {
+      return false;
+    }
+    return IMAGE_EXTENSIONS.indexOf(name.substring(dot + 1).toLowerCase()) >= 0;
   }
 
   private static removeAttachment(session: PreviewSessionState, lines: ChatLine[], fileId: string):

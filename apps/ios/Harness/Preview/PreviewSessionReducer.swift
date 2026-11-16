@@ -2,7 +2,12 @@ import Foundation
 
 enum PreviewSessionReducer {
     private static let maxSkills = 6
-    private static let maxAttachments = 4
+    private static let maxImageAttachments = 9
+    private static let maxFileAttachments = 4
+    private static let maxAttachments = maxImageAttachments + maxFileAttachments
+    private static let imageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "avif", "svg",
+    ]
 
     static func reduce(state: ActiveSessionState, action: PreviewUiAction) -> ActiveSessionState {
         switch action {
@@ -122,9 +127,20 @@ enum PreviewSessionReducer {
         var next = state
         guard !next.composer.attachmentNames.contains(name),
               next.composer.attachmentNames.count < maxAttachments else { return state }
+        // 预览数据只有文件名，按扩展名区分图片与普通文件。
+        let imageCount = next.composer.attachmentNames.filter(isImageName).count
+        if isImageName(name), imageCount >= maxImageAttachments { return state }
+        if !isImageName(name), next.composer.attachmentNames.count - imageCount >= maxFileAttachments {
+            return state
+        }
         next.composer.attachmentNames.append(name)
         next.composer.attachmentItems.append(ComposerAttachmentItem(id: name, fileName: name))
         return next
+    }
+
+    private static func isImageName(_ name: String) -> Bool {
+        guard let dot = name.lastIndex(of: ".") else { return false }
+        return imageExtensions.contains(name[name.index(after: dot)...].lowercased())
     }
 
     private static func removeAttachment(state: ActiveSessionState, fileId: String) -> ActiveSessionState {

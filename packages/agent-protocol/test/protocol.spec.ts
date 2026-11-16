@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AGENT_PROTOCOL_LIMITS,
   chatStreamEventSchema,
   createRunRequestSchema,
   runSnapshotSchema,
@@ -268,7 +269,11 @@ describe('foundation protocol', () => {
         content: '比较图片',
         idempotencyKey: 'key',
         model: 'vision',
-        attachmentIds: ['a', 'b', 'c', 'd', 'e'],
+        // 请求体只约束总数；9 图 + 4 文件的分类上限由服务端按 fileKind 校验。
+        attachmentIds: Array.from(
+          { length: AGENT_PROTOCOL_LIMITS.sessionAttachmentsMax + 1 },
+          (_, index) => `file-${index}`,
+        ),
       }),
     ).toThrow();
   });

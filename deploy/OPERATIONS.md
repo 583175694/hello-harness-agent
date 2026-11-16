@@ -148,8 +148,25 @@ sudo systemctl restart hello-harness-agent
 上传前建议用干净版本导出，避免把本地未提交的草稿一起发到生产：
 
 ```bash
-git archive <commit> | tar -x -C /tmp/deploy-<commit>
-rsync ... /tmp/deploy-<commit>/ ubuntu@175.178.23.83:/www/hello-harness-agent/
+export_dir=$(mktemp -d /tmp/deploy-<commit>.XXXXXX)
+chmod 755 "$export_dir"
+git archive <commit> | tar -x -C "$export_dir"
+rsync ... "$export_dir"/ ubuntu@175.178.23.83:/www/hello-harness-agent/
+```
+
+**`mktemp -d` 建出的目录默认是 `700`，`rsync -a` 会把这个权限覆盖到 `/www/hello-harness-agent` 本身。** 根目录一旦不是可穿越的（`x`）权限，Nginx 以 `www-data` 读静态文件就会失败，表现为整站 500：
+
+```text
+stat() ".../apps/web/dist/index.html" failed (13: Permission denied)
+rewrite or internal redirection cycle while internally redirecting to "/index.html"
+```
+
+上传后先核对并修正，再 reload：
+
+```bash
+chmod 755 /www/hello-harness-agent
+ls -ld /www/hello-harness-agent        # 应为 drwxr-xr-x
+curl -s -o /dev/null -w '%{http_code}\n' https://pipishrimp.cn/agent
 ```
 
 ### 5.2 服务端构建和迁移

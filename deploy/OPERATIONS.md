@@ -128,6 +128,7 @@ rsync -az --delete \
   --exclude='/artifacts/' \
   --exclude='dist/' \
   --exclude='.DS_Store' \
+  --exclude='/.cache/' \
   --exclude='/dev/opensandbox-local/' \
   -e 'ssh -p 22' \
   ./ ubuntu@175.178.23.83:/www/hello-harness-agent/
@@ -135,6 +136,21 @@ rsync -az --delete \
 
 `--delete` 只允许用于确认过目标目录就是 `/www/hello-harness-agent` 的场景；不要把目标写成 `/www` 或服务器根目录。
 这里保留服务器专用的 OpenSandbox Dockerfile（含镜像源适配）；需要更新沙箱时单独合并和发布。该命令上传当前工作区，上传前用 `git status` 和 `git log -1` 确认版本。
+
+`.cache/` 必须排除：systemd 单元的 `ReadWritePaths` 包含 `/www/hello-harness-agent/.cache`，目录一旦被 `--delete` 删除，服务会以 `status=226/NAMESPACE`（`Failed to set up mount namespacing`）无限重启。如果已经删掉，补建即可：
+
+```bash
+sudo mkdir -p /www/hello-harness-agent/.cache
+sudo chown ubuntu:ubuntu /www/hello-harness-agent/.cache
+sudo systemctl restart hello-harness-agent
+```
+
+上传前建议用干净版本导出，避免把本地未提交的草稿一起发到生产：
+
+```bash
+git archive <commit> | tar -x -C /tmp/deploy-<commit>
+rsync ... /tmp/deploy-<commit>/ ubuntu@175.178.23.83:/www/hello-harness-agent/
+```
 
 ### 5.2 服务端构建和迁移
 

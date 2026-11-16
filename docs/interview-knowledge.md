@@ -1262,7 +1262,21 @@ Host 在 `skills.read` 侧校验存在性、版本与 `modelCallable`；Skill �
 
 > 长附件审阅 Tool 爆炸，不只看模型，我用 Run 回放拆成读粒度和 CE 两层：行读 cap 太小导致机械分页；CE 又把 read 结果折叠成指针造成读失忆。我做了 read_file 三 scope、search 只做定位，以及 file-tool 在 CE 里既不静默 spill 也不历史 stored，并用 docx 冒烟对比前后 read 次数和行覆盖。
 
-## 26. 追加规则
+## 26. 多模态附件：配额拆分与图片上下文预算（2026-11）
+
+两个问题都被用户描述成"传不上去 / 上下文爆了"，但限制层不同：一个是**请求配额**，一个是**模型上下文层的 token 预算**。
+
+**一、图片和文件要分开配额。** 原来两类共用"一条消息最多 4 个附件"，9 张截图这种正常需求传不上去，图片多时文件也传不了，反之亦然。拆成 `9 图 / 4 文件`，请求体只保留 `sessionAttachmentsMax = 13` 做总数护栏——因为 Zod schema 只看到 `attachmentIds`，看不到 `fileKind`；真正的分类上限放在 `RunCommandService` 加载附件之后按类型分组判断，错误码也拆成 `TOO_MANY_IMAGE_ATTACHMENTS` / `TOO_MANY_FILE_ATTACHMENTS`，旧的 `TOO_MANY_ATTACHMENTS` 保留兼容老客户端。Web、Android、iOS、Harmony 的 Composer 同步按类型计数，上传前的预占名额也要分类累加，否则并发多选仍会算错。9 和 4 远低于供应商上限（DeepSeek 单请求 600 张、单图 32MiB），限制主要来自 UI 可读性和上下文成本；数值可以调，重点是**两类资源独立计价**。
+
+**二、图片在 token 预算里被当成了 0。** `ContextEngineeringService.toTokenizerMessage()` 把 `image_ref` 渲染成空串，而 tokenizer 只能估文本，于是 9 张图在账面上等于 0 token，压缩阈值和超限判断全部失真。改法是文本照旧走 tokenizer，图片按供应商单图上限 1024 保守计价：`estimated = textTokens + imageCount × 1024`；`toTokenizerMessage()` 改成渲染 `[image_ref fileId=...]`，让日志、摘要输入和估算至少能看到图片身份。这里故意用上限而不是平均值——低估会让请求被供应商拒绝或静默截断，高估只是提前省掉几张历史图，属于可接受的失败方向。
+
+**三、超预算时按"可恢复性"决定保护还是回收。** 文件正文不在 transcript 里，压缩掉就真的读不到了，所以 `file_ref` 所在的 unit 必须被保护（`findProtectedUnitStart` 命中 `hasFileReference` 就前移保护边界）。图片没有文本正文，`read_file` 也读不了，保留价值随时间衰减，因此允许从最旧开始替换成 `[image omitted fileId=...]` 占位；同一 `fileId` 的所有出现位置一起替换，避免历史里残留未计价的图片。性能上最初写成"每省一张就全量重算一次 token"，是 O(n²)，改成先用 `(1024 − 占位估算)` 解出大致张数，再用真实 tokenizer 校正。
+
+**四、一个自己引入又修掉的回归。** 第一版顺手把 `image_ref` 也加进 `hasFileReference`，理由是"图片不能被摘要静默吞掉"。结果 `findProtectedUnitStart()` 在最早一张图处把保护边界拉到 0，`compact()` 直接 `return null`——只要首条消息带图，这条会话就永远无法压缩，而且不报错，只是悄悄变慢变贵。发现方式是写探针用例构造"首图 + 大段历史"，断言 `compactionTriggered === true` 得到 `false`。结论是保护与回收是两套语义，用"能否重新取回原始内容"做判定标准，比逐个类型打补丁更稳。
+
+**已知边界**：图片省略只在单轮内生效，下一轮会从 `messageAttachment` 重建 `image_ref` 重新计算（触发条件接近 566K 输入预算，而压缩阈值是 40K，正常路径走不到；要做持久化需新增记录已省略 `fileId` 的字段）。每次请求现签 COS URL 会打断供应商的 KV prefix cache，彻底解法是接 DeepSeek Files API 的稳定 `file_id`。另外 WebP 预览（1600px / quality 82）省的是传输字节和请求体大小，不省 token，两者别混讲。
+
+## 27. 追加规则
 
 每个阶段只追加四类内容：
 

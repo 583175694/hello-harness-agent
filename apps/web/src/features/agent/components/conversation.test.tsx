@@ -373,6 +373,8 @@ describe('Composer image paste', () => {
       reader.readAsText(file);
     });
     expect(content).toBe(text);
+    expect(screen.getByRole('textbox', { name: '任务输入' })).toHaveTextContent('请分析这份材料');
+    expect(screen.getByRole('textbox', { name: '任务输入' }).textContent).not.toContain('😀');
   });
 
   it('increments generated TXT names for repeated long text pastes', () => {

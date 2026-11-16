@@ -8,6 +8,8 @@ export const AGENT_UI_BEHAVIOR = {
   stickToBottomThresholdPx: 32,
   // 超过该数量的纯文本粘贴会作为 TXT 附件上传。
   longPasteThresholdCodePoints: 4_000,
+  // 用户消息气泡超过该高度时默认折叠。
+  userMessageCollapsedMaxHeightPx: 280,
   // 用户提问数超过该值时，定位条改为按会话进度比例分布的轨道模式。
   conversationNavCompactMaxAnchors: 28,
 } as const;

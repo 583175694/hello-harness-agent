@@ -22,7 +22,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ClipboardEvent,
   type FormEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -61,10 +60,15 @@ import {
   type SkillCatalogStatus,
 } from '../composer/composer-skill-picker';
 import {
+  attachmentFilesFromDataTransfer,
+  normalizeAttachmentFiles,
+} from '../composer/composer-attachment-paste';
+import {
   SkillPromptEditor,
   type SkillPromptEditorHandle,
 } from '../composer/skill-prompt-editor';
 import { resolveUserMessageDisplay } from '../user-message-skills';
+import { UserBubbleText } from './user-bubble-text';
 import { listSkills } from '../../../api/client';
 import { UserSkillMentions } from './user-skill-chips';
 import { Context } from '../../../components/ai-elements/context';
@@ -208,72 +212,9 @@ function formatFileSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// 为当前草稿中的自动粘贴文本选择可读且不冲突的文件名。
-function nextPastedTextFileName(attachments: FileRef[]): string {
-  const usedNames = new Set(
-    attachments
-      .map((attachment) => attachment.fileName)
-      .filter((fileName) => /^pasted-text(?:-\d+)?\.txt$/u.test(fileName)),
-  );
-  if (!usedNames.has('pasted-text.txt')) return 'pasted-text.txt';
-  for (let index = 2; ; index += 1) {
-    const fileName = `pasted-text-${index}.txt`;
-    if (!usedNames.has(fileName)) return fileName;
-  }
-}
-
-function normalizeAttachmentFileName(file: File, index: number): File {
-  if (file.name) return file;
-  if (file.type.startsWith('image/')) {
-    return new File([file], `pasted-image-${index + 1}.png`, { type: file.type });
-  }
-  return new File([file], `dropped-file-${index + 1}`, {
-    type: file.type || 'application/octet-stream',
-  });
-}
-
-function attachmentFilesFromDataTransfer(dataTransfer: DataTransfer): File[] {
-  const direct = Array.from(dataTransfer.files).filter((file) => file.size > 0);
-  if (direct.length) return direct;
-  const collected: File[] = [];
-  for (const item of Array.from(dataTransfer.items ?? [])) {
-    if (item.kind !== 'file') continue;
-    const file = item.getAsFile();
-    if (file && file.size > 0) collected.push(file);
-  }
-  return collected;
-}
-
-function normalizeAttachmentFiles(files: File[]): File[] {
-  return files.map((file, index) => normalizeAttachmentFileName(file, index));
-}
-
 function dataTransferHasFiles(dataTransfer: DataTransfer): boolean {
   if (dataTransfer.files?.length) return true;
   return Array.from(dataTransfer.items ?? []).some((item) => item.kind === 'file');
-}
-
-function handleComposerAttachmentPaste(
-  event: ClipboardEvent,
-  canPasteAttachments: boolean,
-  attachments: FileRef[],
-  onAttachmentSelected?: (files: File[]) => void,
-): void {
-  if (!canPasteAttachments) return;
-  const clipboardFiles = normalizeAttachmentFiles(
-    attachmentFilesFromDataTransfer(event.clipboardData),
-  );
-  if (clipboardFiles.length) {
-    event.preventDefault();
-    onAttachmentSelected?.(clipboardFiles);
-    return;
-  }
-  const text = event.clipboardData.getData('text/plain');
-  if ([...text].length <= AGENT_UI_BEHAVIOR.longPasteThresholdCodePoints) return;
-  event.preventDefault();
-  onAttachmentSelected?.([
-    new File([text], nextPastedTextFileName(attachments), { type: 'text/plain' }),
-  ]);
 }
 
 function fileExtension(fileName: string): string {
@@ -623,11 +564,7 @@ const UserMessage = memo(function UserMessage({
           <div className="user-bubble">
             <div className="user-bubble__composition">
               <UserSkillMentions skillNames={display.skillNames} />
-              {display.body ? (
-                <MessageResponse variant="user" className="user-bubble__text">
-                  {display.body}
-                </MessageResponse>
-              ) : null}
+              {display.body ? <UserBubbleText body={display.body} /> : null}
             </div>
           </div>
         ) : null}
@@ -2253,14 +2190,9 @@ export function Composer({
               if (!composerCanSubmit || mode === 'disabled') return;
               composerFormRef.current?.requestSubmit();
             }}
-            onPaste={(event) =>
-              handleComposerAttachmentPaste(
-                event,
-                canPasteAttachments,
-                attachments,
-                onAttachmentSelected,
-              )
-            }
+            canPasteAttachments={canPasteAttachments}
+            attachments={attachments}
+            onAttachmentSelected={onAttachmentSelected}
           />
         </PromptInputBody>
       ) : null}

@@ -15,7 +15,9 @@ import {
   useRef,
 } from 'react';
 
+import { ComposerAttachmentPastePlugin } from './composer-attachment-paste-plugin';
 import { ComposerControlledPlugin } from './composer-controlled-plugin';
+import type { FileRef } from '../model/types';
 import { runSkillComposerBackspace } from './composer-skill-key-commands';
 import { ComposerSkillKeyPlugin } from './composer-skill-key-plugin';
 import { ComposerSubmitPlugin } from './composer-submit-plugin';
@@ -45,7 +47,9 @@ export const SkillPromptEditor = forwardRef(function SkillPromptEditor(
     onChange,
     onBlurSync,
     onSubmitRequest,
-    onPaste,
+    canPasteAttachments,
+    attachments,
+    onAttachmentSelected,
   }: {
     placeholder: string;
     disabled: boolean;
@@ -55,7 +59,9 @@ export const SkillPromptEditor = forwardRef(function SkillPromptEditor(
     onChange: (value: ComposerDocumentValue) => void;
     onBlurSync: (plainText: string) => void;
     onSubmitRequest: () => void;
-    onPaste?: (event: React.ClipboardEvent<HTMLDivElement>) => void;
+    canPasteAttachments?: boolean;
+    attachments?: FileRef[];
+    onAttachmentSelected?: (files: File[]) => void;
   },
   ref: React.ForwardedRef<SkillPromptEditorHandle>,
 ) {
@@ -127,7 +133,6 @@ export const SkillPromptEditor = forwardRef(function SkillPromptEditor(
             aria-label="任务输入"
             className="ai-prompt-input__textarea skill-composer-input"
             onBlur={handleBlurSync}
-            onPaste={onPaste}
             onKeyDownCapture={(event) => {
               if (event.key !== 'Backspace' || event.metaKey || event.ctrlKey || event.altKey) return;
               const editor = editorRef.current;
@@ -149,6 +154,11 @@ export const SkillPromptEditor = forwardRef(function SkillPromptEditor(
       <HistoryPlugin />
       <OnChangePlugin ignoreSelectionChange onChange={handleChange} />
       <ComposerControlledPlugin resetKey={resetKey} seedPlainText={seedPlainText} />
+      <ComposerAttachmentPastePlugin
+        canPasteAttachments={Boolean(canPasteAttachments)}
+        attachments={attachments ?? []}
+        onAttachmentSelected={onAttachmentSelected}
+      />
       <ComposerSubmitPlugin disabled={disabled} onSubmitRequest={onSubmitRequest} />
       {enableSkills ? (
         <>

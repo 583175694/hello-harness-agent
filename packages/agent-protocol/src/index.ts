@@ -490,9 +490,14 @@ export const assistantAgentMetadataRestoreSchema = assistantAgentMetadataSchema
   });
 
 export const assistantResearchProjectionSchema = z.object({
-  executions: z.array(toolExecutionSnapshotSchema).max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
+  executions: z
+    .array(toolExecutionSnapshotSchema)
+    .max(AGENT_PROTOCOL_LIMITS.agentProjectionExecutionsMax),
   sources: z.array(researchSourceSnapshotSchema),
-  blocks: z.array(assistantContentBlockSchema).max(AGENT_PROTOCOL_LIMITS.assistantContentBlocksMax).default([]),
+  blocks: z
+    .array(assistantContentBlockSchema)
+    .max(AGENT_PROTOCOL_LIMITS.assistantContentBlocksMax)
+    .default([]),
   context: runContextDebugSchema.optional(),
   plan: planSnapshotSchema.optional(),
 });
@@ -501,9 +506,14 @@ export const runDetailResponseSchema = z.object({
   runId: z.string().min(1),
   messageId: z.string().min(1),
   schemaVersion: z.number().int().positive(),
-  executions: z.array(toolExecutionSnapshotSchema).max(AGENT_PROTOCOL_LIMITS.agentToolMaxCalls),
+  executions: z
+    .array(toolExecutionSnapshotSchema)
+    .max(AGENT_PROTOCOL_LIMITS.agentProjectionExecutionsMax),
   sources: z.array(researchSourceSnapshotSchema),
-  blocks: z.array(assistantContentBlockSchema).default([]),
+  blocks: z
+    .array(assistantContentBlockSchema)
+    .max(AGENT_PROTOCOL_LIMITS.assistantContentBlocksMax)
+    .default([]),
   context: runContextDebugSchema.optional(),
   plan: planSnapshotSchema.optional(),
 });

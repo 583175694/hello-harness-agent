@@ -4,6 +4,7 @@ import { AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 
 import {
   enforceResearchProjectionByteLimit,
+  foldExecutionsForCountLimit,
   RunProjectionArchiver,
   shrinkBlocksForByteLimit,
 } from '../../../src/run-storage/run-projection.archiver';
@@ -119,6 +120,111 @@ describe('RunProjectionArchiver', () => {
 
     expect(putObject).not.toHaveBeenCalled();
     expect(result.executions[0]?.outputPreview).toBe(preview);
+  });
+});
+
+describe('execution count folding', () => {
+  const execution = (index: number, overrides: Record<string, unknown> = {}) => ({
+    toolCallId: `call-${index}`,
+    toolName: AGENT_TOOL_NAMES.readFile,
+    input: { fileId: 'file-1', scope: 'file' as const },
+    status: 'completed' as const,
+    startedAt: '2026-10-11T00:00:00.000Z',
+    completedAt: '2026-10-11T00:00:01.000Z',
+    durationMs: 1000,
+    ...overrides,
+  });
+
+  it('keeps delivery, failed and referenced executions while folding the rest', () => {
+    const executions = Array.from({ length: 60 }, (_, index) => execution(index));
+    executions[0] = execution(0, { status: 'failed' });
+    executions[5] = execution(5, { toolName: AGENT_TOOL_NAMES.createReport });
+    const result = foldExecutionsForCountLimit(
+      {
+        executions,
+        sources: [
+          {
+            kind: 'clue',
+            used: false,
+            id: 'source-1',
+            title: 'demo',
+            url: 'https://example.com',
+            domain: 'example.com',
+            snippet: 'demo',
+            provider: 'serp',
+            provenance: 'search_clue',
+            retrievedAt: '2026-10-11T00:00:00.000Z',
+            toolCallIds: ['call-59'],
+          },
+        ],
+        blocks: [],
+      },
+      10,
+      vi.fn(),
+    );
+    expect(result.executions).toHaveLength(10);
+    const ids = result.executions.map((item) => item.toolCallId);
+    expect(ids).toContain('call-0');
+    expect(ids).toContain('call-5');
+    expect(ids).toContain('call-59');
+    // 折叠后仍保持原始时间线顺序。
+    expect(ids).toEqual([...ids].sort((left, right) => {
+      const leftIndex = Number(left.slice('call-'.length));
+      const rightIndex = Number(right.slice('call-'.length));
+      return leftIndex - rightIndex;
+    }));
+  });
+
+  it('drops tool activity blocks whose execution was folded', async () => {
+    const archiver = makeArchiver({}, {});
+    const executions = Array.from({ length: 140 }, (_, index) => execution(index));
+    const blocks = Array.from({ length: 140 }, (_, index) => ({
+      id: `block-${index}`,
+      type: 'tool_activity' as const,
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: index,
+      toolCallId: `call-${index}`,
+      toolName: AGENT_TOOL_NAMES.readFile,
+      status: 'completed' as const,
+      title: '读取文件',
+      startedAt: '2026-10-11T00:00:00.000Z',
+    }));
+    const result = await archiver.trimAndPersist({
+      runId: 'run-1',
+      sessionId: 'session-1',
+      projection: {
+        executions,
+        sources: [],
+        blocks,
+      },
+    });
+    const keptIds = new Set(result.executions.map((item) => item.toolCallId));
+    for (const block of result.blocks) {
+      if (block.type === 'tool_activity') expect(keptIds.has(block.toolCallId)).toBe(true);
+    }
+  });
+
+  it('persists more than the legacy 40-call cap without failing schema validation', async () => {
+    const archiver = makeArchiver({}, {});
+    const executions = Array.from({ length: 60 }, (_, index) => execution(index));
+    const result = await archiver.trimAndPersist({
+      runId: 'run-1',
+      sessionId: 'session-1',
+      projection: { executions, sources: [], blocks: [] },
+    });
+    expect(result.executions).toHaveLength(60);
+  });
+
+  it('folds oversized projections down to the protocol limit', async () => {
+    const archiver = makeArchiver({}, {});
+    const executions = Array.from({ length: 140 }, (_, index) => execution(index));
+    const result = await archiver.trimAndPersist({
+      runId: 'run-1',
+      sessionId: 'session-1',
+      projection: { executions, sources: [], blocks: [] },
+    });
+    expect(result.executions.length).toBeLessThanOrEqual(128);
   });
 });
 

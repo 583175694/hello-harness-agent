@@ -37,6 +37,16 @@ describe('toAgentFailure', () => {
     });
   });
 
+  it('maps projection schema failures to a dedicated code instead of stream failure', () => {
+    const error = new Error('too big');
+    error.name = 'ZodError';
+    (error as unknown as { issues: unknown[] }).issues = [{ code: 'too_big' }];
+    expect(toAgentFailure(error)).toEqual({
+      code: AGENT_ERROR_CODES.runProjectionInvalid,
+      detail: '运行记录超出保存格式限制，工具明细可能不完整。请联系支持或重新发起任务。',
+    });
+  });
+
   it('falls back to generic stream failure for unknown errors', () => {
     expect(toAgentFailure(new Error('network reset'))).toEqual({
       code: 'MODEL_STREAM_FAILED',

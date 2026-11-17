@@ -28,6 +28,13 @@ export function toAgentFailure(error: unknown): AgentFailure {
         '对话过长后工具调用记录不完整，无法继续。请新建会话后重试，或缩短单次任务的调查范围。',
     };
   }
+  // 投影/持久化契约失败不能伪装成模型流错误，否则会掩盖真实故障点。
+  if (isProjectionSchemaError(error)) {
+    return {
+      code: AGENT_ERROR_CODES.runProjectionInvalid,
+      detail: '运行记录超出保存格式限制，工具明细可能不完整。请联系支持或重新发起任务。',
+    };
+  }
   if (error instanceof HttpException) {
     const body = readHttpExceptionBody(error);
     if (body.code && body.detail) return { code: body.code, detail: body.detail };
@@ -42,6 +49,13 @@ export function toAgentFailure(error: unknown): AgentFailure {
     }
   }
   return { code: 'MODEL_STREAM_FAILED', detail: '模型流式输出失败，请稍后重试。' };
+}
+
+function isProjectionSchemaError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const candidate = error as { name?: unknown; issues?: unknown };
+  if (candidate.name === 'ZodError' && Array.isArray(candidate.issues)) return true;
+  return error instanceof Error && error.message === 'RUN_PROJECTION_INVALID';
 }
 
 function readHttpExceptionBody(exception: HttpException): ExceptionBody {

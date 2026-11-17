@@ -14,8 +14,10 @@ export const AGENT_PROTOCOL_LIMITS = {
   sessionFileAttachmentsMax: 4,
   // 单条消息允许绑定的附件总数上限；仅作为请求体边界，业务上限由图片/文件分别校验。
   sessionAttachmentsMax: 13,
-  // 单次 Agent 运行允许执行的工具调用总数（metadata / schema；Run 主收敛改由 Tool Turn 分池）。
+  // 单次 Agent 运行的提示性工具调用参考值；Run 主收敛由 Tool Turn 分池，不能作为持久化硬顶。
   agentToolMaxCalls: 40,
+  // Run 展示投影（executions）持久化上限；须覆盖调查+交付阶段真实可产生的调用数，超出时由归档层折叠。
+  agentProjectionExecutionsMax: 128,
   // assistant metadata 中 agent 快照（executions / toolCallCount）读路径上限；须覆盖调查+交付阶段持久化的历史 Run。
   agentMetadataExecutionsMax: 128,
   // 调查阶段带业务工具的 Model Turn 上限（同轮多 call 计 1 turn）。
@@ -148,6 +150,10 @@ export const AGENT_ERROR_CODES = {
   modelStreamInterrupted: 'MODEL_STREAM_INTERRUPTED',
   // 整个 assistant Run 超过累计执行时限。
   runDeadlineExceeded: 'RUN_DEADLINE_EXCEEDED',
+  // 外层 Model Round 安全上限已用尽，仍未产出最终回答。
+  runRoundLimitExceeded: 'RUN_ROUND_LIMIT_EXCEEDED',
+  // 运行记录投影不符合持久化契约（例如条数超限且无法折叠）。
+  runProjectionInvalid: 'RUN_PROJECTION_INVALID',
   // Context Engineering 在强制保留内容仍无法放入模型预算时返回。
   contextBudgetExceeded: 'CONTEXT_BUDGET_EXCEEDED',
   // 单条消息图片附件超过产品上限。

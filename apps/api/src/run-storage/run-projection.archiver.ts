@@ -66,12 +66,16 @@ export class RunProjectionArchiver {
 
   /** 流式 checkpoint：仅内存裁剪，不做对象存储（避免阻塞 SSE / 模型流）。 */
   trimForCheckpoint(projection: RunProjectionInput): RunProjectionInput {
-    if (projectionSerializedBytes(projection) <= AGENT_PROTOCOL_LIMITS.researchProjectionMaxBytes) {
-      return projection;
+    const warn = (message: string) => this.logger.warn(message, RunProjectionArchiver.name);
+    // 条数上限是协议契约，必须先收敛，否则终态校验会整批失败。
+    let current = this.foldForCountLimit(projection, warn);
+    if (
+      projectionSerializedBytes(current) <= AGENT_PROTOCOL_LIMITS.researchProjectionMaxBytes
+    ) {
+      return current;
     }
-    return enforceResearchProjectionByteLimit(projection, (message) =>
-      this.logger.warn(message, RunProjectionArchiver.name),
-    );
+    current = enforceResearchProjectionByteLimit(current, warn);
+    return this.foldForCountLimit(current, warn);
   }
 
   /** 终态 / 迁移：外置大 payload 并写入 tool_outputs（均在短 DB 事务外完成 I/O）。 */
@@ -97,9 +101,10 @@ export class RunProjectionArchiver {
       executions,
       sources,
     };
-    trimmed = enforceResearchProjectionByteLimit(trimmed, (message) =>
-      this.logger.warn(message, RunProjectionArchiver.name),
-    );
+    const warn = (message: string) => this.logger.warn(message, RunProjectionArchiver.name);
+    trimmed = enforceResearchProjectionByteLimit(trimmed, warn);
+    // 字节裁剪不会改变条数，最终仍需按协议上限收敛后再校验。
+    trimmed = this.foldForCountLimit(trimmed, warn);
     if (!input.dryRun) {
       assistantResearchProjectionSchema.parse({
         executions: trimmed.executions,
@@ -113,6 +118,30 @@ export class RunProjectionArchiver {
       );
     }
     return trimmed;
+  }
+
+  private foldForCountLimit(
+    projection: RunProjectionInput,
+    warn: (message: string) => void,
+  ): RunProjectionInput {
+    const folded = foldExecutionsForCountLimit(
+      projection,
+      AGENT_PROTOCOL_LIMITS.agentProjectionExecutionsMax,
+      warn,
+    );
+    const keepToolCallIds = new Set(folded.executions.map((item) => item.toolCallId));
+    const foldedBlocks = foldBlocksForCountLimit(
+      folded.blocks,
+      AGENT_PROTOCOL_LIMITS.assistantContentBlocksMax,
+      keepToolCallIds,
+      warn,
+    );
+    // 执行被折叠后，对应工具块不能继续指向不存在的明细，否则前端会展示空步骤。
+    const blocks = foldedBlocks.filter(
+      (block) =>
+        block.type !== 'tool_activity' || keepToolCallIds.has(block.toolCallId),
+    );
+    return blocks.length === folded.blocks.length ? folded : { ...folded, blocks };
   }
 
   private async archiveExecution(
@@ -221,6 +250,106 @@ function projectionSerializedBytes(projection: RunProjectionInput): number {
       ...(projection.context ? { context: projection.context } : {}),
     }),
   );
+}
+
+/**
+ * 按条数折叠内容块，保证持久化投影不超过协议上限。
+ * 交付物、最终正文、用户干预与保留执行的工具块优先；其余按时间保留最近部分。
+ */
+export function foldBlocksForCountLimit(
+  blocks: AssistantContentBlock[],
+  limit: number,
+  keepToolCallIds: ReadonlySet<string>,
+  warn: (message: string) => void,
+): AssistantContentBlock[] {
+  if (blocks.length <= limit) return blocks;
+  if (limit <= 0) {
+    warn(`blocks 超出 ${limit} 条，全部折叠 | 当前=${blocks.length}`);
+    return [];
+  }
+  const pinned: AssistantContentBlock[] = [];
+  const candidates: AssistantContentBlock[] = [];
+  for (const block of blocks) {
+    const keep =
+      block.type === 'artifact' ||
+      block.type === 'user_intervention' ||
+      (block.type === 'text' && (block.phase === 'final' || block.phase === 'pending')) ||
+      (block.type === 'tool_activity' && keepToolCallIds.has(block.toolCallId));
+    if (keep) pinned.push(block);
+    else candidates.push(block);
+  }
+  const keptPinned = pinned.length > limit ? pinned.slice(pinned.length - limit) : pinned;
+  const remaining = Math.max(0, limit - keptPinned.length);
+  const keptCandidates = remaining > 0 ? candidates.slice(candidates.length - remaining) : [];
+  const kept = new Set<AssistantContentBlock>([...keptPinned, ...keptCandidates]);
+  // 保持原始时间线顺序，避免折叠后块次序错乱。
+  const result = blocks.filter((block) => kept.has(block));
+  warn(
+    `blocks 超出 ${limit} 条，已折叠 ${blocks.length - result.length} 条 | 当前=${blocks.length}`,
+  );
+  return result;
+}
+
+const DELIVERY_TOOL_NAMES = new Set<string>([
+  AGENT_TOOL_NAMES.createFile,
+  AGENT_TOOL_NAMES.createReport,
+  AGENT_TOOL_NAMES.pptExport,
+]);
+
+/** 折叠后仍必须保留的执行：交付物、失败/取消，以及被 sources 或内容块引用的调用。 */
+function isPinnedExecution(
+  execution: ToolExecutionSnapshot,
+  referencedToolCallIds: ReadonlySet<string>,
+): boolean {
+  return (
+    DELIVERY_TOOL_NAMES.has(execution.toolName) ||
+    execution.status !== 'completed' ||
+    referencedToolCallIds.has(execution.toolCallId)
+  );
+}
+
+function referencedExecutionIds(projection: RunProjectionInput): Set<string> {
+  const ids = new Set<string>();
+  for (const source of projection.sources) {
+    for (const toolCallId of source.toolCallIds ?? []) ids.add(toolCallId);
+  }
+  for (const block of projection.blocks) {
+    if (block.type === 'tool_activity') ids.add(block.toolCallId);
+  }
+  return ids;
+}
+
+/**
+ * 按条数折叠执行记录，保证持久化投影不超过协议上限。
+ * 折叠只影响 Workbench 展示，不进入模型上下文；同质批量保留首末条并标注省略数量。
+ */
+export function foldExecutionsForCountLimit(
+  projection: RunProjectionInput,
+  limit: number,
+  warn: (message: string) => void,
+): RunProjectionInput {
+  const total = projection.executions.length;
+  if (total <= limit) return projection;
+  if (limit <= 0) {
+    warn(`executions 超出 ${limit} 条，全部折叠 | 当前=${total}`);
+    return { ...projection, executions: [] };
+  }
+  const referenced = referencedExecutionIds(projection);
+  const pinned: ToolExecutionSnapshot[] = [];
+  const candidates: ToolExecutionSnapshot[] = [];
+  for (const execution of projection.executions) {
+    if (isPinnedExecution(execution, referenced)) pinned.push(execution);
+    else candidates.push(execution);
+  }
+  // 关键执行已超过上限时，优先保留最近的，避免整批丢弃。
+  const keptPinned = pinned.length > limit ? pinned.slice(pinned.length - limit) : pinned;
+  const remaining = Math.max(0, limit - keptPinned.length);
+  const keptCandidates = remaining > 0 ? candidates.slice(candidates.length - remaining) : [];
+  const keptIds = new Set([...keptPinned, ...keptCandidates].map((item) => item.toolCallId));
+  const kept = projection.executions.filter((execution) => keptIds.has(execution.toolCallId));
+  const dropped = total - kept.length;
+  warn(`executions 超出 ${limit} 条，已折叠 ${dropped} 条 | 当前=${total}`);
+  return { ...projection, executions: kept };
 }
 
 /** 缩小 blocks 体积但保留 tool_activity / artifact，避免聊天时间线丢失。 */

@@ -199,6 +199,19 @@ export class AgentRuntimeService {
     runtimeLoop: while (modelRounds < DEFAULT_RUNTIME_POLICY.maxModelRounds) {
       this.assertRunActive(input.signal, runDeadlineSignal);
       modelRounds += 1;
+      // 安全上限的最后一轮强制收尾：撤掉工具，只允许输出最终回答。
+      if (
+        !finalResponseOnly &&
+        modelRounds === DEFAULT_RUNTIME_POLICY.maxModelRounds &&
+        toolCallCount > 0
+      ) {
+        enterFinalAnswer();
+        messages.push({
+          role: 'system',
+          content:
+            '本次任务已接近执行上限。请立即停止调查，仅依据已有材料输出完整最终回答，不得调用工具。',
+        });
+      }
       const beforeModelWait = this.reachLifecycle(input, 'before_model_request', {
         roundSequence: modelRounds,
         finalResponseOnly,
@@ -1233,6 +1246,14 @@ export class AgentRuntimeService {
             '工具调用阶段已经结束。请仅依据已有材料直接完成回答，必要时说明资料限制；不得继续调用工具，也不得输出任何工具调用协议或控制标记。',
         });
       }
+    }
+
+    // 外层轮次耗尽仍未得到最终正文时必须失败，不能把“没答完”伪装成正常完成。
+    if (!finalContent.trim()) {
+      throw new ServiceUnavailableException({
+        code: AGENT_ERROR_CODES.runRoundLimitExceeded,
+        detail: '本次任务达到模型轮次上限，未能生成最终回答。请缩小范围后重试。',
+      });
     }
 
     // 只有外层循环正常得到最终正文后才发出 run.completed，调用方据此执行持久化提交。

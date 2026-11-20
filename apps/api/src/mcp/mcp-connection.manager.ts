@@ -1,12 +1,18 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Logger } from 'nestjs-pino';
 import { createHash } from 'node:crypto';
 import { AGENT_TOOL_NAMES, parseMcpIcons, type McpIcon } from '@harness/agent-protocol';
 import { Client, StreamableHTTPClientTransport } from './mcp-sdk.client';
 import type { McpDefaultApproval, McpServerConfig, McpServerSecret } from '@prisma/client';
-import { McpServerConfigRepository, type McpServerConfigRecord } from './mcp-server-config.repository';
+import {
+  McpServerConfigRepository,
+  type McpServerConfigRecord,
+} from './mcp-server-config.repository';
 import { McpServerSecretsRepository } from './mcp-server-secrets.repository';
 import { SecretsCryptoService } from './secrets-crypto.service';
 import { publicToolName } from './mcp-public-tool-name';
+import { formatLogDuration, shortLogId } from '../shared/logging.utils';
+import { LatencyTrace } from '../shared/timing';
 import type {
   McpPublishedCatalog,
   McpPublishedServerView,
@@ -14,6 +20,9 @@ import type {
   McpServerRuntimeStatus,
   McpToolCatalogEntry,
 } from './mcp.types';
+
+/** reconcile 总耗时达到该阈值时输出逐 server 分解，避免正常路径刷屏。 */
+const RECONCILE_SLOW_LOG_THRESHOLD_MS = 1_000;
 
 type LiveConnection = {
   client: Client;
@@ -53,13 +62,13 @@ type UserMcpState = {
 
 @Injectable()
 export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(McpConnectionManager.name);
   private readonly byUser = new Map<string, UserMcpState>();
 
   constructor(
     @Inject(McpServerConfigRepository) private readonly configs: McpServerConfigRepository,
     @Inject(McpServerSecretsRepository) private readonly secretsRepo: McpServerSecretsRepository,
     @Inject(SecretsCryptoService) private readonly crypto: SecretsCryptoService,
+    @Inject(Logger) private readonly logger: Logger,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -113,6 +122,9 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
     const userState = this.userState(userId);
     const runtimeByServer = userState.runtimeByServer;
     const configs = await this.configs.listEnabled(userId);
+    // reconcile 位于 Run 的模型请求前关键路径，逐 server 记录耗时才能解释首字等待。
+    const trace = new LatencyTrace();
+    const serverTimings: string[] = [];
     const enabledNames = new Set(configs.map((c) => c.serverName));
     for (const name of [...runtimeByServer.keys()]) {
       if (!enabledNames.has(name)) {
@@ -128,6 +140,7 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
     const nextGeneration = userState.catalogGeneration + 1;
 
     for (const config of configs) {
+      const serverStartedAt = trace.elapsedMs();
       const prevTools = previousEntriesByServer.get(config.serverName) ?? [];
       let state = runtimeByServer.get(config.serverName);
       if (!state) {
@@ -157,11 +170,18 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
       }
 
       try {
-        const transportConfig = await this.resolveTransport(config);
+        const serverTrace = new LatencyTrace();
+        const transportConfig = await serverTrace.measure('凭证', () =>
+          this.resolveTransport(config),
+        );
         const fingerprint = this.transportFingerprint(config, transportConfig);
-        await this.ensureConnected(state, config, transportConfig, fingerprint);
+        await serverTrace.measure('连接', () =>
+          this.ensureConnected(state, config, transportConfig, fingerprint),
+        );
         const client = state.connection!.client;
-        const tools = await this.listAllTools(client, config.startupTimeoutMs);
+        const tools = await serverTrace.measure('listTools', () =>
+          this.listAllTools(client, config.startupTimeoutMs),
+        );
         const filtered = filterTools(tools, state.enabledTools, state.disabledTools);
         const instructions = client.getInstructions()?.trim() || null;
         state.instructions = instructions;
@@ -192,15 +212,26 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
         });
         state.status = 'connected';
         state.lastError = null;
+        serverTimings.push(
+          `${config.serverName}:${formatLogDuration(trace.elapsedMs() - serverStartedAt)}(${serverTrace.formatSegments()} 工具=${tools.length})`,
+        );
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`MCP server ${config.serverName} reconcile 失败: ${detail}`);
+        this.logger.warn(
+          `MCP server ${config.serverName} reconcile 失败: ${detail}`,
+          McpConnectionManager.name,
+        );
+        serverTimings.push(
+          `${config.serverName}:${formatLogDuration(trace.elapsedMs() - serverStartedAt)}(失败)`,
+        );
         state.status = 'degraded';
         state.lastError = detail;
         const exposedCount = prevTools.length;
         const totalCount = state.toolCountTotal || exposedCount;
         if (prevTools.length) {
-          nextEntries.push(...prevTools.map((entry) => ({ ...entry, boundGeneration: nextGeneration })));
+          nextEntries.push(
+            ...prevTools.map((entry) => ({ ...entry, boundGeneration: nextGeneration })),
+          );
           nextServers.set(config.serverName, {
             configId: config.id,
             serverName: config.serverName,
@@ -242,10 +273,25 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
     }
 
     userState.catalogGeneration = nextGeneration;
-    userState.published = { generation: nextGeneration, servers: nextServers, entries: nextEntries };
+    userState.published = {
+      generation: nextGeneration,
+      servers: nextServers,
+      entries: nextEntries,
+    };
+    // 慢 reconcile 直接推迟首字；使用 warn 级别让每次 Run 都可追踪（info 会被 pino 对重复消息去重）。
+    const reconcileMs = trace.elapsedMs();
+    const degraded = [...nextServers.values()].filter((view) => view.status !== 'connected');
+    if (reconcileMs >= RECONCILE_SLOW_LOG_THRESHOLD_MS || degraded.length) {
+      this.logger.warn(
+        `MCP reconcile 偏慢 | 用户=${shortLogId(userId)} | servers=${configs.length} | tools=${nextEntries.length} | generation=${nextGeneration} | 耗时=${formatLogDuration(reconcileMs)} | 降级=${degraded.length ? degraded.map((view) => `${view.serverName}(${view.lastError ?? 'unknown'})`).join(',') : '无'} | 分解=${serverTimings.join(' ') || '无'}`,
+        McpConnectionManager.name,
+      );
+    }
   }
 
-  async probeConfig(config: McpServerConfigRecord): Promise<{ toolNames: string[]; error: string | null }> {
+  async probeConfig(
+    config: McpServerConfigRecord,
+  ): Promise<{ toolNames: string[]; error: string | null }> {
     try {
       const transportConfig = await this.resolveTransport(config);
       const client = new Client({ name: 'harness-mcp-probe', version: '1.0.0' });
@@ -282,8 +328,18 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
     const transport = new StreamableHTTPClientTransport(new URL(transportConfig.url), {
       requestInit: { headers: transportConfig.headers },
       reconnectionOptions: config.reconnectEnabled
-        ? { maxRetries: config.reconnectMaxAttempts, maxReconnectionDelay: 30_000, initialReconnectionDelay: 1000, reconnectionDelayGrowFactor: 1.5 }
-        : { maxRetries: 0, maxReconnectionDelay: 30_000, initialReconnectionDelay: 1000, reconnectionDelayGrowFactor: 1.5 },
+        ? {
+            maxRetries: config.reconnectMaxAttempts,
+            maxReconnectionDelay: 30_000,
+            initialReconnectionDelay: 1000,
+            reconnectionDelayGrowFactor: 1.5,
+          }
+        : {
+            maxRetries: 0,
+            maxReconnectionDelay: 30_000,
+            initialReconnectionDelay: 1000,
+            reconnectionDelayGrowFactor: 1.5,
+          },
     });
     await withTimeout(
       client.connect(transport),
@@ -392,7 +448,10 @@ function toCatalogEntry(
   generation: number,
   defaultApproval: McpDefaultApproval,
 ): McpToolCatalogEntry {
-  const parameters = (tool.inputSchema as Record<string, unknown>) ?? { type: 'object', properties: {} };
+  const parameters = (tool.inputSchema as Record<string, unknown>) ?? {
+    type: 'object',
+    properties: {},
+  };
   const icons = parseMcpIcons(tool.icons);
   return {
     publicName: publicToolName(config.serverName, tool.name),

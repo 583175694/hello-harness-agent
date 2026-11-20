@@ -10,6 +10,12 @@ export function formatLogDuration(milliseconds: number): string {
   return milliseconds < 1000 ? `${milliseconds} 毫秒` : `${(milliseconds / 1000).toFixed(2)} 秒`;
 }
 
+// 占比用于判断某一段耗时是否真是主因；分母为 0 时明确降级而不是输出 NaN。
+export function formatLogShare(value: number, total: number): string {
+  if (!total) return '0%';
+  return `${Math.round((value / total) * 100)}%`;
+}
+
 const LOG_ERROR_DETAIL_LIMIT = 3_000;
 
 type ErrorLike = Error & {

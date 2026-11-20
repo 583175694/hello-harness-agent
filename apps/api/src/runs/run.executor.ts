@@ -12,9 +12,11 @@ import { toAgentFailure } from '../shared/agent-failure.utils';
 import {
   describeLogAgentUpstreamError,
   describeLogError,
+  formatLogDuration,
   shortLogId,
 } from '../shared/logging.utils';
 import type { CompactionState } from '../context-engineering/context-engineering.types';
+import { LatencyTrace } from '../shared/timing';
 import {
   RuntimeLifecycleRegistry,
   type RuntimeControlSnapshot,
@@ -142,10 +144,17 @@ export class RunExecutor implements OnModuleDestroy {
       return;
     }
     const ownerUserId = stored.session.userId;
+    // 从接单（数据库已建 Run）到首个模型请求之间的全部工作都在首字前，逐段计时才能定位等待。
+    // 以 Run 创建时间为零点，排队时间即真正的入队→开跑等待。
+    const startupTrace = new LatencyTrace({ origin: stored.createdAt.getTime() });
+    const queuedUntilMs = startupTrace.elapsedMs();
     if (!active.mcpSnapshot) {
       try {
-        const latched = await this.mcpLatch.captureForUser(ownerUserId, runId);
-        active.mcpSnapshot = this.toolExposure.annotateSnapshot(latched);
+        active.mcpSnapshot = await startupTrace.measure('MCP latch', async () =>
+          this.toolExposure.annotateSnapshot(
+            await this.mcpLatch.captureForUser(ownerUserId, runId),
+          ),
+        );
       } catch (error) {
         const failure = this.mcpLatchFailure(error);
         this.logger.warn(
@@ -255,6 +264,11 @@ export class RunExecutor implements OnModuleDestroy {
           lastEventSequence: startedEvent.seq,
         };
       const messages = await this.repository.loadTranscript(runId);
+      // 首字前的时间全部在此汇总：排队、MCP latch、步骤/事件/transcript 落库。
+      this.logger.log(
+        `Run 启动耗时 | Run=${shortLogId(runId)} | 排队=${formatLogDuration(queuedUntilMs)} | 到 transcript=${formatLogDuration(startupTrace.elapsedMs())} | ${startupTrace.formatSegments()}`,
+        RunExecutor.name,
+      );
       this.logger.log(
         `Run 已进入模型循环 | Run=${shortLogId(runId)} | Transcript=${messages.length} 条 | Assistant=${shortLogId(stored.assistantMessageId)}`,
         RunExecutor.name,

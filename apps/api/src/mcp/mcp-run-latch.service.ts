@@ -1,6 +1,7 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
-import { shortLogId } from '../shared/logging.utils';
+import { formatLogDuration, shortLogId } from '../shared/logging.utils';
+import { LatencyTrace } from '../shared/timing';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import { McpServerConfigRepository } from './mcp-server-config.repository';
 import { McpConnectionManager } from './mcp-connection.manager';
@@ -25,8 +26,10 @@ export class McpRunLatchService {
   ) {}
 
   async captureForUser(userId: string, runId?: string): Promise<RunMcpSnapshot> {
-    await this.connections.reconcile(userId);
-    const enabled = await this.configs.listEnabled(userId);
+    // latch 是 Run 首轮模型请求的前置步骤；各段耗时决定首字下限。
+    const trace = new LatencyTrace();
+    await trace.measure('reconcile', () => this.connections.reconcile(userId));
+    const enabled = await trace.measure('读取配置', () => this.configs.listEnabled(userId));
     const published = this.connections.getPublishedCatalog(userId);
     const entries: McpToolCatalogEntry[] = [];
     const serverInstructions: McpServerInstructionSnapshot[] = [];
@@ -74,15 +77,19 @@ export class McpRunLatchService {
       serverToolPolicy,
     };
 
-    if (entries.length) {
-      const estimatedTokens = await estimateMcpDefinitionTokens(entries);
-      if (estimatedTokens >= MCP_DEFINITIONS_TOKEN_WARN_THRESHOLD) {
-        this.logger.warn(
-          `MCP definitions token 估算偏高 | Run=${shortLogId(runId ?? 'unknown')} | generation=${snapshot.catalogGeneration} | tools=${entries.length} | estimatedTokens=${estimatedTokens}`,
-          McpRunLatchService.name,
-        );
-      }
+    const estimatedTokens = entries.length
+      ? await trace.measure('token估算', () => estimateMcpDefinitionTokens(entries))
+      : 0;
+    if (estimatedTokens >= MCP_DEFINITIONS_TOKEN_WARN_THRESHOLD) {
+      this.logger.warn(
+        `MCP definitions token 估算偏高 | Run=${shortLogId(runId ?? 'unknown')} | generation=${snapshot.catalogGeneration} | tools=${entries.length} | estimatedTokens=${estimatedTokens}`,
+        McpRunLatchService.name,
+      );
     }
+    this.logger.log(
+      `MCP latch 完成 | Run=${shortLogId(runId ?? 'unknown')} | generation=${snapshot.catalogGeneration} | servers=${latchedServerNames.length}/${enabled.length} | 工具=${entries.length} | instructions=${serverInstructions.length} | 全量估算=${estimatedTokens} token | 耗时=${formatLogDuration(trace.elapsedMs())} | ${trace.formatSegmentsWithShare()}`,
+      McpRunLatchService.name,
+    );
 
     return snapshot;
   }
@@ -91,7 +98,9 @@ export class McpRunLatchService {
 function parseEnabledToolsList(value: unknown): string[] | null {
   if (value == null) return null;
   if (Array.isArray(value)) {
-    const list = value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+    const list = value.filter(
+      (item): item is string => typeof item === 'string' && item.length > 0,
+    );
     return list.length ? list : null;
   }
   return null;

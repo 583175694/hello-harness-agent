@@ -27,7 +27,8 @@ import {
   unitBoundaryMessageCount,
   type TranscriptUnit,
 } from './transcript-units';
-import { describeLogError } from '../shared/logging.utils';
+import { describeLogError, formatLogDuration, formatLogShare } from '../shared/logging.utils';
+import { LatencyTrace } from '../shared/timing';
 import { formatMcpInstructionsBlock } from '../mcp/mcp-instructions.format';
 import type { McpServerInstructionSnapshot } from '../mcp/mcp.types';
 
@@ -74,6 +75,8 @@ export class ContextEngineeringService {
 
   // 编译单轮模型上下文，必要时压缩历史并严格检查输入预算。
   async compileRound(input: ContextCompileInput): Promise<CompiledContext> {
+    // 编译耗时直接计入首字前等待；collapse 与 token 估算都可能触发远程/CPU 重活。
+    const trace = new LatencyTrace();
     let messages = this.withMcpInstructions(input.messages, input.mcpInstructions);
     messages = this.withSkills(messages, input.skills);
     messages = this.withMemories(messages, input.memories);
@@ -98,7 +101,11 @@ export class ContextEngineeringService {
       input.compactionState ?? (committedRow ? compactionStateFromDb(committedRow) : undefined);
     const beforePersistedSummary = messages;
     messages = this.applySummary(messages, state?.summary, state);
-    messages = await this.applyIfValid('after_apply_summary', beforePersistedSummary, async () => messages);
+    messages = await this.applyIfValid(
+      'after_apply_summary',
+      beforePersistedSummary,
+      async () => messages,
+    );
     // 写入类工具（create_file / create_report）的历史参数只会持续占据预算，先折叠为指针。
     const beforeWriteArgumentCollapse = messages;
     messages = await this.applyIfValid(
@@ -107,18 +114,22 @@ export class ContextEngineeringService {
       () => this.collapseHistoricalWriteArguments(messages),
     );
     const beforeCollapse = messages;
-    messages = await this.collapseOldToolResults(
-      messages,
-      input.sessionId,
-      RECENT_TOOL_UNITS_TO_KEEP,
+    messages = await trace.measure('折叠旧工具结果', () =>
+      this.collapseOldToolResults(messages, input.sessionId, RECENT_TOOL_UNITS_TO_KEEP),
     );
     messages = await this.applyIfValid('after_collapse', beforeCollapse, async () => messages);
-    let estimatedInputTokens = await this.estimate(messages, input.tools);
+    let estimatedInputTokens = await trace.measure('token估算', () =>
+      this.estimate(messages, input.tools),
+    );
+    const preCompactionTokens = estimatedInputTokens;
     let compactionTriggered = false;
     let nextCompactionState: CompactedContext['compactionState'] | undefined;
+    let compactionSkippedReason: string | undefined;
 
     if (estimatedInputTokens >= profile.compactionTriggerTokens) {
-      const compacted = await this.compact({ ...input, messages }, state ?? null, promptBudget);
+      const compacted = await trace.measure('压缩', () =>
+        this.compact({ ...input, messages }, state ?? null, promptBudget),
+      );
       if (compacted) {
         const nextMessages = await this.applyIfValid(
           'after_compact',
@@ -130,8 +141,16 @@ export class ContextEngineeringService {
           estimatedInputTokens = compacted.estimatedInputTokens;
           compactionTriggered = true;
           nextCompactionState = compacted.compactionState;
+          this.logger?.log(
+            `上下文已压缩 | 会话=${shortLogId(input.sessionId)} | 版本=${compacted.compactionState.version} | 触发线=${profile.compactionTriggerTokens} | ${preCompactionTokens} → ${estimatedInputTokens} token(≈${formatLogShare(estimatedInputTokens, preCompactionTokens)}) | 预算=${promptBudget} | 仍超触发线=${estimatedInputTokens >= profile.compactionTriggerTokens ? '是' : '否'} | 耗时=${formatLogDuration(trace.segmentMs('压缩') ?? 0)} | 累计=${formatLogDuration(trace.elapsedMs())}`,
+            ContextEngineeringService.name,
+          );
+        } else {
+          compactionSkippedReason = '校验回滚';
         }
-      }
+      } else compactionSkippedReason = '无闭合前缀';
+    } else {
+      compactionSkippedReason = `未达触发线(${preCompactionTokens}<${profile.compactionTriggerTokens})`;
     }
 
     if (estimatedInputTokens > promptBudget) {
@@ -178,6 +197,11 @@ export class ContextEngineeringService {
       throw new Error(code);
     }
     assertToolTranscriptOrThrow(messages);
+    // 每轮编译的额外开销会直接叠加到首字时延；压缩是否触发必须可观测。
+    this.logger?.log(
+      `上下文编译完成 | 会话=${shortLogId(input.sessionId)} | 轮次输入=${input.messages.length}→${messages.length} 条 | 估算=${preCompactionTokens}→${estimatedInputTokens} token | 预算=${promptBudget} | 触发线=${profile.compactionTriggerTokens} | 压缩=${compactionTriggered ? '是' : '否'}${compactionSkippedReason ? `(${compactionSkippedReason})` : ''} | tools=${input.tools?.length ?? 0} | 耗时=${formatLogDuration(trace.elapsedMs())} | ${trace.formatSegments()}`,
+      ContextEngineeringService.name,
+    );
     return {
       messages,
       estimatedInputTokens,
@@ -187,7 +211,10 @@ export class ContextEngineeringService {
     };
   }
 
-  private withSkills(messages: ModelMessage[], skills: ContextCompileInput['skills']): ModelMessage[] {
+  private withSkills(
+    messages: ModelMessage[],
+    skills: ContextCompileInput['skills'],
+  ): ModelMessage[] {
     if (!skills?.length) return messages;
     const content = skills.map((skill) => skill.content).join('\n');
     const isCatalog = skills.every((skill) => skill.skillId.startsWith('catalog:'));
@@ -195,7 +222,11 @@ export class ContextEngineeringService {
       ? `<skill_catalog>${skills.map((skill) => skill.content).join('')}</skill_catalog>`
       : `<skills_context>${content}</skills_context>`;
     const index = messages[0]?.role === 'system' ? 1 : 0;
-    return [...messages.slice(0, index), { role: 'system', content: block }, ...messages.slice(index)];
+    return [
+      ...messages.slice(0, index),
+      { role: 'system', content: block },
+      ...messages.slice(index),
+    ];
   }
 
   private withMemories(
@@ -204,10 +235,7 @@ export class ContextEngineeringService {
   ): ModelMessage[] {
     if (!memories?.length) return messages;
     const body = memories
-      .map(
-        (memory) =>
-          `<memory id="${memory.memoryId}">${memory.content}</memory>`,
-      )
+      .map((memory) => `<memory id="${memory.memoryId}">${memory.content}</memory>`)
       .join('\n');
     const block =
       `<user_memory>\n` +
@@ -216,7 +244,11 @@ export class ContextEngineeringService {
       `</user_memory>`;
     const index = messages.findIndex((message) => message.role === 'system');
     const insertAt = index >= 0 ? index + 1 : 0;
-    return [...messages.slice(0, insertAt), { role: 'system', content: block }, ...messages.slice(insertAt)];
+    return [
+      ...messages.slice(0, insertAt),
+      { role: 'system', content: block },
+      ...messages.slice(insertAt),
+    ];
   }
 
   // 把编译期外置的 Tool Result 指针写回 Runtime 消息，避免下一轮重复落盘。
@@ -407,10 +439,7 @@ export class ContextEngineeringService {
     return fallback;
   }
 
-  private coveredUnitCountFromMessageCount(
-    units: TranscriptUnit[],
-    messageCount: number,
-  ): number {
+  private coveredUnitCountFromMessageCount(units: TranscriptUnit[], messageCount: number): number {
     const aligned = alignCoveredCountToUnitBoundary(units, messageCount);
     let offset = 0;
     for (let index = 0; index < units.length; index += 1) {
@@ -530,10 +559,7 @@ export class ContextEngineeringService {
   private applySummary(
     messages: ModelMessage[],
     summary: string | null | undefined,
-    coverage:
-      | Pick<CompactionState, 'coveredMessageCount' | 'coveredUnitCount'>
-      | null
-      | undefined,
+    coverage: Pick<CompactionState, 'coveredMessageCount' | 'coveredUnitCount'> | null | undefined,
   ): ModelMessage[] {
     // 用系统摘要替换已覆盖的历史前缀；切分只允许落在 unit 边界。
     const system = messages[0]?.role === 'system' ? messages[0] : undefined;
@@ -930,7 +956,8 @@ export class ContextEngineeringService {
     // 占位文本的 token 数随 fileId 波动；逐张补删直到真实估算进入预算。
     while (
       omitCount < total &&
-      (await this.estimateTextTokens(current, tools)) + (total - omitCount) * IMAGE_TOKEN_ESTIMATE_MAX >
+      (await this.estimateTextTokens(current, tools)) +
+        (total - omitCount) * IMAGE_TOKEN_ESTIMATE_MAX >
         promptBudget
     ) {
       omitCount += 1;
@@ -954,7 +981,10 @@ export class ContextEngineeringService {
     return fileIds;
   }
 
-  private offloadImageFileIds(messages: ModelMessage[], omitted: ReadonlySet<string>): ModelMessage[] {
+  private offloadImageFileIds(
+    messages: ModelMessage[],
+    omitted: ReadonlySet<string>,
+  ): ModelMessage[] {
     // 同一 fileId 的所有出现位置一起替换，避免历史再次出现未计价的图片。
     return messages.map((message) => {
       if (message.role !== 'user' || !Array.isArray(message.content)) return message;

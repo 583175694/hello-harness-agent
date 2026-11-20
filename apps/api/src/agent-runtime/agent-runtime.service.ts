@@ -35,7 +35,13 @@ import {
 import type { ToolExecutionContext, ToolExecutionResult } from '../tools/agent-tool.types';
 import { ToolInputValidationError, ToolRegistryService } from '../tools/tool-registry.service';
 import type { ToolRegistryContext } from '../tools/tool-registry.types';
-import { describeLogError, formatLogDuration, shortLogId } from '../shared/logging.utils';
+import {
+  describeLogError,
+  formatLogDuration,
+  formatLogShare,
+  shortLogId,
+} from '../shared/logging.utils';
+import { LatencyTrace } from '../shared/timing';
 import type { AgentRuntimeEvent, AgentRuntimeInput } from './agent-runtime.types';
 import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
 import {
@@ -61,6 +67,7 @@ import { composeMemoryRetrievalQuery, toContextMemorySourceRefs } from '../memor
 import type { MemoryInjectionTrace } from '../memory/memory.types';
 import { ToolExposureService } from '../tools/tool-exposure/tool-exposure.service';
 import { DEFERRED_TOOL_SEARCH_SYSTEM_HINT } from '../tools/tool-exposure/tool-exposure.constants';
+import { ToolExposureAudit } from '../tools/tool-exposure/tool-exposure-audit';
 import type { ToolSearchOutput } from '../tools/tool-exposure/tool-search.tool';
 import { orderToolCallsForBatch } from './tool-batch-order';
 import {
@@ -80,6 +87,9 @@ import type {
   RuntimeLifecycleToolCall,
   RuntimeToolDispatchItem,
 } from './runtime-lifecycle';
+
+/** 单轮记忆检索超过该阈值时输出告警，避免每轮刷屏。 */
+const MEMORY_INJECTION_SLOW_LOG_THRESHOLD_MS = 500;
 
 class ToolExecutionTimeoutError extends Error {
   constructor() {
@@ -123,6 +133,8 @@ export class AgentRuntimeService {
     const activatedTools = new Set<string>();
     const deferredSearchIndex = this.toolExposure.createIndex(input.mcpSnapshot);
     const deferredCount = this.toolExposure.deferredCount(input.mcpSnapshot);
+    // 观测直通名额利用率与 tool_search 命中率，不改路由。
+    const exposureAudit = new ToolExposureAudit(input.mcpSnapshot?.entries ?? []);
     let deferredHintAdded = false;
     let toolRegistryContext: ToolRegistryContext = {
       userId: input.userId,
@@ -131,7 +143,8 @@ export class AgentRuntimeService {
       activatedTools,
       deferredSearchIndex,
     };
-    const runtimeStartedAt = Date.now();
+    // Run 级耗时归因：模型/工具/记忆三段相加即为主干，剩余时间属于编译、落库等其它工作。
+    const runTrace = new LatencyTrace();
     const runDeadlineSignal = AbortSignal.timeout(DEFAULT_RUNTIME_POLICY.runTimeoutMs);
     const runSignal = input.signal
       ? AbortSignal.any([input.signal, runDeadlineSignal])
@@ -173,6 +186,10 @@ export class AgentRuntimeService {
     let finalizationRecoveryAttempted = false;
     let outputLimitRecoveryCount = 0;
     let deliveryNudgeAdded = false;
+    let toolFailureCount = 0;
+    let promptTokensTotal = 0;
+    let cachedTokensTotal = 0;
+    let compactionCount = 0;
     let lastMemoryTrace: MemoryInjectionTrace | undefined;
     const memoryQueryEmbedCache = new Map<string, number[]>();
     // Runtime 仅保留最新计划，用于事件发布和下一轮只读上下文。
@@ -280,15 +297,19 @@ export class AgentRuntimeService {
         lastMemoryTrace = undefined;
         roundMemories = undefined;
         if (this.memoryRetriever && this.memoryConfig?.readEnabled && input.runId) {
+          const retriever = this.memoryRetriever;
           const { last, prev } = this.extractRecentUserTexts(messages);
           const query = composeMemoryRetrievalQuery(last, prev);
-          const retrieved = await this.memoryRetriever.retrieve({
-            userId: input.userId,
-            sessionId: input.sessionId,
-            runId: input.runId,
-            query,
-            queryEmbedCache: memoryQueryEmbedCache,
-          });
+          const memoryStartedAt = runTrace.elapsedMs();
+          const retrieved = await runTrace.measure('记忆检索', () =>
+            retriever.retrieve({
+              userId: input.userId,
+              sessionId: input.sessionId,
+              runId: input.runId ?? '',
+              query,
+              queryEmbedCache: memoryQueryEmbedCache,
+            }),
+          );
           if (retrieved) {
             lastMemoryTrace = retrieved.trace;
             roundMemories = retrieved.cards.map((card) => {
@@ -302,6 +323,14 @@ export class AgentRuntimeService {
                 priorityHint: Math.round(card.similarity * 100),
               };
             });
+          }
+          // 记忆检索可能包含一次远程 embedding 调用，属首字前同步阻塞；只对单轮超阈值告警。
+          const memoryMs = runTrace.elapsedMs() - memoryStartedAt;
+          if (memoryMs >= MEMORY_INJECTION_SLOW_LOG_THRESHOLD_MS) {
+            this.logger.warn(
+              `记忆检索偏慢 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 耗时=${formatLogDuration(memoryMs)} | 召回=${retrieved?.cards.length ?? 0} 张 | embedding失败=${retrieved?.trace.queryEmbedFailed ? '是' : '否'}`,
+              AgentRuntimeService.name,
+            );
           }
         }
         // 将文件预算超限转换为前端可识别的稳定错误码。
@@ -391,7 +420,7 @@ export class AgentRuntimeService {
       // 内层循环只负责一次模型轮次及输出预算恢复，不执行任何工具。
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         roundId = crypto.randomUUID();
-        const attemptStartedAt = Date.now();
+        const roundTrace = new LatencyTrace();
         // 普通轮和最终回答使用不同超时，但都必须响应用户取消信号。
         const roundSignal = this.roundSignal(
           runSignal,
@@ -416,6 +445,14 @@ export class AgentRuntimeService {
           AgentRuntimeService.name,
         );
         const attemptVisibleStart = visibleContent.length;
+        // 首字时延（TTFT）与首 token 类型决定用户等待感知：先出正文远比先出推理体感更快。
+        const firstToken = { kind: 'none' as 'none' | 'reasoning' | 'text' | 'tool_call', atMs: 0 };
+        const markFirstToken = (kind: 'reasoning' | 'text' | 'tool_call') => {
+          if (firstToken.kind !== 'none') return;
+          firstToken.kind = kind;
+          firstToken.atMs = roundTrace.elapsedMs();
+          runTrace.mark(`首${kind}`, Date.now());
+        };
 
         try {
           // Adapter 持续产出文本和聚合后的工具调用，Runtime 不依赖供应商 chunk 结构。
@@ -435,6 +472,7 @@ export class AgentRuntimeService {
             // 普通 Tool Round 的 Content 首字立即交付，不为排序牺牲首字速度；
             // Round 完成且存在 Tool Call 时，它自然被解释为工具前言而非最终正文。
             if (event.type === 'reasoning.delta') {
+              markFirstToken('reasoning');
               reasoningDeltas.push(event.delta);
               yield {
                 type: 'reasoning.delta',
@@ -444,6 +482,7 @@ export class AgentRuntimeService {
                 blockSequence: event.blockSequence,
               };
             } else if (event.type === 'text.delta') {
+              markFirstToken('text');
               textDeltas.push(event.delta);
               textBlockSequence = event.blockSequence;
               if (event.phase !== undefined) textPhase = event.phase;
@@ -468,6 +507,7 @@ export class AgentRuntimeService {
               };
             } else if (event.type === 'tool_calls.completed') {
               // Adapter 已聚合供应商的分片参数，Runtime 只消费完整 Tool Call。
+              markFirstToken('tool_call');
               calls = event.calls;
             } else if (event.type === 'clarification.completed') {
               clarification = event.request;
@@ -508,7 +548,7 @@ export class AgentRuntimeService {
             });
           if (error instanceof ModelProviderResponseError) {
             this.logger.warn(
-              `模型供应商失败 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 原因=${describeLogError(error)} | 耗时=${formatLogDuration(Date.now() - attemptStartedAt)}`,
+              `模型供应商失败 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 原因=${describeLogError(error)} | 耗时=${formatLogDuration(roundTrace.elapsedMs())}`,
               AgentRuntimeService.name,
             );
             throw new BadGatewayException(
@@ -521,7 +561,7 @@ export class AgentRuntimeService {
           }
           // 已排除取消和确定性超时后，其余流异常按不可恢复的传输中断处理。
           this.logger.warn(
-            `模型请求失败 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 原因=${describeLogError(error)} | 耗时=${formatLogDuration(Date.now() - attemptStartedAt)}`,
+            `模型请求失败 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 原因=${describeLogError(error)} | 耗时=${formatLogDuration(roundTrace.elapsedMs())}`,
             AgentRuntimeService.name,
           );
           throw new BadGatewayException(
@@ -544,7 +584,7 @@ export class AgentRuntimeService {
             phase: textPhase,
           };
         }
-        const roundDurationMs = Date.now() - attemptStartedAt;
+        const roundDurationMs = roundTrace.elapsedMs();
         const roundResponse: ModelMessage = {
           role: 'assistant',
           content: roundContent || null,
@@ -616,8 +656,21 @@ export class AgentRuntimeService {
               `tool:${call.blockSequence ?? callIndex}:${shortLogId(call.id || `missing-${callIndex}`)}`,
           ),
         ].join(',');
+        // 供应商未返回单段耗时时，用首 token 类型还原等待结构。
+        const firstTokenLabel =
+          firstToken.kind === 'none'
+            ? 'unknown'
+            : `${firstToken.kind}@${formatLogDuration(firstToken.atMs)}`;
+        const cacheHitRate =
+          usage.promptTokens && usage.cachedTokens !== null
+            ? `${Math.round((usage.cachedTokens / usage.promptTokens) * 100)}%`
+            : 'unknown';
+        runTrace.add('模型', roundDurationMs);
+        promptTokensTotal += usage.promptTokens ?? 0;
+        cachedTokensTotal += usage.cachedTokens ?? 0;
+        if (compiled.compactionTriggered) compactionCount += 1;
         this.logger.log(
-          `模型轮次完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 尝试=${attempt}/${maxAttempts} | 原因=${finishReason ?? 'unknown'} | reasoning=${finalResponseOnly ? 'off' : (input.reasoningEffort ?? 'off')} | promptTokens=${usage.promptTokens ?? 'unknown'} | completionTokens=${usage.completionTokens ?? 'unknown'} | estimatedPromptTokens=${usage.estimatedPromptTokens} | cachedTokens=${usage.cachedTokens ?? 'unknown'} | 文本=${roundContent.length} 字 | reasoning文本=${reasoningDeltas.join('').length} 字 | 工具调用=${calls.length} 个 | Block顺序=${blockOrder || '空'} | 耗时=${formatLogDuration(roundDurationMs)}`,
+          `模型轮次完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 尝试=${attempt}/${maxAttempts} | 原因=${finishReason ?? 'unknown'} | reasoning=${finalResponseOnly ? 'off' : (input.reasoningEffort ?? 'off')} | promptTokens=${usage.promptTokens ?? 'unknown'} | completionTokens=${usage.completionTokens ?? 'unknown'} | estimatedPromptTokens=${usage.estimatedPromptTokens} | cachedTokens=${usage.cachedTokens ?? 'unknown'} | 缓存命中=${cacheHitRate} | 首token=${firstTokenLabel} | 文本=${roundContent.length} 字 | reasoning文本=${reasoningDeltas.join('').length} 字 | 工具调用=${calls.length} 个 | Block顺序=${blockOrder || '空'} | 耗时=${formatLogDuration(roundDurationMs)}`,
           AgentRuntimeService.name,
         );
 
@@ -991,6 +1044,7 @@ export class AgentRuntimeService {
           toolRegistryContext,
           enterFinalAnswer: dispatch.enterFinalAnswer,
           activatedTools,
+          exposureAudit,
         });
         pendingToolResults.push(pending);
         preExecutedToolSearchCallIds.add(dispatch.call.id);
@@ -1162,6 +1216,7 @@ export class AgentRuntimeService {
             approvalDecisions,
             bashInstallApproval,
             activatedTools,
+            exposureAudit,
           }),
         );
         yield* flushToolEventsAndAbortIfCancelled(pendingToolResults);
@@ -1213,6 +1268,26 @@ export class AgentRuntimeService {
           content: `${marker}\n${currentPlan.plan.map((step, index) => `${index + 1}. ${step.step} - ${step.status}`).join('\n')}`,
         });
       }
+      // 工具耗时为同批串行累加之和；失败的调用仍然消耗了一整轮模型时间，单独计数。
+      let batchDurationMs = 0;
+      for (const pending of pendingToolResults) {
+        const event = pending.event;
+        if (
+          event &&
+          (event.type === 'tool.completed' ||
+            event.type === 'tool.failed' ||
+            event.type === 'tool.cancelled')
+        ) {
+          batchDurationMs += event.durationMs;
+          exposureAudit.recordInvocation(event.toolName);
+        }
+        if (pending.summary.status !== 'succeeded') toolFailureCount += 1;
+      }
+      runTrace.add('工具', batchDurationMs);
+      this.logger.log(
+        `工具批次完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 工具=${pendingToolResults.length} 个 | 失败=${pendingToolResults.filter((item) => item.summary.status !== 'succeeded').length} | 批内串行耗时=${formatLogDuration(batchDurationMs)} | 工具累计=${formatLogDuration(runTrace.segmentMs('工具') ?? 0)}`,
+        AgentRuntimeService.name,
+      );
       // assistant Tool Calls 与全部 Tool Messages 已由消费者按顺序提交，之后才允许控制策略等待。
       const batchCommittedWait = this.reachLifecycle(input, 'tool_batch_committed', {
         roundId,
@@ -1257,10 +1332,20 @@ export class AgentRuntimeService {
     }
 
     // 只有外层循环正常得到最终正文后才发出 run.completed，调用方据此执行持久化提交。
+    const runtimeMs = runTrace.elapsedMs();
     this.logger.log(
-      `Agent 运行完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 工具=${toolCallCount} 次 | 耗时=${formatLogDuration(Date.now() - runtimeStartedAt)}`,
+      `Agent 运行完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 工具=${toolCallCount} 次 | 失败工具=${toolFailureCount} | 压缩=${compactionCount} 次 | 耗时=${formatLogDuration(runtimeMs)} | ${runTrace.formatSegmentsWithShare(runtimeMs)} | 未归因=${formatLogDuration(runTrace.unaccountedMs())} | ${runTrace.formatMarks()} | prompt=${promptTokensTotal} | cached=${cachedTokensTotal} | 缓存命中=${formatLogShare(cachedTokensTotal, promptTokensTotal)}`,
       AgentRuntimeService.name,
     );
+    // MCP 暴露策略是否有效的唯一事实依据：直通区利用率 + tool_search 命中率。
+    const exposureSummary = exposureAudit.summary();
+    if (exposureSummary.directTotal > 0) {
+      const unused = exposureAudit.unusedDirectNames();
+      this.logger.log(
+        `MCP 暴露审计 | 会话=${shortLogId(input.sessionId)} | 直通=${exposureSummary.directTotal} 个 使用=${exposureSummary.directInvoked} 个(≈${formatLogShare(exposureSummary.directInvoked, exposureSummary.directTotal)}) | 延迟=${exposureSummary.deferredTotal} 个 | tool_search=${exposureSummary.searchCalls} 次 平均命中=${exposureSummary.searchHitAverage.toFixed(1)} fallback=${exposureSummary.searchFallbackCount} 次 | 激活=${exposureSummary.activatedTotal} 个 其中被调用=${exposureSummary.activatedInvoked} 个(≈${formatLogShare(exposureSummary.activatedInvoked, exposureSummary.activatedTotal)}) | MCP调用=${exposureSummary.invokedMcpTotal} 个 | 直通未用=${unused.slice(0, 8).join(',') || '无'}${unused.length > 8 ? ` 等 ${unused.length} 个` : ''}`,
+        AgentRuntimeService.name,
+      );
+    }
     yield {
       type: 'run.completed',
       content: finalContent,
@@ -1624,6 +1709,7 @@ export class AgentRuntimeService {
     approvalDecisions?: Map<string, 'approve' | 'reject'>;
     bashInstallApproval?: ReadonlySet<string>;
     activatedTools?: Set<string>;
+    exposureAudit?: ToolExposureAudit;
   }): Promise<PendingToolResult> {
     const {
       input,
@@ -1639,6 +1725,7 @@ export class AgentRuntimeService {
       approvalDecisions,
       bashInstallApproval,
       activatedTools,
+      exposureAudit,
     } = params;
 
     const startedAt = new Date();
@@ -1756,6 +1843,11 @@ export class AgentRuntimeService {
       if (call.name === AGENT_TOOL_NAMES.toolSearch && activatedTools) {
         const searchOutput = result.output as ToolSearchOutput;
         for (const name of searchOutput.activatedCandidates) activatedTools.add(name);
+        exposureAudit?.recordSearch({
+          hits: searchOutput.tools.length,
+          fallback: searchOutput.fallback === true,
+          activated: searchOutput.activatedCandidates,
+        });
       }
     } else if (result.status === 'cancelled') {
       const upstreamReason =

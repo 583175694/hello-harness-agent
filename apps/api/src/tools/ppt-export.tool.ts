@@ -73,16 +73,11 @@ export class PptExportTool implements AgentTool<PptExportInput, PptExportResult>
     return {
       name: this.name,
       description:
-        '生成可编辑演示稿：传 deckPlan 时确定性渲染 16:9 演示稿，直接交付可下载的 PPTX，并附带 HTML 预览。' +
-        ' 成功返回 status=ok、PPTX 文件，以及 preview 字段中的 HTML 预览文件。' +
-        ' 传 htmlFileId 时复用会话内已有的 16:9 演示 HTML，原样导出为 PPTX；用户也可在 Workbench 对 HTML 点击“下载 PPTX”。' +
-        ' deckPlan 版式由 layoutId 固定决定，模型负责内容与选版式；不要直接写 HTML/CSS。' +
-        ' content 必填字段：cover{title}；agenda{items[]}；section{number,title}；' +
-        'three-col{columns[]}；table{table:{headers[],rows[][]}}；conclusion{points[]}。' +
-        ` deckPlan 最多 ${AGENT_PROTOCOL_LIMITS.pptExportMaxSlides} 页；典型中文汇报建议 8–12 页。` +
-        ' PPTX 通过字体、溢出、页数、原生表格与中文覆盖率硬门禁后才标记为 ok；' +
-        ' 任一硬门禁失败会降级为可打开的 HTML 并返回 report.failureCode，不要对用户声称已生成 PPTX。' +
-        ' 调用成功后最终回复只概括内容与验收结果，并提示打开产物；不要在聊天里重复整份 deck plan。',
+        '生成可编辑 16:9 演示稿（PPTX 主产物 + HTML preview 预览）。传 deckPlan：确定性渲染并一次交付；传 htmlFileId：复用会话内已有演示 HTML 转 PPTX。' +
+        ' deckPlan 版式由 layoutId 决定（cover/agenda/section/three-col/table/conclusion）；参数结构见 schema。' +
+        ` 最多 ${AGENT_PROTOCOL_LIMITS.pptExportMaxSlides} 页；硬门禁未过返回 status=degraded，不要声称已有 PPTX。` +
+        ` 版式与手写 HTML 契约见 Skill ai-ppt-html（${AGENT_TOOL_NAMES.skillsRead} 或 /ai-ppt-html）。` +
+        ' 成功后只概括验收结果，勿在聊天重复整份 deck plan。',
       parameters: {
         type: 'object',
         additionalProperties: false,

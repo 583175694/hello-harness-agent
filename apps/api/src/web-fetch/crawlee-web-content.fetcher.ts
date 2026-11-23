@@ -15,6 +15,7 @@ import { describeLogError } from '../shared/logging.utils';
 import { WEB_FETCH_POLICY } from './web-fetch.constants';
 import { asWebFetchError, WebFetchError } from './web-fetch.error';
 import { WebFetchUrlGuard } from './web-fetch-url.guard';
+import { decodeResponseBody } from './response-body.decoder';
 import type { GuardedWebUrl, WebFetchTransportResult } from './web-fetch.types';
 
 type FetchRequestData = { index: number; requestedUrl: string };
@@ -106,7 +107,7 @@ export class CrawleeWebContentFetcher {
         retryOnBlocked: false,
         log: new Log({ level: LogLevel.OFF }),
         ignoreSslErrors: false,
-        additionalMimeTypes: ['text/plain'],
+        additionalMimeTypes: ['text/plain', 'application/json'],
         preNavigationHooks: [
           async ({ request }, gotOptions) => {
             networkAttemptCount += 1;
@@ -164,7 +165,9 @@ export class CrawleeWebContentFetcher {
               '网页内容类型暂不支持。',
             );
           }
-          const text = Buffer.isBuffer(body) ? body.toString(contentType.encoding) : body;
+          const text = Buffer.isBuffer(body)
+            ? decodeResponseBody(body, contentType.type, contentType.encoding)
+            : body;
           if (!text.trim()) {
             request.noRetry = true;
             throw new WebFetchError(AGENT_ERROR_CODES.fetchContentEmpty, '网页响应没有可用正文。');
@@ -241,7 +244,12 @@ export class CrawleeWebContentFetcher {
       signal?.removeEventListener('abort', cancel);
       // 正常完成也显式等待 Crawlee 收尾；取消路径则等待 abort handler
       // 已经启动的同一个 teardown，避免把后台 crawler 留在进程里。
-      if (teardownPromise) await teardownPromise;
+      if (teardownPromise) {
+        await Promise.race([
+          teardownPromise,
+          new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+        ]);
+      }
     }
     return {
       results: targets.map(

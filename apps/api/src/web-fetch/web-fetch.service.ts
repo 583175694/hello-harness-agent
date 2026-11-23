@@ -14,6 +14,7 @@ import { PassageChunker } from './passage.chunker';
 import { PassageRanker } from './passage.ranker';
 import { WebFetchCache } from './web-fetch.cache';
 import { asWebFetchError, WebFetchError } from './web-fetch.error';
+import { WEB_FETCH_POLICY } from './web-fetch.constants';
 import { WebFetchUrlGuard } from './web-fetch-url.guard';
 import type { GuardedWebUrl, NormalizedWebDocument, RankedWebPassage } from './web-fetch.types';
 
@@ -39,8 +40,7 @@ export class WebFetchService {
     result: { query?: string; results: WebFetchItemResult[] };
     networkAttempts: number;
   }> {
-    if (signal?.aborted)
-      throw new WebFetchError(AGENT_ERROR_CODES.fetchCancelled, '网页读取已取消。');
+    this.assertActive(signal);
     const results = new Map<number, WebFetchItemResult>();
     const documents = new Map<number, NormalizedWebDocument>();
     const cacheStatuses = new Map<number, 'hit' | 'miss'>();
@@ -78,6 +78,7 @@ export class WebFetchService {
       );
       networkAttemptCount = fetched.networkAttemptCount;
       for (let missIndex = 0; missIndex < misses.length; missIndex += 1) {
+        this.assertActive(signal);
         const miss = misses[missIndex];
         const transport = fetched.results[missIndex];
         if (!miss || !transport) continue;
@@ -86,13 +87,16 @@ export class WebFetchService {
           continue;
         }
         try {
-          const extracted =
-            transport.content.contentType === 'text/plain'
-              ? {
-                  markdown: transport.content.body,
-                  title: new URL(transport.content.finalUrl).hostname,
-                }
-              : this.extractor.extract(transport.content.body, transport.content.finalUrl);
+          const sourceBody = this.prepareBodyForExtract(
+            transport.content.body,
+            transport.content.contentType,
+          );
+          const extracted = this.shouldUseRawBody(transport.content.contentType)
+            ? {
+                markdown: sourceBody,
+                title: new URL(transport.content.finalUrl).hostname,
+              }
+            : this.extractor.extract(sourceBody, transport.content.finalUrl);
           const normalizedUrl = await this.chooseNormalizedUrl(
             transport.content.finalUrl,
             extracted.canonicalUrl,
@@ -157,6 +161,24 @@ export class WebFetchService {
       },
       networkAttempts: networkAttemptCount,
     };
+  }
+
+  private assertActive(signal?: AbortSignal): void {
+    if (signal?.aborted)
+      throw new WebFetchError(AGENT_ERROR_CODES.fetchCancelled, '网页读取已取消。');
+  }
+
+  // 纯文本与 JSON API 响应不走 HTML 抽取，直接当 markdown 进入管线。
+  private shouldUseRawBody(contentType: string): boolean {
+    return contentType === 'text/plain' || contentType === 'application/json';
+  }
+
+  // 限制送入 HTML 抽取的体积，避免单页阻塞整次 Tool Call。
+  private prepareBodyForExtract(body: string, contentType: string): string {
+    if (contentType !== 'text/html' && contentType !== 'application/xhtml+xml') return body;
+    const bytes = Buffer.from(body, 'utf8');
+    if (bytes.byteLength <= WEB_FETCH_POLICY.maxHtmlExtractBytes) return body;
+    return bytes.subarray(0, WEB_FETCH_POLICY.maxHtmlExtractBytes).toString('utf8');
   }
 
   // canonical URL 只有通过同一最小安全校验后才能成为来源规范地址。

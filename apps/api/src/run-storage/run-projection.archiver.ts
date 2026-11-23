@@ -9,6 +9,7 @@ import {
   type AssistantContentBlock,
   type ResearchSourceSnapshot,
   type ToolExecutionSnapshot,
+  type WebFetchPassage,
 } from '@harness/agent-protocol';
 import type { ChatProjectionSnapshot } from '../chat/chat.service';
 import type { RunContextDebug } from '@harness/agent-protocol';
@@ -36,6 +37,23 @@ function truncateUtf8(value: string, maxBytes: number): string {
   let end = value.length;
   while (end > 0 && utf8Bytes(value.slice(0, end)) > maxBytes) end -= 1;
   return value.slice(0, end);
+}
+
+// 压缩 passage 文本时同步 quote.exact 与 position，满足 webFetchPassageSchema。
+function shrinkWebFetchPassage(passage: WebFetchPassage, maxBytes: number): WebFetchPassage {
+  const text = truncateUtf8(passage.text, maxBytes);
+  if (text === passage.text) return passage;
+  const start = passage.locator.position.start;
+  const end = start + Array.from(text).length;
+  return {
+    ...passage,
+    text,
+    locator: {
+      ...passage.locator,
+      quote: { ...passage.locator.quote, exact: text },
+      position: { start, end },
+    },
+  };
 }
 
 function sha256Hex(content: Buffer): string {
@@ -223,13 +241,12 @@ export class RunProjectionArchiver {
       });
     }
 
-    const shortPassages = source.passages.slice(0, 2).map((passage, index) => ({
-      ...passage,
-      text:
-        index === 0
-          ? truncateUtf8(passage.text, Math.floor(previewMax / 2))
-          : truncateUtf8(passage.text, 512),
-    }));
+    const shortPassages = source.passages.slice(0, 2).map((passage, index) =>
+      shrinkWebFetchPassage(
+        passage,
+        index === 0 ? Math.floor(previewMax / 2) : 512,
+      ),
+    );
 
     return {
       ...source,
@@ -406,13 +423,12 @@ export function enforceResearchProjectionByteLimit(
           if (source.kind !== 'fetched') return source;
           return {
             ...source,
-            passages: source.passages.slice(0, 1).map((passage) => ({
-              ...passage,
-              text: truncateUtf8(
-                passage.text,
-                Math.max(128, Math.floor(passage.text.length * shrinkRatio)),
+            passages: source.passages.slice(0, 1).map((passage) =>
+              shrinkWebFetchPassage(
+                passage,
+                Math.max(128, Math.floor(utf8Bytes(passage.text) * shrinkRatio)),
               ),
-            })),
+            ),
           };
         }),
         executions: current.executions.map((execution) => {

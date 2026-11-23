@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { AGENT_TOOL_NAMES } from '@harness/agent-protocol';
+import { AGENT_TOOL_NAMES, assistantResearchProjectionSchema } from '@harness/agent-protocol';
 
 import {
   enforceResearchProjectionByteLimit,
@@ -289,4 +289,60 @@ describe('enforceResearchProjectionByteLimit', () => {
     },
     20_000,
   );
+
+  it('keeps passage text aligned with quote.exact when shrinking fetched sources', () => {
+    const longText = '段落正文'.repeat(80_000);
+    const passage = {
+      passageId: 'p1',
+      text: longText,
+      locator: {
+        kind: 'web_text' as const,
+        quote: { exact: longText },
+        position: { start: 0, end: Array.from(longText).length },
+      },
+    };
+    const warned = vi.fn();
+    const result = enforceResearchProjectionByteLimit(
+      {
+        executions: [],
+        sources: [
+          {
+            kind: 'fetched' as const,
+            used: true,
+            id: 'src1',
+            provenance: 'model_proposed' as const,
+            requestedUrl: 'https://example.com/a',
+            finalUrl: 'https://example.com/a',
+            normalizedUrl: 'https://example.com/a',
+            title: '示例',
+            contentType: 'text/html',
+            retrievedAt: '2026-10-11T00:00:00.000Z',
+            contentHash: 'a'.repeat(64),
+            cacheStatus: 'miss' as const,
+            truncated: true,
+            passages: [passage],
+            toolCallIds: ['call-1'],
+          },
+        ],
+        blocks: [],
+      },
+      warned,
+    );
+    const source = result.sources[0];
+    expect(source?.kind).toBe('fetched');
+    if (source?.kind !== 'fetched') throw new Error('expected fetched source');
+  for (const item of source.passages) {
+      expect(item.text).toBe(item.locator.quote.exact);
+      expect(item.locator.position.end - item.locator.position.start).toBe(
+        Array.from(item.text).length,
+      );
+    }
+    expect(() =>
+      assistantResearchProjectionSchema.parse({
+        executions: [],
+        sources: result.sources,
+        blocks: [],
+      }),
+    ).not.toThrow();
+  });
 });

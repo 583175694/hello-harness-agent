@@ -34,7 +34,7 @@ const TOOL_DESCRIPTION =
   '在隔离云端工作区执行一条 bash 命令（每次调用是新的 shell；文件与已装依赖会保留）。' +
   '必须提供 description。路径相对工作区；Host 文件用 inputFiles Stage、output Collect。' +
   '非零退出是命令结果。访问外网（curl、wget、agent-browser 等）在沙箱策略内自动执行；pip/npm install 等安装依赖需用户批准。' +
-  'Browser 镜像下预装 agent-browser：JS 渲染页、截图与下载用 agent-browser CLI（路径在 workspace，截图/下载用 output Collect）；静态公开页优先 web_fetch。';
+  'Browser 镜像下预装 agent-browser：JS 渲染页、截图与下载用 agent-browser CLI（路径在 workspace，截图/下载用 output Collect）；可直连 HTML/JSON 先用 web_fetch，失败或需渲染再用浏览器或其它抓取工具。';
 
 @Injectable()
 export class BashTool implements AgentTool<BashInput, BashToolSuccess> {

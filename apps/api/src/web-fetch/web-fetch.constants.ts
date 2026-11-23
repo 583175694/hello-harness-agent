@@ -7,13 +7,15 @@ export const WEB_FETCH_POLICY = {
   // 同一批次允许并行进行的最大网络请求数。
   maxConcurrency: 3,
   // 单个 URL 从导航到内容处理的超时时间。
-  transportTimeoutMs: 20_000,
+  transportTimeoutMs: 6_000,
   // 可恢复网络错误允许的最大重试次数。
   maxRequestRetries: 1,
   // 单个 URL 允许跟随的最大重定向次数。
   maxRedirects: 5,
   // 单个解压后响应体允许读取的最大 UTF-8 字节数。
   maxResponseBytes: 5 * 1024 * 1024,
+  // 送入 HTML 抽取的最大 UTF-8 字节数，避免 JSDOM/Readability 在巨型页面上长时间阻塞。
+  maxHtmlExtractBytes: 1024 * 1024,
   // 单份规范化 Markdown 允许保留的最大 Unicode code point 数。
   maxDocumentCharacters: 200_000,
   // 单个 Passage 允许包含的最大 Unicode code point 数。
@@ -27,11 +29,16 @@ export const WEB_FETCH_POLICY = {
   // 进程内正文缓存允许占用的最大 UTF-8 字节数。
   cacheMaxSizeBytes: 32 * 1024 * 1024,
   // Web Fetch V1 接受的公开文本响应类型。
-  allowedContentTypes: ['text/html', 'application/xhtml+xml', 'text/plain'] as const,
+  allowedContentTypes: [
+    'text/html',
+    'application/xhtml+xml',
+    'text/plain',
+    'application/json',
+  ] as const,
   // 字符 n-gram Passage 排序允许返回结果的最低相关性。
   minimumRelevanceScore: 0.04,
   // 缓存失效时区分正文处理算法的版本。
-  processingVersion: 'markdown-v1',
+  processingVersion: 'markdown-v2',
   // 缓存失效时区分网络安全策略的版本。
   securityVersion: 'url-guard-v1',
 } as const;

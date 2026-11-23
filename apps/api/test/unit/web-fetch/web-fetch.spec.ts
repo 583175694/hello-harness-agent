@@ -95,8 +95,8 @@ describe('CrawleeWebContentFetcher', () => {
       content: { body: '公开网页正文' },
     });
     expect(result.results[1]).toMatchObject({
-      status: 'failed',
-      code: AGENT_ERROR_CODES.fetchUnsupportedContentType,
+      status: 'succeeded',
+      content: { body: '{"hidden":"data"}', contentType: 'application/json' },
     });
   });
 
@@ -391,5 +391,53 @@ describe('WebFetchService', () => {
     const cached = await service.fetch({ urls: ['https://example.com/a'], query: '研发生产场景' });
     expect(cached.result.results[0]).toMatchObject({ status: 'succeeded', cacheStatus: 'hit' });
     expect(fetchAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes JSON API bodies through the normalizer and ranker pipeline', async () => {
+    const guard = new WebFetchUrlGuard(async () => [{ address: '93.184.216.34', family: 4 }]);
+    const jsonBody = JSON.stringify({
+      title: '生成式 AI 产业报告',
+      summary: '企业正在把生成式 AI 应用于客服、研发和知识管理，落地案例持续增加。',
+      sections: Array.from({ length: 8 }, (_v, index) => ({
+        name: `场景${index + 1}`,
+        detail: '生成式 AI 客服与研发助手已在多个行业进入生产环境。',
+      })),
+    });
+    const fetchAll = vi.fn(async (targets: GuardedWebUrl[]) => ({
+      networkAttemptCount: targets.length,
+      results: targets.map((target) => ({
+        status: 'succeeded' as const,
+        content: {
+          requestedUrl: target.requestedUrl,
+          finalUrl: target.normalizedUrl,
+          contentType: 'application/json',
+          body: jsonBody,
+          retrievedAt: '2026-08-08T02:00:00.000Z',
+        },
+      })),
+    }));
+    const service = new WebFetchService(
+      guard,
+      { fetchAll } as unknown as CrawleeWebContentFetcher,
+      new WebFetchCache(),
+      new HtmlContentExtractor(),
+      new DocumentNormalizer(),
+      new DocumentQualityGate(),
+      new PassageChunker(),
+      new PassageRanker(),
+      new BatchPassageBudgeter(),
+    );
+    const result = await service.fetch({
+      urls: ['https://api.example.com/report'],
+      query: '生成式 AI 客服',
+    });
+    expect(result.result.results[0]).toMatchObject({
+      status: 'succeeded',
+      contentType: 'application/json',
+    });
+    const succeeded = result.result.results[0];
+    if (succeeded.status !== 'succeeded') throw new Error('expected succeeded');
+    expect(succeeded.passages.length).toBeGreaterThan(0);
+    expect(succeeded.passages[0]?.text).toContain('生成式 AI');
   });
 });

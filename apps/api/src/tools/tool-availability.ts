@@ -4,7 +4,7 @@ import { AGENT_TOOL_NAMES } from '@harness/agent-protocol';
 // 和实际执行入口屏蔽它，避免只改一处造成“模型还能调用但服务拒绝”的漂移。
 export const TOOL_AVAILABILITY: Readonly<Record<string, boolean>> = {
   [AGENT_TOOL_NAMES.webSearch]: true,
-  [AGENT_TOOL_NAMES.webFetch]: false,
+  [AGENT_TOOL_NAMES.webFetch]: true,
   [AGENT_TOOL_NAMES.approvalTest]: true,
   [AGENT_TOOL_NAMES.getCurrentTime]: true,
   [AGENT_TOOL_NAMES.searchFile]: true,

@@ -126,4 +126,15 @@ describe('lintPresentationHtml', () => {
     </section>`);
     expect(lintPresentationHtml(html).passed).toBe(true);
   });
+
+  it('warns when speaker notes sit outside .slide', () => {
+    const html = htmlWith(`<section class="slide"><p>正文</p></section>
+      <div class="notes"><p>口播备注</p></div>`);
+    const result = lintPresentationHtml(html);
+    expect(result.passed).toBe(true);
+    expect(result.checks.find((c) => c.code === 'html_speaker_notes_outside_slide')).toMatchObject({
+      level: 'warn',
+      passed: false,
+    });
+  });
 });

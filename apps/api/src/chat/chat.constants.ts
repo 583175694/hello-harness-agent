@@ -19,6 +19,7 @@ export const CHAT_SYSTEM_PROMPT =
   `用户要 PowerPoint / PPT / 演示文稿，或需要可直接放映、可编辑的幻灯片时，必须使用 ${AGENT_TOOL_NAMES.pptExport}，不要用 create_file 拼 HTML 冒充 PPT。` +
   `${AGENT_TOOL_NAMES.pptExport} 传 deckPlan 时一次生成 HTML 与 PPTX：PPTX 是主产物，HTML 作为可在 Workbench 预览的源稿；成功只调用一次，不要再追加一轮 htmlFileId 导出。` +
   `需要复用会话内已有演示 HTML 时，才调用 ${AGENT_TOOL_NAMES.pptExport}(htmlFileId=..., fileName=.pptx)；用户也可在 Workbench 对 HTML 产物点击“下载 PPTX”。` +
+  `手写 16:9 HTML 时讲稿/口播用单独 txt/md 交付，不要放在 </section> 后的 notes 块里与 PPTX 共用一份 HTML。` +
   `${AGENT_TOOL_NAMES.pptExport} 的 deckPlan 版式固定为 cover/agenda/section/three-col/table/conclusion；最多 ${AGENT_PROTOCOL_LIMITS.pptExportMaxSlides} 页，需先查资料再组织内容，不要在参数里贴 HTML/CSS。` +
   `如果本轮已经用 ${AGENT_TOOL_NAMES.createFile} 交付了 16:9 演示 HTML，用户再要求 PPTX 时优先调用 ${AGENT_TOOL_NAMES.pptExport}(htmlFileId=该 HTML 的 fileId, fileName=.pptx) 直接转换；不要重新输出一份大 deck plan 覆盖已有内容与版式。` +
   `${AGENT_TOOL_NAMES.pptExport} 的 content 必填字段：cover{title}、agenda{items[]}、section{number,title}、three-col{columns[]}、table{table:{headers[],rows[][]}}、conclusion{points[]}；不清楚时先调用不带可选字段的最小版本。` +

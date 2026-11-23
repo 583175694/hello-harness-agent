@@ -114,6 +114,16 @@ export function lintPresentationHtml(html: string): HtmlLintResult {
     );
   }
 
+  const speakerNotesOutsideSlides = hasSpeakerNotesOutsideSlides(html);
+  checks.push({
+    code: 'html_speaker_notes_outside_slide',
+    level: 'warn',
+    passed: !speakerNotesOutsideSlides,
+    detail: speakerNotesOutsideSlides
+      ? 'speaker notes outside .slide are not exported to PPTX; deliver them as a separate .txt/.md'
+      : undefined,
+  });
+
   return {
     passed: checks.filter((check) => check.level === 'error').every((check) => check.passed),
     checks,
@@ -176,4 +186,11 @@ export function countRootSlides(html: string): number {
     if (classes.includes('slide')) count += 1;
   }
   return count;
+}
+
+/** Blocks such as `.notes` after `</section>` stay in HTML preview but not in PPTX. */
+export function hasSpeakerNotesOutsideSlides(html: string): boolean {
+  return /<div\b[^>]*\bclass\s*=\s*(?:"[^"]*\bnotes\b[^"]*"|'[^']*\bnotes\b[^']*')/iu.test(
+    html,
+  );
 }

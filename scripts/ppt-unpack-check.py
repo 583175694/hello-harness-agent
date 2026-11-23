@@ -54,6 +54,13 @@ def unescape(text: str) -> str:
 # text" side, because the exporter correctly drops them.
 BLOCK_RE = re.compile(r"\.([\w-]+)\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}", re.S)
 HIDDEN_DECL_RE = re.compile(r"(?:display\s*:\s*none|position\s*:\s*fixed)", re.I)
+# dom-to-pptx exports document.querySelectorAll(".slide") only. Speaker notes or
+# preview chrome must not count toward expected CJK or decks with notes outside
+# slides always fail at ~70–80% while slide text is complete.
+SLIDE_BLOCK_RE = re.compile(
+    r'<([a-zA-Z][\w-]*)\b[^>]*\bclass="[^"]*\bslide\b[^"]*"[^>]*>.*?</\1>',
+    re.S | re.I,
+)
 
 
 def hidden_classes(source: str) -> set[str]:
@@ -80,8 +87,16 @@ def strip_hidden(body: str, source: str) -> str:
     return body
 
 
-def html_cjk(path: Path) -> Counter:
-    source = path.read_text(encoding="utf-8", errors="replace")
+def extract_slide_blocks(body: str) -> str:
+    return " ".join(match.group(0) for match in SLIDE_BLOCK_RE.finditer(body))
+
+
+def html_cjk_metrics(*, path: Path | None = None, source: str | None = None) -> tuple[Counter, int]:
+    if (path is None) == (source is None):
+        raise ValueError("provide exactly one of path or source")
+    if path is not None:
+        source = path.read_text(encoding="utf-8", errors="replace")
+    assert source is not None
     # CSS lives inside <head>, so extract it before <head> is dropped.
     styles = " ".join(re.findall(r"<style\b.*?</style>", source, flags=re.S | re.I))
     # <head> text (title, meta) is never rendered, so it must not count as
@@ -92,7 +107,16 @@ def html_cjk(path: Path) -> Counter:
     body = re.sub(r"<!--.*?-->", " ", body, flags=re.S)
     # Hidden-class detection needs the CSS, so it is passed separately.
     body = strip_hidden(body, styles)
-    return Counter(CJK_RE.findall(re.sub(r"<[^>]+>", " ", body)))
+    slide_markup = extract_slide_blocks(body)
+    outside = SLIDE_BLOCK_RE.sub(" ", body)
+    outside_count = len(CJK_RE.findall(re.sub(r"<[^>]+>", " ", outside)))
+    expected = Counter(CJK_RE.findall(re.sub(r"<[^>]+>", " ", slide_markup)))
+    return expected, outside_count
+
+
+def html_cjk(path: Path) -> Counter:
+    expected, _ = html_cjk_metrics(path=path)
+    return expected
 
 
 def check(pptx: Path, html: Path | None) -> dict:
@@ -127,11 +151,13 @@ def check(pptx: Path, html: Path | None) -> dict:
     }
 
     if html is not None:
-        expected = html_cjk(html)
+        expected, outside = html_cjk_metrics(path=html)
         produced = Counter(CJK_RE.findall("".join(runs)))
         total = sum(expected.values())
         missing = sum(max(0, count - produced.get(char, 0)) for char, count in expected.items())
+        result["cjkScope"] = "slide_only"
         result["htmlCjkTotal"] = total
+        result["htmlCjkOutsideSlides"] = outside
         result["pptxCjkTotal"] = sum(produced.values())
         result["cjkCoverage"] = round(1 - missing / total, 4) if total else None
         result["missingCjk"] = (
@@ -162,13 +188,36 @@ def check(pptx: Path, html: Path | None) -> dict:
     return result
 
 
+def run_selftest() -> None:
+    sample = """
+    <html><body>
+      <section class="slide"><p>幻灯片正文甲乙丙</p></section>
+      <div class="notes"><p>讲稿备注一二三四五六七八九十</p></div>
+    </body></html>
+    """
+    expected, outside = html_cjk_metrics(source=sample)
+    slide_total = sum(expected.values())
+    if slide_total != 8 or outside != 14:
+        raise AssertionError(
+            f"expected slide CJK=8 and outside=14, got slide={slide_total} outside={outside}"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("pptx", type=Path)
+    parser.add_argument("pptx", type=Path, nargs="?")
     parser.add_argument("--html", type=Path, help="source HTML, enables CJK coverage check")
     parser.add_argument("--json", type=Path, help="also write the report as JSON")
     parser.add_argument("--strict", action="store_true", help="exit 1 when a hard check fails")
+    parser.add_argument("--selftest", action="store_true", help="run built-in CJK scope checks")
     args = parser.parse_args()
+
+    if args.selftest:
+        run_selftest()
+        print(json.dumps({"selftest": "ok"}, ensure_ascii=False))
+        return 0
+    if args.pptx is None:
+        parser.error("pptx is required unless --selftest is set")
 
     report = check(args.pptx, args.html)
     text = json.dumps(report, ensure_ascii=False, indent=2)

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { materializeCompositeBorders } from '../src/export/composite-borders.js';
+import { applyDomCompatFixes } from '../src/export/dom-compat-fixes.js';
 import { applySingleLineFixes } from '../src/export/text-fit-fixes.js';
 import { chromiumExecutablePath } from '../src/preflight/browser.js';
 
@@ -16,15 +17,17 @@ describe.skipIf(!hasBrowser)('DOM export preprocessors', () => {
     return path;
   }
 
-  it('materializes border-left on a filled callout into an absolute bar without touching tables', async () => {
+  it('materializes border-left on a filled callout while leaving 4-sided rounded cards and tables intact', async () => {
     const htmlPath = await writeTempHtml(`<!doctype html>
 <html><head><style>
   .slide { width: 1280px; height: 720px; overflow: hidden; }
   .callout { background: #fdf6ec; border-left: 4px solid #c99a3e; padding: 14px 18px; font-size: 14px; }
+  .card { background: #fff; border: 1px solid #f0e0c8; border-top: 3px solid #b3261e; border-radius: 10px; padding: 10px 12px; }
   table td { background: #f8f9fa; border-bottom: 1px solid #ddd; padding: 8px; }
 </style></head>
 <body><section class="slide">
   <div class="callout"><strong>老师的定性：</strong>今天是不及格的。</div>
+  <div class="card"><div class="ct">为什么现在必须建</div><div class="cx">四边带圆角的卡片。</div></div>
   <table><tr><td>单元格</td></tr></table>
 </section></body></html>`);
 
@@ -34,6 +37,32 @@ describe.skipIf(!hasBrowser)('DOM export preprocessors', () => {
     expect(result.html).toContain('data-ppt-border-bar="left"');
     expect(result.html).toContain('data-ppt-border-content');
     expect(result.html).toContain('padding-left: 22px');
+    expect(result.html).not.toMatch(/class="card"[^>]*data-ppt-border-materialized/u);
+  });
+
+  it('flattens inline rounded pills inside paragraphs and converts empty bar <i> elements into <div>', async () => {
+    const htmlPath = await writeTempHtml(`<!doctype html>
+<html><head><style>
+  .slide { width: 1280px; height: 720px; overflow: hidden; }
+  .cx { width: 320px; font-size: 12px; line-height: 1.6; }
+  .pill { display: inline-block; background: #fdecea; color: #b3261e; border-radius: 999px; padding: 2px 9px; }
+  .bars { display: flex; align-items: flex-end; gap: 16px; height: 88px; }
+  .bars div { flex: 1; text-align: center; }
+  .bars i { display: block; width: 38px; margin: 0 auto; border-radius: 6px 6px 0 0; background: linear-gradient(180deg,#e8752f,#c2410c); }
+</style></head>
+<body><section class="slide">
+  <div class="cx">补缴 <b>3.36 亿元</b>。<span class="pill">2026.09 公告</span></div>
+  <div class="bars"><div><i style="height:32px"></i><u>2024 市局</u></div></div>
+  <i class="fa fa-check"></i>
+</section></body></html>`);
+
+    const result = await applyDomCompatFixes(htmlPath);
+
+    expect(result.flattenedPills).toBe(1);
+    expect(result.replacedIconBars).toBe(1);
+    expect(result.html).toMatch(/class="pill"[^>]*border-radius:\s*0px/u);
+    expect(result.html).toMatch(/<div style="[^"]*height:\s*32px/u);
+    expect(result.html).toContain('<i class="fa fa-check"></i>');
   });
 
   it('applies nowrap to bordered transparent badges, long single-line footers/bullets, and right-aligns flex trailing labels', async () => {

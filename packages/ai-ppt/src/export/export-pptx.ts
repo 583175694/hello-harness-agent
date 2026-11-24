@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { exportHtmlToPptx } from 'dom-to-pptx/node';
 import { launchChromium, puppeteerExecutablePath } from '../preflight/browser.js';
 import { materializeCompositeBorders } from './composite-borders.js';
+import { applyDomCompatFixes } from './dom-compat-fixes.js';
 import { postprocessPptxBuffer } from './postprocess-pptx.js';
 import { materializePseudoCounters } from './pseudo-counters.js';
 import { applySingleLineFixes } from './text-fit-fixes.js';
@@ -52,6 +53,7 @@ export async function exportDeckToPptxBuffer(htmlPath: string): Promise<Buffer> 
     if (needsCounters) {
       await materializePseudoCounters(htmlPath, { browser });
     }
+    await applyDomCompatFixes(htmlPath, { browser });
     await materializeCompositeBorders(htmlPath, { browser });
     await applySingleLineFixes(htmlPath, { browser });
   } finally {

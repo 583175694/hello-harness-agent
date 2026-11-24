@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const exportHtmlToPptx = vi.fn().mockResolvedValue(Buffer.from('pptx'));
 const materializePseudoCounters = vi.fn().mockResolvedValue({ html: '', replacements: 1 });
+const applyDomCompatFixes = vi.fn().mockResolvedValue({ html: '', flattenedPills: 0, replacedIconBars: 0 });
 const materializeCompositeBorders = vi.fn().mockResolvedValue({ html: '', materialized: 0 });
 const applySingleLineFixes = vi.fn().mockResolvedValue({ html: '', adjusted: 0 });
 const postprocessPptxBuffer = vi.fn(async (buf: Buffer) => buf);
@@ -15,6 +16,7 @@ const puppeteerExecutablePath = vi.fn<() => string | undefined>(() => undefined)
 
 vi.mock('dom-to-pptx/node', () => ({ exportHtmlToPptx }));
 vi.mock('../src/export/pseudo-counters.js', () => ({ materializePseudoCounters }));
+vi.mock('../src/export/dom-compat-fixes.js', () => ({ applyDomCompatFixes }));
 vi.mock('../src/export/composite-borders.js', () => ({ materializeCompositeBorders }));
 vi.mock('../src/export/text-fit-fixes.js', () => ({ applySingleLineFixes }));
 vi.mock('../src/export/postprocess-pptx.js', () => ({ postprocessPptxBuffer }));
@@ -36,6 +38,7 @@ describe('exportDeckToPptxBuffer', () => {
   beforeEach(() => {
     exportHtmlToPptx.mockClear();
     materializePseudoCounters.mockClear();
+    applyDomCompatFixes.mockClear();
     materializeCompositeBorders.mockClear();
     applySingleLineFixes.mockClear();
     postprocessPptxBuffer.mockClear();
@@ -64,6 +67,7 @@ describe('exportDeckToPptxBuffer', () => {
 
     expect(launchChromium).toHaveBeenCalledTimes(1);
     expect(materializePseudoCounters).toHaveBeenCalledWith(path, { browser: fakeBrowser });
+    expect(applyDomCompatFixes).toHaveBeenCalledWith(path, { browser: fakeBrowser });
     expect(materializeCompositeBorders).toHaveBeenCalledWith(path, { browser: fakeBrowser });
     expect(applySingleLineFixes).toHaveBeenCalledWith(path, { browser: fakeBrowser });
     expect(closeBrowser).toHaveBeenCalledTimes(1);

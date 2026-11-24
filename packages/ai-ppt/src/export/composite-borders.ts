@@ -100,7 +100,9 @@ function expandCompositeBordersInPage(): number {
 
     const sides = SIDES.map((side) => readSide(style, side));
     const visibleSides = sides.filter((s) => s.visible);
-    if (visibleSides.length === 0) continue;
+    // 仅针对 1~2 条单侧/双侧边框（如 .callout 的 border-left），跳过 4 边全框的圆角卡片，
+    // 让圆角卡片完整保留 border-radius 交由 dom-to-pptx 原生渲染。
+    if (visibleSides.length === 0 || visibleSides.length > 2) continue;
 
     // 4 条边完全均匀一致时 dom-to-pptx 会输出原生 shape line，不需要拆分。
     const first = sides[0]!;
@@ -114,6 +116,9 @@ function expandCompositeBordersInPage(): number {
 
     const isInlineTextHost =
       (element.textContent?.trim().length ?? 0) > 0 && hasNonBlockChildrenOnly(element);
+    // 只有纯行内文本容器的背景才会被 dom-to-pptx 合并到 zIndex [..., 0, -1] 并盖住边框；
+    // 含块级子元素的卡片容器走 -Infinity 背景层，不会被遮盖。
+    if (!isInlineTextHost) continue;
 
     // 若宿主是纯行内文本容器（例如 `.callout` 内含 `<strong>` + 文本），
     // 直接插入块级色块会破坏 isTextContainer 判定并把行内富文本拆成多个文本框。

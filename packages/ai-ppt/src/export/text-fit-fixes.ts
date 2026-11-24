@@ -129,7 +129,19 @@ export async function applySingleLineFixes(
           return Math.abs(contentRight - rect.right) <= 6;
         };
 
-        let count = 0;
+        const hasSiblingTextNode = (element: HTMLElement): boolean => {
+          const parent = element.parentElement;
+          if (!parent) return false;
+          return Array.from(parent.childNodes).some(
+            (n) => n !== element && n.nodeType === Node.TEXT_NODE && (n.nodeValue ?? '').trim().length > 0,
+          );
+        };
+
+        // Phase 1: 只读测量所有候选节点，绝不在测量过程中修改 DOM 样式，
+        // 避免 flex/grid 实时重排引发后续节点行数的链式误判。
+        const toNoWrap: HTMLElement[] = [];
+        const toAlignRight: HTMLElement[] = [];
+
         for (const element of Array.from(document.querySelectorAll<HTMLElement>('.slide *'))) {
           if (element.hasAttribute('data-ppt-border-bar')) continue;
           // 跳过表格单元格与列表项本身：单元格改 nowrap 会撑宽表格列，
@@ -145,6 +157,9 @@ export async function applySingleLineFixes(
           if (!text) continue;
 
           const style = window.getComputedStyle(element);
+          // 混排在多行段落里的纯行内子片段（如 `<b>工时系统</b>`）不单独加 nowrap。
+          if (style.display === 'inline' && hasSiblingTextNode(element)) continue;
+
           const rect = element.getBoundingClientRect();
           if (rect.width <= 0 || rect.height <= 0) continue;
 
@@ -174,19 +189,20 @@ export async function applySingleLineFixes(
           // 无 Range 行盒结果且仅靠背景/边框命中时，仍只兜底短标签（<= 24 字）。
           if (!isSingleLine && text.length > 24) continue;
 
-          // 只禁止换行。宽度与 display 必须保持原样：固定宽度会破坏表格列宽，
-          // display:block 会破坏 flex/grid 居中。
-          element.style.setProperty('white-space', 'nowrap');
-
-          // flex 右侧贴边的短辅助文字补齐 text-align: right，避免导出为 algn="l" 后
-          // 字体回退导致右边界参差不齐。
+          toNoWrap.push(element);
           if (text.length <= 24 && shouldAlignRightInFlex(element, style, rect)) {
-            element.style.setProperty('text-align', 'right');
+            toAlignRight.push(element);
           }
-
-          count += 1;
         }
-        return count;
+
+        // Phase 2: 统一写入样式。只禁止换行，保持宽度与 display 原样。
+        for (const element of toNoWrap) {
+          element.style.setProperty('white-space', 'nowrap');
+        }
+        for (const element of toAlignRight) {
+          element.style.setProperty('text-align', 'right');
+        }
+        return toNoWrap.length;
       });
       if (adjusted === 0) return { html, adjusted };
       const patched = await page.content();

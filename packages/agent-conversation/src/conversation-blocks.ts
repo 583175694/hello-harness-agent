@@ -120,6 +120,10 @@ function toolActivityCompletedSummary(
     return next;
   }
   if (event.toolName === 'web_search') return currentSummary;
+  if (event.toolName === 'tool_search') {
+    const count = event.result.matchedTools.length;
+    return count > 0 ? `找到 ${count} 个工具` : '未找到匹配工具';
+  }
   if (event.toolName === 'web_fetch') {
     const succeeded = event.result.results.filter((item) => item.status === 'succeeded');
     const passageCount = succeeded.reduce((total, item) => total + item.passages.length, 0);

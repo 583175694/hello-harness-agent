@@ -525,4 +525,50 @@ describe('conversation blocks reducer', () => {
       summary: 'search 泰永长征, purpose=了解基本面',
     });
   });
+
+  it('exposes tool_search started and completed events as visible timeline activity', () => {
+    const started = applyToolActivityEvent([], {
+      type: 'tool.started',
+      messageId: 'message-1',
+      blockId: 'tool-search-1',
+      toolCallId: 'call-ts-1',
+      toolName: 'tool_search',
+      title: '检索工具',
+      input: { query: 'index_global 全球指数', limit: 3 },
+      startedAt: '2026-09-21T09:00:00.000Z',
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 2,
+    });
+    expect(started[0]).toMatchObject({
+      type: 'tool_activity',
+      toolName: 'tool_search',
+      title: '检索工具',
+      summary: 'index_global 全球指数',
+      status: 'running',
+    });
+    const completed = applyToolActivityEvent(started, {
+      type: 'tool.completed',
+      messageId: 'message-1',
+      blockId: 'tool-search-1',
+      toolCallId: 'call-ts-1',
+      toolName: 'tool_search',
+      completedAt: '2026-09-21T09:00:00.010Z',
+      durationMs: 10,
+      result: {
+        query: 'index_global 全球指数',
+        matchedTools: ['mcp__tushareMcp__index_global'],
+        activatedCount: 1,
+      },
+      roundId: 'round-1',
+      roundSequence: 1,
+      blockSequence: 2,
+    });
+    expect(completed[0]).toMatchObject({
+      type: 'tool_activity',
+      toolName: 'tool_search',
+      summary: '找到 1 个工具',
+      status: 'completed',
+    });
+  });
 });

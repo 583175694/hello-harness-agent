@@ -104,6 +104,7 @@ export function toolInputSummary(toolName: string, input: ToolCopyInput): string
   if (toolName === 'job_list') return '列出后台 job';
   if (toolName === 'execute_command') return input.command ?? '';
   if (toolName === 'web_search') return input.query ?? '';
+  if (toolName === 'tool_search') return input.query ?? '';
   if (toolName === 'memory_write') {
     const action = typeof input.action === 'string' ? input.action : '';
     if (action === 'delete') return input.memoryId ? `删除 ${input.memoryId}` : '删除记忆';
@@ -138,6 +139,7 @@ export function toolTitle(toolName: string, input: ToolCopyInput): string {
   if (toolName === 'job_kill') return '终止后台 job';
   if (toolName === 'execute_command') return '执行命令';
   if (toolName === 'web_search') return `搜索：${input.query}`;
+  if (toolName === 'tool_search') return input.query ? `检索工具：${input.query}` : '检索工具';
   if (toolName === 'memory_write') return '写入记忆';
   if (toolName === 'external_tool') return '外部工具';
   if (toolName.startsWith(MCP_PUBLIC_PREFIX)) return mcpFriendlyToolTitle(toolName);
@@ -194,6 +196,7 @@ export function toolRunningDetail(toolName: string): string {
   if (toolName === 'bash') return '正在终端执行';
   if (toolName === 'execute_command') return '正在执行命令';
   if (toolName === 'web_search') return '正在搜索公开网页';
+  if (toolName === 'tool_search') return '正在检索可用工具';
   if (toolName === 'external_tool') return '正在执行外部工具';
   if (toolName.startsWith(MCP_PUBLIC_PREFIX)) return '正在执行 MCP 工具';
   return '正在执行工具';
@@ -210,6 +213,7 @@ export function persistedCompletedDetail(toolName: string): string {
   if (toolName === 'bash') return '终端命令已完成';
   if (toolName === 'execute_command') return '命令执行已完成';
   if (toolName === 'web_search') return '公开网页检索已完成';
+  if (toolName === 'tool_search') return '工具检索已完成';
   return '工具调用已完成';
 }
 
@@ -224,6 +228,15 @@ export function persistedToolDetail(status: string, toolName: string): string {
   return '工具调用未完成';
 }
 
+export function formatToolSearchMatchedSummary(matchedTools: readonly string[]): string {
+  if (!matchedTools.length) return '未找到匹配工具';
+  const labels = matchedTools.map((name) => {
+    const parsed = parseMcpPublicToolName(name);
+    return parsed ? `${parsed.serverName} · ${parsed.rawName}` : name;
+  });
+  return `找到 ${matchedTools.length} 个工具：${labels.join('、')}`;
+}
+
 export function persistedOutputSummary(input: {
   status: string;
   toolName: string;
@@ -235,6 +248,7 @@ export function persistedOutputSummary(input: {
   failedCount?: number;
   passageCount?: number;
   resultCount?: number;
+  outputPreview?: string;
   errorDetail?: string;
 }): string | undefined {
   if (input.status !== 'completed') return input.errorDetail;
@@ -246,6 +260,10 @@ export function persistedOutputSummary(input: {
   }
   if (input.toolName === 'web_fetch') {
     return `成功 ${input.succeededCount ?? 0} 个，失败 ${input.failedCount ?? 0} 个，提取 ${input.passageCount ?? 0} 段原文`;
+  }
+  if (input.toolName === 'tool_search') {
+    if (input.outputPreview?.trim()) return input.outputPreview;
+    return input.resultCount ? `找到 ${input.resultCount} 个工具` : '未找到匹配工具';
   }
   if (input.toolName === 'search_file') return `返回 ${input.resultCount ?? 0} 个文件命中`;
   if (input.toolName === 'read_file' || input.toolName === 'read_file_lines')
@@ -276,6 +294,7 @@ export function liveOutputSummary(input: {
   reportTitle?: string;
   pptExport?: { status: 'ok' | 'degraded'; fileName: string };
   searchResultCount?: number;
+  toolSearch?: { matchedTools: string[]; activatedCount: number };
 }): string {
   if (input.toolName === 'external_tool' && input.publicName) {
     return mcpToolBusinessSummary(input.publicName, asToolCopyInput(input.toolInput));
@@ -296,6 +315,9 @@ export function liveOutputSummary(input: {
   if (input.toolName === 'bash') return '终端命令已完成';
   if (input.toolName === 'execute_command') return '命令执行已完成';
   if (input.toolName === 'web_search') return `返回 ${input.searchResultCount ?? 0} 条网页结果`;
+  if (input.toolName === 'tool_search' && input.toolSearch) {
+    return formatToolSearchMatchedSummary(input.toolSearch.matchedTools);
+  }
   return '';
 }
 

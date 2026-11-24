@@ -263,11 +263,26 @@ const toolExecutionBaseSchema = z.object({
     .optional(),
 });
 
+export const toolSearchInputSummarySchema = z.object({
+  query: z.string(),
+  limit: z.number().int().min(1).max(20).optional(),
+});
+
+export const toolSearchResultSummarySchema = z.object({
+  query: z.string(),
+  matchedTools: z.array(z.string()),
+  activatedCount: z.number().int().nonnegative(),
+});
+
 // 根据工具名约束可持久化的执行输入，防止搜索和读取参数混淆。
 export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
   toolExecutionBaseSchema.extend({
     toolName: z.literal('web_search'),
     input: z.object({ query: z.string().min(1) }),
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.toolSearch),
+    input: toolSearchInputSummarySchema,
   }),
   toolExecutionBaseSchema.extend({
     toolName: z.literal('create_report'),
@@ -548,6 +563,19 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     roundSequence: z.number().int().positive(),
     blockSequence: z.number().int().nonnegative(),
     toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.toolSearch),
+    title: z.string().min(1),
+    input: toolSearchInputSummarySchema,
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
     toolName: z.literal('get_current_time'),
     title: z.string().min(1),
     input: z.object({}),
@@ -800,6 +828,19 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     completedAt: z.string().datetime(),
     durationMs: z.number().int().nonnegative(),
     result: z.object({ echoed: z.string() }),
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.toolSearch),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: toolSearchResultSummarySchema,
   }),
   z.object({
     type: z.literal('tool.completed'),

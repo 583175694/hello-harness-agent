@@ -307,6 +307,7 @@ export class ConversationBlockCollector {
       }
     }
     if (toolName === 'web_search') return '搜索网页';
+    if (toolName === 'tool_search') return '检索工具';
     if (toolName === 'web_fetch') return '读取网页';
     if (toolName === 'search_file') return '搜索文件';
     if (toolName === 'read_file_lines' || toolName === 'read_file') return '读取文件';

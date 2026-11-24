@@ -123,6 +123,27 @@ export class ResearchProjectionCollector {
     });
   }
 
+  recordToolSearchCompleted(input: {
+    toolCallId: string;
+    toolInput: { query: string; limit?: number };
+    completedAt: string;
+    durationMs: number;
+    matchedTools: string[];
+    outputPreview: string;
+  }): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.toolSearch,
+      input: input.toolInput,
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+      resultCount: input.matchedTools.length,
+      outputPreview: input.outputPreview,
+    });
+  }
+
   recordMemoryWriteCompleted(input: {
     toolCallId: string;
     toolInput: MemoryWriteInputSummary;

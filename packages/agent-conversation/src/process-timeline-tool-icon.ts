@@ -11,7 +11,8 @@ export type ProcessTimelineToolIconKind =
 
 /** 对齐 Web `agent-chain-of-thought` `toolIcon()`。 */
 export function processTimelineToolIconKind(toolName: string): ProcessTimelineToolIconKind {
-  if (toolName === 'web_search' || toolName === 'web_fetch') return 'search';
+  if (toolName === 'web_search' || toolName === 'web_fetch' || toolName === 'tool_search')
+    return 'search';
   if (
     toolName === 'search_file' ||
     toolName === 'read_file' ||

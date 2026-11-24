@@ -504,6 +504,7 @@ export function workbenchFromPersistedMessage(
           failedCount: execution.failedCount,
           passageCount: execution.passageCount,
           resultCount: execution.resultCount,
+          outputPreview: execution.outputPreview,
           errorDetail: execution.error?.detail,
         }),
         ...(execution.toolName === 'external_tool' && execution.outputPreview !== undefined
@@ -788,6 +789,13 @@ export function applyToolEvent(
                   completedEvent.toolName === 'web_search'
                     ? completedEvent.result.results.length
                     : 0,
+                toolSearch:
+                  completedEvent.toolName === 'tool_search'
+                    ? {
+                        matchedTools: completedEvent.result.matchedTools,
+                        activatedCount: completedEvent.result.activatedCount,
+                      }
+                    : undefined,
               })
             : (cancelledEvent?.detail ?? failedEvent?.detail),
           ...(completedExternal

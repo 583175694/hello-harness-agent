@@ -45,6 +45,12 @@ import { LatencyTrace } from '../shared/timing';
 import type { AgentRuntimeEvent, AgentRuntimeInput } from './agent-runtime.types';
 import { DEFAULT_RUNTIME_POLICY } from './runtime-policy';
 import {
+  isParallelSafeTool,
+  isRunDedupEligibleTool,
+  runWithConcurrencyLimit,
+  TOOL_BATCH_MAX_CONCURRENCY,
+} from './tool-batch-scheduler';
+import {
   applyToolBatchTurnCount,
   evaluateToolDispatchBudget,
   filterToolDefinitionsForPhase,
@@ -195,6 +201,8 @@ export class AgentRuntimeService {
     let frozenMemoryQuery: string | undefined;
     let frozenMemories: MemoryContextInput[] | undefined;
     const memoryQueryEmbedCache = new Map<string, number[]>();
+    // 同 Run 只读工具幂等去重缓存（含同批 in-flight 复用；仅保留成功结果）。
+    const runReadOnlyDedupCache = new Map<string, Promise<ToolExecutionResult<unknown>>>();
     // Runtime 仅保留最新计划，用于事件发布和下一轮只读上下文。
     let currentPlan: PlanSnapshot | undefined;
     // 将运行从可调用工具的调查阶段单向切换到无工具的最终回答阶段。
@@ -1040,6 +1048,8 @@ export class AgentRuntimeService {
           deferredSearchIndex,
         };
       };
+      let batchWallMs = 0;
+      const toolSearchStartedAt = Date.now();
       for (const dispatch of dispatchPlan) {
         if (!isReadyDispatch(dispatch) || dispatch.call.name !== AGENT_TOOL_NAMES.toolSearch) {
           continue;
@@ -1060,10 +1070,14 @@ export class AgentRuntimeService {
           enterFinalAnswer: dispatch.enterFinalAnswer,
           activatedToolPool,
           exposureAudit,
+          runReadOnlyDedupCache,
         });
         pendingToolResults.push(pending);
         preExecutedToolSearchCallIds.add(dispatch.call.id);
         yield* flushToolEventsAndAbortIfCancelled(pendingToolResults);
+      }
+      if (preExecutedToolSearchCallIds.size > 0) {
+        batchWallMs += Date.now() - toolSearchStartedAt;
       }
       syncToolRegistryContext();
       dispatchPlan = dispatchPlan.map((item) =>
@@ -1125,11 +1139,53 @@ export class AgentRuntimeService {
         );
       }
 
+      const dispatchStartedAt = Date.now();
+      let parallelDispatchedCount = 0;
+      type ParallelWorkItem = {
+        call: RuntimeLifecycleToolCall;
+        toolInput: unknown;
+        enterFinalAnswer: boolean;
+      };
+      let parallelBuffer: ParallelWorkItem[] = [];
+      const flushParallelBuffer = async () => {
+        if (!parallelBuffer.length) return;
+        const chunk = parallelBuffer;
+        parallelBuffer = [];
+        syncToolRegistryContext();
+        const snapshotContext = toolRegistryContext;
+        if (chunk.length > 1) parallelDispatchedCount += chunk.length;
+        const chunkResults = await runWithConcurrencyLimit(
+          chunk,
+          TOOL_BATCH_MAX_CONCURRENCY,
+          (item) =>
+            this.runReadyToolCall({
+              input,
+              call: item.call,
+              toolInput: item.toolInput,
+              latestUserMessage: initialUserTurnMessage,
+              roundId,
+              modelRounds,
+              runSignal,
+              runDeadlineSignal,
+              toolRegistryContext: snapshotContext,
+              enterFinalAnswer: item.enterFinalAnswer,
+              approvalDecisions,
+              bashInstallApproval,
+              activatedToolPool,
+              exposureAudit,
+              runReadOnlyDedupCache,
+            }),
+        );
+        pendingToolResults.push(...chunkResults);
+      };
+
       for (const dispatch of dispatchPlan) {
         const { call } = dispatch;
         if (preExecutedToolSearchCallIds.has(call.id)) continue;
         // 参数校验或配额失败转成模型可见 Tool Result，不直接终止整个 Run。
         if (dispatch.status === 'rejected') {
+          await flushParallelBuffer();
+          yield* flushToolEventsAndAbortIfCancelled(pendingToolResults);
           pendingToolResults.push({
             candidate: {
               toolCallId: call.id,
@@ -1151,6 +1207,8 @@ export class AgentRuntimeService {
         if (toolInput === undefined) continue;
         // 成功计划更新立即发布事件，但仍继续处理同一批后续调用。
         if (call.name === AGENT_TOOL_NAMES.updatePlan) {
+          await flushParallelBuffer();
+          yield* flushToolEventsAndAbortIfCancelled(pendingToolResults);
           const plan = toolInput as PlanSnapshot;
           currentPlan = structuredClone(plan);
           this.logger.log(
@@ -1176,7 +1234,10 @@ export class AgentRuntimeService {
           });
           continue;
         }
-        if (this.approvalPolicy(call.name, toolRegistryContext) === 'direct_reject') {
+        const approvalPolicy = this.approvalPolicy(call.name, toolRegistryContext);
+        if (approvalPolicy === 'direct_reject') {
+          await flushParallelBuffer();
+          yield* flushToolEventsAndAbortIfCancelled(pendingToolResults);
           pendingToolResults.push({
             candidate: {
               toolCallId: call.id,
@@ -1196,6 +1257,8 @@ export class AgentRuntimeService {
           continue;
         }
         if (approvalDecisions.get(call.id) === 'reject') {
+          await flushParallelBuffer();
+          yield* flushToolEventsAndAbortIfCancelled(pendingToolResults);
           pendingToolResults.push({
             candidate: {
               toolCallId: call.id,
@@ -1215,6 +1278,18 @@ export class AgentRuntimeService {
           continue;
         }
 
+        const resolvedToolName = this.tools.resolveName(call.name);
+        if (isParallelSafeTool(resolvedToolName, approvalPolicy)) {
+          parallelBuffer.push({
+            call,
+            toolInput,
+            enterFinalAnswer: dispatch.enterFinalAnswer,
+          });
+          continue;
+        }
+
+        await flushParallelBuffer();
+        yield* flushToolEventsAndAbortIfCancelled(pendingToolResults);
         syncToolRegistryContext();
         pendingToolResults.push(
           await this.runReadyToolCall({
@@ -1232,10 +1307,14 @@ export class AgentRuntimeService {
             bashInstallApproval,
             activatedToolPool,
             exposureAudit,
+            runReadOnlyDedupCache,
           }),
         );
         yield* flushToolEventsAndAbortIfCancelled(pendingToolResults);
       }
+      await flushParallelBuffer();
+      yield* flushToolEventsAndAbortIfCancelled(pendingToolResults);
+      batchWallMs += Date.now() - dispatchStartedAt;
 
       // Tool Result 会进入下一轮已编译 Context，而不是重新带回已被 summary 覆盖的原始历史。
       // compileRound 未改写数组时，messages 已包含当前 Tool Call；改写后需显式补到编译结果末尾。
@@ -1283,8 +1362,7 @@ export class AgentRuntimeService {
           content: `${marker}\n${currentPlan.plan.map((step, index) => `${index + 1}. ${step.step} - ${step.status}`).join('\n')}`,
         });
       }
-      // 工具耗时为同批串行累加之和；失败的调用仍然消耗了一整轮模型时间，单独计数。
-      let batchDurationMs = 0;
+      // 工具耗时记录真实墙钟耗时（并发执行时不再重复叠加）；失败调用单独计数。
       for (const pending of pendingToolResults) {
         const event = pending.event;
         if (
@@ -1293,14 +1371,13 @@ export class AgentRuntimeService {
             event.type === 'tool.failed' ||
             event.type === 'tool.cancelled')
         ) {
-          batchDurationMs += event.durationMs;
           exposureAudit.recordInvocation(event.toolName);
         }
         if (pending.summary.status !== 'succeeded') toolFailureCount += 1;
       }
-      runTrace.add('工具', batchDurationMs);
+      runTrace.add('工具', batchWallMs);
       this.logger.log(
-        `工具批次完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 工具=${pendingToolResults.length} 个 | 失败=${pendingToolResults.filter((item) => item.summary.status !== 'succeeded').length} | 批内串行耗时=${formatLogDuration(batchDurationMs)} | 工具累计=${formatLogDuration(runTrace.segmentMs('工具') ?? 0)}`,
+        `工具批次完成 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 工具=${pendingToolResults.length} 个 | 失败=${pendingToolResults.filter((item) => item.summary.status !== 'succeeded').length}${parallelDispatchedCount > 0 ? ` | 并行=${parallelDispatchedCount} 个` : ''} | 批内耗时=${formatLogDuration(batchWallMs)} | 工具累计=${formatLogDuration(runTrace.segmentMs('工具') ?? 0)}`,
         AgentRuntimeService.name,
       );
       // assistant Tool Calls 与全部 Tool Messages 已由消费者按顺序提交，之后才允许控制策略等待。
@@ -1725,6 +1802,7 @@ export class AgentRuntimeService {
     bashInstallApproval?: ReadonlySet<string>;
     activatedToolPool?: ActivatedToolPool;
     exposureAudit?: ToolExposureAudit;
+    runReadOnlyDedupCache?: Map<string, Promise<ToolExecutionResult<unknown>>>;
   }): Promise<PendingToolResult> {
     const {
       input,
@@ -1741,6 +1819,7 @@ export class AgentRuntimeService {
       bashInstallApproval,
       activatedToolPool,
       exposureAudit,
+      runReadOnlyDedupCache,
     } = params;
 
     if (isMcpPublicToolName(call.name) && activatedToolPool) {
@@ -1774,21 +1853,46 @@ export class AgentRuntimeService {
         bashInstallApproval ?? new Set(),
         call.id,
       );
-      result = await this.executeTool(
-        call.name,
-        toolInput,
-        {
-          userId: input.userId,
-          sessionId: input.sessionId,
-          runId: input.runId,
-          messageId: input.messageId,
-          toolCallId: call.id,
-          ...(latestUserMessage ? { latestUserMessage } : {}),
-          ...(bashEgressBoost ? { bashEgressBoost: true } : {}),
-        },
-        runSignal,
-        toolRegistryContext,
-      );
+      const resolvedName = this.tools.resolveName(call.name);
+      const approvalPolicy = this.approvalPolicy(call.name, toolRegistryContext);
+      const dedupKey =
+        runReadOnlyDedupCache && isRunDedupEligibleTool(resolvedName, approvalPolicy)
+          ? this.hashCanonical(resolvedName, toolInput)
+          : undefined;
+      const existingDedup = dedupKey ? runReadOnlyDedupCache?.get(dedupKey) : undefined;
+      if (existingDedup) {
+        result = await existingDedup;
+      } else {
+        const execPromise = this.executeTool(
+          call.name,
+          toolInput,
+          {
+            userId: input.userId,
+            sessionId: input.sessionId,
+            runId: input.runId,
+            messageId: input.messageId,
+            toolCallId: call.id,
+            ...(latestUserMessage ? { latestUserMessage } : {}),
+            ...(bashEgressBoost ? { bashEgressBoost: true } : {}),
+          },
+          runSignal,
+          toolRegistryContext,
+        );
+        if (dedupKey && runReadOnlyDedupCache) {
+          runReadOnlyDedupCache.set(dedupKey, execPromise);
+        }
+        try {
+          result = await execPromise;
+          if (dedupKey && runReadOnlyDedupCache && result.status !== 'succeeded') {
+            runReadOnlyDedupCache.delete(dedupKey);
+          }
+        } catch (execError) {
+          if (dedupKey && runReadOnlyDedupCache) {
+            runReadOnlyDedupCache.delete(dedupKey);
+          }
+          throw execError;
+        }
+      }
     } catch (error) {
       if (input.signal?.aborted) {
         const completedAt = new Date();

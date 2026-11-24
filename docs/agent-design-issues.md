@@ -10,7 +10,7 @@
 | 2 | 工具面 | MCP 直通区是静态切片，与当前任务无关 | 已落地 |
 | 3 | 上下文 | 压缩触发线过低，且压缩一次的成本接近收益 | 已落地（160k 触发线 + 20% 净收益护栏） |
 | 4 | 上下文 | 前缀不稳定，Prompt 缓存命中率低 | 已落地（128k 按需折叠 + `tools[]` 只增末尾追加 + 估算/记忆稳态） |
-| 5 | 调度 | 同批工具串行、无 URL 去重 | 待定 |
+| 5 | 调度 | 同批工具串行、无 URL 去重 | 已落地（只读受控并发 cap=4 + 同 Run 只读幂等去重 + 严格保序） |
 | 6 | 生命周期 | 每 Run 全量 reconcile MCP，无目录缓存 | 已落地（SWR 目录缓存 + 并发 reconcile + 执行期容错） |
 | 7 | 反馈 | 长时无可见进度，靠事后 nudge 补救 | 待定 |
 | 8 | 停止 | 停止靠轮数上限，无「证据已够」判据 | 待定 |
@@ -148,8 +148,12 @@
 
 - `agent-runtime.service.ts:1109` 起串行。
 
-**方案**  
-待定。
+**方案（已落地 · 2026-11-24）**
+
+1. **同批只读受控并发（`TOOL_BATCH_MAX_CONCURRENCY = 4`）**：`tool-batch-scheduler.ts` 对免审批只读工具（`web_search`、`web_fetch`、`read_file`、`read_file_lines`、`search_file`、`get_current_time`、`job_list` 及 `auto_execute` MCP 工具）按连续分段并发执行；`tool_search` 维持先行激活，写/副作用/审批类工具维持串行。
+2. **严格保序**：复用 `PendingToolResult` 与 `emitPendingToolEventsInCallOrder` / `sortPendingToolResultsByCallOrder`，前端思维链、Workbench 步骤与喂给模型的 `messages[]` 严格保持模型原始声明顺序。
+3. **同 Run 只读幂等去重**：对非时间敏感的只读工具按 `hashCanonical(toolName, toolInput)` 维护 Run 级缓存（含同批 in-flight 复用），重复查询直接复用成功结果；失败/取消结果不缓存以保留重试能力。
+4. **批耗时口径校准**：工具批次耗时按真实墙钟耗时记录，避免并发时重复累加。
 
 ---
 

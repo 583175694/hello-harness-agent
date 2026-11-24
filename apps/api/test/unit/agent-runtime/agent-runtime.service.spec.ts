@@ -1238,7 +1238,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
     const calls = Array.from({ length: 41 }, (_, index) => ({
       id: `call-${index + 1}`,
       name: AGENT_TOOL_NAMES.webSearch,
-      arguments: '{"query":"x"}',
+      arguments: JSON.stringify({ query: `x-${index + 1}` }),
     }));
     const model = modelFromRounds([
       [
@@ -1442,7 +1442,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       ...Array.from({ length: 37 }, (_, index) => ({
         id: `call-extra-${index + 1}`,
         name: AGENT_TOOL_NAMES.webSearch,
-        arguments: '{"query":"ok"}',
+        arguments: JSON.stringify({ query: `ok-${index + 1}` }),
       })),
     ];
     const model = modelFromRounds([
@@ -1606,5 +1606,134 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       'call-search',
       'call-search',
     ]);
+  });
+
+  it('runs parallel-safe read-only tools concurrently while preserving original call order', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const tools = registry({
+      execute: vi.fn(async (_name, toolInput) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        const query = (toolInput as { query: string }).query;
+        // 故意让第一个调用最慢，验证最终事件顺序仍严格按模型声明顺序输出。
+        const delay = query === 'q1' ? 40 : query === 'q2' ? 10 : 5;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        inFlight -= 1;
+        return {
+          status: 'succeeded' as const,
+          output: { results: [{ title: query, url: `https://example.com/${query}`, snippet: query }] },
+        };
+      }),
+    });
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            { id: 'c1', name: 'web_search', arguments: '{"query":"q1"}' },
+            { id: 'c2', name: 'web_search', arguments: '{"query":"q2"}' },
+            { id: 'c3', name: 'web_search', arguments: '{"query":"q3"}' },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '完成' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const runtime = new AgentRuntimeService(
+      model,
+      tools,
+      new BashCommandPolicyService(),
+      logger(),
+      toolExposureService(),
+    );
+    const events = [];
+    for await (const event of runtime.run({
+      userId: 'local-user',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      messageId: 'message-1',
+      model: 'test-model',
+      systemPrompt: 'test',
+      messages: [{ role: 'user', content: 'hello' }],
+    })) {
+      events.push(event);
+    }
+    expect(maxInFlight).toBeGreaterThan(1);
+    const toolEvents = events.filter(
+      (item) => item.type === 'tool.started' || item.type === 'tool.completed',
+    );
+    expect(toolEvents.map((item) => item.toolCallId)).toEqual(['c1', 'c1', 'c2', 'c2', 'c3', 'c3']);
+  });
+
+  it('deduplicates identical read-only tool calls within the same run and does not cache failures', async () => {
+    let attempts = 0;
+    const execute = vi.fn(async (_name, toolInput) => {
+      const query = (toolInput as { query: string }).query;
+      if (query === 'flaky') {
+        attempts += 1;
+        if (attempts === 1) {
+          return {
+            status: 'failed' as const,
+            error: {
+              code: AGENT_ERROR_CODES.searchProviderFailed,
+              detail: 'temporary error',
+              retryable: true,
+            },
+          };
+        }
+      }
+      return {
+        status: 'succeeded' as const,
+        output: { results: [{ title: query, url: `https://example.com/${query}`, snippet: query }] },
+      };
+    });
+    const tools = registry({ execute: execute as ToolRegistryService['execute'] });
+    const model = modelFromRounds([
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            { id: 'dup-1', name: 'web_search', arguments: '{"query":"same"}' },
+            { id: 'dup-2', name: 'web_search', arguments: '{"query":"same"}' },
+            { id: 'flaky-1', name: 'web_search', arguments: '{"query":"flaky"}' },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        {
+          type: 'tool_calls.completed',
+          calls: [
+            { id: 'dup-3', name: 'web_search', arguments: '{"query":"same"}' },
+            { id: 'flaky-2', name: 'web_search', arguments: '{"query":"flaky"}' },
+          ],
+        },
+        { type: 'round.completed', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text.delta', delta: '完成' },
+        { type: 'round.completed', finishReason: 'stop' },
+      ],
+    ]);
+    const runtime = new AgentRuntimeService(
+      model,
+      tools,
+      new BashCommandPolicyService(),
+      logger(),
+      toolExposureService(),
+    );
+    await collect(runtime);
+    const sameCalls = execute.mock.calls.filter(
+      ([, toolInput]) => (toolInput as { query: string }).query === 'same',
+    );
+    const flakyCalls = execute.mock.calls.filter(
+      ([, toolInput]) => (toolInput as { query: string }).query === 'flaky',
+    );
+    expect(sameCalls).toHaveLength(1);
+    expect(flakyCalls).toHaveLength(2);
   });
 });

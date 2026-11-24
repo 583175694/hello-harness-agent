@@ -327,18 +327,19 @@ function runDomCompatFixesInPage(): {
     const hasBg = isVisibleColor(style.backgroundColor) || (style.backgroundImage && style.backgroundImage !== 'none');
     if (!hasBg) continue;
 
-    const span = document.createElement('span');
-    span.setAttribute('data-ppt-bar-box', '');
+    const box = document.createElement('figure');
+    box.setAttribute('data-ppt-bar-box', '');
+    box.style.setProperty('padding', '0px');
     for (const attr of Array.from(el.attributes)) {
       if (attr.name.startsWith('data-')) {
-        span.setAttribute(attr.name, attr.value);
+        box.setAttribute(attr.name, attr.value);
       }
     }
     for (const prop of barStyleProps) {
       const value = style.getPropertyValue(prop);
-      if (value) span.style.setProperty(prop, value);
+      if (value) box.style.setProperty(prop, value);
     }
-    el.replaceWith(span);
+    el.replaceWith(box);
     replacedIconBars += 1;
   }
 

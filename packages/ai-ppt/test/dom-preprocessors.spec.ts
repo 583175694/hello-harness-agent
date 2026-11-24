@@ -70,7 +70,7 @@ describe.skipIf(!hasBrowser)('DOM export preprocessors', () => {
     expect(result.html).toMatch(/class="tick"[^>]*border-radius:\s*50%/u);
     expect(result.html).toMatch(/class="pill"[^>]*border-radius:\s*0px/u);
     expect(result.html).toContain('立项申请<br>');
-    expect(result.html).toMatch(/<span data-ppt-bar-box="" style="[^"]*height:\s*32px/u);
+    expect(result.html).toMatch(/<figure data-ppt-bar-box="" style="[^"]*height:\s*32px/u);
     expect(result.html).toContain('<i class="fa fa-check"></i>');
   });
 

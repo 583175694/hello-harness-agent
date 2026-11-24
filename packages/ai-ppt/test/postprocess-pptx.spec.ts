@@ -86,6 +86,20 @@ describe('postprocessSlideXml', () => {
     expect(newX).toBe(x - 70_000);
   });
 
+  it('preserves square dimensions for small circular number badges', () => {
+    const xml = wrapSlide(
+      '<p:sp>' +
+        '<p:spPr><a:xfrm><a:off x="500000" y="500000"/><a:ext cx="152400" cy="152400"/></a:xfrm>' +
+        '<a:solidFill><a:srgbClr val="A16207"/></a:solidFill></p:spPr>' +
+        '<p:txBody><a:bodyPr wrap="none"><a:spAutoFit/></a:bodyPr>' +
+        '<a:p><a:pPr algn="ctr"/><a:r><a:rPr sz="750"/><a:t>1</a:t></a:r></a:p>' +
+        '</p:txBody></p:sp>',
+    );
+
+    const out = postprocessSlideXml(xml);
+    expect(out).toContain('<a:ext cx="152400" cy="152400"/>');
+  });
+
   it('leaves non-text decorative shapes untouched', () => {
     const xml = wrapSlide(
       '<p:sp>' +

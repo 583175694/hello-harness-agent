@@ -243,6 +243,11 @@ function patchTextShape(
     const algnMatch = /<a:pPr\b[^>]*\balgn="(l|r|ctr|just)"/u.exec(updated);
     const algn = algnMatch?.[1] ?? 'l';
     updated = patchShapeBox(updated, ({ x, y, cx, cy }) => {
+      // 小正圆/小方序号徽章（如 16×16px 的圆圈序号）不能扩宽，否则会被拉成椭圆。
+      if (hasVisualBox && cx <= 350_000 && cy <= 350_000 && Math.abs(cx - cy) <= 30_000) {
+        return { x, y, cx, cy };
+      }
+
       const delta = hasVisualBox
         ? Math.max(Math.round(cx * 0.08), 76_200)
         : Math.max(Math.round(cx * 0.18), 140_000);

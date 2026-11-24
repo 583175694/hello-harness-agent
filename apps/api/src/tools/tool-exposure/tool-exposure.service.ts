@@ -64,16 +64,30 @@ export class ToolExposureService {
   ): AgentToolDefinition[] {
     if (!snapshot?.entries.length) return [];
     const activated = activatedTools ?? new Set<string>();
-    return snapshot.entries
-      .filter(
-        (entry) => entry.exposure === 'direct' || activated.has(entry.publicName),
-      )
+    const entryByName = new Map(snapshot.entries.map((entry) => [entry.publicName, entry] as const));
+    const directDefs = snapshot.entries
+      .filter((entry) => entry.exposure === 'direct')
       .map((entry) => ({
         name: entry.publicName,
         description: entry.description || `MCP tool ${entry.rawName} on ${entry.serverName}`,
         parameters: entry.parameters,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
+
+    const directNames = new Set(directDefs.map((def) => def.name));
+    const activatedDefs: AgentToolDefinition[] = [];
+    // 新激活工具严格按激活先后顺序追加在末尾，避免中间插入破坏 tools[] 前半段 KV-Cache。
+    for (const name of activated) {
+      if (directNames.has(name)) continue;
+      const entry = entryByName.get(name);
+      if (!entry) continue;
+      activatedDefs.push({
+        name: entry.publicName,
+        description: entry.description || `MCP tool ${entry.rawName} on ${entry.serverName}`,
+        parameters: entry.parameters,
+      });
+    }
+    return [...directDefs, ...activatedDefs];
   }
 
   formatCapabilityManifest(snapshot: RunMcpSnapshot | undefined): string {

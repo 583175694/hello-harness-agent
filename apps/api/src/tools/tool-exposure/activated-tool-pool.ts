@@ -8,10 +8,10 @@ export type ActivatedToolEntry = {
 };
 
 /**
- * 管理单个 Run 内通过 tool_search 激活的 MCP 工具生命周期：
- * 1. 硬容量上限（默认 MCP_ACTIVATED_CAP = 8），超限时优先淘汰未调用且最早激活的候选；
- * 2. 跨轮未调用淘汰：工具被搜出后至少保留下一整轮供模型调用，若整轮未被执行则在再下一轮自动移出；
- * 3. 真调用留存：一旦被模型实际执行，锁定留存并在超限时按 LRU 排序。
+ * 管理单个 Run 内通过 tool_search 激活的 MCP 工具生命周期（Append-Only）：
+ * 1. 单 Run 内只增不减、严格保持首次激活顺序，避免跨轮淘汰反复击穿 KV-Cache；
+ * 2. 达到硬上限（默认 MCP_ACTIVATED_CAP = 12）后不再追加新工具，总工具面恒定有界；
+ * 3. 记录 invoked 状态供观测审计使用。
  */
 export class ActivatedToolPool {
   private readonly entries = new Map<string, ActivatedToolEntry>();
@@ -20,21 +20,13 @@ export class ActivatedToolPool {
 
   activate(names: ReadonlyArray<string>, round: number): void {
     for (const name of names) {
-      const existing = this.entries.get(name);
-      if (existing) {
-        existing.activatedInRound = Math.max(existing.activatedInRound, round);
-        continue;
-      }
-      if (this.entries.size >= this.maxSize) {
-        this.evictOne();
-      }
-      if (this.entries.size < this.maxSize) {
-        this.entries.set(name, {
-          publicName: name,
-          activatedInRound: round,
-          invoked: false,
-        });
-      }
+      if (this.entries.has(name)) continue;
+      if (this.entries.size >= this.maxSize) break;
+      this.entries.set(name, {
+        publicName: name,
+        activatedInRound: round,
+        invoked: false,
+      });
     }
   }
 
@@ -46,51 +38,12 @@ export class ActivatedToolPool {
     }
   }
 
-  /**
-   * 清理已完整暴露过至少一轮但仍未被模型调用的候选工具。
-   * 例：第 1 轮 tool_search 激活 -> 第 2 轮供模型调用 -> 第 3 轮起若仍未调用则淘汰。
-   */
-  evictStaleUninvoked(currentRound: number): string[] {
-    const evicted: string[] = [];
-    for (const [name, entry] of this.entries) {
-      if (!entry.invoked && currentRound - entry.activatedInRound >= 2) {
-        this.entries.delete(name);
-        evicted.push(name);
-      }
-    }
-    return evicted;
-  }
-
+  /** 返回按首次激活顺序排列的只读集合（JS Set 严格保序）。 */
   asSet(): ReadonlySet<string> {
     return new Set(this.entries.keys());
   }
 
   get size(): number {
     return this.entries.size;
-  }
-
-  private evictOne(): void {
-    let victim: ActivatedToolEntry | undefined;
-    for (const entry of this.entries.values()) {
-      if (!entry.invoked) {
-        if (!victim || entry.activatedInRound < victim.activatedInRound) {
-          victim = entry;
-        }
-      }
-    }
-    if (!victim) {
-      for (const entry of this.entries.values()) {
-        const entryTouch = entry.lastInvokedRound ?? entry.activatedInRound;
-        const victimTouch = victim
-          ? (victim.lastInvokedRound ?? victim.activatedInRound)
-          : Number.POSITIVE_INFINITY;
-        if (!victim || entryTouch < victimTouch) {
-          victim = entry;
-        }
-      }
-    }
-    if (victim) {
-      this.entries.delete(victim.publicName);
-    }
   }
 }

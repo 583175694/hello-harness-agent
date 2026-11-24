@@ -93,16 +93,31 @@ describe('ToolExposureService', () => {
     expect(exposure.buildMcpDefinitions(annotated, new Set())).toHaveLength(0);
   });
 
-  it('sorts exposed MCP definitions alphabetically to preserve Prompt Cache', () => {
+  it('sorts direct definitions alphabetically and appends activated tools in insertion order', () => {
     const exposure = new ToolExposureService(
-      ToolExposureConfigService.forTest({ exposureMode: 'full' }),
+      ToolExposureConfigService.forTest({ exposureMode: 'deferred_search', directCap: 0 }),
     );
-    const annotated = exposure.annotateSnapshot(snapshot([entry(3), entry(1), entry(2)]));
-    const defs = exposure.buildMcpDefinitions(annotated, new Set());
+    const entries = [
+      entry(2, 'white'),
+      entry(1, 'white'),
+      entry(3, 'other'),
+      entry(1, 'other'),
+    ];
+    const annotated = exposure.annotateSnapshot(
+      snapshot(entries, [
+        { serverName: 'white', enabledTools: ['tool_1', 'tool_2'] },
+        { serverName: 'other', enabledTools: null },
+      ]),
+    );
+    const defs = exposure.buildMcpDefinitions(
+      annotated,
+      new Set(['mcp__other__tool_3', 'mcp__other__tool_1']),
+    );
     expect(defs.map((d) => d.name)).toEqual([
-      'mcp__srv__tool_1',
-      'mcp__srv__tool_2',
-      'mcp__srv__tool_3',
+      'mcp__white__tool_1',
+      'mcp__white__tool_2',
+      'mcp__other__tool_3',
+      'mcp__other__tool_1',
     ]);
   });
 

@@ -383,6 +383,11 @@ describe('ContextEngineeringService', () => {
 
   it('collapses older Tool Results to file pointers while keeping the latest units', async () => {
     const { service, files } = createService();
+    // 模拟高水位（>= 128k token 折叠阈值、< 160k 压缩阈值），触发按需折叠。
+    vi.spyOn(
+      service as unknown as { estimate: () => Promise<number> },
+      'estimate',
+    ).mockResolvedValue(130_000);
     const compiled = await service.compileRound({
       sessionId: 'session-1',
       model: 'deepseek-flash',
@@ -480,6 +485,10 @@ describe('ContextEngineeringService', () => {
 
   it('keeps collapsed file-tool results inline while non-file tools still become stored', async () => {
     const { service, files } = createService();
+    vi.spyOn(
+      service as unknown as { estimate: () => Promise<number> },
+      'estimate',
+    ).mockResolvedValue(130_000);
     const filePayload = '{"lines":[{"n":1,"text":"审阅正文片段"}]}'.repeat(400);
     const compiled = await service.compileRound({
       sessionId: 'session-1',
@@ -629,6 +638,10 @@ describe('ContextEngineeringService', () => {
 
   it('writes collapsed Tool Result pointers back so later rounds do not re-spill', async () => {
     const { service, files } = createService();
+    vi.spyOn(
+      service as unknown as { estimate: () => Promise<number> },
+      'estimate',
+    ).mockResolvedValue(130_000);
     const oldContent = '历史搜索结果。'.repeat(200);
     const live = [
       { role: 'system' as const, content: 'system' },
@@ -1055,5 +1068,137 @@ describe('ContextEngineeringService', () => {
     expect(remaining.length).toBeLessThan(9);
     expect(remaining.at(-1)).toMatchObject({ fileId: 'image-8' });
     expect(estimatedTokens).toBeLessThanOrEqual(5_000);
+  });
+
+  it('skips collapsing old Tool Results below the 128k watermark to preserve KV-Cache prefix', async () => {
+    const { service, files } = createService();
+    const oldContent = '历史搜索结果正文。'.repeat(100);
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: '请分析' },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            { id: 'oldest', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
+          ],
+        },
+        { role: 'tool', toolCallId: 'oldest', content: oldContent },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            { id: 'old', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
+          ],
+        },
+        { role: 'tool', toolCallId: 'old', content: '次旧结果' },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            { id: 'mid', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
+          ],
+        },
+        { role: 'tool', toolCallId: 'mid', content: '中间结果' },
+        {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            { id: 'new', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
+          ],
+        },
+        { role: 'tool', toolCallId: 'new', content: '最新结果' },
+      ],
+    });
+    const oldest = compiled.messages.find(
+      (message) => message.role === 'tool' && message.toolCallId === 'oldest',
+    );
+    expect(oldest).toMatchObject({ role: 'tool', content: oldContent });
+    expect(files.createToolResultFile).not.toHaveBeenCalled();
+  });
+
+  it('skips compaction when net token savings are below 20% and within prompt budget', async () => {
+    const { service } = createService();
+    // 第一次估算 170k（达到 160k 触发线、未超 566k 预算），折叠后再估算仍 170k，
+    // 压缩后 mock 返回 150k（仅省 11.8% < 20%），应放弃压缩保留原消息与前缀缓存。
+    vi.spyOn(
+      service as unknown as { estimate: () => Promise<number> },
+      'estimate',
+    ).mockResolvedValue(170_000);
+    vi.spyOn(
+      service as unknown as { compact: () => Promise<unknown> },
+      'compact',
+    ).mockResolvedValue({
+      messages: [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: 'compacted' },
+      ],
+      estimatedInputTokens: 150_000,
+      compactionState: {
+        version: 1,
+        summary: 'short',
+        coveredThroughMessageId: 'u1',
+        coveredMessageCount: 2,
+        coveredUserTurns: 1,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: '原始请求' },
+      ],
+    });
+    expect(compiled.compactionTriggered).toBe(false);
+    expect(compiled.compactionState).toBeUndefined();
+    expect(compiled.messages.some((m) => m.role === 'user' && m.content === '原始请求')).toBe(true);
+  });
+
+  it('counts assistant reasoning tokens when assistant message has toolCalls', async () => {
+    const { service } = createService();
+    const reasoningText = '深度推理过程分析。'.repeat(200);
+    const baseMessages: ModelMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: '请调研' },
+      {
+        role: 'assistant',
+        content: null,
+        toolCalls: [
+          { id: 'c1', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
+        ],
+      },
+      { role: 'tool', toolCallId: 'c1', content: '结果' },
+    ];
+    const withReasoningMessages: ModelMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: '请调研' },
+      {
+        role: 'assistant',
+        content: null,
+        reasoning: reasoningText,
+        toolCalls: [
+          { id: 'c1', name: 'web_search', arguments: '{}', blockSequence: 0, providerIndex: 0 },
+        ],
+      },
+      { role: 'tool', toolCallId: 'c1', content: '结果' },
+    ];
+    const withoutReasoning = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: baseMessages,
+    });
+    const withReasoning = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: withReasoningMessages,
+    });
+    expect(withReasoning.estimatedInputTokens).toBeGreaterThan(
+      withoutReasoning.estimatedInputTokens + 500,
+    );
   });
 });

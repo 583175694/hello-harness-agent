@@ -192,6 +192,8 @@ export class AgentRuntimeService {
     let cachedTokensTotal = 0;
     let compactionCount = 0;
     let lastMemoryTrace: MemoryInjectionTrace | undefined;
+    let frozenMemoryQuery: string | undefined;
+    let frozenMemories: MemoryContextInput[] | undefined;
     const memoryQueryEmbedCache = new Map<string, number[]>();
     // Runtime 仅保留最新计划，用于事件发布和下一轮只读上下文。
     let currentPlan: PlanSnapshot | undefined;
@@ -262,13 +264,6 @@ export class AgentRuntimeService {
             '已进行多轮调查。请停止重复搜索，基于已有材料用精炼 create_report 或较短最终回答完成交付；不要在思考中复述全部原始数据。',
         });
       }
-      const evictedTools = activatedToolPool.evictStaleUninvoked(modelRounds);
-      if (evictedTools.length > 0) {
-        this.logger.log(
-          `已淘汰未调用的激活 MCP 工具 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 淘汰=${evictedTools.length} 个(${evictedTools.join(', ')}) | 剩余激活=${activatedToolPool.size}`,
-          AgentRuntimeService.name,
-        );
-      }
       toolRegistryContext = {
         userId: input.userId,
         mcpSnapshot: input.mcpSnapshot,
@@ -311,37 +306,46 @@ export class AgentRuntimeService {
           const retriever = this.memoryRetriever;
           const { last, prev } = this.extractRecentUserTexts(messages);
           const query = composeMemoryRetrievalQuery(last, prev);
-          const memoryStartedAt = runTrace.elapsedMs();
-          const retrieved = await runTrace.measure('记忆检索', () =>
-            retriever.retrieve({
-              userId: input.userId,
-              sessionId: input.sessionId,
-              runId: input.runId ?? '',
-              query,
-              queryEmbedCache: memoryQueryEmbedCache,
-            }),
-          );
-          if (retrieved) {
-            lastMemoryTrace = retrieved.trace;
-            roundMemories = retrieved.cards.map((card) => {
-              const sourceRefs = toContextMemorySourceRefs(card.sourceRefs);
-              return {
-                memoryId: card.memoryId,
-                content: `${card.title}\n${card.summary}`,
-                sourceRefs: sourceRefs.length
-                  ? sourceRefs
-                  : [{ type: 'session' as const, id: input.sessionId }],
-                priorityHint: Math.round(card.similarity * 100),
-              };
-            });
-          }
-          // 记忆检索可能包含一次远程 embedding 调用，属首字前同步阻塞；只对单轮超阈值告警。
-          const memoryMs = runTrace.elapsedMs() - memoryStartedAt;
-          if (memoryMs >= MEMORY_INJECTION_SLOW_LOG_THRESHOLD_MS) {
-            this.logger.warn(
-              `记忆检索偏慢 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 耗时=${formatLogDuration(memoryMs)} | 召回=${retrieved?.cards.length ?? 0} 张 | embedding失败=${retrieved?.trace.queryEmbedFailed ? '是' : '否'}`,
-              AgentRuntimeService.name,
+          // 同一 Run 内用户输入未变化（非 steer 介入）时冻结首轮记忆快照，防止 messages[1] 前缀漂移与重复检索。
+          if (frozenMemoryQuery !== undefined && query === frozenMemoryQuery) {
+            roundMemories = frozenMemories;
+          } else {
+            const memoryStartedAt = runTrace.elapsedMs();
+            const retrieved = await runTrace.measure('记忆检索', () =>
+              retriever.retrieve({
+                userId: input.userId,
+                sessionId: input.sessionId,
+                runId: input.runId ?? '',
+                query,
+                queryEmbedCache: memoryQueryEmbedCache,
+              }),
             );
+            frozenMemoryQuery = query;
+            if (retrieved) {
+              lastMemoryTrace = retrieved.trace;
+              roundMemories = retrieved.cards.map((card) => {
+                const sourceRefs = toContextMemorySourceRefs(card.sourceRefs);
+                return {
+                  memoryId: card.memoryId,
+                  content: `${card.title}\n${card.summary}`,
+                  sourceRefs: sourceRefs.length
+                    ? sourceRefs
+                    : [{ type: 'session' as const, id: input.sessionId }],
+                  priorityHint: Math.round(card.similarity * 100),
+                };
+              });
+              frozenMemories = roundMemories;
+            } else {
+              frozenMemories = undefined;
+            }
+            // 记忆检索可能包含一次远程 embedding 调用，属首字前同步阻塞；只对单轮超阈值告警。
+            const memoryMs = runTrace.elapsedMs() - memoryStartedAt;
+            if (memoryMs >= MEMORY_INJECTION_SLOW_LOG_THRESHOLD_MS) {
+              this.logger.warn(
+                `记忆检索偏慢 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 耗时=${formatLogDuration(memoryMs)} | 召回=${retrieved?.cards.length ?? 0} 张 | embedding失败=${retrieved?.trace.queryEmbedFailed ? '是' : '否'}`,
+                AgentRuntimeService.name,
+              );
+            }
           }
         }
         // 将文件预算超限转换为前端可识别的稳定错误码。

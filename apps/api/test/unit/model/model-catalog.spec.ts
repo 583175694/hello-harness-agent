@@ -42,7 +42,7 @@ describe('model catalog', () => {
     expect(controller.getPublicConfig().models[0]?.context).toEqual({
       contextWindowTokens: 1_000_000,
       maxOutputTokens: 384_000,
-      compactionTriggerTokens: 40_000,
+      compactionTriggerTokens: 160_000,
       toolResultMaxTokens: 8_000,
       toolResultsRoundBudgetTokens: 16_000,
       tokenizer: 'deepseek-v3',

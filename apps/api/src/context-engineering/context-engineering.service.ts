@@ -37,6 +37,10 @@ const SUMMARY_MAX_TOKENS = 8_192;
 const COMPACTION_TIMEOUT_MS = 120_000;
 const RECENT_TOOL_UNITS_TO_KEEP = 3;
 const PROTECTED_RECENT_UNITS = 4;
+/** 上下文达到该阈值才执行历史工具结果折叠，避免低水位下每轮改写历史击穿 KV-Cache。 */
+const TOOL_RESULT_COLLAPSE_TRIGGER_TOKENS = 128_000;
+/** 压缩至少需净减少 20% token 才采纳，否则保留原前缀避免负收益击穿缓存。 */
+const COMPACTION_MIN_SAVINGS_RATIO = 0.2;
 // DeepSeek 单张图片最多 1024 视觉 token；保守按上限估算，避免预算长期失真。
 const IMAGE_TOKEN_ESTIMATE_MAX = 1_024;
 // 图片被省略后保留的占位；图片没有文本正文，模型无法用 read_file 重读。
@@ -113,14 +117,30 @@ export class ContextEngineeringService {
       beforeWriteArgumentCollapse,
       () => this.collapseHistoricalWriteArguments(messages),
     );
-    const beforeCollapse = messages;
-    messages = await trace.measure('折叠旧工具结果', () =>
-      this.collapseOldToolResults(messages, input.sessionId, RECENT_TOOL_UNITS_TO_KEEP),
-    );
-    messages = await this.applyIfValid('after_collapse', beforeCollapse, async () => messages);
     let estimatedInputTokens = await trace.measure('token估算', () =>
       this.estimate(messages, input.tools),
     );
+    const collapseTriggerTokens = Math.min(
+      TOOL_RESULT_COLLAPSE_TRIGGER_TOKENS,
+      Math.floor(profile.compactionTriggerTokens * 0.8),
+    );
+    if (estimatedInputTokens >= collapseTriggerTokens) {
+      const beforeCollapse = messages;
+      const collapsed = await trace.measure('折叠旧工具结果', () =>
+        this.collapseOldToolResults(messages, input.sessionId, RECENT_TOOL_UNITS_TO_KEEP),
+      );
+      const validCollapsed = await this.applyIfValid(
+        'after_collapse',
+        beforeCollapse,
+        async () => collapsed,
+      );
+      if (validCollapsed !== beforeCollapse) {
+        messages = validCollapsed;
+        estimatedInputTokens = await trace.measure('token估算', () =>
+          this.estimate(messages, input.tools),
+        );
+      }
+    }
     const preCompactionTokens = estimatedInputTokens;
     let compactionTriggered = false;
     let nextCompactionState: CompactedContext['compactionState'] | undefined;
@@ -131,22 +151,30 @@ export class ContextEngineeringService {
         this.compact({ ...input, messages }, state ?? null, promptBudget),
       );
       if (compacted) {
-        const nextMessages = await this.applyIfValid(
-          'after_compact',
-          messages,
-          async () => compacted.messages,
-        );
-        if (nextMessages !== messages) {
-          messages = nextMessages;
-          estimatedInputTokens = compacted.estimatedInputTokens;
-          compactionTriggered = true;
-          nextCompactionState = compacted.compactionState;
-          this.logger?.log(
-            `上下文已压缩 | 会话=${shortLogId(input.sessionId)} | 版本=${compacted.compactionState.version} | 触发线=${profile.compactionTriggerTokens} | ${preCompactionTokens} → ${estimatedInputTokens} token(≈${formatLogShare(estimatedInputTokens, preCompactionTokens)}) | 预算=${promptBudget} | 仍超触发线=${estimatedInputTokens >= profile.compactionTriggerTokens ? '是' : '否'} | 耗时=${formatLogDuration(trace.segmentMs('压缩') ?? 0)} | 累计=${formatLogDuration(trace.elapsedMs())}`,
-            ContextEngineeringService.name,
-          );
+        const savedRatio =
+          preCompactionTokens > 0
+            ? (preCompactionTokens - compacted.estimatedInputTokens) / preCompactionTokens
+            : 0;
+        if (savedRatio < COMPACTION_MIN_SAVINGS_RATIO && preCompactionTokens <= promptBudget) {
+          compactionSkippedReason = `收益不足(${Math.round(savedRatio * 100)}%<20%)`;
         } else {
-          compactionSkippedReason = '校验回滚';
+          const nextMessages = await this.applyIfValid(
+            'after_compact',
+            messages,
+            async () => compacted.messages,
+          );
+          if (nextMessages !== messages) {
+            messages = nextMessages;
+            estimatedInputTokens = compacted.estimatedInputTokens;
+            compactionTriggered = true;
+            nextCompactionState = compacted.compactionState;
+            this.logger?.log(
+              `上下文已压缩 | 会话=${shortLogId(input.sessionId)} | 版本=${compacted.compactionState.version} | 触发线=${profile.compactionTriggerTokens} | ${preCompactionTokens} → ${estimatedInputTokens} token(≈${formatLogShare(estimatedInputTokens, preCompactionTokens)}) | 预算=${promptBudget} | 仍超触发线=${estimatedInputTokens >= profile.compactionTriggerTokens ? '是' : '否'} | 耗时=${formatLogDuration(trace.segmentMs('压缩') ?? 0)} | 累计=${formatLogDuration(trace.elapsedMs())}`,
+              ContextEngineeringService.name,
+            );
+          } else {
+            compactionSkippedReason = '校验回滚';
+          }
         }
       } else compactionSkippedReason = '无闭合前缀';
     } else {
@@ -1016,9 +1044,13 @@ export class ContextEngineeringService {
 
   private toTokenizerMessage(message: ModelMessage) {
     if (message.role === 'assistant') {
+      const content =
+        message.reasoning && message.toolCalls?.length
+          ? [message.reasoning, message.content].filter(Boolean).join('\n')
+          : message.content;
       return {
         role: 'assistant' as const,
-        content: message.content,
+        content,
         toolCalls: message.toolCalls?.map((call) => ({
           id: call.id,
           name: call.name,

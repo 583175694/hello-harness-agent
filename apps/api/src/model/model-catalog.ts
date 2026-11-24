@@ -36,7 +36,7 @@ export type ConfiguredModel = {
 // Context Length 1M，Max Output 384K。
 export const DEEPSEEK_CONTEXT_WINDOW_TOKENS = 1_000_000;
 export const DEEPSEEK_MAX_OUTPUT_TOKENS = 384_000;
-export const DEEPSEEK_COMPACTION_TRIGGER_TOKENS = 40_000;
+export const DEEPSEEK_COMPACTION_TRIGGER_TOKENS = 160_000;
 export const DEEPSEEK_TOOL_RESULT_MAX_TOKENS = 8_000;
 export const DEEPSEEK_TOOL_RESULTS_ROUND_BUDGET_TOKENS = 16_000;
 export const DEEPSEEK_MODEL_PROFILE_SOURCE = 'https://api-docs.deepseek.com/quick_start/pricing/';

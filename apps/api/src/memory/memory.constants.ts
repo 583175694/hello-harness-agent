@@ -13,6 +13,8 @@ export const MEMORY_LIMITS = {
   defaultDedupThreshold: 0.92,
   defaultActiveCap: 50,
   defaultSmallSetInjectCap: 5,
+  defaultSmallSetInject: true,
+  embeddingTimeoutMs: 30_000,
 } as const;
 
 export const MEMORY_KINDS = [

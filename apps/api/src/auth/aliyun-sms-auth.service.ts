@@ -14,6 +14,7 @@ import Dypnsapi20170525, {
 import { $OpenApiUtil } from '@alicloud/openapi-core';
 import { AUTH_ERROR_CODES } from '@harness/agent-protocol';
 import { ENV_KEYS } from '../bootstrap/env.constants';
+import { AUTH_POLICY } from './auth.constants';
 
 const DYPNS_ENDPOINT = 'dypnsapi.aliyuncs.com';
 const VERIFY_CODE_LENGTH = 6;
@@ -48,8 +49,8 @@ export class AliyunSmsAuthService {
       return;
     }
 
-    const minInterval = this.config.get<number>(ENV_KEYS.authSendCodeMinIntervalSec) ?? 60;
-    const validTime = this.config.get<number>(ENV_KEYS.authCodeTtlSeconds) ?? 600;
+    const minInterval = AUTH_POLICY.sendCodeMinIntervalSec;
+    const validTime = AUTH_POLICY.codeTtlSeconds;
     const validMinutes = Math.max(1, Math.ceil(validTime / 60));
     const templateParam = JSON.stringify({ code: '##code##', min: String(validMinutes) });
 

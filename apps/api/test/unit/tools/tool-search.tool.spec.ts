@@ -4,13 +4,8 @@ import { ToolSearchTool } from '../../../src/tools/tool-exposure/tool-search.too
 import { ToolExposureConfigService } from '../../../src/tools/tool-exposure/tool-exposure.config';
 import { DeferredToolSearchIndex } from '../../../src/tools/tool-exposure/deferred-tool-search-index';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
-import type { ConfigService } from '@nestjs/config';
 import type { McpToolCatalogEntry } from '../../../src/mcp/mcp.types';
 import { TOOL_SEARCH_MAX_SCHEMA_CHARS } from '../../../src/tools/tool-exposure/tool-exposure.constants';
-
-function configService(): ConfigService {
-  return { get: () => undefined } as unknown as ConfigService;
-}
 
 function entry(overrides: Partial<McpToolCatalogEntry> = {}): McpToolCatalogEntry {
   return {
@@ -28,7 +23,7 @@ function entry(overrides: Partial<McpToolCatalogEntry> = {}): McpToolCatalogEntr
 }
 
 describe('ToolSearchTool', () => {
-  const tool = new ToolSearchTool(new ToolExposureConfigService(configService()));
+  const tool = new ToolSearchTool(new ToolExposureConfigService());
 
   it('rejects empty query', async () => {
     const result = await tool.execute(

@@ -67,6 +67,7 @@ import { composeMemoryRetrievalQuery, toContextMemorySourceRefs } from '../memor
 import type { MemoryInjectionTrace } from '../memory/memory.types';
 import { ToolExposureService } from '../tools/tool-exposure/tool-exposure.service';
 import { DEFERRED_TOOL_SEARCH_SYSTEM_HINT } from '../tools/tool-exposure/tool-exposure.constants';
+import { ActivatedToolPool } from '../tools/tool-exposure/activated-tool-pool';
 import { ToolExposureAudit } from '../tools/tool-exposure/tool-exposure-audit';
 import type { ToolSearchOutput } from '../tools/tool-exposure/tool-search.tool';
 import { orderToolCallsForBatch } from './tool-batch-order';
@@ -130,7 +131,7 @@ export class AgentRuntimeService {
 
   // 执行受通用调用上限约束的模型-工具循环，并输出供应商无关的 Runtime 事件。
   async *run(input: AgentRuntimeInput): AsyncGenerator<AgentRuntimeEvent> {
-    const activatedTools = new Set<string>();
+    const activatedToolPool = new ActivatedToolPool();
     const deferredSearchIndex = this.toolExposure.createIndex(input.mcpSnapshot);
     const deferredCount = this.toolExposure.deferredCount(input.mcpSnapshot);
     // 观测直通名额利用率与 tool_search 命中率，不改路由。
@@ -140,7 +141,7 @@ export class AgentRuntimeService {
       userId: input.userId,
       mcpSnapshot: input.mcpSnapshot,
       toolPhase: 'investigation',
-      activatedTools,
+      activatedTools: activatedToolPool.asSet(),
       deferredSearchIndex,
     };
     // Run 级耗时归因：模型/工具/记忆三段相加即为主干，剩余时间属于编译、落库等其它工作。
@@ -261,16 +262,26 @@ export class AgentRuntimeService {
             '已进行多轮调查。请停止重复搜索，基于已有材料用精炼 create_report 或较短最终回答完成交付；不要在思考中复述全部原始数据。',
         });
       }
+      const evictedTools = activatedToolPool.evictStaleUninvoked(modelRounds);
+      if (evictedTools.length > 0) {
+        this.logger.log(
+          `已淘汰未调用的激活 MCP 工具 | 会话=${shortLogId(input.sessionId)} | 轮次=${modelRounds} | 淘汰=${evictedTools.length} 个(${evictedTools.join(', ')}) | 剩余激活=${activatedToolPool.size}`,
+          AgentRuntimeService.name,
+        );
+      }
       toolRegistryContext = {
         userId: input.userId,
         mcpSnapshot: input.mcpSnapshot,
         toolPhase,
-        activatedTools,
+        activatedTools: activatedToolPool.asSet(),
         deferredSearchIndex,
       };
       if (!deferredHintAdded && deferredCount > 0 && toolPhase === 'investigation') {
         deferredHintAdded = true;
-        messages.push({ role: 'system', content: DEFERRED_TOOL_SEARCH_SYSTEM_HINT });
+        const manifest =
+          this.toolExposure.formatCapabilityManifest?.(input.mcpSnapshot) ||
+          DEFERRED_TOOL_SEARCH_SYSTEM_HINT;
+        messages.push({ role: 'system', content: manifest });
       }
       this.logger.log(
         `模型 Loop 即将开始 | 会话=${shortLogId(input.sessionId)} | Run=${shortLogId(input.runId ?? 'unknown')} | 轮次=${modelRounds} | toolPhase=${toolPhase} | 调查Turn=${investigationToolTurns} | 交付Turn=${deliveryToolTurns} | 阶段=${finalResponseOnly ? 'final_answer' : 'tool_loop'} | 暂停状态=${input.lifecycle?.snapshot().state ?? 'none'}`,
@@ -619,7 +630,7 @@ export class AgentRuntimeService {
               ? (() => {
                   const exposure = this.toolExposure.exposureMetrics({
                     snapshot: input.mcpSnapshot,
-                    activatedTools,
+                    activatedTools: activatedToolPool.asSet(),
                     exposedDefinitions: definitions,
                   });
                   return {
@@ -901,7 +912,7 @@ export class AgentRuntimeService {
           userId: input.userId,
           mcpSnapshot: input.mcpSnapshot,
           toolPhase,
-          activatedTools,
+          activatedTools: activatedToolPool.asSet(),
           deferredSearchIndex,
         };
         const budgetDecision = evaluateToolDispatchBudget({
@@ -1021,7 +1032,7 @@ export class AgentRuntimeService {
           userId: input.userId,
           mcpSnapshot: input.mcpSnapshot,
           toolPhase,
-          activatedTools,
+          activatedTools: activatedToolPool.asSet(),
           deferredSearchIndex,
         };
       };
@@ -1043,7 +1054,7 @@ export class AgentRuntimeService {
           runDeadlineSignal,
           toolRegistryContext,
           enterFinalAnswer: dispatch.enterFinalAnswer,
-          activatedTools,
+          activatedToolPool,
           exposureAudit,
         });
         pendingToolResults.push(pending);
@@ -1215,7 +1226,7 @@ export class AgentRuntimeService {
             enterFinalAnswer: dispatch.enterFinalAnswer,
             approvalDecisions,
             bashInstallApproval,
-            activatedTools,
+            activatedToolPool,
             exposureAudit,
           }),
         );
@@ -1708,7 +1719,7 @@ export class AgentRuntimeService {
     enterFinalAnswer: boolean;
     approvalDecisions?: Map<string, 'approve' | 'reject'>;
     bashInstallApproval?: ReadonlySet<string>;
-    activatedTools?: Set<string>;
+    activatedToolPool?: ActivatedToolPool;
     exposureAudit?: ToolExposureAudit;
   }): Promise<PendingToolResult> {
     const {
@@ -1724,9 +1735,13 @@ export class AgentRuntimeService {
       enterFinalAnswer,
       approvalDecisions,
       bashInstallApproval,
-      activatedTools,
+      activatedToolPool,
       exposureAudit,
     } = params;
+
+    if (isMcpPublicToolName(call.name) && activatedToolPool) {
+      activatedToolPool.markInvoked(call.name, modelRounds);
+    }
 
     const startedAt = new Date();
     this.logger.log(
@@ -1840,9 +1855,9 @@ export class AgentRuntimeService {
         roundSequence: modelRounds,
         blockSequence: call.blockSequence,
       };
-      if (call.name === AGENT_TOOL_NAMES.toolSearch && activatedTools) {
+      if (call.name === AGENT_TOOL_NAMES.toolSearch && activatedToolPool) {
         const searchOutput = result.output as ToolSearchOutput;
-        for (const name of searchOutput.activatedCandidates) activatedTools.add(name);
+        activatedToolPool.activate(searchOutput.activatedCandidates, modelRounds);
         exposureAudit?.recordSearch({
           hits: searchOutput.tools.length,
           fallback: searchOutput.fallback === true,

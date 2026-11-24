@@ -7,7 +7,7 @@
 | # | 分类 | 问题（一句话） | 方案 |
 |:-:|------|----------------|------|
 | 1 | 工具面 | 自研 `web_fetch` 被关，Prompt 仍指向它，模型落到第三方 MCP | 已确认 |
-| 2 | 工具面 | MCP 直通区是静态切片，与当前任务无关 | 已确认（Pre-loop 向量选优 + 执行感知 Tool LRU） |
+| 2 | 工具面 | MCP 直通区是静态切片，与当前任务无关 | 已确认（Codex/Anthropic 风格动态 tool_search + 激活控容） |
 | 3 | 上下文 | 压缩触发线过低，且压缩一次的成本接近收益 | 待定 |
 | 4 | 上下文 | 前缀不稳定，Prompt 缓存命中率低 | 待定 |
 | 5 | 调度 | 同批工具串行、无 URL 去重 | 待定 |
@@ -53,28 +53,32 @@
 ### #2 · 工具面 — MCP 目录暴露是静态切片
 
 **现象**  
-`MCP_DIRECT_CAP=32` 固定直通区，每 Run 同一批，与任务无关。
+`MCP_DIRECT_CAP=32` 固定直通区按 `serverName` 字母序死切，与任务无关（`Tinyfish` 占满 32，`tushareMcp` 285 个全被延后）；首字前等待长，多轮工具无界累积膨胀（实测 54→62→70 个）。
 
 **证据**
 
 - `deferred_search` 固定切分；`tool-exposure.service.ts:20` 按 **serverName 字母序**，`Tinyfish` 占满 32，`tushareMcp` 285 个全进 deferred。
 - 全量 MCP 定义约 **110k token**，cap 不能简单加大。
+- 实测预选方案（2026-11-23）：线上算 328 个工具向量导致 `MCP latch` 耗时 **22.43s**；且多轮后工具从 54 飙到 70 个，上下文再次膨胀。
 
-**方案（已确认）**
+**方案（已确认 · 对齐 Codex / Anthropic 规范）**
 
-1. **架构选择：Pre-loop 内存向量召回**  
-   - 摒弃高延迟、占模型轮次、依赖模型主动搜索的 `tool_search` 路径。
-   - 复用记忆模块已有 Embedding 能力：MCP 连接时离线预计算工具向量并驻留内存（300 个仅数百 KB）。
-   - 用户请求到达时，系统在 Pre-loop 对 Prompt 算一次向量（~100-200ms），内存点积打分（<1ms），直接动态选出最匹配的 Top-N 工具注入 `Direct` 区。
-2. **容量硬上限与三级槽位（以 `CAP=24` 为例）**  
-   - **Level 0 常驻底座（6~8 个）**：内置核心工具（`bash`, `web_search`, `web_fetch`, `update_plan` 等）永久占位。
-   - **Level 1 执行锁定（4~8 个）**：当前 Session 中**被模型真正执行过（Invoked）**的 MCP 工具，锁死不淘汰（解决后续短追问“换一个再查”时丢失工具的问题）。
-   - **Level 2 当轮意图补位（动态填满剩余槽位）**：当轮 Prompt 向量召回的候选工具动态填入。
-3. **执行感知的 Tool LRU 淘汰机制**  
-   - **真调用才续租**：模型实际调用过的工具刷新高优先级；仅被推荐而**未被调用**的工具不刷新租期，下一轮意图漂移直接淘汰出局。
-   - 彻底解决多轮会话中 Direct 区工具越积越多导致的无界膨胀与 Token 爆炸。
-4. **Prompt Cache 保护纪律（协同 #4）**  
-   - Direct 区工具最终序列化输出给模型时，必须按照固定的稳定 Key（如名称字典序）排序，严禁按浮动的相似度打乱前缀顺序，避免击穿 KV-Cache。
+1. **零冷启动延迟：全量 Deferred + 纯本地内存 BM25 检索**  
+   - 彻底移除 Run 启动链路上的远程 Embedding，首字前等待由 **22.5s 压回 1s**（0 外部网络耗时）；
+   - 除显式白名单（`enabledTools`）外，所有 MCP 工具默认归入 `deferred`，仅内置核心工具进 `tools[]`（首轮仅 ~30 个工具，模型注意力极度集中，Token 节省 85%+）；
+   - 依赖 Host 本地内存 BM25 检索（双语 2-gram + Exact Match 强保底），检索耗时仅 **< 5ms**。
+2. **能力感知声明（System Capability Hint）**  
+   - 在 System Prompt 动态注入紧凑的 MCP 服务能力纲要（Server 级摘要，仅消耗 ~50 token）：  
+     `"MCP Services: tushareMcp (financial/stock/index data), Tinyfish (web automation). Use tool_search to discover tools."`
+   - 解决通用模型（如 DeepSeek）“不知道系统有哪些生态工具”的认知盲区，精准激发自然语言检索。
+3. **精准检索物化与同轮激活（Materialization & Same-Turn Execution）**  
+   - 模型通过思考链生成高精度专业检索词（如 `index daily quotes`，比用户模糊 Prompt 精准 10 倍）；
+   - `tool_search` 限制默认返回数（`limit: 4~6`，防止单次搜出冗余 Schema）；
+   - 同轮多工具调用支持：当批次内 `tool_search` 优先执行并立即写入 `activatedTools`，同轮随后的具体 MCP 调用不被拦截。
+4. **执行感知控容与淘汰（防多轮 54→70 膨胀）**  
+   - `activatedTools` 设定硬上限（如 `MAX_ACTIVATED = 8`）；
+   - **真调用才留存**：上一轮被 `tool_search` 召回但模型未真正调用的工具，在下一轮自动失效移出 `tools[]`；只有真正被执行过的工具才在会话中锁定留存；
+   - 暴露工具按 `publicName` 字典序稳定输出，保住 Prompt Cache（防 Issue #4）。
 
 ---
 

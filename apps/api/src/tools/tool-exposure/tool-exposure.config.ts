@@ -1,5 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable } from '@nestjs/common';
 import {
   DEFAULT_MCP_DIRECT_CAP,
   DEFAULT_TOOL_SEARCH_LIMIT,
@@ -7,41 +6,43 @@ import {
 
 export type McpToolExposureMode = 'full' | 'deferred_search';
 
+export type ToolExposurePolicy = {
+  exposureMode: McpToolExposureMode;
+  directCap: number;
+  toolSearchEnabled: boolean;
+  toolSearchDefaultLimit: number;
+};
+
+const DEFAULT_POLICY: ToolExposurePolicy = {
+  exposureMode: 'deferred_search',
+  directCap: DEFAULT_MCP_DIRECT_CAP,
+  toolSearchEnabled: true,
+  toolSearchDefaultLimit: DEFAULT_TOOL_SEARCH_LIMIT,
+};
+
 @Injectable()
 export class ToolExposureConfigService {
-  constructor(@Inject(ConfigService) private readonly config: ConfigService) {}
+  private policy: ToolExposurePolicy = DEFAULT_POLICY;
+
+  static forTest(overrides: Partial<ToolExposurePolicy> = {}): ToolExposureConfigService {
+    const instance = new ToolExposureConfigService();
+    instance.policy = { ...DEFAULT_POLICY, ...overrides };
+    return instance;
+  }
 
   get exposureMode(): McpToolExposureMode {
-    const raw = this.config.get<string>('MCP_TOOL_EXPOSURE_MODE')?.trim();
-    return raw === 'deferred_search' ? 'deferred_search' : 'full';
+    return this.policy.exposureMode;
   }
 
   get directCap(): number {
-    return this.parseInt(this.config.get<string>('MCP_DIRECT_CAP'), DEFAULT_MCP_DIRECT_CAP);
+    return this.policy.directCap;
   }
 
   get toolSearchEnabled(): boolean {
-    return this.parseBool(this.config.get<string>('TOOL_SEARCH_ENABLED'), true);
+    return this.policy.toolSearchEnabled;
   }
 
   get toolSearchDefaultLimit(): number {
-    return this.parseInt(
-      this.config.get<string>('TOOL_SEARCH_DEFAULT_LIMIT'),
-      DEFAULT_TOOL_SEARCH_LIMIT,
-    );
-  }
-
-  private parseBool(raw: string | undefined, fallback: boolean): boolean {
-    if (raw === undefined) return fallback;
-    const normalized = raw.trim().toLowerCase();
-    if (normalized === 'true' || normalized === '1') return true;
-    if (normalized === 'false' || normalized === '0') return false;
-    return fallback;
-  }
-
-  private parseInt(raw: string | undefined, fallback: number): number {
-    if (raw === undefined) return fallback;
-    const parsed = Number.parseInt(raw, 10);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+    return this.policy.toolSearchDefaultLimit;
   }
 }

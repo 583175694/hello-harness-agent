@@ -14,6 +14,7 @@ import {
 } from '@harness/agent-protocol';
 import { ENV_KEYS } from '../bootstrap/env.constants';
 import { PrismaService } from '../database/prisma.service';
+import { AUTH_POLICY } from './auth.constants';
 import { maskEmail, maskPhone, normalizeEmail, normalizePhone } from './auth.normalize';
 import { ALIYUN_SMS_RATE_LIMIT_MARKER, AliyunSmsAuthService } from './aliyun-sms-auth.service';
 import { VerificationSenderService } from './verification-sender.service';
@@ -64,7 +65,7 @@ export class AuthService {
     await this.assertSendCodeRateLimit(channel, target);
 
     const code = this.sender.generateCode();
-    const ttl = this.config.get<number>(ENV_KEYS.authCodeTtlSeconds) ?? 600;
+    const ttl = AUTH_POLICY.codeTtlSeconds;
     await this.prisma.verificationCode.create({
       data: {
         channel,
@@ -77,7 +78,7 @@ export class AuthService {
   }
 
   private async assertSendCodeRateLimit(channel: VerificationChannel, target: string): Promise<void> {
-    const minInterval = this.config.get<number>(ENV_KEYS.authSendCodeMinIntervalSec) ?? 60;
+    const minInterval = AUTH_POLICY.sendCodeMinIntervalSec;
     const latest = await this.prisma.verificationCode.findFirst({
       where: { channel, target, consumedAt: null },
       orderBy: { createdAt: 'desc' },
@@ -93,7 +94,7 @@ export class AuthService {
     channel: VerificationChannel,
     target: string,
   ): Promise<void> {
-    const ttl = this.config.get<number>(ENV_KEYS.authCodeTtlSeconds) ?? 600;
+    const ttl = AUTH_POLICY.codeTtlSeconds;
     await this.prisma.verificationCode.create({
       data: {
         channel,
@@ -250,7 +251,7 @@ export class AuthService {
   async createLoginSession(userId: string, userAgent?: string) {
     const token = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(token).digest('hex');
-    const ttlDays = this.config.get<number>(ENV_KEYS.authSessionTtlDays) ?? 30;
+    const ttlDays = AUTH_POLICY.sessionTtlDays;
     const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000);
     const row = await this.prisma.userLoginSession.create({
       data: { userId, tokenHash, expiresAt, userAgent },
@@ -295,7 +296,7 @@ export class AuthService {
   }
 
   getCookieName(): string {
-    return this.config.get<string>(ENV_KEYS.authCookieName) ?? 'harness_session';
+    return AUTH_POLICY.cookieName;
   }
 
   cookieOptions(expiresAt: Date, secure: boolean) {

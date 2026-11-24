@@ -16,7 +16,7 @@ import type { DeferredToolSearchIndex } from './deferred-tool-search-index';
 
 const toolSearchInputSchema = z.object({
   query: z.string(),
-  limit: z.number().int().min(1).max(16).optional(),
+  limit: z.number().int().min(1).max(8).optional(),
 });
 
 export type ToolSearchInput = z.infer<typeof toolSearchInputSchema>;
@@ -62,12 +62,12 @@ export class ToolSearchTool implements AgentTool<ToolSearchInput, ToolSearchOutp
     return {
       name: this.name,
       description:
-        'Search deferred MCP tools by natural language. Use an English query. Returns matching tool definitions (name, description, parameters). Call a returned tool by its exact name in a follow-up function_call.',
+        'Search deferred MCP tools by natural language keywords (English or Chinese) or exact tool name. Returns matching tool definitions (name, description, parameters). Call a returned tool by its exact name in a follow-up function_call.',
       parameters: {
         type: 'object',
         properties: {
           query: { type: 'string' },
-          limit: { type: 'integer', minimum: 1, maximum: 16 },
+          limit: { type: 'integer', minimum: 1, maximum: 8 },
         },
         required: ['query'],
         additionalProperties: false,
@@ -111,7 +111,7 @@ export class ToolSearchTool implements AgentTool<ToolSearchInput, ToolSearchOutp
     const hits = index.search(query, limit);
     const activatedTools = options?.activatedTools ?? new Set<string>();
     const activatedCandidates: string[] = [];
-    let remainingActivateSlots = Math.max(0, MCP_ACTIVATED_CAP - activatedTools.size);
+    let remainingActivateSlots = MCP_ACTIVATED_CAP;
 
     const tools: ToolSearchResultItem[] = [];
 

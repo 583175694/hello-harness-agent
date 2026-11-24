@@ -9,31 +9,31 @@ export class MemoryConfigService {
   constructor(@Inject(ConfigService) private readonly config: ConfigService) {}
 
   get readEnabled(): boolean {
-    return this.parseBool(this.config.get<string>('MEMORY_READ'), true);
+    return true;
   }
 
   get writeEnabled(): boolean {
-    return this.parseBool(this.config.get<string>('MEMORY_WRITE'), true);
+    return true;
   }
 
   get minSimilarity(): number {
-    return this.parseNumber(this.config.get<string>('MEMORY_MIN_SIMILARITY'), MEMORY_LIMITS.defaultMinSimilarity);
+    return MEMORY_LIMITS.defaultMinSimilarity;
   }
 
   get retrieveTopK(): number {
-    return this.parseInt(this.config.get<string>('MEMORY_RETRIEVE_TOP_K'), MEMORY_LIMITS.defaultRetrieveTopK);
+    return MEMORY_LIMITS.defaultRetrieveTopK;
   }
 
   get dedupThreshold(): number {
-    return this.parseNumber(this.config.get<string>('MEMORY_DEDUP_THRESHOLD'), MEMORY_LIMITS.defaultDedupThreshold);
+    return MEMORY_LIMITS.defaultDedupThreshold;
   }
 
   get activeCap(): number {
-    return this.parseInt(this.config.get<string>('MEMORY_ACTIVE_CAP'), MEMORY_LIMITS.defaultActiveCap);
+    return MEMORY_LIMITS.defaultActiveCap;
   }
 
   get smallSetInject(): boolean {
-    return this.parseBool(this.config.get<string>('MEMORY_SMALL_SET_INJECT'), false);
+    return MEMORY_LIMITS.defaultSmallSetInject;
   }
 
   get embeddingBaseUrl(): string | undefined {
@@ -60,7 +60,7 @@ export class MemoryConfigService {
   }
 
   get embeddingTimeoutMs(): number {
-    return this.parseInt(this.config.get<string>('MEMORY_EMBEDDING_TIMEOUT_MS'), 30_000);
+    return MEMORY_LIMITS.embeddingTimeoutMs;
   }
 
   get nodeEnv(): string {
@@ -100,12 +100,6 @@ export class MemoryConfigService {
   private parseInt(value: string | undefined, fallback: number): number {
     if (value === undefined || value === '') return fallback;
     const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  }
-
-  private parseNumber(value: string | undefined, fallback: number): number {
-    if (value === undefined || value === '') return fallback;
-    const parsed = Number.parseFloat(value);
     return Number.isFinite(parsed) ? parsed : fallback;
   }
 }

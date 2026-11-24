@@ -47,10 +47,6 @@ export const envSchema = z
       z.string().min(1).optional(),
     ),
     AUTH_MODE: z.enum(['required', 'local']).optional(),
-    AUTH_SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
-    AUTH_COOKIE_NAME: z.string().min(1).default('harness_session'),
-    AUTH_CODE_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
-    AUTH_SEND_CODE_MIN_INTERVAL_SEC: z.coerce.number().int().min(10).max(600).default(60),
     AUTH_BOOTSTRAP_ADMIN_EMAIL: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z.string().email().optional(),
@@ -80,8 +76,6 @@ export const envSchema = z
       (value) => (value === '' ? undefined : value),
       z.string().optional(),
     ),
-    MEMORY_READ: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
-    MEMORY_WRITE: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
     MEMORY_EMBEDDING_BASE_URL: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z.string().optional(),
@@ -95,46 +89,6 @@ export const envSchema = z
       z.string().optional(),
     ),
     MEMORY_EMBEDDING_DIMENSIONS: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().optional(),
-    ),
-    MEMORY_EMBEDDING_TIMEOUT_MS: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().optional(),
-    ),
-    MEMORY_MIN_SIMILARITY: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().optional(),
-    ),
-    MEMORY_RETRIEVE_TOP_K: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().optional(),
-    ),
-    MEMORY_DEDUP_THRESHOLD: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().optional(),
-    ),
-    MEMORY_SMALL_SET_INJECT: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().optional(),
-    ),
-    MEMORY_ACTIVE_CAP: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().optional(),
-    ),
-    MCP_TOOL_EXPOSURE_MODE: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.enum(['full', 'deferred_search']).optional(),
-    ),
-    MCP_DIRECT_CAP: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().optional(),
-    ),
-    TOOL_SEARCH_ENABLED: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().optional(),
-    ),
-    TOOL_SEARCH_DEFAULT_LIMIT: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z.string().optional(),
     ),

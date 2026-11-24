@@ -30,7 +30,10 @@ export class ToolExposureService {
         return { ...entry, exposure: 'direct' as const };
       }
       const enabledTools = policyByServer.get(entry.serverName);
-      if (enabledTools != null) {
+      if (
+        enabledTools != null &&
+        (enabledTools.length === 0 || enabledTools.includes(entry.rawName))
+      ) {
         return { ...entry, exposure: 'direct' as const };
       }
       if (directSlots > 0) {
@@ -40,6 +43,7 @@ export class ToolExposureService {
       return { ...entry, exposure: 'deferred' as const };
     });
 
+    entries.sort((a, b) => a.publicName.localeCompare(b.publicName));
     return { ...snapshot, entries };
   }
 
@@ -68,7 +72,40 @@ export class ToolExposureService {
         name: entry.publicName,
         description: entry.description || `MCP tool ${entry.rawName} on ${entry.serverName}`,
         parameters: entry.parameters,
-      }));
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  formatCapabilityManifest(snapshot: RunMcpSnapshot | undefined): string {
+    if (!snapshot?.entries.length) return '';
+    const deferredByServer = new Map<string, McpToolCatalogEntry[]>();
+    for (const entry of snapshot.entries) {
+      if (entry.exposure !== 'deferred') continue;
+      const list = deferredByServer.get(entry.serverName) ?? [];
+      list.push(entry);
+      deferredByServer.set(entry.serverName, list);
+    }
+    if (deferredByServer.size === 0) return '';
+
+    const instructionsByServer = new Map(
+      snapshot.serverInstructions.map((row) => [row.serverName, row.text] as const),
+    );
+    const serverNames = [...deferredByServer.keys()].sort((a, b) => a.localeCompare(b));
+    const lines = serverNames.map((serverName) => {
+      const entries = deferredByServer.get(serverName) ?? [];
+      const summary = summarizeServerCapability(
+        instructionsByServer.get(serverName),
+        entries,
+      );
+      return `- ${serverName} (${entries.length} tools): ${summary}`;
+    });
+
+    return [
+      '## Extended MCP Tool Capabilities (Deferred)',
+      'The following MCP services are available via tool_search:',
+      ...lines,
+      'Call tool_search with concise keywords (English or Chinese) or exact tool name to discover and activate specific tools before calling them.',
+    ].join('\n');
   }
 
   shouldInjectToolSearch(input: {
@@ -86,19 +123,19 @@ export class ToolExposureService {
     return {
       name: AGENT_TOOL_NAMES.toolSearch,
       description:
-        'Search deferred MCP tools by natural language. Use an English query. Returns matching tool definitions (name, description, parameters). Call a returned tool by its exact name in a follow-up function_call.',
+        'Search deferred MCP tools by natural language keywords (English or Chinese) or exact tool name. Returns matching tool definitions (name, description, parameters). Call a returned tool by its exact name in a follow-up function_call.',
       parameters: {
         type: 'object',
         properties: {
           query: {
             type: 'string',
             description:
-              "What capability you need, e.g. 'create calendar event' or 'query database'.",
+              "What capability you need, e.g. 'index daily quotes', 'create calendar event', or exact tool name.",
           },
           limit: {
             type: 'integer',
             minimum: 1,
-            maximum: 16,
+            maximum: 8,
             default: defaultLimit,
           },
         },
@@ -131,4 +168,22 @@ export class ToolExposureService {
     const exposedToolCount = input.exposedDefinitions?.length ?? 0;
     return { latchedToolCount, deferredCount, activatedCount, exposedToolCount };
   }
+}
+
+function summarizeServerCapability(
+  instruction: string | undefined,
+  entries: ReadonlyArray<McpToolCatalogEntry>,
+): string {
+  const firstLine = instruction
+    ?.split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (firstLine) {
+    return firstLine.length > 140 ? `${firstLine.slice(0, 137)}...` : firstLine;
+  }
+  const samples = entries
+    .slice(0, 4)
+    .map((e) => e.rawName)
+    .join(', ');
+  return samples ? `e.g. ${samples}` : 'extended MCP tools';
 }

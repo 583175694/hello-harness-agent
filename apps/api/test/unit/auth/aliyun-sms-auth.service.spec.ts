@@ -52,8 +52,6 @@ describe('AliyunSmsAuthService', () => {
       ALIYUN_SMS_AUTH_ACCESS_KEY_SECRET: 'secret',
       ALIYUN_SMS_AUTH_SIGN_NAME: '签名',
       ALIYUN_SMS_AUTH_TEMPLATE_CODE: '100001',
-      AUTH_SEND_CODE_MIN_INTERVAL_SEC: 60,
-      AUTH_CODE_TTL_SECONDS: 600,
     });
 
     await service.sendVerifyCode('13800138000');

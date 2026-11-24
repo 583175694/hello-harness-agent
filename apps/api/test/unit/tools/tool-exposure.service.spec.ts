@@ -2,14 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ToolExposureService } from '../../../src/tools/tool-exposure/tool-exposure.service';
 import { ToolExposureConfigService } from '../../../src/tools/tool-exposure/tool-exposure.config';
-import type { ConfigService } from '@nestjs/config';
 import type { McpToolCatalogEntry, RunMcpSnapshot } from '../../../src/mcp/mcp.types';
-
-function configService(overrides: Record<string, string | undefined> = {}): ConfigService {
-  return {
-    get: (key: string) => overrides[key],
-  } as unknown as ConfigService;
-}
 
 function entry(index: number, server = 'srv'): McpToolCatalogEntry {
   return {
@@ -41,18 +34,16 @@ function snapshot(
 describe('ToolExposureService', () => {
   it('full mode marks every MCP entry direct', () => {
     const exposure = new ToolExposureService(
-      new ToolExposureConfigService(configService({ MCP_TOOL_EXPOSURE_MODE: 'full' })),
+      ToolExposureConfigService.forTest({ exposureMode: 'full' }),
     );
     const annotated = exposure.annotateSnapshot(snapshot([entry(1), entry(2)]));
     expect(annotated.entries.every((row) => row.exposure === 'direct')).toBe(true);
     expect(exposure.buildMcpDefinitions(annotated, new Set())).toHaveLength(2);
   });
 
-  it('deferred_search applies MCP_DIRECT_CAP to non-whitelist servers', () => {
+  it('deferred_search applies directCap to non-whitelist servers', () => {
     const exposure = new ToolExposureService(
-      new ToolExposureConfigService(
-        configService({ MCP_TOOL_EXPOSURE_MODE: 'deferred_search', MCP_DIRECT_CAP: '2' }),
-      ),
+      ToolExposureConfigService.forTest({ exposureMode: 'deferred_search', directCap: 2 }),
     );
     const annotated = exposure.annotateSnapshot(snapshot([entry(1), entry(2), entry(3), entry(4)]));
     const direct = annotated.entries.filter((row) => row.exposure === 'direct');
@@ -64,9 +55,7 @@ describe('ToolExposureService', () => {
 
   it('enabledTools whitelist server keeps all tools direct even over cap', () => {
     const exposure = new ToolExposureService(
-      new ToolExposureConfigService(
-        configService({ MCP_TOOL_EXPOSURE_MODE: 'deferred_search', MCP_DIRECT_CAP: '1' }),
-      ),
+      ToolExposureConfigService.forTest({ exposureMode: 'deferred_search', directCap: 1 }),
     );
     const entries = [entry(1, 'white'), entry(2, 'white'), entry(3, 'other')];
     const annotated = exposure.annotateSnapshot(
@@ -83,9 +72,7 @@ describe('ToolExposureService', () => {
 
   it('exposureMetrics reports latch/deferred/activated/exposed counts', () => {
     const exposure = new ToolExposureService(
-      new ToolExposureConfigService(
-        configService({ MCP_TOOL_EXPOSURE_MODE: 'deferred_search', MCP_DIRECT_CAP: '1' }),
-      ),
+      ToolExposureConfigService.forTest({ exposureMode: 'deferred_search', directCap: 1 }),
     );
     const annotated = exposure.annotateSnapshot(snapshot([entry(1), entry(2), entry(3)]));
     const metrics = exposure.exposureMetrics({
@@ -97,5 +84,51 @@ describe('ToolExposureService', () => {
     expect(metrics.deferredCount).toBeGreaterThan(0);
     expect(metrics.activatedCount).toBe(1);
     expect(metrics.exposedToolCount).toBe(2);
+  });
+
+  it('default policy uses deferred_search with directCap=0 so all non-whitelist tools are deferred', () => {
+    const exposure = new ToolExposureService(new ToolExposureConfigService());
+    const annotated = exposure.annotateSnapshot(snapshot([entry(1), entry(2), entry(3)]));
+    expect(annotated.entries.every((row) => row.exposure === 'deferred')).toBe(true);
+    expect(exposure.buildMcpDefinitions(annotated, new Set())).toHaveLength(0);
+  });
+
+  it('sorts exposed MCP definitions alphabetically to preserve Prompt Cache', () => {
+    const exposure = new ToolExposureService(
+      ToolExposureConfigService.forTest({ exposureMode: 'full' }),
+    );
+    const annotated = exposure.annotateSnapshot(snapshot([entry(3), entry(1), entry(2)]));
+    const defs = exposure.buildMcpDefinitions(annotated, new Set());
+    expect(defs.map((d) => d.name)).toEqual([
+      'mcp__srv__tool_1',
+      'mcp__srv__tool_2',
+      'mcp__srv__tool_3',
+    ]);
+  });
+
+  it('formatCapabilityManifest lists deferred servers in deterministic order with summaries', () => {
+    const exposure = new ToolExposureService(new ToolExposureConfigService());
+    const raw: RunMcpSnapshot = {
+      catalogGeneration: 1,
+      entries: [entry(1, 'tushareMcp'), entry(2, 'tushareMcp'), entry(1, 'Tinyfish')],
+      serverInstructions: [
+        {
+          serverName: 'tushareMcp',
+          text: 'China A-share financial data\nSecond line details',
+          maxInstructionBytes: 1024,
+        },
+      ],
+      latchedServerNames: ['tushareMcp', 'Tinyfish'],
+      serverIcons: [],
+      serverToolPolicy: [
+        { serverName: 'tushareMcp', enabledTools: null },
+        { serverName: 'Tinyfish', enabledTools: null },
+      ],
+    };
+    const annotated = exposure.annotateSnapshot(raw);
+    const manifest = exposure.formatCapabilityManifest(annotated);
+    expect(manifest).toContain('- Tinyfish (1 tools): e.g. tool_1');
+    expect(manifest).toContain('- tushareMcp (2 tools): China A-share financial data');
+    expect(manifest.indexOf('Tinyfish')).toBeLessThan(manifest.indexOf('tushareMcp'));
   });
 });

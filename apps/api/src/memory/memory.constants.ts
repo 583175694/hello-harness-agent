@@ -15,6 +15,12 @@ export const MEMORY_LIMITS = {
   defaultSmallSetInjectCap: 5,
   defaultSmallSetInject: true,
   embeddingTimeoutMs: 30_000,
+  /** 在线记忆检索查询 embedding 超时上限，避免服务未启动或抖动时阻塞首字。 */
+  queryEmbeddingTimeoutMs: 2_500,
+  /** 查询 embedding 连续失败达到该次数后开启熔断。 */
+  queryEmbedCircuitFailureThreshold: 2,
+  /** 查询 embedding 熔断冷却时长（毫秒），冷却后自动半开探测。 */
+  queryEmbedCircuitCooldownMs: 60_000,
 } as const;
 
 export const MEMORY_KINDS = [

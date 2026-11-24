@@ -25,6 +25,7 @@ import type {
 
 type ToolProjectionInput =
   | { toolName: typeof AGENT_TOOL_NAMES.webSearch; input: { query: string } }
+  | { toolName: typeof AGENT_TOOL_NAMES.toolSearch; input: { query: string; limit?: number } }
   | { toolName: typeof AGENT_TOOL_NAMES.webFetch; input: WebFetchInput }
   | { toolName: typeof AGENT_TOOL_NAMES.approvalTest; input: { message: string } }
   | { toolName: typeof AGENT_TOOL_NAMES.memoryWrite; input: MemoryWriteInputSummary }

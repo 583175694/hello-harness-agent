@@ -44,13 +44,20 @@ export class MemoryRetrieverService {
       tokenEstimate: 0,
     };
 
+    // 空库直接 0ms 短路，避免无记忆时白付远程 embedding 延迟或超时阻塞首字。
+    const activeCount = await this.repository.countActive(request.userId);
+    if (activeCount === 0) {
+      this.logTrace(trace);
+      return { cards: [], trace };
+    }
+
     let queryVector: number[];
     try {
       const cached = request.queryEmbedCache?.get(query);
       if (cached?.length) {
         queryVector = cached;
       } else {
-        queryVector = await this.embedding.embedText(query);
+        queryVector = await this.embedding.embedQuery(query);
         request.queryEmbedCache?.set(query, queryVector);
       }
     } catch (error) {
@@ -63,7 +70,6 @@ export class MemoryRetrieverService {
     const topK = request.retrieveTopK ?? this.config.retrieveTopK;
     const hits = await this.vectors.searchTopK(request.userId, queryVector, topK);
     const minSimilarity = request.minSimilarity ?? this.config.minSimilarity;
-    const activeCount = await this.repository.countActive(request.userId);
     const bypassThreshold =
       this.config.smallSetInject && activeCount <= MEMORY_LIMITS.defaultSmallSetInjectCap;
 

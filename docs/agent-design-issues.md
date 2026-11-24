@@ -14,7 +14,7 @@
 | 6 | 生命周期 | 每 Run 全量 reconcile MCP，无目录缓存 | 已落地（SWR 目录缓存 + 并发 reconcile + 执行期容错） |
 | 7 | 反馈 | 长时无可见进度，靠事后 nudge 补救 | 待定 |
 | 8 | 停止 | 停止靠轮数上限，无「证据已够」判据 | 待定 |
-| 9 | 记忆 | 每轮先付 embedding，空召回也全价 | 待定 |
+| 9 | 记忆 | 每轮先付 embedding，空召回也全价 | 已落地（空库 0ms 短路 + 查询 2.5s 超时 + 60s 熔断兜底） |
 
 ---
 
@@ -220,7 +220,11 @@
 
 **证据**
 
-- `agent-runtime.service.ts:302`；日志召回 **0** 张。
+- `agent-runtime.service.ts:302`、`memory.retriever.service.ts:53`、`memory.constants.ts:17`；日志召回 **0** 张；实测 `565ec01b` 在未启 embedding 服务时首轮硬卡 **30.02s**（占总耗时 16%，首字延迟拖至 31.46s）。
 
-**方案**  
-待定。
+**方案（已落地 · 极简兜底 · 2026-11-24）**
+
+暂不改动记忆核心业务逻辑（留待后续重构），仅在检索入口加三层轻量化兜底：
+1. **空库 0ms 短路**：`MemoryRetrieverService.retrieve` 先查 `repository.countActive(userId)`，为 0 时直接返回空结果，不发起远程 embedding。
+2. **读写超时分离**：`MemoryEmbeddingService.embedQuery` 使用独立紧超时 `queryEmbeddingTimeoutMs = 2_500ms`（后台写入 `embedDocument` 保持 `30_000ms`），杜绝单次检索卡死首字 30 秒。
+3. **查询轻量熔断**：`embedQuery` 连续失败 **2 次**后开启 **60s 冷却熔断**（冷却期内 0ms 快速降级为空召回，60s 后自动半开探测恢复）。（叠加 `#4` 中已落地的 Run 级记忆冻结，同 Run 内不再每轮重复检索。）

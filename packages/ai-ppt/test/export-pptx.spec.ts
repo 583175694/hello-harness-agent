@@ -5,7 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const exportHtmlToPptx = vi.fn().mockResolvedValue(Buffer.from('pptx'));
 const materializePseudoCounters = vi.fn().mockResolvedValue({ html: '', replacements: 1 });
-const applyDomCompatFixes = vi.fn().mockResolvedValue({ html: '', flattenedPills: 0, replacedIconBars: 0 });
+const applyDomCompatFixes = vi.fn().mockResolvedValue({
+  html: '',
+  expandedBadgeRows: 0,
+  flattenedPills: 0,
+  insertedTableBreaks: 0,
+  replacedIconBars: 0,
+});
 const materializeCompositeBorders = vi.fn().mockResolvedValue({ html: '', materialized: 0 });
 const applySingleLineFixes = vi.fn().mockResolvedValue({ html: '', adjusted: 0 });
 const postprocessPptxBuffer = vi.fn(async (buf: Buffer) => buf);

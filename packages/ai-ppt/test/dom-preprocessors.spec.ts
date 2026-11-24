@@ -40,28 +40,37 @@ describe.skipIf(!hasBrowser)('DOM export preprocessors', () => {
     expect(result.html).not.toMatch(/class="card"[^>]*data-ppt-border-materialized/u);
   });
 
-  it('flattens inline rounded pills inside paragraphs and converts empty bar <i> elements into <div>', async () => {
+  it('flattens inline rounded pills inside paragraphs, preserves leading circle badges, adds table block breaks, and converts bar <i> into <span>', async () => {
     const htmlPath = await writeTempHtml(`<!doctype html>
 <html><head><style>
   .slide { width: 1280px; height: 720px; overflow: hidden; }
   .cx { width: 320px; font-size: 12px; line-height: 1.6; }
   .pill { display: inline-block; background: #fdecea; color: #b3261e; border-radius: 999px; padding: 2px 9px; }
+  .tick { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: #a16207; color: #fff; font-size: 10px; margin-right: 6px; }
+  td s { display: block; text-decoration: none; font-size: 10px; }
   .bars { display: flex; align-items: flex-end; gap: 16px; height: 88px; }
   .bars div { flex: 1; text-align: center; }
   .bars i { display: block; width: 38px; margin: 0 auto; border-radius: 6px 6px 0 0; background: linear-gradient(180deg,#e8752f,#c2410c); }
 </style></head>
 <body><section class="slide">
   <div class="cx">补缴 <b>3.36 亿元</b>。<span class="pill">2026.09 公告</span></div>
+  <div class="cx"><span class="tick">1</span>业务调研：走访研发。<br><span class="tick">2</span>流程口径：立项要素。</div>
+  <table><tr><td>立项申请<s>启动前后一周</s></td></tr></table>
   <div class="bars"><div><i style="height:32px"></i><u>2024 市局</u></div></div>
   <i class="fa fa-check"></i>
 </section></body></html>`);
 
     const result = await applyDomCompatFixes(htmlPath);
 
+    expect(result.expandedBadgeRows).toBe(1);
     expect(result.flattenedPills).toBe(1);
+    expect(result.insertedTableBreaks).toBe(1);
     expect(result.replacedIconBars).toBe(1);
+    expect(result.html).toContain('data-ppt-badge-row');
+    expect(result.html).toMatch(/class="tick"[^>]*border-radius:\s*50%/u);
     expect(result.html).toMatch(/class="pill"[^>]*border-radius:\s*0px/u);
-    expect(result.html).toMatch(/<div style="[^"]*height:\s*32px/u);
+    expect(result.html).toContain('立项申请<br>');
+    expect(result.html).toMatch(/<span data-ppt-bar-box="" style="[^"]*height:\s*32px/u);
     expect(result.html).toContain('<i class="fa fa-check"></i>');
   });
 

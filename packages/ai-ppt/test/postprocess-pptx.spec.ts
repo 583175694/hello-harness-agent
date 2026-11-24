@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { describe, expect, it } from 'vitest';
-import { postprocessPptxBuffer, postprocessSlideXml } from '../src/export/postprocess-pptx.js';
+import { postprocessBorderSvg, postprocessPptxBuffer, postprocessSlideXml } from '../src/export/postprocess-pptx.js';
 
 function wrapSlide(shapesXml: string): string {
   return (
@@ -160,5 +160,37 @@ describe('postprocessPptxBuffer', () => {
 
     expect(slide1).toContain('<a:noAutofit/>');
     expect(slide1).toContain('typeface="Microsoft YaHei"');
+  });
+
+  it('rewrites clipped composite border SVGs in ppt/media/ into rounded rect + top arc path without clipPath', async () => {
+    const borderSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="380" height="120" viewBox="0 0 380 120">
+      <defs><clipPath id="clip_abc123"><rect x="0" y="0" width="380" height="120" rx="5" ry="5" /></clipPath></defs>
+      <g clip-path="url(#clip_abc123)">
+        <rect x="0" y="0" width="380" height="3" fill="#b3261e" fill-opacity="1" />
+        <rect x="379" y="0" width="1" height="120" fill="#f0e0c8" fill-opacity="1" />
+        <rect x="0" y="119" width="380" height="1" fill="#f0e0c8" fill-opacity="1" />
+        <rect x="0" y="0" width="1" height="120" fill="#f0e0c8" fill-opacity="1" />
+      </g>
+    </svg>`;
+    const plainSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10"/></svg>';
+
+    const zip = new JSZip();
+    zip.file('ppt/slides/slide1.xml', wrapSlide(''));
+    zip.file('ppt/media/image1.svg', borderSvg);
+    zip.file('ppt/media/image2.svg', plainSvg);
+    const input = await zip.generateAsync({ type: 'nodebuffer' });
+
+    const output = await postprocessPptxBuffer(input);
+    const reloaded = await JSZip.loadAsync(output);
+    const outSvg1 = await reloaded.file('ppt/media/image1.svg')!.async('string');
+    const outSvg2 = await reloaded.file('ppt/media/image2.svg')!.async('string');
+
+    expect(outSvg1).not.toContain('<clipPath');
+    expect(outSvg1).toContain('rx="9.5" ry="9.5"');
+    expect(outSvg1).toContain('stroke="#f0e0c8"');
+    expect(outSvg1).toContain('<path d="M 1.5 10 A 8.5 8.5');
+    expect(outSvg1).toContain('stroke="#b3261e" stroke-width="3"');
+    expect(outSvg2).toBe(plainSvg);
+    expect(postprocessBorderSvg(plainSvg)).toBe(plainSvg);
   });
 });

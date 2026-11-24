@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 const SLIDE_WIDTH_EMU = 12_192_000; // 13.333 in
 const SLIDE_HEIGHT_EMU = 6_858_000; // 7.5 in
 const SLIDE_XML_RE = /^ppt\/slides\/slide\d+\.xml$/u;
+const MEDIA_SVG_RE = /^ppt\/media\/[^/]+\.svg$/u;
 
 const DEFAULT_FONT_MAP: Record<string, string> = {
   'Noto Sans CJK SC': 'Microsoft YaHei',
@@ -48,6 +49,17 @@ export async function postprocessPptxBuffer(
     const patched = postprocessSlideXml(xml, fontMap);
     if (patched !== xml) {
       zip.file(slidePath, patched);
+    }
+  }
+
+  const svgPaths = Object.keys(zip.files).filter((name) => MEDIA_SVG_RE.test(name));
+  for (const svgPath of svgPaths) {
+    const file = zip.file(svgPath);
+    if (!file) continue;
+    const svg = await file.async('string');
+    const patched = postprocessBorderSvg(svg);
+    if (patched !== svg) {
+      zip.file(svgPath, patched);
     }
   }
 
@@ -291,4 +303,130 @@ function patchShapeBox(
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+type BorderRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fill: string;
+  opacity: number;
+};
+
+/**
+ * dom-to-pptx 对不均匀圆角边框（如 `.card.tR` 顶部 3px 粗红边 + 其余三边 1px 灰边）
+ * 会生成带 `<clipPath>` 的 SVG，并将 `rx` 除以 2；WPS 渲染 SVG 时会忽略 `<clipPath>`，
+ * 导致圆角卡片变成 90° 直角。这里改写为直接圆角 `<rect rx="...">` 与顶部圆角弧线
+ * `<path>`，去掉 `<clipPath>` 并恢复真实圆角半径。
+ */
+export function postprocessBorderSvg(svg: string): string {
+  if (!svg.includes('<clipPath')) return svg;
+
+  const svgHeader =
+    /<svg\b[^>]*\bwidth="([\d.]+)"[^>]*\bheight="([\d.]+)"[^>]*>/u.exec(svg);
+  const clipMatch =
+    /<clipPath\s+id="(clip_[^"]+)"[^>]*>\s*<rect\b[^>]*\bwidth="([\d.]+)"[^>]*\bheight="([\d.]+)"[^>]*\brx="([\d.]+)"[^>]*\bry="([\d.]+)"[^>]*\/>\s*<\/clipPath>/u.exec(
+      svg,
+    );
+  if (!svgHeader || !clipMatch) return svg;
+
+  const clipId = clipMatch[1]!;
+  if (!svg.includes(`url(#${clipId})`)) return svg;
+
+  const w = Number.parseFloat(svgHeader[1] ?? clipMatch[2] ?? '0');
+  const h = Number.parseFloat(svgHeader[2] ?? clipMatch[3] ?? '0');
+  const rawRx = Number.parseFloat(clipMatch[4] ?? '0');
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0 || rawRx <= 0) {
+    return svg;
+  }
+
+  const groupMatch = new RegExp(
+    `<g\\s+clip-path="url\\(#${escapeRegExp(clipId)}\\)">([\\s\\S]*?)<\\/g>`,
+    'u',
+  ).exec(svg);
+  if (!groupMatch) return svg;
+
+  const rects: BorderRect[] = [];
+  for (const m of (groupMatch[1] ?? '').matchAll(
+    /<rect\b[^>]*\bx="([\d.]+)"[^>]*\by="([\d.]+)"[^>]*\bwidth="([\d.]+)"[^>]*\bheight="([\d.]+)"[^>]*\bfill="([^"]+)"(?:[^>]*\bfill-opacity="([\d.]+)")?[^>]*\/>/gu,
+  )) {
+    rects.push({
+      x: Number.parseFloat(m[1] ?? '0'),
+      y: Number.parseFloat(m[2] ?? '0'),
+      width: Number.parseFloat(m[3] ?? '0'),
+      height: Number.parseFloat(m[4] ?? '0'),
+      fill: m[5] ?? '#000000',
+      opacity: m[6] !== undefined ? Number.parseFloat(m[6]) : 1,
+    });
+  }
+  if (rects.length === 0) return svg;
+
+  let top: { w: number; color: string; opacity: number } | undefined;
+  let right: { w: number; color: string; opacity: number } | undefined;
+  let bottom: { w: number; color: string; opacity: number } | undefined;
+  let left: { w: number; color: string; opacity: number } | undefined;
+
+  for (const r of rects) {
+    if (r.x === 0 && r.y === 0 && Math.abs(r.width - w) < 0.5 && r.height < h / 2) {
+      top = { w: r.height, color: r.fill, opacity: r.opacity };
+    } else if (r.x > 0 && r.y === 0 && Math.abs(r.height - h) < 0.5 && r.width < w / 2) {
+      right = { w: r.width, color: r.fill, opacity: r.opacity };
+    } else if (r.x === 0 && r.y > 0 && Math.abs(r.width - w) < 0.5 && r.height < h / 2) {
+      bottom = { w: r.height, color: r.fill, opacity: r.opacity };
+    } else if (r.x === 0 && r.y === 0 && Math.abs(r.height - h) < 0.5 && r.width < w / 2) {
+      left = { w: r.width, color: r.fill, opacity: r.opacity };
+    }
+  }
+
+  const radius = Math.min(rawRx * 2, w / 2, h / 2);
+  const shapes: string[] = [];
+
+  if (
+    top &&
+    right &&
+    bottom &&
+    left &&
+    Math.abs(left.w - right.w) < 0.1 &&
+    Math.abs(left.w - bottom.w) < 0.1 &&
+    left.color.toLowerCase() === right.color.toLowerCase() &&
+    left.color.toLowerCase() === bottom.color.toLowerCase()
+  ) {
+    const bw = left.w;
+    const inset = bw / 2;
+    const innerR = Math.max(0, radius - inset);
+    const op = left.opacity < 1 ? ` stroke-opacity="${left.opacity}"` : '';
+    shapes.push(
+      `<rect x="${inset}" y="${inset}" width="${Math.max(0, w - bw)}" height="${Math.max(0, h - bw)}" rx="${innerR}" ry="${innerR}" fill="none" stroke="${left.color}" stroke-width="${bw}"${op} />`,
+    );
+
+    const topDiffers =
+      Math.abs(top.w - bw) >= 0.1 || top.color.toLowerCase() !== left.color.toLowerCase();
+    if (topDiffers) {
+      shapes.push(buildTopRoundedStrokePath(w, radius, top.w, top.color, top.opacity));
+    }
+  } else if (top && !right && !bottom && !left) {
+    shapes.push(buildTopRoundedStrokePath(w, radius, top.w, top.color, top.opacity));
+  } else {
+    return svg;
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${shapes.join('')}</svg>`;
+}
+
+function buildTopRoundedStrokePath(
+  w: number,
+  radius: number,
+  strokeWidth: number,
+  color: string,
+  opacity: number,
+): string {
+  const half = strokeWidth / 2;
+  const r = Math.max(0, Math.min(radius - half, w / 2 - half));
+  const op = opacity < 1 ? ` stroke-opacity="${opacity}"` : '';
+  const d =
+    r > 0.1
+      ? `M ${half} ${half + r} A ${r} ${r} 0 0 1 ${half + r} ${half} L ${w - half - r} ${half} A ${r} ${r} 0 0 1 ${w - half} ${half + r}`
+      : `M 0 ${half} L ${w} ${half}`;
+  return `<path d="${d}" fill="none" stroke="${color}" stroke-width="${strokeWidth}"${op} />`;
 }

@@ -20,6 +20,7 @@
   "dependencies": {
     "@harness/agent-protocol": "workspace:*",
     "dom-to-pptx": "2.1.2",
+    "jszip": "3.10.2",
     "playwright": "1.63.0",
     "zod": "^3.25.76"
   },

@@ -1,7 +1,9 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { exportHtmlToPptx } from 'dom-to-pptx/node';
-import { puppeteerExecutablePath } from '../preflight/browser.js';
+import { launchChromium, puppeteerExecutablePath } from '../preflight/browser.js';
+import { materializeCompositeBorders } from './composite-borders.js';
+import { postprocessPptxBuffer } from './postprocess-pptx.js';
 import { materializePseudoCounters } from './pseudo-counters.js';
 import { applySingleLineFixes } from './text-fit-fixes.js';
 
@@ -39,16 +41,24 @@ async function configurePuppeteerBrowser(): Promise<void> {
 export async function exportDeckToPptxBuffer(htmlPath: string): Promise<Buffer> {
   await configurePuppeteerBrowser();
 
-  // 两个已知的转换器缺陷，都只在真的命中时才启动额外浏览器：
+  // 针对 dom-to-pptx 转换器已知缺陷的导出前 DOM 预处理，复用同一浏览器实例：
   //   1. CSS 计数器伪元素会被写成字面量 “counter(p)”，并与 <ol> 编号重复；
-  //   2. 带底色的小标签按 rect 估宽偏小，在 PPTX 里折成两行。
+  //   2. 纯文本容器上的单侧边框 SVG zIndex 低于实心背景而被遮盖；
+  //   3. 单行小标签按 rect 估宽偏小在 PPTX 折行，flex 右侧文字缺右对齐。
   const html = await readFile(htmlPath, 'utf8');
-  if (/\bcounter[s]?\(/iu.test(html)) {
-    await materializePseudoCounters(htmlPath);
+  const needsCounters = /\bcounter[s]?\(/iu.test(html);
+  const browser = await launchChromium();
+  try {
+    if (needsCounters) {
+      await materializePseudoCounters(htmlPath, { browser });
+    }
+    await materializeCompositeBorders(htmlPath, { browser });
+    await applySingleLineFixes(htmlPath, { browser });
+  } finally {
+    await browser.close();
   }
-  await applySingleLineFixes(htmlPath);
 
-  const buffer = await exportHtmlToPptx(htmlPath, {
+  const rawBuffer = await exportHtmlToPptx(htmlPath, {
     selector: '.slide',
     injectBundle: true,
     browserWidth: 1280,
@@ -59,5 +69,6 @@ export async function exportDeckToPptxBuffer(htmlPath: string): Promise<Buffer> 
       includePseudoElements: true,
     },
   });
-  return buffer;
+
+  return postprocessPptxBuffer(rawBuffer);
 }

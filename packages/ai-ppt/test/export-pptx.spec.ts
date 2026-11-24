@@ -5,13 +5,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const exportHtmlToPptx = vi.fn().mockResolvedValue(Buffer.from('pptx'));
 const materializePseudoCounters = vi.fn().mockResolvedValue({ html: '', replacements: 1 });
+const materializeCompositeBorders = vi.fn().mockResolvedValue({ html: '', materialized: 0 });
 const applySingleLineFixes = vi.fn().mockResolvedValue({ html: '', adjusted: 0 });
+const postprocessPptxBuffer = vi.fn(async (buf: Buffer) => buf);
+const closeBrowser = vi.fn().mockResolvedValue(undefined);
+const fakeBrowser = { close: closeBrowser };
+const launchChromium = vi.fn().mockResolvedValue(fakeBrowser);
 const puppeteerExecutablePath = vi.fn<() => string | undefined>(() => undefined);
 
 vi.mock('dom-to-pptx/node', () => ({ exportHtmlToPptx }));
 vi.mock('../src/export/pseudo-counters.js', () => ({ materializePseudoCounters }));
+vi.mock('../src/export/composite-borders.js', () => ({ materializeCompositeBorders }));
 vi.mock('../src/export/text-fit-fixes.js', () => ({ applySingleLineFixes }));
-vi.mock('../src/preflight/browser.js', () => ({ puppeteerExecutablePath }));
+vi.mock('../src/export/postprocess-pptx.js', () => ({ postprocessPptxBuffer }));
+vi.mock('../src/preflight/browser.js', () => ({ puppeteerExecutablePath, launchChromium }));
 
 const { exportDeckToPptxBuffer } = await import('../src/export/export-pptx.js');
 
@@ -29,7 +36,11 @@ describe('exportDeckToPptxBuffer', () => {
   beforeEach(() => {
     exportHtmlToPptx.mockClear();
     materializePseudoCounters.mockClear();
+    materializeCompositeBorders.mockClear();
     applySingleLineFixes.mockClear();
+    postprocessPptxBuffer.mockClear();
+    launchChromium.mockClear();
+    closeBrowser.mockClear();
     puppeteerExecutablePath.mockReset();
     puppeteerExecutablePath.mockReturnValue(undefined);
     delete process.env.PUPPETEER_EXECUTABLE_PATH;
@@ -43,7 +54,7 @@ describe('exportDeckToPptxBuffer', () => {
     else process.env.PUPPETEER_CACHE_DIR = ORIGINAL_CACHE_DIR;
   });
 
-  it('materializes CSS pseudo-element counters before exporting', async () => {
+  it('materializes counters, composite borders, single-line fixes, and postprocesses PPTX using one browser', async () => {
     const path = await htmlFile(
       '<html><style>ol li::before{content:counter(p)}</style>' +
         '<div class="slide"><ol><li>一</li></ol></div></html>',
@@ -51,12 +62,16 @@ describe('exportDeckToPptxBuffer', () => {
 
     await exportDeckToPptxBuffer(path);
 
-    expect(materializePseudoCounters).toHaveBeenCalledWith(path);
-    expect(applySingleLineFixes).toHaveBeenCalledWith(path);
+    expect(launchChromium).toHaveBeenCalledTimes(1);
+    expect(materializePseudoCounters).toHaveBeenCalledWith(path, { browser: fakeBrowser });
+    expect(materializeCompositeBorders).toHaveBeenCalledWith(path, { browser: fakeBrowser });
+    expect(applySingleLineFixes).toHaveBeenCalledWith(path, { browser: fakeBrowser });
+    expect(closeBrowser).toHaveBeenCalledTimes(1);
     expect(exportHtmlToPptx).toHaveBeenCalledWith(
       path,
       expect.objectContaining({ selector: '.slide', injectBundle: true }),
     );
+    expect(postprocessPptxBuffer).toHaveBeenCalledWith(Buffer.from('pptx'));
   });
 
   it('skips the counter pass when the HTML does not use CSS counters', async () => {
@@ -65,9 +80,10 @@ describe('exportDeckToPptxBuffer', () => {
     await exportDeckToPptxBuffer(path);
 
     expect(materializePseudoCounters).not.toHaveBeenCalled();
-    // 单行标签修正只读 DOM、不碰正文，仍然需要跑一次。
+    expect(materializeCompositeBorders).toHaveBeenCalledTimes(1);
     expect(applySingleLineFixes).toHaveBeenCalledTimes(1);
     expect(exportHtmlToPptx).toHaveBeenCalledTimes(1);
+    expect(postprocessPptxBuffer).toHaveBeenCalledTimes(1);
   });
 
   it('uses a discovered system browser without preparing a download cache', async () => {

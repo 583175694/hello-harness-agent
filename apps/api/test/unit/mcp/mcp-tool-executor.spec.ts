@@ -40,11 +40,13 @@ function mockConnections(input: {
   generation?: number;
   client?: { callTool: ReturnType<typeof vi.fn> };
   runtime?: { status: string };
+  invalidateServer?: ReturnType<typeof vi.fn>;
 }): McpConnectionManager {
   return {
     getCatalogGeneration: vi.fn(() => input.generation ?? 3),
     getClient: vi.fn(() => input.client),
     getServerRuntime: vi.fn(() => input.runtime ?? { status: 'connected' }),
+    invalidateServer: input.invalidateServer ?? vi.fn(async () => undefined),
   } as unknown as McpConnectionManager;
 }
 
@@ -89,5 +91,30 @@ describe('McpToolExecutor', () => {
       expect.objectContaining({ timeout: 5_000 }),
     );
     expect(result.status).toBe('succeeded');
+  });
+
+  it('invalidates server cache when callTool fails with a transport error', async () => {
+    const entry = snapshot.entries[0]!;
+    const callTool = vi.fn(async () => {
+      throw new Error('read ECONNRESET');
+    });
+    const invalidateServer = vi.fn(async () => undefined);
+    const executor = new McpToolExecutor(
+      mockConnections({
+        generation: 3,
+        client: { callTool },
+        runtime: { status: 'connected' },
+        invalidateServer,
+      }),
+      mockCatalog(entry),
+    );
+    const result = await executor.execute(
+      'mcp__demo__ping',
+      {},
+      { userId: 'local-user', runId: 'r1', sessionId: 's1', messageId: 'm1', toolCallId: 'c1' },
+      snapshot,
+    );
+    expect(result.status).toBe('failed');
+    expect(invalidateServer).toHaveBeenCalledWith('local-user', 'demo');
   });
 });

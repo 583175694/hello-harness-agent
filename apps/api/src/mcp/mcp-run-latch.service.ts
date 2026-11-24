@@ -3,7 +3,6 @@ import { Logger } from 'nestjs-pino';
 import { formatLogDuration, shortLogId } from '../shared/logging.utils';
 import { LatencyTrace } from '../shared/timing';
 import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
-import { McpServerConfigRepository } from './mcp-server-config.repository';
 import { McpConnectionManager } from './mcp-connection.manager';
 import type {
   McpServerIconSnapshot,
@@ -19,8 +18,9 @@ import {
 
 @Injectable()
 export class McpRunLatchService {
+  private readonly tokenEstimateCache = new Map<string, { generation: number; tokens: number }>();
+
   constructor(
-    @Inject(McpServerConfigRepository) private readonly configs: McpServerConfigRepository,
     @Inject(McpConnectionManager) private readonly connections: McpConnectionManager,
     @Inject(Logger) private readonly logger: Logger,
   ) {}
@@ -28,8 +28,10 @@ export class McpRunLatchService {
   async captureForUser(userId: string, runId?: string): Promise<RunMcpSnapshot> {
     // latch 是 Run 首轮模型请求的前置步骤；各段耗时决定首字下限。
     const trace = new LatencyTrace();
-    await trace.measure('reconcile', () => this.connections.reconcile(userId));
-    const enabled = await trace.measure('读取配置', () => this.configs.listEnabled(userId));
+    const reconcileResult = await trace.measure('reconcile', () =>
+      this.connections.reconcile(userId),
+    );
+    const enabled = reconcileResult.configs;
     const published = this.connections.getPublishedCatalog(userId);
     const entries: McpToolCatalogEntry[] = [];
     const serverInstructions: McpServerInstructionSnapshot[] = [];
@@ -77,17 +79,33 @@ export class McpRunLatchService {
       serverToolPolicy,
     };
 
-    const estimatedTokens = entries.length
-      ? await trace.measure('token估算', () => estimateMcpDefinitionTokens(entries))
-      : 0;
+    const cachedEstimate = this.tokenEstimateCache.get(userId);
+    let estimatedTokens: number;
+    if (cachedEstimate && cachedEstimate.generation === snapshot.catalogGeneration) {
+      estimatedTokens = cachedEstimate.tokens;
+    } else {
+      estimatedTokens = entries.length
+        ? await trace.measure('token估算', () => estimateMcpDefinitionTokens(entries))
+        : 0;
+      this.tokenEstimateCache.set(userId, {
+        generation: snapshot.catalogGeneration,
+        tokens: estimatedTokens,
+      });
+    }
     if (estimatedTokens >= MCP_DEFINITIONS_TOKEN_WARN_THRESHOLD) {
       this.logger.warn(
         `MCP definitions token 估算偏高 | Run=${shortLogId(runId ?? 'unknown')} | generation=${snapshot.catalogGeneration} | tools=${entries.length} | estimatedTokens=${estimatedTokens}`,
         McpRunLatchService.name,
       );
     }
+    const cacheTag =
+      reconcileResult.mode === 'cache_hit'
+        ? 'hit'
+        : reconcileResult.mode === 'swr_stale'
+          ? 'swr'
+          : 'sync';
     this.logger.log(
-      `MCP latch 完成 | Run=${shortLogId(runId ?? 'unknown')} | generation=${snapshot.catalogGeneration} | servers=${latchedServerNames.length}/${enabled.length} | 工具=${entries.length} | instructions=${serverInstructions.length} | 全量估算=${estimatedTokens} token | 耗时=${formatLogDuration(trace.elapsedMs())} | ${trace.formatSegmentsWithShare()}`,
+      `MCP latch 完成 | Run=${shortLogId(runId ?? 'unknown')} | cache=${cacheTag} | generation=${snapshot.catalogGeneration} | servers=${latchedServerNames.length}/${enabled.length} | 工具=${entries.length} | instructions=${serverInstructions.length} | 全量估算=${estimatedTokens} token | 耗时=${formatLogDuration(trace.elapsedMs())} | ${trace.formatSegmentsWithShare()}`,
       McpRunLatchService.name,
     );
 

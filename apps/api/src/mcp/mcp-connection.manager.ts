@@ -24,6 +24,15 @@ import type {
 /** reconcile 总耗时达到该阈值时输出逐 server 分解，避免正常路径刷屏。 */
 const RECONCILE_SLOW_LOG_THRESHOLD_MS = 1_000;
 
+/** MCP 目录缓存 TTL（5 分钟）；到期后走 SWR：本次 Run 用旧快照秒开，后台异步刷新。 */
+export const MCP_CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+
+export type ReconcileResult = {
+  mode: 'cache_hit' | 'swr_stale' | 'synced';
+  configs: McpServerConfigRecord[];
+  generation: number;
+};
+
 type LiveConnection = {
   client: Client;
   transport: StreamableHTTPClientTransport;
@@ -57,6 +66,10 @@ type ListedMcpTool = {
 type UserMcpState = {
   catalogGeneration: number;
   published: McpPublishedCatalog;
+  publishedContentHash: string | null;
+  configFingerprint: string | null;
+  reconciledAt: number | null;
+  inFlightReconcile: Promise<void> | null;
   runtimeByServer: Map<string, ServerRuntimeState>;
 };
 
@@ -91,6 +104,10 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
       state = {
         catalogGeneration: 0,
         published: emptyCatalog(0),
+        publishedContentHash: null,
+        configFingerprint: null,
+        reconciledAt: null,
+        inFlightReconcile: null,
         runtimeByServer: new Map(),
       };
       this.byUser.set(userId, state);
@@ -118,13 +135,72 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
     return this.userState(userId).runtimeByServer.get(serverName)?.connection?.client;
   }
 
-  async reconcile(userId: string): Promise<void> {
+  async reconcile(
+    userId: string,
+    options?: { force?: boolean },
+  ): Promise<ReconcileResult> {
+    const userState = this.userState(userId);
+    const configs = await this.configs.listEnabled(userId);
+    const configFingerprint = computeEnabledConfigFingerprint(configs);
+    const hasCache =
+      userState.reconciledAt !== null && userState.configFingerprint === configFingerprint;
+    const allRequiredReady = configs.every(
+      (cfg) =>
+        !cfg.required || userState.published.servers.get(cfg.serverName)?.status === 'connected',
+    );
+
+    if (!options?.force && hasCache && allRequiredReady) {
+      const ageMs = Date.now() - userState.reconciledAt!;
+      if (ageMs < MCP_CATALOG_CACHE_TTL_MS) {
+        return { mode: 'cache_hit', configs, generation: userState.catalogGeneration };
+      }
+      // SWR：过期后先返回旧快照让本次 Run 零等待启动，同时触发 single-flight 后台异步刷新。
+      if (!userState.inFlightReconcile) {
+        this.startReconcileTask(userId, configs, configFingerprint).catch((error) => {
+          this.logger.warn(
+            `MCP 后台 SWR 刷新失败 | 用户=${shortLogId(userId)} | 原因=${error instanceof Error ? error.message : String(error)}`,
+            McpConnectionManager.name,
+          );
+        });
+      }
+      return { mode: 'swr_stale', configs, generation: userState.catalogGeneration };
+    }
+
+    if (options?.force && userState.inFlightReconcile) {
+      await userState.inFlightReconcile.catch(() => undefined);
+    }
+    if (!userState.inFlightReconcile) {
+      await this.startReconcileTask(userId, configs, configFingerprint);
+    } else {
+      await userState.inFlightReconcile;
+    }
+    return { mode: 'synced', configs, generation: userState.catalogGeneration };
+  }
+
+  private startReconcileTask(
+    userId: string,
+    configs: McpServerConfigRecord[],
+    configFingerprint: string,
+  ): Promise<void> {
+    const userState = this.userState(userId);
+    const task = this.performReconcile(userId, configs, configFingerprint).finally(() => {
+      if (userState.inFlightReconcile === task) {
+        userState.inFlightReconcile = null;
+      }
+    });
+    userState.inFlightReconcile = task;
+    return task;
+  }
+
+  private async performReconcile(
+    userId: string,
+    configs: McpServerConfigRecord[],
+    configFingerprint: string,
+  ): Promise<void> {
     const userState = this.userState(userId);
     const runtimeByServer = userState.runtimeByServer;
-    const configs = await this.configs.listEnabled(userId);
     // reconcile 位于 Run 的模型请求前关键路径，逐 server 记录耗时才能解释首字等待。
     const trace = new LatencyTrace();
-    const serverTimings: string[] = [];
     const enabledNames = new Set(configs.map((c) => c.serverName));
     for (const name of [...runtimeByServer.keys()]) {
       if (!enabledNames.has(name)) {
@@ -135,62 +211,116 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
     }
 
     const previousEntriesByServer = groupEntriesByServer(userState.published.entries);
+    const perServerResults = await Promise.all(
+      configs.map((config) =>
+        this.reconcileSingleServer(config, runtimeByServer, previousEntriesByServer, trace),
+      ),
+    );
+
     const nextServers = new Map<string, McpPublishedServerView>();
-    const nextEntries: McpToolCatalogEntry[] = [];
-    const nextGeneration = userState.catalogGeneration + 1;
+    const rawEntries: McpToolCatalogEntry[] = [];
+    const serverTimings: string[] = [];
+    for (const item of perServerResults) {
+      nextServers.set(item.view.serverName, item.view);
+      rawEntries.push(...item.entries);
+      serverTimings.push(item.timing);
+    }
 
-    for (const config of configs) {
-      const serverStartedAt = trace.elapsedMs();
-      const prevTools = previousEntriesByServer.get(config.serverName) ?? [];
-      let state = runtimeByServer.get(config.serverName);
-      if (!state) {
-        state = {
-          serverName: config.serverName,
-          configId: config.id,
-          required: config.required,
-          defaultApproval: config.defaultApproval,
-          enabledTools: parseStringList(config.enabledTools),
-          disabledTools: parseStringList(config.disabledTools),
-          toolCallTimeoutMs: config.toolCallTimeoutMs,
-          status: 'disconnected',
-          lastError: null,
-          instructions: null,
-          toolCountTotal: 0,
-          serverIcons: [],
-        };
-        runtimeByServer.set(config.serverName, state);
-      } else {
-        state.configId = config.id;
-        state.required = config.required;
-        state.defaultApproval = config.defaultApproval;
-        state.enabledTools = parseStringList(config.enabledTools);
-        state.disabledTools = parseStringList(config.disabledTools);
-        state.toolCallTimeoutMs = config.toolCallTimeoutMs;
-        state.serverIcons ??= [];
-      }
+    const nextContentHash = computeCatalogContentHash(nextServers, rawEntries);
+    const unchanged =
+      userState.catalogGeneration > 0 && userState.publishedContentHash === nextContentHash;
+    const finalGeneration = unchanged
+      ? userState.catalogGeneration
+      : userState.catalogGeneration + 1;
+    const nextEntries = rawEntries.map((entry) => ({
+      ...entry,
+      boundGeneration: finalGeneration,
+    }));
 
-      try {
-        const serverTrace = new LatencyTrace();
-        const transportConfig = await serverTrace.measure('凭证', () =>
-          this.resolveTransport(config),
-        );
-        const fingerprint = this.transportFingerprint(config, transportConfig);
-        await serverTrace.measure('连接', () =>
-          this.ensureConnected(state, config, transportConfig, fingerprint),
-        );
-        const client = state.connection!.client;
-        const tools = await serverTrace.measure('listTools', () =>
-          this.listAllTools(client, config.startupTimeoutMs),
-        );
-        const filtered = filterTools(tools, state.enabledTools, state.disabledTools);
-        const instructions = client.getInstructions()?.trim() || null;
-        state.instructions = instructions;
-        state.toolCountTotal = tools.length;
-        const entries = filtered
-          .map((tool) => toCatalogEntry(config, tool, nextGeneration, state!.defaultApproval))
-          .filter((entry) => entry.publicName !== AGENT_TOOL_NAMES.toolSearch);
-        nextEntries.push(...entries);
-        nextServers.set(config.serverName, {
+    userState.catalogGeneration = finalGeneration;
+    userState.published = {
+      generation: finalGeneration,
+      servers: nextServers,
+      entries: nextEntries,
+    };
+    userState.publishedContentHash = nextContentHash;
+    userState.configFingerprint = configFingerprint;
+    userState.reconciledAt = Date.now();
+
+    // 慢 reconcile 直接推迟首字；使用 warn 级别让每次 Run 都可追踪（info 会被 pino 对重复消息去重）。
+    const reconcileMs = trace.elapsedMs();
+    const degraded = [...nextServers.values()].filter((view) => view.status !== 'connected');
+    if (reconcileMs >= RECONCILE_SLOW_LOG_THRESHOLD_MS || degraded.length) {
+      this.logger.warn(
+        `MCP reconcile 偏慢 | 用户=${shortLogId(userId)} | servers=${configs.length} | tools=${nextEntries.length} | generation=${finalGeneration} | 耗时=${formatLogDuration(reconcileMs)} | 降级=${degraded.length ? degraded.map((view) => `${view.serverName}(${view.lastError ?? 'unknown'})`).join(',') : '无'} | 分解=${serverTimings.join(' ') || '无'}`,
+        McpConnectionManager.name,
+      );
+    }
+  }
+
+  private async reconcileSingleServer(
+    config: McpServerConfigRecord,
+    runtimeByServer: Map<string, ServerRuntimeState>,
+    previousEntriesByServer: Map<string, McpToolCatalogEntry[]>,
+    trace: LatencyTrace,
+  ): Promise<{
+    view: McpPublishedServerView;
+    entries: McpToolCatalogEntry[];
+    timing: string;
+  }> {
+    const serverStartedAt = trace.elapsedMs();
+    const prevTools = previousEntriesByServer.get(config.serverName) ?? [];
+    let state = runtimeByServer.get(config.serverName);
+    if (!state) {
+      state = {
+        serverName: config.serverName,
+        configId: config.id,
+        required: config.required,
+        defaultApproval: config.defaultApproval,
+        enabledTools: parseStringList(config.enabledTools),
+        disabledTools: parseStringList(config.disabledTools),
+        toolCallTimeoutMs: config.toolCallTimeoutMs,
+        status: 'disconnected',
+        lastError: null,
+        instructions: null,
+        toolCountTotal: 0,
+        serverIcons: [],
+      };
+      runtimeByServer.set(config.serverName, state);
+    } else {
+      state.configId = config.id;
+      state.required = config.required;
+      state.defaultApproval = config.defaultApproval;
+      state.enabledTools = parseStringList(config.enabledTools);
+      state.disabledTools = parseStringList(config.disabledTools);
+      state.toolCallTimeoutMs = config.toolCallTimeoutMs;
+      state.serverIcons ??= [];
+    }
+
+    try {
+      const serverTrace = new LatencyTrace();
+      const transportConfig = await serverTrace.measure('凭证', () =>
+        this.resolveTransport(config),
+      );
+      const fingerprint = this.transportFingerprint(config, transportConfig);
+      await serverTrace.measure('连接', () =>
+        this.ensureConnected(state, config, transportConfig, fingerprint),
+      );
+      const client = state.connection!.client;
+      const tools = await serverTrace.measure('listTools', () =>
+        this.listAllTools(client, config.startupTimeoutMs),
+      );
+      const filtered = filterTools(tools, state.enabledTools, state.disabledTools);
+      const instructions = client.getInstructions()?.trim() || null;
+      state.instructions = instructions;
+      state.toolCountTotal = tools.length;
+      const entries = filtered
+        .map((tool) => toCatalogEntry(config, tool, 0, state.defaultApproval))
+        .filter((entry) => entry.publicName !== AGENT_TOOL_NAMES.toolSearch);
+      state.status = 'connected';
+      state.lastError = null;
+      return {
+        view: {
           configId: config.id,
           serverName: config.serverName,
           required: config.required,
@@ -209,30 +339,23 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
             description: tool.description ?? '',
             inputSchema: (tool.inputSchema as Record<string, unknown>) ?? { type: 'object' },
           })),
-        });
-        state.status = 'connected';
-        state.lastError = null;
-        serverTimings.push(
-          `${config.serverName}:${formatLogDuration(trace.elapsedMs() - serverStartedAt)}(${serverTrace.formatSegments()} 工具=${tools.length})`,
-        );
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        this.logger.warn(
-          `MCP server ${config.serverName} reconcile 失败: ${detail}`,
-          McpConnectionManager.name,
-        );
-        serverTimings.push(
-          `${config.serverName}:${formatLogDuration(trace.elapsedMs() - serverStartedAt)}(失败)`,
-        );
-        state.status = 'degraded';
-        state.lastError = detail;
-        const exposedCount = prevTools.length;
-        const totalCount = state.toolCountTotal || exposedCount;
-        if (prevTools.length) {
-          nextEntries.push(
-            ...prevTools.map((entry) => ({ ...entry, boundGeneration: nextGeneration })),
-          );
-          nextServers.set(config.serverName, {
+        },
+        entries,
+        timing: `${config.serverName}:${formatLogDuration(trace.elapsedMs() - serverStartedAt)}(${serverTrace.formatSegments()} 工具=${tools.length})`,
+      };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `MCP server ${config.serverName} reconcile 失败: ${detail}`,
+        McpConnectionManager.name,
+      );
+      state.status = 'degraded';
+      state.lastError = detail;
+      const exposedCount = prevTools.length;
+      const totalCount = state.toolCountTotal || exposedCount;
+      if (prevTools.length) {
+        return {
+          view: {
             configId: config.id,
             serverName: config.serverName,
             required: config.required,
@@ -251,41 +374,30 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
               description: entry.description,
               inputSchema: entry.parameters,
             })),
-          });
-        } else {
-          nextServers.set(config.serverName, {
-            configId: config.id,
-            serverName: config.serverName,
-            required: config.required,
-            defaultApproval: config.defaultApproval,
-            enabledTools: state.enabledTools,
-            disabledTools: state.disabledTools,
-            toolCallTimeoutMs: config.toolCallTimeoutMs,
-            status: 'degraded',
-            lastError: detail,
-            toolCountTotal: 0,
-            toolCountExposed: 0,
-            instructions: state.instructions,
-            tools: [],
-          });
-        }
+          },
+          entries: prevTools,
+          timing: `${config.serverName}:${formatLogDuration(trace.elapsedMs() - serverStartedAt)}(失败)`,
+        };
       }
-    }
-
-    userState.catalogGeneration = nextGeneration;
-    userState.published = {
-      generation: nextGeneration,
-      servers: nextServers,
-      entries: nextEntries,
-    };
-    // 慢 reconcile 直接推迟首字；使用 warn 级别让每次 Run 都可追踪（info 会被 pino 对重复消息去重）。
-    const reconcileMs = trace.elapsedMs();
-    const degraded = [...nextServers.values()].filter((view) => view.status !== 'connected');
-    if (reconcileMs >= RECONCILE_SLOW_LOG_THRESHOLD_MS || degraded.length) {
-      this.logger.warn(
-        `MCP reconcile 偏慢 | 用户=${shortLogId(userId)} | servers=${configs.length} | tools=${nextEntries.length} | generation=${nextGeneration} | 耗时=${formatLogDuration(reconcileMs)} | 降级=${degraded.length ? degraded.map((view) => `${view.serverName}(${view.lastError ?? 'unknown'})`).join(',') : '无'} | 分解=${serverTimings.join(' ') || '无'}`,
-        McpConnectionManager.name,
-      );
+      return {
+        view: {
+          configId: config.id,
+          serverName: config.serverName,
+          required: config.required,
+          defaultApproval: config.defaultApproval,
+          enabledTools: state.enabledTools,
+          disabledTools: state.disabledTools,
+          toolCallTimeoutMs: config.toolCallTimeoutMs,
+          status: 'degraded',
+          lastError: detail,
+          toolCountTotal: 0,
+          toolCountExposed: 0,
+          instructions: state.instructions,
+          tools: [],
+        },
+        entries: [],
+        timing: `${config.serverName}:${formatLogDuration(trace.elapsedMs() - serverStartedAt)}(失败)`,
+      };
     }
   }
 
@@ -308,12 +420,23 @@ export class McpConnectionManager implements OnModuleInit, OnModuleDestroy {
   }
 
   async removeServer(userId: string, serverName: string): Promise<void> {
-    const runtimeByServer = this.userState(userId).runtimeByServer;
-    const state = runtimeByServer.get(serverName);
+    const userState = this.userState(userId);
+    const state = userState.runtimeByServer.get(serverName);
     if (state) {
       await this.closeConnection(state);
-      runtimeByServer.delete(serverName);
+      userState.runtimeByServer.delete(serverName);
     }
+    userState.reconciledAt = null;
+  }
+
+  async invalidateServer(userId: string, serverName: string): Promise<void> {
+    const userState = this.userState(userId);
+    const state = userState.runtimeByServer.get(serverName);
+    if (state) {
+      await this.closeConnection(state);
+      state.status = 'disconnected';
+    }
+    userState.reconciledAt = null;
   }
 
   private async ensureConnected(
@@ -478,4 +601,59 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function computeEnabledConfigFingerprint(configs: ReadonlyArray<McpServerConfigRecord>): string {
+  const normalized = [...configs]
+    .sort((a, b) => a.serverName.localeCompare(b.serverName))
+    .map((cfg) => ({
+      id: cfg.id,
+      serverName: cfg.serverName,
+      url: cfg.url,
+      headersPlain: cfg.headersPlain ?? null,
+      enabledTools: cfg.enabledTools ?? null,
+      disabledTools: cfg.disabledTools ?? null,
+      required: cfg.required,
+      defaultApproval: cfg.defaultApproval,
+      toolCallTimeoutMs: cfg.toolCallTimeoutMs,
+      maxInstructionBytes: cfg.maxInstructionBytes,
+      updatedAt: cfg.updatedAt instanceof Date ? cfg.updatedAt.toISOString() : String(cfg.updatedAt ?? ''),
+      secrets: (cfg.secrets ?? [])
+        .map((s) =>
+          'ciphertext' in s && typeof s.ciphertext === 'string'
+            ? `${s.kind}:${s.name}:${s.ciphertext}`
+            : `${s.kind}:${s.name}`,
+        )
+        .sort(),
+    }));
+  return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+}
+
+function computeCatalogContentHash(
+  servers: ReadonlyMap<string, McpPublishedServerView>,
+  entries: ReadonlyArray<McpToolCatalogEntry>,
+): string {
+  const serverSummary = [...servers.values()]
+    .sort((a, b) => a.serverName.localeCompare(b.serverName))
+    .map((view) => ({
+      serverName: view.serverName,
+      status: view.status,
+      instructions: view.instructions,
+      defaultApproval: view.defaultApproval,
+      enabledTools: view.enabledTools,
+      disabledTools: view.disabledTools,
+      toolCallTimeoutMs: view.toolCallTimeoutMs,
+    }));
+  const entrySummary = [...entries]
+    .sort((a, b) => a.publicName.localeCompare(b.publicName))
+    .map((entry) => ({
+      publicName: entry.publicName,
+      description: entry.description,
+      parameters: entry.parameters,
+      defaultApproval: entry.defaultApproval,
+      toolCallTimeoutMs: entry.toolCallTimeoutMs,
+    }));
+  return createHash('sha256')
+    .update(JSON.stringify({ servers: serverSummary, entries: entrySummary }))
+    .digest('hex');
 }

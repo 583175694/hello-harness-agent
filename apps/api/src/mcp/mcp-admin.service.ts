@@ -67,7 +67,7 @@ export class McpAdminService {
           body.secrets.map((s) => ({ kind: s.kind, name: s.name, value: s.value })),
         );
       }
-      await this.connections.reconcile(userId);
+      await this.connections.reconcile(userId, { force: true });
       const row = await this.configs.findById(created.id, userId);
       if (!row) throw new Error('McpServerCreateMissing');
       return this.toView(userId, row);
@@ -123,7 +123,7 @@ export class McpAdminService {
           body.secrets.map((s) => ({ kind: s.kind, name: s.name, value: s.value })),
         );
       }
-      await this.connections.reconcile(userId);
+      await this.connections.reconcile(userId, { force: true });
       const row = await this.configs.findById(id, userId);
       if (!row) throw new Error('McpServerUpdateMissing');
       return this.toView(userId, row);
@@ -156,7 +156,7 @@ export class McpAdminService {
       },
       userId,
     );
-    await this.connections.reconcile(userId);
+    await this.connections.reconcile(userId, { force: true });
     const row = await this.configs.findById(id, userId);
     if (!row) throw new Error('McpServerPatchMissing');
     return this.toView(userId, row);
@@ -167,7 +167,7 @@ export class McpAdminService {
     if (!existing) this.notFound();
     await this.configs.delete(id, userId);
     await this.connections.removeServer(userId, existing.serverName);
-    await this.connections.reconcile(userId);
+    await this.connections.reconcile(userId, { force: true });
   }
 
   async testServer(userId: string, id: string): Promise<McpServerTestResponse> {

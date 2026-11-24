@@ -106,6 +106,9 @@ export class McpToolExecutor {
       this.logger.warn(
         `MCP 工具调用异常 | Server=${entry.serverName} | 工具=${entry.rawName} | 上游=${describeLogError(error)}`,
       );
+      if (isTransportOrConnectionError(error)) {
+        await this.connections.invalidateServer?.(context.userId, entry.serverName);
+      }
       return {
         status: 'failed',
         error: {
@@ -116,4 +119,19 @@ export class McpToolExecutor {
       };
     }
   }
+}
+
+function isTransportOrConnectionError(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return (
+    message.includes('econnreset') ||
+    message.includes('econnrefused') ||
+    message.includes('etimedout') ||
+    message.includes('fetch failed') ||
+    message.includes('socket') ||
+    message.includes('closed') ||
+    message.includes('disconnected') ||
+    message.includes('timeout') ||
+    message.includes('network')
+  );
 }

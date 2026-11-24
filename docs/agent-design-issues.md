@@ -11,7 +11,7 @@
 | 3 | 上下文 | 压缩触发线过低，且压缩一次的成本接近收益 | 待定 |
 | 4 | 上下文 | 前缀不稳定，Prompt 缓存命中率低 | 待定 |
 | 5 | 调度 | 同批工具串行、无 URL 去重 | 待定 |
-| 6 | 生命周期 | 每 Run 全量 reconcile MCP，无目录缓存 | 待定 |
+| 6 | 生命周期 | 每 Run 全量 reconcile MCP，无目录缓存 | 已落地（SWR 目录缓存 + 并发 reconcile + 执行期容错） |
 | 7 | 反馈 | 长时无可见进度，靠事后 nudge 补救 | 待定 |
 | 8 | 停止 | 停止靠轮数上限，无「证据已够」判据 | 待定 |
 | 9 | 记忆 | 每轮先付 embedding，空召回也全价 | 待定 |
@@ -141,10 +141,28 @@
 
 **证据**
 
-- `mcp-run-latch.service.ts:31`；`mcp-connection.manager.ts:182,401` → 日志 **4.50s**。
+- `mcp-run-latch.service.ts:31`；`mcp-connection.manager.ts:142,182,401` → 实测日志 **4.50s–6.56s**（其中 `Tinyfish` 单次 `listTools` 占 4–5s，且多 Server 串行执行、每次重算全量 token 估算耗时 ~400ms）。
 
-**方案**  
-待定。
+**方案（已落地 · 2026-11-24）**
+
+1. **Run Latch 默认走 SWR 目录缓存 + 配置指纹校验**  
+   - `reconcile(userId, { force?: boolean })` 对比 DB 启用配置指纹（`configFingerprint`：含启用 server 列表、url、enabled/disabledTools、`updatedAt`）。
+   - **指纹未变 + 已连上 + 在 TTL 内（如 5 分钟）**：直接跳过 `listTools`，**0ms 返回现有内存快照**（连同 `estimatedTokens` 一并按 generation 缓存，省掉 ~400ms 重算）。
+   - **指纹未变但 TTL 过期（SWR）**：本次 Run 仍直接用旧快照秒开，同时触发**后台异步刷新**（single-flight 去重，防止并发 Run 重复刷），刷完后原子替换 `PublishedCatalog` 供下一次 Run 使用。
+   - **首次冷启动 / 配置指纹变更 / Settings 保存 / `mcp_add_server`**：走 `force: true` 同步刷新，保证配置修改即时生效。
+2. **多 Server 并发拉取（`Promise.all`）**  
+   - 真正需要 reconcile 时，各 Server 并发连接与 `listTools`，冷启动耗时从「总和」降到「最慢单个 Server」。
+3. **执行期容错保底**  
+   - 若缓存期间远端 MCP 重启导致工具调用报连接异常，执行层触发单 Server 重连并标记该用户缓存失效，下一次自动刷新。
+
+**实测验证（2026-11-24）**
+
+| 指标 | 优化前（每 Run 串行 reconcile） | 冷启动（`cache=sync` 并发） | 热 Run（`cache=hit`） |
+|------|--------------------------------|---------------------------|-----------------------|
+| MCP latch 耗时 | 6.56s | 5.10s（Tinyfish 4.64s ∥ tushare 1.01s） | **45ms（提速 145 倍）** |
+| Run 启动到模型循环 | 6.63s | 5.20s | **96ms** |
+| 全量 Token 估算 | 437ms | 437ms | **0ms（命中缓存）** |
+| 首轮 Reasoning / Cache 命中 | 1.08s / 24% | 887ms / 95% | **710ms / 97%** |
 
 ---
 

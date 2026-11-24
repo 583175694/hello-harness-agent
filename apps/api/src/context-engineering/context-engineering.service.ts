@@ -247,7 +247,7 @@ export class ContextEngineeringService {
     const content = skills.map((skill) => skill.content).join('\n');
     const isCatalog = skills.every((skill) => skill.skillId.startsWith('catalog:'));
     const block = isCatalog
-      ? `<skill_catalog>${skills.map((skill) => skill.content).join('')}</skill_catalog>`
+      ? `<skill_catalog>当用户请求匹配以下任一 Skill 的适用场景时，动手前必须先调用 ${AGENT_TOOL_NAMES.skillsRead} 加载其完整规范，不要跳过或凭经验替代。${skills.map((skill) => skill.content).join('')}</skill_catalog>`
       : `<skills_context>${content}</skills_context>`;
     const index = messages[0]?.role === 'system' ? 1 : 0;
     return [

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { SandboxError } from '../../../src/sandbox/sandbox-error';
+import { SandboxWorkspaceService } from '../../../src/sandbox/sandbox-workspace.service';
 import { BashTool } from '../../../src/tools/bash.tool';
 
 describe('BashTool', () => {
@@ -140,5 +141,73 @@ describe('BashTool', () => {
     expect(egressAudit.record).toHaveBeenCalledWith(
       expect.objectContaining({ decision: 'allow' }),
     );
+  });
+
+  it('rejects PPTX generation commands and .pptx output collection at input validation', () => {
+    const tool = new BashTool(
+      { isAvailable: () => true } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { classify: () => null } as never,
+      { record: () => undefined } as never,
+    );
+
+    const blockedInputs = [
+      { command: 'python3 make.py', description: 'collect pptx', output: { path: 'deck.pptx' } },
+      {
+        command: 'python3 make.py',
+        description: 'collect pptx by fileName',
+        output: { path: 'out.bin', fileName: 'report.PPTX' },
+      },
+      { command: 'pip install python-pptx', description: 'install python-pptx' },
+      { command: 'npm install pptxgenjs', description: 'install pptxgenjs' },
+      {
+        command: 'python3 -c "from pptx import Presentation; Presentation().save(\'a.pptx\')"',
+        description: 'run python-pptx',
+      },
+      {
+        command: 'soffice --headless --convert-to pptx slides.html',
+        description: 'convert to pptx',
+      },
+    ];
+
+    for (const input of blockedInputs) {
+      const parsed = tool.inputSchema.safeParse(input);
+      expect(parsed.success).toBe(false);
+      if (!parsed.success) {
+        const message = parsed.error.issues.map((issue) => issue.message).join(' ');
+        expect(message).toContain('ai-ppt-html');
+        expect(message).toContain('ppt_export');
+      }
+    }
+
+    const allowed = tool.inputSchema.safeParse({
+      command: 'python3 analyze.py',
+      description: 'analyze csv data',
+      output: { path: 'result.csv' },
+    });
+    expect(allowed.success).toBe(true);
+  });
+
+  it('blocks collecting .pptx files in SandboxWorkspaceService', async () => {
+    const workspace = new SandboxWorkspaceService({} as never, { importFromSandbox: vi.fn() } as never);
+    const session = {
+      stat: vi.fn(async () => ({ kind: 'regular_file', size: 16 })),
+      download: vi.fn(async () => Buffer.from('pptx')),
+    };
+
+    await expect(
+      workspace.collect({
+        sessionId: 's1',
+        runId: 'r1',
+        toolCallId: 'c1',
+        session: session as never,
+        output: { path: 'deck.pptx' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'SANDBOX_COLLECT_FAILED',
+      detail: expect.stringContaining('ppt_export'),
+    });
   });
 });

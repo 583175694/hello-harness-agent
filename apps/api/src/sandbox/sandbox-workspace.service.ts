@@ -72,6 +72,12 @@ export class SandboxWorkspaceService {
       throw sandboxCollectFailed('输出文件超过 20 MiB。', false);
     }
     const fileName = input.output.fileName?.trim() || basename(input.output.path);
+    if (/\.pptx?$/iu.test(fileName) || /\.pptx?$/iu.test(input.output.path.trim())) {
+      throw sandboxCollectFailed(
+        '禁止从沙箱收集 PPT/PPTX 文件；请先调用 skills.read(name="ai-ppt-html")，再使用 ppt_export 导出。',
+        false,
+      );
+    }
     return this.artifacts.importFromSandbox({
       sessionId: input.sessionId,
       runId: input.runId,

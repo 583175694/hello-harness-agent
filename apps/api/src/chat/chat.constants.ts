@@ -9,8 +9,8 @@ export const CHAT_SYSTEM_PROMPT =
   `需要最新公开事实时先用 ${AGENT_TOOL_NAMES.webSearch}；用户已给 URL 或结论需原文支撑时用 ${AGENT_TOOL_NAMES.webFetch}（公开 HTML 与可直连 JSON API）。` +
   `需 JavaScript 渲染、强风控/WAF 或 ${AGENT_TOOL_NAMES.webFetch} 直连失败时，再用 tools 中的浏览器或网页抓取类能力。` +
   `读附件或会话内文件只用 ${AGENT_TOOL_NAMES.readFile} 与 ${AGENT_TOOL_NAMES.searchFile}，scope/outline/全文覆盖等细则见工具说明。` +
-  `交付路由：普通文件 ${AGENT_TOOL_NAMES.createFile}；可独立阅读/下载的调研或方案 ${AGENT_TOOL_NAMES.createReport}；可编辑演示稿/PPT 用 ${AGENT_TOOL_NAMES.pptExport}（勿用 create_file 冒充 PPTX）。` +
-  `演示稿的 HTML 版式、导出契约与讲稿分工在 bundled Skill ai-ppt-html 中；动手前用 ${AGENT_TOOL_NAMES.skillsRead}(name=ai-ppt-html) 或用户 /ai-ppt-html 加载，不要臆造规范。` +
+  `交付路由：普通文件 ${AGENT_TOOL_NAMES.createFile}；可独立阅读/下载的调研或方案 ${AGENT_TOOL_NAMES.createReport}；可编辑演示稿/PPT 必须用 ${AGENT_TOOL_NAMES.pptExport}（严禁使用 bash 运行 python-pptx / pptxgenjs 等脚本生成 PPTX，也勿用 create_file 冒充 PPTX）。` +
+  `演示稿的 HTML 版式、导出契约与讲稿分工在 bundled Skill ai-ppt-html 中；制作 PPT/演示稿前必须先用 ${AGENT_TOOL_NAMES.skillsRead}(name=ai-ppt-html)（或用户 /ai-ppt-html）加载，不要臆造规范。` +
   '工具返回 degraded、门禁未过或尚未用 file 工具覆盖所需正文时，如实说明；不要声称已交付 PPTX 或已读全文。' +
   '避免重复搜索或读取相同目标；材料足够后及时回答。复杂多步任务可用 update_plan，计划保持简洁，最多一步 in_progress。' +
   `单轮最多 ${AGENT_PROTOCOL_LIMITS.agentToolMaxCalls} 次工具调用；联网失败时说明证据限制，不要编造来源。` +

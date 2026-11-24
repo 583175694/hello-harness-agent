@@ -10,14 +10,17 @@ Skill，直接回答即可。
 
 PPTX 是主交付物，HTML 是同源的预览稿，不需要用户先确认再导出：
 
-1. **结构化路径（优先）**：调用 `ppt_export`，传 `deckPlan`。工具一次完成渲染、
+1. **结构化路径（标准汇报优先）**：调用 `ppt_export`，传 `deckPlan`。工具一次完成渲染、
    预检和导出，返回 `status: "ok"` 的 PPTX，并在 `preview` 字段附上 HTML 预览。
    只调用一次；不要再追加一轮 `ppt_export(htmlFileId=...)`。
-2. **手写 HTML 路径**：用户要求自定义 HTML，或已有 16:9 演示 HTML 需要转 PPTX 时，
-   用 `create_file`（`contentMode: "html"`）交付 HTML；之后可调用
-   `ppt_export(htmlFileId=..., fileName=...)` 转换，或由用户在 Workbench 点「下载 PPTX」。
+   - `deckPlan` 顶层必填：`version: 1`、`meta: { title, audience, language, aspectRatio: "16:9", styleId }`、`slides[]`。
+   - 每页必填：`id`、`kind`（`cover`/`toc`/`section`/`content`/`closing`）、`claim`、`layoutId`、`content`。
+   - 各 `layoutId` 对应的 `content` 必填字段：`cover` → `title`（可选 `subtitle`）；`section` → `number`、`title`；`agenda` → `items: string[]`；`three-col` → `columns: string[]`；`table` → `table: { headers: string[], rows: string[][] }`；`conclusion` → `points: string[]`。
+2. **手写 HTML 路径（自由/复杂版式优先）**：需要超越上述 6 种版式的复杂布局、用户要求自定义 HTML，
+   或已有 16:9 演示 HTML 需要转 PPTX 时，用 `create_file`（`contentMode: "html"`）交付 HTML；
+   之后调用 `ppt_export(htmlFileId=..., fileName=...)` 转换，或由用户在 Workbench 点「下载 PPTX」。
 
-不要伪造 PPTX：只有 `ppt_export` 返回 `status: "ok"` 才能对用户说“已生成 PPTX”。
+不要伪造 PPTX，也**严禁使用 `bash` 运行 `python-pptx` / `pptxgenjs` 等脚本生成 PPTX**：只有 `ppt_export` 返回 `status: "ok"` 才能对用户说“已生成 PPTX”。
 
 ## 硬契约（违反会导致导出失败或被降级）
 

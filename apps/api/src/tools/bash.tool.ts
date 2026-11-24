@@ -34,12 +34,49 @@ const TOOL_DESCRIPTION =
   '在隔离云端工作区执行一条 bash 命令（每次调用是新的 shell；文件与已装依赖会保留）。' +
   '必须提供 description。路径相对工作区；Host 文件用 inputFiles Stage、output Collect。' +
   '非零退出是命令结果。访问外网（curl、wget、agent-browser 等）在沙箱策略内自动执行；pip/npm install 等安装依赖需用户批准。' +
-  'Browser 镜像下预装 agent-browser：JS 渲染页、截图与下载用 agent-browser CLI（路径在 workspace，截图/下载用 output Collect）；可直连 HTML/JSON 先用 web_fetch，失败或需渲染再用浏览器或其它抓取工具。';
+  'Browser 镜像下预装 agent-browser：JS 渲染页、截图与下载用 agent-browser CLI（路径在 workspace，截图/下载用 output Collect）；可直连 HTML/JSON 先用 web_fetch，失败或需渲染再用浏览器或其它抓取工具。' +
+  '禁止用 bash 生成或收集 PPT/PPTX 演示稿；制作演示稿请先调用 skills.read(name="ai-ppt-html")，再使用 ppt_export。';
+
+const BASH_PPTX_FORBIDDEN_MESSAGE =
+  '禁止通过 bash（如 python-pptx / pptxgenjs）生成或收集 PPT/PPTX。请先调用 skills.read(name="ai-ppt-html") 加载规范，再使用 ppt_export（传 deckPlan，或先用 create_file 生成 16:9 HTML 再传 htmlFileId）导出。';
+
+const PPTX_FILE_EXTENSION_PATTERN = /\.pptx?$/iu;
+
+const BASH_PPTX_COMMAND_PATTERNS: readonly RegExp[] = [
+  /\bpython[-_]pptx\b/iu,
+  /\bpptxgenjs\b/iu,
+  /\b(?:from\s+pptx\s+import|import\s+pptx\b|pptx\.Presentation\b)/u,
+  /\bnew\s+PptxGenJS\b/u,
+  /--convert-to\s+pptx?\b/iu,
+];
+
+const BASH_TOOL_INPUT_SCHEMA = bashInputSchema.superRefine((input, ctx) => {
+  const outputPath = input.output?.path?.trim();
+  const outputFileName = input.output?.fileName?.trim();
+  if (
+    (outputPath && PPTX_FILE_EXTENSION_PATTERN.test(outputPath)) ||
+    (outputFileName && PPTX_FILE_EXTENSION_PATTERN.test(outputFileName))
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['output'],
+      message: BASH_PPTX_FORBIDDEN_MESSAGE,
+    });
+    return;
+  }
+  if (BASH_PPTX_COMMAND_PATTERNS.some((pattern) => pattern.test(input.command))) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['command'],
+      message: BASH_PPTX_FORBIDDEN_MESSAGE,
+    });
+  }
+});
 
 @Injectable()
 export class BashTool implements AgentTool<BashInput, BashToolSuccess> {
   readonly name = AGENT_TOOL_NAMES.bash;
-  readonly inputSchema = bashInputSchema as ZodType<BashInput>;
+  readonly inputSchema = BASH_TOOL_INPUT_SCHEMA as ZodType<BashInput>;
   readonly inputErrorCode = AGENT_ERROR_CODES.invalidToolArguments;
   readonly executionPolicy = {
     timeoutMs: sandboxLimits.toolOuterTimeoutMs,

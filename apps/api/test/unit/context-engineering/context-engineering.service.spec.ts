@@ -88,6 +88,31 @@ describe('ContextEngineeringService', () => {
     expect(compiled.compactionTriggered).toBe(false);
   });
 
+  it('includes explicit skills.read guidance in skill_catalog system block', async () => {
+    const { service } = createService();
+    const compiled = await service.compileRound({
+      sessionId: 'session-1',
+      model: 'deepseek-flash',
+      messages: [
+        { role: 'system', content: '系统提示' },
+        { role: 'user', content: '帮我做一份季度复盘 PPT' },
+      ],
+      skills: [
+        {
+          skillId: 'catalog:ai-ppt-html',
+          version: '1.0.0',
+          content: '<skill name="ai-ppt-html" version="1.0.0"><description>PPT</description></skill>',
+        },
+      ],
+    });
+
+    const catalogMessage = compiled.messages.find(
+      (message) => message.role === 'system' && message.content.includes('<skill_catalog>'),
+    );
+    expect(catalogMessage?.content).toContain('skills.read');
+    expect(catalogMessage?.content).toContain('ai-ppt-html');
+  });
+
   it('spills oversized Tool Results to a file and keeps a recoverable preview', async () => {
     const { service, files } = createService();
     const result = await service.trimToolResults(

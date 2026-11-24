@@ -101,6 +101,18 @@ describe('PptExportTool', () => {
     expect(definition.description).toContain('htmlFileId');
     expect(definition.description).toContain('PPTX');
     expect(definition.description).toContain('preview');
+    expect(definition.parameters).toMatchObject({
+      properties: {
+        deckPlan: {
+          required: ['version', 'meta', 'slides'],
+          properties: {
+            version: { enum: [1] },
+            meta: { required: ['title', 'audience', 'language', 'aspectRatio', 'styleId'] },
+            slides: { type: 'array' },
+          },
+        },
+      },
+    });
   });
 
   it('delivers PPTX and an HTML preview in one call for a deck plan', async () => {

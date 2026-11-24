@@ -73,10 +73,11 @@ export class PptExportTool implements AgentTool<PptExportInput, PptExportResult>
     return {
       name: this.name,
       description:
-        '生成可编辑 16:9 演示稿（PPTX 主产物 + HTML preview 预览）。传 deckPlan：确定性渲染并一次交付；传 htmlFileId：复用会话内已有演示 HTML 转 PPTX。' +
-        ' deckPlan 版式由 layoutId 决定（cover/agenda/section/three-col/table/conclusion）；参数结构见 schema。' +
+        '生成可编辑 16:9 演示稿（PPTX 主产物 + HTML preview 预览）。支持两种路径（二选一）：' +
+        '1）传 deckPlan：确定性渲染 6 种标准版式并一次交付；' +
+        '2）传 htmlFileId：先用 create_file(contentMode="html") 交付自定义 16:9 演示 HTML，再转换为 PPTX（适合超越 6 种版式的复杂/自由排版，勿用 bash 跑 python-pptx）。' +
         ` 最多 ${AGENT_PROTOCOL_LIMITS.pptExportMaxSlides} 页；硬门禁未过返回 status=degraded，不要声称已有 PPTX。` +
-        ` 版式与手写 HTML 契约见 Skill ai-ppt-html（${AGENT_TOOL_NAMES.skillsRead} 或 /ai-ppt-html）。` +
+        ` 完整版式与手写 HTML 契约见 Skill ai-ppt-html（${AGENT_TOOL_NAMES.skillsRead} 或 /ai-ppt-html）。` +
         ' 成功后只概括验收结果，勿在聊天重复整份 deck plan。',
       parameters: {
         type: 'object',
@@ -84,18 +85,85 @@ export class PptExportTool implements AgentTool<PptExportInput, PptExportResult>
         properties: {
           fileName: {
             type: 'string',
-            description: '目标 .pptx 文件名（不含路径）。',
+            description: '目标 .pptx 文件名（不含路径，必须以 .pptx 结尾）。',
           },
           htmlFileId: {
             type: 'string',
             description:
-              '可选的 16:9 演示 HTML 文件 fileId。提供后直接转换为 PPTX，不再需要 deckPlan；适合复用会话内已有的演示 HTML。',
+              '可选的 16:9 演示 HTML 文件 fileId。提供后直接转换为 PPTX，不再需要 deckPlan；适合自定义 HTML 排版或复用会话内已有的演示 HTML。',
           },
           deckPlan: {
             type: 'object',
             description:
-              'deck-plan v1：meta + slides。每页必须选择 cover/agenda/section/three-col/table/conclusion 之一，并提交该版式要求的 content 字段。',
-            additionalProperties: true,
+              'deck-plan v1（与 htmlFileId 二选一）。包含 version(固定 1)、meta 和 slides。',
+            additionalProperties: false,
+            required: ['version', 'meta', 'slides'],
+            properties: {
+              version: {
+                type: 'integer',
+                enum: [1],
+                description: '固定为 1。',
+              },
+              meta: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['title', 'audience', 'language', 'aspectRatio', 'styleId'],
+                properties: {
+                  title: { type: 'string', description: '演示稿总标题（1–200 字）。' },
+                  audience: { type: 'string', description: '目标受众，例如“管理层”。' },
+                  language: { type: 'string', description: '语言代码，例如“zh-CN”。' },
+                  aspectRatio: { type: 'string', enum: ['16:9'], description: '固定为 "16:9"。' },
+                  styleId: { type: 'string', description: '风格标识，默认 "default"。' },
+                },
+              },
+              slides: {
+                type: 'array',
+                minItems: 1,
+                maxItems: AGENT_PROTOCOL_LIMITS.pptExportMaxSlides,
+                description: '幻灯片列表，每页必须选择 cover/agenda/section/three-col/table/conclusion 之一。',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['id', 'kind', 'claim', 'layoutId', 'content'],
+                  properties: {
+                    id: { type: 'string', description: '页内唯一标识，如 "s1"。' },
+                    kind: {
+                      type: 'string',
+                      enum: ['cover', 'toc', 'section', 'content', 'closing'],
+                    },
+                    claim: { type: 'string', description: '本页核心结论标题。' },
+                    layoutId: {
+                      type: 'string',
+                      enum: ['cover', 'agenda', 'section', 'three-col', 'table', 'conclusion'],
+                    },
+                    content: {
+                      type: 'object',
+                      additionalProperties: true,
+                      description:
+                        '按 layoutId 提供必填字段：cover 需 title（可选 subtitle）；section 需 number、title；' +
+                        'agenda 需非空字符串数组 items；three-col 需非空字符串数组 columns；' +
+                        'table 需 table: { headers: string[], rows: string[][] }；conclusion 需非空字符串数组 points。',
+                    },
+                    evidence: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['text'],
+                        properties: {
+                          text: { type: 'string' },
+                          sourceUrl: { type: 'string' },
+                        },
+                      },
+                    },
+                    visualIntent: {
+                      type: 'string',
+                      enum: ['none', 'image', 'chart', 'diagram', 'quote'],
+                    },
+                  },
+                },
+              },
+            },
           },
         },
         required: ['fileName'],

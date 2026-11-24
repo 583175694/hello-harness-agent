@@ -50,6 +50,42 @@ export class SessionsController {
     return this.sessions.list(user.id, { limit: parsedLimit, before });
   }
 
+  // 搜索当前用户的会话标题与消息正文；必须声明在 :sessionId 之前避免路由被吞。
+  @Get('search')
+  search(
+    @CurrentUser() user: RequestUser,
+    @Query('q') q?: string,
+    @Query('scope') scopeParam?: string,
+    @Query('sessionId') sessionId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const query = q?.trim() ?? '';
+    if (!query || query.length > 200) {
+      this.invalid('q 必须是 1 到 200 个字符的搜索关键词。');
+    }
+    const scope = scopeParam === undefined ? 'all' : scopeParam;
+    if (scope !== 'all' && scope !== 'session') {
+      this.invalid('scope 仅支持 all 或 session。');
+    }
+    const trimmedSessionId = sessionId?.trim();
+    if (scope === 'session' && !trimmedSessionId) {
+      this.invalid('scope 为 session 时必须提供 sessionId。');
+    }
+    const parsedLimit = limit === undefined ? undefined : Number(limit);
+    if (
+      parsedLimit !== undefined &&
+      (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 100)
+    ) {
+      this.invalid('limit 必须是 1 到 100 之间的整数。');
+    }
+    return this.sessions.search(user.id, {
+      query,
+      scope,
+      sessionId: trimmedSessionId,
+      limit: parsedLimit,
+    });
+  }
+
   // 返回指定会话消息；传入 limit/before 时按时间游标分页。
   @Get(':sessionId')
   detail(

@@ -32,6 +32,50 @@ import { FileStorage } from '../file-storage/file-storage';
 import { RunObjectStorage } from '../run-storage/run-object.storage';
 import { SandboxManagerService } from '../sandbox/sandbox-manager.service';
 
+export type SessionSearchMessageHit = {
+  messageId: string;
+  sessionId: string;
+  sessionTitle: string;
+  role: 'user' | 'assistant';
+  snippet: string;
+  matchStart: number;
+  matchLength: number;
+  createdAt: string;
+};
+
+export type SessionSearchResponse = {
+  query: string;
+  scope: 'all' | 'session';
+  sessions: SessionSummary[];
+  messages: SessionSearchMessageHit[];
+};
+
+export function buildSearchSnippet(
+  content: string,
+  query: string,
+): { snippet: string; matchStart: number; matchLength: number } {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  const trimmedQuery = query.trim();
+  if (!normalized || !trimmedQuery) {
+    const snippet = normalized.length > 120 ? `${normalized.slice(0, 120)}…` : normalized;
+    return { snippet, matchStart: 0, matchLength: 0 };
+  }
+  const idx = normalized.toLowerCase().indexOf(trimmedQuery.toLowerCase());
+  if (idx < 0) {
+    const snippet = normalized.length > 120 ? `${normalized.slice(0, 120)}…` : normalized;
+    return { snippet, matchStart: 0, matchLength: 0 };
+  }
+  const start = Math.max(0, idx - 36);
+  const end = Math.min(normalized.length, idx + trimmedQuery.length + 72);
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < normalized.length ? '…' : '';
+  return {
+    snippet: `${prefix}${normalized.slice(start, end)}${suffix}`,
+    matchStart: prefix.length + (idx - start),
+    matchLength: trimmedQuery.length,
+  };
+}
+
 @Injectable()
 export class SessionsService implements OnModuleInit {
   constructor(
@@ -70,7 +114,9 @@ export class SessionsService implements OnModuleInit {
         where: { userId },
         orderBy: [{ isPinned: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
       });
-      return { sessions: all.map((session) => this.toSummary(session)) };
+      return {
+        sessions: all.map((session) => this.toSummary(session)),
+      };
     }
     const pinned = await this.prisma.session.findMany({
       where: { userId, isPinned: true },
@@ -106,6 +152,85 @@ export class SessionsService implements OnModuleInit {
         hasMore,
         ...(nextBefore ? { nextBefore } : {}),
       },
+    };
+  }
+
+  // 检索当前用户的会话标题与消息正文；scope='session' 时仅检索指定会话内消息。
+  async search(
+    userId: string,
+    options: { query: string; scope: 'all' | 'session'; sessionId?: string; limit?: number },
+  ): Promise<SessionSearchResponse> {
+    const query = options.query.trim();
+    const limit = Math.min(Math.max(1, options.limit ?? 30), 100);
+    if (!query) {
+      return { query: '', scope: options.scope, sessions: [], messages: [] };
+    }
+
+    if (options.scope === 'session') {
+      const rows = await this.prisma.message.findMany({
+        where: {
+          sessionId: options.sessionId!,
+          content: { contains: query, mode: 'insensitive' },
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: limit,
+        select: {
+          id: true,
+          sessionId: true,
+          role: true,
+          content: true,
+          createdAt: true,
+          session: { select: { title: true } },
+        },
+      });
+      return {
+        query,
+        scope: 'session',
+        sessions: [],
+        messages: rows.map((row) => ({
+          messageId: row.id,
+          sessionId: row.sessionId,
+          sessionTitle: row.session.title,
+          role: row.role,
+          ...buildSearchSnippet(row.content, query),
+          createdAt: row.createdAt.toISOString(),
+        })),
+      };
+    }
+
+    const [sessionRows, messageRows] = await Promise.all([
+      this.prisma.session.findMany({
+        where: { userId, title: { contains: query, mode: 'insensitive' } },
+        orderBy: [{ isPinned: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
+        take: Math.min(limit, 20),
+      }),
+      this.prisma.message.findMany({
+        where: { userId, content: { contains: query, mode: 'insensitive' } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: limit,
+        select: {
+          id: true,
+          sessionId: true,
+          role: true,
+          content: true,
+          createdAt: true,
+          session: { select: { title: true } },
+        },
+      }),
+    ]);
+
+    return {
+      query,
+      scope: 'all',
+      sessions: sessionRows.map((row) => this.toSummary(row)),
+      messages: messageRows.map((row) => ({
+        messageId: row.id,
+        sessionId: row.sessionId,
+        sessionTitle: row.session.title,
+        role: row.role,
+        ...buildSearchSnippet(row.content, query),
+        createdAt: row.createdAt.toISOString(),
+      })),
     };
   }
 

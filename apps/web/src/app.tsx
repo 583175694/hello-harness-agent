@@ -7,6 +7,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  Search,
   Trash2,
   X,
 } from 'lucide-react';
@@ -133,6 +134,7 @@ import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
 import { SidebarUserMenu } from './features/agent/components/sidebar-user-menu';
 import { SettingsDialog } from './features/agent/components/settings-dialog';
+import { SearchDialog } from './features/agent/components/search-dialog';
 import { LoginDialog } from './features/auth/login-dialog';
 import { LOGOUT_CONFIRM, useConfirm } from './components/ui/confirm-provider';
 import { toast } from './components/ui/toast';
@@ -1296,6 +1298,11 @@ function PersistentAgentApp() {
   const [pendingInputs, setPendingInputs] = useState<PendingUserInputView[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [searchDialogInitialQuery, setSearchDialogInitialQuery] = useState('');
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findTargetMessageId, setFindTargetMessageId] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const pendingSubmitTaskRef = useRef<string | null>(null);
   const skipClearPendingOnLoginCloseRef = useRef(false);
@@ -1896,11 +1903,16 @@ function PersistentAgentApp() {
   }
 
   // 切换会话只改变当前视图：先展示目标缓存，再异步刷新详情；不会 abort 任何 Run Observer。
-  function selectSession(sessionId: string): void {
+  function selectSession(sessionId: string, options?: { preserveFind?: boolean }): void {
     draftSubmissionTokenRef.current += 1;
     setDraftPending(false);
     setSelectedSession(sessionId);
     setPromptState(readSessionDraft(draftScopeKey(sessionId)));
+    if (!options?.preserveFind) {
+      setFindOpen(false);
+      setFindQuery('');
+      setFindTargetMessageId(null);
+    }
     setError(null);
     setPendingInputs([]);
     updateSessionUrl(sessionId);
@@ -1920,10 +1932,48 @@ function PersistentAgentApp() {
     setSelectedSession(null);
     setDraftState(makeFixture('empty'));
     setPromptState(readSessionDraft(draftScopeKey(null)));
+    setFindOpen(false);
+    setFindQuery('');
+    setFindTargetMessageId(null);
     setError(null);
     setPendingInputs([]);
     updateSessionUrl(null);
     setMobileNavOpen(false);
+  }
+
+  async function loadOlderUntilMessage(sessionId: string, messageId: string): Promise<boolean> {
+    const hasMessage = () =>
+      Boolean(
+        sessionStatesRef.current[sessionId]?.conversation.some((item) => item.id === messageId),
+      );
+    if (hasMessage()) return true;
+    for (let page = 0; page < 10; page += 1) {
+      if (!sessionPaginationRef.current[sessionId]) return hasMessage();
+      await loadOlderMessages(sessionId);
+      if (hasMessage()) return true;
+    }
+    return hasMessage();
+  }
+
+  async function handleJumpToMessage({
+    sessionId,
+    messageId,
+    query,
+  }: {
+    sessionId: string;
+    messageId: string;
+    query: string;
+  }): Promise<void> {
+    setSearchDialogOpen(false);
+    if (sessionId && selectedSessionIdRef.current !== sessionId) {
+      selectSession(sessionId, { preserveFind: true });
+      if (!sessionStatesRef.current[sessionId]) {
+        await loadSessionDetail(sessionId);
+      }
+    }
+    setFindQuery(query);
+    setFindOpen(true);
+    setFindTargetMessageId(messageId);
   }
 
   // 从内联 Tool Activity 打开并定位当前会话的 Workbench 调用详情。
@@ -2531,6 +2581,24 @@ function PersistentAgentApp() {
     baseTitle: APP_BRAND.name,
   });
 
+  useEffect(() => {
+    const handleFindShortcut = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'f') return;
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      if (settingsOpen || loginOpen || searchDialogOpen) return;
+      const currentConversation = selectedSessionIdRef.current
+        ? sessionStatesRef.current[selectedSessionIdRef.current]?.conversation
+        : undefined;
+      if (!currentConversation?.length) return;
+      // 第一次按 Ctrl/⌘+F 唤起页内查找条；已打开时再次按下则放行浏览器原生查找。
+      if (findOpen) return;
+      event.preventDefault();
+      setFindOpen(true);
+    };
+    document.addEventListener('keydown', handleFindShortcut);
+    return () => document.removeEventListener('keydown', handleFindShortcut);
+  }, [findOpen, loginOpen, searchDialogOpen, settingsOpen]);
+
   async function handleLogout(): Promise<void> {
     if (!(await confirm(LOGOUT_CONFIRM))) return;
     try {
@@ -2561,6 +2629,10 @@ function PersistentAgentApp() {
         selectedSessionId={selectedSessionId}
         pendingSessions={pendingSessions}
         onNew={startDraft}
+        onOpenSearch={() => {
+          setSearchDialogInitialQuery('');
+          setSearchDialogOpen(true);
+        }}
         onSelect={selectSession}
         onDelete={(sessionId) => {
           const target = sessions.find((session) => session.id === sessionId);
@@ -2628,6 +2700,18 @@ function PersistentAgentApp() {
           setLoginOpen(true);
         }}
       />
+      <SearchDialog
+        open={searchDialogOpen}
+        onOpenChange={setSearchDialogOpen}
+        initialQuery={searchDialogInitialQuery}
+        sessions={sessions}
+        currentSessionId={selectedSessionId}
+        currentSessionTitle={uiState.label}
+        currentConversation={uiState.conversation}
+        authenticated={Boolean(authUser)}
+        onSelectSession={(sessionId) => selectSession(sessionId)}
+        onJumpToMessage={(target) => void handleJumpToMessage(target)}
+      />
       <LoginDialog
         open={loginOpen}
         onOpenChange={(open) => {
@@ -2686,8 +2770,24 @@ function PersistentAgentApp() {
               </header>
               <Conversation
                 scopeKey={selectedSessionId ?? 'draft'}
+                sessionId={selectedSessionId}
                 sessionLoading={sessionContentLoading}
                 state={uiState}
+                findOpen={findOpen}
+                findQuery={findQuery}
+                findTargetMessageId={findTargetMessageId}
+                onFindOpenChange={setFindOpen}
+                onFindQueryChange={setFindQuery}
+                onFindTargetHandled={() => setFindTargetMessageId(null)}
+                onOpenGlobalSearch={(initialQuery) => {
+                  setSearchDialogInitialQuery(initialQuery);
+                  setSearchDialogOpen(true);
+                }}
+                onLoadOlderUntilMessage={
+                  selectedSessionId
+                    ? (messageId) => loadOlderUntilMessage(selectedSessionId, messageId)
+                    : undefined
+                }
                 error={error}
                 onDismissError={() => setError(null)}
                 onReconnect={
@@ -3216,6 +3316,7 @@ function Sidebar({
   selectedSessionId,
   pendingSessions,
   onNew,
+  onOpenSearch,
   onSelect,
   onDelete,
   onRename,
@@ -3233,6 +3334,7 @@ function Sidebar({
   selectedSessionId?: string | null;
   pendingSessions?: Record<string, boolean>;
   onNew?: () => void;
+  onOpenSearch?: () => void;
   onSelect?: (sessionId: string) => void;
   onDelete?: (sessionId: string) => void;
   onRename?: (sessionId: string, title: string) => Promise<void>;
@@ -3360,15 +3462,28 @@ function Sidebar({
         </div>
         <div className="sidebar-heading flex items-center justify-between px-2 pb-2 pr-[22px] text-ui-xs font-medium uppercase tracking-[0.05em] text-text-muted">
           <span>会话</span>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="新建会话"
-            title="新建会话"
-            onClick={onNew}
-          >
-            <Plus size={18} />
-          </button>
+          <div className="sidebar-heading__actions">
+            {onOpenSearch ? (
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="搜索会话与消息"
+                title="搜索会话与消息"
+                onClick={onOpenSearch}
+              >
+                <Search size={17} />
+              </button>
+            ) : null}
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="新建会话"
+              title="新建会话"
+              onClick={onNew}
+            >
+              <Plus size={18} />
+            </button>
+          </div>
         </div>
         <div
           className="session-list min-h-0 flex-1 overflow-y-auto pr-1.5 pb-[140px]"

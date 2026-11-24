@@ -186,3 +186,111 @@ describe('SessionsService pagination', () => {
     });
   });
 });
+
+describe('SessionsService search', () => {
+  it('searches owned sessions and messages case-insensitively across all sessions', async () => {
+    const now = new Date('2026-01-02T03:04:05.000Z');
+    const prisma = {
+      session: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 's-1',
+            userId: 'user-1',
+            title: 'Timeout 排查记录',
+            status: 'active',
+            isPinned: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ]),
+      },
+      message: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'm-1',
+            sessionId: 's-2',
+            role: 'assistant',
+            content: '请检查网关 timeout 配置并适当放大上游超时时间',
+            createdAt: now,
+            session: { title: '网关配置' },
+          },
+        ]),
+      },
+    };
+    const service = new SessionsService(
+      prisma as unknown as PrismaService,
+      {} as SessionTitleService,
+      {} as never,
+      {} as RunRepository,
+      { list: vi.fn() } as unknown as PendingUserInputService,
+      {} as FileStorage,
+      { deletePrefix: vi.fn() } as never,
+    );
+
+    const result = await service.search('user-1', { query: 'timeout', scope: 'all' });
+
+    expect(result.sessions).toHaveLength(1);
+    expect(result.sessions[0]?.title).toBe('Timeout 排查记录');
+    expect(result.messages).toEqual([
+      {
+        messageId: 'm-1',
+        sessionId: 's-2',
+        sessionTitle: '网关配置',
+        role: 'assistant',
+        snippet: '请检查网关 timeout 配置并适当放大上游超时时间',
+        matchStart: 6,
+        matchLength: 7,
+        createdAt: now.toISOString(),
+      },
+    ]);
+  });
+
+  it('scopes search to a single session in ascending chronological order', async () => {
+    const t1 = new Date('2026-01-01T00:00:00.000Z');
+    const prisma = {
+      session: { findMany: vi.fn() },
+      message: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'm-old',
+            sessionId: 's-1',
+            role: 'user',
+            content: '第一条包含 Redis 缓存的提问',
+            createdAt: t1,
+            session: { title: '缓存设计' },
+          },
+        ]),
+      },
+    };
+    const service = new SessionsService(
+      prisma as unknown as PrismaService,
+      {} as SessionTitleService,
+      {} as never,
+      {} as RunRepository,
+      { list: vi.fn() } as unknown as PendingUserInputService,
+      {} as FileStorage,
+      { deletePrefix: vi.fn() } as never,
+    );
+
+    const result = await service.search('user-1', {
+      query: 'redis',
+      scope: 'session',
+      sessionId: 's-1',
+    });
+
+    expect(prisma.session.findMany).not.toHaveBeenCalled();
+    expect(prisma.message.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { sessionId: 's-1', content: { contains: 'redis', mode: 'insensitive' } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+    );
+    expect(result.sessions).toEqual([]);
+    expect(result.messages[0]).toMatchObject({
+      messageId: 'm-old',
+      sessionId: 's-1',
+      matchStart: 6,
+      matchLength: 5,
+    });
+  });
+});

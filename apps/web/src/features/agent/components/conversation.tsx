@@ -2,6 +2,8 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
+  ChevronDown,
+  ChevronUp,
   CircleAlert,
   CircleUserRound,
   Copy,
@@ -9,6 +11,7 @@ import {
   LoaderCircle,
   Paperclip,
   Plus,
+  Search,
   SlidersHorizontal,
   Square,
   Trash2,
@@ -102,7 +105,13 @@ import {
 import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY, APP_BRAND } from '../config/ui.constants';
 import { BrandIcon } from './brand-icon';
-import { getFilePreview } from '../../../api/client';
+import { getFilePreview, searchSessionsAndMessages, type SessionSearchMessageHit } from '../../../api/client';
+import {
+  mergeConversationMatches,
+  searchLocalConversation,
+  type ConversationSearchMatch,
+} from '../model/conversation-search';
+import { applyDomSearchHighlights, clearDomSearchHighlights } from '../model/dom-text-highlight';
 import {
   DeliverableMarkdownPanel,
   isNormalizedDocumentPreview,
@@ -1075,6 +1084,15 @@ type ConversationProps = {
   hideComposer?: boolean;
   selectedSkills?: string[];
   onSkillsChange?: (skills: string[]) => void;
+  sessionId?: string | null;
+  findOpen?: boolean;
+  findQuery?: string;
+  findTargetMessageId?: string | null;
+  onFindOpenChange?: (open: boolean) => void;
+  onFindQueryChange?: (query: string) => void;
+  onFindTargetHandled?: () => void;
+  onOpenGlobalSearch?: (initialQuery: string) => void;
+  onLoadOlderUntilMessage?: (messageId: string) => Promise<boolean>;
 };
 
 /** Workbench Tab / focus 变化不必重绘整段对话（Streamdown 重绘是 click 300ms+ 的主因）。 */
@@ -1088,6 +1106,12 @@ function conversationPropsAreEqual(prev: ConversationProps, next: ConversationPr
   if (prev.composerMode !== next.composerMode) return false;
   if (prev.sessionLoading !== next.sessionLoading) return false;
   if (prev.scopeKey !== next.scopeKey) return false;
+  if (prev.sessionId !== next.sessionId) return false;
+  if (prev.findOpen !== next.findOpen) return false;
+  if (prev.findQuery !== next.findQuery) return false;
+  if (prev.findTargetMessageId !== next.findTargetMessageId) return false;
+  if (prev.loadingOlder !== next.loadingOlder) return false;
+  if (prev.onLoadOlder !== next.onLoadOlder) return false;
   if (prev.hideComposer !== next.hideComposer) return false;
   if (prev.selectedModel !== next.selectedModel) return false;
   if (prev.reasoningEffort !== next.reasoningEffort) return false;
@@ -1149,9 +1173,38 @@ function ConversationBody({
   hideComposer = false,
   selectedSkills = [],
   onSkillsChange = () => undefined,
+  sessionId = null,
+  findOpen = false,
+  findQuery,
+  findTargetMessageId = null,
+  onFindOpenChange,
+  onFindQueryChange,
+  onFindTargetHandled,
+  onOpenGlobalSearch,
+  onLoadOlderUntilMessage,
 }: ConversationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
+  const findInputRef = useRef<HTMLInputElement>(null);
+  const flashTimerRef = useRef<number | null>(null);
+  const pendingTargetMessageIdRef = useRef<string | null>(null);
+  const lastAutoScrolledQueryRef = useRef('');
+  const [internalFindQuery, setInternalFindQuery] = useState('');
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [jumpingOlder, setJumpingOlder] = useState(false);
+  const [remoteSessionHits, setRemoteSessionHits] = useState<{
+    key: string;
+    messages: SessionSearchMessageHit[];
+  }>({ key: '', messages: [] });
+  const effectiveFindQuery = findQuery ?? internalFindQuery;
+  const updateFindQuery = useCallback(
+    (nextQuery: string) => {
+      if (findQuery === undefined) setInternalFindQuery(nextQuery);
+      onFindQueryChange?.(nextQuery);
+    },
+    [findQuery, onFindQueryChange],
+  );
   const composerAnchorRef = useRef<HTMLDivElement>(null);
   const composerMeasureRef = useRef<HTMLDivElement>(null);
   const landingComposerTopRef = useRef<number | null>(null);
@@ -1361,6 +1414,15 @@ function ConversationBody({
   function handleConversationScroll(): void {
     syncActiveUserMessage();
     syncScrollBottomState();
+    if (findOpen && effectiveFindQuery.trim()) {
+      requestAnimationFrame(() => {
+        applyDomSearchHighlights(
+          messageListRef.current,
+          effectiveFindQuery,
+          activeFindMatch?.messageId ?? null,
+        );
+      });
+    }
   }
   useEffect(() => {
     syncActiveUserMessage();
@@ -1481,8 +1543,245 @@ function ConversationBody({
       if (scrollFrameRef.current !== null) {
         cancelAnimationFrame(scrollFrameRef.current);
       }
+      if (flashTimerRef.current !== null) {
+        window.clearTimeout(flashTimerRef.current);
+      }
+      clearDomSearchHighlights();
     };
   }, []);
+
+  const trimmedFindQuery = effectiveFindQuery.trim();
+  const localFindMatches = useMemo(
+    () =>
+      findOpen && trimmedFindQuery
+        ? searchLocalConversation(renderedConversation, trimmedFindQuery)
+        : [],
+    [findOpen, renderedConversation, trimmedFindQuery],
+  );
+  const loadedMessageIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of renderedConversation) {
+      ids.add(item.id);
+      const segIdx = item.id.indexOf(':segment:');
+      if (segIdx > 0) ids.add(item.id.slice(0, segIdx));
+    }
+    return ids;
+  }, [renderedConversation]);
+
+  const remoteSearchKey =
+    findOpen && trimmedFindQuery && sessionId && onLoadOlder
+      ? `${sessionId}:${trimmedFindQuery}`
+      : '';
+
+  useEffect(() => {
+    if (!remoteSearchKey || !sessionId) {
+      setRemoteSessionHits({ key: '', messages: [] });
+      return undefined;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void searchSessionsAndMessages(
+        {
+          query: trimmedFindQuery,
+          scope: 'session',
+          sessionId,
+          limit: 100,
+        },
+        controller.signal,
+      )
+        .then((response) => {
+          if (controller.signal.aborted) return;
+          setRemoteSessionHits({ key: remoteSearchKey, messages: response.messages });
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setRemoteSessionHits({ key: remoteSearchKey, messages: [] });
+          }
+        });
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [remoteSearchKey, sessionId, trimmedFindQuery]);
+
+  const findMatches = useMemo<ConversationSearchMatch[]>(() => {
+    if (!findOpen || !trimmedFindQuery) return [];
+    const remoteMessages =
+      remoteSearchKey && remoteSessionHits.key === remoteSearchKey
+        ? remoteSessionHits.messages
+        : [];
+    return mergeConversationMatches(localFindMatches, remoteMessages, loadedMessageIds);
+  }, [
+    findOpen,
+    loadedMessageIds,
+    localFindMatches,
+    remoteSearchKey,
+    remoteSessionHits,
+    trimmedFindQuery,
+  ]);
+
+  const boundedMatchIndex =
+    findMatches.length > 0 ? Math.min(activeMatchIndex, findMatches.length - 1) : 0;
+  const activeFindMatch = findMatches[boundedMatchIndex] ?? null;
+
+  const triggerMessageFlash = useCallback((messageId: string) => {
+    setHighlightedMessageId(messageId);
+    if (flashTimerRef.current !== null) {
+      window.clearTimeout(flashTimerRef.current);
+    }
+    flashTimerRef.current = window.setTimeout(() => {
+      flashTimerRef.current = null;
+      setHighlightedMessageId((current) => (current === messageId ? null : current));
+    }, 1_600);
+  }, []);
+
+  const scrollToRenderedRow = useCallback(
+    (messageId: string, renderIndex: number) => {
+      stickToBottomRef.current = false;
+      programmaticScrollUntilRef.current = 0;
+      if (shouldVirtualize) {
+        virtualizer.scrollToIndex(renderIndex, { align: 'center' });
+      } else {
+        const element = scrollRef.current?.querySelector(
+          `[data-message-id="${CSS.escape(messageId)}"]`,
+        );
+        element?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+      triggerMessageFlash(messageId);
+      requestAnimationFrame(() => {
+        syncActiveUserMessage();
+        syncScrollBottomState();
+        applyDomSearchHighlights(messageListRef.current, trimmedFindQuery, messageId);
+      });
+    },
+    [
+      shouldVirtualize,
+      syncActiveUserMessage,
+      syncScrollBottomState,
+      triggerMessageFlash,
+      trimmedFindQuery,
+      virtualizer,
+    ],
+  );
+
+  const jumpToMatch = useCallback(
+    async (match: ConversationSearchMatch) => {
+      if (match.renderIndex !== null) {
+        scrollToRenderedRow(match.messageId, match.renderIndex);
+        return;
+      }
+      if (!match.unloaded || !onLoadOlderUntilMessage) return;
+      setJumpingOlder(true);
+      pendingTargetMessageIdRef.current = match.messageId;
+      try {
+        const loaded = await onLoadOlderUntilMessage(match.messageId);
+        if (!loaded) {
+          pendingTargetMessageIdRef.current = null;
+        }
+      } finally {
+        setJumpingOlder(false);
+      }
+    },
+    [onLoadOlderUntilMessage, scrollToRenderedRow],
+  );
+
+  useEffect(() => {
+    if (!findOpen) {
+      lastAutoScrolledQueryRef.current = '';
+      clearDomSearchHighlights();
+      return;
+    }
+    findInputRef.current?.focus();
+    findInputRef.current?.select();
+  }, [findOpen]);
+
+  useEffect(() => {
+    if (!findOpen || !trimmedFindQuery) {
+      clearDomSearchHighlights();
+      return;
+    }
+    applyDomSearchHighlights(
+      messageListRef.current,
+      trimmedFindQuery,
+      activeFindMatch?.messageId ?? null,
+    );
+  }, [activeFindMatch?.messageId, findOpen, renderedConversation, trimmedFindQuery]);
+
+  // 输入新搜索词时，自动跳到第一条已加载的命中位置（避免仅因流式输出打断用户阅读）。
+  useEffect(() => {
+    if (!findOpen || !trimmedFindQuery || findTargetMessageId) return;
+    if (lastAutoScrolledQueryRef.current === trimmedFindQuery) return;
+    lastAutoScrolledQueryRef.current = trimmedFindQuery;
+    setActiveMatchIndex(0);
+    const firstLoaded = findMatches.find((item) => item.renderIndex !== null);
+    if (firstLoaded && firstLoaded.renderIndex !== null) {
+      scrollToRenderedRow(firstLoaded.messageId, firstLoaded.renderIndex);
+    }
+  }, [findMatches, findOpen, findTargetMessageId, scrollToRenderedRow, trimmedFindQuery]);
+
+  // 响应全局搜索弹窗跳入某条具体消息（含未加载的更早历史分页）。
+  useEffect(() => {
+    if (!findTargetMessageId) return;
+    const renderIndex = renderedConversation.findIndex(
+      (item) =>
+        item.id === findTargetMessageId || item.id.startsWith(`${findTargetMessageId}:segment:`),
+    );
+    if (renderIndex >= 0) {
+      const targetId = renderedConversation[renderIndex]!.id;
+      const matchIdx = findMatches.findIndex((item) => item.messageId === targetId);
+      if (matchIdx >= 0) setActiveMatchIndex(matchIdx);
+      scrollToRenderedRow(targetId, renderIndex);
+      pendingTargetMessageIdRef.current = null;
+      onFindTargetHandled?.();
+      return;
+    }
+    if (onLoadOlderUntilMessage && pendingTargetMessageIdRef.current !== findTargetMessageId) {
+      pendingTargetMessageIdRef.current = findTargetMessageId;
+      setJumpingOlder(true);
+      void onLoadOlderUntilMessage(findTargetMessageId)
+        .then((loaded) => {
+          if (!loaded) {
+            pendingTargetMessageIdRef.current = null;
+            onFindTargetHandled?.();
+          }
+        })
+        .finally(() => setJumpingOlder(false));
+    }
+  }, [
+    findMatches,
+    findTargetMessageId,
+    onFindTargetHandled,
+    onLoadOlderUntilMessage,
+    renderedConversation,
+    scrollToRenderedRow,
+  ]);
+
+  // 补齐点击「更早历史」命中项后的待定位滚动。
+  useEffect(() => {
+    const pendingId = pendingTargetMessageIdRef.current;
+    if (!pendingId || findTargetMessageId === pendingId) return;
+    const renderIndex = renderedConversation.findIndex(
+      (item) => item.id === pendingId || item.id.startsWith(`${pendingId}:segment:`),
+    );
+    if (renderIndex < 0) return;
+    const targetId = renderedConversation[renderIndex]!.id;
+    pendingTargetMessageIdRef.current = null;
+    const matchIdx = findMatches.findIndex((item) => item.messageId === targetId);
+    if (matchIdx >= 0) setActiveMatchIndex(matchIdx);
+    scrollToRenderedRow(targetId, renderIndex);
+  }, [findMatches, findTargetMessageId, renderedConversation, scrollToRenderedRow]);
+
+  const stepFindMatch = useCallback(
+    (delta: 1 | -1) => {
+      if (!findMatches.length) return;
+      const nextIdx = (boundedMatchIndex + delta + findMatches.length) % findMatches.length;
+      setActiveMatchIndex(nextIdx);
+      const target = findMatches[nextIdx];
+      if (target) void jumpToMatch(target);
+    },
+    [boundedMatchIndex, findMatches, jumpToMatch],
+  );
 
   useLayoutEffect(() => {
     if (!isLandingSession) return;
@@ -1678,8 +1977,9 @@ function ConversationBody({
                       if (!item) return null;
                       return (
                         <div
-                          className="message-list__row"
+                          className={`message-list__row${highlightedMessageId === item.id ? ' message-list__row--search-target' : ''}`}
                           data-index={virtualRow.index}
+                          data-message-id={item.id}
                           key={virtualRow.key}
                           ref={virtualizer.measureElement}
                           style={{ transform: `translateY(${virtualRow.start}px)` }}
@@ -1701,7 +2001,11 @@ function ConversationBody({
                       );
                     })
                   : renderedConversation.map((item) => (
-                      <div className="message-list__row message-list__row--static" key={item.id}>
+                      <div
+                        className={`message-list__row message-list__row--static${highlightedMessageId === item.id ? ' message-list__row--search-target' : ''}`}
+                        data-message-id={item.id}
+                        key={item.id}
+                      >
                         {item.kind === 'user' ? (
                           <UserMessage item={item} />
                         ) : (
@@ -1718,6 +2022,85 @@ function ConversationBody({
                     ))}
               </div>
             </ConversationContent>
+            {findOpen ? (
+              <div className="conversation-find-bar" role="search" aria-label="在当前对话中查找">
+                <div className="conversation-find-bar__row">
+                  <Search className="conversation-find-bar__icon" size={14} aria-hidden="true" />
+                  <input
+                    ref={findInputRef}
+                    type="text"
+                    className="conversation-find-bar__input"
+                    aria-label="在当前对话中查找"
+                    placeholder="查找当前对话…"
+                    value={effectiveFindQuery}
+                    onChange={(event) => {
+                      updateFindQuery(event.target.value);
+                      setActiveMatchIndex(0);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.preventDefault();
+                        onFindOpenChange?.(false);
+                        return;
+                      }
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        stepFindMatch(event.shiftKey ? -1 : 1);
+                      }
+                    }}
+                  />
+                  {jumpingOlder ? (
+                    <LoaderCircle className="spin conversation-find-bar__spinner" size={13} aria-label="加载历史消息" />
+                  ) : null}
+                  <span className="conversation-find-bar__count" aria-live="polite">
+                    {trimmedFindQuery
+                      ? `${findMatches.length > 0 ? boundedMatchIndex + 1 : 0} / ${findMatches.length}`
+                      : ''}
+                  </span>
+                  <button
+                    type="button"
+                    className="conversation-find-bar__btn"
+                    aria-label="上一处"
+                    title="上一处 (Shift+Enter)"
+                    disabled={!findMatches.length || jumpingOlder}
+                    onClick={() => stepFindMatch(-1)}
+                  >
+                    <ChevronUp size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className="conversation-find-bar__btn"
+                    aria-label="下一处"
+                    title="下一处 (Enter)"
+                    disabled={!findMatches.length || jumpingOlder}
+                    onClick={() => stepFindMatch(1)}
+                  >
+                    <ChevronDown size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className="conversation-find-bar__btn"
+                    aria-label="关闭查找"
+                    title="关闭 (Esc)"
+                    onClick={() => onFindOpenChange?.(false)}
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+                {trimmedFindQuery && findMatches.length === 0 && onOpenGlobalSearch ? (
+                  <button
+                    type="button"
+                    className="conversation-find-bar__global-link"
+                    onClick={() => {
+                      onFindOpenChange?.(false);
+                      onOpenGlobalSearch(trimmedFindQuery);
+                    }}
+                  >
+                    在全部会话中搜索“{trimmedFindQuery}”
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             {showScrollToBottom ? (
               <div
                 className={`conversation-scroll-bottom-float${planFloatingVisible ? ' is-above-plan' : ''}`}

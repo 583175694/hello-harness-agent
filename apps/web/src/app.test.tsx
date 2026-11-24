@@ -2231,4 +2231,125 @@ describe('R1 workbench shell', () => {
     );
     expect(window.sessionStorage.getItem('harness-session-drafts')).toBeNull();
   });
+
+  it('opens global search dialog from sidebar, jumps to matched message in another session, and toggles find bar with Ctrl+F', async () => {
+    const baseTime = '2026-08-05T04:00:00.000Z';
+    const sessionList = [
+      {
+        id: 'session-a',
+        title: '当前会话 A',
+        status: 'active',
+        isPinned: false,
+        createdAt: baseTime,
+        updatedAt: baseTime,
+      },
+      {
+        id: 'session-b',
+        title: '历史排查 B',
+        status: 'active',
+        isPinned: false,
+        createdAt: baseTime,
+        updatedAt: baseTime,
+      },
+    ];
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        const auth = authMeFetch(url);
+        if (auth) return Promise.resolve(auth);
+        if (url.endsWith('/api/agent/config/public')) {
+          return Promise.resolve(new Response(JSON.stringify(publicModelConfig)));
+        }
+        if (url.endsWith('/readyz')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' })),
+          );
+        }
+        if (url.endsWith('/api/agent/sessions')) {
+          return Promise.resolve(new Response(JSON.stringify({ sessions: sessionList })));
+        }
+        if (url.includes('/api/agent/sessions/search')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                query: 'timeout',
+                scope: 'all',
+                sessions: [],
+                messages: [
+                  {
+                    messageId: 'msg-b-1',
+                    sessionId: 'session-b',
+                    sessionTitle: '历史排查 B',
+                    role: 'assistant',
+                    snippet: '排查发现是上游 timeout 参数过短',
+                    matchStart: 8,
+                    matchLength: 7,
+                    createdAt: baseTime,
+                  },
+                ],
+              }),
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            ),
+          );
+        }
+        const sessionId = sessionIdFromFetchUrl(url);
+        const session = sessionList.find((item) => item.id === sessionId);
+        if (session) {
+          const messages =
+            session.id === 'session-b'
+              ? [
+                  {
+                    id: 'msg-b-1',
+                    sessionId: 'session-b',
+                    role: 'assistant',
+                    kind: 'assistant_delivery',
+                    content: '排查发现是上游 timeout 参数过短',
+                    createdAt: baseTime,
+                    metadata: {},
+                  },
+                ]
+              : [
+                  {
+                    id: 'msg-a-1',
+                    sessionId: 'session-a',
+                    role: 'user',
+                    kind: 'user_message',
+                    content: '普通消息内容',
+                    createdAt: baseTime,
+                    metadata: {},
+                  },
+                ];
+          return Promise.resolve(
+            new Response(JSON.stringify({ session: { ...session, messages } }), { status: 200 }),
+          );
+        }
+        return Promise.resolve(new Response('{}', { status: 404 }));
+      }),
+    );
+
+    renderWithProviders(<App />);
+    await waitForProductionShell();
+    await waitFor(() => expect(screen.getByText('普通消息内容')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话与消息' }));
+    const dialogInput = await screen.findByRole('textbox', { name: '搜索会话与消息' });
+    fireEvent.change(dialogInput, { target: { value: 'timeout' } });
+
+    const hitRow = await screen.findByRole('button', { name: /参数过短/ });
+    fireEvent.click(hitRow);
+
+    await waitFor(() =>
+      expect(screen.getByText('排查发现是上游 timeout 参数过短')).toBeInTheDocument(),
+    );
+    expect(screen.getByRole('textbox', { name: '在当前对话中查找' })).toHaveValue('timeout');
+    expect(screen.getByText('1 / 1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭查找' }));
+    expect(screen.queryByRole('textbox', { name: '在当前对话中查找' })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'f', ctrlKey: true });
+    expect(await screen.findByRole('textbox', { name: '在当前对话中查找' })).toBeInTheDocument();
+  });
 });

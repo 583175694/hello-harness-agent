@@ -1415,4 +1415,78 @@ describe('Conversation UX polish', () => {
       expect(screen.getByRole('button', { name: '已复制消息' })).toBeInTheDocument();
     });
   });
+
+  it('finds matches in Conversation Find Bar, steps through them, and pivots to global search on empty result', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const onOpenGlobalSearch = vi.fn();
+    const onFindQueryChange = vi.fn();
+
+    const { rerender } = renderConversation({
+      findOpen: true,
+      findQuery: 'timeout',
+      onFindQueryChange,
+      onOpenGlobalSearch,
+      state: {
+        label: 'test',
+        subtitle: '',
+        conversation: [
+          {
+            id: 'u-1',
+            kind: 'user',
+            content: '为什么网关经常报 timeout 错误？',
+            createdAt: '2026-09-10T00:00:00.000Z',
+          },
+          {
+            id: 'a-1',
+            kind: 'assistant',
+            blocks: [{ id: 't-1', type: 'text', content: '可以检查 upstream timeout 配置。' }],
+            createdAt: '2026-09-10T00:00:05.000Z',
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText('1 / 2')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '下一处' }));
+    expect(screen.getByText('2 / 2')).toBeInTheDocument();
+    expect(scrollIntoView).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '上一处' }));
+    expect(screen.getByText('1 / 2')).toBeInTheDocument();
+
+    rerender(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [
+            {
+              id: 'u-1',
+              kind: 'user',
+              content: '为什么网关经常报 timeout 错误？',
+              createdAt: '2026-09-10T00:00:00.000Z',
+            },
+          ],
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+        findOpen
+        findQuery="不存在的词"
+        onFindQueryChange={onFindQueryChange}
+        onOpenGlobalSearch={onOpenGlobalSearch}
+      />,
+    );
+
+    expect(screen.getByText('0 / 0')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '在全部会话中搜索“不存在的词”' }));
+    expect(onOpenGlobalSearch).toHaveBeenCalledWith('不存在的词');
+  });
 });

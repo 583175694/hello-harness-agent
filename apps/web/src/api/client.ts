@@ -9,6 +9,7 @@ import {
   authVerifyPhoneRequestSchema,
   problemDetailsSchema,
   type AuthUserView,
+  type SessionSummary,
 } from '@harness/agent-protocol';
 import {
   ApiProblem,
@@ -188,4 +189,49 @@ export async function bindPhone(phone: string, code: string): Promise<AuthUserVi
     body: JSON.stringify({ phone, code }),
   });
   return parseAuthLoginUser(await parseResponse(response));
+}
+
+export type SessionSearchMessageHit = {
+  messageId: string;
+  sessionId: string;
+  sessionTitle: string;
+  role: 'user' | 'assistant';
+  snippet: string;
+  matchStart: number;
+  matchLength: number;
+  createdAt: string;
+};
+
+export type SessionSearchResponse = {
+  query: string;
+  scope: 'all' | 'session';
+  sessions: SessionSummary[];
+  messages: SessionSearchMessageHit[];
+};
+
+export async function searchSessionsAndMessages(
+  params: {
+    query: string;
+    scope?: 'all' | 'session';
+    sessionId?: string;
+    limit?: number;
+  },
+  signal?: AbortSignal,
+): Promise<SessionSearchResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set('q', params.query.trim());
+  if (params.scope) searchParams.set('scope', params.scope);
+  if (params.sessionId) searchParams.set('sessionId', params.sessionId);
+  if (params.limit !== undefined) searchParams.set('limit', String(params.limit));
+  const response = await apiFetch(
+    `${apiBaseUrl}/api/agent/sessions/search?${searchParams.toString()}`,
+    { signal },
+  );
+  const data = (await parseResponse(response)) as Partial<SessionSearchResponse>;
+  return {
+    query: typeof data.query === 'string' ? data.query : params.query.trim(),
+    scope: data.scope === 'session' ? 'session' : 'all',
+    sessions: Array.isArray(data.sessions) ? data.sessions : [],
+    messages: Array.isArray(data.messages) ? data.messages : [],
+  };
 }

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   App,
@@ -152,8 +152,13 @@ function mockReady() {
 describe('R1 workbench shell', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    window.sessionStorage.clear();
     window.history.replaceState({}, '', '/agent');
     mockReady();
+  });
+
+  afterEach(() => {
+    window.sessionStorage.clear();
   });
 
   it('groups sessions into exclusive local-time ranges and keeps pinned sessions first', () => {
@@ -2129,5 +2134,101 @@ describe('R1 workbench shell', () => {
     streamController?.close();
     await waitFor(() => expect(screen.getByText('后台完整回答')).toBeInTheDocument());
     expect(sessionADetailCalls).toBe(2);
+  });
+
+  it('persists unsent prompt drafts across session switches and clears on submit', async () => {
+    const baseTime = '2026-08-05T04:00:00.000Z';
+    const sessionList = [
+      {
+        id: 'session-a',
+        title: '会话 A',
+        status: 'active',
+        isPinned: false,
+        createdAt: baseTime,
+        updatedAt: baseTime,
+      },
+      {
+        id: 'session-b',
+        title: '会话 B',
+        status: 'active',
+        isPinned: false,
+        createdAt: baseTime,
+        updatedAt: baseTime,
+      },
+    ];
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const auth = authMeFetch(url);
+        if (auth) return Promise.resolve(auth);
+        if (url.endsWith('/api/agent/config/public')) {
+          return Promise.resolve(new Response(JSON.stringify(publicModelConfig)));
+        }
+        if (url.endsWith('/readyz')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' })),
+          );
+        }
+        if (url.endsWith('/api/agent/sessions') && !init?.method) {
+          return Promise.resolve(new Response(JSON.stringify({ sessions: sessionList })));
+        }
+        if (url.endsWith('/session-a/runs') && init?.method === 'POST') {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                sessionId: 'session-a',
+                runId: 'run-draft-a',
+                userMessageId: 'user-draft-a',
+                assistantMessageId: 'assistant-draft-a',
+                status: 'queued',
+                eventsUrl: '/api/agent/runs/run-draft-a/events',
+              }),
+              { status: 201 },
+            ),
+          );
+        }
+        if (url.endsWith('/runs/run-draft-a/events')) {
+          return Promise.resolve(
+            new Response(
+              runFrame('run.completed', { status: 'completed' }, 1, 'run-draft-a', 'session-a'),
+              { headers: { 'content-type': 'text/event-stream' } },
+            ),
+          );
+        }
+        const sessionId = sessionIdFromFetchUrl(url);
+        const session = sessionList.find((item) => item.id === sessionId);
+        if (session) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ session: { ...session, messages: [] } }), { status: 200 }),
+          );
+        }
+        return Promise.resolve(new Response('{}', { status: 404 }));
+      }),
+    );
+
+    renderWithProviders(<App />);
+    await waitForProductionShell();
+    await waitFor(() => expect(screen.getByRole('button', { name: '会话 B' })).toBeInTheDocument());
+
+    await fillComposerAndWait('尚未发送的草稿 A');
+    fireEvent.click(screen.getByRole('button', { name: '会话 B' }));
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: '任务输入' }).textContent?.trim()).toBe(''),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '会话 A' }));
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: '任务输入' })).toHaveTextContent(
+        '尚未发送的草稿 A',
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '发送任务' }));
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: '任务输入' }).textContent?.trim()).toBe(''),
+    );
+    expect(window.sessionStorage.getItem('harness-session-drafts')).toBeNull();
   });
 });

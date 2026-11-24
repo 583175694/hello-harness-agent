@@ -7,6 +7,7 @@ import type { ArtifactRef } from '@harness/agent-protocol';
 import type * as ClientModule from '../../../api/client';
 
 import { ConfirmProvider } from '../../../components/ui/confirm-provider';
+import { toast } from '../../../components/ui/toast';
 import { AGENT_UI_COPY } from '../config/ui.constants';
 import { WorkbenchShell, workbenchAsideAriaLabel } from './workbench-views';
 
@@ -512,5 +513,56 @@ describe('Workbench context view', () => {
     fireEvent.click(screen.getByText('slides.pptx'));
     await waitFor(() => expect(screen.getByText('Hello')).toBeVisible());
     expect(screen.queryByText(/暂不支持内联预览/u)).not.toBeInTheDocument();
+  });
+
+  it('shows toast.error instead of window.alert when fetching full MCP output fails', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    const toastErrorSpy = vi.spyOn(toast, 'error').mockImplementation(() => '');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
+
+    try {
+      renderWorkbench(
+        <WorkbenchShell
+          state={{
+            runId: 'run-mcp',
+            title: '工具执行',
+            subtitle: '1 次调用',
+            activeView: 'tool_results',
+            activityStatus: 'completed',
+            executions: [
+              {
+                toolCallId: 'call-mcp-1',
+                runId: 'run-mcp',
+                stepId: 'call-mcp-1',
+                toolName: 'mcp__demo__query',
+                title: '查询数据',
+                detail: '已完成',
+                status: 'completed',
+                elapsed: '0.5 秒',
+                inputSummary: 'query',
+                outputPreview: '{"ok":true}',
+                outputPreviewTruncated: true,
+              },
+            ],
+            followMode: 'auto',
+            sources: [],
+            open: true,
+          }}
+          onClose={() => undefined}
+          onViewChange={() => undefined}
+          onExecutionSelect={() => undefined}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: '查看完整输出' }));
+      await waitFor(() =>
+        expect(toastErrorSpy).toHaveBeenCalledWith('无法获取完整工具输出，请稍后重试。'),
+      );
+      expect(alertSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      alertSpy.mockRestore();
+      toastErrorSpy.mockRestore();
+    }
   });
 });

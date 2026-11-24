@@ -3,7 +3,7 @@ import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AGENT_UI_COPY } from '../config/ui.constants';
-import { Composer, Conversation } from './conversation';
+import { Composer, Conversation, CopyButton } from './conversation';
 
 function renderConversation(
   props: Partial<ComponentProps<typeof Conversation>> = {},
@@ -1284,6 +1284,135 @@ describe('Conversation tool activity navigation', () => {
       runId: 'server-message-1',
       stepId: 'call-1',
       toolCallId: 'call-1',
+    });
+  });
+});
+
+describe('Conversation UX polish', () => {
+  it('shows scroll-to-bottom FAB when scrolled up past threshold and scrolls back on click', () => {
+    const { container } = renderConversation({
+      submitting: true,
+      state: {
+        label: 'test',
+        subtitle: '',
+        conversation: [
+          { id: 'u-1', kind: 'user', content: '你好', createdAt: '2026-09-10T00:00:00.000Z' },
+          {
+            id: 'a-1',
+            kind: 'assistant',
+            pending: true,
+            deliveryStatus: 'streaming',
+            blocks: [{ id: 't-1', type: 'text', content: '正在流式回复内容' }],
+          },
+        ],
+      },
+    });
+
+    const scrollContainer = container.querySelector('.conversation-scroll') as HTMLElement;
+    expect(scrollContainer).not.toBeNull();
+    Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1200, configurable: true });
+    Object.defineProperty(scrollContainer, 'clientHeight', { value: 400, configurable: true });
+    const scrollToMock = vi.fn(({ top }: { top?: number }) => {
+      if (typeof top === 'number') scrollContainer.scrollTop = top;
+    });
+    scrollContainer.scrollTo = scrollToMock as unknown as typeof scrollContainer.scrollTo;
+
+    scrollContainer.scrollTop = 800;
+    fireEvent.scroll(scrollContainer);
+    expect(screen.queryByRole('button', { name: '滚动到底部' })).not.toBeInTheDocument();
+
+    scrollContainer.scrollTop = 200;
+    fireEvent.scroll(scrollContainer);
+    const fab = screen.getByRole('button', { name: '滚动到底部' });
+    expect(fab).toBeInTheDocument();
+    expect(fab).toHaveClass('is-streaming');
+    expect(fab.querySelector('.conversation-scroll-bottom-fab__dot')).toBeNull();
+
+    fireEvent.click(fab);
+    expect(scrollToMock).toHaveBeenCalledWith({ top: 1200, behavior: 'smooth' });
+    expect(screen.queryByRole('button', { name: '滚动到底部' })).not.toBeInTheDocument();
+  });
+
+  it('shows question preview tooltip on navigator tick hover and focus', () => {
+    renderConversation({
+      state: {
+        label: 'test',
+        subtitle: '',
+        conversation: [
+          {
+            id: 'user-1',
+            kind: 'user',
+            content: '请帮我总结第三季度营收变化趋势',
+            createdAt: '2026-09-10T00:00:00.000Z',
+          },
+          {
+            id: 'assistant-1',
+            kind: 'assistant',
+            blocks: [{ id: 'text-1', type: 'text', content: '回答一' }],
+          },
+          {
+            id: 'user-2',
+            kind: 'user',
+            content: '再对比一下华东与华南区毛利率',
+            createdAt: '2026-09-10T00:01:00.000Z',
+          },
+        ],
+      },
+    });
+
+    const firstTick = screen.getByRole('button', { name: '跳转到第 1 条提问' });
+    fireEvent.mouseEnter(firstTick);
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toHaveTextContent('#1');
+    expect(tooltip).toHaveTextContent('请帮我总结第三季度营收变化趋势');
+
+    fireEvent.mouseLeave(firstTick);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+    const secondTick = screen.getByRole('button', { name: '跳转到第 2 条提问' });
+    fireEvent.focus(secondTick);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('#2');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('再对比一下华东与华南区毛利率');
+
+    fireEvent.blur(secondTick);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('omits disabled placeholder overflow button on follow-up queue cards', () => {
+    renderConversation({
+      submitting: true,
+      pendingInputs: [
+        {
+          id: 'follow-1',
+          kind: 'follow_up',
+          status: 'pending',
+          content: '补充对比今年同期数据',
+          sequence: 1,
+        },
+      ],
+      onPromotePending: () => undefined,
+      onCancelPending: () => undefined,
+    });
+
+    expect(screen.getByText('补充对比今年同期数据')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '删除后续消息' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '更多后续消息操作' })).not.toBeInTheDocument();
+  });
+
+  it('CopyButton toggles accessible copied state on click', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+
+    render(<CopyButton text="复制这段回答" />);
+    const button = screen.getByRole('button', { name: '复制消息' });
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('复制这段回答');
+      expect(screen.getByRole('button', { name: '已复制消息' })).toBeInTheDocument();
     });
   });
 });

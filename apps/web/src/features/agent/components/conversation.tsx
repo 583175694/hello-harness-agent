@@ -1,11 +1,11 @@
 import {
+  ArrowDown,
   ArrowUp,
   Check,
   CircleAlert,
   CircleUserRound,
   Copy,
   CornerDownLeft,
-  Ellipsis,
   LoaderCircle,
   Paperclip,
   Plus,
@@ -231,10 +231,30 @@ function splitFileName(fileName: string): { prefix: string; suffix: string } {
 // 提供仅在悬停或键盘聚焦时出现的消息复制操作。
 export function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
   async function copyMessage(): Promise<void> {
-    await copyTextToClipboard(text);
+    try {
+      await copyTextToClipboard(text);
+    } catch {
+      return;
+    }
     setCopied(true);
-    window.setTimeout(() => setCopied(false), AGENT_UI_BEHAVIOR.copyFeedbackDurationMs);
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+    }
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      setCopied(false);
+    }, AGENT_UI_BEHAVIOR.copyFeedbackDurationMs);
   }
   return (
     <button
@@ -244,7 +264,14 @@ export function CopyButton({ text }: { text: string }) {
       title={copied ? '已复制' : '复制消息'}
       onClick={() => void copyMessage()}
     >
-      {copied ? <Check size={14} /> : <Copy size={14} />}
+      <span
+        className="message-copy__icons"
+        data-copied={copied ? 'true' : 'false'}
+        aria-hidden="true"
+      >
+        <Copy className="message-copy__icon message-copy__icon--copy" size={14} />
+        <Check className="message-copy__icon message-copy__icon--check" size={14} />
+      </span>
     </button>
   );
 }
@@ -811,15 +838,6 @@ function FollowUpQueue({
                     <Trash2 size={15} aria-hidden="true" />
                   </button>
                 ) : null}
-                <button
-                  className="pending-input-card__icon"
-                  type="button"
-                  aria-label="更多后续消息操作"
-                  title="更多操作"
-                  disabled
-                >
-                  <Ellipsis size={16} aria-hidden="true" />
-                </button>
               </div>
             </article>
           ))}
@@ -829,7 +847,29 @@ function FollowUpQueue({
   );
 }
 
-type UserMessageAnchor = { id: string; index: number; order: number };
+type UserMessageAnchor = { id: string; index: number; order: number; preview: string };
+
+function buildUserAnchorPreview(
+  item: Extract<ConversationItem, { kind: 'user' }>,
+  order: number,
+): string {
+  const display = resolveUserMessageDisplay({
+    content: item.content,
+    skillNames: item.skillNames,
+  });
+  const skillPrefix = display.skillNames.map((name) => `/${name}`).join(' ');
+  const combined = [skillPrefix, display.body].filter(Boolean).join(' ');
+  const normalized = combined.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return item.attachments?.length ? `[附件 ×${item.attachments.length}]` : `第 ${order} 条提问`;
+  }
+  const chars = Array.from(normalized);
+  return chars.length > 80 ? `${chars.slice(0, 80).join('')}…` : normalized;
+}
+
+function distanceFromBottom(node: HTMLElement): number {
+  return Math.max(0, node.scrollHeight - node.scrollTop - node.clientHeight);
+}
 
 type VirtualMeasurementCache = Array<{ start: number; size: number } | undefined>;
 
@@ -861,9 +901,16 @@ function ConversationMessageNavigator({
   activeUserMessageId: string | null;
   onNavigate: (renderIndex: number) => void;
 }) {
+  const navRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLOListElement>(null);
   // 列表内部滚动时，仅在对应方向还有隐藏刻度时显示边界渐隐。
   const [fade, setFade] = useState({ top: false, bottom: false });
+  const [hoveredAnchor, setHoveredAnchor] = useState<{
+    id: string;
+    order: number;
+    preview: string;
+    top: number;
+  } | null>(null);
   const syncFade = useCallback(() => {
     const list = listRef.current;
     if (!list) return;
@@ -872,6 +919,18 @@ function ConversationMessageNavigator({
     setFade((current) =>
       current.top === top && current.bottom === bottom ? current : { top, bottom },
     );
+  }, []);
+  const showTooltip = useCallback((anchor: UserMessageAnchor, buttonEl: HTMLButtonElement) => {
+    const nav = navRef.current;
+    if (!nav) {
+      setHoveredAnchor({ id: anchor.id, order: anchor.order, preview: anchor.preview, top: 0 });
+      return;
+    }
+    const navRect = nav.getBoundingClientRect();
+    const btnRect = buttonEl.getBoundingClientRect();
+    const rawTop = btnRect.top + btnRect.height / 2 - navRect.top;
+    const top = navRect.height > 36 ? Math.min(Math.max(18, rawTop), navRect.height - 18) : 0;
+    setHoveredAnchor({ id: anchor.id, order: anchor.order, preview: anchor.preview, top });
   }, []);
   useLayoutEffect(() => {
     syncFade();
@@ -893,11 +952,14 @@ function ConversationMessageNavigator({
   }, [activeUserMessageId, anchors.length]);
   if (anchors.length < 2) return null;
   return (
-    <nav className="conversation-message-nav" aria-label="对话定位">
+    <nav ref={navRef} className="conversation-message-nav" aria-label="对话定位">
       <ol
         ref={listRef}
         className={`conversation-message-nav__list${fade.top ? ' is-fade-top' : ''}${fade.bottom ? ' is-fade-bottom' : ''}`}
-        onScroll={syncFade}
+        onScroll={() => {
+          syncFade();
+          setHoveredAnchor(null);
+        }}
       >
         {anchors.map((anchor) => (
           <li key={anchor.id}>
@@ -908,12 +970,30 @@ function ConversationMessageNavigator({
               aria-label={`跳转到第 ${anchor.order} 条提问`}
               aria-current={activeUserMessageId === anchor.id ? 'true' : undefined}
               onClick={() => onNavigate(anchor.index)}
+              onMouseEnter={(event) => showTooltip(anchor, event.currentTarget)}
+              onFocus={(event) => showTooltip(anchor, event.currentTarget)}
+              onMouseLeave={() =>
+                setHoveredAnchor((current) => (current?.id === anchor.id ? null : current))
+              }
+              onBlur={() =>
+                setHoveredAnchor((current) => (current?.id === anchor.id ? null : current))
+              }
             >
               <span className="conversation-message-nav__tick-line" aria-hidden="true" />
             </button>
           </li>
         ))}
       </ol>
+      {hoveredAnchor ? (
+        <div
+          className="conversation-message-nav__tooltip"
+          role="tooltip"
+          style={{ top: hoveredAnchor.top }}
+        >
+          <span className="conversation-message-nav__tooltip-order">#{hoveredAnchor.order}</span>
+          <span className="conversation-message-nav__tooltip-text">{hoveredAnchor.preview}</span>
+        </div>
+      ) : null}
     </nav>
   );
 }
@@ -1071,6 +1151,7 @@ function ConversationBody({
   onSkillsChange = () => undefined,
 }: ConversationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
   const composerMeasureRef = useRef<HTMLDivElement>(null);
   const landingComposerTopRef = useRef<number | null>(null);
@@ -1078,10 +1159,13 @@ function ConversationBody({
   const stickToBottomRef = useRef(true);
   const scrollFrameRef = useRef<number | null>(null);
   const suppressStickToBottomUntilRef = useRef(0);
+  const programmaticScrollUntilRef = useRef(0);
+  const lastScrollTopRef = useRef(0);
   const preservedScrollTopRef = useRef<number | null>(null);
   const prevWorkbenchOpenRef = useRef(Boolean(state.workbench?.open));
   const prevLoadingOlderRef = useRef(false);
   const scrollHeightBeforeOlderRef = useRef(0);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const workbenchOpen = Boolean(state.workbench?.open);
   const renderedConversation = useMemo(
     () => expandConversation(state.conversation),
@@ -1093,7 +1177,7 @@ function ConversationBody({
     return renderedConversation.flatMap((item, index) => {
       if (item.kind !== 'user') return [];
       order += 1;
-      return [{ id: item.id, index, order }];
+      return [{ id: item.id, index, order, preview: buildUserAnchorPreview(item, order) }];
     });
   }, [renderedConversation]);
   const [activeUserMessageId, setActiveUserMessageId] = useState<string | null>(null);
@@ -1118,6 +1202,7 @@ function ConversationBody({
   });
   const pauseAutoScroll = useCallback(() => {
     stickToBottomRef.current = false;
+    programmaticScrollUntilRef.current = 0;
     suppressStickToBottomUntilRef.current = performance.now() + 2_000;
     const node = scrollRef.current;
     if (node) preservedScrollTopRef.current = node.scrollTop;
@@ -1127,6 +1212,7 @@ function ConversationBody({
     const top = preservedScrollTopRef.current;
     if (!node || top === null) return;
     node.scrollTop = top;
+    lastScrollTopRef.current = node.scrollTop;
   }, []);
   const handleFocusWorkbench = useCallback(
     (target: WorkbenchFocusTarget) => {
@@ -1140,13 +1226,40 @@ function ConversationBody({
     [renderedConversation],
   );
   const prevUserMessageCountRef = useRef(0);
-  const scrollConversationToBottom = useCallback(() => {
-    const node = scrollRef.current;
-    if (!node || renderedConversation.length === 0) return;
-    if (shouldVirtualize)
-      virtualizer.scrollToIndex(renderedConversation.length - 1, { align: 'end' });
-    else node.scrollTop = node.scrollHeight;
-  }, [renderedConversation.length, shouldVirtualize, virtualizer]);
+  const scrollConversationToBottom = useCallback(
+    (options?: { behavior?: ScrollBehavior }) => {
+      const node = scrollRef.current;
+      if (!node || renderedConversation.length === 0) return;
+      const prefersReducedMotion =
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const effectiveBehavior: ScrollBehavior =
+        options?.behavior === 'smooth' && !prefersReducedMotion ? 'smooth' : 'auto';
+      programmaticScrollUntilRef.current =
+        performance.now() + (effectiveBehavior === 'smooth' ? 600 : 80);
+      if (shouldVirtualize) {
+        virtualizer.scrollToIndex(renderedConversation.length - 1, {
+          align: 'end',
+          behavior: effectiveBehavior,
+        });
+      } else if (effectiveBehavior === 'smooth' && typeof node.scrollTo === 'function') {
+        node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' });
+      } else {
+        node.scrollTop = node.scrollHeight;
+      }
+      lastScrollTopRef.current = node.scrollTop;
+    },
+    [renderedConversation.length, shouldVirtualize, virtualizer],
+  );
+  const latestRenderedLengthRef = useRef(renderedConversation.length);
+  const latestUserMessageCountRef = useRef(userMessageCount);
+  const scrollConversationToBottomRef = useRef(scrollConversationToBottom);
+  useLayoutEffect(() => {
+    latestRenderedLengthRef.current = renderedConversation.length;
+    latestUserMessageCountRef.current = userMessageCount;
+    scrollConversationToBottomRef.current = scrollConversationToBottom;
+  }, [renderedConversation.length, scrollConversationToBottom, userMessageCount]);
   function handleComposerSubmit(event: FormEvent<HTMLFormElement>, promptOverride?: string): void {
     if (renderedConversation.length === 0) {
       pendingLandingComposerAnimRef.current = true;
@@ -1184,9 +1297,45 @@ function ConversationBody({
     }
     setActiveUserMessageId(activeId);
   }, [shouldVirtualize, userMessageAnchors, virtualizer]);
+  const syncScrollBottomState = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const distance = distanceFromBottom(node);
+    const isNearBottom = distance <= AGENT_UI_BEHAVIOR.stickToBottomThresholdPx;
+    const now = performance.now();
+    const scrolledUp = node.scrollTop < lastScrollTopRef.current - 2;
+    lastScrollTopRef.current = node.scrollTop;
+
+    if (scrolledUp) {
+      programmaticScrollUntilRef.current = 0;
+      stickToBottomRef.current = false;
+    } else if (isNearBottom) {
+      programmaticScrollUntilRef.current = 0;
+      if (now >= suppressStickToBottomUntilRef.current) {
+        stickToBottomRef.current = true;
+      }
+    } else if (
+      now >= programmaticScrollUntilRef.current &&
+      now >= suppressStickToBottomUntilRef.current
+    ) {
+      stickToBottomRef.current = false;
+    }
+
+    const nextShow =
+      distance > AGENT_UI_BEHAVIOR.scrollToBottomButtonThresholdPx &&
+      now >= programmaticScrollUntilRef.current;
+    setShowScrollToBottom((current) => (current === nextShow ? current : nextShow));
+  }, []);
+  const handleScrollToBottomClick = useCallback(() => {
+    suppressStickToBottomUntilRef.current = 0;
+    stickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+    scrollConversationToBottom({ behavior: 'smooth' });
+  }, [scrollConversationToBottom]);
   const navigateToUserMessage = useCallback(
     (renderIndex: number) => {
       stickToBottomRef.current = false;
+      programmaticScrollUntilRef.current = 0;
       if (shouldVirtualize) virtualizer.scrollToIndex(renderIndex, { align: 'start' });
       else {
         const messageId = renderedConversation[renderIndex]?.id;
@@ -1196,22 +1345,35 @@ function ConversationBody({
         );
         element?.scrollIntoView({ block: 'start', behavior: 'smooth' });
       }
-      requestAnimationFrame(() => syncActiveUserMessage());
+      requestAnimationFrame(() => {
+        syncActiveUserMessage();
+        syncScrollBottomState();
+      });
     },
-    [renderedConversation, shouldVirtualize, syncActiveUserMessage, virtualizer],
+    [
+      renderedConversation,
+      shouldVirtualize,
+      syncActiveUserMessage,
+      syncScrollBottomState,
+      virtualizer,
+    ],
   );
   function handleConversationScroll(): void {
     syncActiveUserMessage();
+    syncScrollBottomState();
   }
   useEffect(() => {
     syncActiveUserMessage();
-  }, [renderedConversation.length, syncActiveUserMessage]);
+    syncScrollBottomState();
+  }, [renderedConversation.length, syncActiveUserMessage, syncScrollBottomState]);
   useLayoutEffect(() => {
     if (userMessageCount <= prevUserMessageCountRef.current) return;
     prevUserMessageCountRef.current = userMessageCount;
     if (renderedConversation.at(-1)?.kind !== 'user') return;
     if (performance.now() < suppressStickToBottomUntilRef.current) return;
-    scrollConversationToBottom();
+    stickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+    scrollConversationToBottom({ behavior: 'auto' });
   }, [renderedConversation, scrollConversationToBottom, userMessageCount]);
 
   useLayoutEffect(() => {
@@ -1222,9 +1384,16 @@ function ConversationBody({
       requestAnimationFrame(() => {
         restorePreservedScroll();
         syncActiveUserMessage();
+        syncScrollBottomState();
       });
     });
-  }, [pauseAutoScroll, restorePreservedScroll, syncActiveUserMessage, workbenchOpen]);
+  }, [
+    pauseAutoScroll,
+    restorePreservedScroll,
+    syncActiveUserMessage,
+    syncScrollBottomState,
+    workbenchOpen,
+  ]);
 
   useLayoutEffect(() => {
     if (loadingOlder && !prevLoadingOlderRef.current) {
@@ -1236,12 +1405,14 @@ function ConversationBody({
       const delta = node.scrollHeight - scrollHeightBeforeOlderRef.current;
       if (delta > 0) node.scrollTop += delta;
       preservedScrollTopRef.current = node.scrollTop;
+      lastScrollTopRef.current = node.scrollTop;
       requestAnimationFrame(() => {
         syncActiveUserMessage();
+        syncScrollBottomState();
       });
     }
     prevLoadingOlderRef.current = loadingOlder;
-  }, [loadingOlder, pauseAutoScroll, syncActiveUserMessage]);
+  }, [loadingOlder, pauseAutoScroll, syncActiveUserMessage, syncScrollBottomState]);
 
   const shellRef = useRef<HTMLDivElement>(null);
   const heroRef = useRef<HTMLDivElement>(null);
@@ -1251,20 +1422,67 @@ function ConversationBody({
 
   useLayoutEffect(() => {
     pendingLandingComposerAnimRef.current = false;
-    prevConversationLengthRef.current = renderedConversation.length;
-    prevUserMessageCountRef.current = userMessageCount;
+    prevConversationLengthRef.current = latestRenderedLengthRef.current;
+    prevUserMessageCountRef.current = latestUserMessageCountRef.current;
     setHeroExiting(false);
     stickToBottomRef.current = true;
+    programmaticScrollUntilRef.current = 0;
+    lastScrollTopRef.current = 0;
     preservedScrollTopRef.current = null;
     suppressStickToBottomUntilRef.current = 0;
     prevWorkbenchOpenRef.current = false;
+    setShowScrollToBottom(false);
     const measure = composerMeasureRef.current;
     if (measure) {
       measure.style.transition = '';
       measure.style.transform = '';
     }
-    scrollConversationToBottom();
-  }, [scopeKey, scrollConversationToBottom, userMessageCount, renderedConversation.length]);
+    scrollConversationToBottomRef.current({ behavior: 'auto' });
+  }, [scopeKey]);
+
+  const followOrUpdateBottomVisibility = useCallback(() => {
+    if (stickToBottomRef.current && performance.now() >= suppressStickToBottomUntilRef.current) {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current);
+      }
+      scrollFrameRef.current = requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        scrollConversationToBottom({ behavior: 'auto' });
+        setShowScrollToBottom(false);
+      });
+      return;
+    }
+    const node = scrollRef.current;
+    if (!node) return;
+    if (performance.now() >= programmaticScrollUntilRef.current) {
+      const nextShow =
+        distanceFromBottom(node) > AGENT_UI_BEHAVIOR.scrollToBottomButtonThresholdPx;
+      setShowScrollToBottom((current) => (current === nextShow ? current : nextShow));
+    }
+  }, [scrollConversationToBottom]);
+
+  useEffect(() => {
+    followOrUpdateBottomVisibility();
+  }, [followOrUpdateBottomVisibility, state.conversation, submitting, shouldVirtualize]);
+
+  const hasConversationRows = renderedConversation.length > 0;
+  useEffect(() => {
+    const list = messageListRef.current;
+    if (!list || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(() => {
+      followOrUpdateBottomVisibility();
+    });
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [followOrUpdateBottomVisibility, hasConversationRows, scopeKey, sessionLoading]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current);
+      }
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (!isLandingSession) return;
@@ -1350,20 +1568,22 @@ function ConversationBody({
     </div>
   ) : null;
 
+  const planFloatingVisible = Boolean(
+    !hideComposer &&
+    submitting &&
+    ['running', 'queued', 'cancel_requested'].includes(
+      state.workbench?.activityStatus ?? 'running',
+    ) &&
+    state.workbench?.plan?.plan.length &&
+    !state.workbench.plan.plan.every((step) => step.status === 'completed'),
+  );
+
   const composerArea = (
     <div className="composer-area mx-auto w-full max-w-chat bg-surface pb-6">
       {errorNotice}
       {hideComposer ? null : (
         <div className={`composer-wrap ${submitting ? 'is-running' : ''}`}>
-          <PlanFloatingCard
-            plan={state.workbench?.plan}
-            visible={
-              submitting &&
-              ['running', 'queued', 'cancel_requested'].includes(
-                state.workbench?.activityStatus ?? 'running',
-              )
-            }
-          />
+          <PlanFloatingCard plan={state.workbench?.plan} visible={planFloatingVisible} />
           <FollowUpQueue
             state={state}
             pendingInputs={pendingInputs}
@@ -1426,6 +1646,12 @@ function ConversationBody({
               className="conversation-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
               ref={scrollRef}
               onScroll={handleConversationScroll}
+              onWheel={() => {
+                programmaticScrollUntilRef.current = 0;
+              }}
+              onTouchStart={() => {
+                programmaticScrollUntilRef.current = 0;
+              }}
               onMouseEnter={(event) => event.currentTarget.classList.add('is-scroll-active')}
               onMouseLeave={(event) => event.currentTarget.classList.remove('is-scroll-active')}
             >
@@ -1442,6 +1668,7 @@ function ConversationBody({
                 </div>
               ) : null}
               <div
+                ref={messageListRef}
                 className={`message-list mx-auto w-full max-w-chat ${shouldVirtualize ? '' : 'message-list--static'}`}
                 style={shouldVirtualize ? { height: virtualizer.getTotalSize() } : undefined}
               >
@@ -1491,6 +1718,21 @@ function ConversationBody({
                     ))}
               </div>
             </ConversationContent>
+            {showScrollToBottom ? (
+              <div
+                className={`conversation-scroll-bottom-float${planFloatingVisible ? ' is-above-plan' : ''}`}
+              >
+                <button
+                  type="button"
+                  className={`conversation-scroll-bottom-fab${submitting ? ' is-streaming' : ''}`}
+                  aria-label="滚动到底部"
+                  title={submitting ? '回到底部查看最新回复' : '滚动到底部'}
+                  onClick={handleScrollToBottomClick}
+                >
+                  <ArrowDown size={16} strokeWidth={2} aria-hidden="true" />
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

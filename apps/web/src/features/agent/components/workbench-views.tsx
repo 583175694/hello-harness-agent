@@ -597,7 +597,7 @@ function McpToolResultView({ tool }: { tool: ToolCallView }) {
       const payload = await getRunToolOutputUrl(tool.runId, tool.toolCallId);
       window.open(payload.url, '_blank', 'noopener,noreferrer');
     } catch {
-      window.alert('无法获取完整工具输出，请稍后重试。');
+      toast.error('无法获取完整工具输出，请稍后重试。');
     } finally {
       setOpeningFullOutput(false);
     }

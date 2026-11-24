@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import {
   startTransition,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -118,6 +119,15 @@ import {
   toolRunningDetail,
 } from './features/agent/model/tool-copy';
 import { useSessionSidebarOpen } from './features/agent/hooks/use-session-sidebar-open';
+import { useDocumentTitleStatus } from './features/agent/hooks/use-document-title-status';
+import {
+  clearAllSessionDrafts,
+  clearSessionDraft,
+  draftScopeKey,
+  moveSessionDraft,
+  readSessionDraft,
+  writeSessionDraft,
+} from './features/agent/model/session-drafts';
 import { AgentSplitLayout } from './features/agent/components/agent-split-layout';
 import { WorkbenchShell } from './features/agent/components/workbench-views';
 import { Conversation } from './features/agent/components/conversation';
@@ -1260,7 +1270,18 @@ function PersistentAgentApp() {
   const [pendingSessions, setPendingSessions] = useState<Record<string, boolean>>({});
   const [draftPending, setDraftPending] = useState(false);
   const [draftState, setDraftState] = useState<AgentUiState>(() => makeFixture('empty'));
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPromptState] = useState(() => readSessionDraft(draftScopeKey(null)));
+  const setPromptForScope = useCallback(
+    (next: string | ((current: string) => string), scope?: string) => {
+      const targetScope = scope ?? draftScopeKey(selectedSessionIdRef.current);
+      setPromptState((current) => {
+        const resolved = typeof next === 'function' ? next(current) : next;
+        writeSessionDraft(targetScope, resolved);
+        return resolved;
+      });
+    },
+    [],
+  );
   // 当前待发送消息已上传或正在上传的附件。
   const [attachments, setAttachments] = useState<FileRef[]>([]);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
@@ -1542,14 +1563,17 @@ function PersistentAgentApp() {
           : undefined;
         if (ownedTarget) {
           setSelectedSession(ownedTarget.id);
+          setPromptState(readSessionDraft(draftScopeKey(ownedTarget.id)));
           updateSessionUrl(ownedTarget.id, true);
           void loadSessionDetail(ownedTarget.id);
         } else if (requestedId) {
           setSelectedSession(requestedId);
+          setPromptState(readSessionDraft(draftScopeKey(requestedId)));
           updateSessionUrl(requestedId, true);
           void loadSessionDetail(requestedId);
         } else if (loadedSessions[0]) {
           setSelectedSession(loadedSessions[0].id);
+          setPromptState(readSessionDraft(draftScopeKey(loadedSessions[0].id)));
           updateSessionUrl(loadedSessions[0].id, true);
           void loadSessionDetail(loadedSessions[0].id);
         } else {
@@ -1876,7 +1900,7 @@ function PersistentAgentApp() {
     draftSubmissionTokenRef.current += 1;
     setDraftPending(false);
     setSelectedSession(sessionId);
-    setPrompt('');
+    setPromptState(readSessionDraft(draftScopeKey(sessionId)));
     setError(null);
     setPendingInputs([]);
     updateSessionUrl(sessionId);
@@ -1895,7 +1919,7 @@ function PersistentAgentApp() {
     setDraftPending(false);
     setSelectedSession(null);
     setDraftState(makeFixture('empty'));
-    setPrompt('');
+    setPromptState(readSessionDraft(draftScopeKey(null)));
     setError(null);
     setPendingInputs([]);
     updateSessionUrl(null);
@@ -1967,6 +1991,7 @@ function PersistentAgentApp() {
   async function removeSession(sessionId: string): Promise<void> {
     try {
       await deleteSession(sessionId);
+      clearSessionDraft(draftScopeKey(sessionId));
       setSessionStates((current) => {
         const next = { ...current };
         delete next[sessionId];
@@ -2067,6 +2092,7 @@ function PersistentAgentApp() {
             conversation: [],
           },
         }));
+        moveSessionDraft(draftScopeKey(null), draftScopeKey(sessionId));
         setSelectedSession(sessionId);
         updateSessionUrl(sessionId, true);
         await loadSessionDetail(sessionId);
@@ -2170,7 +2196,8 @@ function PersistentAgentApp() {
         )
       : false;
     if (currentId && runtimeActive) {
-      setPrompt('');
+      clearSessionDraft(draftScopeKey(currentId));
+      setPromptState('');
       setError(null);
       try {
         const result = (await submitPendingInput(currentId, task)) as {
@@ -2184,7 +2211,8 @@ function PersistentAgentApp() {
       return;
     }
     if (currentId ? runtimeActive : draftPending) return;
-    setPrompt('');
+    clearSessionDraft(draftScopeKey(currentId));
+    setPromptState('');
     setError(null);
     const submittedSkills = [...selectedSkills];
     const createdAt = new Date().toISOString();
@@ -2333,7 +2361,7 @@ function PersistentAgentApp() {
         });
         void refreshSessions();
       } else {
-        setPrompt(task);
+        setPromptForScope(task, draftScopeKey(null));
         setDraftState(makeFixture('empty'));
       }
       setError(getErrorMessage(requestError));
@@ -2392,7 +2420,7 @@ function PersistentAgentApp() {
         },
       },
     }));
-    setPrompt(
+    setPromptForScope(
       (current) =>
         current ||
         `请基于 ${artifact.logicalName ?? artifact.fileName} v${artifact.versionNumber} 修改：`,
@@ -2485,6 +2513,23 @@ function PersistentAgentApp() {
     : draftPending;
   const workbenchPresent = Boolean(uiState.workbench);
   const workbenchOpen = Boolean(uiState.workbench?.open);
+  const hasRunningTask =
+    draftPending ||
+    Object.values(pendingSessions).some(Boolean) ||
+    Boolean(uiState.activeRunId);
+  const hasWaitingForUser =
+    Boolean(uiState.activeInterrupt ?? uiState.workbench?.activeInterrupt) ||
+    uiState.workbench?.activityStatus === 'waiting_for_user' ||
+    Object.values(sessionStates).some(
+      (sessionState) =>
+        Boolean(sessionState.activeInterrupt ?? sessionState.workbench?.activeInterrupt) ||
+        sessionState.workbench?.activityStatus === 'waiting_for_user',
+    );
+  useDocumentTitleStatus({
+    hasRunning: hasRunningTask,
+    hasWaitingForUser,
+    baseTitle: APP_BRAND.name,
+  });
 
   async function handleLogout(): Promise<void> {
     if (!(await confirm(LOGOUT_CONFIRM))) return;
@@ -2493,6 +2538,8 @@ function PersistentAgentApp() {
     } catch {
       // 仍清除本地态
     }
+    clearAllSessionDrafts();
+    setPromptState('');
     setAuthUser(null);
     setSessions([]);
     setSelectedSession(null);
@@ -2567,6 +2614,8 @@ function PersistentAgentApp() {
         onAuthUserChange={setAuthUser}
         onLogout={() => {
           setSettingsOpen(false);
+          clearAllSessionDrafts();
+          setPromptState('');
           setAuthUser(null);
           setSessions([]);
           setSelectedSession(null);
@@ -2779,7 +2828,7 @@ function PersistentAgentApp() {
                 onAttachmentRemove={removeAttachment}
                 onAttachmentRetry={(fileId) => void retryAttachment(fileId)}
                 onAttachmentCancel={removeAttachment}
-                onPromptChange={setPrompt}
+                onPromptChange={setPromptForScope}
                 onSubmit={(event, promptOverride) => void handleSubmit(event, promptOverride)}
                 onCancel={() => void handleCancel()}
                 onClarificationRespond={(interruptId, answer) =>

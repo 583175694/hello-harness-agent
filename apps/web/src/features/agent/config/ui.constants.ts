@@ -6,6 +6,8 @@ export const AGENT_UI_BEHAVIOR = {
   copyFeedbackDurationMs: 1_400,
   // 用户距离滚动底部小于该值时继续吸底。
   stickToBottomThresholdPx: 32,
+  // 用户距离滚动底部超过该值时显示回到底部浮窗按钮。
+  scrollToBottomButtonThresholdPx: 120,
   // 超过该数量的纯文本粘贴会作为 TXT 附件上传。
   longPasteThresholdCodePoints: 4_000,
   // 用户消息气泡超过该高度时默认折叠。

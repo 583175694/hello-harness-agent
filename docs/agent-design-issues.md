@@ -1,6 +1,6 @@
 # Agent 设计问题记录
 
-> 每条：**现象 → 证据 → 方案**（无方案则标「待定」）。编号 `#1`–`#9` 固定。
+> 每条：**现象 → 证据 → 方案**（无方案则标「待定」）。编号 `#1`–`#12` 固定。
 
 ## 速览
 
@@ -15,6 +15,9 @@
 | 7 | 反馈 | 长时无可见进度，靠事后 nudge 补救 | 待定 |
 | 8 | 停止 | 停止靠轮数上限，无「证据已够」判据 | 待定 |
 | 9 | 记忆 | 每轮先付 embedding，空召回也全价 | 已落地（空库 0ms 短路 + 查询 2.5s 超时 + 60s 熔断兜底） |
+| 10 | 信息获取 | 搜索单一主源无兜底；`web_fetch` 不支持 PDF，且误杀跨语种与短正文页 | 部分已落地（`web_fetch` PDF/跨语种/短正文门禁已落地；搜索多源路由待定） |
+| 11 | 可信度 | 缺乏证据完整性感知与诚实拒答（Abstention）门禁，未读正文易凭标题编造 | 已落地（`evidenceScope` 枚举信号 + 通用 Abstention 边界规则） |
+| 12 | 上下文 | 长会话压缩摘要无结构化槽位、历史写入低水位折叠过薄与多主题 Context Rot | 待定（后续专项） |
 
 ---
 
@@ -232,3 +235,71 @@
 1. **空库 0ms 短路**：`MemoryRetrieverService.retrieve` 先查 `repository.countActive(userId)`，为 0 时直接返回空结果，不发起远程 embedding。
 2. **读写超时分离**：`MemoryEmbeddingService.embedQuery` 使用独立紧超时 `queryEmbeddingTimeoutMs = 2_500ms`（后台写入 `embedDocument` 保持 `30_000ms`），杜绝单次检索卡死首字 30 秒。
 3. **查询轻量熔断**：`embedQuery` 连续失败 **2 次**后开启 **60s 冷却熔断**（冷却期内 0ms 快速降级为空召回，60s 后自动半开探测恢复）。（叠加 `#4` 中已落地的 Run 级记忆冻结，同 Run 内不再每轮重复检索。）
+
+---
+
+### #10 · 信息获取 — 搜索单一主源，`web_fetch` 缺失 PDF 且误杀跨语种/短正文
+
+**现象**  
+跨语种、专业或 PDF 类公开资料召回率明显落后于竞品；部分可访问网页在抓取管线内被静默丢弃。
+
+**证据**
+
+- `search.service.ts:28-34`：仅路由单一主供应商（`bocha` / `serp` 二选一），无多源路由或 fallback；`web-search.tool.ts:11-44` 仅单 `query` 参数。
+- `web-fetch.constants.ts:32-37`、`crawlee-web-content.fetcher.ts:157-167`：`allowedContentTypes` 不含 `application/pdf`，正式文档 PDF 直接报 `fetchUnsupportedContentType`。
+- `passage.ranker.ts:42-54`、`web-fetch.service.ts:139-147`：字符 2/3-gram overlap 在跨语种 query 下归零，直接触发 `fetchContentNotRelevant` 丢弃整页。
+- `document-quality.gate.ts:8-35`：正文 `< 1000` 字且页头含登录/订阅词样即判 `fetchAccessBlocked`，误伤短公告/短文档/摘要页；`web-fetch.constants.ts:10` 单页超时 6s，`crawlee-web-content.fetcher.ts:117` 自定义 UA 易触发 WAF，且生产机境外不通（见 `#1` 实测）。
+
+**方案（部分已落地 · 2026-11-25 · `feature/retrieval-grounding`）**
+
+1. **在线 PDF 解析（已落地）**：`web-fetch.constants.ts` 放开 `application/pdf`（红线 `maxPdfResponseBytes=10MB`、`maxPdfPages=60`、`pdfParseTimeoutMs=15s`，`processingVersion` 升至 `markdown-v3`）；`crawlee-web-content.fetcher.ts` 校验 `%PDF-` 魔数（兼容 `.pdf` 的 `application/octet-stream`）并透传 `rawBuffer`；新增 `pdf-content.extractor.ts` 复用 `pdf-parse` 以进程内串行队列（并发度 1）分页提取、超页/超字截断并保留 `truncated: true`。
+2. **跨语种与混合词元排序（已落地）**：`passage.ranker.ts` 补充拉丁词元/数字匹配，并新增 `rankForFetch` 对跨语种零命中降级返回最多 3 段低权重 `fallback_excerpt`（`score=0.001`），`batch-passage.budgeter.ts` 首轮按得分降序分配配额保护命中文档预算；`packages/agent-protocol/src/web-fetch/contracts.ts` 新增向后兼容可选字段 `passageSelection`。
+3. **短正文门禁校准（已落地）**：`document-quality.gate.ts` 收敛为强阻断词 `STRONG_ACCESS_PATTERN`，`<500` 字拦截，`500–1000` 字区间结合标题特征与有效长行（`≥40` 字 `<3` 行）二次判据，避免误杀合法短摘要/公告页。
+4. **搜索多源路由与垂类数据源（待定）**：`search.service.ts` 多源路由/Fallback 暂缓；垂类数据源统一走外接 MCP + `tool_search` 解耦。
+
+**实测验证（2026-11-25）**
+
+| Run | 目标 | 结果 |
+|---|---|---|
+| `a24c3e63` | `https://arxiv.org/pdf/1706.03762` | 首次 `2.54s` 提取 `11,679 字 / 6 段`；后续 4 次定向精读全命中缓存（`网络请求=0`，耗时 `23–54ms`） |
+| `210ecde4` | `https://arxiv.org/abs/1706.03762` | `331ms` 提取 `2,639 字 / 5 段`，未被短正文门禁误杀 |
+
+---
+
+### #11 · 可信度 — 缺乏证据完整性感知与诚实拒答机制
+
+**现象**  
+搜索返回空命中或仅残缺摘要、未读到目标正文时，模型仍按标题/片段补全具体内容；面对“是否存在/有无先例”类否定判断时，未声明检索边界即草率下结论。
+
+**证据**
+
+- `chat.constants.ts:14-16`：仅约束“联网失败时说明证据限制”，未覆盖“工具执行成功但未获取目标对象正文”的盲区。
+- `search.constants.ts:14`：`web_search` 仅返回 ≤800 字 snippet，工具输出协议未携带证据完整度标识（如 `snippet_only` / `no_exact_match`），且 Runtime 收尾无引用/证据落地校验。
+
+**方案（已落地 · 2026-11-25 · `feature/retrieval-grounding`）**
+
+1. **纯客观证据枚举信号**：`agent-runtime.service.ts` 新增 `deriveEvidenceScope`，在 `serializeToolSuccess` 为 `web_search`（`empty` / `snippets_only`）与 `web_fetch`（`unavailable` / `partial_excerpts` / `matched_passages`）注入顶层 `evidenceScope` 枚举，不向不可信工具数据混入自然语言指令，且零破坏前端/DB 契约。
+2. **克制的通用 Abstention 规则**：`chat.constants.ts`、`web-search.tool.ts`、`web-fetch.tool.ts` 明确证据边界——多条摘要已确认简单事实时直接作答防过度拒答；总结特定文档/页面/报告细节未读正文时如实说明证据不足，严禁凭标题推断（说明缺失后可另行标注推测）；否定性存在判断须声明检索范围。
+
+**实测验证（2026-11-25）**
+
+- **Run `a24c3e63`**：模型在仅拿到 PDF 首尾章节后，主动基于缓存定向补查中间章节与 Table 2 原文，未凭记忆补全。
+- **Run `210ecde4`**：同会话上文刚读完完整 PDF 的前提下，针对 `arxiv.org/abs/1706.03762` 仍严格忠实于当前页面原文，首句明确指出 abs 页无 attention 机制实质说明且未串台脑补。
+
+---
+
+### #12 · 上下文 — 长会话压缩摘要失真、写入低水位折叠与多主题 Context Rot
+
+**现象**  
+多轮长对话或用户发散追问后，容易遗忘前文关键约束/实体、产生幻觉，或在后续生成正文时丢失前文关键点。
+
+**证据**
+
+- 已缓解项：`1e9aa21`（`#3`/`#4`）已将压缩线从 `40k` 提至 `160k`、旧工具结果折叠改为 `128k` 按需触发，常规中短会话过早压缩已显著缓解。
+- 未解决项：
+  - `context-engineering.service.ts:66,501-525`、`openai-compatible-model.adapter.ts:562`：超过 `160k` 触发压缩时，`COMPACTION_PROMPT` 仍为泛化自由文本摘要且无结构化槽位，压缩关闭 thinking，超长 unit 走首尾硬截断。
+  - `context-engineering.service.ts:114-119,727-767`：`collapseHistoricalWriteArguments` 在低水位下仍会无条件折叠较早的 `create_file` / `create_report` 正文（≥2000 字），全局仅保留最近 1 次，模型不主动 `read_file` 时易丢失早期版本细节。
+  - `run.repository.ts:481-581`：`loadTranscript` 全量线性拼接会话历史，多主题发散后的废弃分支与旧工具噪音在未触发压缩时同样稀释注意力（Context Rot）；另需结合长程收尾路径（`agent-runtime.service.ts:272,488`）一并核查关键信息保留。
+
+**方案**  
+待定（后续 Context Engineering 专项，优先级后置）。方向：深入参考 Codex、Claude Code、Anthropic Context Engineering 等业界实践，在守住 `#4` 缓存命中率的前提下，体系化重做结构化压缩槽位、外置指针元信息与写入折叠阈值策略，以及长会话抗 Context Rot 机制。

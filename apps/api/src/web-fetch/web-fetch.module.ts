@@ -6,6 +6,7 @@ import { DocumentQualityGate } from './document-quality.gate';
 import { HtmlContentExtractor } from './html-content.extractor';
 import { PassageChunker } from './passage.chunker';
 import { PassageRanker } from './passage.ranker';
+import { PdfContentExtractor } from './pdf-content.extractor';
 import { WebFetchCache } from './web-fetch.cache';
 import { WEB_FETCH_DNS_RESOLVER } from './web-fetch.constants';
 import { WebFetchService } from './web-fetch.service';
@@ -19,6 +20,7 @@ import { systemWebFetchDnsResolver, WebFetchUrlGuard } from './web-fetch-url.gua
     CrawleeWebContentFetcher,
     WebFetchCache,
     HtmlContentExtractor,
+    PdfContentExtractor,
     DocumentNormalizer,
     DocumentQualityGate,
     PassageChunker,

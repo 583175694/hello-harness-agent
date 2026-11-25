@@ -16,6 +16,7 @@ import { WEB_FETCH_POLICY } from './web-fetch.constants';
 import { asWebFetchError, WebFetchError } from './web-fetch.error';
 import { WebFetchUrlGuard } from './web-fetch-url.guard';
 import { decodeResponseBody } from './response-body.decoder';
+import { isPdfBuffer } from './pdf-content.extractor';
 import type { GuardedWebUrl, WebFetchTransportResult } from './web-fetch.types';
 
 type FetchRequestData = { index: number; requestedUrl: string };
@@ -28,8 +29,17 @@ class BoundedHttpCrawler extends HttpCrawler<HttpCrawlingContext<FetchRequestDat
     responseStream: IncomingMessage,
     context: HttpCrawlingContext<FetchRequestData>,
   ) {
+    const contentTypeHeader = String(responseStream.headers['content-type'] ?? '').toLowerCase();
+    const requestUrl = request.loadedUrl ?? request.url;
+    const isPdfCandidate =
+      contentTypeHeader.includes('application/pdf') ||
+      (contentTypeHeader.includes('application/octet-stream') &&
+        /\.pdf(?:$|[?#])/iu.test(requestUrl));
+    const maxBytes = isPdfCandidate
+      ? WEB_FETCH_POLICY.maxPdfResponseBytes
+      : WEB_FETCH_POLICY.maxResponseBytes;
     const declared = Number(responseStream.headers['content-length'] ?? 0);
-    if (Number.isFinite(declared) && declared > WEB_FETCH_POLICY.maxResponseBytes) {
+    if (Number.isFinite(declared) && declared > maxBytes) {
       responseStream.destroy();
       throw new WebFetchError(AGENT_ERROR_CODES.fetchResponseTooLarge, '网页响应超过允许大小。');
     }
@@ -37,7 +47,7 @@ class BoundedHttpCrawler extends HttpCrawler<HttpCrawlingContext<FetchRequestDat
     const limiter = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
         bytes += chunk.byteLength;
-        if (bytes > WEB_FETCH_POLICY.maxResponseBytes) {
+        if (bytes > maxBytes) {
           callback(
             new WebFetchError(AGENT_ERROR_CODES.fetchResponseTooLarge, '网页响应超过允许大小。'),
           );
@@ -107,14 +117,20 @@ export class CrawleeWebContentFetcher {
         retryOnBlocked: false,
         log: new Log({ level: LogLevel.OFF }),
         ignoreSslErrors: false,
-        additionalMimeTypes: ['text/plain', 'application/json'],
+        additionalMimeTypes: [
+          'text/plain',
+          'application/json',
+          'application/pdf',
+          'application/octet-stream',
+        ],
         preNavigationHooks: [
           async ({ request }, gotOptions) => {
             networkAttemptCount += 1;
             gotOptions.maxRedirects = WEB_FETCH_POLICY.maxRedirects;
             gotOptions.headers = {
-              accept: 'text/html,application/xhtml+xml,text/plain;q=0.9',
-              'user-agent': 'HelloHarnessAgent-WebFetch/1.0',
+              accept:
+                'text/html,application/xhtml+xml,application/pdf;q=0.9,application/json;q=0.8,text/plain;q=0.7',
+              'user-agent': WEB_FETCH_POLICY.userAgent,
             };
             gotOptions.hooks ??= {};
             const existing = gotOptions.hooks.beforeRedirect ?? [];
@@ -153,6 +169,33 @@ export class CrawleeWebContentFetcher {
               statusCode >= 500,
               new Error(`HTTP ${statusCode}`),
             );
+          }
+          if (
+            contentType.type === 'application/pdf' ||
+            contentType.type === 'application/octet-stream'
+          ) {
+            const rawBuffer = Buffer.isBuffer(body) ? body : Buffer.from(body, 'latin1');
+            if (!isPdfBuffer(rawBuffer)) {
+              request.noRetry = true;
+              throw new WebFetchError(
+                AGENT_ERROR_CODES.fetchUnsupportedContentType,
+                contentType.type === 'application/pdf'
+                  ? '网页响应不是有效的 PDF 文档。'
+                  : '网页内容类型暂不支持。',
+              );
+            }
+            results.set(data.index, {
+              status: 'succeeded',
+              content: {
+                requestedUrl: data.requestedUrl,
+                finalUrl: request.loadedUrl ?? request.url,
+                contentType: 'application/pdf',
+                body: '',
+                rawBuffer,
+                retrievedAt: new Date().toISOString(),
+              },
+            });
+            return;
           }
           if (
             !WEB_FETCH_POLICY.allowedContentTypes.includes(

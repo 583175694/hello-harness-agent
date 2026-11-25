@@ -6,6 +6,7 @@ import { WEB_FETCH_POLICY } from './web-fetch.constants';
 import type {
   NormalizedDocumentBlock,
   NormalizedWebDocument,
+  RankedDocumentPassages,
   RankedWebPassage,
 } from './web-fetch.types';
 import { codePointLength, sliceCodePoints } from './unicode.utils';
@@ -38,19 +39,109 @@ export class PassageRanker {
       }));
   }
 
-  // 使用字符 2-gram/3-gram overlap、标题加权和位置加权计算轻量相关性。
+  // 在相关性匹配为空且属于跨语种查询时，降级返回有限的代表性片段，避免误丢整页。
+  rankForFetch(
+    document: NormalizedWebDocument,
+    blocks: NormalizedDocumentBlock[],
+    query: string | undefined,
+    documentIndex: number,
+  ): RankedDocumentPassages {
+    if (!query) {
+      return {
+        passages: this.rank(document, blocks, undefined, documentIndex),
+        passageSelection: 'representative',
+      };
+    }
+    const matched = this.rank(document, blocks, query, documentIndex);
+    if (matched.length > 0) {
+      return { passages: matched, passageSelection: 'query_matched' };
+    }
+    if (!this.isCrossScriptQuery(query, document.markdown)) {
+      return { passages: [], passageSelection: 'query_matched' };
+    }
+    const fallback = blocks
+      .map((block, passageIndex) => ({
+        block,
+        passageIndex,
+        representativeScore: this.representative(block),
+      }))
+      .sort(
+        (left, right) =>
+          right.representativeScore - left.representativeScore ||
+          left.block.start - right.block.start,
+      )
+      .slice(0, WEB_FETCH_POLICY.fallbackExcerptMaxPassages)
+      .map((item) => ({
+        passage: this.toPassage(document, item.block),
+        score: WEB_FETCH_POLICY.fallbackExcerptScore,
+        documentIndex,
+        passageIndex: item.passageIndex,
+      }));
+    return { passages: fallback, passageSelection: 'fallback_excerpt' };
+  }
+
+  // 使用字符 2-gram/3-gram overlap、拉丁词元精确匹配、标题加权和位置加权计算相关性。
   private relevance(query: string, block: NormalizedDocumentBlock, totalBlocks: number): number {
     const normalizedQuery = this.normalizeForNgrams(query);
     const normalizedText = this.normalizeForNgrams(block.text);
     const normalizedHeading = this.normalizeForNgrams(block.sectionPath.join(' '));
     const queryGrams = this.ngrams(normalizedQuery);
-    if (!queryGrams.size) return 0;
-    const bodyScore = this.overlap(queryGrams, this.ngrams(normalizedText));
-    const headingScore = this.overlap(queryGrams, this.ngrams(normalizedHeading));
+    const latinTokens = this.extractLatinTokens(query);
+    if (!queryGrams.size && !latinTokens.length) return 0;
+
+    const ngramBodyScore = queryGrams.size ? this.overlap(queryGrams, this.ngrams(normalizedText)) : 0;
+    const ngramHeadingScore = queryGrams.size
+      ? this.overlap(queryGrams, this.ngrams(normalizedHeading))
+      : 0;
+    const tokenBodyScore = latinTokens.length
+      ? this.latinTokenOverlap(latinTokens, block.text)
+      : 0;
+    const tokenHeadingScore = latinTokens.length
+      ? this.latinTokenOverlap(latinTokens, block.sectionPath.join(' '))
+      : 0;
+
+    const bodyScore = Math.max(ngramBodyScore, tokenBodyScore * 0.85);
+    const headingScore = Math.max(ngramHeadingScore, tokenHeadingScore * 0.85);
     if (bodyScore === 0 && headingScore === 0) return 0;
     const positionBonus = Math.max(0, 1 - block.order / Math.max(1, totalBlocks)) * 0.04;
     const repetitionPenalty = /(.)\1{8,}/u.test(block.text) ? 0.1 : 0;
     return bodyScore + headingScore * 0.45 + positionBonus - repetitionPenalty;
+  }
+
+  private extractLatinTokens(value: string): string[] {
+    const matches = value.toLowerCase().match(/[a-z0-9][a-z0-9._+-]{1,}/gu) ?? [];
+    return [...new Set(matches)];
+  }
+
+  private latinTokenOverlap(tokens: string[], text: string): number {
+    if (!tokens.length || !text) return 0;
+    const lowered = text.toLowerCase();
+    let hits = 0;
+    for (const token of tokens) {
+      if (token.length <= 3) {
+        const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`, 'iu').test(lowered)) {
+          hits += 1;
+        }
+      } else if (lowered.includes(token)) {
+        hits += 1;
+      }
+    }
+    return hits / tokens.length;
+  }
+
+  private isCrossScriptQuery(query: string, markdown: string): boolean {
+    const sample = sliceCodePoints(markdown, 0, 4_000);
+    const queryCjk = (query.match(/[\u3400-\u4dbf\u4e00-\u9fff]/gu) ?? []).length;
+    const queryLatin = (query.match(/[a-zA-Z]/gu) ?? []).length;
+    const docCjk = (sample.match(/[\u3400-\u4dbf\u4e00-\u9fff]/gu) ?? []).length;
+    const docLatin = (sample.match(/[a-zA-Z]/gu) ?? []).length;
+    const docTotal = docCjk + docLatin;
+    if (docTotal === 0) return false;
+    const docCjkRatio = docCjk / docTotal;
+    if (queryCjk > 0 && docCjkRatio < 0.05 && docLatin >= 20) return true;
+    if (queryCjk === 0 && queryLatin >= 2 && docCjkRatio >= 0.25 && docCjk >= 20) return true;
+    return false;
   }
 
   // query 缺失时让开头和标题下正文具有稳定的代表性优先级。

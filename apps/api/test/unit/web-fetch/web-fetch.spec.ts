@@ -9,6 +9,7 @@ import { DocumentQualityGate } from '../../../src/web-fetch/document-quality.gat
 import { HtmlContentExtractor } from '../../../src/web-fetch/html-content.extractor';
 import { PassageChunker } from '../../../src/web-fetch/passage.chunker';
 import { PassageRanker } from '../../../src/web-fetch/passage.ranker';
+import { PdfContentExtractor } from '../../../src/web-fetch/pdf-content.extractor';
 import { WebFetchCache } from '../../../src/web-fetch/web-fetch.cache';
 import { WEB_FETCH_POLICY } from '../../../src/web-fetch/web-fetch.constants';
 import { WebFetchService } from '../../../src/web-fetch/web-fetch.service';
@@ -24,6 +25,56 @@ afterEach(async () => {
       .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
   );
 });
+
+// 构造最小有效 PDF 1.4 字节流，供单元测试本地验证 pdf-parse 链路。
+function buildSimplePdfBuffer(pages: string[], title?: string): Buffer {
+  const escapePdfText = (value: string) =>
+    value.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  const objects: string[] = [];
+  const pageCount = pages.length;
+  const kids = Array.from({ length: pageCount }, (_v, idx) => `${4 + idx * 2} 0 R`).join(' ');
+  objects[1] = '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n';
+  objects[2] = `2 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${pageCount} >>\nendobj\n`;
+  objects[3] = '3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n';
+  for (let i = 0; i < pageCount; i += 1) {
+    const pageObjId = 4 + i * 2;
+    const contentObjId = 5 + i * 2;
+    const streamBody = pages[i]!.trim()
+      ? `BT\n/F1 12 Tf\n72 720 Td\n(${escapePdfText(pages[i]!)}) Tj\nET\n`
+      : '';
+    objects[pageObjId] =
+      `${pageObjId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjId} 0 R >>\nendobj\n`;
+    objects[contentObjId] =
+      `${contentObjId} 0 obj\n<< /Length ${Buffer.byteLength(streamBody, 'latin1')} >>\nstream\n${streamBody}endstream\nendobj\n`;
+  }
+  const infoObjId = 4 + pageCount * 2;
+  if (title) {
+    objects[infoObjId] = `${infoObjId} 0 obj\n<< /Title (${escapePdfText(title)}) >>\nendobj\n`;
+  }
+  const header = '%PDF-1.4\n';
+  const chunks: Buffer[] = [Buffer.from(header, 'latin1')];
+  const offsets: number[] = [0];
+  let offset = chunks[0]!.byteLength;
+  const maxObjId = title ? infoObjId : 3 + pageCount * 2;
+  for (let id = 1; id <= maxObjId; id += 1) {
+    offsets[id] = offset;
+    const buf = Buffer.from(objects[id]!, 'latin1');
+    chunks.push(buf);
+    offset += buf.byteLength;
+  }
+  const xrefStart = offset;
+  const xrefLines = [
+    `xref\n0 ${maxObjId + 1}\n`,
+    '0000000000 65535 f \n',
+    ...Array.from(
+      { length: maxObjId },
+      (_v, idx) => `${String(offsets[idx + 1]!).padStart(10, '0')} 00000 n \n`,
+    ),
+    `trailer\n<< /Size ${maxObjId + 1} /Root 1 0 R${title ? ` /Info ${infoObjId} 0 R` : ''} >>\nstartxref\n${xrefStart}\n%%EOF\n`,
+  ];
+  chunks.push(Buffer.from(xrefLines.join(''), 'latin1'));
+  return Buffer.concat(chunks);
+}
 
 // 创建监听随机本地端口的静态测试服务，不依赖真实互联网。
 async function fixtureServer(
@@ -159,6 +210,80 @@ describe('CrawleeWebContentFetcher', () => {
     expect(result.networkAttemptCount).toBe(2);
     expect(requestCount).toBe(2);
   });
+
+  it('fetches application/pdf and %PDF- octet-stream while rejecting non-PDF binaries and oversized PDFs', async () => {
+    const pdfBytes = buildSimplePdfBuffer(['First page content for Crawlee PDF fetch test.']);
+    const oversizedBytes = Buffer.concat([
+      Buffer.from('%PDF-1.4\n', 'ascii'),
+      Buffer.alloc(WEB_FETCH_POLICY.maxPdfResponseBytes + 1024, 0x20),
+    ]);
+    const baseUrl = await fixtureServer((request, response) => {
+      if (request.url === '/paper.pdf') {
+        response.writeHead(200, { 'content-type': 'application/pdf' });
+        response.end(pdfBytes);
+        return;
+      }
+      if (request.url === '/download.pdf') {
+        response.writeHead(200, { 'content-type': 'application/octet-stream' });
+        response.end(pdfBytes);
+        return;
+      }
+      if (request.url === '/fake.pdf') {
+        response.writeHead(200, { 'content-type': 'application/pdf' });
+        response.end(Buffer.from('<html>not a pdf</html>', 'utf8'));
+        return;
+      }
+      if (request.url === '/huge.pdf') {
+        response.writeHead(200, {
+          'content-type': 'application/pdf',
+          'content-length': String(oversizedBytes.byteLength),
+        });
+        response.end(oversizedBytes);
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'application/octet-stream' });
+      response.end(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    });
+    const guard = {
+      validate: vi.fn(async (url: string) => ({
+        requestedUrl: url,
+        normalizedUrl: url,
+        url: new URL(url),
+      })),
+    } as unknown as WebFetchUrlGuard;
+    const fetcher = new CrawleeWebContentFetcher(guard);
+    const paths = ['/paper.pdf', '/download.pdf', '/fake.pdf', '/huge.pdf', '/binary.zip'];
+    const result = await fetcher.fetchAll(
+      paths.map((path) => ({
+        requestedUrl: `${baseUrl}${path}`,
+        normalizedUrl: `${baseUrl}${path}`,
+        url: new URL(`${baseUrl}${path}`),
+      })),
+    );
+    expect(result.results[0]).toMatchObject({
+      status: 'succeeded',
+      content: { contentType: 'application/pdf' },
+    });
+    if (result.results[0]?.status === 'succeeded') {
+      expect(Buffer.isBuffer(result.results[0].content.rawBuffer)).toBe(true);
+    }
+    expect(result.results[1]).toMatchObject({
+      status: 'succeeded',
+      content: { contentType: 'application/pdf' },
+    });
+    expect(result.results[2]).toMatchObject({
+      status: 'failed',
+      code: AGENT_ERROR_CODES.fetchUnsupportedContentType,
+    });
+    expect(result.results[3]).toMatchObject({
+      status: 'failed',
+      code: AGENT_ERROR_CODES.fetchResponseTooLarge,
+    });
+    expect(result.results[4]).toMatchObject({
+      status: 'failed',
+      code: AGENT_ERROR_CODES.fetchUnsupportedContentType,
+    });
+  });
 });
 
 describe('content extraction and passage selection', () => {
@@ -235,6 +360,81 @@ describe('content extraction and passage selection', () => {
     });
     expect(ranker.rank(document, chunker.chunk(document), '量子计算芯片', 0)).toEqual([]);
   });
+
+  it('matches mixed CJK+English queries via Latin tokens and falls back on pure cross-script queries', () => {
+    const normalizer = new DocumentNormalizer();
+    const chunker = new PassageChunker();
+    const ranker = new PassageRanker();
+    const document = normalizer.normalize({
+      fetched: {
+        requestedUrl: 'https://example.com/paper',
+        finalUrl: 'https://example.com/paper',
+        contentType: 'text/plain',
+        body: '',
+        retrievedAt: '2026-11-25T00:00:00.000Z',
+      },
+      extracted: {
+        title: 'Attention Paper',
+        markdown:
+          '# Introduction\n\nThis paper analyzes Transformer attention scaling laws across long contexts.\n\n' +
+          '## Experiments\n\nWe evaluate retrieval accuracy on multi-hop benchmarks.',
+      },
+      normalizedUrl: 'https://example.com/paper',
+    });
+    const blocks = chunker.chunk(document);
+
+    const mixed = ranker.rankForFetch(document, blocks, 'Transformer attention 原理', 0);
+    expect(mixed.passageSelection).toBe('query_matched');
+    expect(mixed.passages.length).toBeGreaterThan(0);
+    expect(mixed.passages[0]?.passage.text).toContain('Transformer attention');
+
+    const crossScript = ranker.rankForFetch(document, blocks, '深度学习注意力机制研究综述', 0);
+    expect(crossScript.passageSelection).toBe('fallback_excerpt');
+    expect(crossScript.passages.length).toBeGreaterThan(0);
+    expect(crossScript.passages[0]?.score).toBe(WEB_FETCH_POLICY.fallbackExcerptScore);
+
+    const sameScriptUnrelated = ranker.rankForFetch(
+      document,
+      blocks,
+      'xkcd qqqz vvvv',
+      0,
+    );
+    expect(sameScriptUnrelated.passages).toEqual([]);
+  });
+});
+
+describe('PdfContentExtractor', () => {
+  it('extracts paginated text, truncates beyond maxPdfPages, and rejects scanned empty PDFs', async () => {
+    const extractor = new PdfContentExtractor();
+    const validPdf = buildSimplePdfBuffer(
+      [
+        'Page one introduces Transformer architecture and retrieval grounding.',
+        'Page two presents experimental results on public benchmarks.',
+      ],
+      'Harness PDF Title',
+    );
+    const extracted = await extractor.extract(validPdf, 'https://example.com/docs/report.pdf');
+    expect(extracted.title).toBe('Harness PDF Title');
+    expect(extracted.truncated).toBeUndefined();
+    expect(extracted.markdown).toContain('[[page:1]]');
+    expect(extracted.markdown).toContain('Transformer architecture');
+    expect(extracted.markdown).toContain('[[page:2]]');
+
+    const overLimitPages = Array.from(
+      { length: WEB_FETCH_POLICY.maxPdfPages + 2 },
+      (_v, idx) => `Page ${idx + 1} synthetic PDF body.`,
+    );
+    const longPdf = buildSimplePdfBuffer(overLimitPages);
+    const truncated = await extractor.extract(longPdf, 'https://example.com/long.pdf');
+    expect(truncated.truncated).toBe(true);
+    expect(truncated.markdown).toContain(`[[page:${WEB_FETCH_POLICY.maxPdfPages}]]`);
+    expect(truncated.markdown).not.toContain(`[[page:${WEB_FETCH_POLICY.maxPdfPages + 1}]]`);
+
+    const emptyPdf = buildSimplePdfBuffer(['']);
+    await expect(extractor.extract(emptyPdf, 'https://example.com/scanned.pdf')).rejects.toMatchObject({
+      code: AGENT_ERROR_CODES.fetchContentEmpty,
+    });
+  });
 });
 
 describe('DocumentQualityGate', () => {
@@ -270,6 +470,22 @@ describe('DocumentQualityGate', () => {
     );
     expect(() => new DocumentQualityGate().validate(document)).not.toThrow();
   });
+
+  it('allows 600-char real abstracts containing incidental sign-in chrome without blocking', () => {
+    const body = [
+      '登入 | 注册',
+      '本研究分析了大语言模型在长上下文检索中的证据边界与拒答机制，重点探讨了跨语种片段筛选问题。',
+      '实验表明，当工具返回仅包含标题与有限摘要时，显式区分已证实事实与推理假设可显著降低幻觉率。',
+      '此外，通过对多份公开行业白皮书与技术报告的对比评估，我们验证了结构化证据标识在通用任务中的稳定性。',
+      '本文提出的检索增强与片段降级策略已在实际生产链路完成集成，适用于多种垂直与通用信息查询场景。',
+      'Sign in to save this paper to your personal reading list or export BibTeX citation metadata.',
+    ].join('\n');
+    const document = normalize(
+      body.repeat(2),
+      'Grounding Boundaries in Long-Context Retrieval',
+    );
+    expect(() => new DocumentQualityGate().validate(document)).not.toThrow();
+  });
 });
 
 describe('BatchPassageBudgeter', () => {
@@ -302,6 +518,34 @@ describe('BatchPassageBudgeter', () => {
       .flat()
       .reduce((sum, item) => sum + Array.from(item.passage.text).length, 0);
     expect(total).toBeLessThanOrEqual(10_000);
+  });
+
+  it('prioritizes higher-scored matched documents over fallback_excerpt documents under tight budget', () => {
+    const makeDocPassage = (documentIndex: number, score: number, text: string): RankedWebPassage => ({
+      passage: {
+        passageId: `doc-${documentIndex}`,
+        text,
+        locator: {
+          kind: 'web_text',
+          quote: { exact: text },
+          position: { start: 0, end: text.length },
+        },
+      },
+      score,
+      documentIndex,
+      passageIndex: 0,
+    });
+    const fallbackText = 'F'.repeat(1_500);
+    const matchedText = 'M'.repeat(1_500);
+    const selected = new BatchPassageBudgeter().select(
+      [
+        [makeDocPassage(0, WEB_FETCH_POLICY.fallbackExcerptScore, fallbackText)],
+        [makeDocPassage(1, 0.85, matchedText)],
+      ],
+      1_600,
+    );
+    expect(selected.has(1)).toBe(true);
+    expect(selected.has(0)).toBe(false);
   });
 });
 
@@ -436,8 +680,55 @@ describe('WebFetchService', () => {
       contentType: 'application/json',
     });
     const succeeded = result.result.results[0];
-    if (succeeded.status !== 'succeeded') throw new Error('expected succeeded');
+    if (succeeded?.status !== 'succeeded') throw new Error('expected succeeded');
     expect(succeeded.passages.length).toBeGreaterThan(0);
     expect(succeeded.passages[0]?.text).toContain('生成式 AI');
+  });
+
+  it('extracts PDF payloads end-to-end and marks cross-script fallback_excerpt in WebFetchService', async () => {
+    const guard = new WebFetchUrlGuard(async () => [{ address: '93.184.216.34', family: 4 }]);
+    const pdfBuffer = buildSimplePdfBuffer([
+      'This public PDF technical report explains attention mechanisms in language models.',
+      'Section two evaluates multi-hop retrieval accuracy and grounding across datasets.',
+      'Section three concludes that explicit evidence boundaries reduce hallucination.',
+    ]);
+    const fetchAll = vi.fn(async (targets: GuardedWebUrl[]) => ({
+      networkAttemptCount: targets.length,
+      results: targets.map((target) => ({
+        status: 'succeeded' as const,
+        content: {
+          requestedUrl: target.requestedUrl,
+          finalUrl: target.normalizedUrl,
+          contentType: 'application/pdf',
+          body: '',
+          rawBuffer: pdfBuffer,
+          retrievedAt: '2026-11-25T00:00:00.000Z',
+        },
+      })),
+    }));
+    const service = new WebFetchService(
+      guard,
+      { fetchAll } as unknown as CrawleeWebContentFetcher,
+      new WebFetchCache(),
+      new HtmlContentExtractor(),
+      new DocumentNormalizer(),
+      new DocumentQualityGate(),
+      new PassageChunker(),
+      new PassageRanker(),
+      new BatchPassageBudgeter(),
+      new PdfContentExtractor(),
+    );
+
+    const response = await service.fetch({
+      urls: ['https://example.com/whitepaper.pdf'],
+      query: '大模型注意力机制技术白皮书',
+    });
+    const item = response.result.results[0];
+    if (item?.status !== 'succeeded') throw new Error(`unexpected failure: ${JSON.stringify(item)}`);
+    expect(item.status).toBe('succeeded');
+    expect(item.contentType).toBe('application/pdf');
+    expect(item.passageSelection).toBe('fallback_excerpt');
+    expect(item.passages.length).toBeGreaterThan(0);
+    expect(item.passages[0]?.text).toContain('attention mechanisms');
   });
 });

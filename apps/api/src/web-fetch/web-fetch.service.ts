@@ -3,6 +3,7 @@ import { AGENT_ERROR_CODES } from '@harness/agent-protocol';
 import type {
   WebFetchInput,
   WebFetchItemResult,
+  WebFetchPassageSelection,
   WebFetchSucceededItem,
 } from '@harness/agent-protocol';
 import { BatchPassageBudgeter } from './batch-passage.budgeter';
@@ -12,11 +13,16 @@ import { DocumentQualityGate } from './document-quality.gate';
 import { HtmlContentExtractor } from './html-content.extractor';
 import { PassageChunker } from './passage.chunker';
 import { PassageRanker } from './passage.ranker';
+import { PdfContentExtractor } from './pdf-content.extractor';
 import { WebFetchCache } from './web-fetch.cache';
 import { asWebFetchError, WebFetchError } from './web-fetch.error';
 import { WEB_FETCH_POLICY } from './web-fetch.constants';
 import { WebFetchUrlGuard } from './web-fetch-url.guard';
-import type { GuardedWebUrl, NormalizedWebDocument, RankedWebPassage } from './web-fetch.types';
+import type {
+  GuardedWebUrl,
+  NormalizedWebDocument,
+  RankedDocumentPassages,
+} from './web-fetch.types';
 
 @Injectable()
 export class WebFetchService {
@@ -30,6 +36,7 @@ export class WebFetchService {
     private readonly chunker: PassageChunker,
     private readonly ranker: PassageRanker,
     private readonly budgeter: BatchPassageBudgeter,
+    private readonly pdfExtractor: PdfContentExtractor = new PdfContentExtractor(),
   ) {}
 
   // 批量读取 URL 并生成按输入顺序排列的 fetched-source 材料。
@@ -87,16 +94,24 @@ export class WebFetchService {
           continue;
         }
         try {
-          const sourceBody = this.prepareBodyForExtract(
-            transport.content.body,
-            transport.content.contentType,
-          );
-          const extracted = this.shouldUseRawBody(transport.content.contentType)
-            ? {
-                markdown: sourceBody,
-                title: new URL(transport.content.finalUrl).hostname,
-              }
-            : this.extractor.extract(sourceBody, transport.content.finalUrl);
+          const extracted =
+            transport.content.contentType === 'application/pdf'
+              ? await this.extractPdf(transport.content.rawBuffer, transport.content.finalUrl, signal)
+              : this.shouldUseRawBody(transport.content.contentType)
+                ? {
+                    markdown: this.prepareBodyForExtract(
+                      transport.content.body,
+                      transport.content.contentType,
+                    ),
+                    title: new URL(transport.content.finalUrl).hostname,
+                  }
+                : this.extractor.extract(
+                    this.prepareBodyForExtract(
+                      transport.content.body,
+                      transport.content.contentType,
+                    ),
+                    transport.content.finalUrl,
+                  );
           const normalizedUrl = await this.chooseNormalizedUrl(
             transport.content.finalUrl,
             extracted.canonicalUrl,
@@ -116,14 +131,16 @@ export class WebFetchService {
       }
     }
 
-    const rankedByDocument: RankedWebPassage[][] = [];
+    const rankedResults: Array<RankedDocumentPassages | undefined> = [];
     for (let index = 0; index < input.urls.length; index += 1) {
       const document = documents.get(index);
-      rankedByDocument[index] = document
-        ? this.ranker.rank(document, this.chunker.chunk(document), input.query, index)
-        : [];
+      rankedResults[index] = document
+        ? this.ranker.rankForFetch(document, this.chunker.chunk(document), input.query, index)
+        : undefined;
     }
-    const selected = this.budgeter.select(rankedByDocument);
+    const selected = this.budgeter.select(
+      rankedResults.map((item) => item?.passages ?? []),
+    );
     for (let index = 0; index < input.urls.length; index += 1) {
       if (results.has(index)) continue;
       const document = documents.get(index);
@@ -136,7 +153,8 @@ export class WebFetchService {
         });
         continue;
       }
-      if (input.query && !rankedByDocument[index]?.length) {
+      const ranked = rankedResults[index];
+      if (input.query && !ranked?.passages.length) {
         results.set(index, {
           status: 'failed',
           requestedUrl: input.urls[index] ?? '',
@@ -151,6 +169,7 @@ export class WebFetchService {
           document,
           cacheStatuses.get(index) ?? 'miss',
           (selected.get(index) ?? []).map((item) => item.passage),
+          ranked?.passageSelection,
         ),
       );
     }
@@ -161,6 +180,17 @@ export class WebFetchService {
       },
       networkAttempts: networkAttemptCount,
     };
+  }
+
+  private async extractPdf(
+    rawBuffer: Buffer | undefined,
+    finalUrl: string,
+    signal?: AbortSignal,
+  ) {
+    if (!rawBuffer) {
+      throw new WebFetchError(AGENT_ERROR_CODES.fetchContentExtractionFailed, 'PDF 响应缺少原始内容。');
+    }
+    return this.pdfExtractor.extract(rawBuffer, finalUrl, signal);
   }
 
   private assertActive(signal?: AbortSignal): void {
@@ -198,6 +228,7 @@ export class WebFetchService {
     document: NormalizedWebDocument,
     cacheStatus: 'hit' | 'miss',
     passages: WebFetchSucceededItem['passages'],
+    passageSelection?: WebFetchPassageSelection,
   ): WebFetchSucceededItem {
     return {
       status: 'succeeded',
@@ -213,6 +244,7 @@ export class WebFetchService {
       contentHash: document.contentHash,
       cacheStatus,
       truncated: document.truncated,
+      ...(passageSelection ? { passageSelection } : {}),
       passages,
     };
   }

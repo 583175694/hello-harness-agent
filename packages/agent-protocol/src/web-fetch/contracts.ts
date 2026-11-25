@@ -65,6 +65,13 @@ export const webFetchPassageSchema = z
     message: 'Passage text 必须与 quote.exact 完全一致',
   });
 
+// 标识单个成功来源的片段筛选方式，便于上层识别是否为跨语种兜底节选。
+export const webFetchPassageSelectionSchema = z.enum([
+  'query_matched',
+  'fallback_excerpt',
+  'representative',
+]);
+
 // 定义单个 URL 成功读取后的规范化结果。
 export const webFetchSucceededItemSchema = z.object({
   status: z.literal('succeeded'),
@@ -80,6 +87,7 @@ export const webFetchSucceededItemSchema = z.object({
   contentHash: z.string().min(1),
   cacheStatus: z.enum(['hit', 'miss']),
   truncated: z.boolean(),
+  passageSelection: webFetchPassageSelectionSchema.optional(),
   passages: z.array(webFetchPassageSchema).max(AGENT_PROTOCOL_LIMITS.webFetchPassagesMax),
 });
 
@@ -128,6 +136,7 @@ export const webFetchResultSchema = z.object({
 export type WebFetchInput = z.infer<typeof webFetchInputSchema>;
 export type WebTextLocator = z.infer<typeof webTextLocatorSchema>;
 export type WebFetchPassage = z.infer<typeof webFetchPassageSchema>;
+export type WebFetchPassageSelection = z.infer<typeof webFetchPassageSelectionSchema>;
 export type WebFetchSucceededItem = z.infer<typeof webFetchSucceededItemSchema>;
 export type WebFetchFailedItem = z.infer<typeof webFetchFailedItemSchema>;
 export type WebFetchSkippedItem = z.infer<typeof webFetchSkippedItemSchema>;

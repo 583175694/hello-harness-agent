@@ -22,7 +22,14 @@ export class BatchPassageBudgeter {
       usedIds.add(item.passage.passageId);
       remaining -= length;
     };
-    for (const passages of passagesByDocument) if (passages[0]) trySelect(passages[0]);
+    const sortedByBestScore = passagesByDocument
+      .map((passages, index) => ({ passages, index }))
+      .filter((entry) => entry.passages.length > 0)
+      .sort(
+        (left, right) =>
+          right.passages[0]!.score - left.passages[0]!.score || left.index - right.index,
+      );
+    for (const { passages } of sortedByBestScore) trySelect(passages[0]!);
     const rest = passagesByDocument
       .flat()
       .sort(

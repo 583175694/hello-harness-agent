@@ -27,7 +27,8 @@ export class WebSearchTool implements AgentTool<{ query: string }, SearchToolRes
   definition() {
     return {
       name: AGENT_TOOL_NAMES.webSearch,
-      description: '搜索公开网页以获取最新或需要来源验证的信息。信息足够后停止搜索并直接回答。',
+      description:
+        '搜索公开网页以获取线索摘要与最新信息。简单事实可基于多条摘要作答；需核实具体文档或页面正文时配合 web_fetch 读取。信息足够后停止搜索并直接回答。',
       parameters: {
         type: 'object',
         additionalProperties: false,

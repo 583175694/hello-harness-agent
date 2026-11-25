@@ -2,7 +2,10 @@ import type { Logger } from 'nestjs-pino';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AGENT_ERROR_CODES, AGENT_TOOL_NAMES } from '@harness/agent-protocol';
-import { AgentRuntimeService } from '../../../src/agent-runtime/agent-runtime.service';
+import {
+  AgentRuntimeService,
+  deriveEvidenceScope,
+} from '../../../src/agent-runtime/agent-runtime.service';
 import { BashCommandPolicyService } from '../../../src/sandbox/bash-command-policy.service';
 import type { ContextEngineeringService } from '../../../src/context-engineering/context-engineering.service';
 import type { ModelAdapter, ModelRoundInput } from '../../../src/model/model-adapter';
@@ -917,6 +920,7 @@ describe('AgentRuntimeService model-led tool boundary', () => {
       content: JSON.stringify({
         ok: true,
         untrustedToolData: true,
+        evidenceScope: 'empty',
         output: { query: 'market', results: [] },
       }),
     });
@@ -950,6 +954,54 @@ describe('AgentRuntimeService model-led tool boundary', () => {
         expect.objectContaining({ type: 'text.delta', delta: '完成回答', roundSequence: 2 }),
       ]),
     );
+  });
+
+  it('derives objective evidenceScope signals for web_search and web_fetch without altering other tools', () => {
+    expect(
+      deriveEvidenceScope(AGENT_TOOL_NAMES.webSearch, { query: 'q', results: [] }),
+    ).toBe('empty');
+    expect(
+      deriveEvidenceScope(AGENT_TOOL_NAMES.webSearch, {
+        query: 'q',
+        results: [{ id: '1', title: 'T', url: 'https://example.com', domain: 'example.com', snippet: 'S' }],
+      }),
+    ).toBe('snippets_only');
+    expect(
+      deriveEvidenceScope(AGENT_TOOL_NAMES.webFetch, {
+        results: [{ status: 'failed', requestedUrl: 'https://example.com', code: 'FETCH_TIMEOUT', detail: 'timeout' }],
+      }),
+    ).toBe('unavailable');
+    expect(
+      deriveEvidenceScope(AGENT_TOOL_NAMES.webFetch, {
+        results: [
+          { status: 'succeeded', truncated: false, passageSelection: 'fallback_excerpt', passages: [] },
+        ],
+      }),
+    ).toBe('partial_excerpts');
+    expect(
+      deriveEvidenceScope(AGENT_TOOL_NAMES.webFetch, {
+        results: [
+          { status: 'succeeded', truncated: true, passageSelection: 'query_matched', passages: [] },
+        ],
+      }),
+    ).toBe('partial_excerpts');
+    expect(
+      deriveEvidenceScope(AGENT_TOOL_NAMES.webFetch, {
+        results: [
+          { status: 'succeeded', truncated: false, passageSelection: 'query_matched', passages: [] },
+          { status: 'failed', requestedUrl: 'https://bad.example', code: 'FETCH_TIMEOUT', detail: 'timeout' },
+        ],
+      }),
+    ).toBe('partial_excerpts');
+    expect(
+      deriveEvidenceScope(AGENT_TOOL_NAMES.webFetch, {
+        results: [
+          { status: 'succeeded', truncated: false, passageSelection: 'query_matched', passages: [] },
+          { status: 'skipped', requestedUrl: 'https://example.com#dup', code: 'FETCH_DUPLICATE_SKIPPED', detail: 'dup' },
+        ],
+      }),
+    ).toBe('matched_passages');
+    expect(deriveEvidenceScope(AGENT_TOOL_NAMES.readFile, { content: 'abc' })).toBeUndefined();
   });
 
   it('budgets Tool Results against the compiled round instead of the uncompressed transcript', async () => {

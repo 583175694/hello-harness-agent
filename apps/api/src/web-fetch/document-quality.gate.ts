@@ -5,8 +5,10 @@ import type { NormalizedWebDocument } from './web-fetch.types';
 import { codePointLength, sliceCodePoints } from './unicode.utils';
 
 // 识别登录、验证码、订阅或付费墙等无法直接作为公开依据的页面。
-const ACCESS_PATTERN =
-  /(?:captcha|verify you are human|登录(?:后|以)|登入|订阅后|付费墙|subscribe to continue|sign in to continue|access denied)/iu;
+const STRONG_ACCESS_PATTERN =
+  /(?:captcha|verify you are human|付费墙|subscribe to continue|sign in to continue|log in to continue|access denied|登录后(?:查看|阅读|继续)|订阅后(?:查看|阅读|继续))/iu;
+const ACCESS_TITLE_PATTERN =
+  /(?:sign in|log in|login|access denied|captcha|verify|登录|验证|订阅)/iu;
 // 识别只返回 JavaScript 壳、需要浏览器执行后才能显示正文的页面。
 const JAVASCRIPT_PATTERN =
   /(?:enable javascript|javascript (?:is )?required|请(?:启用|开启)\s*javascript|需要启用\s*javascript)/iu;
@@ -27,11 +29,19 @@ export class DocumentQualityGate {
         '网页需要执行 JavaScript 后才能读取正文。',
       );
     }
-    if (length < 1_000 && ACCESS_PATTERN.test(sample)) {
-      throw new WebFetchError(
-        AGENT_ERROR_CODES.fetchAccessBlocked,
-        '网页需要登录、验证或订阅后才能读取正文。',
+    if (length < 1_000 && STRONG_ACCESS_PATTERN.test(sample)) {
+      const substantiveLines = new Set(
+        readable
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => codePointLength(line) >= 40),
       );
+      if (length < 500 || ACCESS_TITLE_PATTERN.test(document.title) || substantiveLines.size < 3) {
+        throw new WebFetchError(
+          AGENT_ERROR_CODES.fetchAccessBlocked,
+          '网页需要登录、验证或订阅后才能读取正文。',
+        );
+      }
     }
     const lines = readable
       .split('\n')

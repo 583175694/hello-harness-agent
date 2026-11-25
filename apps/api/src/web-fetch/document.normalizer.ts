@@ -23,7 +23,9 @@ export class DocumentNormalizer {
     if (!cleaned) {
       throw new WebFetchError(AGENT_ERROR_CODES.fetchContentEmpty, '网页中没有可用正文。');
     }
-    const truncated = codePointLength(cleaned) > WEB_FETCH_POLICY.maxDocumentCharacters;
+    const truncated =
+      Boolean(input.extracted.truncated) ||
+      codePointLength(cleaned) > WEB_FETCH_POLICY.maxDocumentCharacters;
     const markdown = truncated
       ? sliceCodePoints(cleaned, 0, WEB_FETCH_POLICY.maxDocumentCharacters).trimEnd()
       : cleaned;

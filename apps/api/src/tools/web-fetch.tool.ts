@@ -33,7 +33,7 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
     return {
       name: AGENT_TOOL_NAMES.webFetch,
       description:
-        '批量获取并过滤指定 URL 的公开 HTML 或 JSON API 内容，返回与任务相关的可定位原文片段。',
+        '批量获取并过滤指定 URL 的公开 HTML、PDF 或 JSON API 内容，返回与任务相关的可定位原文片段。',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -43,12 +43,12 @@ export class WebFetchTool implements AgentTool<WebFetchInput, WebFetchResult> {
             minItems: 1,
             maxItems: AGENT_PROTOCOL_LIMITS.webFetchUrlsMax,
             items: { type: 'string', format: 'uri' },
-            description: '需要读取的 1–5 个公开 HTTP/HTTPS 网页或 JSON API 地址。',
+            description: '需要读取的 1–5 个公开 HTTP/HTTPS 网页、PDF 或 JSON API 地址。',
           },
           query: {
             type: 'string',
             maxLength: AGENT_PROTOCOL_LIMITS.webFetchQueryMaxLength,
-            description: '整批来源共用的证据需求，用于筛选相关原文片段。',
+            description: '整批来源共用的证据需求，用于筛选相关原文片段；尽量包含与目标文档同语种的关键词。',
           },
         },
         required: ['urls'],

@@ -1,5 +1,5 @@
 import type { LookupAddress } from 'node:dns';
-import type { WebFetchPassage } from '@harness/agent-protocol';
+import type { WebFetchPassage, WebFetchPassageSelection } from '@harness/agent-protocol';
 
 // 抽象 DNS 查询，便于安全规则在测试中使用固定解析结果。
 export type WebFetchDnsResolver = (hostname: string) => Promise<LookupAddress[]>;
@@ -17,10 +17,11 @@ export type FetchedWebContent = {
   finalUrl: string;
   contentType: string;
   body: string;
+  rawBuffer?: Buffer;
   retrievedAt: string;
 };
 
-// HTML 提取器返回的正文和可验证页面元数据。
+// HTML/PDF 提取器返回的正文和可验证页面元数据。
 export type ExtractedWebContent = {
   markdown: string;
   title?: string;
@@ -28,6 +29,7 @@ export type ExtractedWebContent = {
   publishedAt?: string;
   language?: string;
   canonicalUrl?: string;
+  truncated?: boolean;
 };
 
 // 规范化文档中的结构块以 code-point 区间定位。
@@ -62,6 +64,12 @@ export type RankedWebPassage = {
   score: number;
   documentIndex: number;
   passageIndex: number;
+};
+
+// 单个文档的 Passage 选择结果及筛选模式。
+export type RankedDocumentPassages = {
+  passages: RankedWebPassage[];
+  passageSelection: WebFetchPassageSelection;
 };
 
 // Fetcher 对单个 URL 的成功或失败结果。

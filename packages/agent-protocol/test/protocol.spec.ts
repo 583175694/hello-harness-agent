@@ -899,4 +899,57 @@ describe('run tool output contracts', () => {
 
     expect(parsed.success).toBe(true);
   });
+
+  it('keeps web_fetch succeeded items backward-compatible with optional passageSelection', () => {
+    const exact = 'Useful fetched excerpt.';
+    const baseItem = {
+      status: 'succeeded' as const,
+      requestedUrl: 'https://example.com/doc.pdf',
+      finalUrl: 'https://example.com/doc.pdf',
+      normalizedUrl: 'https://example.com/doc.pdf',
+      title: 'Doc',
+      contentType: 'application/pdf',
+      retrievedAt: '2026-11-25T00:00:00.000Z',
+      contentHash: 'hash-doc',
+      cacheStatus: 'miss' as const,
+      truncated: false,
+      passages: [
+        {
+          passageId: 'p1',
+          text: exact,
+          locator: {
+            kind: 'web_text' as const,
+            quote: { exact },
+            position: { start: 0, end: exact.length },
+          },
+        },
+      ],
+    };
+    const stats = {
+      requestedCount: 1,
+      networkAttemptCount: 1,
+      succeededCount: 1,
+      failedCount: 0,
+      skippedCount: 0,
+      passageCount: 1,
+      passageCharacterCount: exact.length,
+      cacheHitCount: 0,
+    };
+
+    expect(webFetchResultSchema.safeParse({ results: [baseItem], stats }).success).toBe(true);
+    for (const passageSelection of ['query_matched', 'fallback_excerpt', 'representative'] as const) {
+      expect(
+        webFetchResultSchema.safeParse({
+          results: [{ ...baseItem, passageSelection }],
+          stats,
+        }).success,
+      ).toBe(true);
+    }
+    expect(
+      webFetchResultSchema.safeParse({
+        results: [{ ...baseItem, passageSelection: 'invalid' }],
+        stats,
+      }).success,
+    ).toBe(false);
+  });
 });

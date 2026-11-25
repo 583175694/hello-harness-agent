@@ -115,6 +115,39 @@ function abortRunError(): Error {
 // 这个窗口不是新的业务超时；到期后 Runtime 仍会收敛当前 Tool Result。
 const TOOL_CANCELLATION_GRACE_MS = 5_000;
 
+export type EvidenceScope =
+  | 'empty'
+  | 'snippets_only'
+  | 'unavailable'
+  | 'partial_excerpts'
+  | 'matched_passages';
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// 为搜索与网页抓取工具派生纯客观的证据完整度枚举，不混入自然语言指令。
+export function deriveEvidenceScope(
+  resolvedToolName: string,
+  output: unknown,
+): EvidenceScope | undefined {
+  if (resolvedToolName === AGENT_TOOL_NAMES.webSearch) {
+    const results = isPlainRecord(output) && Array.isArray(output.results) ? output.results : [];
+    return results.length > 0 ? 'snippets_only' : 'empty';
+  }
+  if (resolvedToolName === AGENT_TOOL_NAMES.webFetch) {
+    const results = isPlainRecord(output) && Array.isArray(output.results) ? output.results : [];
+    const succeeded = results.filter((item) => isPlainRecord(item) && item.status === 'succeeded');
+    if (succeeded.length === 0) return 'unavailable';
+    const hasFailed = results.some((item) => isPlainRecord(item) && item.status === 'failed');
+    const hasPartialSucceeded = succeeded.some(
+      (item) => item.truncated === true || item.passageSelection === 'fallback_excerpt',
+    );
+    return hasFailed || hasPartialSucceeded ? 'partial_excerpts' : 'matched_passages';
+  }
+  return undefined;
+}
+
 @Injectable()
 export class AgentRuntimeService {
   constructor(
@@ -1725,7 +1758,13 @@ export class AgentRuntimeService {
     ) {
       return typeof output === 'string' ? output : String(output);
     }
-    return JSON.stringify({ ok: true, untrustedToolData: true, output });
+    const evidenceScope = deriveEvidenceScope(resolved, output);
+    return JSON.stringify({
+      ok: true,
+      untrustedToolData: true,
+      ...(evidenceScope ? { evidenceScope } : {}),
+      output,
+    });
   }
 
   // 将安全错误字段序列化给模型，排除 cause 和服务端日志字段。

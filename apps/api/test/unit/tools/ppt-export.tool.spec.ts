@@ -234,4 +234,48 @@ describe('PptExportTool', () => {
       }),
     );
   });
+
+  it('reuses existing source HTML artifact on htmlFileId export without creating duplicate HTML', async () => {
+    const sourceHtml = {
+      artifact: { ...artifact, artifactId: 'artifact-html-1', fileId: 'html-1', fileName: 'source.html', fileKind: 'html' as const, mediaType: 'text/html' },
+      file: { ...artifact, artifactId: 'artifact-html-1', fileId: 'html-1', fileName: 'source.html', fileKind: 'html' as const, mediaType: 'text/html' },
+    };
+    const importFromSandbox = vi.fn().mockResolvedValue(imported('deck.pptx'));
+    const findReadyByFileId = vi.fn().mockResolvedValue(sourceHtml);
+    const exportHtmlFile = vi.fn().mockResolvedValue(await buildResult());
+    files.findReadyForSession.mockResolvedValue({ id: 'html-1', fileKind: 'html', fileName: 'source.html' });
+    files.readOriginalBytes.mockResolvedValue(Buffer.from('<html><div class="slide"></div></html>'));
+
+    const tool = new PptExportTool(
+      { importFromSandbox, findReadyByFileId } as never,
+      files as never,
+      vi.fn() as never,
+      { unpackScriptPath: '/does-not-exist/unpack.py', exportHtmlFile, htmlExporter: vi.fn() } as never,
+    );
+
+    const okResult = await tool.execute({ fileName: 'deck.pptx', htmlFileId: 'html-1' }, context);
+    expect(importFromSandbox).toHaveBeenCalledTimes(1);
+    expect(importFromSandbox).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'deck.pptx' }));
+    expect(okResult).toMatchObject({
+      status: 'succeeded',
+      output: {
+        status: 'ok',
+        preview: { artifact: { artifactId: 'artifact-html-1', fileId: 'html-1' } },
+      },
+    });
+
+    importFromSandbox.mockClear();
+    exportHtmlFile.mockResolvedValueOnce(
+      await buildResult({ ok: false, pptxBuffer: undefined, report: report({ degrade: 'html_only', failureCode: 'validation_failed' }) }),
+    );
+    const degradedResult = await tool.execute({ fileName: 'deck.pptx', htmlFileId: 'html-1' }, context);
+    expect(importFromSandbox).not.toHaveBeenCalled();
+    expect(degradedResult).toMatchObject({
+      status: 'succeeded',
+      output: {
+        status: 'degraded',
+        artifact: { artifactId: 'artifact-html-1', fileId: 'html-1' },
+      },
+    });
+  });
 });

@@ -121,6 +121,8 @@ export const createFileInputSchema = z
     fileName: z.string().trim().min(1).max(255),
     /** Omit for Markdown-backed formats. Set to `html` with a `.html` file name to deliver native HTML. */
     contentMode: createFileContentModeSchema.optional(),
+    /** Optional fileId of an existing artifact in this session to revise in-place (v2, v3...) within the same ArtifactSeries. */
+    reviseFileId: z.string().trim().min(1).optional(),
     content: z.string().min(1).optional(),
     sheets: z
       .array(

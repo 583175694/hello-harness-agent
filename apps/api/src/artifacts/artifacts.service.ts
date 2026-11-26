@@ -169,7 +169,17 @@ export class ArtifactsService {
         throw new DOMException('The operation was aborted.', 'AbortError');
       const artifact = await this.prisma.$transaction(async (tx) => {
         const artifactId = crypto.randomUUID();
-        if (!versionContext) {
+        const implicitTarget =
+          !versionContext && typeof tx.artifact.findFirst === 'function'
+            ? await this.findImplicitRevisionTarget(tx, {
+                userId: ownerUserId,
+                sessionId: input.sessionId,
+                runId: input.runId,
+                fileName: input.fileName,
+                reviseFileId: input.reviseFileId,
+              })
+            : null;
+        if (!versionContext && !implicitTarget) {
           const seriesId = crypto.randomUUID();
           await tx.artifactSeries.create({
             data: {
@@ -197,24 +207,50 @@ export class ArtifactsService {
             where: { id: seriesId },
             data: { currentArtifactId: artifactId },
           });
+        } else if (implicitTarget) {
+          const latest = await tx.artifact.findFirst({
+            where: { seriesId: implicitTarget.seriesId },
+            orderBy: { versionNumber: 'desc' },
+            select: { versionNumber: true },
+          });
+          await tx.artifact.create({
+            data: {
+              id: artifactId,
+              fileId: file.fileId,
+              userId: ownerUserId,
+              sessionId: input.sessionId,
+              runId: input.runId,
+              toolCallId: input.toolCallId,
+              seriesId: implicitTarget.seriesId,
+              versionNumber: (latest?.versionNumber ?? implicitTarget.versionNumber) + 1,
+              parentArtifactId: implicitTarget.currentArtifactId ?? implicitTarget.artifactId,
+              operation: 'revise',
+              status: 'ready',
+            },
+          });
+          await tx.artifactSeries.update({
+            where: { id: implicitTarget.seriesId },
+            data: { currentArtifactId: artifactId },
+          });
         } else {
+          const ctx = versionContext!;
           const series = await tx.artifactSeries.findFirst({
             where: {
-              id: versionContext.seriesId,
+              id: ctx.seriesId,
               sessionId: input.sessionId,
               userId: ownerUserId,
             },
           });
           const base = await tx.artifact.findFirst({
             where: {
-              id: versionContext.baseArtifactId,
-              seriesId: versionContext.seriesId,
+              id: ctx.baseArtifactId,
+              seriesId: ctx.seriesId,
               sessionId: input.sessionId,
               userId: ownerUserId,
               status: 'ready',
             },
           });
-          if (!series || !base || series.currentArtifactId !== versionContext.expectedCurrentArtifactId)
+          if (!series || !base || series.currentArtifactId !== ctx.expectedCurrentArtifactId)
             throw this.versionConflict();
           const latest = await tx.artifact.findFirst({
             where: { seriesId: series.id },
@@ -233,14 +269,14 @@ export class ArtifactsService {
               versionNumber: (latest?.versionNumber ?? 0) + 1,
               parentArtifactId: series.currentArtifactId,
               operation: 'revise',
-              changeSummary: versionContext.changeSummary,
+              changeSummary: ctx.changeSummary,
               status: 'ready',
             },
           });
           const advanced = await tx.artifactSeries.updateMany({
             where: {
               id: series.id,
-              currentArtifactId: versionContext.expectedCurrentArtifactId,
+              currentArtifactId: ctx.expectedCurrentArtifactId,
             },
             data: { currentArtifactId: artifactId },
           });
@@ -610,6 +646,79 @@ export class ArtifactsService {
       }
     });
     return { deletedArtifactId: artifact.id, deletedFileId: artifact.fileId };
+  }
+
+  async findReadyByFileId(
+    sessionId: string,
+    fileId: string,
+  ): Promise<{ artifact: ArtifactRef; file: CreateFileResult['file'] } | null> {
+    const ownerUserId = await this.userIdForSession(sessionId);
+    const existing = await this.prisma.artifact.findFirst({
+      where: {
+        sessionId,
+        fileId,
+        userId: ownerUserId,
+        status: 'ready',
+        file: { status: 'ready' },
+      },
+      include: { file: true, series: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!existing) return null;
+    return {
+      artifact: this.toRef(existing),
+      file: this.files.toPublicRef(existing.file, false, { artifactId: existing.id }),
+    };
+  }
+
+  private async findImplicitRevisionTarget(
+    tx: Prisma.TransactionClient,
+    input: {
+      userId: string;
+      sessionId: string;
+      runId: string;
+      fileName: string;
+      reviseFileId?: string;
+    },
+  ): Promise<{ seriesId: string; artifactId: string; versionNumber: number; currentArtifactId: string | null } | null> {
+    if (input.reviseFileId) {
+      const target = await tx.artifact.findFirst({
+        where: {
+          sessionId: input.sessionId,
+          fileId: input.reviseFileId,
+          userId: input.userId,
+          status: 'ready',
+        },
+        include: { series: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (target) {
+        return {
+          seriesId: target.seriesId,
+          artifactId: target.id,
+          versionNumber: target.versionNumber,
+          currentArtifactId: target.series?.currentArtifactId ?? null,
+        };
+      }
+    }
+    const sameRun = await tx.artifact.findFirst({
+      where: {
+        sessionId: input.sessionId,
+        runId: input.runId,
+        userId: input.userId,
+        status: 'ready',
+        file: { fileName: input.fileName },
+      },
+      include: { series: true },
+      orderBy: { versionNumber: 'desc' },
+    });
+    if (!sameRun) return null;
+    return {
+      seriesId: sameRun.seriesId,
+      artifactId: sameRun.id,
+      versionNumber: sameRun.versionNumber,
+      currentArtifactId: sameRun.series?.currentArtifactId ?? null,
+    };
   }
 
   private async findOwned(userId: string, id: string) {

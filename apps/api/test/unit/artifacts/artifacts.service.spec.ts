@@ -278,4 +278,40 @@ describe('ArtifactsService', () => {
     expect(prisma.fileCleanupTask.upsert).toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+
+  it('revises an existing ArtifactSeries in-place when reviseFileId or same-run fileName matches', async () => {
+    const { service, prisma, files, tx } = createService();
+    (tx.artifact as Record<string, unknown>).findFirst = vi
+      .fn()
+      .mockResolvedValueOnce({ ...artifact, id: 'artifact-1', seriesId: 'series-1', versionNumber: 1, series: { logicalName: 'deck.html', currentArtifactId: 'artifact-1' } })
+      .mockResolvedValueOnce({ versionNumber: 1 });
+    prisma.artifact.findFirst.mockResolvedValue(null);
+    prisma.agentRun.findFirst.mockResolvedValue({ id: 'run-1', metadata: {} });
+    files.createGenerated.mockResolvedValue({ fileId: 'file-2' });
+
+    await service.create({
+      sessionId: 'session-1',
+      runId: 'run-1',
+      toolCallId: 'call-2',
+      fileName: 'deck.html',
+      contentMode: 'html',
+      reviseFileId: 'file-1',
+      content: '<html>v2</html>',
+    });
+
+    expect(tx.artifactSeries.create).not.toHaveBeenCalled();
+    expect(tx.artifact.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          seriesId: 'series-1',
+          versionNumber: 2,
+          parentArtifactId: 'artifact-1',
+          operation: 'revise',
+        }),
+      }),
+    );
+    expect(tx.artifactSeries.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'series-1' } }),
+    );
+  });
 });

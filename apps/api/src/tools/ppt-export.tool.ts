@@ -203,10 +203,39 @@ export class PptExportTool implements AgentTool<PptExportInput, PptExportResult>
         },
       };
 
+      const sourceHtml =
+        input.htmlFileId && typeof this.artifacts.findReadyByFileId === 'function'
+          ? await this.artifacts.findReadyByFileId(context.sessionId, input.htmlFileId)
+          : null;
+
       const pptxReady =
         built.ok && built.report.degrade === 'none' && built.pptxBuffer ? built.pptxBuffer : undefined;
       if (pptxReady) {
-        // HTML 与 PPTX 来自同一份渲染结果；预览文件先落盘，再交付主产物。
+        // htmlFileId 路径下源 HTML 已是会话内 Artifact，直接复用为 preview，避免重复落盘两份近似 HTML。
+        if (sourceHtml) {
+          const imported = await this.artifacts.importFromSandbox({
+            sessionId: context.sessionId,
+            runId: context.runId,
+            toolCallId: context.toolCallId,
+            fileName: input.fileName,
+            data: pptxReady,
+          });
+          return {
+            status: 'succeeded',
+            output: pptExportResultSchema.parse({
+              status: 'ok',
+              artifact: imported.artifact,
+              file: imported.file,
+              preview: { artifact: sourceHtml.artifact, file: sourceHtml.file },
+              report,
+            }),
+            logFields: {
+              'PPT 页数': input.deckPlan?.slides.length ?? built.report.metrics?.slides ?? 0,
+              导出降级: report.degrade ?? 'none',
+            },
+          };
+        }
+        // deckPlan 或上传 HTML 路径：HTML 与 PPTX 来自同一份渲染结果，预览与主产物一起落盘。
         const [imported, preview] = await Promise.all([
           this.artifacts.importFromSandbox({
             sessionId: context.sessionId,
@@ -242,19 +271,22 @@ export class PptExportTool implements AgentTool<PptExportInput, PptExportResult>
       }
 
       // 降级不是“工具失败”：模型和用户仍拿到可打开的 HTML 与具体失败原因。
-      const imported = await this.artifacts.importFromSandbox({
-        sessionId: context.sessionId,
-        runId: context.runId,
-        toolCallId: context.toolCallId,
-        fileName: this.toHtmlFileName(input.fileName),
-        data: Buffer.from(built.html, 'utf8'),
-      });
+      // 若源 htmlFileId 本身已是 Artifact，直接复用而不重复落盘新 HTML。
+      const degradedTarget =
+        sourceHtml ??
+        (await this.artifacts.importFromSandbox({
+          sessionId: context.sessionId,
+          runId: context.runId,
+          toolCallId: context.toolCallId,
+          fileName: this.toHtmlFileName(input.fileName),
+          data: Buffer.from(built.html, 'utf8'),
+        }));
       return {
         status: 'succeeded',
         output: pptExportResultSchema.parse({
           status: 'degraded',
-          artifact: imported.artifact,
-          file: imported.file,
+          artifact: degradedTarget.artifact,
+          file: degradedTarget.file,
           report,
         }),
         logFields: {

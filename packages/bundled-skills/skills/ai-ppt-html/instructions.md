@@ -19,6 +19,7 @@ PPTX 是主交付物，HTML 是同源的预览稿，不需要用户先确认再�
 2. **手写 HTML 路径（自由/复杂版式优先）**：需要超越上述 6 种版式的复杂布局、用户要求自定义 HTML，
    或已有 16:9 演示 HTML 需要转 PPTX 时，用 `create_file`（`contentMode: "html"`）交付 HTML；
    之后调用 `ppt_export(htmlFileId=..., fileName=...)` 转换，或由用户在 Workbench 点「下载 PPTX」。
+   - 若需要修正或微调已生成的演示 HTML，请调用 `create_file` 时传 `reviseFileId`（或在同轮复用原文件名）原地升版（v2/v3），**不要**另起 `_v2`、`_终版`、`_修复` 等新文件，避免产生多个重复 HTML 卡片。
 
 不要伪造 PPTX，也**严禁使用 `bash` 运行 `python-pptx` / `pptxgenjs` 等脚本生成 PPTX**：只有 `ppt_export` 返回 `status: "ok"` 才能对用户说“已生成 PPTX”。
 

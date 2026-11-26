@@ -28,13 +28,20 @@ export class FileCreateTool implements AgentTool<CreateFileInput, CreateFileResu
         ` 默认 HTML/PDF/DOCX 的 content 为 Markdown；若需交付完整单页网站，请对 .html 设置 contentMode 为 html，content 为完整 HTML 文档（可含 inline script/style，禁止外链 script/stylesheet/CDN）。` +
         ` Markdown 模式最多 ${AGENT_PROTOCOL_LIMITS.generatedFileMaxCodePoints} 个 Unicode 字符；` +
         ` XLSX 必须使用 sheets/rows，最多 ${AGENT_PROTOCOL_LIMITS.generatedWorkbookMaxSheets} 个 Sheet、每个 Sheet ${AGENT_PROTOCOL_LIMITS.generatedWorkbookMaxRowsPerSheet} 行、总计 ${AGENT_PROTOCOL_LIMITS.generatedWorkbookMaxCells} 个单元格。` +
-        ' 文件名只能是普通文件名；一次调用只生成一个文件，不能覆盖、追加或写入工作区文件。',
+        ' 文件名只能是普通文件名；一次调用只生成一个文件，不能写入工作区文件。' +
+        ' 修改本会话已有交付物（如微调演示稿 HTML）时，请传 reviseFileId 或在同轮复用原文件名原地升版（v2/v3），不要另起 _v2、_终版、_修复 等重复文件。',
       parameters: {
         type: 'object',
         additionalProperties: false,
         properties: {
           fileName: { type: 'string', minLength: 1, maxLength: 255 },
           contentMode: { type: 'string', enum: ['html'] },
+          reviseFileId: {
+            type: 'string',
+            minLength: 1,
+            description:
+              '可选：要原地升版（v2/v3）的已有交付物 fileId。修改已有 HTML/文档时优先传入，避免产生重复文件卡片。',
+          },
           content: { type: 'string', minLength: 1 },
           sheets: {
             type: 'array',
@@ -89,6 +96,7 @@ export class FileCreateTool implements AgentTool<CreateFileInput, CreateFileResu
           fileName: input.fileName,
           ...(input.content !== undefined ? { content: input.content } : {}),
           ...(input.contentMode !== undefined ? { contentMode: input.contentMode } : {}),
+          ...(input.reviseFileId !== undefined ? { reviseFileId: input.reviseFileId } : {}),
           ...(input.sheets !== undefined ? { sheets: input.sheets } : {}),
           signal: context.signal,
         }),

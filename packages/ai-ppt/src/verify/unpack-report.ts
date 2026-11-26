@@ -118,7 +118,7 @@ export function unpackToExportChecks(unpack: UnpackReport, expectedSlides: numbe
     {
       code: 'cjk_coverage',
       level: 'error',
-      passed: (unpack.cjkCoverage ?? 0) >= 0.99,
+      passed: unpack.cjkCoverage === undefined || unpack.cjkCoverage >= 0.99,
       value: unpack.cjkCoverage,
       threshold: 0.99,
     },

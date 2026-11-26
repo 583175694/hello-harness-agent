@@ -20,6 +20,7 @@ import re
 import sys
 import zipfile
 from collections import Counter
+from html.parser import HTMLParser
 from pathlib import Path
 
 SLIDE_RE = re.compile(r"^ppt/slides/slide\d+\.xml$")
@@ -54,13 +55,25 @@ def unescape(text: str) -> str:
 # text" side, because the exporter correctly drops them.
 BLOCK_RE = re.compile(r"\.([\w-]+)\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}", re.S)
 HIDDEN_DECL_RE = re.compile(r"(?:display\s*:\s*none|position\s*:\s*fixed)", re.I)
-# dom-to-pptx exports document.querySelectorAll(".slide") only. Speaker notes or
-# preview chrome must not count toward expected CJK or decks with notes outside
-# slides always fail at ~70–80% while slide text is complete.
-SLIDE_BLOCK_RE = re.compile(
-    r'<([a-zA-Z][\w-]*)\b[^>]*\bclass="[^"]*\bslide\b[^"]*"[^>]*>.*?</\1>',
-    re.S | re.I,
+VOID_TAGS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
 )
+SKIP_TEXT_TAGS = frozenset({"head", "style", "script", "noscript", "template"})
 
 
 def hidden_classes(source: str) -> set[str]:
@@ -71,24 +84,68 @@ def hidden_classes(source: str) -> set[str]:
     }
 
 
-def strip_hidden(body: str, source: str) -> str:
-    """Drop UI chrome that is intentionally absent from the export.
+class _SlideCjkParser(HTMLParser):
+    """Track nested .slide and hidden containers accurately using a tag stack.
 
-    Counting it as "missing text" would understate coverage and hide real
-    regressions (the sample deck has a fixed 翻页 hint on every page).
+    A regex like ``<div class="slide">.*?</div>`` truncates at the first inner
+    ``</div>`` whenever a slide uses ``<div class="slide">`` instead of
+    ``<section class="slide">``, miscounting slide text as outside-slide text.
     """
-    for class_name in hidden_classes(source):
-        body = re.sub(
-            rf'<([a-zA-Z][\w-]*)\b[^>]*class="[^"]*\b{re.escape(class_name)}\b[^"]*"[^>]*>.*?</\1>',
-            " ",
-            body,
-            flags=re.S,
+
+    def __init__(self, hidden: set[str]) -> None:
+        super().__init__(convert_charrefs=True)
+        self._hidden = hidden
+        self._stack: list[tuple[str, int, int, int]] = []
+        self._slide_depth = 0
+        self._hidden_depth = 0
+        self._skip_depth = 0
+        self.expected: Counter = Counter()
+        self.outside_count = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag_lower = tag.lower()
+        if tag_lower in VOID_TAGS:
+            return
+        attr_map = {k.lower(): (v or "") for k, v in attrs}
+        classes = set(attr_map.get("class", "").split())
+        d_slide = 1 if "slide" in classes else 0
+        d_hidden = (
+            1
+            if (classes & self._hidden) or HIDDEN_DECL_RE.search(attr_map.get("style", ""))
+            else 0
         )
-    return body
+        d_skip = 1 if tag_lower in SKIP_TEXT_TAGS else 0
+        self._stack.append((tag_lower, d_slide, d_hidden, d_skip))
+        self._slide_depth += d_slide
+        self._hidden_depth += d_hidden
+        self._skip_depth += d_skip
 
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        return
 
-def extract_slide_blocks(body: str) -> str:
-    return " ".join(match.group(0) for match in SLIDE_BLOCK_RE.finditer(body))
+    def handle_endtag(self, tag: str) -> None:
+        tag_lower = tag.lower()
+        if tag_lower in VOID_TAGS:
+            return
+        for idx in range(len(self._stack) - 1, -1, -1):
+            if self._stack[idx][0] == tag_lower:
+                while len(self._stack) > idx:
+                    _, d_slide, d_hidden, d_skip = self._stack.pop()
+                    self._slide_depth -= d_slide
+                    self._hidden_depth -= d_hidden
+                    self._skip_depth -= d_skip
+                return
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth > 0 or self._hidden_depth > 0:
+            return
+        chars = CJK_RE.findall(data)
+        if not chars:
+            return
+        if self._slide_depth > 0:
+            self.expected.update(chars)
+        else:
+            self.outside_count += len(chars)
 
 
 def html_cjk_metrics(*, path: Path | None = None, source: str | None = None) -> tuple[Counter, int]:
@@ -97,21 +154,12 @@ def html_cjk_metrics(*, path: Path | None = None, source: str | None = None) -> 
     if path is not None:
         source = path.read_text(encoding="utf-8", errors="replace")
     assert source is not None
-    # CSS lives inside <head>, so extract it before <head> is dropped.
+    # CSS lives inside <style>, so extract hidden classes before parsing the document.
     styles = " ".join(re.findall(r"<style\b.*?</style>", source, flags=re.S | re.I))
-    # <head> text (title, meta) is never rendered, so it must not count as
-    # "expected visible text".
-    source = re.sub(r"<head\b.*?</head>", " ", source, flags=re.S | re.I)
-    body = re.sub(r"<style\b.*?</style>", " ", source, flags=re.S | re.I)
-    body = re.sub(r"<script\b.*?</script>", " ", body, flags=re.S | re.I)
-    body = re.sub(r"<!--.*?-->", " ", body, flags=re.S)
-    # Hidden-class detection needs the CSS, so it is passed separately.
-    body = strip_hidden(body, styles)
-    slide_markup = extract_slide_blocks(body)
-    outside = SLIDE_BLOCK_RE.sub(" ", body)
-    outside_count = len(CJK_RE.findall(re.sub(r"<[^>]+>", " ", outside)))
-    expected = Counter(CJK_RE.findall(re.sub(r"<[^>]+>", " ", slide_markup)))
-    return expected, outside_count
+    parser = _SlideCjkParser(hidden_classes(styles))
+    parser.feed(source)
+    parser.close()
+    return parser.expected, parser.outside_count
 
 
 def html_cjk(path: Path) -> Counter:
@@ -200,6 +248,27 @@ def run_selftest() -> None:
     if slide_total != 8 or outside != 14:
         raise AssertionError(
             f"expected slide CJK=8 and outside=14, got slide={slide_total} outside={outside}"
+        )
+
+    nested_div_slide = """
+    <html><head><title>不计入标题</title><style>
+      .hint { position: fixed; }
+      .hidden { display: none; }
+    </style></head><body>
+      <div class="slide">
+        <div class="top-bar"></div>
+        <div class="slide-body"><p>税务体系与高企治理<br><img src="a.png">正文</p></div>
+        <div class="hidden"><span>隐藏文字</span></div>
+      </div>
+      <div class="hint"><span>翻页提示</span></div>
+      <div class="slide-header">幻灯片外字</div>
+    </body></html>
+    """
+    nested_expected, nested_outside = html_cjk_metrics(source=nested_div_slide)
+    nested_total = sum(nested_expected.values())
+    if nested_total != 11 or nested_outside != 5:
+        raise AssertionError(
+            f"expected nested div.slide CJK=11 and outside=5, got slide={nested_total} outside={nested_outside}"
         )
 
 

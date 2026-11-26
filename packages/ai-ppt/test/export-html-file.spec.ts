@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it, vi } from 'vitest';
 import { exportHtmlFileToPptx } from '../src/pipeline/export-html-file.js';
+import { unpackToExportChecks } from '../src/verify/unpack-report.js';
 
 describe('exportHtmlFileToPptx', () => {
   it('normalizes an existing HTML font stack before exporting', async () => {
@@ -93,5 +94,26 @@ describe('exportHtmlFileToPptx contract gate', () => {
       exportPptx,
     });
     expect(result.report.failureCode).not.toBe('html_contract_violation');
+  });
+
+  it('passes cjk_coverage when slides have no CJK text (undefined) and fails when 0', () => {
+    const base = {
+      slides: 2,
+      tables: 0,
+      runs: 10,
+      blacklistedTypefaces: [],
+      typefaces: { 'Noto Sans CJK SC': 10 },
+      passed: true,
+      failedChecks: [],
+      raw: {},
+    };
+    const noCjk = unpackToExportChecks({ ...base, cjkCoverage: undefined }, 2).find(
+      (check) => check.code === 'cjk_coverage',
+    );
+    const missingAllCjk = unpackToExportChecks({ ...base, cjkCoverage: 0 }, 2).find(
+      (check) => check.code === 'cjk_coverage',
+    );
+    expect(noCjk?.passed).toBe(true);
+    expect(missingAllCjk?.passed).toBe(false);
   });
 });

@@ -59,23 +59,56 @@ describe('FilesService HTML preview (C5-B)', () => {
     });
   });
 
-  it('falls back to normalized text for non-generated html', async () => {
+  it('reads original bytes for user-uploaded html with originalKey', async () => {
     const { service, prisma, storage } = makeService();
+    const html = Buffer.from('<!doctype html><html><body><h1>Uploaded</h1></body></html>', 'utf8');
     prisma.file.findFirst.mockResolvedValue({
       id: 'file-2',
       sessionId: 'session-1',
       userId: 'local-user',
       status: 'ready',
       fileKind: 'html',
-      origin: 'user_upload',
+      origin: 'user_uploaded',
       originalKey: 'sessions/session-1/files/file-2/original',
       normalizedKey: 'sessions/session-1/files/file-2/normalized',
       previewKey: null,
       fileName: 'upload.html',
     });
-    storage.readObject.mockResolvedValue({ content: Buffer.from('# Title', 'utf8') });
+    storage.readObject.mockResolvedValue({ content: html });
 
     const result = await service.preview('local-user', 'file-2');
+
+    expect(storage.readObject).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      fileId: 'file-2',
+      variant: 'original',
+    });
+    expect(result).toMatchObject({
+      fileId: 'file-2',
+      content: html,
+      contentType: 'text/html; charset=utf-8',
+      htmlPreview: true,
+      fileName: 'upload.html',
+    });
+  });
+
+  it('falls back to normalized text for html without originalKey', async () => {
+    const { service, prisma, storage } = makeService();
+    prisma.file.findFirst.mockResolvedValue({
+      id: 'file-3',
+      sessionId: 'session-1',
+      userId: 'local-user',
+      status: 'ready',
+      fileKind: 'html',
+      origin: 'user_uploaded',
+      originalKey: null,
+      normalizedKey: 'sessions/session-1/files/file-3/normalized',
+      previewKey: null,
+      fileName: 'upload.html',
+    });
+    storage.readObject.mockResolvedValue({ content: Buffer.from('# Title', 'utf8') });
+
+    const result = await service.preview('local-user', 'file-3');
 
     expect(storage.readObject).toHaveBeenCalledWith(
       expect.objectContaining({ variant: 'normalized' }),

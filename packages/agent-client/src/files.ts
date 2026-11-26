@@ -18,11 +18,15 @@ export function createFilesApi(ctx: ClientContext) {
     return fileRefSchema.parse(await ctx.parseResponse(response));
   }
 
+  function getFilePreviewUrl(fileId: string): string {
+    return `${ctx.baseUrl}/api/agent/files/${fileId}/preview`;
+  }
+
   async function getFilePreview(
     fileId: string,
     signal?: AbortSignal,
   ): Promise<{ fileId: string; content: string; contentType: string }> {
-    const response = await ctx.apiFetch(`${ctx.baseUrl}/api/agent/files/${fileId}/preview`, {
+    const response = await ctx.apiFetch(getFilePreviewUrl(fileId), {
       signal,
     });
     const content = await response.text();
@@ -49,5 +53,5 @@ export function createFilesApi(ctx: ClientContext) {
     return { deletedFileId: String((data as { deletedFileId?: unknown }).deletedFileId) };
   }
 
-  return { uploadFile, getFile, getFilePreview, retryFile, deleteFile };
+  return { uploadFile, getFile, getFilePreview, getFilePreviewUrl, retryFile, deleteFile };
 }

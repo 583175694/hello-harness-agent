@@ -24,7 +24,10 @@ import {
 import { MarkdownContent } from '../../../components/markdown-content';
 import {
   DeliverableMarkdownPanel,
+  DeliverablePreviewSkeleton,
+  HtmlPreviewPanel,
   isArtifactImagePreview,
+  isHtmlFilePreview,
   isNormalizedDocumentPreview,
   NORMALIZED_DOCUMENT_FILE_KINDS,
 } from './deliverable-document-preview';
@@ -935,7 +938,11 @@ function DeliverablesView({
         }
         trailing={
           <>
-            {detailArtifact.fileKind === 'html' || detailArtifact.mediaType === 'text/html' ? (
+            {isHtmlFilePreview(
+              detailArtifact.fileKind,
+              detailArtifact.mediaType,
+              detailArtifact.fileName,
+            ) ? (
               <ArtifactHtmlDetailActions artifact={detailArtifact} />
             ) : null}
             <ArtifactActionsMenu
@@ -1125,7 +1132,7 @@ function sameArtifactPreview(prev: ArtifactRef, next: ArtifactRef): boolean {
 
 const ArtifactPreviewBody = memo(function ArtifactPreviewBody({ artifact }: { artifact: ArtifactRef }) {
   const previewUrl = getArtifactPreviewUrl(artifact.artifactId);
-  const isHtml = artifact.fileKind === 'html' || artifact.mediaType === 'text/html';
+  const isHtml = isHtmlFilePreview(artifact.fileKind, artifact.mediaType, artifact.fileName);
   const isImage = isArtifactImagePreview(
     artifact.fileKind,
     artifact.mediaType,
@@ -1160,38 +1167,6 @@ const ArtifactPreviewBody = memo(function ArtifactPreviewBody({ artifact }: { ar
     </section>
   );
 }, (prev, next) => sameArtifactPreview(prev.artifact, next.artifact));
-
-function DeliverablePreviewSkeleton({ overlay }: { overlay?: boolean }) {
-  return (
-    <div
-      className={`deliverables-preview-panel deliverables-preview-panel--skeleton ${overlay ? 'deliverables-preview-panel--skeleton-overlay' : ''}`}
-      aria-busy="true"
-      aria-label="正在加载预览"
-    >
-      <div className="deliverable-preview-skeleton">
-        <div className="deliverable-preview-skeleton__heading" />
-        <div className="deliverable-preview-skeleton__subheading" />
-        <div className="deliverable-preview-skeleton__paragraph">
-          <div className="deliverable-preview-skeleton__line" />
-          <div className="deliverable-preview-skeleton__line" />
-          <div className="deliverable-preview-skeleton__line" />
-          <div className="deliverable-preview-skeleton__line deliverable-preview-skeleton__line--short" />
-        </div>
-        <div className="deliverable-preview-skeleton__heading deliverable-preview-skeleton__heading--section" />
-        <div className="deliverable-preview-skeleton__paragraph">
-          <div className="deliverable-preview-skeleton__line" />
-          <div className="deliverable-preview-skeleton__line" />
-          <div className="deliverable-preview-skeleton__line deliverable-preview-skeleton__line--medium" />
-          <div className="deliverable-preview-skeleton__line deliverable-preview-skeleton__line--short" />
-        </div>
-        <div className="deliverable-preview-skeleton__paragraph deliverable-preview-skeleton__paragraph--fade">
-          <div className="deliverable-preview-skeleton__line" />
-          <div className="deliverable-preview-skeleton__line deliverable-preview-skeleton__line--medium" />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 const ArtifactTextPreview = memo(function ArtifactTextPreview({
   artifactId,
@@ -1326,32 +1301,14 @@ const ArtifactHtmlPreview = memo(function ArtifactHtmlPreview({
   artifact: ArtifactRef;
   previewUrl: string;
 }) {
-  const [frameState, setFrameState] = useState<'loading' | 'ready' | 'error'>('loading');
-
-  useEffect(() => {
-    setFrameState('loading');
-  }, [artifact.artifactId, previewUrl]);
-
   return (
-    <div className="deliverables-preview-panel deliverables-preview-panel--iframe">
-      {frameState === 'loading' ? <DeliverablePreviewSkeleton overlay /> : null}
-      {frameState === 'error' ? (
-        <div className="deliverables-preview-panel deliverables-preview-panel--error" role="alert">
-          <strong>网页预览加载失败</strong>
-          <span>请使用「在新窗口打开」或「下载」查看 {artifact.fileName}。</span>
-          <ArtifactHtmlDetailActions artifact={artifact} />
-        </div>
-      ) : null}
-      <iframe
-        key={artifact.artifactId}
-        className={`deliverables-preview-frame ${frameState === 'ready' ? 'is-ready' : ''}`}
-        title={`预览 ${artifact.fileName}`}
-        src={previewUrl}
-        sandbox="allow-scripts allow-same-origin allow-popups"
-        onLoad={() => setFrameState('ready')}
-        onError={() => setFrameState('error')}
-      />
-    </div>
+    <HtmlPreviewPanel
+      previewKey={artifact.artifactId}
+      fileName={artifact.fileName}
+      previewUrl={previewUrl}
+      errorHint={`请使用「在新窗口打开」或「下载」查看 ${artifact.fileName}。`}
+      errorActions={<ArtifactHtmlDetailActions artifact={artifact} />}
+    />
   );
 }, (prev, next) =>
   prev.previewUrl === next.previewUrl &&

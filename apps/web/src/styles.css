@@ -5506,6 +5506,9 @@ summary:focus-visible {
   box-shadow: 0 18px 60px rgb(0 0 0 / 24%);
   animation: image-lightbox-image-in 180ms ease both;
 }
+.file-preview-dialog__panel--html {
+  height: min(88vh, 880px);
+}
 .file-preview-dialog__header {
   display: flex;
   min-height: 60px;
@@ -5549,6 +5552,28 @@ summary:focus-visible {
   min-height: 180px;
   overflow: auto;
   padding: 20px 24px 28px;
+}
+.file-preview-dialog__body--html {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.file-preview-dialog__body--html .deliverables-preview-panel--iframe {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  margin-top: 0;
+  border: 0;
+  border-radius: 0;
+}
+.file-preview-dialog__body--html .deliverables-preview-panel--iframe .deliverables-preview-frame {
+  display: block;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  border-radius: 0;
 }
 .file-preview-dialog__body .markdown-content {
   max-width: none;
@@ -5627,8 +5652,14 @@ summary:focus-visible {
   .file-preview-dialog__panel {
     max-height: 90vh;
   }
+  .file-preview-dialog__panel--html {
+    height: 90vh;
+  }
   .file-preview-dialog__body {
     padding: 16px;
+  }
+  .file-preview-dialog__body--html {
+    padding: 0;
   }
 }
 

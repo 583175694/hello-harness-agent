@@ -901,11 +901,10 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         binaryPreview: true as const,
       };
     }
-    if (file.fileKind === 'html' && file.origin === 'agent_generated') {
-      const ready = await this.findReadyForSharedReadable(userId, fileId);
+    if (file.fileKind === 'html' && file.originalKey) {
       const object = await this.storage.readObject({
-        sessionId: ready.sessionId,
-        fileId: ready.id,
+        sessionId: file.sessionId,
+        fileId: file.id,
         variant: 'original',
       });
       return {
@@ -913,7 +912,7 @@ export class FilesService implements OnModuleInit, OnApplicationShutdown {
         content: object.content,
         contentType: 'text/html; charset=utf-8',
         htmlPreview: true as const,
-        fileName: ready.fileName,
+        fileName: file.fileName,
       };
     }
     const content = await this.readNormalizedContent(file);

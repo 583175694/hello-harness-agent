@@ -105,7 +105,12 @@ import {
 import { flattenAssistantText } from '../model/conversation-blocks';
 import { AGENT_UI_BEHAVIOR, AGENT_UI_COPY, APP_BRAND } from '../config/ui.constants';
 import { BrandIcon } from './brand-icon';
-import { getFilePreview, searchSessionsAndMessages, type SessionSearchMessageHit } from '../../../api/client';
+import {
+  getFilePreview,
+  getFilePreviewUrl,
+  searchSessionsAndMessages,
+  type SessionSearchMessageHit,
+} from '../../../api/client';
 import {
   mergeConversationMatches,
   searchLocalConversation,
@@ -114,6 +119,8 @@ import {
 import { applyDomSearchHighlights, clearDomSearchHighlights } from '../model/dom-text-highlight';
 import {
   DeliverableMarkdownPanel,
+  HtmlPreviewPanel,
+  isHtmlFilePreview,
   isNormalizedDocumentPreview,
 } from './deliverable-document-preview';
 import { presentAssistantBlocks } from '../elements/assistant-message-adapter';
@@ -169,7 +176,8 @@ function fileErrorMessage(errorCode?: string): string {
 }
 
 type AttachmentPreviewState =
-  { kind: 'image'; src: string; alt: string } | { kind: 'file'; fileId: string; fileName: string };
+  | { kind: 'image'; src: string; alt: string }
+  | { kind: 'file'; fileId: string; fileName: string; fileKind?: string; mediaType?: string };
 
 function artifactStatusLabel(status: string): string {
   if (status === 'ready') return '已就绪';
@@ -209,7 +217,13 @@ function AttachmentPreviewOverlay({
   }
   if (preview?.kind === 'file') {
     return (
-      <FilePreviewDialog fileId={preview.fileId} fileName={preview.fileName} onClose={onClose} />
+      <FilePreviewDialog
+        fileId={preview.fileId}
+        fileName={preview.fileName}
+        fileKind={preview.fileKind}
+        mediaType={preview.mediaType}
+        onClose={onClose}
+      />
     );
   }
   return null;
@@ -326,20 +340,29 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
   );
 }
 
-// Office、PDF 和普通文本统一展示服务端生成的规范化正文。
+// Office、PDF、HTML 和普通文本统一展示在预览弹框中；HTML 复用 iframe 渲染。
 function FilePreviewDialog({
   fileName,
   fileId,
+  fileKind,
+  mediaType,
   onClose,
 }: {
   fileName: string;
   fileId: string;
+  fileKind?: string;
+  mediaType?: string;
   onClose: () => void;
 }) {
+  const isHtml = isHtmlFilePreview(fileKind, mediaType, fileName);
+  const htmlPreviewUrl = isHtml ? getFilePreviewUrl(fileId) : null;
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setContent(null);
+    setError(null);
+    if (isHtml) return;
     const controller = new AbortController();
     void getFilePreview(fileId, controller.signal)
       .then((result) => setContent(result.content))
@@ -348,7 +371,7 @@ function FilePreviewDialog({
           setError(requestError instanceof Error ? requestError.message : '文件预览不可用。');
       });
     return () => controller.abort();
-  }, [fileId]);
+  }, [fileId, isHtml]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -369,7 +392,7 @@ function FilePreviewDialog({
       }}
     >
       <section
-        className="file-preview-dialog__panel"
+        className={`file-preview-dialog__panel ${isHtml ? 'file-preview-dialog__panel--html' : ''}`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="file-preview-dialog__header">
@@ -391,28 +414,50 @@ function FilePreviewDialog({
             <X size={19} />
           </button>
         </header>
-        <div className="file-preview-dialog__body">
-          {error ? <p className="file-preview-dialog__error">{error}</p> : null}
-          {content === null && !error ? (
-            <div
-              className="file-preview-dialog__loading"
-              role="status"
-              aria-label="正在加载文件预览"
-            >
-              <LoaderCircle className="spin" size={18} />
-              <span>正在加载预览</span>
-            </div>
-          ) : null}
-          {content !== null ? (
-            fileName.toLowerCase().endsWith('.json') ? (
-              <pre className="file-preview-dialog__json">{content}</pre>
-            ) : (
-              <DeliverableMarkdownPanel
-                content={content}
-                showFormatNotice={isNormalizedDocumentPreview('', fileName)}
-              />
-            )
-          ) : null}
+        <div
+          className={`file-preview-dialog__body ${isHtml ? 'file-preview-dialog__body--html' : ''}`}
+        >
+          {isHtml && htmlPreviewUrl ? (
+            <HtmlPreviewPanel
+              previewKey={fileId}
+              fileName={fileName}
+              previewUrl={htmlPreviewUrl}
+              errorActions={
+                <a
+                  className="secondary-button"
+                  href={htmlPreviewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  在新窗口打开
+                </a>
+              }
+            />
+          ) : (
+            <>
+              {error ? <p className="file-preview-dialog__error">{error}</p> : null}
+              {content === null && !error ? (
+                <div
+                  className="file-preview-dialog__loading"
+                  role="status"
+                  aria-label="正在加载文件预览"
+                >
+                  <LoaderCircle className="spin" size={18} />
+                  <span>正在加载预览</span>
+                </div>
+              ) : null}
+              {content !== null ? (
+                fileName.toLowerCase().endsWith('.json') ? (
+                  <pre className="file-preview-dialog__json">{content}</pre>
+                ) : (
+                  <DeliverableMarkdownPanel
+                    content={content}
+                    showFormatNotice={isNormalizedDocumentPreview('', fileName)}
+                  />
+                )
+              ) : null}
+            </>
+          )}
         </div>
       </section>
     </div>,
@@ -510,11 +555,7 @@ const UserMessage = memo(function UserMessage({
   item: Extract<ConversationItem, { kind: 'user' }>;
 }) {
   // 用户消息将附件独立渲染在文本气泡上方，点击后打开全屏预览。
-  const [preview, setPreview] = useState<
-    | { kind: 'image'; src: string; alt: string }
-    | { kind: 'file'; fileId: string; fileName: string }
-    | null
-  >(null);
+  const [preview, setPreview] = useState<AttachmentPreviewState | null>(null);
   const display = resolveUserMessageDisplay({
     content: item.content,
     skillNames: item.skillNames,
@@ -571,6 +612,8 @@ const UserMessage = memo(function UserMessage({
                         kind: 'file',
                         fileId: attachment.fileId,
                         fileName: attachment.fileName,
+                        fileKind: attachment.fileKind,
+                        mediaType: attachment.mediaType,
                       });
                     }}
                   >
@@ -2237,11 +2280,7 @@ export function Composer({
   const [composerPanel, setComposerPanel] = useState<'all' | 'skills' | null>(null);
   const [composerPanelClosing, setComposerPanelClosing] = useState(false);
   const panelCloseTimerRef = useRef<number | null>(null);
-  const [attachmentPreview, setAttachmentPreview] = useState<
-    | { kind: 'image'; src: string; alt: string }
-    | { kind: 'file'; fileId: string; fileName: string }
-    | null
-  >(null);
+  const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreviewState | null>(null);
   const currentInterruptState =
     interruptState.interruptId === activeInterrupt?.interruptId
       ? interruptState
@@ -2617,6 +2656,8 @@ export function Composer({
                       kind: 'file',
                       fileId: item.fileId,
                       fileName: item.fileName,
+                      fileKind: item.fileKind,
+                      mediaType: item.mediaType,
                     });
                   }}
                 >

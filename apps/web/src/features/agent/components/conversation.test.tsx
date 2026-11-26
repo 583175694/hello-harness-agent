@@ -1489,4 +1489,57 @@ describe('Conversation UX polish', () => {
     fireEvent.click(screen.getByRole('button', { name: '在全部会话中搜索“不存在的词”' }));
     expect(onOpenGlobalSearch).toHaveBeenCalledWith('不存在的词');
   });
+
+  it('previews a user-uploaded html attachment in a sandboxed iframe modal without fetching text preview', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <Conversation
+        state={{
+          label: 'test',
+          subtitle: '',
+          conversation: [
+            {
+              id: 'user-html-file',
+              kind: 'user',
+              content: '请重新排版',
+              attachments: [
+                {
+                  fileId: 'file-html',
+                  fileName: '税务体系与高企治理.html',
+                  mediaType: 'text/html',
+                  fileKind: 'html',
+                  size: 14336,
+                  status: 'ready',
+                  previewUrl: '/api/agent/files/file-html/preview',
+                },
+              ],
+            },
+          ],
+        }}
+        error={null}
+        onDismissError={() => undefined}
+        onFocusWorkbench={() => undefined}
+        prompt=""
+        submitting={false}
+        serviceState="ready"
+        composerMode="new-run"
+        onPromptChange={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '预览税务体系与高企治理.html' }));
+    const dialog = await screen.findByRole('dialog', { name: '税务体系与高企治理.html预览' });
+    expect(dialog).toBeInTheDocument();
+
+    const iframe = screen.getByTitle('预览 税务体系与高企治理.html');
+    expect(iframe).toBeInstanceOf(HTMLIFrameElement);
+    expect(iframe).toHaveAttribute('src', '/api/agent/files/file-html/preview');
+    expect(iframe).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+  });
 });

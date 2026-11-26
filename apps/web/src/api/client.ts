@@ -61,6 +61,7 @@ export const {
   uploadFile,
   getFile,
   getFilePreview,
+  getFilePreviewUrl,
   retryFile,
   deleteFile,
   getArtifact,

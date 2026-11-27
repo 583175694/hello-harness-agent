@@ -30,8 +30,14 @@ import {
   memoryWriteInputSummarySchema,
   memoryWriteResultSchema,
   toolSearchInputSummarySchema,
+  skillsListInputSummarySchema,
+  skillsReadInputSummarySchema,
+  mcpResourcesListInputSummarySchema,
+  readMcpResourceInputSummarySchema,
+  mcpAddServerInputSummarySchema,
 } from '@harness/agent-protocol';
 import type {
+  BuiltinToolPreviewResult,
   BashBackgroundResult,
   BashInputSummary,
   BashTerminalCommandInput,
@@ -303,6 +309,13 @@ export class ChatService {
         const isPptExport = event.toolName === AGENT_TOOL_NAMES.pptExport;
         const isSandboxCommand = this.isSandboxCommandTool(event.toolName);
         const isBash = event.toolName === AGENT_TOOL_NAMES.bash;
+        const isSkillsList = event.toolName === AGENT_TOOL_NAMES.skillsList;
+        const isSkillsRead = event.toolName === AGENT_TOOL_NAMES.skillsRead;
+        const isListMcpResources = event.toolName === AGENT_TOOL_NAMES.listMcpResources;
+        const isListMcpResourceTemplates =
+          event.toolName === AGENT_TOOL_NAMES.listMcpResourceTemplates;
+        const isReadMcpResource = event.toolName === AGENT_TOOL_NAMES.readMcpResource;
+        const isMcpAddServer = event.toolName === AGENT_TOOL_NAMES.mcpAddServer;
         const fetchInput = isFetch ? this.asWebFetchInput(event.input) : undefined;
         const searchInput = isWebSearch ? this.asSearchInput(event.input) : undefined;
         const toolSearchInput = isToolSearch
@@ -354,6 +367,33 @@ export class ChatService {
         } else if (event.toolName === AGENT_TOOL_NAMES.jobKill) {
           const parsed = jobKillInputSchema.safeParse(event.input);
           toolSummary = parsed.success ? `终止 job ${parsed.data.job_id}` : '终止后台 job';
+        } else if (isSkillsList) {
+          const parsed = skillsListInputSummarySchema.safeParse(event.input);
+          toolSummary =
+            parsed.success && parsed.data.query?.trim()
+              ? `检索技能：${parsed.data.query.trim()}`
+              : '列出可用技能';
+        } else if (isSkillsRead) {
+          const parsed = skillsReadInputSummarySchema.safeParse(event.input);
+          toolSummary = parsed.success ? `读取技能：${parsed.data.name}` : '读取技能';
+        } else if (isListMcpResources) {
+          const parsed = mcpResourcesListInputSummarySchema.safeParse(event.input);
+          toolSummary = parsed.success ? `列出 ${parsed.data.server} 资源` : '列出 MCP 资源';
+        } else if (isListMcpResourceTemplates) {
+          const parsed = mcpResourcesListInputSummarySchema.safeParse(event.input);
+          toolSummary = parsed.success
+            ? `列出 ${parsed.data.server} 资源模板`
+            : '列出 MCP 资源模板';
+        } else if (isReadMcpResource) {
+          const parsed = readMcpResourceInputSummarySchema.safeParse(event.input);
+          toolSummary = parsed.success
+            ? `读取 ${parsed.data.server} 资源：${parsed.data.uri}`
+            : '读取 MCP 资源';
+        } else if (isMcpAddServer) {
+          const parsed = mcpAddServerInputSummarySchema.safeParse(event.input);
+          toolSummary = parsed.success
+            ? `添加 MCP 服务：${parsed.data.serverName}`
+            : '添加 MCP 服务';
         } else if (isExternalTool) {
           toolSummary = externalToolInputSummary(event.toolName, event.input);
         }
@@ -601,6 +641,90 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
+        } else if (isSkillsList) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.skillsList,
+            title: block.title,
+            input: skillsListInputSummarySchema.parse(event.input ?? {}),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (isSkillsRead) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.skillsRead,
+            title: block.title,
+            input: skillsReadInputSummarySchema.parse(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (isListMcpResources) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.listMcpResources,
+            title: block.title,
+            input: mcpResourcesListInputSummarySchema.parse(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (isListMcpResourceTemplates) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.listMcpResourceTemplates,
+            title: block.title,
+            input: mcpResourcesListInputSummarySchema.parse(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (isReadMcpResource) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.readMcpResource,
+            title: block.title,
+            input: readMcpResourceInputSummarySchema.parse(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (isMcpAddServer) {
+          yield {
+            type: 'tool.started',
+            messageId: prepared.assistantMessageId,
+            blockId: block.id,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.mcpAddServer,
+            title: block.title,
+            input: mcpAddServerInputSummarySchema.parse(event.input),
+            startedAt: event.startedAt,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
         } else if (isWebSearch) {
           yield {
             type: 'tool.started',
@@ -651,6 +775,27 @@ export class ChatService {
         const isJobTool = this.isSandboxJobTool(event.toolName);
         const isBash = event.toolName === AGENT_TOOL_NAMES.bash;
         const isExecuteCommand = event.toolName === AGENT_TOOL_NAMES.executeCommand;
+        const isSkillsList = event.toolName === AGENT_TOOL_NAMES.skillsList;
+        const isSkillsRead = event.toolName === AGENT_TOOL_NAMES.skillsRead;
+        const isListMcpResources = event.toolName === AGENT_TOOL_NAMES.listMcpResources;
+        const isListMcpResourceTemplates =
+          event.toolName === AGENT_TOOL_NAMES.listMcpResourceTemplates;
+        const isReadMcpResource = event.toolName === AGENT_TOOL_NAMES.readMcpResource;
+        const isMcpAddServer = event.toolName === AGENT_TOOL_NAMES.mcpAddServer;
+        const isBuiltinPreviewTool = this.isBuiltinPreviewTool(event.toolName);
+        const builtinPreviewResult = isBuiltinPreviewTool
+          ? this.toBuiltinPreviewResult(event.toolName, event.input, event.output)
+          : undefined;
+        const genericOutputPreview =
+          !isExternalTool &&
+          !isWebSearch &&
+          !isFetch &&
+          !isBash &&
+          !isExecuteCommand &&
+          !isToolSearch &&
+          !isBuiltinPreviewTool
+            ? externalToolOutputPreview(event.output)
+            : undefined;
         const memoryWriteResult = isMemoryWrite
           ? memoryWriteResultSchema.parse(event.output)
           : undefined;
@@ -726,7 +871,68 @@ export class ChatService {
             toolInput: event.input as { message: string },
             completedAt: event.completedAt,
             durationMs: event.durationMs,
+            ...(genericOutputPreview
+              ? {
+                  outputPreview: genericOutputPreview.preview,
+                  outputCharCount: genericOutputPreview.charCount,
+                }
+              : {}),
           });
+        } else if (isCurrentTime) {
+          projection.recordCurrentTimeCompleted({
+            toolCallId: event.toolCallId,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            ...(genericOutputPreview
+              ? {
+                  outputPreview: genericOutputPreview.preview,
+                  outputCharCount: genericOutputPreview.charCount,
+                }
+              : {}),
+          });
+        } else if (jobToolResult && isJobTool) {
+          const preview = externalToolOutputPreview(jobToolResult.text);
+          if (event.toolName === AGENT_TOOL_NAMES.jobOutput) {
+            projection.recordJobToolCompleted({
+              toolCallId: event.toolCallId,
+              toolName: AGENT_TOOL_NAMES.jobOutput,
+              toolInput: jobOutputInputSchema.parse(event.input),
+              completedAt: event.completedAt,
+              durationMs: event.durationMs,
+              outputPreview: preview.preview,
+              outputCharCount: preview.charCount,
+            });
+          } else if (event.toolName === AGENT_TOOL_NAMES.jobKill) {
+            projection.recordJobToolCompleted({
+              toolCallId: event.toolCallId,
+              toolName: AGENT_TOOL_NAMES.jobKill,
+              toolInput: jobKillInputSchema.parse(event.input),
+              completedAt: event.completedAt,
+              durationMs: event.durationMs,
+              outputPreview: preview.preview,
+              outputCharCount: preview.charCount,
+            });
+          } else {
+            projection.recordJobToolCompleted({
+              toolCallId: event.toolCallId,
+              toolName: AGENT_TOOL_NAMES.jobList,
+              toolInput: jobListInputSchema.parse(event.input ?? {}),
+              completedAt: event.completedAt,
+              durationMs: event.durationMs,
+              outputPreview: preview.preview,
+              outputCharCount: preview.charCount,
+            });
+          }
+        } else if (builtinPreviewResult) {
+          this.recordBuiltinPreviewProjection(
+            projection,
+            event.toolName,
+            event.toolCallId,
+            event.input,
+            event.completedAt,
+            event.durationMs,
+            builtinPreviewResult,
+          );
         } else if (toolSearchResult) {
           const parsedInput = toolSearchInputSummarySchema.safeParse(event.input);
           const labels = toolSearchResult.matchedTools.map((name) => {
@@ -752,6 +958,12 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: memoryWriteResult,
+            ...(genericOutputPreview
+              ? {
+                  outputPreview: genericOutputPreview.preview,
+                  outputCharCount: genericOutputPreview.charCount,
+                }
+              : {}),
           });
         } else if (fileSearchResult) {
           projection.recordFileSearchCompleted({
@@ -760,6 +972,12 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: fileSearchResult,
+            ...(genericOutputPreview
+              ? {
+                  outputPreview: genericOutputPreview.preview,
+                  outputCharCount: genericOutputPreview.charCount,
+                }
+              : {}),
           });
         } else if (fileReadResult) {
           projection.recordFileReadCompleted({
@@ -768,6 +986,12 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: fileReadResult,
+            ...(genericOutputPreview
+              ? {
+                  outputPreview: genericOutputPreview.preview,
+                  outputCharCount: genericOutputPreview.charCount,
+                }
+              : {}),
           });
         } else if (fileReadLinesResult) {
           projection.recordFileReadLinesCompleted({
@@ -776,6 +1000,12 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: fileReadLinesResult,
+            ...(genericOutputPreview
+              ? {
+                  outputPreview: genericOutputPreview.preview,
+                  outputCharCount: genericOutputPreview.charCount,
+                }
+              : {}),
           });
         } else if (createFileResult) {
           projection.recordCreateFileCompleted({
@@ -784,6 +1014,12 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: createFileResult,
+            ...(genericOutputPreview
+              ? {
+                  outputPreview: genericOutputPreview.preview,
+                  outputCharCount: genericOutputPreview.charCount,
+                }
+              : {}),
           });
           conversation.appendArtifact({
             artifact: createFileResult.artifact,
@@ -798,6 +1034,12 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: createReportResult,
+            ...(genericOutputPreview
+              ? {
+                  outputPreview: genericOutputPreview.preview,
+                  outputCharCount: genericOutputPreview.charCount,
+                }
+              : {}),
           });
           conversation.appendArtifact({
             artifact: createReportResult.artifact,
@@ -812,6 +1054,12 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: pptExportResult,
+            ...(genericOutputPreview
+              ? {
+                  outputPreview: genericOutputPreview.preview,
+                  outputCharCount: genericOutputPreview.charCount,
+                }
+              : {}),
           });
           conversation.appendArtifact({
             artifact: pptExportResult.artifact,
@@ -879,6 +1127,7 @@ export class ChatService {
             jobToolName: isJobTool ? event.toolName : undefined,
             searchResult,
             toolSearchResult,
+            builtinPreviewResult,
             externalTool: isExternalTool
               ? { publicName: event.toolName, input: event.input }
               : undefined,
@@ -1088,6 +1337,20 @@ export class ChatService {
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
           };
+        } else if (createReportResult) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.createReport,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: createReportResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
         } else if (pptExportResult) {
           yield {
             type: 'tool.completed',
@@ -1173,6 +1436,90 @@ export class ChatService {
             completedAt: event.completedAt,
             durationMs: event.durationMs,
             result: executeCommandResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (builtinPreviewResult && isSkillsList) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.skillsList,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: builtinPreviewResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (builtinPreviewResult && isSkillsRead) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.skillsRead,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: builtinPreviewResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (builtinPreviewResult && isListMcpResources) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.listMcpResources,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: builtinPreviewResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (builtinPreviewResult && isListMcpResourceTemplates) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.listMcpResourceTemplates,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: builtinPreviewResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (builtinPreviewResult && isReadMcpResource) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.readMcpResource,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: builtinPreviewResult,
+            roundId: event.roundId,
+            roundSequence: event.roundSequence,
+            blockSequence: event.blockSequence,
+          };
+        } else if (builtinPreviewResult && isMcpAddServer) {
+          yield {
+            type: 'tool.completed',
+            messageId: prepared.assistantMessageId,
+            blockId,
+            toolCallId: event.toolCallId,
+            toolName: AGENT_TOOL_NAMES.mcpAddServer,
+            completedAt: event.completedAt,
+            durationMs: event.durationMs,
+            result: builtinPreviewResult,
             roundId: event.roundId,
             roundSequence: event.roundSequence,
             blockSequence: event.blockSequence,
@@ -1472,6 +1819,65 @@ export class ChatService {
         ? { toolName: AGENT_TOOL_NAMES.createFile, input: parsed.data }
         : undefined;
     }
+    if (toolName === AGENT_TOOL_NAMES.createReport) {
+      const parsed = createReportInputSummarySchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.createReport, input: parsed.data }
+        : undefined;
+    }
+    if (toolName === AGENT_TOOL_NAMES.getCurrentTime) {
+      return { toolName: AGENT_TOOL_NAMES.getCurrentTime, input: {} } as const;
+    }
+    if (toolName === AGENT_TOOL_NAMES.jobOutput) {
+      const parsed = jobOutputInputSchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.jobOutput, input: parsed.data }
+        : undefined;
+    }
+    if (toolName === AGENT_TOOL_NAMES.jobList) {
+      const parsed = jobListInputSchema.safeParse(input ?? {});
+      return parsed.success ? { toolName: AGENT_TOOL_NAMES.jobList, input: parsed.data } : undefined;
+    }
+    if (toolName === AGENT_TOOL_NAMES.jobKill) {
+      const parsed = jobKillInputSchema.safeParse(input);
+      return parsed.success ? { toolName: AGENT_TOOL_NAMES.jobKill, input: parsed.data } : undefined;
+    }
+    if (toolName === AGENT_TOOL_NAMES.skillsList) {
+      const parsed = skillsListInputSummarySchema.safeParse(input ?? {});
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.skillsList, input: parsed.data }
+        : undefined;
+    }
+    if (toolName === AGENT_TOOL_NAMES.skillsRead) {
+      const parsed = skillsReadInputSummarySchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.skillsRead, input: parsed.data }
+        : undefined;
+    }
+    if (toolName === AGENT_TOOL_NAMES.listMcpResources) {
+      const parsed = mcpResourcesListInputSummarySchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.listMcpResources, input: parsed.data }
+        : undefined;
+    }
+    if (toolName === AGENT_TOOL_NAMES.listMcpResourceTemplates) {
+      const parsed = mcpResourcesListInputSummarySchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.listMcpResourceTemplates, input: parsed.data }
+        : undefined;
+    }
+    if (toolName === AGENT_TOOL_NAMES.readMcpResource) {
+      const parsed = readMcpResourceInputSummarySchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.readMcpResource, input: parsed.data }
+        : undefined;
+    }
+    if (toolName === AGENT_TOOL_NAMES.mcpAddServer) {
+      const parsed = mcpAddServerInputSummarySchema.safeParse(input);
+      return parsed.success
+        ? { toolName: AGENT_TOOL_NAMES.mcpAddServer, input: parsed.data }
+        : undefined;
+    }
     if (toolName === AGENT_TOOL_NAMES.pptExport) {
       const parsed = pptExportInputSummarySchema.safeParse(input);
       return parsed.success
@@ -1557,6 +1963,129 @@ export class ChatService {
         modelRoundDurationMs: modelRounds.reduce((total, round) => total + round.durationMs, 0),
       },
     };
+  }
+
+  private isBuiltinPreviewTool(toolName: string): boolean {
+    return (
+      toolName === AGENT_TOOL_NAMES.skillsList ||
+      toolName === AGENT_TOOL_NAMES.skillsRead ||
+      toolName === AGENT_TOOL_NAMES.listMcpResources ||
+      toolName === AGENT_TOOL_NAMES.listMcpResourceTemplates ||
+      toolName === AGENT_TOOL_NAMES.readMcpResource ||
+      toolName === AGENT_TOOL_NAMES.mcpAddServer
+    );
+  }
+
+  private toBuiltinPreviewResult(
+    toolName: string,
+    input: unknown,
+    output: unknown,
+  ): BuiltinToolPreviewResult {
+    const preview = externalToolOutputPreview(output);
+    const record =
+      typeof output === 'object' && output !== null ? (output as Record<string, unknown>) : {};
+    if (toolName === AGENT_TOOL_NAMES.skillsList) {
+      const count = Array.isArray(record.skills) ? record.skills.length : 0;
+      return { ...preview, count, summary: `列出 ${count} 个技能` };
+    }
+    if (toolName === AGENT_TOOL_NAMES.skillsRead) {
+      const parsed = skillsReadInputSummarySchema.safeParse(input);
+      const name = parsed.success ? parsed.data.name : '';
+      return { ...preview, summary: name ? `已读取技能 ${name}` : '已读取技能' };
+    }
+    if (toolName === AGENT_TOOL_NAMES.listMcpResources) {
+      const count = Array.isArray(record.resources) ? record.resources.length : undefined;
+      return {
+        ...preview,
+        ...(count !== undefined ? { count } : {}),
+        summary: count !== undefined ? `找到 ${count} 个资源` : '已列出 MCP 资源',
+      };
+    }
+    if (toolName === AGENT_TOOL_NAMES.listMcpResourceTemplates) {
+      const count = Array.isArray(record.resourceTemplates)
+        ? record.resourceTemplates.length
+        : undefined;
+      return {
+        ...preview,
+        ...(count !== undefined ? { count } : {}),
+        summary: count !== undefined ? `找到 ${count} 个资源模板` : '已列出 MCP 资源模板',
+      };
+    }
+    if (toolName === AGENT_TOOL_NAMES.readMcpResource) {
+      const parsed = readMcpResourceInputSummarySchema.safeParse(input);
+      return {
+        ...preview,
+        summary: parsed.success ? `已读取 ${parsed.data.server} 资源` : '已读取 MCP 资源',
+      };
+    }
+    const serverName =
+      typeof record.serverName === 'string'
+        ? record.serverName
+        : (mcpAddServerInputSummarySchema.safeParse(input).data?.serverName ?? '');
+    const status = typeof record.status === 'string' ? record.status : '';
+    const statusText =
+      status === 'already_exists'
+        ? `MCP 服务已存在：${serverName}`
+        : serverName
+          ? `已配置 MCP 服务 ${serverName}`
+          : '已配置 MCP 服务';
+    return { ...preview, summary: statusText };
+  }
+
+  private recordBuiltinPreviewProjection(
+    projection: ResearchProjectionCollector,
+    toolName: string,
+    toolCallId: string,
+    input: unknown,
+    completedAt: string,
+    durationMs: number,
+    result: BuiltinToolPreviewResult,
+  ): void {
+    const common = {
+      toolCallId,
+      completedAt,
+      durationMs,
+      outputPreview: result.preview,
+      outputCharCount: result.charCount,
+      ...(result.count !== undefined ? { resultCount: result.count } : {}),
+    };
+    if (toolName === AGENT_TOOL_NAMES.skillsList) {
+      projection.recordBuiltinPreviewCompleted({
+        ...common,
+        toolName: AGENT_TOOL_NAMES.skillsList,
+        toolInput: skillsListInputSummarySchema.parse(input ?? {}),
+      });
+    } else if (toolName === AGENT_TOOL_NAMES.skillsRead) {
+      projection.recordBuiltinPreviewCompleted({
+        ...common,
+        toolName: AGENT_TOOL_NAMES.skillsRead,
+        toolInput: skillsReadInputSummarySchema.parse(input),
+      });
+    } else if (toolName === AGENT_TOOL_NAMES.listMcpResources) {
+      projection.recordBuiltinPreviewCompleted({
+        ...common,
+        toolName: AGENT_TOOL_NAMES.listMcpResources,
+        toolInput: mcpResourcesListInputSummarySchema.parse(input),
+      });
+    } else if (toolName === AGENT_TOOL_NAMES.listMcpResourceTemplates) {
+      projection.recordBuiltinPreviewCompleted({
+        ...common,
+        toolName: AGENT_TOOL_NAMES.listMcpResourceTemplates,
+        toolInput: mcpResourcesListInputSummarySchema.parse(input),
+      });
+    } else if (toolName === AGENT_TOOL_NAMES.readMcpResource) {
+      projection.recordBuiltinPreviewCompleted({
+        ...common,
+        toolName: AGENT_TOOL_NAMES.readMcpResource,
+        toolInput: readMcpResourceInputSummarySchema.parse(input),
+      });
+    } else if (toolName === AGENT_TOOL_NAMES.mcpAddServer) {
+      projection.recordBuiltinPreviewCompleted({
+        ...common,
+        toolName: AGENT_TOOL_NAMES.mcpAddServer,
+        toolInput: mcpAddServerInputSummarySchema.parse(input),
+      });
+    }
   }
 
   private isSandboxCommandTool(toolName: string): boolean {
@@ -1715,6 +2244,7 @@ export class ChatService {
     jobToolName?: string;
     searchResult?: SearchToolResult;
     toolSearchResult?: { query: string; matchedTools: string[]; activatedCount: number };
+    builtinPreviewResult?: BuiltinToolPreviewResult;
     externalTool?: { publicName: string; input: unknown };
   }): string {
     if (input.fetchResult) {
@@ -1765,6 +2295,9 @@ export class ChatService {
     if (input.toolSearchResult) {
       const count = input.toolSearchResult.matchedTools.length;
       return count > 0 ? `找到 ${count} 个工具` : '未找到匹配工具';
+    }
+    if (input.builtinPreviewResult?.summary) {
+      return input.builtinPreviewResult.summary;
     }
     if (input.externalTool) {
       return mcpToolBusinessSummary(

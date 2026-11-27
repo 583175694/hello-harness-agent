@@ -203,6 +203,7 @@ function toolCallViewsFromActivityBlocks(
   return blocks.flatMap((block) => {
     if (block.type !== 'tool_activity') return [];
     const displayToolName = resolveActivityToolName(block.toolName, undefined);
+    const isRunning = block.status === 'running';
     return [
       {
         toolCallId: block.toolCallId,
@@ -215,10 +216,13 @@ function toolCallViewsFromActivityBlocks(
         elapsed:
           block.durationMs !== undefined
             ? formatToolDuration(block.durationMs)
-            : block.status === 'running'
+            : isRunning
               ? '进行中'
               : '',
-        inputSummary: block.summary ?? '',
+        inputSummary: isRunning ? (block.summary ?? '') : (block.description ?? ''),
+        ...(isRunning
+          ? {}
+          : { outputSummary: block.summary ?? persistedToolDetail(block.status, displayToolName) }),
         ...(block.toolName === 'bash' && block.terminalView
           ? { terminal: block.terminalView }
           : {}),
@@ -519,7 +523,7 @@ export function workbenchFromPersistedMessage(
           outputPreview: execution.outputPreview,
           errorDetail: execution.error?.detail,
         }),
-        ...(execution.toolName === 'external_tool' && execution.outputPreview !== undefined
+        ...(execution.outputPreview !== undefined
           ? {
               outputPreview: execution.outputPreview,
               outputPreviewTruncated:
@@ -615,6 +619,38 @@ function collectedArtifactFromCommandResult(
 ): ArtifactRef | undefined {
   if (isBashBackgroundToolResult(result)) return undefined;
   return result.collection?.status === 'collected' ? result.collection.artifact : undefined;
+}
+
+function liveToolOutputPreview(
+  event: Extract<ToolStreamEvent, { type: 'tool.completed' }>,
+): { preview: string; truncated: boolean } | undefined {
+  if (event.toolName === 'bash' || event.toolName === 'web_search' || event.toolName === 'web_fetch') {
+    return undefined;
+  }
+  if (
+    event.toolName === 'external_tool' ||
+    event.toolName === 'skills.list' ||
+    event.toolName === 'skills.read' ||
+    event.toolName === 'list_mcp_resources' ||
+    event.toolName === 'list_mcp_resource_templates' ||
+    event.toolName === 'read_mcp_resource' ||
+    event.toolName === 'mcp_add_server'
+  ) {
+    return { preview: event.result.preview, truncated: Boolean(event.result.truncated) };
+  }
+  if (
+    event.toolName === 'job_output' ||
+    event.toolName === 'job_list' ||
+    event.toolName === 'job_kill'
+  ) {
+    return { preview: event.result.text, truncated: false };
+  }
+  const text = JSON.stringify(event.result);
+  if (!text) return undefined;
+  const max = 131_072;
+  return text.length <= max
+    ? { preview: text, truncated: false }
+    : { preview: text.slice(0, max), truncated: true };
 }
 
 /** 工具流事件是否应展开 Workbench（用户对本 run 点过收起则不再自动展开）。 */
@@ -729,6 +765,7 @@ export function applyToolEvent(
       : undefined;
   const completedExternal =
     completedEvent?.toolName === 'external_tool' ? completedEvent : undefined;
+  const completedLivePreview = completedEvent ? liveToolOutputPreview(completedEvent) : undefined;
   const completedArtifact =
     completedCreateFile ?? completedCreateReport ?? completedPptExport ?? completedExecuteCommand;
   const completedArtifactRefs: ArtifactRef[] | undefined = completedCreateFile
@@ -808,14 +845,34 @@ export function applyToolEvent(
                         activatedCount: completedEvent.result.activatedCount,
                       }
                     : undefined,
+                memoryWrite:
+                  completedEvent.toolName === 'memory_write' ? completedEvent.result : undefined,
+                currentTime:
+                  completedEvent.toolName === 'get_current_time' ? completedEvent.result : undefined,
+                jobTool:
+                  completedEvent.toolName === 'job_output' ||
+                  completedEvent.toolName === 'job_list' ||
+                  completedEvent.toolName === 'job_kill'
+                    ? completedEvent.result
+                    : undefined,
+                builtinSummary:
+                  'summary' in completedEvent.result &&
+                  typeof completedEvent.result.summary === 'string'
+                    ? completedEvent.result.summary
+                    : undefined,
               })
             : (cancelledEvent?.detail ?? failedEvent?.detail),
-          ...(completedExternal
+          ...(completedLivePreview
             ? {
-                outputPreview: completedExternal.result.preview,
-                outputPreviewTruncated: completedExternal.result.truncated,
+                outputPreview: completedLivePreview.preview,
+                outputPreviewTruncated: completedLivePreview.truncated,
               }
-            : {}),
+            : completedExternal
+              ? {
+                  outputPreview: completedExternal.result.preview,
+                  outputPreviewTruncated: completedExternal.result.truncated,
+                }
+              : {}),
           ...(completedArtifactRef ? { artifactId: completedArtifactRef.artifactId } : {}),
           resultCount,
           sourceCount,
@@ -1051,12 +1108,19 @@ function messageWithRunDetail(
     typeof metadata.agent === 'object' && metadata.agent !== null && !Array.isArray(metadata.agent)
       ? metadata.agent
       : {};
+  const existingToolCallCount =
+    typeof (existingAgent as { toolCallCount?: unknown }).toolCallCount === 'number'
+      ? (existingAgent as { toolCallCount: number }).toolCallCount
+      : detail.executions.length;
   return {
     ...message,
     metadata: {
       ...metadata,
+      ...(detail.context ? { context: detail.context } : {}),
+      ...(detail.plan ? { plan: detail.plan } : {}),
       agent: {
         ...existingAgent,
+        toolCallCount: existingToolCallCount,
         executions: detail.executions,
         sources: detail.sources,
         detailRef: detail.runId,

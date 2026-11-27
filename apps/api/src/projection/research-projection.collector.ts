@@ -21,13 +21,27 @@ import type {
   WebFetchSourceSnapshot,
   MemoryWriteInputSummary,
   MemoryWriteResult,
+  JobOutputInput,
+  JobListInput,
+  JobKillInput,
+  SkillsListInputSummary,
+  SkillsReadInputSummary,
+  McpResourcesListInputSummary,
+  ReadMcpResourceInputSummary,
+  McpAddServerInputSummary,
 } from '@harness/agent-protocol';
+
+type ToolOutputPreviewFields = {
+  outputPreview?: string;
+  outputCharCount?: number;
+};
 
 type ToolProjectionInput =
   | { toolName: typeof AGENT_TOOL_NAMES.webSearch; input: { query: string } }
   | { toolName: typeof AGENT_TOOL_NAMES.toolSearch; input: { query: string; limit?: number } }
   | { toolName: typeof AGENT_TOOL_NAMES.webFetch; input: WebFetchInput }
   | { toolName: typeof AGENT_TOOL_NAMES.approvalTest; input: { message: string } }
+  | { toolName: typeof AGENT_TOOL_NAMES.getCurrentTime; input: Record<string, unknown> }
   | { toolName: typeof AGENT_TOOL_NAMES.memoryWrite; input: MemoryWriteInputSummary }
   | {
       toolName: typeof AGENT_TOOL_NAMES.searchFile;
@@ -42,7 +56,19 @@ type ToolProjectionInput =
   | { toolName: typeof AGENT_TOOL_NAMES.createReport; input: any }
   | { toolName: typeof AGENT_TOOL_NAMES.pptExport; input: PptExportInputSummary }
   | { toolName: typeof AGENT_TOOL_NAMES.executeCommand; input: ExecuteCommandInputSummary }
-  | { toolName: typeof AGENT_TOOL_NAMES.bash; input: ExecuteCommandInputSummary };
+  | { toolName: typeof AGENT_TOOL_NAMES.bash; input: ExecuteCommandInputSummary }
+  | { toolName: typeof AGENT_TOOL_NAMES.jobOutput; input: JobOutputInput }
+  | { toolName: typeof AGENT_TOOL_NAMES.jobList; input: JobListInput }
+  | { toolName: typeof AGENT_TOOL_NAMES.jobKill; input: JobKillInput }
+  | { toolName: typeof AGENT_TOOL_NAMES.skillsList; input: SkillsListInputSummary }
+  | { toolName: typeof AGENT_TOOL_NAMES.skillsRead; input: SkillsReadInputSummary }
+  | { toolName: typeof AGENT_TOOL_NAMES.listMcpResources; input: McpResourcesListInputSummary }
+  | {
+      toolName: typeof AGENT_TOOL_NAMES.listMcpResourceTemplates;
+      input: McpResourcesListInputSummary;
+    }
+  | { toolName: typeof AGENT_TOOL_NAMES.readMcpResource; input: ReadMcpResourceInputSummary }
+  | { toolName: typeof AGENT_TOOL_NAMES.mcpAddServer; input: McpAddServerInputSummary };
 
 const PROVENANCE_PRIORITY: Readonly<Record<SourceProvenance, number>> = {
   // 用户当前消息直接提供的 URL 拥有最高来源优先级。
@@ -107,12 +133,14 @@ export class ResearchProjectionCollector {
     }
   }
 
-  recordApprovalTestCompleted(input: {
-    toolCallId: string;
-    toolInput: { message: string };
-    completedAt: string;
-    durationMs: number;
-  }): void {
+  recordApprovalTestCompleted(
+    input: {
+      toolCallId: string;
+      toolInput: { message: string };
+      completedAt: string;
+      durationMs: number;
+    } & ToolOutputPreviewFields,
+  ): void {
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.approvalTest,
@@ -121,17 +149,119 @@ export class ResearchProjectionCollector {
       startedAt: this.startedAt(input.completedAt, input.durationMs),
       completedAt: input.completedAt,
       durationMs: input.durationMs,
+      ...this.previewFields(input),
     });
   }
 
-  recordToolSearchCompleted(input: {
-    toolCallId: string;
-    toolInput: { query: string; limit?: number };
-    completedAt: string;
-    durationMs: number;
-    matchedTools: string[];
-    outputPreview: string;
-  }): void {
+  recordCurrentTimeCompleted(
+    input: {
+      toolCallId: string;
+      completedAt: string;
+      durationMs: number;
+    } & ToolOutputPreviewFields,
+  ): void {
+    this.executions.push({
+      toolCallId: input.toolCallId,
+      toolName: AGENT_TOOL_NAMES.getCurrentTime,
+      input: {},
+      status: 'completed',
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+      ...this.previewFields(input),
+    });
+  }
+
+  recordJobToolCompleted(
+    input: (
+      | { toolName: typeof AGENT_TOOL_NAMES.jobOutput; toolInput: JobOutputInput }
+      | { toolName: typeof AGENT_TOOL_NAMES.jobList; toolInput: JobListInput }
+      | { toolName: typeof AGENT_TOOL_NAMES.jobKill; toolInput: JobKillInput }
+    ) & {
+      toolCallId: string;
+      completedAt: string;
+      durationMs: number;
+    } & ToolOutputPreviewFields,
+  ): void {
+    const base = {
+      toolCallId: input.toolCallId,
+      status: 'completed' as const,
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+      ...this.previewFields(input),
+    };
+    if (input.toolName === AGENT_TOOL_NAMES.jobOutput) {
+      this.executions.push({ ...base, toolName: AGENT_TOOL_NAMES.jobOutput, input: input.toolInput });
+    } else if (input.toolName === AGENT_TOOL_NAMES.jobKill) {
+      this.executions.push({ ...base, toolName: AGENT_TOOL_NAMES.jobKill, input: input.toolInput });
+    } else {
+      this.executions.push({ ...base, toolName: AGENT_TOOL_NAMES.jobList, input: input.toolInput });
+    }
+  }
+
+  recordBuiltinPreviewCompleted(
+    input: (
+      | { toolName: typeof AGENT_TOOL_NAMES.skillsList; toolInput: SkillsListInputSummary }
+      | { toolName: typeof AGENT_TOOL_NAMES.skillsRead; toolInput: SkillsReadInputSummary }
+      | {
+          toolName: typeof AGENT_TOOL_NAMES.listMcpResources;
+          toolInput: McpResourcesListInputSummary;
+        }
+      | {
+          toolName: typeof AGENT_TOOL_NAMES.listMcpResourceTemplates;
+          toolInput: McpResourcesListInputSummary;
+        }
+      | { toolName: typeof AGENT_TOOL_NAMES.readMcpResource; toolInput: ReadMcpResourceInputSummary }
+      | { toolName: typeof AGENT_TOOL_NAMES.mcpAddServer; toolInput: McpAddServerInputSummary }
+    ) & {
+      toolCallId: string;
+      completedAt: string;
+      durationMs: number;
+      resultCount?: number;
+    } & ToolOutputPreviewFields,
+  ): void {
+    const base = {
+      toolCallId: input.toolCallId,
+      status: 'completed' as const,
+      startedAt: this.startedAt(input.completedAt, input.durationMs),
+      completedAt: input.completedAt,
+      durationMs: input.durationMs,
+      ...(input.resultCount !== undefined ? { resultCount: input.resultCount } : {}),
+      ...this.previewFields(input),
+    };
+    switch (input.toolName) {
+      case AGENT_TOOL_NAMES.skillsList:
+        this.executions.push({ ...base, toolName: input.toolName, input: input.toolInput });
+        break;
+      case AGENT_TOOL_NAMES.skillsRead:
+        this.executions.push({ ...base, toolName: input.toolName, input: input.toolInput });
+        break;
+      case AGENT_TOOL_NAMES.listMcpResources:
+        this.executions.push({ ...base, toolName: input.toolName, input: input.toolInput });
+        break;
+      case AGENT_TOOL_NAMES.listMcpResourceTemplates:
+        this.executions.push({ ...base, toolName: input.toolName, input: input.toolInput });
+        break;
+      case AGENT_TOOL_NAMES.readMcpResource:
+        this.executions.push({ ...base, toolName: input.toolName, input: input.toolInput });
+        break;
+      case AGENT_TOOL_NAMES.mcpAddServer:
+        this.executions.push({ ...base, toolName: input.toolName, input: input.toolInput });
+        break;
+    }
+  }
+
+  recordToolSearchCompleted(
+    input: {
+      toolCallId: string;
+      toolInput: { query: string; limit?: number };
+      completedAt: string;
+      durationMs: number;
+      matchedTools: string[];
+      outputPreview: string;
+    } & Pick<ToolOutputPreviewFields, 'outputCharCount'>,
+  ): void {
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.toolSearch,
@@ -142,16 +272,19 @@ export class ResearchProjectionCollector {
       durationMs: input.durationMs,
       resultCount: input.matchedTools.length,
       outputPreview: input.outputPreview,
+      ...(input.outputCharCount !== undefined ? { outputCharCount: input.outputCharCount } : {}),
     });
   }
 
-  recordMemoryWriteCompleted(input: {
-    toolCallId: string;
-    toolInput: MemoryWriteInputSummary;
-    completedAt: string;
-    durationMs: number;
-    result: MemoryWriteResult;
-  }): void {
+  recordMemoryWriteCompleted(
+    input: {
+      toolCallId: string;
+      toolInput: MemoryWriteInputSummary;
+      completedAt: string;
+      durationMs: number;
+      result: MemoryWriteResult;
+    } & ToolOutputPreviewFields,
+  ): void {
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.memoryWrite,
@@ -160,6 +293,7 @@ export class ResearchProjectionCollector {
       startedAt: this.startedAt(input.completedAt, input.durationMs),
       completedAt: input.completedAt,
       durationMs: input.durationMs,
+      ...this.previewFields(input),
     });
   }
 
@@ -220,13 +354,15 @@ export class ResearchProjectionCollector {
     });
   }
 
-  recordFileSearchCompleted(input: {
-    toolCallId: string;
-    toolInput: { fileId: string; query: string; maxResults?: number };
-    completedAt: string;
-    durationMs: number;
-    result: FileSearchResult;
-  }): void {
+  recordFileSearchCompleted(
+    input: {
+      toolCallId: string;
+      toolInput: { fileId: string; query: string; maxResults?: number };
+      completedAt: string;
+      durationMs: number;
+      result: FileSearchResult;
+    } & ToolOutputPreviewFields,
+  ): void {
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.searchFile,
@@ -236,16 +372,19 @@ export class ResearchProjectionCollector {
       completedAt: input.completedAt,
       durationMs: input.durationMs,
       resultCount: input.result.matches.length,
+      ...this.previewFields(input),
     });
   }
 
-  recordFileReadLinesCompleted(input: {
-    toolCallId: string;
-    toolInput: { fileId: string; startLine: number; endLine: number };
-    completedAt: string;
-    durationMs: number;
-    result: FileReadLinesResult;
-  }): void {
+  recordFileReadLinesCompleted(
+    input: {
+      toolCallId: string;
+      toolInput: { fileId: string; startLine: number; endLine: number };
+      completedAt: string;
+      durationMs: number;
+      result: FileReadLinesResult;
+    } & ToolOutputPreviewFields,
+  ): void {
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.readFileLines,
@@ -255,16 +394,19 @@ export class ResearchProjectionCollector {
       completedAt: input.completedAt,
       durationMs: input.durationMs,
       resultCount: input.result.lines.length,
+      ...this.previewFields(input),
     });
   }
 
-  recordFileReadCompleted(input: {
-    toolCallId: string;
-    toolInput: FileReadInput;
-    completedAt: string;
-    durationMs: number;
-    result: FileReadResult;
-  }): void {
+  recordFileReadCompleted(
+    input: {
+      toolCallId: string;
+      toolInput: FileReadInput;
+      completedAt: string;
+      durationMs: number;
+      result: FileReadResult;
+    } & ToolOutputPreviewFields,
+  ): void {
     const resultCount =
       input.result.scope === 'file'
         ? (input.result.sections?.length ?? 0)
@@ -278,16 +420,19 @@ export class ResearchProjectionCollector {
       completedAt: input.completedAt,
       durationMs: input.durationMs,
       resultCount,
+      ...this.previewFields(input),
     });
   }
 
-  recordCreateFileCompleted(input: {
-    toolCallId: string;
-    toolInput: CreateFileInputSummary;
-    completedAt: string;
-    durationMs: number;
-    result: CreateFileResult;
-  }): void {
+  recordCreateFileCompleted(
+    input: {
+      toolCallId: string;
+      toolInput: CreateFileInputSummary;
+      completedAt: string;
+      durationMs: number;
+      result: CreateFileResult;
+    } & ToolOutputPreviewFields,
+  ): void {
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.createFile,
@@ -296,6 +441,7 @@ export class ResearchProjectionCollector {
       startedAt: this.startedAt(input.completedAt, input.durationMs),
       completedAt: input.completedAt,
       durationMs: input.durationMs,
+      ...this.previewFields(input),
     });
   }
 
@@ -318,13 +464,15 @@ export class ResearchProjectionCollector {
     });
   }
 
-  recordCreateReportCompleted(input: {
-    toolCallId: string;
-    toolInput: any;
-    completedAt: string;
-    durationMs: number;
-    result: CreateReportResult;
-  }): void {
+  recordCreateReportCompleted(
+    input: {
+      toolCallId: string;
+      toolInput: any;
+      completedAt: string;
+      durationMs: number;
+      result: CreateReportResult;
+    } & ToolOutputPreviewFields,
+  ): void {
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.createReport,
@@ -333,16 +481,19 @@ export class ResearchProjectionCollector {
       startedAt: this.startedAt(input.completedAt, input.durationMs),
       completedAt: input.completedAt,
       durationMs: input.durationMs,
+      ...this.previewFields(input),
     });
   }
 
-  recordPptExportCompleted(input: {
-    toolCallId: string;
-    toolInput: PptExportInputSummary;
-    completedAt: string;
-    durationMs: number;
-    result: PptExportResult;
-  }): void {
+  recordPptExportCompleted(
+    input: {
+      toolCallId: string;
+      toolInput: PptExportInputSummary;
+      completedAt: string;
+      durationMs: number;
+      result: PptExportResult;
+    } & ToolOutputPreviewFields,
+  ): void {
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.pptExport,
@@ -351,6 +502,7 @@ export class ResearchProjectionCollector {
       startedAt: this.startedAt(input.completedAt, input.durationMs),
       completedAt: input.completedAt,
       durationMs: input.durationMs,
+      ...this.previewFields(input),
     });
   }
 
@@ -517,8 +669,14 @@ export class ResearchProjectionCollector {
     };
     if (input.toolName === AGENT_TOOL_NAMES.webFetch)
       return { ...base, toolName: AGENT_TOOL_NAMES.webFetch, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.toolSearch)
+      return { ...base, toolName: AGENT_TOOL_NAMES.toolSearch, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.approvalTest)
       return { ...base, toolName: AGENT_TOOL_NAMES.approvalTest, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.getCurrentTime)
+      return { ...base, toolName: AGENT_TOOL_NAMES.getCurrentTime, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.memoryWrite)
+      return { ...base, toolName: AGENT_TOOL_NAMES.memoryWrite, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.searchFile)
       return { ...base, toolName: AGENT_TOOL_NAMES.searchFile, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.readFileLines)
@@ -527,13 +685,40 @@ export class ResearchProjectionCollector {
       return { ...base, toolName: AGENT_TOOL_NAMES.readFile, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.createFile)
       return { ...base, toolName: AGENT_TOOL_NAMES.createFile, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.createReport)
+      return { ...base, toolName: AGENT_TOOL_NAMES.createReport, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.pptExport)
       return { ...base, toolName: AGENT_TOOL_NAMES.pptExport, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.executeCommand)
       return { ...base, toolName: AGENT_TOOL_NAMES.executeCommand, input: input.input };
     if (input.toolName === AGENT_TOOL_NAMES.bash)
       return { ...base, toolName: AGENT_TOOL_NAMES.bash, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.jobOutput)
+      return { ...base, toolName: AGENT_TOOL_NAMES.jobOutput, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.jobList)
+      return { ...base, toolName: AGENT_TOOL_NAMES.jobList, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.jobKill)
+      return { ...base, toolName: AGENT_TOOL_NAMES.jobKill, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.skillsList)
+      return { ...base, toolName: AGENT_TOOL_NAMES.skillsList, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.skillsRead)
+      return { ...base, toolName: AGENT_TOOL_NAMES.skillsRead, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.listMcpResources)
+      return { ...base, toolName: AGENT_TOOL_NAMES.listMcpResources, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.listMcpResourceTemplates)
+      return { ...base, toolName: AGENT_TOOL_NAMES.listMcpResourceTemplates, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.readMcpResource)
+      return { ...base, toolName: AGENT_TOOL_NAMES.readMcpResource, input: input.input };
+    if (input.toolName === AGENT_TOOL_NAMES.mcpAddServer)
+      return { ...base, toolName: AGENT_TOOL_NAMES.mcpAddServer, input: input.input };
     return { ...base, toolName: AGENT_TOOL_NAMES.webSearch, input: input.input };
+  }
+
+  private previewFields(input: ToolOutputPreviewFields): ToolOutputPreviewFields {
+    return {
+      ...(input.outputPreview !== undefined ? { outputPreview: input.outputPreview } : {}),
+      ...(input.outputCharCount !== undefined ? { outputCharCount: input.outputCharCount } : {}),
+    };
   }
 
   // 返回来源可参与 canonical 匹配的全部 URL。

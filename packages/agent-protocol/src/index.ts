@@ -254,6 +254,7 @@ const toolExecutionBaseSchema = z.object({
   outputRef: z.string().min(1).optional(),
   outputBytes: z.number().int().nonnegative().optional(),
   outputPreview: z.string().optional(),
+  outputCharCount: z.number().int().nonnegative().optional(),
   error: z
     .object({
       code: z.string().min(1),
@@ -272,6 +273,41 @@ export const toolSearchResultSummarySchema = z.object({
   query: z.string(),
   matchedTools: z.array(z.string()),
   activatedCount: z.number().int().nonnegative(),
+});
+
+export const skillsListInputSummarySchema = z.object({
+  query: z.string().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+});
+
+export const skillsReadInputSummarySchema = z.object({
+  name: z.string().min(1),
+  version: z.string().optional(),
+});
+
+export const mcpResourcesListInputSummarySchema = z.object({
+  server: z.string().min(1),
+});
+
+export const readMcpResourceInputSummarySchema = z.object({
+  server: z.string().min(1),
+  uri: z.string().min(1),
+});
+
+export const mcpAddServerInputSummarySchema = z.object({
+  serverName: z.string().min(1),
+  url: z.string().min(1),
+  headerKeys: z.array(z.string()).optional(),
+  enabled: z.boolean().optional(),
+  defaultApproval: z.enum(['auto_execute', 'require_approval']).optional(),
+});
+
+export const builtinToolPreviewResultSchema = z.object({
+  preview: z.string(),
+  charCount: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+  count: z.number().int().nonnegative().optional(),
+  summary: z.string().optional(),
 });
 
 // 根据工具名约束可持久化的执行输入，防止搜索和读取参数混淆。
@@ -332,6 +368,42 @@ export const toolExecutionSnapshotSchema = z.discriminatedUnion('toolName', [
   toolExecutionBaseSchema.extend({
     toolName: z.literal('bash'),
     input: bashInputSummarySchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.jobOutput),
+    input: jobOutputInputSchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.jobList),
+    input: jobListInputSchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.jobKill),
+    input: jobKillInputSchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.skillsList),
+    input: skillsListInputSummarySchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.skillsRead),
+    input: skillsReadInputSummarySchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.listMcpResources),
+    input: mcpResourcesListInputSummarySchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.listMcpResourceTemplates),
+    input: mcpResourcesListInputSummarySchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.readMcpResource),
+    input: readMcpResourceInputSummarySchema,
+  }),
+  toolExecutionBaseSchema.extend({
+    toolName: z.literal(AGENT_TOOL_NAMES.mcpAddServer),
+    input: mcpAddServerInputSummarySchema,
   }),
   toolExecutionBaseSchema.extend({
     toolName: z.literal(AGENT_TOOL_NAMES.externalTool),
@@ -499,9 +571,24 @@ export const assistantAgentMetadataSchema = z.object({
 
 /** 会话列表等轻量读路径可能省略 model；恢复 Workbench 时使用。 */
 export const assistantAgentMetadataRestoreSchema = assistantAgentMetadataSchema
-  .omit({ model: true })
+  .omit({ model: true, agent: true })
   .extend({
     model: z.string().min(1).default('restored'),
+    agent: z
+      .object({
+        toolCallCount: z
+          .number()
+          .int()
+          .nonnegative()
+          .max(AGENT_PROTOCOL_LIMITS.agentMetadataExecutionsMax)
+          .default(0),
+        executions: z
+          .array(toolExecutionSnapshotSchema)
+          .max(AGENT_PROTOCOL_LIMITS.agentMetadataExecutionsMax),
+        sources: z.array(researchSourceSnapshotSchema).default([]),
+        detailRef: z.string().min(1).optional(),
+      })
+      .optional(),
   });
 
 export const assistantResearchProjectionSchema = z.object({
@@ -779,6 +866,84 @@ const toolStartedEventSchema = z.discriminatedUnion('toolName', [
     roundSequence: z.number().int().positive(),
     blockSequence: z.number().int().nonnegative(),
     toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.skillsList),
+    title: z.string().min(1),
+    input: skillsListInputSummarySchema,
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.skillsRead),
+    title: z.string().min(1),
+    input: skillsReadInputSummarySchema,
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.listMcpResources),
+    title: z.string().min(1),
+    input: mcpResourcesListInputSummarySchema,
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.listMcpResourceTemplates),
+    title: z.string().min(1),
+    input: mcpResourcesListInputSummarySchema,
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.readMcpResource),
+    title: z.string().min(1),
+    input: readMcpResourceInputSummarySchema,
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.mcpAddServer),
+    title: z.string().min(1),
+    input: mcpAddServerInputSummarySchema,
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal('tool.started'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
     toolName: z.literal(AGENT_TOOL_NAMES.externalTool),
     title: z.string().min(1),
     publicName: z.string().min(1),
@@ -1026,6 +1191,84 @@ const toolCompletedEventSchema = z.discriminatedUnion('toolName', [
     result: sandboxJobToolTextResultSchema,
     presentation: z.literal('job').optional(),
     jobId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.skillsList),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: builtinToolPreviewResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.skillsRead),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: builtinToolPreviewResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.listMcpResources),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: builtinToolPreviewResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.listMcpResourceTemplates),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: builtinToolPreviewResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.readMcpResource),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: builtinToolPreviewResultSchema,
+  }),
+  z.object({
+    type: z.literal('tool.completed'),
+    messageId: z.string().min(1),
+    blockId: z.string().min(1),
+    roundId: z.string().min(1),
+    roundSequence: z.number().int().positive(),
+    blockSequence: z.number().int().nonnegative(),
+    toolCallId: z.string().min(1),
+    toolName: z.literal(AGENT_TOOL_NAMES.mcpAddServer),
+    completedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative(),
+    result: builtinToolPreviewResultSchema,
   }),
   z.object({
     type: z.literal('tool.completed'),
@@ -1459,6 +1702,14 @@ export type MemoryWriteInputSummary = z.infer<typeof memoryWriteInputSummarySche
 export type MemoryWriteResult = z.infer<typeof memoryWriteResultSchema>;
 export type MemoryListResponse = z.infer<typeof memoryListResponseSchema>;
 export type MemorySettingsView = z.infer<typeof memorySettingsViewSchema>;
+export type ToolSearchInputSummary = z.infer<typeof toolSearchInputSummarySchema>;
+export type ToolSearchResultSummary = z.infer<typeof toolSearchResultSummarySchema>;
+export type SkillsListInputSummary = z.infer<typeof skillsListInputSummarySchema>;
+export type SkillsReadInputSummary = z.infer<typeof skillsReadInputSummarySchema>;
+export type McpResourcesListInputSummary = z.infer<typeof mcpResourcesListInputSummarySchema>;
+export type ReadMcpResourceInputSummary = z.infer<typeof readMcpResourceInputSummarySchema>;
+export type McpAddServerInputSummary = z.infer<typeof mcpAddServerInputSummarySchema>;
+export type BuiltinToolPreviewResult = z.infer<typeof builtinToolPreviewResultSchema>;
 export type ToolCall = z.infer<typeof toolCallSchema>;
 export type ToolResult = z.infer<typeof toolResultSchema>;
 export type ChatStreamEvent = z.infer<typeof chatStreamEventSchema>;

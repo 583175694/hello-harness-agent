@@ -20,10 +20,30 @@ export function processTimelineToolIconKind(toolName: string): ProcessTimelineTo
   ) {
     return 'fileSearch';
   }
-  if (toolName === 'create_file' || toolName === 'create_report' || toolName === 'ppt_export')
+  if (
+    toolName === 'create_file' ||
+    toolName === 'create_report' ||
+    toolName === 'ppt_export' ||
+    toolName === 'skills.list' ||
+    toolName === 'skills.read' ||
+    toolName === 'memory_write'
+  )
     return 'fileText';
-  if (toolName === 'bash') return 'terminal';
+  if (
+    toolName === 'bash' ||
+    toolName === 'job_output' ||
+    toolName === 'job_list' ||
+    toolName === 'job_kill'
+  )
+    return 'terminal';
   if (toolName === 'get_current_time' || toolName === 'execute_command') return 'clock';
-  if (isMcpPublicToolName(toolName)) return 'plug';
+  if (
+    isMcpPublicToolName(toolName) ||
+    toolName === 'list_mcp_resources' ||
+    toolName === 'list_mcp_resource_templates' ||
+    toolName === 'read_mcp_resource' ||
+    toolName === 'mcp_add_server'
+  )
+    return 'plug';
   return 'clock';
 }

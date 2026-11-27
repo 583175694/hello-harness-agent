@@ -1589,6 +1589,31 @@ export class AgentRuntimeService {
       const parsed = bashInputSchema.safeParse(input);
       return parsed.success ? toBashInputSummary(parsed.data) : input;
     }
+    if (resolved === AGENT_TOOL_NAMES.mcpAddServer && typeof input === 'object' && input !== null) {
+      const record = input as {
+        serverName?: unknown;
+        url?: unknown;
+        headers?: unknown;
+        enabled?: unknown;
+        defaultApproval?: unknown;
+      };
+      const headerKeys =
+        typeof record.headers === 'object' &&
+        record.headers !== null &&
+        !Array.isArray(record.headers)
+          ? Object.keys(record.headers as Record<string, unknown>)
+          : undefined;
+      return {
+        serverName: typeof record.serverName === 'string' ? record.serverName : '',
+        url: typeof record.url === 'string' ? record.url : '',
+        ...(headerKeys?.length ? { headerKeys } : {}),
+        ...(typeof record.enabled === 'boolean' ? { enabled: record.enabled } : {}),
+        ...(record.defaultApproval === 'auto_execute' ||
+        record.defaultApproval === 'require_approval'
+          ? { defaultApproval: record.defaultApproval }
+          : {}),
+      };
+    }
     if (
       (toolName !== AGENT_TOOL_NAMES.createFile && toolName !== AGENT_TOOL_NAMES.createReport) ||
       typeof input !== 'object' ||

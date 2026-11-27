@@ -345,4 +345,41 @@ describe('enforceResearchProjectionByteLimit', () => {
       }),
     ).not.toThrow();
   });
+
+  it('archives large builtin tool previews above inline limit', async () => {
+    const putObject = vi.fn(async (input) => ({ objectKey: input.key }));
+    const upsert = vi.fn(async () => undefined);
+    const archiver = makeArchiver({ putObject }, { upsert });
+    const large = 'y'.repeat(9000);
+
+    const result = await archiver.trimAndPersist({
+      runId: 'run-builtin',
+      sessionId: 'session-1',
+      projection: {
+        executions: [
+          {
+            toolCallId: 'call-read-1',
+            toolName: AGENT_TOOL_NAMES.readFile,
+            input: { fileId: 'file-1', scope: 'lines', startLine: 1, endLine: 100 },
+            status: 'completed',
+            startedAt: '2026-10-11T00:00:00.000Z',
+            completedAt: '2026-10-11T00:00:01.000Z',
+            durationMs: 1000,
+            outputPreview: large,
+            outputCharCount: large.length,
+          },
+        ],
+        sources: [],
+        blocks: [],
+      },
+    });
+
+    expect(putObject).toHaveBeenCalled();
+    expect(upsert).toHaveBeenCalled();
+    expect(result.executions[0]).toMatchObject({
+      outputRef: 'runs/run-builtin/tools/call-read-1/output.json',
+      outputBytes: 9000,
+    });
+    expect(result.executions[0]?.outputPreview?.length ?? 0).toBeLessThan(large.length);
+  });
 });

@@ -320,6 +320,14 @@ export class ConversationBlockCollector {
     if (toolName === 'job_list') return 'Job 列表';
     if (toolName === 'job_kill') return '终止 Job';
     if (toolName === 'memory_write') return '写入记忆';
+    if (toolName === 'get_current_time') return '获取当前时间';
+    if (toolName === 'approval_test') return '审批测试';
+    if (toolName === 'skills.list') return '列出技能';
+    if (toolName === 'skills.read') return '读取技能';
+    if (toolName === 'list_mcp_resources') return '列出 MCP 资源';
+    if (toolName === 'list_mcp_resource_templates') return '列出 MCP 资源模板';
+    if (toolName === 'read_mcp_resource') return '读取 MCP 资源';
+    if (toolName === 'mcp_add_server') return '添加 MCP 服务';
     return `运行工具 ${toolName}`;
   }
 

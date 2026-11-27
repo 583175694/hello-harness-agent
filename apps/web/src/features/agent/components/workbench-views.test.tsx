@@ -565,4 +565,174 @@ describe('Workbench context view', () => {
       toastErrorSpy.mockRestore();
     }
   });
+
+  it('renders JSON outputPreview and does not show in-flight placeholder for completed builtin tools', () => {
+    renderWorkbench(
+      <WorkbenchShell
+        state={{
+          runId: 'run-builtin-preview',
+          title: '工具执行',
+          subtitle: '1 次调用',
+          activeView: 'tool_results',
+          activityStatus: 'completed',
+          executions: [
+            {
+              toolCallId: 'call-read-1',
+              runId: 'run-builtin-preview',
+              stepId: 'call-read-1',
+              toolName: 'read_file',
+              title: '读取文件',
+              detail: '文件读取已完成',
+              status: 'completed',
+              elapsed: '0.2 秒',
+              inputSummary: 'file-1 · 1-20 行',
+              outputSummary: '读取 1 行文件内容',
+              outputPreview: '{"lines":[{"lineNumber":1,"text":"hello"}]}',
+            },
+          ],
+          followMode: 'auto',
+          sources: [],
+          open: true,
+        }}
+        onClose={() => undefined}
+        onViewChange={() => undefined}
+        onExecutionSelect={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByText('执行中，结果尚未生成')).not.toBeInTheDocument();
+    expect(screen.getByText('文件读取已完成')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '工具返回 JSON' })).toBeInTheDocument();
+    expect(screen.getByText('"hello"')).toBeInTheDocument();
+  });
+
+  it('renders web_fetch JSON responses with JsonViewer and summary banner', () => {
+    renderWorkbench(
+      <WorkbenchShell
+        state={{
+          runId: 'run-fetch-json',
+          title: '网页检索',
+          subtitle: '1 次调用 · 1 个来源',
+          activeView: 'tool_results',
+          activityStatus: 'completed',
+          executions: [
+            {
+              toolCallId: 'call-fetch-1',
+              runId: 'run-fetch-json',
+              stepId: 'call-fetch-1',
+              toolName: 'web_fetch',
+              title: '读取 2 个网页',
+              detail: '网页原文读取已完成',
+              status: 'completed',
+              elapsed: '755 毫秒',
+              inputSummary: '2 个网页 · 上证指数',
+              outputSummary: '成功 1 个，失败 1 个，跳过 0 个，网络请求 2 次，提取 1 段原文',
+            },
+          ],
+          followMode: 'auto',
+          sources: [
+            {
+              id: 'F1',
+              kind: 'fetched',
+              title: 'push2.eastmoney.com',
+              domain: 'push2.eastmoney.com',
+              url: 'https://push2.eastmoney.com/api/qt/clist/get',
+              excerpt: '{"rc":0,"data":{"total":7}}',
+              time: '2026-11-27 12:00:00',
+              contentType: 'application/json',
+              cacheStatus: 'miss',
+              used: true,
+              toolCallIds: ['call-fetch-1'],
+              passages: [
+                {
+                  passageId: 'p1',
+                  text: '{"rc":0,"data":{"total":7}}',
+                  locator: {
+                    kind: 'web_text',
+                    quote: { exact: '{"rc":0,"data":{"total":7}}' },
+                    position: { start: 0, end: 27 },
+                  },
+                },
+              ],
+            },
+          ],
+          open: true,
+        }}
+        onClose={() => undefined}
+        onViewChange={() => undefined}
+        onExecutionSelect={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByText('成功 1 个，失败 1 个，跳过 0 个，网络请求 2 次，提取 1 段原文'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('application/json')).toBeInTheDocument();
+    expect(screen.getByText('回答采用')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '网页返回 JSON' })).toBeInTheDocument();
+    expect(screen.getByText('"total"')).toBeInTheDocument();
+  });
+
+  it('renders web_fetch article passages with section path and metadata', () => {
+    renderWorkbench(
+      <WorkbenchShell
+        state={{
+          runId: 'run-fetch-article',
+          title: '网页检索',
+          subtitle: '1 次调用 · 1 个来源',
+          activeView: 'tool_results',
+          activityStatus: 'completed',
+          executions: [
+            {
+              toolCallId: 'call-fetch-2',
+              runId: 'run-fetch-article',
+              stepId: 'call-fetch-2',
+              toolName: 'web_fetch',
+              title: '读取 1 个网页',
+              detail: '网页原文读取已完成',
+              status: 'completed',
+              elapsed: '0.4 秒',
+              inputSummary: '1 个网页',
+              outputSummary: '成功 1 个，失败 0 个，跳过 0 个，网络请求 1 次，提取 1 段原文',
+            },
+          ],
+          followMode: 'auto',
+          sources: [
+            {
+              id: 'F1',
+              kind: 'fetched',
+              title: 'A股复盘文章',
+              domain: 'news.example.com',
+              url: 'https://news.example.com/a-share',
+              excerpt: '摘要文本',
+              time: '2026-11-27 12:00:00',
+              contentType: 'text/html',
+              cacheStatus: 'hit',
+              toolCallIds: ['call-fetch-2'],
+              passages: [
+                {
+                  passageId: 'p1',
+                  text: '今日沪指缩量微涨，成交额维持高位。',
+                  locator: {
+                    kind: 'web_text',
+                    sectionPath: ['市场综述'],
+                    quote: { exact: '今日沪指缩量微涨，成交额维持高位。' },
+                    position: { start: 0, end: 18 },
+                  },
+                },
+              ],
+            },
+          ],
+          open: true,
+        }}
+        onClose={() => undefined}
+        onViewChange={() => undefined}
+        onExecutionSelect={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText('缓存命中')).toBeInTheDocument();
+    expect(screen.getByText('市场综述')).toBeInTheDocument();
+    expect(screen.getByText('今日沪指缩量微涨，成交额维持高位。')).toBeInTheDocument();
+  });
 });

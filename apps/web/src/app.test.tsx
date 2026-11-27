@@ -2352,4 +2352,159 @@ describe('R1 workbench shell', () => {
     fireEvent.keyDown(document, { key: 'f', ctrlKey: true });
     expect(await screen.findByRole('textbox', { name: '在当前对话中查找' })).toBeInTheDocument();
   });
+
+  it('hydrates lightweight assistant metadata without agent block and preserves tool results', async () => {
+    window.history.replaceState(null, '', '/');
+    const session = {
+      id: 'session-hydrate',
+      title: '历史工具恢复',
+      status: 'active',
+      isPinned: false,
+      createdAt: '2026-08-05T04:00:00.000Z',
+      updatedAt: '2026-08-05T04:00:05.000Z',
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        const auth = authMeFetch(url);
+        if (auth) return Promise.resolve(auth);
+        if (url.endsWith('/api/agent/config/public')) {
+          return Promise.resolve(new Response(JSON.stringify(publicModelConfig), { status: 200 }));
+        }
+        if (url.endsWith('/readyz')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ status: 'ok', service: 'api', version: '0.1.0' }), {
+              status: 200,
+            }),
+          );
+        }
+        if (url.endsWith('/api/agent/sessions')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ sessions: [session] }), { status: 200 }),
+          );
+        }
+        if (url.includes('/api/agent/sessions/session-hydrate')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                session: {
+                  ...session,
+                  messages: [
+                    {
+                      id: 'user-h1',
+                      sessionId: session.id,
+                      role: 'user',
+                      kind: 'user_message',
+                      content: '搜索市场消息',
+                      createdAt: session.createdAt,
+                      metadata: {},
+                    },
+                    {
+                      id: 'msg-h1',
+                      sessionId: session.id,
+                      role: 'assistant',
+                      kind: 'assistant_delivery',
+                      content: '已完成搜索。',
+                      runId: 'run-hydrate-1',
+                      createdAt: session.updatedAt,
+                      metadata: {
+                        blocks: [
+                          {
+                            id: 'tool-h1',
+                            type: 'tool_activity',
+                            toolCallId: 'call-h1',
+                            toolName: 'web_search',
+                            status: 'completed',
+                            title: '搜索网页',
+                            summary: '找到 1 个结果',
+                            startedAt: '2026-08-05T04:00:01.000Z',
+                            completedAt: '2026-08-05T04:00:02.000Z',
+                            durationMs: 1000,
+                          },
+                          {
+                            id: 'text-h1',
+                            type: 'text',
+                            content: '已完成搜索。',
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (url.endsWith('/api/agent/runs/run-hydrate-1/detail')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                runId: 'run-hydrate-1',
+                messageId: 'msg-h1',
+                schemaVersion: 1,
+                executions: [
+                  {
+                    toolCallId: 'call-h1',
+                    toolName: 'web_search',
+                    input: { query: 'A股今日复盘' },
+                    status: 'completed',
+                    startedAt: '2026-08-05T04:00:01.000Z',
+                    completedAt: '2026-08-05T04:00:02.000Z',
+                    durationMs: 1000,
+                    resultCount: 1,
+                  },
+                ],
+                sources: [
+                  {
+                    id: 'src-h1',
+                    kind: 'clue',
+                    used: false,
+                    title: 'A股复盘来源',
+                    url: 'https://example.com/a-share',
+                    domain: 'example.com',
+                    snippet: '市场复盘摘要',
+                    provider: 'serp',
+                    retrievedAt: '2026-08-05T04:00:02.000Z',
+                    toolCallIds: ['call-h1'],
+                  },
+                ],
+                blocks: [
+                  {
+                    id: 'tool-h1',
+                    type: 'tool_activity',
+                    toolCallId: 'call-h1',
+                    toolName: 'web_search',
+                    status: 'completed',
+                    title: '搜索网页',
+                    summary: '找到 1 个结果',
+                    startedAt: '2026-08-05T04:00:01.000Z',
+                    completedAt: '2026-08-05T04:00:02.000Z',
+                    durationMs: 1000,
+                  },
+                  {
+                    id: 'text-h1',
+                    type: 'text',
+                    content: '已完成搜索。',
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(new Response('{}', { status: 404 }));
+      }),
+    );
+
+    renderWithProviders(<App />);
+    await waitForProductionShell();
+    await waitFor(() => expect(screen.getByText('已完成搜索。')).toBeInTheDocument());
+
+    fireEvent.click(await screen.findByRole('button', { name: /已用时/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /搜索：A股今日复盘/ }));
+    await waitFor(() => expect(screen.getByText('A股复盘来源')).toBeInTheDocument());
+    expect(screen.queryByText('执行中，结果尚未生成')).not.toBeInTheDocument();
+  });
 });

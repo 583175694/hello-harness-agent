@@ -128,6 +128,78 @@ describe('ResearchProjectionCollector', () => {
       toolCallIds: ['fetch-a', 'fetch-b', 'fetch-merge'],
     });
   });
+
+  it('records get_current_time, job tools, builtin preview tools, and preserves toolName on failure', () => {
+    const collector = new ResearchProjectionCollector();
+    collector.recordCurrentTimeCompleted({
+      toolCallId: 'time-1',
+      completedAt: '2026-08-09T10:00:01.000Z',
+      durationMs: 5,
+      outputPreview: '{"iso":"2026-08-09T18:00:01+08:00"}',
+      outputCharCount: 34,
+    });
+    collector.recordJobToolCompleted({
+      toolCallId: 'job-1',
+      toolName: 'job_output',
+      toolInput: { job_id: 'j-1' },
+      completedAt: '2026-08-09T10:00:02.000Z',
+      durationMs: 12,
+      outputPreview: 'job stdout line',
+      outputCharCount: 15,
+    });
+    collector.recordBuiltinPreviewCompleted({
+      toolCallId: 'skill-1',
+      toolName: 'skills.read',
+      toolInput: { name: 'ai-ppt-html' },
+      completedAt: '2026-08-09T10:00:03.000Z',
+      durationMs: 8,
+      outputPreview: '{"name":"ai-ppt-html"}',
+      outputCharCount: 22,
+    });
+    collector.recordFailed({
+      toolCallId: 'fail-tool-search',
+      toolName: 'tool_search',
+      input: { query: 'foo' },
+      completedAt: '2026-08-09T10:00:04.000Z',
+      durationMs: 10,
+      code: 'SEARCH_FAILED',
+      detail: 'boom',
+      retryable: false,
+    });
+    collector.recordFailed({
+      toolCallId: 'fail-memory',
+      toolName: 'memory_write',
+      input: { action: 'create', kind: 'preference', title: 't', content: 'c', confidence: 'high' },
+      completedAt: '2026-08-09T10:00:05.000Z',
+      durationMs: 10,
+      code: 'MEMORY_FAILED',
+      detail: 'boom',
+      retryable: false,
+    });
+    collector.recordCancelled({
+      toolCallId: 'cancel-report',
+      toolName: 'create_report',
+      input: { title: 'r', summary: 's', fileName: 'r.md', contentCharacterCount: 10, contentByteCount: 10 },
+      completedAt: '2026-08-09T10:00:06.000Z',
+      durationMs: 10,
+      code: 'CANCELLED',
+      detail: 'cancelled',
+    });
+
+    const executions = collector.snapshot().executions;
+    expect(executions.map((item) => item.toolName)).toEqual([
+      'get_current_time',
+      'job_output',
+      'skills.read',
+      'tool_search',
+      'memory_write',
+      'create_report',
+    ]);
+    expect(executions[1]).toMatchObject({ outputPreview: 'job stdout line', outputCharCount: 15 });
+    expect(executions[3]).toMatchObject({ status: 'failed', toolName: 'tool_search' });
+    expect(executions[4]).toMatchObject({ status: 'failed', toolName: 'memory_write' });
+    expect(executions[5]).toMatchObject({ status: 'cancelled', toolName: 'create_report' });
+  });
 });
 
 // 记录一个最小但协议完整的成功 Fetch，复用 canonical merge 场景。

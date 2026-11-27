@@ -168,7 +168,6 @@ export class RunProjectionArchiver {
     dryRun: boolean | undefined,
     pendingToolOutputs: ToolOutputUpsertInput[],
   ): Promise<ToolExecutionSnapshot> {
-    if (execution.toolName !== AGENT_TOOL_NAMES.externalTool) return execution;
     if (execution.outputRef) return execution;
     const preview = execution.outputPreview ?? '';
     if (!preview) return execution;
@@ -432,8 +431,7 @@ export function enforceResearchProjectionByteLimit(
           };
         }),
         executions: current.executions.map((execution) => {
-          if (execution.toolName !== AGENT_TOOL_NAMES.externalTool || !execution.outputPreview)
-            return execution;
+          if (!execution.outputPreview) return execution;
           const nextPreview = truncateUtf8(
             execution.outputPreview,
             Math.max(256, Math.floor(execution.outputPreview.length * shrinkRatio)),

@@ -12,6 +12,7 @@ import { parseMcpPublicToolName } from '@harness/agent-protocol';
 
 import {
   mcpToolBusinessSummary,
+  persistedOutputSummary,
   resolveActivityToolName,
   toolInputSummary,
   toolStreamTitle,
@@ -166,6 +167,19 @@ function toolActivityCompletedSummary(
     }
     const collected = commandResult.collection?.status === 'collected' ? '，已收集输出文件' : '';
     return `命令完成，退出码 ${commandResult.exitCode ?? '无'}${collected}`;
+  }
+  if (event.toolName === 'job_list') return '已列出后台 job';
+  if (event.toolName === 'job_output') return '已读取 job 输出';
+  if (event.toolName === 'job_kill') return '已终止后台 job';
+  if (
+    event.toolName === 'skills.list' ||
+    event.toolName === 'skills.read' ||
+    event.toolName === 'list_mcp_resources' ||
+    event.toolName === 'list_mcp_resource_templates' ||
+    event.toolName === 'read_mcp_resource' ||
+    event.toolName === 'mcp_add_server'
+  ) {
+    return event.result.summary || persistedOutputSummary({ status: 'completed', toolName: event.toolName }) || currentSummary;
   }
   return currentSummary;
 }

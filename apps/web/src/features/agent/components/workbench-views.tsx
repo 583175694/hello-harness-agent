@@ -541,15 +541,17 @@ function ToolResultBody({
       />
     );
   }
-  if (
-    (tool.toolName === 'web_search' || tool.toolName === 'web_fetch') &&
-    sources.length
-  ) {
+  if (tool.toolName === 'web_fetch' && sources.length) {
+    return <WebFetchResultView tool={tool} sources={sources} />;
+  }
+  if (tool.toolName === 'web_search' && sources.length) {
     return <SourcesView sources={sources} compact />;
   }
   if (isMcpPublicToolName(tool.toolName)) {
     return <McpToolResultView key={tool.toolCallId} tool={tool} />;
   }
+  const isInFlight =
+    tool.status === 'running' || tool.status === 'pending' || tool.status === 'waiting';
   return (
     <article className="execution-detail" key={tool.toolCallId} tabIndex={-1}>
       <div className="execution-detail-heading">
@@ -565,19 +567,92 @@ function ToolResultBody({
       <dl>
         <div>
           <dt>业务输入</dt>
-          <dd>{tool.inputSummary}</dd>
+          <dd>{tool.inputSummary || '—'}</dd>
         </div>
         <div>
           <dt>结果摘要</dt>
-          <dd>{tool.outputSummary ?? '执行中，结果尚未生成'}</dd>
+          <dd>
+            {tool.outputSummary
+              ? tool.outputSummary
+              : isInFlight
+                ? '执行中，结果尚未生成'
+                : tool.detail || '已完成'}
+          </dd>
         </div>
         <div className="execution-metrics">
           <span>耗时 {tool.elapsed}</span>
           {tool.resultCount !== undefined ? <span>{tool.resultCount} 条结果</span> : null}
           {tool.sourceCount !== undefined ? <span>{tool.sourceCount} 个来源</span> : null}
+          {tool.outputBytes !== undefined ? (
+            <span>{tool.outputBytes.toLocaleString('zh-CN')} 字节</span>
+          ) : null}
         </div>
       </dl>
+      {tool.outputPreview ? <ToolOutputPreviewSection tool={tool} /> : null}
     </article>
+  );
+}
+
+function parseStrictJsonPreview(text: string | undefined): unknown {
+  if (!text) return null;
+  const trimmed = text.trimStart();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  const parsed = parseJsonPreviewText(text);
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && '_unparsed' in parsed) {
+    return null;
+  }
+  return parsed;
+}
+
+function ToolOutputPreviewSection({ tool }: { tool: ToolCallView }) {
+  const [openingFullOutput, setOpeningFullOutput] = useState(false);
+  const parsedOutput = useMemo(
+    () => parseStrictJsonPreview(tool.outputPreview),
+    [tool.outputPreview],
+  );
+  const canOpenFullOutput = Boolean(tool.outputRef ?? tool.outputPreviewTruncated);
+
+  async function openFullOutput(): Promise<void> {
+    if (openingFullOutput) return;
+    setOpeningFullOutput(true);
+    try {
+      const payload = await getRunToolOutputUrl(tool.runId, tool.toolCallId);
+      window.open(payload.url, '_blank', 'noopener,noreferrer');
+    } catch {
+      toast.error('无法获取完整工具输出，请稍后重试。');
+    } finally {
+      setOpeningFullOutput(false);
+    }
+  }
+
+  return (
+    <div className="execution-detail__output">
+      {parsedOutput ? (
+        <div className="mcp-tool-result-json">
+          <JsonViewer
+            value={parsedOutput}
+            label="工具返回"
+            copyAriaLabel="复制工具返回 JSON"
+            regionAriaLabel="工具返回 JSON"
+          />
+        </div>
+      ) : (
+        <div className="execution-detail__output-text">
+          <div className="mcp-tool-result-call__label">工具返回</div>
+          <pre className="execution-detail__output-pre">{tool.outputPreview}</pre>
+        </div>
+      )}
+      {canOpenFullOutput ? (
+        <button
+          type="button"
+          className="mcp-tool-result-open-full"
+          disabled={openingFullOutput}
+          onClick={() => void openFullOutput()}
+        >
+          {openingFullOutput ? '正在获取链接…' : '查看完整输出'}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -671,6 +746,140 @@ const TOOL_STATUS_COPY: Record<ToolCallView['status'], string> = {
   failed: '失败',
   cancelled: '已取消',
 };
+
+function WebFetchResultView({ tool, sources }: { tool: ToolCallView; sources: SourceView[] }) {
+  const statusLabel = TOOL_STATUS_COPY[tool.status] ?? tool.status;
+  return (
+    <div className="web-fetch-view">
+      <div className="web-fetch-view__summary">
+        <div className="web-fetch-view__summary-top">
+          <span className={`execution-status execution-status--${tool.status}`}>{statusLabel}</span>
+          {tool.outputSummary ? (
+            <span className="web-fetch-view__summary-text">{tool.outputSummary}</span>
+          ) : null}
+        </div>
+        {tool.inputSummary ? (
+          <div className="web-fetch-view__query" title={tool.inputSummary}>
+            {tool.inputSummary}
+          </div>
+        ) : null}
+      </div>
+      <div className="web-fetch-view__list">
+        {sources.map((source) => (
+          <WebFetchSourceCard key={source.id} source={source} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function isLikelyJsonText(text: string): boolean {
+  const trimmed = text.trimStart();
+  return trimmed.startsWith('{') || trimmed.startsWith('[');
+}
+
+function WebFetchTextContent({ text, contentType }: { text: string; contentType?: string }) {
+  const looksJson = Boolean(contentType?.toLowerCase().includes('json') || isLikelyJsonText(text));
+  const parsedJson = useMemo(() => parseStrictJsonPreview(text), [text]);
+  if (parsedJson) {
+    return (
+      <div className="mcp-tool-result-json">
+        <JsonViewer
+          value={parsedJson}
+          label="响应 JSON"
+          copyAriaLabel="复制网页 JSON"
+          regionAriaLabel="网页返回 JSON"
+        />
+      </div>
+    );
+  }
+  if (looksJson) {
+    return <pre className="web-fetch-card__pre">{text}</pre>;
+  }
+  return <MarkdownContent>{text}</MarkdownContent>;
+}
+
+function WebFetchSourceCard({ source }: { source: SourceView }) {
+  const passages = source.passages ?? [];
+  const primaryPassages = passages.slice(0, 2);
+  const extraPassages = passages.slice(2);
+  const metaItems = [
+    source.contentType,
+    source.cacheStatus ? (source.cacheStatus === 'hit' ? '缓存命中' : '实时读取') : undefined,
+    source.used ? '回答采用' : undefined,
+    source.truncated ? '正文已截断' : undefined,
+    passages.length ? `${passages.length} 段原文` : undefined,
+  ].filter((item): item is string => Boolean(item));
+
+  return (
+    <article className="web-fetch-card">
+      <div className="web-fetch-card__header">
+        <a
+          className="source-result-row__title web-fetch-card__title"
+          href={source.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Link2 className="source-result-row__icon" size={15} aria-hidden />
+          <span>{source.title}</span>
+          <ArrowUpRight className="web-fetch-card__external" size={14} aria-hidden />
+        </a>
+        {source.domain && source.domain !== source.title ? (
+          <span className="web-fetch-card__domain">{source.domain}</span>
+        ) : null}
+      </div>
+      {metaItems.length ? (
+        <div className="web-fetch-card__meta">
+          {metaItems.map((item) => (
+            <span key={item} className="web-fetch-card__badge">
+              {item}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div className="web-fetch-card__body">
+        {passages.length === 1 ? (
+          <div className="web-fetch-card__passage">
+            {passages[0]!.locator.sectionPath?.length ? (
+              <div className="passage-section">{passages[0]!.locator.sectionPath.join(' / ')}</div>
+            ) : null}
+            <WebFetchTextContent text={passages[0]!.text} contentType={source.contentType} />
+          </div>
+        ) : passages.length > 1 ? (
+          <>
+            {primaryPassages.map((passage) => (
+              <div className="web-fetch-card__passage" key={passage.passageId}>
+                {passage.locator.sectionPath?.length ? (
+                  <div className="passage-section">{passage.locator.sectionPath.join(' / ')}</div>
+                ) : null}
+                <WebFetchTextContent text={passage.text} contentType={source.contentType} />
+              </div>
+            ))}
+            {extraPassages.length ? (
+              <details className="candidate-passages">
+                <summary>展开其余 {extraPassages.length} 段原文</summary>
+                <div className="candidate-passage-list">
+                  {extraPassages.map((passage) => (
+                    <div className="candidate-passage" key={passage.passageId}>
+                      {passage.locator.sectionPath?.length ? (
+                        <div className="passage-section">
+                          {passage.locator.sectionPath.join(' / ')}
+                        </div>
+                      ) : null}
+                      <WebFetchTextContent text={passage.text} contentType={source.contentType} />
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+          </>
+        ) : source.excerpt ? (
+          <WebFetchTextContent text={source.excerpt} contentType={source.contentType} />
+        ) : null}
+      </div>
+    </article>
+  );
+}
 
 function SourcesView({ sources: items, compact }: { sources: SourceView[]; compact?: boolean }) {
   if (compact) {

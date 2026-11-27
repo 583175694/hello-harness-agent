@@ -64,6 +64,12 @@ export type ToolCopyInput = {
   job_id?: string;
   action?: string;
   memoryId?: string;
+  name?: string;
+  version?: string;
+  server?: string;
+  uri?: string;
+  serverName?: string;
+  url?: string;
 };
 
 export function toolInputSummary(toolName: string, input: ToolCopyInput): string {
@@ -111,6 +117,16 @@ export function toolInputSummary(toolName: string, input: ToolCopyInput): string
     if (action === 'update') return input.title ?? '更新记忆';
     return input.title ?? '写入记忆';
   }
+  if (toolName === 'skills.list') return input.query ? `检索技能：${input.query}` : '列出可用技能';
+  if (toolName === 'skills.read') return input.name ?? '读取技能';
+  if (toolName === 'list_mcp_resources') return input.server ?? '列出 MCP 资源';
+  if (toolName === 'list_mcp_resource_templates') return input.server ?? '列出 MCP 资源模板';
+  if (toolName === 'read_mcp_resource')
+    return input.server && input.uri ? `${input.server} · ${input.uri}` : (input.uri ?? input.server ?? '');
+  if (toolName === 'mcp_add_server')
+    return input.serverName && input.url
+      ? `${input.serverName} (${input.url})`
+      : (input.serverName ?? input.url ?? '');
   if (toolName.startsWith(MCP_PUBLIC_PREFIX)) {
     return mcpToolBusinessSummary(toolName, input);
   }
@@ -141,6 +157,16 @@ export function toolTitle(toolName: string, input: ToolCopyInput): string {
   if (toolName === 'web_search') return `搜索：${input.query}`;
   if (toolName === 'tool_search') return input.query ? `检索工具：${input.query}` : '检索工具';
   if (toolName === 'memory_write') return '写入记忆';
+  if (toolName === 'skills.list') return input.query ? `列出技能：${input.query}` : '列出技能';
+  if (toolName === 'skills.read') return input.name ? `读取技能：${input.name}` : '读取技能';
+  if (toolName === 'list_mcp_resources')
+    return input.server ? `列出 MCP 资源：${input.server}` : '列出 MCP 资源';
+  if (toolName === 'list_mcp_resource_templates')
+    return input.server ? `列出 MCP 资源模板：${input.server}` : '列出 MCP 资源模板';
+  if (toolName === 'read_mcp_resource')
+    return input.server ? `读取 MCP 资源：${input.server}` : '读取 MCP 资源';
+  if (toolName === 'mcp_add_server')
+    return input.serverName ? `添加 MCP 服务：${input.serverName}` : '添加 MCP 服务';
   if (toolName === 'external_tool') return '外部工具';
   if (toolName.startsWith(MCP_PUBLIC_PREFIX)) return mcpFriendlyToolTitle(toolName);
   return `运行工具 ${toolName}`;
@@ -194,9 +220,19 @@ export function toolRunningDetail(toolName: string): string {
   if (toolName === 'create_report') return '正在保存正式报告';
   if (toolName === 'ppt_export') return '正在渲染并校验 PPT';
   if (toolName === 'bash') return '正在终端执行';
+  if (toolName === 'job_output') return '正在读取后台 job 输出';
+  if (toolName === 'job_list') return '正在列出后台 job';
+  if (toolName === 'job_kill') return '正在终止后台 job';
   if (toolName === 'execute_command') return '正在执行命令';
   if (toolName === 'web_search') return '正在搜索公开网页';
   if (toolName === 'tool_search') return '正在检索可用工具';
+  if (toolName === 'memory_write') return '正在写入记忆';
+  if (toolName === 'skills.list') return '正在列出可用技能';
+  if (toolName === 'skills.read') return '正在读取技能说明';
+  if (toolName === 'list_mcp_resources') return '正在列出 MCP 资源';
+  if (toolName === 'list_mcp_resource_templates') return '正在列出 MCP 资源模板';
+  if (toolName === 'read_mcp_resource') return '正在读取 MCP 资源';
+  if (toolName === 'mcp_add_server') return '正在配置 MCP 服务';
   if (toolName === 'external_tool') return '正在执行外部工具';
   if (toolName.startsWith(MCP_PUBLIC_PREFIX)) return '正在执行 MCP 工具';
   return '正在执行工具';
@@ -211,9 +247,19 @@ export function persistedCompletedDetail(toolName: string): string {
   if (toolName === 'create_report') return '生成报告已完成';
   if (toolName === 'ppt_export') return 'PPT 导出已完成';
   if (toolName === 'bash') return '终端命令已完成';
+  if (toolName === 'job_output') return '已读取后台 job 输出';
+  if (toolName === 'job_list') return '已列出后台 job';
+  if (toolName === 'job_kill') return '已终止后台 job';
   if (toolName === 'execute_command') return '命令执行已完成';
   if (toolName === 'web_search') return '公开网页检索已完成';
   if (toolName === 'tool_search') return '工具检索已完成';
+  if (toolName === 'memory_write') return '记忆操作已完成';
+  if (toolName === 'skills.list') return '技能列表已获取';
+  if (toolName === 'skills.read') return '技能说明已读取';
+  if (toolName === 'list_mcp_resources') return 'MCP 资源列表已获取';
+  if (toolName === 'list_mcp_resource_templates') return 'MCP 资源模板已获取';
+  if (toolName === 'read_mcp_resource') return 'MCP 资源已读取';
+  if (toolName === 'mcp_add_server') return 'MCP 服务配置已完成';
   return '工具调用已完成';
 }
 
@@ -273,7 +319,57 @@ export function persistedOutputSummary(input: {
   if (input.toolName === 'ppt_export') return 'PPT 导出已完成';
   if (input.toolName === 'execute_command') return '命令执行已完成';
   if (input.toolName === 'web_search') return `返回 ${input.resultCount ?? 0} 条网页结果`;
+  if (input.toolName === 'get_current_time') {
+    return input.outputPreview?.trim() || '当前时间已获取';
+  }
+  if (input.toolName === 'memory_write') {
+    return input.outputPreview?.trim() || '记忆操作已完成';
+  }
+  if (input.toolName === 'job_list') return '已列出后台 job';
+  if (input.toolName === 'job_output') return '已读取 job 输出';
+  if (input.toolName === 'job_kill') return '已终止后台 job';
+  if (input.toolName === 'skills.list') {
+    return input.resultCount !== undefined ? `列出 ${input.resultCount} 个技能` : '技能列表已获取';
+  }
+  if (input.toolName === 'skills.read') {
+    const toolInput = asToolCopyInput(input.toolInput);
+    return toolInput.name ? `已读取技能 ${toolInput.name}` : '已读取技能';
+  }
+  if (input.toolName === 'list_mcp_resources') {
+    return input.resultCount !== undefined ? `找到 ${input.resultCount} 个资源` : '已列出 MCP 资源';
+  }
+  if (input.toolName === 'list_mcp_resource_templates') {
+    return input.resultCount !== undefined
+      ? `找到 ${input.resultCount} 个资源模板`
+      : '已列出 MCP 资源模板';
+  }
+  if (input.toolName === 'read_mcp_resource') {
+    const toolInput = asToolCopyInput(input.toolInput);
+    return toolInput.server ? `已读取 ${toolInput.server} 资源` : '已读取 MCP 资源';
+  }
+  if (input.toolName === 'mcp_add_server') {
+    const toolInput = asToolCopyInput(input.toolInput);
+    return toolInput.serverName ? `已配置 MCP 服务 ${toolInput.serverName}` : '已配置 MCP 服务';
+  }
   return undefined;
+}
+
+export function formatMemoryWriteOutputLabel(result: {
+  ok: boolean;
+  action?: string;
+  status?: string;
+  reason?: string;
+  indexingStatus?: string;
+}): string {
+  if (!result.ok) {
+    if (result.reason === 'memory_write_disabled') return '记忆写入未开启';
+    return result.reason ? `未写入：${result.reason}` : '记忆未写入';
+  }
+  if (result.action === 'delete') return '记忆已删除';
+  if (result.status === 'candidate') return '已保存为候选记忆';
+  if (result.indexingStatus === 'pending') return '记忆已保存，向量索引排队中';
+  if (result.indexingStatus === 'failed') return '记忆已保存，向量索引失败';
+  return result.action === 'update' ? '记忆已更新' : '记忆已保存';
 }
 
 export function liveOutputSummary(input: {
@@ -295,6 +391,16 @@ export function liveOutputSummary(input: {
   pptExport?: { status: 'ok' | 'degraded'; fileName: string };
   searchResultCount?: number;
   toolSearch?: { matchedTools: string[]; activatedCount: number };
+  memoryWrite?: {
+    ok: boolean;
+    action?: string;
+    status?: string;
+    reason?: string;
+    indexingStatus?: string;
+  };
+  currentTime?: { date: string; time: string; timezone: string };
+  jobTool?: { text: string };
+  builtinSummary?: string;
 }): string {
   if (input.toolName === 'external_tool' && input.publicName) {
     return mcpToolBusinessSummary(input.publicName, asToolCopyInput(input.toolInput));
@@ -303,7 +409,11 @@ export function liveOutputSummary(input: {
     return `成功 ${input.fetchStats.succeededCount} 个，失败 ${input.fetchStats.failedCount} 个，跳过 ${input.fetchStats.skippedCount} 个，网络请求 ${input.fetchStats.networkAttemptCount} 次，提取 ${input.fetchStats.passageCount} 段原文`;
   }
   if (input.approvalEcho !== undefined) return `返回：${input.approvalEcho}`;
+  if (input.currentTime) {
+    return `${input.currentTime.date} ${input.currentTime.time} (${input.currentTime.timezone})`;
+  }
   if (input.toolName === 'get_current_time') return '已返回当前时间';
+  if (input.memoryWrite) return formatMemoryWriteOutputLabel(input.memoryWrite);
   if (input.fileSearchCount !== undefined) return `返回 ${input.fileSearchCount} 个文件命中`;
   if (input.fileReadLineCount !== undefined) return `返回 ${input.fileReadLineCount} 行文件内容`;
   if (input.fileName) return `已生成 ${input.fileName}`;
@@ -313,11 +423,15 @@ export function liveOutputSummary(input: {
     return `PPT 已降级为 HTML：${input.pptExport.fileName}`;
   }
   if (input.toolName === 'bash') return '终端命令已完成';
+  if (input.toolName === 'job_list') return '已列出后台 job';
+  if (input.toolName === 'job_output') return '已读取 job 输出';
+  if (input.toolName === 'job_kill') return '已终止后台 job';
   if (input.toolName === 'execute_command') return '命令执行已完成';
   if (input.toolName === 'web_search') return `返回 ${input.searchResultCount ?? 0} 条网页结果`;
   if (input.toolName === 'tool_search' && input.toolSearch) {
     return formatToolSearchMatchedSummary(input.toolSearch.matchedTools);
   }
+  if (input.builtinSummary) return input.builtinSummary;
   return '';
 }
 

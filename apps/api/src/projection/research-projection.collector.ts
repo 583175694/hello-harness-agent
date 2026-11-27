@@ -514,6 +514,18 @@ export class ResearchProjectionCollector {
     durationMs: number;
     result: WebFetchResult;
   }): void {
+    const fetchItemsPreview = JSON.stringify({
+      items: input.result.results.map((item) =>
+        item.status === 'succeeded'
+          ? { requestedUrl: item.requestedUrl, status: item.status, title: item.title }
+          : {
+              requestedUrl: item.requestedUrl,
+              status: item.status,
+              code: item.code,
+              detail: item.detail,
+            },
+      ),
+    });
     this.executions.push({
       toolCallId: input.toolCallId,
       toolName: AGENT_TOOL_NAMES.webFetch,
@@ -529,6 +541,8 @@ export class ResearchProjectionCollector {
       passageCount: input.result.stats.passageCount,
       networkAttemptCount: input.result.stats.networkAttemptCount,
       stats: input.result.stats,
+      outputPreview: fetchItemsPreview,
+      outputCharCount: fetchItemsPreview.length,
     });
 
     for (const result of input.result.results) {

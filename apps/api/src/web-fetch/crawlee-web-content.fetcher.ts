@@ -130,6 +130,7 @@ export class CrawleeWebContentFetcher {
             gotOptions.headers = {
               accept:
                 'text/html,application/xhtml+xml,application/pdf;q=0.9,application/json;q=0.8,text/plain;q=0.7',
+              'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
               'user-agent': WEB_FETCH_POLICY.userAgent,
             };
             gotOptions.hooks ??= {};

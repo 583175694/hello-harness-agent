@@ -735,4 +735,74 @@ describe('Workbench context view', () => {
     expect(screen.getByText('市场综述')).toBeInTheDocument();
     expect(screen.getByText('今日沪指缩量微涨，成交额维持高位。')).toBeInTheDocument();
   });
+
+  it('does not leak unrelated sources into a failed web_fetch step and renders per-URL failure details', () => {
+    renderWorkbench(
+      <WorkbenchShell
+        state={{
+          runId: 'run-fetch-failed',
+          title: '网页检索',
+          subtitle: '2 次调用 · 1 个来源',
+          activeView: 'tool_results',
+          activityStatus: 'completed',
+          executions: [
+            {
+              toolCallId: 'call-fetch-fail',
+              runId: 'run-fetch-failed',
+              stepId: 'call-fetch-fail',
+              toolName: 'web_fetch',
+              title: '读取 2 个网页',
+              detail: '网页原文读取已完成',
+              status: 'completed',
+              elapsed: '117 毫秒',
+              inputSummary: '2 个网页 · 行业板块 涨幅',
+              outputSummary: '成功 0 个，失败 2 个，跳过 0 个，网络请求 2 次，提取 0 段原文',
+              outputPreview: JSON.stringify({
+                items: [
+                  {
+                    requestedUrl: 'https://quote.eastmoney.com/center/boardlist.html',
+                    status: 'failed',
+                    code: 'FETCH_JS_RENDER_REQUIRED',
+                    detail: '网页需要执行 JavaScript 后才能读取正文。',
+                  },
+                  {
+                    requestedUrl: 'https://vip.stock.example.com/blocked',
+                    status: 'failed',
+                    code: 'FETCH_UPSTREAM_FAILED',
+                    detail: '网页来源返回不可用响应。',
+                  },
+                ],
+              }),
+            },
+          ],
+          followMode: 'auto',
+          sources: [
+            {
+              id: 'F1',
+              kind: 'fetched',
+              title: 'push2.eastmoney.com',
+              domain: 'push2.eastmoney.com',
+              url: 'https://push2.eastmoney.com/api/qt/clist/get',
+              excerpt: '{"rc":0}',
+              time: '2026-11-27 12:00:00',
+              contentType: 'application/json',
+              toolCallIds: ['other-call-id'],
+            },
+          ],
+          open: true,
+        }}
+        onClose={() => undefined}
+        onViewChange={() => undefined}
+        onExecutionSelect={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByText('push2.eastmoney.com')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '未读取成功的网页' })).toBeInTheDocument();
+    expect(
+      screen.getByText('https://quote.eastmoney.com/center/boardlist.html'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('FETCH_JS_RENDER_REQUIRED')).toBeInTheDocument();
+    expect(screen.getByText('网页需要执行 JavaScript 后才能读取正文。')).toBeInTheDocument();
+  });
 });

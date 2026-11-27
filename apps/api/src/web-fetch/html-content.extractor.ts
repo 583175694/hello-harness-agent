@@ -20,7 +20,8 @@ export class HtmlContentExtractor {
       this.removeUnavailableNodes(document);
       this.absolutizeLinks(document, finalUrl);
       const article = new Readability(document.cloneNode(true) as Document).parse();
-      if (!article?.content?.trim()) {
+      const contentHtml = article?.content?.trim() || this.fallbackContentHtml(document);
+      if (!contentHtml) {
         throw new WebFetchError(
           AGENT_ERROR_CODES.fetchContentExtractionFailed,
           '网页主要正文无法提取。',
@@ -39,10 +40,19 @@ export class HtmlContentExtractor {
           return alt ? alt : '';
         },
       });
+      const markdown = turndown.turndown(contentHtml);
+      if (!markdown.trim()) {
+        throw new WebFetchError(
+          AGENT_ERROR_CODES.fetchContentExtractionFailed,
+          '网页主要正文无法提取。',
+        );
+      }
+      const fallbackTitle = document.title.trim();
+      const title = article?.title?.trim() || fallbackTitle;
       return {
-        markdown: turndown.turndown(article.content),
-        ...(article.title?.trim() ? { title: article.title.trim() } : {}),
-        ...(article.byline?.trim() ? { author: article.byline.trim() } : {}),
+        markdown,
+        ...(title ? { title } : {}),
+        ...(article?.byline?.trim() ? { author: article.byline.trim() } : {}),
         ...(publishedAt ? { publishedAt } : {}),
         ...(language ? { language } : {}),
         ...(canonicalUrl ? { canonicalUrl } : {}),
@@ -54,6 +64,19 @@ export class HtmlContentExtractor {
         '网页主要正文无法提取。',
       );
     }
+  }
+
+  // Readability 无法识别非文章页（如行情表、快讯流）时，回退抽取主容器或 body 文本。
+  private fallbackContentHtml(document: Document): string | undefined {
+    const container =
+      document.querySelector('main, article, [role="main"]') ?? document.body;
+    if (!container) return undefined;
+    const cloned = container.cloneNode(true) as HTMLElement;
+    for (const chrome of cloned.querySelectorAll('nav,header,footer,aside')) {
+      chrome.remove();
+    }
+    const text = cloned.textContent?.trim() ?? '';
+    return text ? cloned.innerHTML : undefined;
   }
 
   // 删除脚本、嵌入资源、表单和隐藏节点，避免无用内容进入 Readability。

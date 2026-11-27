@@ -129,6 +129,19 @@
   padding: 10px 12px 12px;
 }
 
+.resource-workspace .tool-results-view--fill > .web-fetch-view,
+.resource-workspace .tool-results-view--fill > .sources-view--compact,
+.resource-workspace .tool-results-view--fill > .execution-detail:not(.execution-detail--mcp-panel) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  align-content: start;
+}
+
+.resource-workspace .tool-results-view--fill > .web-fetch-view {
+  padding: 12px 4px 56px;
+}
+
 .resource-workspace .tool-results-view--fill .deliverables-page-header {
   flex-shrink: 0;
 }

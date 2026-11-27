@@ -731,4 +731,52 @@ describe('WebFetchService', () => {
     expect(item.passages.length).toBeGreaterThan(0);
     expect(item.passages[0]?.text).toContain('attention mechanisms');
   });
+
+  it('falls back to main/body extraction for non-article HTML, matches multi-term Chinese queries, and falls back for JSON', () => {
+    const extractor = new HtmlContentExtractor();
+    const extracted = extractor.extract(
+      '<html><head><title>行情看板</title></head><body><div><span>行业板块</span><span>+2.1%</span></div></body></html>',
+      'https://example.com/board',
+    );
+    expect(extracted.title).toBe('行情看板');
+    expect(extracted.markdown).toContain('行业板块');
+
+    const normalizer = new DocumentNormalizer();
+    const chunker = new PassageChunker();
+    const ranker = new PassageRanker();
+
+    const cnDoc = normalizer.normalize({
+      fetched: {
+        requestedUrl: 'https://example.com/cn',
+        finalUrl: 'https://example.com/cn',
+        contentType: 'text/plain',
+        body: '',
+        retrievedAt: '2026-11-27T00:00:00.000Z',
+      },
+      extracted: { markdown: '今日上午软件服务行业板块表现活跃。' },
+      normalizedUrl: 'https://example.com/cn',
+    });
+    const cnRanked = ranker.rankForFetch(
+      cnDoc,
+      chunker.chunk(cnDoc),
+      '行业板块 涨幅 排行 涨跌家数 主力净流入 概念',
+      0,
+    );
+    expect(cnRanked.passages.length).toBeGreaterThan(0);
+
+    const jsonDoc = normalizer.normalize({
+      fetched: {
+        requestedUrl: 'https://example.com/api.json',
+        finalUrl: 'https://example.com/api.json',
+        contentType: 'application/json',
+        body: '',
+        retrievedAt: '2026-11-27T00:00:00.000Z',
+      },
+      extracted: { markdown: '{"rc":0,"data":{"diff":[{"f14":"上证指数"}]}}' },
+      normalizedUrl: 'https://example.com/api.json',
+    });
+    const jsonRanked = ranker.rankForFetch(jsonDoc, chunker.chunk(jsonDoc), '涨跌幅 排行', 0);
+    expect(jsonRanked.passageSelection).toBe('fallback_excerpt');
+    expect(jsonRanked.passages.length).toBeGreaterThan(0);
+  });
 });

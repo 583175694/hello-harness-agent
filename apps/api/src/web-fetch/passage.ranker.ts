@@ -56,7 +56,10 @@ export class PassageRanker {
     if (matched.length > 0) {
       return { passages: matched, passageSelection: 'query_matched' };
     }
-    if (!this.isCrossScriptQuery(query, document.markdown)) {
+    if (
+      document.contentType !== 'application/json' &&
+      !this.isCrossScriptQuery(query, document.markdown)
+    ) {
       return { passages: [], passageSelection: 'query_matched' };
     }
     const fallback = blocks
@@ -99,13 +102,42 @@ export class PassageRanker {
     const tokenHeadingScore = latinTokens.length
       ? this.latinTokenOverlap(latinTokens, block.sectionPath.join(' '))
       : 0;
+    const queryTerms = this.extractQueryTerms(query);
+    const termBodyScore = queryTerms.length ? this.queryTermOverlap(queryTerms, block.text) : 0;
+    const termHeadingScore = queryTerms.length
+      ? this.queryTermOverlap(queryTerms, block.sectionPath.join(' '))
+      : 0;
 
-    const bodyScore = Math.max(ngramBodyScore, tokenBodyScore * 0.85);
-    const headingScore = Math.max(ngramHeadingScore, tokenHeadingScore * 0.85);
+    const bodyScore = Math.max(ngramBodyScore, tokenBodyScore * 0.85, termBodyScore * 0.85);
+    const headingScore = Math.max(
+      ngramHeadingScore,
+      tokenHeadingScore * 0.85,
+      termHeadingScore * 0.85,
+    );
     if (bodyScore === 0 && headingScore === 0) return 0;
     const positionBonus = Math.max(0, 1 - block.order / Math.max(1, totalBlocks)) * 0.04;
     const repetitionPenalty = /(.)\1{8,}/u.test(block.text) ? 0.1 : 0;
     return bodyScore + headingScore * 0.45 + positionBonus - repetitionPenalty;
+  }
+
+  private extractQueryTerms(value: string): string[] {
+    const terms = value
+      .toLowerCase()
+      .normalize('NFKC')
+      .split(/[\s\p{P}\p{S}]+/gu)
+      .map((term) => term.trim())
+      .filter((term) => codePointLength(term) >= 2);
+    return [...new Set(terms)];
+  }
+
+  private queryTermOverlap(terms: string[], text: string): number {
+    if (!terms.length || !text) return 0;
+    const lowered = text.toLowerCase().normalize('NFKC');
+    let hits = 0;
+    for (const term of terms) {
+      if (lowered.includes(term)) hits += 1;
+    }
+    return hits / terms.length;
   }
 
   private extractLatinTokens(value: string): string[] {

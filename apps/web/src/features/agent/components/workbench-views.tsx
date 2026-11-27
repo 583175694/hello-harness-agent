@@ -482,6 +482,7 @@ function ToolResultsView({
     const scoped = sources.filter((source) =>
       source.toolCallIds?.includes(selectedTool.toolCallId),
     );
+    if (selectedTool.toolName === 'web_fetch') return scoped;
     return scoped.length ? scoped : sources;
   }, [selectedTool, sources]);
 
@@ -541,7 +542,10 @@ function ToolResultBody({
       />
     );
   }
-  if (tool.toolName === 'web_fetch' && sources.length) {
+  if (
+    tool.toolName === 'web_fetch' &&
+    (sources.length > 0 || parseWebFetchItems(tool.outputPreview).length > 0)
+  ) {
     return <WebFetchResultView tool={tool} sources={sources} />;
   }
   if (tool.toolName === 'web_search' && sources.length) {
@@ -747,8 +751,37 @@ const TOOL_STATUS_COPY: Record<ToolCallView['status'], string> = {
   cancelled: '已取消',
 };
 
+type WebFetchOutcomeItem = {
+  requestedUrl: string;
+  status: 'succeeded' | 'failed' | 'skipped';
+  title?: string;
+  code?: string;
+  detail?: string;
+};
+
+function parseWebFetchItems(outputPreview: string | undefined): WebFetchOutcomeItem[] {
+  if (!outputPreview) return [];
+  const parsed = parseStrictJsonPreview(outputPreview);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
+  const items = (parsed as { items?: unknown }).items;
+  if (!Array.isArray(items)) return [];
+  return items.filter(
+    (item): item is WebFetchOutcomeItem =>
+      typeof item === 'object' &&
+      item !== null &&
+      typeof (item as { requestedUrl?: unknown }).requestedUrl === 'string' &&
+      ((item as { status?: unknown }).status === 'succeeded' ||
+        (item as { status?: unknown }).status === 'failed' ||
+        (item as { status?: unknown }).status === 'skipped'),
+  );
+}
+
 function WebFetchResultView({ tool, sources }: { tool: ToolCallView; sources: SourceView[] }) {
   const statusLabel = TOOL_STATUS_COPY[tool.status] ?? tool.status;
+  const failedItems = useMemo(
+    () => parseWebFetchItems(tool.outputPreview).filter((item) => item.status !== 'succeeded'),
+    [tool.outputPreview],
+  );
   return (
     <div className="web-fetch-view">
       <div className="web-fetch-view__summary">
@@ -764,11 +797,42 @@ function WebFetchResultView({ tool, sources }: { tool: ToolCallView; sources: So
           </div>
         ) : null}
       </div>
-      <div className="web-fetch-view__list">
-        {sources.map((source) => (
-          <WebFetchSourceCard key={source.id} source={source} />
-        ))}
-      </div>
+      {sources.length ? (
+        <div className="web-fetch-view__list">
+          {sources.map((source) => (
+            <WebFetchSourceCard key={source.id} source={source} />
+          ))}
+        </div>
+      ) : null}
+      {failedItems.length ? (
+        <div className="web-fetch-failures" role="region" aria-label="未读取成功的网页">
+          {failedItems.map((item) => (
+            <div className="web-fetch-failure-row" key={`${item.status}:${item.requestedUrl}`}>
+              <div className="web-fetch-failure-row__top">
+                <span
+                  className={`execution-status execution-status--${item.status === 'skipped' ? 'cancelled' : 'failed'}`}
+                >
+                  {item.status === 'skipped' ? '已跳过' : '读取失败'}
+                </span>
+                <a
+                  className="web-fetch-failure-row__url"
+                  href={item.requestedUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {item.requestedUrl}
+                </a>
+              </div>
+              {item.detail || item.code ? (
+                <div className="web-fetch-failure-row__detail">
+                  {item.detail ?? '无法读取网页内容。'}
+                  {item.code ? <span className="web-fetch-failure-row__code">{item.code}</span> : null}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -800,7 +864,13 @@ function WebFetchTextContent({ text, contentType }: { text: string; contentType?
 }
 
 function WebFetchSourceCard({ source }: { source: SourceView }) {
-  const passages = source.passages ?? [];
+  const passages = useMemo(
+    () =>
+      [...(source.passages ?? [])].sort(
+        (left, right) => left.locator.position.start - right.locator.position.start,
+      ),
+    [source.passages],
+  );
   const primaryPassages = passages.slice(0, 2);
   const extraPassages = passages.slice(2);
   const metaItems = [

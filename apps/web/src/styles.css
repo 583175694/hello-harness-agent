@@ -1008,6 +1008,55 @@ summary:focus-visible {
   white-space: pre-wrap;
   word-break: break-word;
 }
+.web-fetch-failures {
+  display: grid;
+  gap: 8px;
+}
+.web-fetch-failure-row {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 12px;
+  background: var(--theme-surface);
+}
+.web-fetch-failure-row__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.web-fetch-failure-row__url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--theme-text-primary);
+  font-size: 12px;
+  text-decoration: none;
+}
+.web-fetch-failure-row__url:hover {
+  color: var(--theme-accent);
+  text-decoration: underline;
+}
+.web-fetch-failure-row__detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--theme-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.web-fetch-failure-row__code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--theme-canvas);
+  color: var(--theme-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
 .tool-result-artifact {
   display: flex;
   min-height: min(100%, 480px);

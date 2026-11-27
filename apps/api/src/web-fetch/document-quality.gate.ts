@@ -19,7 +19,7 @@ export class DocumentQualityGate {
   validate(document: NormalizedWebDocument): void {
     const readable = this.readableText(document.markdown);
     const length = codePointLength(readable);
-    if (length < 120) {
+    if (length < 60) {
       throw new WebFetchError(AGENT_ERROR_CODES.fetchContentEmpty, '网页中没有足够的可用正文。');
     }
     const sample = `${document.title}\n${sliceCodePoints(readable, 0, 4_000)}`;

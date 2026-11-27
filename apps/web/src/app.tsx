@@ -624,8 +624,23 @@ function collectedArtifactFromCommandResult(
 function liveToolOutputPreview(
   event: Extract<ToolStreamEvent, { type: 'tool.completed' }>,
 ): { preview: string; truncated: boolean } | undefined {
-  if (event.toolName === 'bash' || event.toolName === 'web_search' || event.toolName === 'web_fetch') {
+  if (event.toolName === 'bash' || event.toolName === 'web_search') {
     return undefined;
+  }
+  if (event.toolName === 'web_fetch') {
+    const preview = JSON.stringify({
+      items: event.result.results.map((item) =>
+        item.status === 'succeeded'
+          ? { requestedUrl: item.requestedUrl, status: item.status, title: item.title }
+          : {
+              requestedUrl: item.requestedUrl,
+              status: item.status,
+              code: item.code,
+              detail: item.detail,
+            },
+      ),
+    });
+    return { preview, truncated: false };
   }
   if (
     event.toolName === 'external_tool' ||

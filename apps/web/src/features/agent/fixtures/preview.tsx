@@ -154,6 +154,7 @@ function makeFetchCandidate(): SourceView {
     publishedAt: '2026-07-28',
     contentType: 'text/html',
     cacheStatus: 'miss',
+    toolCallIds: ['fetch-call-1'],
     passages: [
       {
         passageId: 'preview-passage-1',

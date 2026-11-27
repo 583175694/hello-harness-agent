@@ -7,7 +7,7 @@ export const WEB_FETCH_POLICY = {
   // 同一批次允许并行进行的最大网络请求数。
   maxConcurrency: 3,
   // 单个 URL 从导航到内容处理的超时时间。
-  transportTimeoutMs: 6_000,
+  transportTimeoutMs: 10_000,
   // 可恢复网络错误允许的最大重试次数。
   maxRequestRetries: 1,
   // 单个 URL 允许跟随的最大重定向次数。
@@ -39,7 +39,8 @@ export const WEB_FETCH_POLICY = {
   // 进程内正文缓存允许占用的最大 UTF-8 字节数。
   cacheMaxSizeBytes: 32 * 1024 * 1024,
   // 外发抓取请求使用的 User-Agent。
-  userAgent: 'HelloHarnessAgent-WebFetch/1.0',
+  userAgent:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
   // Web Fetch 接受的公开文本与 PDF 响应类型。
   allowedContentTypes: [
     'text/html',
